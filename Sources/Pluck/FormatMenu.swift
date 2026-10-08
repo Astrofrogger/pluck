@@ -29,6 +29,7 @@ struct FormatSettings: DynamicProperty {
 
 struct FormatMenu: View {
     private var format = FormatSettings()
+    @Environment(\.openPluckSettings) private var openSettings
 
     var body: some View {
         Menu {
@@ -71,7 +72,7 @@ struct FormatMenu: View {
             .disabled(!format.audioFormat.supportsBitrate)
 
             Divider()
-            SettingsLink { Text("More Settings…") }
+            Button("More Settings…") { openSettings() }
         } label: {
             Label(format.options.label, systemImage: format.options.symbol)
                 .frame(minWidth: 64)

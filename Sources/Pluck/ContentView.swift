@@ -4,6 +4,7 @@ struct ContentView: View {
     @Environment(DownloadManager.self) private var manager
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
+    @Environment(\.openPluckSettings) private var openSettings
     @Environment(AppUpdater.self) private var appUpdater
     @Environment(HelperToolsUpdater.self) private var toolsUpdater
     @State private var confirmUpdate = false
@@ -291,7 +292,7 @@ struct ContentView: View {
             .disabled(!manager.hasFinished)
             .help("Clear finished downloads")
 
-            SettingsLink {
+            Button { openSettings() } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Settings (⌘,)")

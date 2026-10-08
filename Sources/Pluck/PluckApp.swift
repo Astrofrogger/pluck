@@ -26,6 +26,9 @@ struct PluckApp: App {
                     Task { await appUpdater.check() }
                 }
             }
+            CommandGroup(replacing: .appSettings) {
+                SettingsCommand()
+            }
             CommandGroup(replacing: .newItem) {}
             CommandGroup(after: .pasteboard) {
                 Divider()
@@ -45,13 +48,25 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Settings {
+        Window("Settings", id: "settings") {
             SettingsView()
                 .environment(manager)
                 .environment(updater)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }
+        .windowToolbarStyle(.unified(showsTitle: false))
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+    }
+}
+
+private struct SettingsCommand: View {
+    @Environment(\.openPluckSettings) private var openSettings
+
+    var body: some View {
+        Button("Settings…") { openSettings() }
+            .keyboardShortcut(",", modifiers: .command)
     }
 }
 

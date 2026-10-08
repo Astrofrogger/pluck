@@ -1,29 +1,107 @@
 import SwiftUI
 
-struct SettingsView: View {
-    var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            FormatSettingsView().tabItem { Label("Format", systemImage: "slider.horizontal.3") }
-            DownloadSettings().tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
-            AdvancedSettings().tabItem { Label("Advanced", systemImage: "terminal") }
+enum SettingsTab: String, CaseIterable, Identifiable {
+    case general, format, downloads, advanced
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: "General"
+        case .format: "Format"
+        case .downloads: "Downloads"
+        case .advanced: "Advanced"
         }
-        .frame(width: 480)
-        .scenePadding()
-        .background(SettingsWindowStyle())
+    }
+
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .format: "slider.horizontal.3"
+        case .downloads: "arrow.down.circle"
+        case .advanced: "terminal"
+        }
     }
 }
 
-/// Hides the window title ("General", "Format"…) above the tabs; the tab bar already names each pane.
-private struct SettingsWindowStyle: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView()
-        DispatchQueue.main.async { view.window?.titleVisibility = .hidden }
-        return view
-    }
+/// Settings lives in a regular window with the main window's unified toolbar (no title), so the
+/// window buttons sit in the same place; the tabs (icon above, name below) are its centre item.
+struct SettingsView: View {
+    @AppStorage("settingsTab") private var tab: SettingsTab = .general
 
-    func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { view.window?.titleVisibility = .hidden }
+    var body: some View {
+        Group {
+            switch tab {
+            case .general: GeneralSettings()
+            case .format: FormatSettingsView()
+            case .downloads: DownloadSettings()
+            case .advanced: AdvancedSettings()
+            }
+        }
+        .frame(width: 480, height: 400)
+        .scenePadding()
+        .navigationTitle("Settings")
+        .toolbar {
+            // One toolbar item per tab, so each is its own control for VoiceOver.
+            ToolbarItemGroup(placement: .principal) {
+                ForEach(SettingsTab.allCases) { item in
+                    SettingsTabButton(tab: item, isSelected: item == tab) { tab = item }
+                }
+            }
+        }
+    }
+}
+
+/// Opens the Settings window and brings Pluck forward (it may be running as a menu bar app).
+struct OpenSettingsAction {
+    let openWindow: OpenWindowAction
+
+    func callAsFunction() {
+        openWindow(id: "settings")
+        NSApp.activate()
+    }
+}
+
+extension EnvironmentValues {
+    var openPluckSettings: OpenSettingsAction { OpenSettingsAction(openWindow: openWindow) }
+}
+
+private struct SettingsTabButton: View {
+    let tab: SettingsTab
+    let isSelected: Bool
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            // Kept compact so the glass capsule around the tabs has room to breathe
+            // without making the toolbar taller (which would move the window buttons).
+            VStack(spacing: 1) {
+                Image(systemName: tab.symbol)
+                    .font(.system(size: 14, weight: .regular))
+                    .frame(height: 16)
+                Text(tab.title)
+                    .font(.system(size: 10))
+            }
+            .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+            .frame(minWidth: 54)
+            .padding(.vertical, 3)
+            .padding(.horizontal, 10)
+            .background {
+                Capsule(style: .continuous)
+                    .fill(.primary.opacity(isSelected ? 0.10 : hovering ? 0.05 : 0))
+            }
+            .padding(.horizontal, 2)
+            .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+        .focusEffectDisabled()
+        .onHover { hovering = $0 }
+        .help(tab.title)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(tab.title)
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction { action() }
     }
 }
 

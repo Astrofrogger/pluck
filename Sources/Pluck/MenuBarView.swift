@@ -4,7 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     @Environment(DownloadManager.self) private var manager
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.openSettings) private var openSettings
+    @Environment(\.openPluckSettings) private var openSettings
     @State private var urlText = ""
     @FocusState private var focused: Bool
 
@@ -70,10 +70,7 @@ struct MenuBarView: View {
             Spacer()
             Menu {
                 Button("Open Pluck", action: openMain)
-                Button("Settings…") {
-                    openSettings()
-                    NSApp.activate()
-                }
+                Button("Settings…") { openSettings() }
                 Divider()
                 Button("Quit Pluck") { NSApp.terminate(nil) }
             } label: {

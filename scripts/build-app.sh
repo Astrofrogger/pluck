@@ -4,9 +4,18 @@ set -euo pipefail
 cd "${0:A:h}/.."
 
 # Universal binary so it runs on both Apple Silicon and Intel Macs.
-ARCHS=(--arch arm64 --arch x86_64)
-swift build -c release $ARCHS
-BIN="$(swift build -c release $ARCHS --show-bin-path)"
+MIN_MACOS=14.0
+SDK_VERSION="$(xcrun --show-sdk-version)"
+# The universal build otherwise stamps the binary with SDK = MIN_MACOS, and macOS then treats
+# Pluck as an old app: no Liquid Glass window buttons or controls. Record the real SDK.
+FLAGS=(--arch arm64 --arch x86_64
+       -Xlinker -platform_version -Xlinker macos -Xlinker $MIN_MACOS -Xlinker $SDK_VERSION)
+swift build -c release $FLAGS
+BIN="$(swift build -c release $FLAGS --show-bin-path)"
+for arch in arm64 x86_64; do
+  STAMP=$(vtool -arch $arch -show-build "$BIN/Pluck" | awk '/ sdk /{print $2}')
+  [[ "$STAMP" == "$SDK_VERSION" ]] || { echo "Binary ($arch) is stamped with SDK $STAMP, expected $SDK_VERSION" >&2; exit 1; }
+done
 
 APP=build/Pluck.app
 rm -rf "$APP"
