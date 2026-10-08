@@ -106,8 +106,10 @@ final class Updater {
         func asset(_ name: String) -> URL? {
             (assets.first { $0["name"] as? String == name }?["browser_download_url"] as? String).flatMap(URL.init)
         }
-        guard let binary = asset("yt-dlp_macos") else { throw Failure.noAsset }
-        guard let sums = asset("SHA2-256SUMS") else { throw Failure.checksumMissing }
+        guard let binary = asset("yt-dlp_macos"), TrustedHosts.isAllowed(binary, hosts: ["github.com"])
+        else { throw Failure.noAsset }
+        guard let sums = asset("SHA2-256SUMS"), TrustedHosts.isAllowed(sums, hosts: ["github.com"])
+        else { throw Failure.checksumMissing }
         return Release(tag: tag, binary: binary, checksums: sums)
     }
 

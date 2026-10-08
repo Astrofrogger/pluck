@@ -113,12 +113,27 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         }
     }
 
+    /// Any script on the page (or in its iframes) can post to our handler, so what arrives is
+    /// untrusted: only plain web links are accepted, and embeds only from known video players.
+    private static func isWebLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
+        return url.host?.isEmpty == false
+    }
+
+    private static let embedHosts: Set<String> = [
+        "player.vimeo.com", "www.dailymotion.com", "geo.dailymotion.com", "www.youtube.com",
+        "www.youtube-nocookie.com", "player.twitch.tv", "clips.twitch.tv", "w.soundcloud.com",
+    ]
+
     func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
         if let embed = (message.body as? [String: Any])?["embed"] as? String, let url = URL(string: embed) {
-            if !embeds.contains(url) { embeds.append(url) }
+            guard url.scheme?.lowercased() == "https", let host = url.host?.lowercased(),
+                  Self.embedHosts.contains(host), !embeds.contains(url) else { return }
+            embeds.append(url)
             return
         }
         guard let string = message.body as? String, let url = URL(string: string),
+              Self.isWebLink(url),
               !found.contains(url),
               !Self.adHosts.contains(where: { string.localizedCaseInsensitiveContains($0) })
         else { return }
@@ -130,6 +145,22 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
                 await self.finish()
             }
         }
+    }
+
+    // MARK: - Navigation
+
+    /// The page may only load web content: no other URL schemes (which could open apps),
+    /// no downloads, and nothing the web view can't display.
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        guard !navigationAction.shouldPerformDownload,
+              let scheme = navigationAction.request.url?.scheme?.lowercased(),
+              ["http", "https", "about", "blob", "data"].contains(scheme)
+        else { return .cancel }
+        return .allow
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        navigationResponse.canShowMIMEType ? .allow : .cancel
     }
 
     private static func isManifest(_ url: URL) -> Bool {

@@ -319,7 +319,11 @@ final class DownloadManager {
             if defaults.bool(forKey: Prefs.removeSponsors) { args += ["--sponsorblock-remove", "sponsor"] }
         }
 
-        if let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
+        // A raw stream found by loading a page is a link that page chose. Never send the user's
+        // browser cookies along with it (the page was loaded logged out anyway).
+        let isPageStream = item.pageStream?.usePageTitle == true
+        if !isPageStream,
+           let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
            browser.isInstalled, let value = browser.argument {
             args += ["--cookies-from-browser", value]
         }

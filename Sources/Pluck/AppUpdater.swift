@@ -96,7 +96,9 @@ final class AppUpdater {
         func asset(_ name: String) -> URL? {
             (assets.first { $0["name"] as? String == name }?["browser_download_url"] as? String).flatMap(URL.init)
         }
-        guard let zip = asset("Pluck.zip"), let sum = asset("Pluck.zip.sha256") else { throw Failure.noRelease }
+        guard let zip = asset("Pluck.zip"), let sum = asset("Pluck.zip.sha256"),
+              TrustedHosts.isAllowed(zip, hosts: ["github.com"]), TrustedHosts.isAllowed(sum, hosts: ["github.com"])
+        else { throw Failure.noRelease }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
         return Release(version: version, notes: json["body"] as? String ?? "", zip: zip, checksum: sum, page: page)
     }

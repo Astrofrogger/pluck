@@ -29,7 +29,8 @@ swift scripts/make-icon.swift "$ICONSET"
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
-codesign --force --sign - "$APP"
+# Hardened runtime: blocks code injection (DYLD_* variables, unsigned libraries) into Pluck.
+codesign --force --options runtime --sign - "$APP"
 echo "Built $APP"
 
 if [[ "${1:-}" == "--install" ]]; then

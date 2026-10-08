@@ -27,6 +27,9 @@ final class HelperToolsUpdater {
     static func isInstalled(_ tool: String) -> Bool { FileManager.default.isExecutableFile(atPath: path(tool).path) }
     static var ffmpegInstalled: Bool { isInstalled("ffmpeg") && isInstalled("ffprobe") }
 
+    /// Developer ID teams that sign each tool; anything else is rejected.
+    private static let signingTeams = ["ffmpeg": "KU3N25YGLU", "ffprobe": "KU3N25YGLU", "deno": "2H4KBF436B"]
+
     #if arch(arm64)
     private static let ffmpegArch = "arm64", denoTarget = "aarch64-apple-darwin"
     #else
@@ -96,6 +99,7 @@ final class HelperToolsUpdater {
         let (_, response) = try await URLSession.shared.data(from: latest, delegate: StopRedirects())
         guard let location = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Location"),
               let target = URL(string: location, relativeTo: latest)?.absoluteURL,
+              TrustedHosts.isAllowed(target, hosts: ["ffmpeg.martin-riedl.de"]),
               target.lastPathComponent == "ffmpeg.zip"
         else { throw Failure.noRelease }
         let folder = target.deletingLastPathComponent()
@@ -125,7 +129,9 @@ final class HelperToolsUpdater {
             (assets.first { $0["name"] as? String == name }?["browser_download_url"] as? String).flatMap(URL.init)
         }
         let name = "deno-\(Self.denoTarget).zip"
-        guard let zip = asset(name), let sum = asset("\(name).sha256sum") else { throw Failure.noRelease }
+        guard let zip = asset(name), let sum = asset("\(name).sha256sum"),
+              TrustedHosts.isAllowed(zip, hosts: ["github.com"]), TrustedHosts.isAllowed(sum, hosts: ["github.com"])
+        else { throw Failure.noRelease }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
 
         if !force, Self.isInstalled("deno"), denoVersion == version { return false }
@@ -138,13 +144,14 @@ final class HelperToolsUpdater {
     // MARK: - Shared install
 
     private enum Failure: LocalizedError {
-        case noRelease, checksumMismatch, badBinary
+        case noRelease, checksumMismatch, badBinary, badSignature
 
         var errorDescription: String? {
             switch self {
             case .noRelease: "Couldn’t find the latest build."
             case .checksumMismatch: "The download didn’t match its published checksum, so it was discarded."
             case .badBinary: "The downloaded tool didn’t run."
+            case .badSignature: "The download isn’t signed by its developer, so it was discarded."
             }
         }
     }
@@ -169,6 +176,7 @@ final class HelperToolsUpdater {
         guard await run("/usr/bin/ditto", ["-x", "-k", zipFile.path, staging.path]) else { throw Failure.badBinary }
 
         let binary = staging.appendingPathComponent(tool)
+        guard let team = signingTeams[tool], CodeSignature.isSigned(binary, byTeam: team) else { throw Failure.badSignature }
         guard await run(binary.path, [tool == "deno" ? "--version" : "-version"]) else { throw Failure.badBinary }
 
         try fm.createDirectory(at: Updater.directory, withIntermediateDirectories: true)
