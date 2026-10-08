@@ -285,7 +285,11 @@ private struct MenuBarRow: View {
         }
         .contentShape(.rect(cornerRadius: 10))
         .onHover { hovering = $0 }
-        .onTapGesture(count: 2) { if let file = item.fileURL { NSWorkspace.shared.open(file) } }
+        .onTapGesture(count: 2) { if let file = item.existingFile { NSWorkspace.shared.open(file) } }
+        .onDrag {
+            guard let file = item.existingFile else { return NSItemProvider() }
+            return NSItemProvider(contentsOf: file) ?? NSItemProvider()
+        }
         .accessibilityElement(children: .contain)
     }
 
@@ -325,6 +329,8 @@ private struct MenuBarRow: View {
             caption("Waiting…")
         case .starting:
             caption(item.phase ?? "Fetching info…")
+        case .finished where item.fileMissing:
+            caption("File moved or deleted")
         case .finished:
             Label(item.fileSize.map { "Done · \(Format.bytes($0))" } ?? "Done", systemImage: "checkmark.circle.fill")
                 .font(.caption)
@@ -348,9 +354,11 @@ private struct MenuBarRow: View {
     private var action: some View {
         Group {
             switch item.state {
+            case .finished where item.fileMissing:
+                iconButton("arrow.clockwise", label: "Download Again") { manager.retry(item) }
             case .finished:
                 iconButton("magnifyingglass", label: "Show in Finder") {
-                    if let file = item.fileURL { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                    if let file = item.existingFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
                 }
             case .failed, .cancelled:
                 iconButton("arrow.clockwise", label: "Try Again") { manager.retry(item) }

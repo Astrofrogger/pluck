@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let updater = Updater()
     let appUpdater = AppUpdater()
     let toolsUpdater = HelperToolsUpdater()
+    private lazy var services = ServiceProvider(manager: manager)
 
     /// Set by a view that can open SwiftUI windows (the menu bar icon is always around).
     static var openMainWindow: (() -> Void)?
@@ -23,6 +24,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.servicesProvider = services
+        NSUpdateDynamicServices()
+
         updater.onStatusChange = { [weak self] in self?.toolsChanged() }
         toolsUpdater.onStatusChange = { [weak self] in self?.toolsChanged() }
         updater.startAutomaticChecks()
@@ -39,6 +43,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let window = note.object as? NSWindow
             MainActor.assumeIsolated { self?.updateActivationPolicy(closing: window) }
         }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls { URLScheme.handle(url, manager: manager) }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        manager.shutDown()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

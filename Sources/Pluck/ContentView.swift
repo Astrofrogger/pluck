@@ -1,3 +1,4 @@
+import QuickLook
 import SwiftUI
 
 struct ContentView: View {
@@ -10,6 +11,12 @@ struct ContentView: View {
     @State private var confirmUpdate = false
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @State private var urlText = ""
+    @State private var selection: DownloadItem.ID?
+    @State private var clipping = false
+    @State private var clipStart = ""
+    @State private var clipEnd = ""
+    @State private var previewURL: URL?
+    @FocusState private var listFocused: Bool
     @State private var lastAutofilled: String?
     @State private var isTargeted = false
     @FocusState private var fieldFocused: Bool
@@ -36,7 +43,14 @@ struct ContentView: View {
             inputBar
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
-                .padding(.bottom, 16)
+                .padding(.bottom, clipping ? 10 : 16)
+
+            if clipping {
+                clipBar
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
 
             if manager.items.isEmpty {
                 emptyState
@@ -61,14 +75,15 @@ struct ContentView: View {
             AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
             if !AppDelegate.didHandleLaunchWindow {
                 AppDelegate.didHandleLaunchWindow = true
-                if AppDelegate.startsHidden {
+                if AppDelegate.startsHidden, manager.pendingLink == nil {
                     dismissWindow(id: "main")
                     return
                 }
             }
-            autofillFromClipboard()
+            if !takePendingLink() { autofillFromClipboard() }
             fieldFocused = true
         }
+        .onChange(of: manager.pendingLink) { _ = takePendingLink() }
     }
 
     private var subtitle: String {
@@ -195,6 +210,20 @@ struct ContentView: View {
                     .controlSize(.large)
                     .glassButtonStyle()
 
+                Button {
+                    withAnimation(.snappy(duration: 0.25)) { clipping.toggle() }
+                } label: {
+                    Image(systemName: "scissors")
+                        .font(.body.weight(.medium))
+                        .frame(width: 22, height: 22)
+                        .foregroundStyle(clipping ? Color.accentColor : Color.primary)
+                }
+                .glassButtonStyle()
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .accessibilityLabel(clipping ? "Download Whole Video" : "Download a Clip")
+                .help(clipping ? "Download the whole video" : "Download only part of the video")
+
                 Button(action: submit) {
                     Image(systemName: "arrow.down")
                         .font(.title3.weight(.semibold))
@@ -203,7 +232,7 @@ struct ContentView: View {
                 .glassProminentButtonStyle()
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
-                .disabled(!isValid)
+                .disabled(!isValid || (clipping && clip == nil))
                 .keyboardShortcut(.defaultAction)
                 .accessibilityLabel("Download")
                 .help("Download")
@@ -212,11 +241,74 @@ struct ContentView: View {
         .animation(.snappy(duration: 0.2), value: urlText.isEmpty)
     }
 
+    // MARK: - Clip
+
+    /// The range typed in the clip row, or nil when it isn't valid (or not set).
+    private var clip: ClipRange? { ClipRange.from(start: clipStart, end: clipEnd) }
+
+    private var clipIsInvalid: Bool {
+        (!clipStart.isEmpty || !clipEnd.isEmpty) && clip == nil
+    }
+
+    private var clipBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "scissors")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            Text("Clip from")
+            TextField("0:00", text: $clipStart)
+                .frame(width: 72)
+                .accessibilityLabel("Clip start")
+            Text("to")
+            TextField("end", text: $clipEnd)
+                .frame(width: 72)
+                .accessibilityLabel("Clip end")
+            Group {
+                if clipIsInvalid {
+                    Label("Use times like 1:30, with the end after the start", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.red)
+                } else if let clip {
+                    Text(clip.end == nil ? "From \(Format.duration(clip.start)) to the end"
+                                         : "\(Format.duration((clip.end ?? 0) - clip.start)) clip")
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("Times like 1:30 or 1:02:03").foregroundStyle(.tertiary)
+                }
+            }
+            .font(.callout)
+            .lineLimit(1)
+            Spacer(minLength: 0)
+        }
+        .textFieldStyle(.roundedBorder)
+        .padding(.horizontal, 14)
+        .frame(height: 40)
+        .glassBackground(in: .capsule)
+        .onSubmit(submit)
+    }
+
     private func submit() {
         guard isValid else { return }
-        manager.add(trimmed)
+        if clipping {
+            guard let clip else { NSSound.beep(); return }
+            manager.add(trimmed, clip: clip)
+            withAnimation(.snappy(duration: 0.25)) { clipping = false }
+            clipStart = ""
+            clipEnd = ""
+        } else {
+            manager.add(trimmed)
+        }
         lastAutofilled = trimmed
         withAnimation(.snappy) { urlText = "" }
+    }
+
+    /// Fills in a link handed over by a pluck:// URL. It's never started automatically.
+    private func takePendingLink() -> Bool {
+        guard let link = manager.pendingLink else { return false }
+        manager.pendingLink = nil
+        urlText = link
+        lastAutofilled = link
+        fieldFocused = true
+        return true
     }
 
     private func autofillFromClipboard() {
@@ -235,7 +327,10 @@ struct ContentView: View {
         ScrollView {
             LazyVStack(spacing: 10) {
                 ForEach(manager.items) { item in
-                    DownloadRow(item: item)
+                    DownloadRow(item: item,
+                                isSelected: selection == item.id,
+                                onSelect: { select(item.id) },
+                                onQuickLook: { quickLook(item) })
                         .transition(.asymmetric(
                             insertion: .move(edge: .top).combined(with: .opacity),
                             removal: .opacity
@@ -247,6 +342,44 @@ struct ContentView: View {
             .animation(.smooth, value: manager.items.map(\.id))
         }
         .softTopScrollEdge()
+        // Click a row to select it; Space opens Quick Look, ↑/↓ move the selection.
+        .focusable()
+        .focused($listFocused)
+        .focusEffectDisabled()
+        .onKeyPress(.space) {
+            guard let item = selectedItem else { return .ignored }
+            quickLook(item)
+            return .handled
+        }
+        .onKeyPress(.upArrow) { moveSelection(by: -1) }
+        .onKeyPress(.downArrow) { moveSelection(by: 1) }
+        .quickLookPreview($previewURL)
+    }
+
+    private var selectedItem: DownloadItem? {
+        manager.items.first { $0.id == selection }
+    }
+
+    private func select(_ id: DownloadItem.ID) {
+        selection = id
+        fieldFocused = false
+        listFocused = true
+    }
+
+    private func quickLook(_ item: DownloadItem) {
+        select(item.id)
+        guard let file = item.existingFile else { NSSound.beep(); return }
+        previewURL = previewURL == file ? nil : file
+    }
+
+    private func moveSelection(by offset: Int) -> KeyPress.Result {
+        let ids = manager.items.map(\.id)
+        guard !ids.isEmpty else { return .ignored }
+        let current = selection.flatMap { ids.firstIndex(of: $0) } ?? (offset > 0 ? -1 : ids.count)
+        let next = min(max(current + offset, 0), ids.count - 1)
+        selection = ids[next]
+        if previewURL != nil { previewURL = manager.items[next].existingFile }
+        return .handled
     }
 
     private var emptyState: some View {

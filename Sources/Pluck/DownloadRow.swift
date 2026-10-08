@@ -3,6 +3,9 @@ import SwiftUI
 struct DownloadRow: View {
     @Environment(DownloadManager.self) private var manager
     let item: DownloadItem
+    var isSelected = false
+    var onSelect: () -> Void = {}
+    var onQuickLook: () -> Void = {}
     @State private var hovering = false
 
     var body: some View {
@@ -32,16 +35,31 @@ struct DownloadRow: View {
         .padding(12)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.fill.quaternary)
-                .opacity(hovering ? 1 : 0.6)
+                .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.16)) : AnyShapeStyle(.fill.quaternary))
+                .opacity(isSelected || hovering ? 1 : 0.6)
+        }
+        .overlay {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1)
+            }
         }
         .contentShape(.rect(cornerRadius: 16))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
+        .animation(.easeOut(duration: 0.12), value: isSelected)
         .onTapGesture(count: 2) { open() }
+        .simultaneousGesture(TapGesture().onEnded { onSelect() })
+        // Drag a finished download straight into Finder, Mail, an editor…
+        .onDrag {
+            guard let file = item.existingFile else { return NSItemProvider() }
+            return NSItemProvider(contentsOf: file) ?? NSItemProvider()
+        }
         .contextMenu { menu }
         .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityAction(named: "Open") { open() }
+        .accessibilityAction(named: "Quick Look") { onQuickLook() }
     }
 
     // MARK: - Pieces
@@ -60,7 +78,7 @@ struct DownloadRow: View {
         .background(.fill.tertiary)
         .clipShape(.rect(cornerRadius: 10, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
-            if let duration = item.duration {
+            if let duration = displayedDuration {
                 Text(Format.duration(duration))
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .padding(.horizontal, 5)
@@ -70,6 +88,13 @@ struct DownloadRow: View {
                     .padding(5)
             }
         }
+    }
+
+    /// The clip's own length for clips, otherwise the video's.
+    private var displayedDuration: Double? {
+        guard let clip = item.clip else { return item.duration }
+        let end = min(clip.end ?? item.duration ?? .infinity, item.duration ?? .infinity)
+        return end.isFinite ? max(end - clip.start, 0) : nil
     }
 
     private var details: some View {
@@ -85,6 +110,12 @@ struct DownloadRow: View {
             }
             Label(item.options.longLabel, systemImage: item.options.symbol)
                 .labelStyle(.titleAndIcon)
+            if let clip = item.clip {
+                Text("·")
+                Label(clip.label, systemImage: "scissors")
+                    .labelStyle(.titleAndIcon)
+                    .accessibilityLabel("Clip \(clip.label)")
+            }
             if let uploader = item.uploader {
                 Text("·")
                 Text(uploader)
@@ -127,6 +158,11 @@ struct DownloadRow: View {
                     .foregroundStyle(.secondary)
             }
 
+        case .finished where item.fileMissing:
+            Label("File moved or deleted", systemImage: "questionmark.folder")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
         case .finished:
             Label(item.fileSize.map { "Done · \(Format.bytes($0))" } ?? "Done", systemImage: "checkmark.circle.fill")
                 .font(.caption.weight(.medium))
@@ -161,6 +197,10 @@ struct DownloadRow: View {
                 Button { manager.cancel(item) } label: { Image(systemName: "xmark") }
                     .accessibilityLabel("Cancel Download")
                     .help("Cancel")
+            case .finished where item.fileMissing:
+                Button { manager.retry(item) } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Download Again")
+                    .help("Download Again")
             case .finished:
                 Button { reveal() } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Show in Finder")
@@ -178,13 +218,16 @@ struct DownloadRow: View {
 
     @ViewBuilder
     private var menu: some View {
-        if item.state == .finished {
+        if item.existingFile != nil {
             Button("Open", action: open)
+            Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
             Divider()
         }
         if item.isActive {
             Button("Cancel") { manager.cancel(item) }
+        } else if item.fileMissing {
+            Button("Download Again") { manager.retry(item) }
         } else if item.state != .finished {
             Button("Try Again") { manager.retry(item) }
         }
@@ -202,12 +245,12 @@ struct DownloadRow: View {
     }
 
     private func open() {
-        guard let file = item.fileURL else { return }
+        guard let file = item.existingFile else { return }
         NSWorkspace.shared.open(file)
     }
 
     private func reveal() {
-        guard let file = item.fileURL else { return }
+        guard let file = item.existingFile else { return }
         NSWorkspace.shared.activateFileViewerSelecting([file])
     }
 }

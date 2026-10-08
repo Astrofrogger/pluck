@@ -3,11 +3,11 @@ import Observation
 
 // MARK: - Format options
 
-enum MediaKind: String {
+enum MediaKind: String, Codable {
     case video, audio
 }
 
-enum Resolution: Int, CaseIterable, Identifiable {
+enum Resolution: Int, CaseIterable, Identifiable, Codable {
     case best = 0, p2160 = 2160, p1440 = 1440, p1080 = 1080, p720 = 720, p480 = 480, p360 = 360
 
     var id: Int { rawValue }
@@ -30,7 +30,7 @@ enum Resolution: Int, CaseIterable, Identifiable {
     }
 }
 
-enum VideoCodec: String, CaseIterable, Identifiable {
+enum VideoCodec: String, CaseIterable, Identifiable, Codable {
     case compatible, modern
 
     var id: String { rawValue }
@@ -43,14 +43,14 @@ enum VideoCodec: String, CaseIterable, Identifiable {
     }
 }
 
-enum VideoContainer: String, CaseIterable, Identifiable {
+enum VideoContainer: String, CaseIterable, Identifiable, Codable {
     case mp4, mkv, webm
 
     var id: String { rawValue }
     var label: String { rawValue.uppercased() }
 }
 
-enum AudioFormat: String, CaseIterable, Identifiable {
+enum AudioFormat: String, CaseIterable, Identifiable, Codable {
     case original, m4a, mp3, opus, flac, wav
 
     var id: String { rawValue }
@@ -74,7 +74,7 @@ enum AudioFormat: String, CaseIterable, Identifiable {
     var supportsBitrate: Bool { self == .m4a || self == .mp3 || self == .opus }
 }
 
-enum AudioBitrate: Int, CaseIterable, Identifiable {
+enum AudioBitrate: Int, CaseIterable, Identifiable, Codable {
     case best = 0, k320 = 320, k256 = 256, k192 = 192, k128 = 128
 
     var id: Int { rawValue }
@@ -82,7 +82,7 @@ enum AudioBitrate: Int, CaseIterable, Identifiable {
 }
 
 /// A snapshot of the format settings, captured when a download is added.
-struct DownloadOptions: Equatable {
+struct DownloadOptions: Equatable, Codable {
     var kind: MediaKind = .video
     var resolution: Resolution = .best
     var codec: VideoCodec = .compatible
@@ -201,6 +201,9 @@ final class DownloadItem: Identifiable {
     var fileURL: URL?
     var fileSize: Int64?
     var errorMessage: String?
+    var finishedAt: Date?
+    /// Only this part of the video is downloaded.
+    var clip: ClipRange?
 
     @ObservationIgnored var process: Process?
 
@@ -223,6 +226,18 @@ final class DownloadItem: Identifiable {
 
     var isActive: Bool {
         state == .queued || state == .starting || state == .downloading || state == .processing
+    }
+
+    /// A finished download whose file has since been moved or deleted.
+    var fileMissing: Bool {
+        guard state == .finished, let fileURL else { return false }
+        return !FileManager.default.fileExists(atPath: fileURL.path)
+    }
+
+    /// The downloaded file, if it's still where Pluck saved it.
+    var existingFile: URL? {
+        guard state == .finished, let fileURL, !fileMissing else { return nil }
+        return fileURL
     }
 
     var isRunning: Bool {

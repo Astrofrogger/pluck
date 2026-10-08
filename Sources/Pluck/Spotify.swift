@@ -2,7 +2,7 @@ import Foundation
 
 /// A track read from Spotify's public embed page. Spotify audio is DRM-protected, so the
 /// actual audio is matched on YouTube Music and tagged with Spotify's metadata.
-struct SpotifyTrack: Sendable {
+struct SpotifyTrack: Sendable, Codable {
     var id: String
     var title: String
     var artists: [String]

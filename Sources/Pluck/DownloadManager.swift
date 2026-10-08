@@ -62,6 +62,9 @@ enum Prefs {
 final class DownloadManager {
     var items: [DownloadItem] = []
     var ytdlpVersion: String?
+    /// A link handed over by a pluck:// URL, waiting in the link field for the user to confirm.
+    var pendingLink: String?
+
     /// True while Pluck is downloading or updating its own yt-dlp/ffmpeg.
     var toolsInstalling = false
 
@@ -77,6 +80,12 @@ final class DownloadManager {
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
         }
         refreshVersion()
+        items = History.load()
+    }
+
+    /// Saves finished, failed and cancelled downloads so the list survives a restart.
+    func saveHistory(includingActive: Bool = false) {
+        History.save(includingActive ? items : items.filter { !$0.isActive })
     }
 
     var activeCount: Int { items.filter(\.isActive).count }
@@ -118,6 +127,11 @@ final class DownloadManager {
         let existing = env["PATH"] ?? "/usr/bin:/bin"
         env["PATH"] = (toolDirectories + [existing]).joined(separator: ":")
         env["PYTHONUNBUFFERED"] = "1"
+        // Pluck's static ffmpeg doesn't use the macOS keychain for HTTPS certificates; without a
+        // bundle it can't fetch anything itself (clips, some streams). Use the system's.
+        if env["SSL_CERT_FILE"] == nil, FileManager.default.fileExists(atPath: "/etc/ssl/cert.pem") {
+            env["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        }
         return env
     }
 
@@ -152,7 +166,7 @@ final class DownloadManager {
     // MARK: - Queue
 
     /// Adds downloads for one or more links. When "Ask where to save" is on, asks once for the batch.
-    func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil) {
+    func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil, clip: ClipRange? = nil) {
         guard !urls.isEmpty else { return }
         var folder = override ?? defaults.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory()
         if override == nil, defaults.bool(forKey: Prefs.askLocation) {
@@ -161,16 +175,18 @@ final class DownloadManager {
         }
         for url in urls {
             if Spotify.isSpotify(url) {
-                addSpotify(url, options: options, folder: folder)
+                addSpotify(url, options: options, folder: folder, clip: clip)
             } else {
-                items.insert(DownloadItem(url: url, options: options, folder: folder), at: 0)
+                let item = DownloadItem(url: url, options: options, folder: folder)
+                item.clip = clip
+                items.insert(item, at: 0)
             }
         }
         pump()
     }
 
-    func add(_ url: String, options: DownloadOptions = .current, folder: String? = nil) {
-        add([url], options: options, folder: folder)
+    func add(_ url: String, options: DownloadOptions = .current, folder: String? = nil, clip: ClipRange? = nil) {
+        add([url], options: options, folder: folder, clip: clip)
     }
 
     private func askForFolder(starting path: String, count: Int) -> String? {
@@ -185,7 +201,7 @@ final class DownloadManager {
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
-    private func addSpotify(_ url: String, options: DownloadOptions, folder: String) {
+    private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil) {
         // Spotify is always audio; keep the chosen audio format even if video is selected.
         var audio = options
         audio.kind = .audio
@@ -206,7 +222,11 @@ final class DownloadManager {
                 let collection = try await Spotify.fetch(link)
                 guard placeholder.state != .cancelled,
                       let index = items.firstIndex(where: { $0.id == placeholder.id }) else { return }
-                let tracks = collection.tracks.map { DownloadItem(spotify: $0, options: audio, folder: folder) }
+                let tracks = collection.tracks.map { track in
+                    let item = DownloadItem(spotify: track, options: audio, folder: folder)
+                    item.clip = clip
+                    return item
+                }
                 items.replaceSubrange(index...index, with: tracks)
                 pump()
             } catch {
@@ -220,6 +240,7 @@ final class DownloadManager {
         item.state = .cancelled
         item.process?.terminate()
         pump()
+        saveHistory()
     }
 
     func retry(_ item: DownloadItem) {
@@ -227,7 +248,7 @@ final class DownloadManager {
             // A Spotify link that failed before its tracks were read.
             guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
             items.remove(at: index)
-            addSpotify(item.url, options: item.options, folder: item.folder)
+            addSpotify(item.url, options: item.options, folder: item.folder, clip: item.clip)
             return
         }
         item.reset()
@@ -242,10 +263,12 @@ final class DownloadManager {
     func remove(_ item: DownloadItem) {
         cancel(item)
         items.removeAll { $0.id == item.id }
+        saveHistory()
     }
 
     func clearFinished() {
         items.removeAll { !$0.isActive }
+        saveHistory()
     }
 
     /// Starts queued items, oldest first, up to the concurrency limit.
@@ -268,6 +291,14 @@ final class DownloadManager {
         item.state = .failed
         item.errorMessage = message
         pump()
+        saveHistory()
+    }
+
+    /// Called when Pluck quits: remembers unfinished downloads (as interrupted) and stops yt-dlp,
+    /// which would otherwise keep running in the background with nothing watching it.
+    func shutDown() {
+        saveHistory(includingActive: true)
+        for item in items { item.process?.terminate() }
     }
 
     // MARK: - Running
@@ -284,10 +315,15 @@ final class DownloadManager {
             "-P", item.folder,
         ]
         args += options.arguments
+        // Only download part of the video; cut exactly at the chosen times.
+        let clipSuffix = item.clip?.fileSuffix ?? ""
+        if let clip = item.clip {
+            args += ["--download-sections", clip.sectionArgument, "--force-keyframes-at-cuts"]
+        }
 
         if let stream = item.pageStream {
             // A raw stream found on the page: send the page as referer and name it after the page.
-            args += ["--referer", stream.pageURL, "--no-playlist", "-o", "%(title)s.%(ext)s"]
+            args += ["--referer", stream.pageURL, "--no-playlist", "-o", "%(title)s\(clipSuffix).%(ext)s"]
             if let agent = stream.userAgent { args += ["--user-agent", agent] }
             if stream.usePageTitle {
                 args += ["--parse-metadata", "\(Spotify.metadataLiteral(item.title)):%(title)s"]
@@ -302,14 +338,14 @@ final class DownloadManager {
             if let album = track.album {
                 args += ["--parse-metadata", "\(Spotify.metadataLiteral(album)):%(album)s"]
             }
-            args += ["-o", "%(artist)s - %(title)s.%(ext)s", "--no-playlist", "--embed-metadata"]
+            args += ["-o", "%(artist)s - %(title)s\(clipSuffix).%(ext)s", "--no-playlist", "--embed-metadata"]
             if options.canEmbedThumbnail {
                 // YouTube Music art is 16:9 with bars; crop it to a square cover.
                 args += ["--embed-thumbnail", "--convert-thumbnails", "jpg",
                          "--ppa", "ThumbnailsConvertor+FFmpeg_o:-c:v mjpeg -vf crop=\"'if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'\""]
             }
         } else {
-            args += ["-o", "%(title)s.%(ext)s"]
+            args += ["-o", "%(title)s\(clipSuffix).%(ext)s"]
             args.append(defaults.bool(forKey: Prefs.allowPlaylists) ? "--yes-playlist" : "--no-playlist")
             if defaults.bool(forKey: Prefs.embedMetadata) { args.append("--embed-metadata") }
             if defaults.bool(forKey: Prefs.embedThumbnail), options.canEmbedThumbnail { args.append("--embed-thumbnail") }
@@ -453,6 +489,8 @@ final class DownloadManager {
             let json = Data(line.dropFirst("PLUCKMETA ".count).utf8)
             guard let meta = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
             if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String { item.thumbnail = URL(string: thumb) }
+            // ffmpeg cuts clips without reporting progress; say what's happening meanwhile.
+            if item.clip != nil, item.state == .starting { item.phase = "Cutting clip…" }
             // Spotify items keep their own title, artist and length.
             guard item.spotify == nil else { return }
             if let t = meta["title"] as? String { item.title = t }
@@ -485,8 +523,10 @@ final class DownloadManager {
         }
         defer { pump() }
 
+        defer { saveHistory() }
         if status == 0 {
             item.state = .finished
+            item.finishedAt = .now
             item.progress = 1
             if let file = item.fileURL,
                let size = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64 {

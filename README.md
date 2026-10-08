@@ -53,6 +53,9 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - Up to 3 downloads at a time (adjustable); the rest wait in a queue
 - **Any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted), and downloads the stream it finds. It also spots embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login (Vimeo, Instagram…) use your browser's cookies, set in Settings → Advanced
 - **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Closing the window keeps Pluck running in the menu bar (no Dock icon) until you choose Quit. Settings → General can open Pluck at login and start it in the menu bar only
+- **Clips:** click the scissors to download only part of a video, e.g. from 1:30 to 2:45
+- **Your downloads stay listed** after quitting. Drag one straight into Finder, Mail or your editor, or select it and press Space for Quick Look
+- **Send links from other apps:** right-click a link or selected text anywhere and choose **Services → Download with Pluck**
 - Live progress, speed and ETA, with thumbnails and durations
 - Dock badge, plus notifications when a download finishes in the background
 - **Settings (⌘,):**
@@ -64,6 +67,13 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Manages its own tools:** yt-dlp (official release, optional nightly builds), ffmpeg/ffprobe ([signed static builds](https://ffmpeg.martin-riedl.de)) and Deno (the JavaScript runtime yt-dlp needs for YouTube). It checks daily and verifies every download's SHA-256 checksum
 - **Updates itself** from GitHub releases with one click
 - ⇧⌘D downloads whatever link is on the clipboard
+
+## Download from your browser
+Add a bookmark with this as its address, and click it on any page to send that page to Pluck:
+```
+javascript:location.href='pluck://download?url='+encodeURIComponent(location.href)
+```
+Pluck opens with the link filled in; press Return to start. (A `pluck://` link never starts a download by itself, so websites can't trigger downloads.)
 
 ## Requirements
 macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin`, and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
