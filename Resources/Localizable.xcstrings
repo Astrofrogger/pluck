@@ -41,8 +41,38 @@
         }
       }
     },
+    "%@ views": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ weergaven"
+          }
+        }
+      }
+    },
     "%lld": {
       "shouldTranslate": false
+    },
+    "%lld added": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld toegevoegd"
+          }
+        }
+      }
+    },
+    "%lld already downloaded": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld al gedownload"
+          }
+        }
+      }
     },
     "%lld downloading": {
       "localizations": {
@@ -158,6 +188,16 @@
     "0:00": {
       "shouldTranslate": false
     },
+    "1 added": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 toegevoegd"
+          }
+        }
+      }
+    },
     "1 item": {
       "localizations": {
         "nl": {
@@ -178,12 +218,52 @@
         }
       }
     },
+    "Added": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toegevoegd"
+          }
+        }
+      }
+    },
+    "Adding lyrics…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songteksten toevoegen…"
+          }
+        }
+      }
+    },
     "Advanced": {
       "localizations": {
         "nl": {
           "stringUnit": {
             "state": "translated",
             "value": "Geavanceerd"
+          }
+        }
+      }
+    },
+    "Albums go into Artist/Album, playlists into a folder with their name, when you download two or more items.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albums gaan naar Artiest/Album en afspeellijsten naar een map met hun naam als je twee of meer onderdelen downloadt."
+          }
+        }
+      }
+    },
+    "Already downloaded. Click to show it in Finder.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al gedownload. Klik om het in de Finder te tonen."
           }
         }
       }
@@ -228,6 +308,16 @@
         }
       }
     },
+    "Artist - Title": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Artiest - Titel"
+          }
+        }
+      }
+    },
     "Audio": {
       "localizations": {
         "nl": {
@@ -264,6 +354,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Alleen audio"
+          }
+        }
+      }
+    },
+    "Automatic": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch"
           }
         }
       }
@@ -358,6 +458,16 @@
         }
       }
     },
+    "Channel - Title": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanaal - Titel"
+          }
+        }
+      }
+    },
     "Check Now": {
       "localizations": {
         "nl": {
@@ -384,6 +494,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Controleer op updates…"
+          }
+        }
+      }
+    },
+    "Check your internet connection and try again.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controleer je internetverbinding en probeer het opnieuw."
           }
         }
       }
@@ -548,6 +668,22 @@
         }
       }
     },
+    "Connection problem · retrying (%lld of %lld)…": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Connection problem · retrying (%1$lld of %2$lld)…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindingsprobleem · nieuwe poging (%lld van %lld)…"
+          }
+        }
+      }
+    },
     "Container": {
       "localizations": {
         "nl": {
@@ -668,6 +804,26 @@
         }
       }
     },
+    "Custom": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aangepast"
+          }
+        }
+      }
+    },
+    "Custom name": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aangepaste naam"
+          }
+        }
+      }
+    },
     "Custom yt-dlp path": {
       "localizations": {
         "nl": {
@@ -717,6 +873,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Download"
+          }
+        }
+      }
+    },
+    "Download %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %@"
           }
         }
       }
@@ -801,6 +967,16 @@
         }
       }
     },
+    "Download as audio": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download als audio"
+          }
+        }
+      }
+    },
     "Download complete": {
       "localizations": {
         "nl": {
@@ -867,6 +1043,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Download de hele video"
+          }
+        }
+      }
+    },
+    "Downloaded": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gedownload"
           }
         }
       }
@@ -1001,6 +1187,26 @@
         }
       }
     },
+    "File names": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestandsnamen"
+          }
+        }
+      }
+    },
+    "Files": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestanden"
+          }
+        }
+      }
+    },
     "Finding on YouTube Music…": {
       "localizations": {
         "nl": {
@@ -1111,12 +1317,12 @@
         }
       }
     },
-    "Interrupted when Pluck quit. Try again to restart it.": {
+    "It’s saved as “%@”.": {
       "localizations": {
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onderbroken toen Pluck stopte. Probeer opnieuw om de download te herstarten."
+            "value": "Het is bewaard als “%@”."
           }
         }
       }
@@ -1201,6 +1407,46 @@
         }
       }
     },
+    "Lyrics": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songtekst"
+          }
+        }
+      }
+    },
+    "Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, YouTube Music).": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songteksten komen van LRCLIB, een gratis songtekstdatabase: Pluck stuurt de artiest en titel door. Ze worden toegevoegd aan MP3-, M4A- en FLAC-bestanden als de artiest bekend is (Spotify, YouTube Music)."
+          }
+        }
+      }
+    },
+    "Lyrics for songs": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songteksten voor nummers"
+          }
+        }
+      }
+    },
+    "Lyrics from LRCLIB are in the file": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De songtekst van LRCLIB zit in het bestand"
+          }
+        }
+      }
+    },
     "M4A (AAC)": {
       "localizations": {
         "nl": {
@@ -1277,6 +1523,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Meer instellingen…"
+          }
+        }
+      }
+    },
+    "Music": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muziek"
+          }
+        }
+      }
+    },
+    "Music is named “Artist - Title” when the artist is known, everything else by its title.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muziek krijgt de naam “Artiest - Titel” als de artiest bekend is, al de rest de titel."
           }
         }
       }
@@ -1481,16 +1747,6 @@
         }
       }
     },
-    "Paste a link": {
-      "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plak een link"
-          }
-        }
-      }
-    },
     "Paste a link above, or drop one anywhere in this window.": {
       "localizations": {
         "nl": {
@@ -1501,12 +1757,12 @@
         }
       }
     },
-    "Paste a link from YouTube, Spotify or any website": {
+    "Paste a link or search": {
       "localizations": {
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Plak een link van YouTube, Spotify of een andere website"
+            "value": "Plak een link of zoek"
           }
         }
       }
@@ -1517,6 +1773,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "Plak een link om te beginnen downloaden"
+          }
+        }
+      }
+    },
+    "Paste a link, or type to search YouTube": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak een link of typ om YouTube te doorzoeken"
+          }
+        }
+      }
+    },
+    "Pause": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzeer"
+          }
+        }
+      }
+    },
+    "Pause Download": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pauzeer download"
+          }
+        }
+      }
+    },
+    "Paused · %lld%%": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gepauzeerd · %lld%%"
+          }
+        }
+      }
+    },
+    "Placeholders: %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plaatshouders: %@"
           }
         }
       }
@@ -1610,6 +1916,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Liefst 60 fps indien beschikbaar"
+          }
+        }
+      }
+    },
+    "Preview": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorbeeld"
+          }
+        }
+      }
+    },
+    "Put albums and playlists in their own folder": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet albums en afspeellijsten in een eigen map"
           }
         }
       }
@@ -1724,6 +2050,36 @@
         }
       }
     },
+    "Results for “%@”": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resultaten voor “%@”"
+          }
+        }
+      }
+    },
+    "Resume": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ga verder"
+          }
+        }
+      }
+    },
+    "Resume Download": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hervat download"
+          }
+        }
+      }
+    },
     "Save to": {
       "localizations": {
         "nl": {
@@ -1740,6 +2096,46 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bewaart als %@"
+          }
+        }
+      }
+    },
+    "Search": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek"
+          }
+        }
+      }
+    },
+    "Search Didn’t Work": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoeken is mislukt"
+          }
+        }
+      }
+    },
+    "Search YouTube": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek op YouTube"
+          }
+        }
+      }
+    },
+    "Search in": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek in"
           }
         }
       }
@@ -2057,6 +2453,26 @@
         }
       }
     },
+    "Title": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel"
+          }
+        }
+      }
+    },
+    "Title (Year)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel (jaar)"
+          }
+        }
+      }
+    },
     "Title, artist & description": {
       "localizations": {
         "nl": {
@@ -2147,6 +2563,16 @@
         }
       }
     },
+    "Use at least one placeholder": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruik minstens één plaatshouder"
+          }
+        }
+      }
+    },
     "Use at least two modifier keys, like ⌃⌥⌘D, so it doesn’t clash with shortcuts in other apps.": {
       "localizations": {
         "nl": {
@@ -2227,12 +2653,32 @@
         }
       }
     },
+    "Videos": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video's"
+          }
+        }
+      }
+    },
     "WAV (uncompressed)": {
       "localizations": {
         "nl": {
           "stringUnit": {
             "state": "translated",
             "value": "WAV (ongecomprimeerd)"
+          }
+        }
+      }
+    },
+    "Waiting for an internet connection…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wachten op een internetverbinding…"
           }
         }
       }
@@ -2392,6 +2838,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "· %@"
+          }
+        }
+      }
+    },
+    "“%@” is already downloaded": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” is al gedownload"
           }
         }
       }

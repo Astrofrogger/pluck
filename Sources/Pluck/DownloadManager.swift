@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import Network
 import Observation
 import UserNotifications
 
@@ -26,6 +27,11 @@ enum Prefs {
     static let appAutoUpdate = "appAutoUpdate"
     static let showMenuBarIcon = "showMenuBarIcon"
     static let globalShortcut = "globalShortcut"
+    static let fileNaming = "fileNaming"
+    static let customFileName = "customFileName"
+    static let playlistFolders = "playlistFolders"
+    static let lyrics = "lyrics"
+    static let searchKind = "searchKind"
     static let startInMenuBar = "startInMenuBar"
 
     static func registerDefaults() {
@@ -52,6 +58,10 @@ enum Prefs {
             appAutoUpdate: true,
             showMenuBarIcon: true,
             globalShortcut: true,
+            fileNaming: FileNaming.automatic.rawValue,
+            customFileName: "{artist} - {title}",
+            playlistFolders: true,
+            lyrics: true,
             startInMenuBar: false,
         ])
     }
@@ -74,6 +84,10 @@ final class DownloadManager {
 
     private let defaults = UserDefaults.standard
 
+    /// False while the Mac has no internet connection; retries wait for it to come back.
+    private(set) var isOnline = true
+    @ObservationIgnored private let pathMonitor = NWPathMonitor()
+
     init() {
         Prefs.registerDefaults()
         if Bundle.main.bundleIdentifier != nil {
@@ -81,6 +95,16 @@ final class DownloadManager {
         }
         refreshVersion()
         items = History.load()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            let online = path.status == .satisfied
+            Task { @MainActor in
+                guard let self, self.isOnline != online else { return }
+                self.isOnline = online
+                self.updateRetryMessages()
+                if online { self.pump() }
+            }
+        }
+        pathMonitor.start(queue: DispatchQueue(label: "Pluck.network"))
     }
 
     /// Saves finished, failed and cancelled downloads so the list survives a restart.
@@ -88,8 +112,9 @@ final class DownloadManager {
         History.save(includingActive ? items : items.filter { !$0.isActive })
     }
 
+
     var activeCount: Int { items.filter(\.isActive).count }
-    var hasFinished: Bool { items.contains { !$0.isActive } }
+    var hasFinished: Bool { items.contains(where: \.isDone) }
 
     // MARK: - Locating yt-dlp
 
@@ -176,6 +201,9 @@ final class DownloadManager {
         for url in urls {
             if Playlists.looksLikePlaylist(url) {
                 presentPicker(for: url, options: options, folder: folder)
+            } else if let existing = alreadyDownloaded(url, isAudio: options.isAudio || Spotify.isSpotify(url), clip: clip) {
+                duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip))
+                AppDelegate.openMainWindow?()
             } else if Spotify.isSpotify(url) {
                 addSpotify(url, options: options, folder: folder, clip: clip)
             } else {
@@ -203,6 +231,109 @@ final class DownloadManager {
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
 
+    // MARK: - Search
+
+    /// The search shown in the main window, if any.
+    var search: SearchSession?
+
+    /// Searches YouTube or YouTube Music for text typed into a link field.
+    func startSearch(_ query: String, kind: SearchSession.Kind? = nil) {
+        // Opens on the tab used last, so music searches go straight to Music.
+        let remembered = SearchSession.Kind(rawValue: defaults.string(forKey: Prefs.searchKind) ?? "") ?? .videos
+        let chosen = kind ?? remembered
+        defaults.set(chosen.rawValue, forKey: Prefs.searchKind)
+        let session = SearchSession(query: query, kind: chosen)
+        search = session
+        AppDelegate.openMainWindow?()
+        Task { await run(session) }
+    }
+
+    /// Switches between Videos and Music for the current query.
+    func changeSearchKind(_ kind: SearchSession.Kind) {
+        guard let current = search, current.kind != kind else { return }
+        startSearch(current.query, kind: kind)
+    }
+
+    private func run(_ session: SearchSession) async {
+        guard let data = await capture(Searching.arguments(query: session.query, kind: session.kind)) else {
+            if search?.id == session.id { session.phase = .failed }
+            return
+        }
+        guard search?.id == session.id else { return }
+        session.results = Searching.parse(data)
+        session.phase = .ready
+        // Music results show straight away; artist names fill in as they arrive.
+        if session.kind == .music {
+            let withArtists = await Searching.addArtists(to: session.results)
+            if search?.id == session.id { session.results = withArtists }
+        }
+    }
+
+    /// Downloads a result. Music results are saved as audio in the user's audio format.
+    func download(_ result: SearchResult, from session: SearchSession) {
+        var options = DownloadOptions.current
+        if session.kind == .music { options.kind = .audio }
+        var folder = defaults.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory()
+        if defaults.bool(forKey: Prefs.askLocation) {
+            guard let chosen = askForFolder(starting: folder, count: 1) else { return }
+            folder = chosen
+        }
+        let item = DownloadItem(url: result.url, options: options, folder: folder)
+        item.title = result.title
+        item.uploader = result.subtitle
+        item.duration = result.duration
+        item.thumbnail = result.thumbnail
+        items.insert(item, at: 0)
+        session.added.insert(result.id)
+        pump()
+    }
+
+    // MARK: - Already downloaded
+
+    /// A link that's already been downloaded, waiting for the user to choose what to do.
+    struct DuplicatePrompt: Identifiable {
+        let id = UUID()
+        let existing: DownloadItem
+        let url: String
+        let options: DownloadOptions
+        let folder: String
+        let clip: ClipRange?
+    }
+
+    var duplicates: [DuplicatePrompt] = []
+
+    /// A finished download of the same video or track (same kind: audio or video), whose file
+    /// is still where Pluck saved it. Clips never count as duplicates.
+    func alreadyDownloaded(_ url: String, isAudio: Bool, clip: ClipRange? = nil) -> DownloadItem? {
+        guard clip == nil else { return nil }
+        let key = Links.identity(url)
+        return items.first { item in
+            item.clip == nil && item.options.isAudio == isAudio && item.existingFile != nil
+                && Links.identity(item.url) == key
+        }
+    }
+
+    enum DuplicateChoice { case showInFinder, downloadAgain, cancel }
+
+    func resolve(_ prompt: DuplicatePrompt, with choice: DuplicateChoice) {
+        duplicates.removeAll { $0.id == prompt.id }
+        switch choice {
+        case .showInFinder:
+            if let file = prompt.existing.existingFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+        case .downloadAgain:
+            if Spotify.isSpotify(prompt.url) {
+                addSpotify(prompt.url, options: prompt.options, folder: prompt.folder, clip: prompt.clip)
+            } else {
+                let item = DownloadItem(url: prompt.url, options: prompt.options, folder: prompt.folder)
+                item.clip = prompt.clip
+                items.insert(item, at: 0)
+            }
+            pump()
+        case .cancel:
+            break
+        }
+    }
+
     // MARK: - Playlist picker
 
     /// Playlist links waiting for the user to choose videos; the first one is shown.
@@ -221,6 +352,11 @@ final class DownloadManager {
                 let collection = try await Spotify.fetch(link)
                 pick.title = collection.name
                 pick.owner = String(localized: "Spotify \(link.kind.rawValue)")
+                if link.kind == .album, let artist = collection.tracks.first?.artists.first {
+                    pick.folderPath = Folders.sanitize(artist) + "/" + Folders.sanitize(collection.name)
+                } else {
+                    pick.folderPath = Folders.sanitize(collection.name)
+                }
                 pick.entries = collection.tracks.map { track in
                     PlaylistEntry(id: track.id, url: track.url, title: track.title,
                                   subtitle: track.artists.joined(separator: ", "),
@@ -241,16 +377,22 @@ final class DownloadManager {
                 return
             }
             pick.title = playlist.title ?? String(localized: "Playlist")
+            pick.folderPath = Folders.sanitize(pick.title)
             pick.owner = playlist.owner
             pick.entries = playlist.entries
             pick.hiddenCount = playlist.hidden
         }
 
-        // A video link inside a playlist starts with just that video; a playlist link with everything.
+        // Mark what's already downloaded; those aren't selected to begin with.
+        let isAudio = pick.options.isAudio || pick.entries.first?.spotify != nil
+        pick.downloaded = Set(pick.entries.filter { alreadyDownloaded($0.url, isAudio: isAudio) != nil }.map(\.id))
+
+        // A video link inside a playlist starts with just that video; a playlist link with everything new.
         if let focus = Playlists.focusedVideoID(in: pick.sourceURL), pick.entries.contains(where: { $0.id == focus }) {
             pick.selected = [focus]
         } else {
-            pick.selectAll()
+            pick.selected = Set(pick.entries.map(\.id)).subtracting(pick.downloaded)
+            if pick.selected.isEmpty { pick.selectAll() }
         }
         pick.phase = pick.entries.isEmpty ? .failed(String(localized: "This playlist has no videos Pluck can download.")) : .ready
     }
@@ -265,12 +407,17 @@ final class DownloadManager {
         var options = DownloadOptions.current
         let spotifyItems = pick.selectedEntries.contains { $0.spotify != nil }
         if spotifyItems { options.kind = .audio }
+        // Two or more items from an album or playlist go into their own folder.
+        var folder = pick.folder
+        if pick.selected.count > 1, defaults.bool(forKey: Prefs.playlistFolders), let sub = pick.folderPath {
+            folder = (pick.folder as NSString).appendingPathComponent(sub)
+        }
         let newItems = pick.selectedEntries.map { entry -> DownloadItem in
             let item: DownloadItem
             if let track = entry.spotify {
-                item = DownloadItem(spotify: track, options: options, folder: pick.folder)
+                item = DownloadItem(spotify: track, options: options, folder: folder)
             } else {
-                item = DownloadItem(url: entry.url, options: options, folder: pick.folder)
+                item = DownloadItem(url: entry.url, options: options, folder: folder)
                 item.title = entry.title
                 item.uploader = entry.subtitle
                 item.duration = entry.duration
@@ -325,7 +472,7 @@ final class DownloadManager {
     }
 
     func cancel(_ item: DownloadItem) {
-        guard item.isActive else { return }
+        guard item.isActive || item.state == .paused else { return }
         item.state = .cancelled
         item.process?.terminate()
         pump()
@@ -341,6 +488,8 @@ final class DownloadManager {
             return
         }
         item.reset()
+        item.retryCount = 0
+        item.retryAt = nil
         item.triedPageSearch = false
         if item.pageStream != nil {
             item.pageStream = nil
@@ -356,8 +505,26 @@ final class DownloadManager {
     }
 
     func clearFinished() {
-        items.removeAll { !$0.isActive }
+        items.removeAll(where: \.isDone)
         saveHistory()
+    }
+
+    /// Stops a download but keeps what's been downloaded so far; resuming continues from there.
+    func pause(_ item: DownloadItem) {
+        guard item.state == .downloading || item.state == .queued else { return }
+        item.state = .paused
+        item.process?.terminate()
+        pump()
+        saveHistory()
+    }
+
+    func resume(_ item: DownloadItem) {
+        guard item.state == .paused else { return }
+        item.state = .queued
+        item.errorMessage = nil
+        item.retryCount = 0
+        item.retryAt = nil
+        pump()
     }
 
     /// Starts queued items, oldest first, up to the concurrency limit.
@@ -369,7 +536,10 @@ final class DownloadManager {
         }
         let limit = max(1, defaults.integer(forKey: Prefs.maxConcurrent))
         var running = items.filter(\.isRunning).count
+        let now = Date()
         for item in items.reversed() where item.state == .queued && running < limit {
+            // A retry waits for its time, and for the connection to be back.
+            if let retryAt = item.retryAt, retryAt > now || !isOnline { continue }
             running += 1
             start(item)
         }
@@ -396,23 +566,26 @@ final class DownloadManager {
         let options = item.options
         var args = [
             "--newline", "--progress", "--no-simulate",
+            "--socket-timeout", "20", "--retries", "10", "--fragment-retries", "10",
             "--progress-template",
             "download:PLUCK|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
             "--progress-template", "postprocess:PLUCKPP|%(progress.postprocessor)s",
-            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr})j",
+            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr,artist,track})j",
             "--print", "after_move:PLUCKFILE %(filepath)s",
             "-P", item.folder,
         ]
         args += options.arguments
         // Only download part of the video; cut exactly at the chosen times.
         let clipSuffix = item.clip?.fileSuffix ?? ""
+        // The user's file name style (Settings → Downloads), plus the clip range for clips.
+        let outputName = FileNaming.template(isAudio: options.isAudio) + clipSuffix + ".%(ext)s"
         if let clip = item.clip {
             args += ["--download-sections", clip.sectionArgument, "--force-keyframes-at-cuts"]
         }
 
         if let stream = item.pageStream {
             // A raw stream found on the page: send the page as referer and name it after the page.
-            args += ["--referer", stream.pageURL, "--no-playlist", "-o", "%(title)s\(clipSuffix).%(ext)s"]
+            args += ["--referer", stream.pageURL, "--no-playlist", "-o", outputName]
             if let agent = stream.userAgent { args += ["--user-agent", agent] }
             if stream.usePageTitle {
                 args += ["--parse-metadata", "\(Spotify.metadataLiteral(item.title)):%(title)s"]
@@ -423,18 +596,19 @@ final class DownloadManager {
             // Tag the file with Spotify's metadata rather than YouTube's.
             let artist = track.artists.joined(separator: ", ")
             args += ["--parse-metadata", "\(Spotify.metadataLiteral(track.title)):%(title)s"]
+            args += ["--parse-metadata", "\(Spotify.metadataLiteral(track.title)):%(track)s"]
             args += ["--parse-metadata", "\(Spotify.metadataLiteral(artist)):%(artist)s"]
             if let album = track.album {
                 args += ["--parse-metadata", "\(Spotify.metadataLiteral(album)):%(album)s"]
             }
-            args += ["-o", "%(artist)s - %(title)s\(clipSuffix).%(ext)s", "--no-playlist", "--embed-metadata"]
+            args += ["-o", outputName, "--no-playlist", "--embed-metadata"]
             if options.canEmbedThumbnail {
                 // YouTube Music art is 16:9 with bars; crop it to a square cover.
                 args += ["--embed-thumbnail", "--convert-thumbnails", "jpg",
                          "--ppa", "ThumbnailsConvertor+FFmpeg_o:-c:v mjpeg -vf crop=\"'if(gt(ih,iw),iw,ih)':'if(gt(iw,ih),ih,iw)'\""]
             }
         } else {
-            args += ["-o", "%(title)s\(clipSuffix).%(ext)s"]
+            args += ["-o", outputName]
             // Playlists go through the picker, so a link here always means one video.
             args.append("--no-playlist")
             if defaults.bool(forKey: Prefs.embedMetadata) { args.append("--embed-metadata") }
@@ -455,6 +629,8 @@ final class DownloadManager {
 
     private func start(_ item: DownloadItem) {
         item.state = .starting
+        item.retryAt = nil
+        item.phase = nil
         guard executableURL != nil else {
             fail(item, String(localized: "yt-dlp not found. Install it with “brew install yt-dlp” or set its path in Settings."))
             return
@@ -577,6 +753,8 @@ final class DownloadManager {
             if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String { item.thumbnail = URL(string: thumb) }
             if item.options.isAudio {
                 item.sourceAudio = Self.describeAudio(codec: meta["acodec"] as? String, bitrate: meta["abr"] as? Double)
+                item.musicArtist = meta["artist"] as? String
+                item.musicTrack = meta["track"] as? String
             }
             // ffmpeg cuts clips without reporting progress; say what's happening meanwhile.
             if item.clip != nil, item.state == .starting { item.phase = String(localized: "Cutting clip…") }
@@ -618,9 +796,22 @@ final class DownloadManager {
         }
     }
 
-    private func finish(_ item: DownloadItem, status: Int32) {
+    private func finish(_ item: DownloadItem, status: Int32, lyricsDone: Bool = false) {
         item.process = nil
-        guard item.state != .cancelled else { pump(); return }
+        guard item.state != .cancelled, item.state != .paused else { pump(); return }
+
+        if status != 0, scheduleRetryIfNetworkProblem(item) { return }
+
+        // Songs get their lyrics written in before they count as done.
+        if status == 0, !lyricsDone, let song = lyricsLookup(for: item) {
+            item.state = .processing
+            item.phase = String(localized: "Adding lyrics…")
+            Task {
+                await addLyrics(to: item, artist: song.artist, title: song.title, duration: song.duration)
+                finish(item, status: 0, lyricsDone: true)
+            }
+            return
+        }
 
         if status != 0, shouldSearchPage(item) {
             searchPage(for: item)
@@ -653,6 +844,96 @@ final class DownloadManager {
         }
         batchFinished = []
         batchFailed = 0
+    }
+
+    // MARK: - Automatic retry
+
+    static let retryDelays: [TimeInterval] = [5, 15, 30, 60, 120]
+
+    /// yt-dlp errors that mean the connection failed, not the video.
+    private static let networkErrors = [
+        "timed out", "timeout", "connection", "network is unreachable", "temporary failure in name resolution",
+        "nodename nor servname", "getaddrinfo", "unable to download", "incompleteread", "remote end closed",
+        "eof occurred", "ssl", "errno 50", "errno 51", "errno 54", "errno 60", "errno 61", "http error 5",
+        "giving up after",
+    ]
+
+    private func isNetworkProblem(_ item: DownloadItem) -> Bool {
+        if !isOnline { return true }
+        let message = item.errorMessage?.lowercased() ?? ""
+        if ["unavailable", "private", "drm", "logged in", "log in", "copyright", "removed"].contains(where: message.contains) {
+            return false
+        }
+        return Self.networkErrors.contains(where: message.contains)
+    }
+
+    /// Queues the download again after a pause that grows with each try (up to five). It continues
+    /// from the partial file, and waits for the connection if the Mac is offline.
+    private func scheduleRetryIfNetworkProblem(_ item: DownloadItem) -> Bool {
+        guard isNetworkProblem(item), item.retryCount < Self.retryDelays.count else { return false }
+        let delay = Self.retryDelays[item.retryCount]
+        item.retryCount += 1
+        item.retryAt = Date().addingTimeInterval(delay)
+        item.state = .queued
+        item.errorMessage = nil
+        updateRetryMessages()
+        Task {
+            try? await Task.sleep(for: .seconds(delay))
+            pump()
+        }
+        pump()
+        return true
+    }
+
+    private func updateRetryMessages() {
+        for item in items where item.state == .queued && item.retryAt != nil {
+            item.phase = isOnline
+                ? String(localized: "Connection problem · retrying (\(item.retryCount) of \(Self.retryDelays.count))…")
+                : String(localized: "Waiting for an internet connection…")
+        }
+    }
+
+    // MARK: - Lyrics
+
+    /// Artist, title and length for an audio download that should get lyrics, or nil to skip it.
+    /// Only songs whose artist is known (Spotify, YouTube Music…): plain videos would get guesses.
+    private func lyricsLookup(for item: DownloadItem) -> (artist: String, title: String, duration: Double?)? {
+        guard defaults.bool(forKey: Prefs.lyrics), item.options.isAudio, item.clip == nil, !item.hasLyrics,
+              let file = item.fileURL, Lyrics.supportedExtensions.contains(file.pathExtension.lowercased())
+        else { return nil }
+        if let track = item.spotify, let artist = track.artists.first {
+            return (artist, track.title, track.duration)
+        }
+        guard let artist = item.musicArtist, let title = item.musicTrack else { return nil }
+        return (Lyrics.mainArtist(artist), title, item.duration)
+    }
+
+    private func addLyrics(to item: DownloadItem, artist: String, title: String, duration: Double?) async {
+        guard let file = item.fileURL,
+              let text = await Lyrics.find(artist: artist, title: title, duration: duration),
+              let ffmpeg = toolDirectories.map({ "\($0)/ffmpeg" }).first(where: { FileManager.default.isExecutableFile(atPath: $0) })
+        else { return }
+        // Rewrite the file with the lyrics tag (streams copied as-is), then swap it in.
+        let temp = file.deletingLastPathComponent()
+            .appendingPathComponent(".pluck-lyrics-\(UUID().uuidString).\(file.pathExtension)")
+        let env = environment
+        let ok = await Task.detached {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: ffmpeg)
+            p.arguments = ["-y", "-v", "error", "-i", file.path, "-map", "0", "-c", "copy",
+                           "-map_metadata", "0", "-metadata", "lyrics=\(text)", temp.path]
+            p.environment = env
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return false }
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        }.value
+        if ok, (try? FileManager.default.replaceItemAt(file, withItemAt: temp)) != nil {
+            item.hasLyrics = true
+        } else {
+            try? FileManager.default.removeItem(at: temp)
+        }
     }
 
     // MARK: - Page fallback

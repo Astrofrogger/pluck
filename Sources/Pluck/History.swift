@@ -19,6 +19,9 @@ enum History {
         var finishedAt: Date?
         var clip: ClipRange?
         var sourceAudio: String?
+        var hasLyrics: Bool?
+        var progress: Double?
+        var resolvedURL: String?
     }
 
     static let limit = 200
@@ -44,10 +47,13 @@ enum History {
             item.finishedAt = e.finishedAt
             item.clip = e.clip
             item.sourceAudio = e.sourceAudio
-            item.progress = e.state == "finished" ? 1 : 0
+            item.hasLyrics = e.hasLyrics ?? false
+            item.resolvedURL = e.resolvedURL
+            item.progress = e.state == "finished" ? 1 : (e.progress ?? 0)
             item.state = switch e.state {
             case "finished": .finished
             case "cancelled": .cancelled
+            case "paused": .paused
             default: .failed
             }
             return item
@@ -64,15 +70,17 @@ enum History {
             case .finished: state = "finished"
             case .cancelled: state = "cancelled"
             case .failed: state = "failed"
-            case .queued, .starting, .downloading, .processing:
-                state = "failed"
-                error = String(localized: "Interrupted when Pluck quit. Try again to restart it.")
+            // Unfinished downloads (only when quitting) come back paused, ready to resume.
+            case .queued, .starting, .downloading, .processing, .paused:
+                state = "paused"
+                error = nil
             }
             return Entry(url: item.url, title: item.title, uploader: item.uploader, duration: item.duration,
                          thumbnail: item.thumbnail, options: item.options, folder: item.folder,
                          spotify: item.spotify, state: state, filePath: item.fileURL?.path,
                          fileSize: item.fileSize, errorMessage: error, finishedAt: item.finishedAt,
-                         clip: item.clip, sourceAudio: item.sourceAudio)
+                         clip: item.clip, sourceAudio: item.sourceAudio, hasLyrics: item.hasLyrics,
+                         progress: item.progress, resolvedURL: item.spotify != nil ? item.resolvedURL : nil)
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

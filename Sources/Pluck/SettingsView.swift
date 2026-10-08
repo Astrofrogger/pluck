@@ -330,17 +330,56 @@ private struct DownloadSettings: View {
     @AppStorage(Prefs.embedMetadata) private var embedMetadata = true
     @AppStorage(Prefs.embedThumbnail) private var embedThumbnail = true
     @AppStorage(Prefs.embedSubtitles) private var embedSubtitles = false
+    @AppStorage(Prefs.lyrics) private var lyrics = true
     @AppStorage(Prefs.removeSponsors) private var removeSponsors = false
+    @AppStorage(Prefs.fileNaming) private var fileNaming: FileNaming = .automatic
+    @AppStorage(Prefs.customFileName) private var customFileName = "{artist} - {title}"
+    @AppStorage(Prefs.playlistFolders) private var playlistFolders = true
 
     var body: some View {
         Form {
-            Section("Embed") {
+            Section {
                 Toggle("Title, artist & description", isOn: $embedMetadata)
                 Toggle("Thumbnail as cover art", isOn: $embedThumbnail)
                 Toggle("Subtitles (video only)", isOn: $embedSubtitles)
+                Toggle("Lyrics for songs", isOn: $lyrics)
+            } header: {
+                Text("Embed")
+            } footer: {
+                Text("Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, YouTube Music).")
+                    .foregroundStyle(.secondary)
             }
             Section {
                 Toggle("Remove sponsor segments (SponsorBlock)", isOn: $removeSponsors)
+            }
+            Section {
+                Picker("File names", selection: $fileNaming) {
+                    ForEach(FileNaming.allCases) { Text($0.label).tag($0) }
+                }
+                if fileNaming == .custom {
+                    TextField("Custom name", text: $customFileName, prompt: Text(verbatim: "{artist} - {title}"))
+                    LabeledContent("Preview") {
+                        if let preview = FileNaming.preview(customFileName) {
+                            Text(preview).foregroundStyle(.secondary)
+                        } else {
+                            Text("Use at least one placeholder").foregroundStyle(.red)
+                        }
+                    }
+                }
+                Toggle("Put albums and playlists in their own folder", isOn: $playlistFolders)
+            } header: {
+                Text("Files")
+            } footer: {
+                Group {
+                    if fileNaming == .custom {
+                        Text("Placeholders: \(FileNaming.tokens.map(\.token).joined(separator: " "))")
+                    } else if fileNaming == .automatic {
+                        Text("Music is named “Artist - Title” when the artist is known, everything else by its title.")
+                    } else {
+                        Text("Albums go into Artist/Album, playlists into a folder with their name, when you download two or more items.")
+                    }
+                }
+                .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

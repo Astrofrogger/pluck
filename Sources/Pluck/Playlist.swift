@@ -33,6 +33,10 @@ final class PlaylistPick: Identifiable {
     var selected: Set<PlaylistEntry.ID> = []
     /// Entries left out because they're private, deleted or otherwise unavailable.
     var hiddenCount = 0
+    /// Entries already downloaded (file still there); not selected to begin with.
+    var downloaded: Set<PlaylistEntry.ID> = []
+    /// Subfolder for 2+ items: "Artist/Album" for albums, the playlist's name otherwise.
+    var folderPath: String?
 
     init(sourceURL: String, folder: String, options: DownloadOptions) {
         self.sourceURL = sourceURL

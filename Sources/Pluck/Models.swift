@@ -172,7 +172,7 @@ struct DownloadOptions: Equatable, Codable {
 @Observable
 final class DownloadItem: Identifiable {
     enum State: Equatable {
-        case queued, starting, downloading, processing, finished, failed, cancelled
+        case queued, starting, downloading, processing, paused, finished, failed, cancelled
     }
 
     let id = UUID()
@@ -212,6 +212,14 @@ final class DownloadItem: Identifiable {
     var clip: ClipRange?
     /// The audio Pluck actually downloaded, e.g. "Opus 272 kbps", before any conversion.
     var sourceAudio: String?
+    /// Artist and song title when the site knows them (YouTube Music…), for the lyrics lookup.
+    var musicArtist: String?
+    var musicTrack: String?
+    /// Lyrics were written into the file.
+    var hasLyrics = false
+    /// Automatic retries after connection problems, and when the next one may start.
+    var retryCount = 0
+    var retryAt: Date?
 
     @ObservationIgnored var process: Process?
 
@@ -246,6 +254,11 @@ final class DownloadItem: Identifiable {
     var existingFile: URL? {
         guard state == .finished, let fileURL, !fileMissing else { return nil }
         return fileURL
+    }
+
+    /// Finished, failed or cancelled: what "Clear Finished" removes. Paused downloads stay.
+    var isDone: Bool {
+        state == .finished || state == .failed || state == .cancelled
     }
 
     var isRunning: Bool {

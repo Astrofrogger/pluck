@@ -101,7 +101,7 @@ struct MenuBarView: View {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
-                    TextField("Paste a link", text: $urlText)
+                    TextField("Paste a link or search", text: $urlText)
                         .textFieldStyle(.plain)
                         .focused($focused)
                         .onSubmit(submit)
@@ -127,7 +127,7 @@ struct MenuBarView: View {
                 }
                 .glassProminentButtonStyle()
                 .buttonBorderShape(.circle)
-                .disabled(!isValid)
+                .disabled(trimmed.isEmpty)
                 .accessibilityLabel("Download")
                 .help("Download")
             }
@@ -237,6 +237,12 @@ struct MenuBarView: View {
     }
 
     private func submit() {
+        // Words rather than a link: search in the main window.
+        if !isValid, !trimmed.isEmpty {
+            manager.startSearch(trimmed)
+            urlText = ""
+            return
+        }
         guard isValid else { return }
         manager.add(trimmed)
         urlText = ""
@@ -325,6 +331,8 @@ private struct MenuBarRow: View {
             .accessibilityValue("\(Int(item.progress * 100)) percent")
         case .processing:
             caption(item.phase ?? String(localized: "Finishing up…"))
+        case .queued where item.phase != nil:
+            caption(item.phase ?? "")
         case .queued:
             caption(String(localized: "Waiting…"))
         case .starting:
@@ -341,6 +349,8 @@ private struct MenuBarRow: View {
                 .foregroundStyle(.red)
                 .lineLimit(1)
                 .help(item.errorMessage ?? "")
+        case .paused:
+            caption(String(localized: "Paused · \(Int(item.progress * 100))%"))
         case .cancelled:
             caption(String(localized: "Cancelled"))
         }
@@ -362,6 +372,10 @@ private struct MenuBarRow: View {
                 }
             case .failed, .cancelled:
                 iconButton("arrow.clockwise", label: "Try Again") { manager.retry(item) }
+            case .paused:
+                iconButton("play.fill", label: "Resume Download") { manager.resume(item) }
+            case .downloading:
+                iconButton("pause.fill", label: "Pause Download") { manager.pause(item) }
             default:
                 iconButton("xmark", label: "Cancel Download") { manager.cancel(item) }
             }

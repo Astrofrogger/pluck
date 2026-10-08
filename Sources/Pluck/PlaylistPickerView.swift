@@ -49,6 +49,7 @@ struct PlaylistPickerView: View {
             var parts = [pick.entries.count == 1 ? String(localized: "1 item") : String(localized: "\(pick.entries.count) items")]
             if let owner = pick.owner { parts.append(owner) }
             if pick.hiddenCount > 0 { parts.append(String(localized: "\(pick.hiddenCount) unavailable hidden")) }
+            if !pick.downloaded.isEmpty { parts.append(String(localized: "\(pick.downloaded.count) already downloaded")) }
             return parts.joined(separator: " · ")
         }
     }
@@ -88,7 +89,8 @@ struct PlaylistPickerView: View {
                         LazyVStack(spacing: 2) {
                             ForEach(Array(pick.entries.enumerated()), id: \.element.id) { index, entry in
                                 PlaylistEntryRow(entry: entry, number: index + 1,
-                                                 isSelected: pick.selected.contains(entry.id)) {
+                                                 isSelected: pick.selected.contains(entry.id),
+                                                 isDownloaded: pick.downloaded.contains(entry.id)) {
                                     pick.toggle(entry)
                                 }
                                 .id(entry.id)
@@ -150,6 +152,7 @@ private struct PlaylistEntryRow: View {
     let entry: PlaylistEntry
     let number: Int
     let isSelected: Bool
+    var isDownloaded = false
     let toggle: () -> Void
     @State private var hovering = false
 
@@ -186,6 +189,12 @@ private struct PlaylistEntryRow: View {
                 }
             }
             Spacer(minLength: 8)
+            if isDownloaded {
+                Label("Downloaded", systemImage: "checkmark.circle")
+                    .font(.caption)
+                    .foregroundStyle(.green)
+                    .labelStyle(.titleAndIcon)
+            }
             if let duration = entry.duration {
                 Text(Format.duration(duration))
                     .font(.callout.monospacedDigit())
@@ -203,7 +212,8 @@ private struct PlaylistEntryRow: View {
         .onHover { hovering = $0 }
         .onTapGesture(perform: toggle)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel([entry.title, entry.subtitle, entry.duration.map(Format.duration)]
+        .accessibilityLabel([entry.title, entry.subtitle, entry.duration.map(Format.duration),
+                             isDownloaded ? String(localized: "Downloaded") : nil]
             .compactMap { $0 }.joined(separator: ", "))
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction { toggle() }

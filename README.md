@@ -47,6 +47,8 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 
 ## Features
 - Paste a link (it auto-fills from the clipboard when you switch to the app), or drag one onto the window
+- **Search** YouTube or YouTube Music by typing words instead of a link, and download results with one click
+- **Automatic retry** when the connection drops: Pluck waits for the internet to come back and continues where it stopped
 - **Video:** Best, 4K, 1440p, 1080p, 720p, 480p or 360p. Codec is H.264 (plays everywhere) or AV1/VP9, container is MP4, MKV or WebM, with an optional 60 fps preference
 - **Audio:** original, M4A, MP3, Opus, FLAC or WAV, at Best VBR or 320/256/192/128 kbps
 - **Spotify:** track, album and playlist links. Spotify audio is DRM-protected, so Pluck finds the matching song on YouTube Music and tags the file with Spotify's title, artist, album and a square cover
@@ -54,6 +56,10 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted), and downloads the stream it finds. It also spots embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login (Vimeo, Instagram…) use your browser's cookies, set in Settings → Advanced
 - **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Closing the window keeps Pluck running in the menu bar (no Dock icon) until you choose Quit. Settings → General can open Pluck at login and start it in the menu bar only
 - **Playlists:** paste a YouTube playlist or a Spotify album or playlist and pick what you want: one video, a few, or all of them
+- **Lyrics** for songs (from [LRCLIB](https://lrclib.net)) are written into MP3, M4A and FLAC files, so they show up in Apple Music and on iPhone
+- **Tidy files:** choose how files are named (Artist - Title, Title (Year), or your own pattern like `{artist} - {title}`), and albums and playlists go into their own folders
+- **Already downloaded?** Pluck notices and offers to show the file instead
+- **Pause and resume** big downloads, even after quitting Pluck
 - **Clips:** click the scissors to download only part of a video, e.g. from 1:30 to 2:45
 - **Your downloads stay listed** after quitting. Drag one straight into Finder, Mail or your editor, or select it and press Space for Quick Look
 - **Send links from other apps:** right-click a link or selected text anywhere and choose **Services → Download with Pluck**

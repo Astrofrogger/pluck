@@ -126,6 +126,11 @@ struct DownloadRow: View {
     @ViewBuilder
     private var status: some View {
         switch item.state {
+        case .queued where item.phase != nil:
+            Label(item.phase ?? "", systemImage: "wifi.exclamationmark")
+                .font(.caption)
+                .foregroundStyle(.orange)
+
         case .queued:
             Label("Waiting…", systemImage: "clock")
                 .font(.caption)
@@ -168,6 +173,12 @@ struct DownloadRow: View {
                 Label(item.fileSize.map { String(localized: "Done · \(Format.bytes($0))") } ?? String(localized: "Done"), systemImage: "checkmark.circle.fill")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.green)
+                if item.hasLyrics {
+                    Label("Lyrics", systemImage: "text.quote")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Lyrics from LRCLIB are in the file")
+                }
                 if let source = item.sourceAudio {
                     // The quality that was actually downloaded, so a FLAC made from a 136 kbps
                     // stream doesn't pass for lossless.
@@ -185,6 +196,17 @@ struct DownloadRow: View {
                 .lineLimit(2)
                 .help(item.errorMessage ?? "")
 
+        case .paused:
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: item.progress)
+                    .progressViewStyle(.linear)
+                    .tint(.secondary)
+                    .accessibilityLabel("Download progress")
+                Label(String(localized: "Paused · \(Int(item.progress * 100))%"), systemImage: "pause.circle")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
         case .cancelled:
             Label("Cancelled", systemImage: "xmark.circle")
                 .font(.caption)
@@ -201,12 +223,20 @@ struct DownloadRow: View {
 
     @ViewBuilder
     private var actionButton: some View {
-        Group {
+        HStack(spacing: 8) {
             switch item.state {
-            case .queued, .starting, .downloading, .processing:
-                Button { manager.cancel(item) } label: { Image(systemName: "xmark") }
-                    .accessibilityLabel("Cancel Download")
-                    .help("Cancel")
+            case .downloading, .queued:
+                Button { manager.pause(item) } label: { Image(systemName: "pause.fill") }
+                    .accessibilityLabel("Pause Download")
+                    .help("Pause")
+                cancelButton
+            case .paused:
+                Button { manager.resume(item) } label: { Image(systemName: "play.fill") }
+                    .accessibilityLabel("Resume Download")
+                    .help("Resume")
+                cancelButton
+            case .starting, .processing:
+                cancelButton
             case .finished where item.fileMissing:
                 Button { manager.retry(item) } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("Download Again")
@@ -226,6 +256,12 @@ struct DownloadRow: View {
         .controlSize(.large)
     }
 
+    private var cancelButton: some View {
+        Button { manager.cancel(item) } label: { Image(systemName: "xmark") }
+            .accessibilityLabel("Cancel Download")
+            .help("Cancel")
+    }
+
     @ViewBuilder
     private var menu: some View {
         if item.existingFile != nil {
@@ -234,7 +270,12 @@ struct DownloadRow: View {
             Button("Show in Finder", action: reveal)
             Divider()
         }
-        if item.isActive {
+        if item.state == .downloading || item.state == .queued {
+            Button("Pause") { manager.pause(item) }
+        } else if item.state == .paused {
+            Button("Resume") { manager.resume(item) }
+        }
+        if item.isActive || item.state == .paused {
             Button("Cancel") { manager.cancel(item) }
         } else if item.fileMissing {
             Button("Download Again") { manager.retry(item) }

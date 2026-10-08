@@ -29,6 +29,9 @@ struct ContentView: View {
         return (scheme == "http" || scheme == "https") && url.host != nil
     }
 
+    /// Words rather than a link: Return searches YouTube.
+    private var isSearch: Bool { !trimmed.isEmpty && !isValid && !clipping }
+
     var body: some View {
         VStack(spacing: 0) {
             if appUpdater.showsBanner, let release = appUpdater.release {
@@ -85,6 +88,21 @@ struct ContentView: View {
             fieldFocused = true
         }
         .onChange(of: manager.pendingLink) { _ = takePendingLink() }
+        .alert(duplicateTitle, isPresented: Binding(
+            get: { manager.picks.isEmpty && !manager.duplicates.isEmpty },
+            set: { shown in if !shown, let prompt = manager.duplicates.first { manager.resolve(prompt, with: .cancel) } }
+        ), presenting: manager.duplicates.first) { prompt in
+            Button("Show in Finder") { manager.resolve(prompt, with: .showInFinder) }
+            Button("Download Again") { manager.resolve(prompt, with: .downloadAgain) }
+            Button("Cancel", role: .cancel) { manager.resolve(prompt, with: .cancel) }
+        } message: { prompt in
+            Text("It’s saved as “\(prompt.existing.existingFile?.lastPathComponent ?? prompt.existing.title)”.")
+        }
+        .sheet(item: Binding(get: { manager.picks.isEmpty ? manager.search : nil },
+                             set: { if $0 == nil { manager.search = nil } })) { session in
+            SearchResultsView(session: session)
+                .environment(manager)
+        }
         .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
             // Closing the sheet cancels only the playlist that was on screen, never the next one.
             if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
@@ -100,6 +118,11 @@ struct ContentView: View {
     private var subtitle: String {
         let active = manager.activeCount
         return active == 0 ? "" : String(localized: "\(active) downloading")
+    }
+
+    private var duplicateTitle: String {
+        guard let prompt = manager.duplicates.first else { return "" }
+        return String(localized: "“\(prompt.existing.title)” is already downloaded")
     }
 
     // MARK: - Banners
@@ -195,7 +218,7 @@ struct ContentView: View {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
-                    TextField("Paste a link from YouTube, Spotify or any website", text: $urlText)
+                    TextField("Paste a link, or type to search YouTube", text: $urlText)
                         .textFieldStyle(.plain)
                         .font(.title3)
                         .focused($fieldFocused)
@@ -236,17 +259,18 @@ struct ContentView: View {
                 .help(clipping ? "Download the whole video" : "Download only part of the video")
 
                 Button(action: submit) {
-                    Image(systemName: "arrow.down")
+                    Image(systemName: isSearch ? "magnifyingglass" : "arrow.down")
                         .font(.title3.weight(.semibold))
                         .frame(width: 30, height: 30)
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .glassProminentButtonStyle()
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
-                .disabled(!isValid || (clipping && clip == nil))
+                .disabled(!(isValid || isSearch) || (clipping && clip == nil))
                 .keyboardShortcut(.defaultAction)
-                .accessibilityLabel("Download")
-                .help("Download")
+                .accessibilityLabel(isSearch ? String(localized: "Search") : String(localized: "Download"))
+                .help(isSearch ? String(localized: "Search YouTube") : String(localized: "Download"))
             }
         }
         .animation(.snappy(duration: 0.2), value: urlText.isEmpty)
@@ -298,6 +322,10 @@ struct ContentView: View {
     }
 
     private func submit() {
+        if isSearch {
+            manager.startSearch(trimmed)
+            return
+        }
         guard isValid else { return }
         if clipping {
             guard let clip else { NSSound.beep(); return }
