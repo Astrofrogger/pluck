@@ -399,34 +399,30 @@ final class DownloadManager {
         }
 
         let errors = Task.detached {
-            do {
-                for try await line in err.fileHandleForReading.bytes.lines where line.hasPrefix("ERROR:") {
-                    // "ERROR: [youtube] abc123: Video unavailable" → "Video unavailable"
-                    var message = line
-                        .replacingOccurrences(of: "ERROR: ", with: "")
-                        .replacingOccurrences(of: #"^\[[^\]]+\] [^:]+: "#, with: "", options: .regularExpression)
-                    if message.localizedCaseInsensitiveContains("cookies database")
-                        || message.localizedCaseInsensitiveContains("decrypt") {
-                        message = "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced."
-                    }
-                    let lower = message.lowercased()
-                    if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
-                        || (lower.contains("--cookies") && !lower.contains("cookies database")) {
-                        message = "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from."
-                    } else if lower.contains("drm protected") {
-                        message = "This video is DRM-protected and can’t be downloaded."
-                    }
-                    let final = message
-                    await MainActor.run { item.errorMessage = final }
+            for await line in PipeLines.stream(err.fileHandleForReading) where line.hasPrefix("ERROR:") {
+                // "ERROR: [youtube] abc123: Video unavailable" → "Video unavailable"
+                var message = line
+                    .replacingOccurrences(of: "ERROR: ", with: "")
+                    .replacingOccurrences(of: #"^\[[^\]]+\] [^:]+: "#, with: "", options: .regularExpression)
+                if message.localizedCaseInsensitiveContains("cookies database")
+                    || message.localizedCaseInsensitiveContains("decrypt") {
+                    message = "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced."
                 }
-            } catch {}
+                let lower = message.lowercased()
+                if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
+                    || (lower.contains("--cookies") && !lower.contains("cookies database")) {
+                    message = "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from."
+                } else if lower.contains("drm protected") {
+                    message = "This video is DRM-protected and can’t be downloaded."
+                }
+                let final = message
+                await MainActor.run { item.errorMessage = final }
+            }
         }
         Task.detached {
-            do {
-                for try await line in out.fileHandleForReading.bytes.lines {
-                    await self.handle(line, for: item)
-                }
-            } catch {}
+            for await line in PipeLines.stream(out.fileHandleForReading) {
+                await self.handle(line, for: item)
+            }
             process.waitUntilExit()
             // Let the error text land before deciding what to do next.
             await errors.value
@@ -565,5 +561,34 @@ final class DownloadManager {
     private func updateBadge() {
         let count = activeCount
         NSApp?.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+    }
+}
+
+/// Lines from a pipe as they arrive. This deliberately avoids `FileHandle.bytes`: two of those
+/// reading at once (yt-dlp's stdout and stderr) block each other, so progress only reached the
+/// app when yt-dlp exited. `readabilityHandler` reads each pipe independently.
+enum PipeLines {
+    private final class Buffer: @unchecked Sendable { var data = Data() }
+
+    static func stream(_ handle: FileHandle) -> AsyncStream<String> {
+        AsyncStream { continuation in
+            let buffer = Buffer()
+            handle.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else {
+                    if !buffer.data.isEmpty { continuation.yield(String(decoding: buffer.data, as: UTF8.self)) }
+                    handle.readabilityHandler = nil
+                    continuation.finish()
+                    return
+                }
+                buffer.data.append(chunk)
+                while let newline = buffer.data.firstIndex(of: 0x0A) {
+                    var line = buffer.data[buffer.data.startIndex..<newline]
+                    if line.last == 0x0D { line = line.dropLast() }
+                    continuation.yield(String(decoding: line, as: UTF8.self))
+                    buffer.data.removeSubrange(buffer.data.startIndex...newline)
+                }
+            }
+        }
     }
 }
