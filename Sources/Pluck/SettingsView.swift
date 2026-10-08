@@ -209,26 +209,30 @@ private struct AdvancedSettings: View {
     @AppStorage(Prefs.autoUpdate) private var autoUpdate = true
     @AppStorage(Prefs.nightly) private var nightly = false
 
-    /// Installed browsers, plus the current choice even if it has since been uninstalled.
-    private var browsers: [CookieBrowser] {
-        CookieBrowser.allCases.filter { $0.isInstalled || $0.rawValue == cookiesBrowser }
-    }
+    private var installed: [CookieBrowser] { CookieBrowser.allCases.filter(\.isInstalled) }
+    private var notInstalled: [CookieBrowser] { CookieBrowser.allCases.filter { !$0.isInstalled } }
 
     var body: some View {
         Form {
             Section {
                 Picker("Use cookies from", selection: $cookiesBrowser) {
                     Text("None").tag("none")
-                    Divider()
-                    ForEach(browsers) { browser in
-                        Label {
-                            Text(browser.isInstalled ? browser.name : "\(browser.name) (not installed)")
-                        } icon: {
-                            if let url = browser.appURL {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                    Section("Installed") {
+                        ForEach(installed) { browser in
+                            Label {
+                                Text(browser.name)
+                            } icon: {
+                                if let url = browser.appURL {
+                                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                                }
                             }
+                            .tag(browser.rawValue)
                         }
-                        .tag(browser.rawValue)
+                    }
+                    if !notInstalled.isEmpty {
+                        Section("Not Installed") {
+                            ForEach(notInstalled) { Text($0.name).tag($0.rawValue) }
+                        }
                     }
                 }
             } footer: {

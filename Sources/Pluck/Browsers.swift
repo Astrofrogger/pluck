@@ -34,7 +34,19 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         }
     }
 
-    var appURL: URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) }
+    /// Variants that share the same cookie storage, e.g. Firefox Developer Edition and Nightly.
+    private var bundleIDs: [String] {
+        switch self {
+        case .firefox: [bundleID, "org.mozilla.firefoxdeveloperedition", "org.mozilla.firefoxbeta", "org.mozilla.nightly"]
+        case .chrome: [bundleID, "com.google.Chrome.beta", "com.google.Chrome.canary"]
+        case .edge: [bundleID, "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev"]
+        default: [bundleID]
+        }
+    }
+
+    var appURL: URL? {
+        bundleIDs.lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
+    }
     var isInstalled: Bool { appURL != nil }
 
     /// The value for yt-dlp's --cookies-from-browser. Zen is Firefox-based, so it's passed as
