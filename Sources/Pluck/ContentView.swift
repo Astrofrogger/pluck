@@ -290,6 +290,11 @@ struct ContentView: View {
             }
             .disabled(!manager.hasFinished)
             .help("Clear finished downloads")
+
+            SettingsLink {
+                Label("Settings", systemImage: "gearshape")
+            }
+            .help("Settings (⌘,)")
         }
     }
 }
