@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, format, downloads, advanced
+    case general, format, downloads, advanced, support
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .format: "Format"
         case .downloads: "Downloads"
         case .advanced: "Advanced"
+        case .support: "Support"
         }
     }
 
@@ -20,6 +21,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .format: "slider.horizontal.3"
         case .downloads: "arrow.down.circle"
         case .advanced: "terminal"
+        case .support: "heart"
         }
     }
 }
@@ -36,6 +38,7 @@ struct SettingsView: View {
             case .format: FormatSettingsView()
             case .downloads: DownloadSettings()
             case .advanced: AdvancedSettings()
+            case .support: SupportSettings()
             }
         }
         .frame(width: 480, height: 400)
