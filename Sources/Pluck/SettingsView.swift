@@ -14,24 +14,16 @@ struct SettingsView: View {
     }
 }
 
-/// Settings tabs show icons only; the names stay available as tooltips and to VoiceOver.
+/// Hides the window title ("General", "Format"…) above the tabs; the tab bar already names each pane.
 private struct SettingsWindowStyle: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
-        DispatchQueue.main.async { configure(view.window) }
+        DispatchQueue.main.async { view.window?.titleVisibility = .hidden }
         return view
     }
 
     func updateNSView(_ view: NSView, context: Context) {
-        DispatchQueue.main.async { configure(view.window) }
-    }
-
-    private func configure(_ window: NSWindow?) {
-        guard let toolbar = window?.toolbar else { return }
-        toolbar.displayMode = .iconOnly
-        for item in toolbar.items where item.toolTip == nil {
-            item.toolTip = item.label
-        }
+        DispatchQueue.main.async { view.window?.titleVisibility = .hidden }
     }
 }
 
