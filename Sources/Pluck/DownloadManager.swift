@@ -25,6 +25,7 @@ enum Prefs {
     static let nightly = "nightly"
     static let askLocation = "askLocation"
     static let appAutoUpdate = "appAutoUpdate"
+    static let showMenuBarIcon = "showMenuBarIcon"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -49,6 +50,7 @@ enum Prefs {
             nightly: false,
             askLocation: false,
             appAutoUpdate: true,
+            showMenuBarIcon: true,
         ])
     }
 }
@@ -227,6 +229,11 @@ final class DownloadManager {
             return
         }
         item.reset()
+        item.triedPageSearch = false
+        if item.pageStream != nil {
+            item.pageStream = nil
+            item.resolvedURL = nil
+        }
         pump()
     }
 
@@ -276,7 +283,16 @@ final class DownloadManager {
         ]
         args += options.arguments
 
-        if let track = item.spotify {
+        if let stream = item.pageStream {
+            // A raw stream found on the page: send the page as referer and name it after the page.
+            args += ["--referer", stream.pageURL, "--no-playlist", "-o", "%(title)s.%(ext)s"]
+            if let agent = stream.userAgent { args += ["--user-agent", agent] }
+            if stream.usePageTitle {
+                args += ["--parse-metadata", "\(Spotify.metadataLiteral(item.title)):%(title)s"]
+            }
+            if defaults.bool(forKey: Prefs.embedThumbnail), options.canEmbedThumbnail { args.append("--embed-thumbnail") }
+            if defaults.bool(forKey: Prefs.embedMetadata) { args.append("--embed-metadata") }
+        } else if let track = item.spotify {
             // Tag the file with Spotify's metadata rather than YouTube's.
             let artist = track.artists.joined(separator: ", ")
             args += ["--parse-metadata", "\(Spotify.metadataLiteral(track.title)):%(title)s"]
@@ -380,7 +396,7 @@ final class DownloadManager {
             return
         }
 
-        Task.detached {
+        let errors = Task.detached {
             do {
                 for try await line in err.fileHandleForReading.bytes.lines where line.hasPrefix("ERROR:") {
                     // "ERROR: [youtube] abc123: Video unavailable" → "Video unavailable"
@@ -390,6 +406,13 @@ final class DownloadManager {
                     if message.localizedCaseInsensitiveContains("cookies database")
                         || message.localizedCaseInsensitiveContains("decrypt") {
                         message = "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced."
+                    }
+                    let lower = message.lowercased()
+                    if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
+                        || (lower.contains("--cookies") && !lower.contains("cookies database")) {
+                        message = "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from."
+                    } else if lower.contains("drm protected") {
+                        message = "This video is DRM-protected and can’t be downloaded."
                     }
                     let final = message
                     await MainActor.run { item.errorMessage = final }
@@ -403,6 +426,8 @@ final class DownloadManager {
                 }
             } catch {}
             process.waitUntilExit()
+            // Let the error text land before deciding what to do next.
+            await errors.value
             await self.finish(item, status: process.terminationStatus)
         }
     }
@@ -450,8 +475,13 @@ final class DownloadManager {
 
     private func finish(_ item: DownloadItem, status: Int32) {
         item.process = nil
+        guard item.state != .cancelled else { pump(); return }
+
+        if status != 0, shouldSearchPage(item) {
+            searchPage(for: item)
+            return
+        }
         defer { pump() }
-        guard item.state != .cancelled else { return }
 
         if status == 0 {
             item.state = .finished
@@ -476,6 +506,46 @@ final class DownloadManager {
         }
         batchFinished = []
         batchFailed = 0
+    }
+
+    // MARK: - Page fallback
+
+    /// Sites yt-dlp has a dedicated extractor for are left alone; so are login/cookie problems,
+    /// which a fresh, logged-out web view can't fix.
+    private func shouldSearchPage(_ item: DownloadItem) -> Bool {
+        guard !item.triedPageSearch, item.spotify == nil, item.pageStream == nil,
+              let host = URL(string: item.url)?.host?.lowercased() else { return false }
+        let skip = ["youtube.com", "youtu.be", "spotify.com"]
+        if skip.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) { return false }
+        let message = item.errorMessage?.lowercased() ?? ""
+        return !["cookies", "logged-in", "log in", "login", "drm"].contains { message.contains($0) }
+    }
+
+    private func searchPage(for item: DownloadItem) {
+        guard let url = URL(string: item.url) else { return }
+        let originalError = item.errorMessage
+        item.triedPageSearch = true
+        item.state = .starting
+        item.errorMessage = nil
+        item.phase = "Looking for a video on the page…"
+
+        Task {
+            let sniffer = PageSniffer()
+            let result = await sniffer.sniff(url)
+            guard item.state == .starting else { return }
+            guard let result else {
+                fail(item, originalError.map { "\($0) No playable video was found on the page either." }
+                     ?? "No playable video was found on this page.")
+                return
+            }
+            if let title = result.title { item.title = title }
+            if item.thumbnail == nil { item.thumbnail = result.thumbnail }
+            item.pageStream = .init(pageURL: item.url, userAgent: result.isEmbed ? nil : result.userAgent,
+                                    usePageTitle: !result.isEmbed)
+            item.resolvedURL = result.mediaURL.absoluteString
+            item.phase = nil
+            launch(item)
+        }
     }
 
     private func notify(title: String, body: String) {

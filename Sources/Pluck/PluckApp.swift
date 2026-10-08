@@ -6,6 +6,7 @@ struct PluckApp: App {
     @State private var updater = Updater()
     @State private var appUpdater = AppUpdater()
     @State private var toolsUpdater = HelperToolsUpdater()
+    @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
 
     var body: some Scene {
         Window("Pluck", id: "main") {
@@ -39,6 +40,15 @@ struct PluckApp: App {
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             }
         }
+
+        MenuBarExtra(isInserted: $showMenuBarIcon) {
+            MenuBarView()
+                .environment(manager)
+        } label: {
+            MenuBarIcon()
+                .environment(manager)
+        }
+        .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()

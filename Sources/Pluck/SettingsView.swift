@@ -18,6 +18,7 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.maxConcurrent) private var maxConcurrent = 3
     @AppStorage(Prefs.notify) private var notify = true
     @AppStorage(Prefs.askLocation) private var askLocation = false
+    @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
     @Environment(AppUpdater.self) private var appUpdater
 
@@ -42,6 +43,7 @@ private struct GeneralSettings: View {
                 ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
             }
             Toggle("Notify when downloads finish in the background", isOn: $notify)
+            Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)
 
             Section("Pluck Updates") {
                 Toggle("Check for Pluck updates automatically", isOn: $appAutoUpdate)

@@ -183,6 +183,16 @@ final class DownloadItem: Identifiable {
     var spotify: SpotifyTrack?
     var resolvedURL: String?
 
+    /// Set when the stream was found by loading the page ourselves (see PageSniffer).
+    struct PageStream {
+        let pageURL: String
+        let userAgent: String?
+        /// Raw streams are named after the page; embeds and rewritten links keep yt-dlp's own title.
+        var usePageTitle = true
+    }
+    var pageStream: PageStream?
+    var triedPageSearch = false
+
     var state: State = .queued
     var progress: Double = 0
     var speed: Double?

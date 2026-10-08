@@ -155,7 +155,7 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
-                    TextField("Paste a video, playlist or Spotify link", text: $urlText)
+                    TextField("Paste a link from YouTube, Spotify or any website", text: $urlText)
                         .textFieldStyle(.plain)
                         .font(.title3)
                         .focused($fieldFocused)
