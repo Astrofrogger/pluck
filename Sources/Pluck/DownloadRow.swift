@@ -8,6 +8,7 @@ struct DownloadRow: View {
     var body: some View {
         HStack(spacing: 14) {
             thumbnail
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 5) {
                 Text(item.title)
@@ -23,6 +24,8 @@ struct DownloadRow: View {
                 status
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // VoiceOver reads title, format, uploader and status as one item.
+            .accessibilityElement(children: .combine)
 
             actionButton
         }
@@ -37,6 +40,8 @@ struct DownloadRow: View {
         .animation(.easeOut(duration: 0.15), value: hovering)
         .onTapGesture(count: 2) { open() }
         .contextMenu { menu }
+        .accessibilityElement(children: .contain)
+        .accessibilityAction(named: "Open") { open() }
     }
 
     // MARK: - Pieces
@@ -106,6 +111,7 @@ struct DownloadRow: View {
         case .downloading:
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(value: item.progress)
+                    .accessibilityLabel("Download progress")
                     .progressViewStyle(.linear)
                 Text(downloadStats)
                     .font(.caption.monospacedDigit())
@@ -153,12 +159,15 @@ struct DownloadRow: View {
             switch item.state {
             case .queued, .starting, .downloading, .processing:
                 Button { manager.cancel(item) } label: { Image(systemName: "xmark") }
+                    .accessibilityLabel("Cancel Download")
                     .help("Cancel")
             case .finished:
                 Button { reveal() } label: { Image(systemName: "magnifyingglass") }
+                    .accessibilityLabel("Show in Finder")
                     .help("Show in Finder")
             case .failed, .cancelled:
                 Button { manager.retry(item) } label: { Image(systemName: "arrow.clockwise") }
+                    .accessibilityLabel("Try Again")
                     .help("Try Again")
             }
         }

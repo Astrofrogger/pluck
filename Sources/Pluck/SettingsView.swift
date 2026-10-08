@@ -56,6 +56,7 @@ private struct GeneralSettings: View {
                         case .available: Text("\(appUpdater.release?.version ?? "") available").foregroundStyle(.tint)
                         case .failed(let message):
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(message)
+                                .accessibilityLabel("Update check failed: \(message)")
                         case .idle: EmptyView()
                         }
                         if appUpdater.status == .available {
@@ -282,8 +283,10 @@ private struct AdvancedSettings: View {
             }
         case .updated:
             Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).help("Just updated")
+                .accessibilityLabel("Just updated")
         case .failed(let message):
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(message)
+                .accessibilityLabel("Update failed: \(message)")
         case .idle, .upToDate:
             EmptyView()
         }

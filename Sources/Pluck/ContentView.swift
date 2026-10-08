@@ -72,6 +72,7 @@ struct ContentView: View {
             Image(systemName: "arrow.down.app.fill")
                 .font(.title2)
                 .foregroundStyle(.tint)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Pluck \(release.version) is available").font(.headline)
                 Text("You have \(appUpdater.currentVersion).").font(.caption).foregroundStyle(.secondary)
@@ -123,6 +124,7 @@ struct ContentView: View {
     private var ffmpegBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                .accessibilityLabel("Warning")
             Text(UserDefaults.standard.bool(forKey: Prefs.autoUpdate)
                  ? "Couldn’t download ffmpeg, so merging video and converting audio will fail."
                  : "ffmpeg isn’t installed, so merging video and converting audio will fail.")
@@ -155,6 +157,7 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "link")
                         .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
                     TextField("Paste a link from YouTube, Spotify or any website", text: $urlText)
                         .textFieldStyle(.plain)
                         .font(.title3)
@@ -168,6 +171,8 @@ struct ContentView: View {
                         }
                         .buttonStyle(.plain)
                         .foregroundStyle(.tertiary)
+                        .accessibilityLabel("Clear Link")
+                        .help("Clear")
                         .transition(.opacity.combined(with: .scale))
                     }
                 }
@@ -189,6 +194,7 @@ struct ContentView: View {
                 .controlSize(.large)
                 .disabled(!isValid)
                 .keyboardShortcut(.defaultAction)
+                .accessibilityLabel("Download")
                 .help("Download")
             }
         }
