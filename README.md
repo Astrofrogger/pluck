@@ -6,38 +6,55 @@
 
 <p align="center">
   <a href="https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg"><b>⬇︎ Download Pluck for Mac</b></a>
-  &nbsp;·&nbsp; free · macOS 14 or later · Apple Silicon & Intel
+  &nbsp;·&nbsp; free · macOS 14 or later · Apple Silicon & Intel · English & Nederlands
 </p>
 
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-    <img src="docs/screenshots/main-light.png" width="640" alt="Pluck's main window downloading several videos, with thumbnails, progress bars and a finished Spotify track">
+    <img src="docs/screenshots/main-light.png" width="620" alt="Pluck's main window: two films downloading, one paused, a Spotify song finished with lyrics at AAC 258 kbps, and a finished clip">
   </picture>
 </p>
 
-**Paste a link, press Return, done.** Pluck is a native SwiftUI front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp) with Liquid Glass on macOS 26 and later.
+**Paste a link or type what you're looking for, press Return, done.** Pluck is a native SwiftUI front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), with Liquid Glass on macOS 26 and later.
 
-- 🎬 **Any quality:** from 360p to 4K, with H.264 so files play everywhere, or AV1/VP9 for smaller, sharper files
-- 🎵 **Spotify links:** tracks, albums and playlists (pick the tracks you want), saved as MP3, M4A, FLAC and more, tagged with title, artist and cover art
-- 🌐 **Almost any website:** 1,800+ sites through yt-dlp, and when a page isn't supported Pluck finds the video on the page itself
+- 🔎 **Search right in Pluck:** type a song or video name and download from YouTube Music or YouTube with one click
+- 🎵 **Music done properly:** the best audio on offer (256 kbps with YouTube Premium), cover art, tags and lyrics, ready for Apple Music
+- 🎬 **Any video quality,** from 360p to 4K, clips of just the part you need, and pause and resume for big downloads
+- 🌐 **Almost any website:** 1,800+ sites through yt-dlp, plus Spotify links and pages yt-dlp doesn't know
 - ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
 
 <table>
   <tr>
     <td align="center" width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
-        <img src="docs/screenshots/menubar-light.png" width="330" alt="The menu bar panel with a link field, format menu and download progress">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
+        <img src="docs/screenshots/search-light.png" width="380" alt="Search results for Kevin MacLeod on the Music tab, each with a download button">
       </picture>
-      <br><b>Lives in your menu bar</b><br>Paste a link and follow progress without opening a window.
+      <br><b>Search, then download</b><br>Songs from YouTube Music or videos from YouTube, one click each.
+    </td>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/playlist-dark.png">
+        <img src="docs/screenshots/playlist-light.png" width="380" alt="The playlist picker showing the 17 Blender open movies, all selected">
+      </picture>
+      <br><b>Pick from playlists</b><br>One video, a few or all of them, from YouTube or Spotify.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
+        <img src="docs/screenshots/menubar-light.png" width="300" alt="The menu bar panel with a link field, format menu and download progress">
+      </picture>
+      <br><b>Lives in your menu bar</b><br>Paste, search and follow progress without opening a window.
     </td>
     <td align="center" width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
-        <img src="docs/screenshots/settings-light.png" width="380" alt="Pluck's Settings window with General options">
+        <img src="docs/screenshots/settings-light.png" width="360" alt="Settings, Downloads tab: embed metadata, cover art, subtitles and lyrics, and file names">
       </picture>
-      <br><b>Simple settings</b><br>Save folder, formats, login at startup, browser cookies.
+      <br><b>Simple settings</b><br>Formats, file names, lyrics, login at startup, browser cookies.
     </td>
   </tr>
 </table>
@@ -46,35 +63,42 @@
 Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg)**, open it, and drag Pluck into Applications. The first time you open it, go to System Settings → Privacy & Security and click **Open Anyway**, because the app isn't signed with an Apple Developer ID. After that, Pluck checks GitHub for its own updates and installs them when you click **Install & Relaunch**.
 
 ## Features
-- Paste a link (it auto-fills from the clipboard when you switch to the app), or drag one onto the window
-- **Search** YouTube or YouTube Music by typing words instead of a link, and download results with one click
-- **Automatic retry** when the connection drops: Pluck waits for the internet to come back and continues where it stopped
-- **Video:** Best, 4K, 1440p, 1080p, 720p, 480p or 360p. Codec is H.264 (plays everywhere) or AV1/VP9, container is MP4, MKV or WebM, with an optional 60 fps preference
-- **Audio:** original, M4A, MP3, Opus, FLAC or WAV, at Best VBR or 320/256/192/128 kbps
+
+### Getting things in
+- **Paste a link** (Pluck fills it in from the clipboard when you switch to it), drag one onto the window, or **type words to search** YouTube Music (songs) or YouTube (videos)
+- **Playlists:** paste a YouTube playlist or a Spotify album or playlist and pick what you want. Items you already have are marked
+- **From any app:** a shortcut you choose (⌃⌥⌘D by default) downloads the link you copied, without switching to Pluck. Or right-click a link or text and choose **Services → Download with Pluck**
+- **From your browser:** a one-click bookmark (see below) sends the page you're on to Pluck
 - **Spotify:** track, album and playlist links. Spotify audio is DRM-protected, so Pluck finds the matching song on YouTube Music and tags the file with Spotify's title, artist, album and a square cover
-- Up to 3 downloads at a time (adjustable); the rest wait in a queue
-- **Any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted), and downloads the stream it finds. It also spots embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login (Vimeo, Instagram…) use your browser's cookies, set in Settings → Advanced
-- **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Closing the window keeps Pluck running in the menu bar (no Dock icon) until you choose Quit. Settings → General can open Pluck at login and start it in the menu bar only
-- **Playlists:** paste a YouTube playlist or a Spotify album or playlist and pick what you want: one video, a few, or all of them
-- **Lyrics** for songs (from [LRCLIB](https://lrclib.net)) are written into MP3, M4A and FLAC files, so they show up in Apple Music and on iPhone
-- **Tidy files:** choose how files are named (Artist - Title, Title (Year), or your own pattern like `{artist} - {title}`), and albums and playlists go into their own folders
-- **Already downloaded?** Pluck notices and offers to show the file instead
-- **Pause and resume** big downloads, even after quitting Pluck
+- **Almost any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted) and downloads the stream it finds, including embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login use your browser's cookies (Safari, Chrome, Firefox, Zen, Brave, Edge, Vivaldi, Opera or Chromium)
+
+### Quality
+- **Video:** Best, 4K, 1440p, 1080p, 720p, 480p or 360p, in H.264 (plays everywhere) or AV1/VP9, as MP4, MKV or WebM, optionally preferring 60 fps
+- **Audio:** original, M4A, MP3, Opus, FLAC or WAV. Pluck takes the best source and only converts when it has to. With YouTube Premium (and your browser's cookies) that's about 256 kbps instead of 128. Every download shows the quality it actually got
 - **Clips:** click the scissors to download only part of a video, e.g. from 1:30 to 2:45
+
+### Music
+- **Lyrics** from [LRCLIB](https://lrclib.net) are written into MP3, M4A and FLAC files, so they show up in Apple Music and on iPhone
+- **Cover art and tags** (title, artist, album) are embedded automatically
+
+### Your files
+- **Named your way:** Automatic (Artist - Title for music), Title, Artist - Title, Title (Year), Channel - Title, or your own pattern like `{artist} - {title} ({year})`
+- **Albums and playlists** go into their own folders (`Artist/Album`)
+- **Already downloaded?** Pluck notices and offers to show the file instead
 - **Your downloads stay listed** after quitting. Drag one straight into Finder, Mail or your editor, or select it and press Space for Quick Look
-- **Send links from other apps:** right-click a link or selected text anywhere and choose **Services → Download with Pluck**
-- Live progress, speed and ETA, with thumbnails and durations
-- Dock badge, plus notifications when a download finishes in the background
-- **Settings (⌘,):**
-  - Save folder, or "always ask where to save"
-  - Format defaults
-  - Embed metadata, cover art and subtitles
-  - SponsorBlock and playlist downloads
-  - Browser cookies from Safari, Chrome, Firefox, Zen, Brave, Edge, Vivaldi, Opera or Chromium
-- **Manages its own tools:** yt-dlp (official release, optional nightly builds), ffmpeg/ffprobe ([signed static builds](https://ffmpeg.martin-riedl.de)) and Deno (the JavaScript runtime yt-dlp needs for YouTube). It checks daily and verifies every download's SHA-256 checksum
+
+### Downloading
+- **Pause and resume,** even after quitting Pluck
+- **Automatic retry** when the connection drops: Pluck waits for the internet to come back and continues where it stopped
+- Up to 3 downloads at a time (adjustable), with live progress, speed and time left
+- Notifications when downloads finish in the background, and a Dock badge
+
+### On your Mac
+- **Menu bar icon** with a progress ring. Closing the window keeps Pluck running in the menu bar until you choose Quit. It can open at login, in the menu bar only
+- **English and Dutch,** following your Mac's language (or pick one for Pluck in System Settings → General → Language & Region → Applications)
+- **Works with VoiceOver:** every control has a proper label
+- **Manages its own tools:** yt-dlp (official release, optional nightly builds), ffmpeg/ffprobe ([signed static builds](https://ffmpeg.martin-riedl.de)) and Deno (the JavaScript runtime yt-dlp needs for YouTube). It checks daily, verifies every download's checksum, and for ffmpeg and Deno also the developers' signatures
 - **Updates itself** from GitHub releases with one click
-- **A shortcut that works from any app** (⌃⌥⌘D unless you pick your own in Settings) downloads the link you copied, without switching to Pluck. ⇧⌘D does the same inside Pluck
-- **In English and Dutch**, following your Mac's language. You can pick a language just for Pluck in System Settings → General → Language & Region → Applications
 
 ## Download from your browser
 Add a bookmark with this as its address, and click it on any page to send that page to Pluck:
@@ -84,11 +108,11 @@ javascript:location.href='pluck://download?url='+encodeURIComponent(location.hre
 Pluck opens with the link filled in; press Return to start. (A `pluck://` link never starts a download by itself, so websites can't trigger downloads.)
 
 ## Requirements
-macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin`, and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
+macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin` and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
 
 ## Release
 ```bash
-./scripts/release.sh 1.2.1 "What changed"
+./scripts/release.sh 1.7.0 "What changed"
 ```
 This bumps the version, builds the app, uploads `Pluck.dmg`, `Pluck.zip` and `Pluck.zip.sha256` to a GitHub release, and tags it. Running copies of Pluck pick up the new version within a day, or straight away with Pluck → Check for Updates….
 
@@ -102,4 +126,4 @@ Strings live in `Resources/Localizable.xcstrings` (a String Catalog you can open
 ```
 
 ---
-<sub>Screenshots show <a href="https://studio.blender.org/films/">Blender Studio open movies</a> (CC BY) and a Spotify track. Pluck is meant for content you have the right to download.</sub>
+<sub>Screenshots show <a href="https://studio.blender.org/films/">Blender Studio open movies</a> (CC BY), music by <a href="https://incompetech.com">Kevin MacLeod</a> (CC BY) and a Spotify track. Pluck is meant for content you have the right to download.</sub>
