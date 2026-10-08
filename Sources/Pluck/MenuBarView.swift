@@ -409,41 +409,65 @@ struct MenuBarIcon: View {
     }
 
     static func render(progress: Double?) -> NSImage {
-        let size = NSSize(width: 18, height: 18)
-        let image = NSImage(size: size, flipped: false) { rect in
-            let ring = rect.insetBy(dx: 1.5, dy: 1.5)
-            let center = NSPoint(x: rect.midX, y: rect.midY)
-
-            if let progress {
-                // Faint full track, then the progress arc clockwise from 12 o'clock.
-                NSColor.black.withAlphaComponent(0.3).setStroke()
-                let track = NSBezierPath(ovalIn: ring)
-                track.lineWidth = 1.8
-                track.stroke()
-
-                NSColor.black.setStroke()
-                let arc = NSBezierPath()
-                arc.appendArc(withCenter: center, radius: ring.width / 2,
-                              startAngle: 90, endAngle: 90 - 360 * max(progress, 0.03), clockwise: true)
-                arc.lineWidth = 1.8
-                arc.lineCapStyle = .round
-                arc.stroke()
-            } else {
-                NSColor.black.setStroke()
-                let circle = NSBezierPath(ovalIn: ring)
-                circle.lineWidth = 1.5
-                circle.stroke()
-            }
-
-            let config = NSImage.SymbolConfiguration(pointSize: 9, weight: .bold)
-            if let arrow = NSImage(systemSymbolName: "arrow.down", accessibilityDescription: nil)?
-                .withSymbolConfiguration(config) {
-                let origin = NSPoint(x: center.x - arrow.size.width / 2, y: center.y - arrow.size.height / 2)
-                arrow.draw(at: origin, from: .zero, operation: .sourceOver, fraction: 1)
-            }
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            drawRing(in: rect, progress: progress)
+            drawGlyph(in: rect)
             return true
         }
         image.isTemplate = true
         return image
+    }
+
+    /// The circle, or while downloading a faint track with a progress arc from 12 o'clock.
+    static func drawRing(in rect: NSRect, progress: Double?) {
+        let unit = rect.width / 18
+        let ring = rect.insetBy(dx: 1.5 * unit, dy: 1.5 * unit)
+        let center = NSPoint(x: rect.midX, y: rect.midY)
+        let width = 1.6 * unit
+
+        guard let progress else {
+            NSColor.black.setStroke()
+            let circle = NSBezierPath(ovalIn: ring)
+            circle.lineWidth = width
+            circle.stroke()
+            return
+        }
+        NSColor.black.withAlphaComponent(0.3).setStroke()
+        let track = NSBezierPath(ovalIn: ring)
+        track.lineWidth = width
+        track.stroke()
+
+        NSColor.black.setStroke()
+        let arc = NSBezierPath()
+        arc.appendArc(withCenter: center, radius: ring.width / 2,
+                      startAngle: 90, endAngle: 90 - 360 * max(progress, 0.03), clockwise: true)
+        arc.lineWidth = width
+        arc.lineCapStyle = .round
+        arc.stroke()
+    }
+
+    /// The app icon's glyph (arrow over a bar), drawn on an 18pt grid so its outer edges,
+    /// round caps included, sit exactly on the centre: y 4.1…13.9 and x 5.1…12.9 around 9.
+    static func drawGlyph(in rect: NSRect) {
+        let unit = rect.width / 18
+        func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint {
+            NSPoint(x: rect.minX + x * unit, y: rect.minY + y * unit)
+        }
+        let glyph = NSBezierPath()
+        // Stem and arrowhead, tip just above the bar as in the app icon.
+        glyph.move(to: p(9, 13.1))
+        glyph.line(to: p(9, 6.6))
+        glyph.move(to: p(6.1, 9.5))
+        glyph.line(to: p(9, 6.6))
+        glyph.line(to: p(11.9, 9.5))
+        // Bar.
+        glyph.move(to: p(5.9, 4.9))
+        glyph.line(to: p(12.1, 4.9))
+
+        glyph.lineWidth = 1.6 * unit
+        glyph.lineCapStyle = .round
+        glyph.lineJoinStyle = .round
+        NSColor.black.setStroke()
+        glyph.stroke()
     }
 }
