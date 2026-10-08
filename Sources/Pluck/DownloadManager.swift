@@ -17,7 +17,6 @@ enum Prefs {
     static let embedThumbnail = "embedThumbnail"
     static let embedSubtitles = "embedSubtitles"
     static let removeSponsors = "removeSponsors"
-    static let allowPlaylists = "allowPlaylists"
     static let cookiesBrowser = "cookiesBrowser"
     static let notify = "notify"
     static let ytdlpPath = "ytdlpPath"
@@ -43,7 +42,6 @@ enum Prefs {
             embedThumbnail: true,
             embedSubtitles: false,
             removeSponsors: false,
-            allowPlaylists: false,
             cookiesBrowser: "none",
             notify: true,
             ytdlpPath: "",
@@ -174,7 +172,9 @@ final class DownloadManager {
             folder = chosen
         }
         for url in urls {
-            if Spotify.isSpotify(url) {
+            if Playlists.looksLikePlaylist(url) {
+                presentPicker(for: url, options: options, folder: folder)
+            } else if Spotify.isSpotify(url) {
                 addSpotify(url, options: options, folder: folder, clip: clip)
             } else {
                 let item = DownloadItem(url: url, options: options, folder: folder)
@@ -199,6 +199,93 @@ final class DownloadManager {
         panel.message = count == 1 ? "Choose where to save this download." : "Choose where to save these \(count) downloads."
         NSApp.activate()
         return panel.runModal() == .OK ? panel.url?.path : nil
+    }
+
+    // MARK: - Playlist picker
+
+    /// Playlist links waiting for the user to choose videos; the first one is shown.
+    var picks: [PlaylistPick] = []
+
+    private func presentPicker(for url: String, options: DownloadOptions, folder: String) {
+        let pick = PlaylistPick(sourceURL: url, folder: folder, options: options)
+        picks.append(pick)
+        AppDelegate.openMainWindow?()
+        Task { await load(pick) }
+    }
+
+    private func load(_ pick: PlaylistPick) async {
+        if let link = Spotify.parse(pick.sourceURL) {
+            do {
+                let collection = try await Spotify.fetch(link)
+                pick.title = collection.name
+                pick.owner = "Spotify \(link.kind.rawValue)"
+                pick.entries = collection.tracks.map { track in
+                    PlaylistEntry(id: track.id, url: track.url, title: track.title,
+                                  subtitle: track.artists.joined(separator: ", "),
+                                  duration: track.duration, thumbnail: track.cover, spotify: track)
+                }
+            } catch {
+                pick.phase = .failed(error.localizedDescription)
+                return
+            }
+        } else {
+            let args = ["--flat-playlist", "--dump-single-json", "--no-warnings", "--yes-playlist",
+                        "--playlist-end", "\(Playlists.limit)"] + cookieArguments() + ["--", pick.sourceURL]
+            guard let data = await capture(args), let playlist = Playlists.parse(data) else {
+                // Not a playlist after all, or unreadable: download the link as a single video.
+                cancelPick(pick)
+                items.insert(DownloadItem(url: pick.sourceURL, options: pick.options, folder: pick.folder), at: 0)
+                pump()
+                return
+            }
+            pick.title = playlist.title ?? "Playlist"
+            pick.owner = playlist.owner
+            pick.entries = playlist.entries
+            pick.hiddenCount = playlist.hidden
+        }
+
+        // A video link inside a playlist starts with just that video; a playlist link with everything.
+        if let focus = Playlists.focusedVideoID(in: pick.sourceURL), pick.entries.contains(where: { $0.id == focus }) {
+            pick.selected = [focus]
+        } else {
+            pick.selectAll()
+        }
+        pick.phase = pick.entries.isEmpty ? .failed("This playlist has no videos Pluck can download.") : .ready
+    }
+
+    func cancelPick(_ pick: PlaylistPick) {
+        picks.removeAll { $0.id == pick.id }
+    }
+
+    /// Queues the chosen entries, in playlist order.
+    func confirm(_ pick: PlaylistPick) {
+        // Uses the format picked in the sheet (stored like the main window's choice).
+        var options = DownloadOptions.current
+        let spotifyItems = pick.selectedEntries.contains { $0.spotify != nil }
+        if spotifyItems { options.kind = .audio }
+        let newItems = pick.selectedEntries.map { entry -> DownloadItem in
+            let item: DownloadItem
+            if let track = entry.spotify {
+                item = DownloadItem(spotify: track, options: options, folder: pick.folder)
+            } else {
+                item = DownloadItem(url: entry.url, options: options, folder: pick.folder)
+                item.title = entry.title
+                item.uploader = entry.subtitle
+                item.duration = entry.duration
+                item.thumbnail = entry.thumbnail
+            }
+            return item
+        }
+        // Newest first in the list, so the playlist's first video ends up at the top of the batch.
+        items.insert(contentsOf: newItems, at: 0)
+        cancelPick(pick)
+        pump()
+    }
+
+    private func cookieArguments() -> [String] {
+        guard let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
+              browser.isInstalled, let value = browser.argument else { return [] }
+        return ["--cookies-from-browser", value]
     }
 
     private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil) {
@@ -346,7 +433,8 @@ final class DownloadManager {
             }
         } else {
             args += ["-o", "%(title)s\(clipSuffix).%(ext)s"]
-            args.append(defaults.bool(forKey: Prefs.allowPlaylists) ? "--yes-playlist" : "--no-playlist")
+            // Playlists go through the picker, so a link here always means one video.
+            args.append("--no-playlist")
             if defaults.bool(forKey: Prefs.embedMetadata) { args.append("--embed-metadata") }
             if defaults.bool(forKey: Prefs.embedThumbnail), options.canEmbedThumbnail { args.append("--embed-thumbnail") }
             if defaults.bool(forKey: Prefs.embedSubtitles), !options.isAudio {
@@ -358,11 +446,7 @@ final class DownloadManager {
         // A raw stream found by loading a page is a link that page chose. Never send the user's
         // browser cookies along with it (the page was loaded logged out anyway).
         let isPageStream = item.pageStream?.usePageTitle == true
-        if !isPageStream,
-           let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
-           browser.isInstalled, let value = browser.argument {
-            args += ["--cookies-from-browser", value]
-        }
+        if !isPageStream { args += cookieArguments() }
         args += ["--", url]
         return args
     }

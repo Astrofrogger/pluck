@@ -19,7 +19,7 @@
 **Paste a link, press Return, done.** Pluck is a native SwiftUI front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp) with Liquid Glass on macOS 26 and later.
 
 - 🎬 **Any quality:** from 360p to 4K, with H.264 so files play everywhere, or AV1/VP9 for smaller, sharper files
-- 🎵 **Spotify links:** tracks, albums and playlists, saved as MP3, M4A, FLAC and more, tagged with title, artist and cover art
+- 🎵 **Spotify links:** tracks, albums and playlists (pick the tracks you want), saved as MP3, M4A, FLAC and more, tagged with title, artist and cover art
 - 🌐 **Almost any website:** 1,800+ sites through yt-dlp, and when a page isn't supported Pluck finds the video on the page itself
 - ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
 
@@ -53,6 +53,7 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - Up to 3 downloads at a time (adjustable); the rest wait in a queue
 - **Any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted), and downloads the stream it finds. It also spots embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login (Vimeo, Instagram…) use your browser's cookies, set in Settings → Advanced
 - **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Closing the window keeps Pluck running in the menu bar (no Dock icon) until you choose Quit. Settings → General can open Pluck at login and start it in the menu bar only
+- **Playlists:** paste a YouTube playlist or a Spotify album or playlist and pick what you want: one video, a few, or all of them
 - **Clips:** click the scissors to download only part of a video, e.g. from 1:30 to 2:45
 - **Your downloads stay listed** after quitting. Drag one straight into Finder, Mail or your editor, or select it and press Space for Quick Look
 - **Send links from other apps:** right-click a link or selected text anywhere and choose **Services → Download with Pluck**

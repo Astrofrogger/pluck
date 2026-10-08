@@ -277,7 +277,6 @@ private struct DownloadSettings: View {
     @AppStorage(Prefs.embedThumbnail) private var embedThumbnail = true
     @AppStorage(Prefs.embedSubtitles) private var embedSubtitles = false
     @AppStorage(Prefs.removeSponsors) private var removeSponsors = false
-    @AppStorage(Prefs.allowPlaylists) private var allowPlaylists = false
 
     var body: some View {
         Form {
@@ -287,7 +286,6 @@ private struct DownloadSettings: View {
                 Toggle("Subtitles (video only)", isOn: $embedSubtitles)
             }
             Section {
-                Toggle("Download entire playlist when a link points to one", isOn: $allowPlaylists)
                 Toggle("Remove sponsor segments (SponsorBlock)", isOn: $removeSponsors)
             }
         }

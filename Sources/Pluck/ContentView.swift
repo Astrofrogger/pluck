@@ -12,6 +12,7 @@ struct ContentView: View {
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @State private var urlText = ""
     @State private var selection: DownloadItem.ID?
+    @State private var shownPickID: PlaylistPick.ID?
     @State private var clipping = false
     @State private var clipStart = ""
     @State private var clipEnd = ""
@@ -84,6 +85,16 @@ struct ContentView: View {
             fieldFocused = true
         }
         .onChange(of: manager.pendingLink) { _ = takePendingLink() }
+        .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
+            // Closing the sheet cancels only the playlist that was on screen, never the next one.
+            if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
+                manager.cancelPick(shown)
+            }
+        })) { pick in
+            PlaylistPickerView(pick: pick)
+                .environment(manager)
+                .onAppear { shownPickID = pick.id }
+        }
     }
 
     private var subtitle: String {
