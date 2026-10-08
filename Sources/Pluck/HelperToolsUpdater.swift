@@ -10,7 +10,10 @@ import Observation
 @MainActor
 @Observable
 final class HelperToolsUpdater {
-    var status: Updater.Status = .idle
+    var status: Updater.Status = .idle {
+        didSet { onStatusChange?() }
+    }
+    @ObservationIgnored var onStatusChange: (() -> Void)?
     var ffmpegVersion: String? {
         didSet { UserDefaults.standard.set(ffmpegVersion, forKey: "ffmpegVersion") }
     }

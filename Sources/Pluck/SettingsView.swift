@@ -19,6 +19,10 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.notify) private var notify = true
     @AppStorage(Prefs.askLocation) private var askLocation = false
     @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
+    @AppStorage(Prefs.startInMenuBar) private var startInMenuBar = false
+    @State private var openAtLogin = LoginItem.isEnabled
+    @State private var loginNeedsApproval = LoginItem.needsApproval
+    @State private var loginError: String?
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
     @Environment(AppUpdater.self) private var appUpdater
 
@@ -43,7 +47,35 @@ private struct GeneralSettings: View {
                 ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
             }
             Toggle("Notify when downloads finish in the background", isOn: $notify)
-            Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)
+
+            Section {
+                Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)
+                Toggle("Open Pluck at login", isOn: $openAtLogin)
+                    .onChange(of: openAtLogin) { _, enabled in setLoginItem(enabled) }
+                Toggle("Start in the menu bar only (no window)", isOn: $startInMenuBar)
+                    .disabled(!showMenuBarIcon)
+            } header: {
+                Text("Menu Bar")
+            } footer: {
+                Group {
+                    if loginNeedsApproval {
+                        HStack {
+                            Text("macOS needs your OK in Login Items before Pluck can open at login.")
+                            Button("Open Login Items…") { LoginItem.openSystemSettings() }
+                                .buttonStyle(.link)
+                        }
+                    } else if let loginError {
+                        Text(loginError)
+                    } else {
+                        Text("Closing the window keeps Pluck running in the menu bar. Choose Quit Pluck to stop it.")
+                    }
+                }
+                .foregroundStyle(.secondary)
+            }
+            .onAppear {
+                openAtLogin = LoginItem.isEnabled
+                loginNeedsApproval = LoginItem.needsApproval
+            }
 
             Section("Pluck Updates") {
                 Toggle("Check for Pluck updates automatically", isOn: $appAutoUpdate)
@@ -73,6 +105,18 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private func setLoginItem(_ enabled: Bool) {
+        guard enabled != LoginItem.isEnabled else { return }
+        do {
+            try LoginItem.set(enabled)
+            loginError = nil
+        } catch {
+            loginError = "Couldn’t change the login item: \(error.localizedDescription)"
+        }
+        openAtLogin = LoginItem.isEnabled || LoginItem.needsApproval
+        loginNeedsApproval = LoginItem.needsApproval
     }
 
     private func chooseFolder() {

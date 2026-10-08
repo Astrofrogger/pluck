@@ -12,7 +12,10 @@ final class Updater {
         case idle, checking, downloading, upToDate, updated(String), failed(String)
     }
 
-    var status: Status = .idle
+    var status: Status = .idle {
+        didSet { onStatusChange?() }
+    }
+    @ObservationIgnored var onStatusChange: (() -> Void)?
     var installedVersion: String?
     var lastChecked: Date? {
         didSet { UserDefaults.standard.set(lastChecked, forKey: "updaterLastChecked") }

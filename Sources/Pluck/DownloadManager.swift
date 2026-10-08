@@ -26,6 +26,7 @@ enum Prefs {
     static let askLocation = "askLocation"
     static let appAutoUpdate = "appAutoUpdate"
     static let showMenuBarIcon = "showMenuBarIcon"
+    static let startInMenuBar = "startInMenuBar"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -51,6 +52,7 @@ enum Prefs {
             askLocation: false,
             appAutoUpdate: true,
             showMenuBarIcon: true,
+            startInMenuBar: false,
         ])
     }
 }

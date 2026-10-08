@@ -8,7 +8,7 @@ A native macOS front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), built i
 - **Spotify:** track, album and playlist links. Spotify audio is DRM-protected, so Pluck finds the matching song on YouTube Music and tags the file with Spotify's title, artist, album and a square cover
 - Up to 3 downloads at a time (adjustable); the rest wait in a queue
 - **Any website:** yt-dlp supports 1,800+ sites. When it doesn't recognise a page, Pluck loads the page in an invisible browser, lets the player start (muted), and downloads the stream it finds. It also spots embedded Vimeo, YouTube, Dailymotion, Twitch and SoundCloud players. DRM-protected streams are never downloaded. Sites that need a login (Vimeo, Instagram…) use your browser's cookies, set in Settings → Advanced
-- **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Pluck keeps downloading after the window is closed. You can hide the icon in Settings
+- **Menu bar icon:** paste a link, pick a format, and watch progress without opening the main window. Closing the window keeps Pluck running in the menu bar (no Dock icon) until you choose Quit. Settings → General can open Pluck at login and start it in the menu bar only
 - Live progress, speed and ETA, with thumbnails and durations
 - Dock badge, plus notifications when a download finishes in the background
 - **Settings (⌘,):**

@@ -398,6 +398,7 @@ struct ThinProgressBar: View {
 /// The menu bar icon: a down arrow, which becomes a progress ring while downloading.
 struct MenuBarIcon: View {
     @Environment(DownloadManager.self) private var manager
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         let running = manager.items.filter(\.isActive)
@@ -406,6 +407,9 @@ struct MenuBarIcon: View {
             : ((running.map(\.progress).reduce(0, +) / Double(running.count)) * 20).rounded() / 20
         Image(nsImage: Self.render(progress: progress))
             .accessibilityLabel(running.isEmpty ? "Pluck" : "Pluck, \(running.count) downloading")
+            .onAppear {
+                AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+            }
     }
 
     static func render(progress: Double?) -> NSImage {

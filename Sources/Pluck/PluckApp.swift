@@ -2,11 +2,13 @@ import SwiftUI
 
 @main
 struct PluckApp: App {
-    @State private var manager = DownloadManager()
-    @State private var updater = Updater()
-    @State private var appUpdater = AppUpdater()
-    @State private var toolsUpdater = HelperToolsUpdater()
+    @NSApplicationDelegateAdaptor private var app: AppDelegate
     @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
+
+    private var manager: DownloadManager { app.manager }
+    private var updater: Updater { app.updater }
+    private var appUpdater: AppUpdater { app.appUpdater }
+    private var toolsUpdater: HelperToolsUpdater { app.toolsUpdater }
 
     var body: some Scene {
         Window("Pluck", id: "main") {
@@ -14,13 +16,6 @@ struct PluckApp: App {
                 .environment(manager)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
-                .task {
-                    updater.startAutomaticChecks()
-                    toolsUpdater.startAutomaticChecks()
-                    appUpdater.startAutomaticChecks()
-                }
-                .onChange(of: updater.status) { toolsChanged() }
-                .onChange(of: toolsUpdater.status) { toolsChanged() }
         }
         .windowToolbarStyle(.unified)
         .defaultSize(width: 680, height: 520)
@@ -57,13 +52,6 @@ struct PluckApp: App {
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }
-    }
-
-    /// Lets queued downloads start once first-run setup of yt-dlp and ffmpeg has finished.
-    private func toolsChanged() {
-        manager.toolsInstalling = updater.isBusy || toolsUpdater.isBusy
-        manager.refreshVersion()
-        manager.pump()
     }
 }
 

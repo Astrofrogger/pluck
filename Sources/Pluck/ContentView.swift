@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(DownloadManager.self) private var manager
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
     @Environment(AppUpdater.self) private var appUpdater
     @Environment(HelperToolsUpdater.self) private var toolsUpdater
     @State private var confirmUpdate = false
@@ -55,6 +57,14 @@ struct ContentView: View {
             autofillFromClipboard()
         }
         .onAppear {
+            AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+            if !AppDelegate.didHandleLaunchWindow {
+                AppDelegate.didHandleLaunchWindow = true
+                if AppDelegate.startsHidden {
+                    dismissWindow(id: "main")
+                    return
+                }
+            }
             autofillFromClipboard()
             fieldFocused = true
         }
