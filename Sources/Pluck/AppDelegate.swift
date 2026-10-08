@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        CookieBrowser.chooseOnFirstLaunch()
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
         Self.shared = self
