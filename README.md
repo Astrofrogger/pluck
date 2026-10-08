@@ -1,6 +1,6 @@
 # Pluck
 
-A native macOS front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), built in SwiftUI with Liquid Glass.
+A native macOS front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), built in SwiftUI with Liquid Glass. Runs on macOS 14 Sonoma and later.
 
 - Paste a link (it auto-fills from the clipboard when you switch to the app), or drag one onto the window
 - **Video:** Best, 4K, 1440p, 1080p, 720p, 480p or 360p. Codec is H.264 (plays everywhere) or AV1/VP9, container is MP4, MKV or WebM, with an optional 60 fps preference
@@ -23,7 +23,7 @@ A native macOS front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), built i
 Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg)**, open it, and drag Pluck into Applications. The first time you open it, go to System Settings → Privacy & Security and click **Open Anyway**, because the app isn't signed with an Apple Developer ID. After that, Pluck checks GitHub for its own updates and installs them when you click **Install & Relaunch**.
 
 ## Requirements
-macOS 26 or later, on Apple Silicon or Intel. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin`, and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
+macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin`, and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
 
 ## Release
 ```bash

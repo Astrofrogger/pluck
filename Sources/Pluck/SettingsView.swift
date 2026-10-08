@@ -3,10 +3,10 @@ import SwiftUI
 struct SettingsView: View {
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") { GeneralSettings() }
-            Tab("Format", systemImage: "slider.horizontal.3") { FormatSettingsView() }
-            Tab("Downloads", systemImage: "arrow.down.circle") { DownloadSettings() }
-            Tab("Advanced", systemImage: "terminal") { AdvancedSettings() }
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            FormatSettingsView().tabItem { Label("Format", systemImage: "slider.horizontal.3") }
+            DownloadSettings().tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
+            AdvancedSettings().tabItem { Label("Advanced", systemImage: "terminal") }
         }
         .frame(width: 480)
         .scenePadding()

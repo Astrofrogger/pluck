@@ -84,15 +84,15 @@ struct ContentView: View {
                 Button("What’s New") { NSWorkspace.shared.open(release.page) }
                     .buttonStyle(.borderless)
                 Button("Later") { withAnimation { appUpdater.dismissedVersion = release.version } }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                 Button("Install & Relaunch") {
                     if manager.activeCount > 0 { confirmUpdate = true } else { install() }
                 }
-                .buttonStyle(.glassProminent)
+                .glassProminentButtonStyle()
             }
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .glassBackground(in: .rect(cornerRadius: 16))
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -115,7 +115,7 @@ struct ContentView: View {
             Spacer()
         }
         .padding(12)
-        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+        .glassBackground(in: .rect(cornerRadius: 16))
         .padding(.horizontal, 20)
         .padding(.top, 12)
     }
@@ -130,19 +130,19 @@ struct ContentView: View {
             Spacer()
             if UserDefaults.standard.bool(forKey: Prefs.autoUpdate) {
                 Button("Try Again") { Task { await toolsUpdater.check(force: true) } }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .help(toolsUpdater.failureMessage ?? "")
             } else {
                 Button("Copy Install Command") {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString("brew install ffmpeg", forType: .string)
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .help("brew install ffmpeg (needs Homebrew from brew.sh)")
             }
         }
         .padding(12)
-        .glassEffect(.regular.tint(.orange.opacity(0.15)), in: .rect(cornerRadius: 16))
+        .glassBackground(in: .rect(cornerRadius: 16), tint: .orange.opacity(0.15))
         .padding(.horizontal, 20)
         .padding(.top, 12)
     }
@@ -150,7 +150,7 @@ struct ContentView: View {
     // MARK: - Input
 
     private var inputBar: some View {
-        GlassEffectContainer(spacing: 10) {
+        GlassGroup(spacing: 10) {
             HStack(spacing: 10) {
                 HStack(spacing: 10) {
                     Image(systemName: "link")
@@ -173,18 +173,18 @@ struct ContentView: View {
                 }
                 .padding(.horizontal, 16)
                 .frame(height: 46)
-                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassBackground(in: .capsule, interactive: true)
 
                 FormatMenu()
                     .controlSize(.large)
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
 
                 Button(action: submit) {
                     Image(systemName: "arrow.down")
                         .font(.title3.weight(.semibold))
                         .frame(width: 30, height: 30)
                 }
-                .buttonStyle(.glassProminent)
+                .glassProminentButtonStyle()
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
                 .disabled(!isValid)
@@ -229,7 +229,7 @@ struct ContentView: View {
             .padding(.bottom, 20)
             .animation(.smooth, value: manager.items.map(\.id))
         }
-        .scrollEdgeEffectStyle(.soft, for: .top)
+        .softTopScrollEdge()
     }
 
     private var emptyState: some View {
@@ -240,7 +240,7 @@ struct ContentView: View {
         } actions: {
             if let link = Clipboard.videoURL() {
                 Button("Download from Clipboard") { manager.add(link) }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .help(link)
             }
         }

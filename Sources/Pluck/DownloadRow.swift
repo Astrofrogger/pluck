@@ -162,7 +162,7 @@ struct DownloadRow: View {
                     .help("Try Again")
             }
         }
-        .buttonStyle(.glass)
+        .glassButtonStyle()
         .buttonBorderShape(.circle)
         .controlSize(.large)
     }
