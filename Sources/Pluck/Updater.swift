@@ -88,10 +88,10 @@ final class Updater {
 
         var errorDescription: String? {
             switch self {
-            case .noAsset: "The latest release has no macOS build."
-            case .checksumMissing: "The release has no checksum for the macOS build."
-            case .checksumMismatch: "The download didn’t match its published checksum, so it was discarded."
-            case .badBinary: "The downloaded yt-dlp didn’t run."
+            case .noAsset: String(localized: "The latest release has no macOS build.")
+            case .checksumMissing: String(localized: "The release has no checksum for the macOS build.")
+            case .checksumMismatch: String(localized: "The download didn’t match its published checksum, so it was discarded.")
+            case .badBinary: String(localized: "The downloaded yt-dlp didn’t run.")
             }
         }
     }

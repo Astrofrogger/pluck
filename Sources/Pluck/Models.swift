@@ -14,7 +14,7 @@ enum Resolution: Int, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .best: "Best Available"
+        case .best: String(localized: "Best Available")
         case .p2160: "2160p (4K)"
         case .p1440: "1440p (2K)"
         default: "\(rawValue)p"
@@ -23,7 +23,7 @@ enum Resolution: Int, CaseIterable, Identifiable, Codable {
 
     var shortLabel: String {
         switch self {
-        case .best: "Best"
+        case .best: String(localized: "Best")
         case .p2160: "4K"
         default: "\(rawValue)p"
         }
@@ -37,8 +37,8 @@ enum VideoCodec: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .compatible: "H.264 (plays everywhere)"
-        case .modern: "AV1 / VP9 (sharper, smaller)"
+        case .compatible: String(localized: "H.264 (plays everywhere)")
+        case .modern: String(localized: "AV1 / VP9 (sharper, smaller)")
         }
     }
 }
@@ -57,17 +57,17 @@ enum AudioFormat: String, CaseIterable, Identifiable, Codable {
 
     var label: String {
         switch self {
-        case .original: "Original (no conversion)"
-        case .m4a: "M4A (AAC)"
+        case .original: String(localized: "Original (no conversion)")
+        case .m4a: String(localized: "M4A (AAC)")
         case .mp3: "MP3"
         case .opus: "Opus"
-        case .flac: "FLAC (lossless)"
-        case .wav: "WAV (uncompressed)"
+        case .flac: String(localized: "FLAC (lossless)")
+        case .wav: String(localized: "WAV (uncompressed)")
         }
     }
 
     var shortLabel: String {
-        self == .original ? "Audio" : rawValue.uppercased()
+        self == .original ? String(localized: "Audio") : rawValue.uppercased()
     }
 
     /// Lossy formats where a target bitrate makes sense.
@@ -78,7 +78,7 @@ enum AudioBitrate: Int, CaseIterable, Identifiable, Codable {
     case best = 0, k320 = 320, k256 = 256, k192 = 192, k128 = 128
 
     var id: Int { rawValue }
-    var label: String { self == .best ? "Best (VBR)" : "\(rawValue) kbps" }
+    var label: String { self == .best ? String(localized: "Best (VBR)") : "\(rawValue) kbps" }
 }
 
 /// A snapshot of the format settings, captured when a download is added.
@@ -135,9 +135,15 @@ struct DownloadOptions: Equatable, Codable {
         if isAudio {
             var args = ["-f", "ba/b", "-x"]
             if audioFormat != .original { args += ["--audio-format", audioFormat.rawValue] }
-            // Prefer a source that needs no re-encode.
-            if audioFormat == .m4a { args += ["-S", "acodec:aac"] }
-            if audioFormat == .opus { args += ["-S", "acodec:opus"] }
+            // Take the best source, and prefer a codec only when that avoids converting:
+            // M4A keeps AAC (256 kbps with YouTube Premium cookies), Opus keeps Opus, and
+            // everything else (original, or formats that are always converted) takes the
+            // highest bitrate on offer.
+            switch audioFormat {
+            case .m4a: args += ["-S", "acodec:aac,abr"]
+            case .opus: args += ["-S", "acodec:opus,abr"]
+            case .original, .mp3, .flac, .wav: args += ["-S", "abr"]
+            }
             if audioFormat.supportsBitrate {
                 args += ["--audio-quality", audioBitrate == .best ? "0" : "\(audioBitrate.rawValue)K"]
             }
@@ -204,6 +210,8 @@ final class DownloadItem: Identifiable {
     var finishedAt: Date?
     /// Only this part of the video is downloaded.
     var clip: ClipRange?
+    /// The audio Pluck actually downloaded, e.g. "Opus 272 kbps", before any conversion.
+    var sourceAudio: String?
 
     @ObservationIgnored var process: Process?
 

@@ -67,7 +67,8 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
   - Browser cookies from Safari, Chrome, Firefox, Zen, Brave, Edge, Vivaldi, Opera or Chromium
 - **Manages its own tools:** yt-dlp (official release, optional nightly builds), ffmpeg/ffprobe ([signed static builds](https://ffmpeg.martin-riedl.de)) and Deno (the JavaScript runtime yt-dlp needs for YouTube). It checks daily and verifies every download's SHA-256 checksum
 - **Updates itself** from GitHub releases with one click
-- ⇧⌘D downloads whatever link is on the clipboard
+- **A shortcut that works from any app** (⌃⌥⌘D unless you pick your own in Settings) downloads the link you copied, without switching to Pluck. ⇧⌘D does the same inside Pluck
+- **In English and Dutch**, following your Mac's language. You can pick a language just for Pluck in System Settings → General → Language & Region → Applications
 
 ## Download from your browser
 Add a bookmark with this as its address, and click it on any page to send that page to Pluck:
@@ -84,6 +85,9 @@ macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it us
 ./scripts/release.sh 1.2.1 "What changed"
 ```
 This bumps the version, builds the app, uploads `Pluck.dmg`, `Pluck.zip` and `Pluck.zip.sha256` to a GitHub release, and tags it. Running copies of Pluck pick up the new version within a day, or straight away with Pluck → Check for Updates….
+
+## Translations
+Strings live in `Resources/Localizable.xcstrings` (a String Catalog you can open in Xcode). After changing text in the code, run `./scripts/update-strings.sh` to add new strings to the catalog, then translate them.
 
 ## Build
 ```bash

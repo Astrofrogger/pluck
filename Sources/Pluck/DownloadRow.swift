@@ -134,7 +134,7 @@ struct DownloadRow: View {
         case .starting:
             HStack(spacing: 8) {
                 ProgressView().controlSize(.mini)
-                Text(item.phase ?? "Fetching info…")
+                Text(item.phase ?? String(localized: "Fetching info…"))
             }
             .font(.caption)
             .foregroundStyle(.secondary)
@@ -153,7 +153,7 @@ struct DownloadRow: View {
         case .processing:
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView().progressViewStyle(.linear)
-                Text(item.phase ?? "Finishing up…")
+                Text(item.phase ?? String(localized: "Finishing up…"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -164,12 +164,22 @@ struct DownloadRow: View {
                 .foregroundStyle(.secondary)
 
         case .finished:
-            Label(item.fileSize.map { "Done · \(Format.bytes($0))" } ?? "Done", systemImage: "checkmark.circle.fill")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.green)
+            HStack(spacing: 6) {
+                Label(item.fileSize.map { String(localized: "Done · \(Format.bytes($0))") } ?? String(localized: "Done"), systemImage: "checkmark.circle.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.green)
+                if let source = item.sourceAudio {
+                    // The quality that was actually downloaded, so a FLAC made from a 136 kbps
+                    // stream doesn't pass for lossless.
+                    Text("· \(source)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Downloaded audio quality, before conversion")
+                }
+            }
 
         case .failed:
-            Label(item.errorMessage ?? "Download failed", systemImage: "exclamationmark.triangle.fill")
+            Label(item.errorMessage ?? String(localized: "Download failed"), systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(.red)
                 .lineLimit(2)
@@ -185,7 +195,7 @@ struct DownloadRow: View {
     private var downloadStats: String {
         var parts = ["\(Int(item.progress * 100))%"]
         if let speed = item.speed { parts.append("\(Format.bytes(Int64(speed)))/s") }
-        if let eta = item.eta, eta > 0 { parts.append("\(Format.duration(eta)) left") }
+        if let eta = item.eta, eta > 0 { parts.append(String(localized: "\(Format.duration(eta)) left")) }
         return parts.joined(separator: " · ")
     }
 

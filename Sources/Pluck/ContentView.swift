@@ -99,7 +99,7 @@ struct ContentView: View {
 
     private var subtitle: String {
         let active = manager.activeCount
-        return active == 0 ? "" : "\(active) downloading"
+        return active == 0 ? "" : String(localized: "\(active) downloading")
     }
 
     // MARK: - Banners
@@ -279,8 +279,8 @@ struct ContentView: View {
                     Label("Use times like 1:30, with the end after the start", systemImage: "exclamationmark.circle")
                         .foregroundStyle(.red)
                 } else if let clip {
-                    Text(clip.end == nil ? "From \(Format.duration(clip.start)) to the end"
-                                         : "\(Format.duration((clip.end ?? 0) - clip.start)) clip")
+                    Text(clip.end == nil ? String(localized: "From \(Format.duration(clip.start)) to the end")
+                                         : String(localized: "\(Format.duration((clip.end ?? 0) - clip.start)) clip"))
                         .foregroundStyle(.secondary)
                 } else {
                     Text("Times like 1:30 or 1:02:03").foregroundStyle(.tertiary)

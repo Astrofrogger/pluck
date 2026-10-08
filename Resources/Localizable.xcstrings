@@ -1,0 +1,2401 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@ No playable video was found on the page either.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Ook op de pagina is geen afspeelbare video gevonden."
+          }
+        }
+      }
+    },
+    "%@ available": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ beschikbaar"
+          }
+        }
+      }
+    },
+    "%@ clip": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragment van %@"
+          }
+        }
+      }
+    },
+    "%@ left": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog %@"
+          }
+        }
+      }
+    },
+    "%lld": {
+      "shouldTranslate": false
+    },
+    "%lld downloading": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bezig"
+          }
+        }
+      }
+    },
+    "%lld downloading · %lld%%": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld downloading · %2$lld%%"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bezig · %lld%%"
+          }
+        }
+      }
+    },
+    "%lld files saved": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bestanden bewaard"
+          }
+        }
+      }
+    },
+    "%lld items": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld onderdelen"
+          }
+        }
+      }
+    },
+    "%lld more in Pluck…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog %lld in Pluck…"
+          }
+        }
+      }
+    },
+    "%lld of %lld selected": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld of %2$lld selected"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld van %lld geselecteerd"
+          }
+        }
+      }
+    },
+    "%lld percent": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld procent"
+          }
+        }
+      }
+    },
+    "%lld saved, %lld failed": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld saved, %2$lld failed"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld bewaard, %lld mislukt"
+          }
+        }
+      }
+    },
+    "%lld unavailable hidden": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld niet-beschikbare verborgen"
+          }
+        }
+      }
+    },
+    "%lld%%": {
+      "shouldTranslate": false
+    },
+    "0:00": {
+      "shouldTranslate": false
+    },
+    "1 item": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 onderdeel"
+          }
+        }
+      }
+    },
+    "AV1 / VP9 (sharper, smaller)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AV1 / VP9 (scherper, kleiner)"
+          }
+        }
+      }
+    },
+    "Advanced": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geavanceerd"
+          }
+        }
+      }
+    },
+    "Also used for Spotify links. Pluck picks the best audio on offer and only converts when needed. FLAC and WAV can’t add quality the source doesn’t have; each download shows what it got.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wordt ook gebruikt voor Spotify-links. Pluck kiest de beste beschikbare audio en zet alleen om als dat nodig is. FLAC en WAV kunnen geen kwaliteit toevoegen die de bron niet heeft; bij elke download zie je wat er binnenkwam."
+          }
+        }
+      }
+    },
+    "Always ask where to save": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraag altijd waar te bewaren"
+          }
+        }
+      }
+    },
+    "Another app already uses %@. Choose another shortcut.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een andere app gebruikt %@ al. Kies een andere toetscombinatie."
+          }
+        }
+      }
+    },
+    "Another app already uses this shortcut.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een andere app gebruikt deze toetscombinatie al."
+          }
+        }
+      }
+    },
+    "Audio": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio"
+          }
+        }
+      }
+    },
+    "Audio Only": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen audio"
+          }
+        }
+      }
+    },
+    "Audio Quality": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audiokwaliteit"
+          }
+        }
+      }
+    },
+    "Audio only": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen audio"
+          }
+        }
+      }
+    },
+    "Best": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beste"
+          }
+        }
+      }
+    },
+    "Best (VBR)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beste (VBR)"
+          }
+        }
+      }
+    },
+    "Best Available": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beste beschikbare"
+          }
+        }
+      }
+    },
+    "Bitrate": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitsnelheid"
+          }
+        }
+      }
+    },
+    "Buy Me a Coffee link not set up yet": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buy Me a Coffee-link nog niet ingesteld"
+          }
+        }
+      }
+    },
+    "Cancel": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuleer"
+          }
+        }
+      }
+    },
+    "Cancel Download": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Annuleer download"
+          }
+        }
+      }
+    },
+    "Cancelled": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geannuleerd"
+          }
+        }
+      }
+    },
+    "Change the audio format in Settings → Format": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wijzig het audioformaat in Instellingen → Formaat"
+          }
+        }
+      }
+    },
+    "Check Now": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controleer nu"
+          }
+        }
+      }
+    },
+    "Check for Pluck updates automatically": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controleer automatisch op Pluck-updates"
+          }
+        }
+      }
+    },
+    "Check for Updates…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controleer op updates…"
+          }
+        }
+      }
+    },
+    "Choose": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies"
+          }
+        }
+      }
+    },
+    "Choose where to save these %lld downloads.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies waar je deze %lld downloads wilt bewaren."
+          }
+        }
+      }
+    },
+    "Choose where to save this download.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies waar je deze download wilt bewaren."
+          }
+        }
+      }
+    },
+    "Choose…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies…"
+          }
+        }
+      }
+    },
+    "Clear": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wis"
+          }
+        }
+      }
+    },
+    "Clear Finished": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wis voltooide"
+          }
+        }
+      }
+    },
+    "Clear Link": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wis link"
+          }
+        }
+      }
+    },
+    "Clear finished downloads": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wis voltooide downloads"
+          }
+        }
+      }
+    },
+    "Click the shortcut, then press the keys you want.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik op de toetscombinatie en druk dan op de toetsen die je wilt."
+          }
+        }
+      }
+    },
+    "Click, then press the new shortcut. Esc cancels.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik en druk dan op de nieuwe toetscombinatie. Esc annuleert."
+          }
+        }
+      }
+    },
+    "Clip %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragment %@"
+          }
+        }
+      }
+    },
+    "Clip end": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einde fragment"
+          }
+        }
+      }
+    },
+    "Clip from": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragment van"
+          }
+        }
+      }
+    },
+    "Clip start": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Begin fragment"
+          }
+        }
+      }
+    },
+    "Closing the window keeps Pluck running in the menu bar. Choose Quit Pluck to stop it.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als je het venster sluit, blijft Pluck actief in de menubalk. Kies 'Stop Pluck' om het te stoppen."
+          }
+        }
+      }
+    },
+    "Codec": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Codec"
+          }
+        }
+      }
+    },
+    "Container": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Container"
+          }
+        }
+      }
+    },
+    "Converting audio…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio omzetten…"
+          }
+        }
+      }
+    },
+    "Copy Install Command": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieer installatieopdracht"
+          }
+        }
+      }
+    },
+    "Copy Link": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieer link"
+          }
+        }
+      }
+    },
+    "Couldn’t Read Playlist": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan afspeellijst niet lezen"
+          }
+        }
+      }
+    },
+    "Couldn’t change the login item: %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan het inlogonderdeel niet wijzigen: %@"
+          }
+        }
+      }
+    },
+    "Couldn’t download ffmpeg, so merging video and converting audio will fail.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan ffmpeg niet downloaden, dus video samenvoegen en audio omzetten zal mislukken."
+          }
+        }
+      }
+    },
+    "Couldn’t find the latest build.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan de nieuwste versie niet vinden."
+          }
+        }
+      }
+    },
+    "Couldn’t find this song on YouTube Music.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan dit nummer niet vinden op YouTube Music."
+          }
+        }
+      }
+    },
+    "Couldn’t read this Spotify page. It may be private or region-locked.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan deze Spotify-pagina niet lezen. Mogelijk is ze privé of niet beschikbaar in jouw regio."
+          }
+        }
+      }
+    },
+    "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan de cookies van deze browser niet lezen. Kies een andere browser (of Geen) in Instellingen → Geavanceerd."
+          }
+        }
+      }
+    },
+    "Couldn’t read this playlist.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan deze afspeellijst niet lezen."
+          }
+        }
+      }
+    },
+    "Custom yt-dlp path": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigen yt-dlp-pad"
+          }
+        }
+      }
+    },
+    "Cutting clip…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragment knippen…"
+          }
+        }
+      }
+    },
+    "Deno": {
+      "shouldTranslate": false
+    },
+    "Done": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klaar"
+          }
+        }
+      }
+    },
+    "Done · %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klaar · %@"
+          }
+        }
+      }
+    },
+    "Download": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download"
+          }
+        }
+      }
+    },
+    "Download %lld Items": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download %lld onderdelen"
+          }
+        }
+      }
+    },
+    "Download 1 Item": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download 1 onderdeel"
+          }
+        }
+      }
+    },
+    "Download Again": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download opnieuw"
+          }
+        }
+      }
+    },
+    "Download All %lld": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download alle %lld"
+          }
+        }
+      }
+    },
+    "Download Here": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download hier"
+          }
+        }
+      }
+    },
+    "Download Link from Clipboard": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download link van klembord"
+          }
+        }
+      }
+    },
+    "Download Whole Video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download hele video"
+          }
+        }
+      }
+    },
+    "Download a Clip": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download een fragment"
+          }
+        }
+      }
+    },
+    "Download complete": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download voltooid"
+          }
+        }
+      }
+    },
+    "Download copied link from any app": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download gekopieerde link vanuit elke app"
+          }
+        }
+      }
+    },
+    "Download failed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download mislukt"
+          }
+        }
+      }
+    },
+    "Download from Clipboard": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download van klembord"
+          }
+        }
+      }
+    },
+    "Download only part of the video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download slechts een deel van de video"
+          }
+        }
+      }
+    },
+    "Download progress": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloadvoortgang"
+          }
+        }
+      }
+    },
+    "Download the whole video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download de hele video"
+          }
+        }
+      }
+    },
+    "Downloaded audio quality, before conversion": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kwaliteit van de gedownloade audio, vóór omzetting"
+          }
+        }
+      }
+    },
+    "Downloading": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezig met downloaden"
+          }
+        }
+      }
+    },
+    "Downloads": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads"
+          }
+        }
+      }
+    },
+    "Downloads are still running": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er lopen nog downloads"
+          }
+        }
+      }
+    },
+    "Downloads complete": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads voltooid"
+          }
+        }
+      }
+    },
+    "Downloads finished": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads klaar"
+          }
+        }
+      }
+    },
+    "Embed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Insluiten"
+          }
+        }
+      }
+    },
+    "Embedding artwork…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Illustratie insluiten…"
+          }
+        }
+      }
+    },
+    "Embedding subtitles…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ondertitels insluiten…"
+          }
+        }
+      }
+    },
+    "FLAC (lossless)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "FLAC (lossless)"
+          }
+        }
+      }
+    },
+    "Failed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mislukt"
+          }
+        }
+      }
+    },
+    "Fetching info…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info ophalen…"
+          }
+        }
+      }
+    },
+    "File moved or deleted": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestand verplaatst of verwijderd"
+          }
+        }
+      }
+    },
+    "Finding on YouTube Music…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoeken op YouTube Music…"
+          }
+        }
+      }
+    },
+    "Finishing up…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afronden…"
+          }
+        }
+      }
+    },
+    "Format": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Formaat"
+          }
+        }
+      }
+    },
+    "From %@ to the end": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van %@ tot het einde"
+          }
+        }
+      }
+    },
+    "General": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Algemeen"
+          }
+        }
+      }
+    },
+    "H.264 (plays everywhere)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "H.264 (speelt overal af)"
+          }
+        }
+      }
+    },
+    "Help Pluck keep growing": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Help Pluck verder te groeien"
+          }
+        }
+      }
+    },
+    "Install & Relaunch": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installeer en start opnieuw"
+          }
+        }
+      }
+    },
+    "Installed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geïnstalleerd"
+          }
+        }
+      }
+    },
+    "Installed on this Mac": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geïnstalleerd op deze Mac"
+          }
+        }
+      }
+    },
+    "Installing…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installeren…"
+          }
+        }
+      }
+    },
+    "Interrupted when Pluck quit. Try again to restart it.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onderbroken toen Pluck stopte. Probeer opnieuw om de download te herstarten."
+          }
+        }
+      }
+    },
+    "JavaScript runtime yt-dlp needs for YouTube": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JavaScript-omgeving die yt-dlp nodig heeft voor YouTube"
+          }
+        }
+      }
+    },
+    "Just updated": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zojuist bijgewerkt"
+          }
+        }
+      }
+    },
+    "Keep yt-dlp and ffmpeg up to date automatically": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Houd yt-dlp en ffmpeg automatisch up-to-date"
+          }
+        }
+      }
+    },
+    "Last checked": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laatst gecontroleerd"
+          }
+        }
+      }
+    },
+    "Later": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Later"
+          }
+        }
+      }
+    },
+    "Lets yt-dlp access age-restricted or members-only videos you can already watch in that browser. With YouTube Premium, it also gets the higher-quality audio (about 256 kbps instead of 128–136).": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zo kan yt-dlp video's met leeftijdsbeperking of alleen voor leden openen die je in die browser al kunt bekijken. Met YouTube Premium krijg je ook audio van hogere kwaliteit (ongeveer 256 kbps in plaats van 128–136)."
+          }
+        }
+      }
+    },
+    "Looking for a video on the page…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video zoeken op de pagina…"
+          }
+        }
+      }
+    },
+    "Looking up the videos in this link.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De video's in deze link opzoeken."
+          }
+        }
+      }
+    },
+    "M4A (AAC)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4A (AAC)"
+          }
+        }
+      }
+    },
+    "Matched on YouTube Music and tagged with Spotify’s metadata": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gevonden op YouTube Music en gelabeld met de metadata van Spotify"
+          }
+        }
+      }
+    },
+    "Max resolution": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Max. resolutie"
+          }
+        }
+      }
+    },
+    "Menu Bar": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menubalk"
+          }
+        }
+      }
+    },
+    "Merging audio & video…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Audio en video samenvoegen…"
+          }
+        }
+      }
+    },
+    "Money is never expected. A star on GitHub helps more people discover Pluck and makes a real difference too.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geld wordt nooit verwacht. Een ster op GitHub helpt meer mensen Pluck te ontdekken en maakt ook echt een verschil."
+          }
+        }
+      }
+    },
+    "More": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meer"
+          }
+        }
+      }
+    },
+    "More Settings…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meer instellingen…"
+          }
+        }
+      }
+    },
+    "Never": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nooit"
+          }
+        }
+      }
+    },
+    "No downloadable release was found.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er is geen downloadbare versie gevonden."
+          }
+        }
+      }
+    },
+    "No link to download was selected.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er is geen link geselecteerd om te downloaden."
+          }
+        }
+      }
+    },
+    "No playable video was found on this page.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er is geen afspeelbare video gevonden op deze pagina."
+          }
+        }
+      }
+    },
+    "None": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen"
+          }
+        }
+      }
+    },
+    "Not Installed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niet geïnstalleerd"
+          }
+        }
+      }
+    },
+    "Not found": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niet gevonden"
+          }
+        }
+      }
+    },
+    "Not installed yet": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog niet geïnstalleerd"
+          }
+        }
+      }
+    },
+    "Nothing Downloading": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er wordt niets gedownload"
+          }
+        }
+      }
+    },
+    "Notify when downloads finish in the background": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meld wanneer downloads op de achtergrond klaar zijn"
+          }
+        }
+      }
+    },
+    "Only Spotify track, album and playlist links are supported.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen Spotify-links naar nummers, albums en afspeellijsten worden ondersteund."
+          }
+        }
+      }
+    },
+    "Open": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open"
+          }
+        }
+      }
+    },
+    "Open %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open %@"
+          }
+        }
+      }
+    },
+    "Open Link in Browser": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open link in browser"
+          }
+        }
+      }
+    },
+    "Open Login Items…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Inlogonderdelen…"
+          }
+        }
+      }
+    },
+    "Open Pluck": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Pluck"
+          }
+        }
+      }
+    },
+    "Open Pluck at login": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Pluck bij inloggen"
+          }
+        }
+      }
+    },
+    "Original (no conversion)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origineel (geen omzetting)"
+          }
+        }
+      }
+    },
+    "Output format: %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitvoerformaat: %@"
+          }
+        }
+      }
+    },
+    "Overrides both of the above when set.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heeft voorrang op beide opties hierboven als je het instelt."
+          }
+        }
+      }
+    },
+    "Paste a link": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak een link"
+          }
+        }
+      }
+    },
+    "Paste a link above, or drop one anywhere in this window.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak hierboven een link of sleep er een naar dit venster."
+          }
+        }
+      }
+    },
+    "Paste a link from YouTube, Spotify or any website": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak een link van YouTube, Spotify of een andere website"
+          }
+        }
+      }
+    },
+    "Paste a link to start downloading": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak een link om te beginnen downloaden"
+          }
+        }
+      }
+    },
+    "Playlist": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afspeellijst"
+          }
+        }
+      }
+    },
+    "Pluck": {
+      "shouldTranslate": false
+    },
+    "Pluck %@ is available": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck %@ is beschikbaar"
+          }
+        }
+      }
+    },
+    "Pluck Updates": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck-updates"
+          }
+        }
+      }
+    },
+    "Pluck can’t replace itself here. Move it to the Applications folder and try again.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kan zichzelf hier niet vervangen. Zet Pluck in de map Apps en probeer het opnieuw."
+          }
+        }
+      }
+    },
+    "Pluck is free, independent and built in my spare time. If you’d like to chip in, a coffee directly helps me keep improving it.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck is gratis, onafhankelijk en gemaakt in mijn vrije tijd. Wil je een steentje bijdragen? Met een koffie help je me rechtstreeks om Pluck te blijven verbeteren."
+          }
+        }
+      }
+    },
+    "Pluck keeps its own copies of the official yt-dlp release and a signed static ffmpeg build, plus the Deno runtime YouTube needs, checks for updates daily, and verifies every download against its published checksum.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck houdt eigen kopieën bij van de officiële yt-dlp-versie, een ondertekende statische ffmpeg en de Deno-omgeving die YouTube nodig heeft. Pluck controleert dagelijks op updates en vergelijkt elke download met de gepubliceerde controlesom."
+          }
+        }
+      }
+    },
+    "Pluck, %lld downloading": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck, %lld bezig"
+          }
+        }
+      }
+    },
+    "Prefer 60 fps": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liefst 60 fps"
+          }
+        }
+      }
+    },
+    "Prefer 60 fps when available": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liefst 60 fps indien beschikbaar"
+          }
+        }
+      }
+    },
+    "Quality": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kwaliteit"
+          }
+        }
+      }
+    },
+    "Quick Look": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snelle weergave"
+          }
+        }
+      }
+    },
+    "Quit Pluck": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop Pluck"
+          }
+        }
+      }
+    },
+    "Reading Spotify link…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify-link lezen…"
+          }
+        }
+      }
+    },
+    "Reading playlist…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afspeellijst lezen…"
+          }
+        }
+      }
+    },
+    "Ready": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klaar voor gebruik"
+          }
+        }
+      }
+    },
+    "Recording": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezig met opnemen"
+          }
+        }
+      }
+    },
+    "Remove from List": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwijder uit lijst"
+          }
+        }
+      }
+    },
+    "Remove sponsor segments (SponsorBlock)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwijder gesponsorde stukken (SponsorBlock)"
+          }
+        }
+      }
+    },
+    "Removing sponsors…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesponsorde stukken verwijderen…"
+          }
+        }
+      }
+    },
+    "Reset to %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet terug op %@"
+          }
+        }
+      }
+    },
+    "Save to": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaar in"
+          }
+        }
+      }
+    },
+    "Saves as %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaart als %@"
+          }
+        }
+      }
+    },
+    "Select All": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecteer alles"
+          }
+        }
+      }
+    },
+    "Setting up yt-dlp and ffmpeg… Downloads will start as soon as they’re ready.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp en ffmpeg instellen… Downloads starten zodra ze klaar zijn."
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instellingen"
+          }
+        }
+      }
+    },
+    "Settings (⌘,)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instellingen (⌘,)"
+          }
+        }
+      }
+    },
+    "Settings…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instellingen…"
+          }
+        }
+      }
+    },
+    "Shortcut": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toetscombinatie"
+          }
+        }
+      }
+    },
+    "Show Downloads Folder": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toon map Downloads"
+          }
+        }
+      }
+    },
+    "Show Pluck in the menu bar": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toon Pluck in de menubalk"
+          }
+        }
+      }
+    },
+    "Show in Finder": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toon in Finder"
+          }
+        }
+      }
+    },
+    "Simultaneous downloads": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gelijktijdige downloads"
+          }
+        }
+      }
+    },
+    "Spotify": {
+      "shouldTranslate": false
+    },
+    "Spotify %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spotify-%@"
+          }
+        }
+      }
+    },
+    "Star Pluck on GitHub": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geef Pluck een ster op GitHub"
+          }
+        }
+      }
+    },
+    "Start in the menu bar only (no window)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start alleen in de menubalk (geen venster)"
+          }
+        }
+      }
+    },
+    "Subtitles (video only)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ondertitels (alleen video)"
+          }
+        }
+      }
+    },
+    "Support": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steun"
+          }
+        }
+      }
+    },
+    "Support on Buy Me a Coffee": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steun via Buy Me a Coffee"
+          }
+        }
+      }
+    },
+    "Thank you for using Pluck. ♥︎": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bedankt dat je Pluck gebruikt. ♥︎"
+          }
+        }
+      }
+    },
+    "That browser isn’t installed on this Mac, so cookies are skipped until you pick another.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die browser is niet geïnstalleerd op deze Mac, dus cookies worden overgeslagen tot je een andere kiest."
+          }
+        }
+      }
+    },
+    "The download didn’t match its published checksum, so it was discarded.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De download kwam niet overeen met de gepubliceerde controlesom en is daarom verwijderd."
+          }
+        }
+      }
+    },
+    "The download isn’t signed by its developer, so it was discarded.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De download is niet ondertekend door de ontwikkelaar en is daarom verwijderd."
+          }
+        }
+      }
+    },
+    "The downloaded tool didn’t run.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het gedownloade programma startte niet."
+          }
+        }
+      }
+    },
+    "The downloaded update isn’t a valid copy of Pluck.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gedownloade update is geen geldige kopie van Pluck."
+          }
+        }
+      }
+    },
+    "The downloaded yt-dlp didn’t run.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gedownloade yt-dlp startte niet."
+          }
+        }
+      }
+    },
+    "The latest release has no macOS build.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De nieuwste versie heeft geen macOS-versie."
+          }
+        }
+      }
+    },
+    "The release has no checksum for the macOS build.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De versie heeft geen controlesom voor de macOS-versie."
+          }
+        }
+      }
+    },
+    "The update didn’t match its published checksum, so it was discarded.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De update kwam niet overeen met de gepubliceerde controlesom en is daarom verwijderd."
+          }
+        }
+      }
+    },
+    "This playlist has no videos Pluck can download.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze afspeellijst bevat geen video's die Pluck kan downloaden."
+          }
+        }
+      }
+    },
+    "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op deze site moet je ingelogd zijn. Log in met je browser en kies die browser bij Instellingen → Geavanceerd → Gebruik cookies van."
+          }
+        }
+      }
+    },
+    "This video is DRM-protected and can’t be downloaded.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze video is beveiligd met DRM en kan niet worden gedownload."
+          }
+        }
+      }
+    },
+    "Thumbnail as cover art": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniatuur als albumhoes"
+          }
+        }
+      }
+    },
+    "Times like 1:30 or 1:02:03": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tijden zoals 1:30 of 1:02:03"
+          }
+        }
+      }
+    },
+    "Title, artist & description": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel, artiest en beschrijving"
+          }
+        }
+      }
+    },
+    "Tools": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hulpprogramma's"
+          }
+        }
+      }
+    },
+    "Try Again": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Probeer opnieuw"
+          }
+        }
+      }
+    },
+    "Type shortcut…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typ toetscombinatie…"
+          }
+        }
+      }
+    },
+    "Up to date": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up-to-date"
+          }
+        }
+      }
+    },
+    "Update check failed: %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controle op updates mislukt: %@"
+          }
+        }
+      }
+    },
+    "Update failed: %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update mislukt: %@"
+          }
+        }
+      }
+    },
+    "Updating now quits Pluck and stops %lld download(s).": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als je nu bijwerkt, stopt Pluck en worden %lld download(s) gestopt."
+          }
+        }
+      }
+    },
+    "Updating…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijwerken…"
+          }
+        }
+      }
+    },
+    "Use at least two modifier keys, like ⌃⌥⌘D, so it doesn’t clash with shortcuts in other apps.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruik minstens twee speciale toetsen, zoals ⌃⌥⌘D, zodat de combinatie niet botst met andere apps."
+          }
+        }
+      }
+    },
+    "Use cookies from": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruik cookies van"
+          }
+        }
+      }
+    },
+    "Use times like 1:30, with the end after the start": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruik tijden zoals 1:30, met het einde na het begin"
+          }
+        }
+      }
+    },
+    "Use yt-dlp nightly builds": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruik nightly builds van yt-dlp"
+          }
+        }
+      }
+    },
+    "Using the yt-dlp and ffmpeg installed on this Mac. Keep them current with “brew upgrade yt-dlp ffmpeg”.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck gebruikt de yt-dlp en ffmpeg die op deze Mac zijn geïnstalleerd. Houd ze up-to-date met “brew upgrade yt-dlp ffmpeg”."
+          }
+        }
+      }
+    },
+    "Version %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Versie %@"
+          }
+        }
+      }
+    },
+    "Video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video"
+          }
+        }
+      }
+    },
+    "Video Options": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video-opties"
+          }
+        }
+      }
+    },
+    "WAV (uncompressed)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WAV (ongecomprimeerd)"
+          }
+        }
+      }
+    },
+    "Waiting…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wachten…"
+          }
+        }
+      }
+    },
+    "Warning": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waarschuwing"
+          }
+        }
+      }
+    },
+    "What’s New": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wat is er nieuw"
+          }
+        }
+      }
+    },
+    "Works without switching to Pluck.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Werkt zonder over te schakelen naar Pluck."
+          }
+        }
+      }
+    },
+    "Writing metadata…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metadata schrijven…"
+          }
+        }
+      }
+    },
+    "You have %@.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je hebt %@."
+          }
+        }
+      }
+    },
+    "brew install ffmpeg (needs Homebrew from brew.sh)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "brew install ffmpeg (vereist Homebrew van brew.sh)"
+          }
+        }
+      }
+    },
+    "end": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "einde"
+          }
+        }
+      }
+    },
+    "ffmpeg": {
+      "shouldTranslate": false
+    },
+    "ffmpeg isn’t installed, so merging video and converting audio will fail.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ffmpeg is niet geïnstalleerd, dus video samenvoegen en audio omzetten zal mislukken."
+          }
+        }
+      }
+    },
+    "macOS already uses %@. Choose another shortcut.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS gebruikt %@ al. Kies een andere toetscombinatie."
+          }
+        }
+      }
+    },
+    "macOS needs your OK in Login Items before Pluck can open at login.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS heeft je toestemming nodig in Inlogonderdelen voordat Pluck kan openen bij het inloggen."
+          }
+        }
+      }
+    },
+    "to": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tot"
+          }
+        }
+      }
+    },
+    "yt-dlp": {
+      "shouldTranslate": false
+    },
+    "yt-dlp exited with code %d.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp stopte met code %d."
+          }
+        }
+      }
+    },
+    "yt-dlp not found. Install it with “brew install yt-dlp” or set its path in Settings.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp niet gevonden. Installeer het met “brew install yt-dlp” of stel het pad in bij Instellingen."
+          }
+        }
+      }
+    },
+    "·": {
+      "shouldTranslate": false
+    },
+    "· %@": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "· %@"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

@@ -47,7 +47,7 @@ struct SupportSettings: View {
                 }
                 .controlSize(.large)
                 .glassProminentButtonStyle()
-                .help(SupportLinks.buyMeACoffee?.absoluteString ?? "Buy Me a Coffee link not set up yet")
+                .help(SupportLinks.buyMeACoffee?.absoluteString ?? String(localized: "Buy Me a Coffee link not set up yet"))
 
                 starCard
 

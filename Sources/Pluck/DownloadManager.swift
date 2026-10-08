@@ -25,6 +25,7 @@ enum Prefs {
     static let askLocation = "askLocation"
     static let appAutoUpdate = "appAutoUpdate"
     static let showMenuBarIcon = "showMenuBarIcon"
+    static let globalShortcut = "globalShortcut"
     static let startInMenuBar = "startInMenuBar"
 
     static func registerDefaults() {
@@ -50,6 +51,7 @@ enum Prefs {
             askLocation: false,
             appAutoUpdate: true,
             showMenuBarIcon: true,
+            globalShortcut: true,
             startInMenuBar: false,
         ])
     }
@@ -195,8 +197,8 @@ final class DownloadManager {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.directoryURL = URL(fileURLWithPath: path)
-        panel.prompt = "Download Here"
-        panel.message = count == 1 ? "Choose where to save this download." : "Choose where to save these \(count) downloads."
+        panel.prompt = String(localized: "Download Here")
+        panel.message = count == 1 ? String(localized: "Choose where to save this download.") : String(localized: "Choose where to save these \(count) downloads.")
         NSApp.activate()
         return panel.runModal() == .OK ? panel.url?.path : nil
     }
@@ -218,7 +220,7 @@ final class DownloadManager {
             do {
                 let collection = try await Spotify.fetch(link)
                 pick.title = collection.name
-                pick.owner = "Spotify \(link.kind.rawValue)"
+                pick.owner = String(localized: "Spotify \(link.kind.rawValue)")
                 pick.entries = collection.tracks.map { track in
                     PlaylistEntry(id: track.id, url: track.url, title: track.title,
                                   subtitle: track.artists.joined(separator: ", "),
@@ -238,7 +240,7 @@ final class DownloadManager {
                 pump()
                 return
             }
-            pick.title = playlist.title ?? "Playlist"
+            pick.title = playlist.title ?? String(localized: "Playlist")
             pick.owner = playlist.owner
             pick.entries = playlist.entries
             pick.hiddenCount = playlist.hidden
@@ -250,7 +252,7 @@ final class DownloadManager {
         } else {
             pick.selectAll()
         }
-        pick.phase = pick.entries.isEmpty ? .failed("This playlist has no videos Pluck can download.") : .ready
+        pick.phase = pick.entries.isEmpty ? .failed(String(localized: "This playlist has no videos Pluck can download.")) : .ready
     }
 
     func cancelPick(_ pick: PlaylistPick) {
@@ -296,7 +298,7 @@ final class DownloadManager {
         let placeholder = DownloadItem(url: url, options: audio, folder: folder)
         placeholder.title = "Spotify"
         placeholder.state = .starting
-        placeholder.phase = "Reading Spotify link…"
+        placeholder.phase = String(localized: "Reading Spotify link…")
         items.insert(placeholder, at: 0)
 
         guard let link = Spotify.parse(url) else {
@@ -397,7 +399,7 @@ final class DownloadManager {
             "--progress-template",
             "download:PLUCK|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
             "--progress-template", "postprocess:PLUCKPP|%(progress.postprocessor)s",
-            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail})j",
+            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr})j",
             "--print", "after_move:PLUCKFILE %(filepath)s",
             "-P", item.folder,
         ]
@@ -454,12 +456,12 @@ final class DownloadManager {
     private func start(_ item: DownloadItem) {
         item.state = .starting
         guard executableURL != nil else {
-            fail(item, "yt-dlp not found. Install it with “brew install yt-dlp” or set its path in Settings.")
+            fail(item, String(localized: "yt-dlp not found. Install it with “brew install yt-dlp” or set its path in Settings."))
             return
         }
 
         if let track = item.spotify, item.resolvedURL == nil {
-            item.phase = "Finding on YouTube Music…"
+            item.phase = String(localized: "Finding on YouTube Music…")
             Task {
                 let match = await findMatch(for: track)
                 guard item.state == .starting else { return }
@@ -467,7 +469,7 @@ final class DownloadManager {
                     item.resolvedURL = match
                     launch(item)
                 } else {
-                    fail(item, "Couldn’t find this song on YouTube Music.")
+                    fail(item, String(localized: "Couldn’t find this song on YouTube Music."))
                 }
             }
             return
@@ -530,14 +532,14 @@ final class DownloadManager {
                     .replacingOccurrences(of: #"^\[[^\]]+\] [^:]+: "#, with: "", options: .regularExpression)
                 if message.localizedCaseInsensitiveContains("cookies database")
                     || message.localizedCaseInsensitiveContains("decrypt") {
-                    message = "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced."
+                    message = String(localized: "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced.")
                 }
                 let lower = message.lowercased()
                 if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
                     || (lower.contains("--cookies") && !lower.contains("cookies database")) {
-                    message = "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from."
+                    message = String(localized: "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from.")
                 } else if lower.contains("drm protected") {
-                    message = "This video is DRM-protected and can’t be downloaded."
+                    message = String(localized: "This video is DRM-protected and can’t be downloaded.")
                 }
                 let final = message
                 await MainActor.run { item.errorMessage = final }
@@ -573,8 +575,11 @@ final class DownloadManager {
             let json = Data(line.dropFirst("PLUCKMETA ".count).utf8)
             guard let meta = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
             if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String { item.thumbnail = URL(string: thumb) }
+            if item.options.isAudio {
+                item.sourceAudio = Self.describeAudio(codec: meta["acodec"] as? String, bitrate: meta["abr"] as? Double)
+            }
             // ffmpeg cuts clips without reporting progress; say what's happening meanwhile.
-            if item.clip != nil, item.state == .starting { item.phase = "Cutting clip…" }
+            if item.clip != nil, item.state == .starting { item.phase = String(localized: "Cutting clip…") }
             // Spotify items keep their own title, artist and length.
             guard item.spotify == nil else { return }
             if let t = meta["title"] as? String { item.title = t }
@@ -585,15 +590,31 @@ final class DownloadManager {
         }
     }
 
+    /// "Opus 272 kbps", "AAC 256 kbps"… from yt-dlp's codec id and average bitrate.
+    static func describeAudio(codec: String?, bitrate: Double?) -> String? {
+        guard let codec = codec?.lowercased(), codec != "none" else { return nil }
+        let name = switch codec {
+        case let c where c.hasPrefix("mp4a") || c == "aac": "AAC"
+        case let c where c.hasPrefix("opus"): "Opus"
+        case let c where c.hasPrefix("vorbis"): "Vorbis"
+        case let c where c.hasPrefix("mp3"): "MP3"
+        case let c where c.hasPrefix("flac"): "FLAC"
+        case let c where c.hasPrefix("alac"): "ALAC"
+        default: codec.uppercased()
+        }
+        guard let bitrate, bitrate > 0 else { return name }
+        return "\(name) \(Int(bitrate.rounded())) kbps"
+    }
+
     private static func describe(postprocessor: String) -> String {
         switch postprocessor {
-        case "Merger": "Merging audio & video…"
-        case "ExtractAudio": "Converting audio…"
-        case "EmbedThumbnail", "ThumbnailsConvertor": "Embedding artwork…"
-        case "FFmpegMetadata", "Metadata", "MetadataParser": "Writing metadata…"
-        case "EmbedSubtitle": "Embedding subtitles…"
-        case "SponsorBlock", "ModifyChapters": "Removing sponsors…"
-        default: "Finishing up…"
+        case "Merger": String(localized: "Merging audio & video…")
+        case "ExtractAudio": String(localized: "Converting audio…")
+        case "EmbedThumbnail", "ThumbnailsConvertor": String(localized: "Embedding artwork…")
+        case "FFmpegMetadata", "Metadata", "MetadataParser": String(localized: "Writing metadata…")
+        case "EmbedSubtitle": String(localized: "Embedding subtitles…")
+        case "SponsorBlock", "ModifyChapters": String(localized: "Removing sponsors…")
+        default: String(localized: "Finishing up…")
         }
     }
 
@@ -619,16 +640,16 @@ final class DownloadManager {
             batchFinished.append(item.title)
         } else {
             item.state = .failed
-            if item.errorMessage == nil { item.errorMessage = "yt-dlp exited with code \(status)." }
+            if item.errorMessage == nil { item.errorMessage = String(localized: "yt-dlp exited with code \(status).") }
             batchFailed += 1
         }
 
         guard !items.contains(where: { $0.isActive && $0.id != item.id }) else { return }
         switch (batchFinished.count, batchFailed) {
-        case (1, 0): notify(title: "Download complete", body: batchFinished[0])
-        case (let ok, 0): notify(title: "Downloads complete", body: "\(ok) files saved")
-        case (0, 1): notify(title: "Download failed", body: item.title)
-        case (let ok, let bad): notify(title: "Downloads finished", body: "\(ok) saved, \(bad) failed")
+        case (1, 0): notify(title: String(localized: "Download complete"), body: batchFinished[0])
+        case (let ok, 0): notify(title: String(localized: "Downloads complete"), body: String(localized: "\(ok) files saved"))
+        case (0, 1): notify(title: String(localized: "Download failed"), body: item.title)
+        case (let ok, let bad): notify(title: String(localized: "Downloads finished"), body: String(localized: "\(ok) saved, \(bad) failed"))
         }
         batchFinished = []
         batchFailed = 0
@@ -653,15 +674,15 @@ final class DownloadManager {
         item.triedPageSearch = true
         item.state = .starting
         item.errorMessage = nil
-        item.phase = "Looking for a video on the page…"
+        item.phase = String(localized: "Looking for a video on the page…")
 
         Task {
             let sniffer = PageSniffer()
             let result = await sniffer.sniff(url)
             guard item.state == .starting else { return }
             guard let result else {
-                fail(item, originalError.map { "\($0) No playable video was found on the page either." }
-                     ?? "No playable video was found on this page.")
+                fail(item, originalError.map { String(localized: "\($0) No playable video was found on the page either.") }
+                     ?? String(localized: "No playable video was found on this page."))
                 return
             }
             if let title = result.title { item.title = title }

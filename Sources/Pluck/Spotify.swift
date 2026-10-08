@@ -32,8 +32,8 @@ enum Spotify {
 
         var errorDescription: String? {
             switch self {
-            case .unsupported: "Only Spotify track, album and playlist links are supported."
-            case .unreadable: "Couldn’t read this Spotify page. It may be private or region-locked."
+            case .unsupported: String(localized: "Only Spotify track, album and playlist links are supported.")
+            case .unreadable: String(localized: "Couldn’t read this Spotify page. It may be private or region-locked.")
             }
         }
     }

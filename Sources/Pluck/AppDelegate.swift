@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let appUpdater = AppUpdater()
     let toolsUpdater = HelperToolsUpdater()
     private lazy var services = ServiceProvider(manager: manager)
+    lazy var shortcut = GlobalShortcut { [weak self] in self?.downloadClipboardLink() }
+    static weak var shared: AppDelegate?
 
     /// Set by a view that can open SwiftUI windows (the menu bar icon is always around).
     static var openMainWindow: (() -> Void)?
@@ -26,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
+        Self.shared = self
+        shortcut.update(enabled: UserDefaults.standard.bool(forKey: Prefs.globalShortcut))
 
         updater.onStatusChange = { [weak self] in self?.toolsChanged() }
         toolsUpdater.onStatusChange = { [weak self] in self?.toolsChanged() }
@@ -61,6 +65,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if !flag { Self.openMainWindow?() }
         return true
+    }
+
+    /// The global shortcut: the clipboard's link starts downloading without switching apps.
+    private func downloadClipboardLink() {
+        guard let link = Clipboard.videoURL() ?? NSPasteboard.general.string(forType: .string).flatMap(Links.validated) else {
+            NSSound.beep()
+            return
+        }
+        manager.add(link)
     }
 
     /// A Dock icon only while a real window (main or Settings) is open.

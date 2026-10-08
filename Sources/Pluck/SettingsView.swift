@@ -1,3 +1,4 @@
+import Carbon.HIToolbox
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
@@ -7,11 +8,11 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .general: "General"
-        case .format: "Format"
-        case .downloads: "Downloads"
-        case .advanced: "Advanced"
-        case .support: "Support"
+        case .general: String(localized: "General")
+        case .format: String(localized: "Format")
+        case .downloads: String(localized: "Downloads")
+        case .advanced: String(localized: "Advanced")
+        case .support: String(localized: "Support")
         }
     }
 
@@ -48,7 +49,7 @@ struct SettingsView: View {
             // One toolbar item per tab, so each is its own control for VoiceOver.
             ToolbarItemGroup(placement: .principal) {
                 ForEach(SettingsTab.allCases) { item in
-                    SettingsTabButton(tab: item, isSelected: item == tab) { tab = item }
+                    SettingsTabButton(tab: item, selection: $tab)
                 }
             }
         }
@@ -71,9 +72,13 @@ extension EnvironmentValues {
 
 private struct SettingsTabButton: View {
     let tab: SettingsTab
-    let isSelected: Bool
-    let action: () -> Void
+    /// Read here rather than passed in as a Bool: toolbar items don't always redraw when the
+    /// toolbar's own inputs change, which left the highlight stuck on an old tab.
+    @Binding var selection: SettingsTab
     @State private var hovering = false
+
+    private var isSelected: Bool { selection == tab }
+    private func action() { selection = tab }
 
     var body: some View {
         Button(action: action) {
@@ -115,6 +120,10 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.askLocation) private var askLocation = false
     @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
     @AppStorage(Prefs.startInMenuBar) private var startInMenuBar = false
+    @AppStorage(Prefs.globalShortcut) private var globalShortcut = true
+    @State private var shortcutTaken = false
+    @State private var shortcut = KeyCombo.stored
+    @State private var shortcutMessage: String?
     @State private var openAtLogin = LoginItem.isEnabled
     @State private var loginNeedsApproval = LoginItem.needsApproval
     @State private var loginError: String?
@@ -142,6 +151,38 @@ private struct GeneralSettings: View {
                 ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
             }
             Toggle("Notify when downloads finish in the background", isOn: $notify)
+            Toggle(isOn: $globalShortcut) {
+                Text("Download copied link from any app")
+                Text("Works without switching to Pluck.")
+            }
+            .toggleStyle(.switch)
+            .onChange(of: globalShortcut) { _, enabled in applyShortcut(enabled) }
+            .onAppear {
+                shortcut = AppDelegate.shared?.shortcut.combo ?? .stored
+                shortcutTaken = AppDelegate.shared?.shortcut.isTaken ?? false
+            }
+            if globalShortcut {
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        ShortcutRecorder(combo: shortcut, onRecord: changeShortcut)
+                        if shortcut != .default {
+                            Button { changeShortcut(.default) } label: {
+                                Image(systemName: "arrow.counterclockwise")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Reset to \(KeyCombo.default.display)")
+                            .accessibilityLabel("Reset to \(KeyCombo.default.display)")
+                        }
+                    }
+                } label: {
+                    Text("Shortcut")
+                    if let message = shortcutMessage ?? (shortcutTaken ? String(localized: "Another app already uses this shortcut.") : nil) {
+                        Text(message).foregroundStyle(.red)
+                    } else {
+                        Text("Click the shortcut, then press the keys you want.")
+                    }
+                }
+            }
 
             Section {
                 Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)
@@ -202,13 +243,26 @@ private struct GeneralSettings: View {
         .formStyle(.grouped)
     }
 
+    private func applyShortcut(_ enabled: Bool) {
+        AppDelegate.shared?.shortcut.update(enabled: enabled)
+        shortcutTaken = AppDelegate.shared?.shortcut.isTaken ?? false
+        shortcutMessage = nil
+    }
+
+    private func changeShortcut(_ combo: KeyCombo) {
+        guard let manager = AppDelegate.shared?.shortcut else { return }
+        shortcutMessage = manager.change(to: combo)
+        shortcut = manager.combo
+        shortcutTaken = manager.isTaken
+    }
+
     private func setLoginItem(_ enabled: Bool) {
         guard enabled != LoginItem.isEnabled else { return }
         do {
             try LoginItem.set(enabled)
             loginError = nil
         } catch {
-            loginError = "Couldn’t change the login item: \(error.localizedDescription)"
+            loginError = String(localized: "Couldn’t change the login item: \(error.localizedDescription)")
         }
         openAtLogin = LoginItem.isEnabled || LoginItem.needsApproval
         loginNeedsApproval = LoginItem.needsApproval
@@ -220,7 +274,7 @@ private struct GeneralSettings: View {
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.directoryURL = URL(fileURLWithPath: downloadPath)
-        panel.prompt = "Choose"
+        panel.prompt = String(localized: "Choose")
         if panel.runModal() == .OK, let url = panel.url {
             downloadPath = url.path
         }
@@ -254,7 +308,7 @@ private struct FormatSettingsView: View {
             .disabled(format.kind != .video)
 
             Section {
-                Picker("Format", selection: format.$audioFormat) {
+                Picker(String(localized: "Format"), selection: format.$audioFormat) {
                     ForEach(AudioFormat.allCases) { Text($0.label).tag($0) }
                 }
                 Picker("Quality", selection: format.$audioBitrate) {
@@ -264,7 +318,7 @@ private struct FormatSettingsView: View {
             } header: {
                 Text("Audio")
             } footer: {
-                Text("Also used for Spotify links. FLAC and WAV store the source losslessly but can’t add quality that isn’t there.")
+                Text("Also used for Spotify links. Pluck picks the best audio on offer and only converts when needed. FLAC and WAV can’t add quality the source doesn’t have; each download shows what it got.")
                     .foregroundStyle(.secondary)
             }
         }
@@ -375,7 +429,7 @@ private struct AdvancedSettings: View {
                     .help("JavaScript runtime yt-dlp needs for YouTube")
                     LabeledContent("Last checked") {
                         HStack {
-                            Text(updater.lastChecked.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
+                            Text(updater.lastChecked.map { $0.formatted(.relative(presentation: .named)) } ?? String(localized: "Never"))
                                 .foregroundStyle(.secondary)
                             Button("Check Now") {
                                 Task { await updater.check() }
@@ -407,9 +461,9 @@ private struct AdvancedSettings: View {
 
     private var cookiesFooter: String {
         if cookiesBrowser != "none", CookieBrowser(rawValue: cookiesBrowser)?.isInstalled == false {
-            return "That browser isn’t installed on this Mac, so cookies are skipped until you pick another."
+            return String(localized: "That browser isn’t installed on this Mac, so cookies are skipped until you pick another.")
         }
-        return "Lets yt-dlp access age-restricted or members-only videos you can already watch in that browser."
+        return String(localized: "Lets yt-dlp access age-restricted or members-only videos you can already watch in that browser. With YouTube Premium, it also gets the higher-quality audio (about 256 kbps instead of 128–136).")
     }
 
     @ViewBuilder
@@ -431,5 +485,64 @@ private struct AdvancedSettings: View {
         case .idle, .upToDate:
             EmptyView()
         }
+    }
+}
+
+/// Click, then press a key combination. Esc cancels. The current global shortcut is paused while
+/// recording, so pressing it doesn't start a download.
+private struct ShortcutRecorder: View {
+    let combo: KeyCombo
+    let onRecord: (KeyCombo) -> Void
+    @State private var recording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        Button {
+            recording ? stop() : start()
+        } label: {
+            Text(recording ? String(localized: "Type shortcut…") : combo.display)
+                .foregroundStyle(recording ? Color.accentColor : Color.primary)
+                .frame(minWidth: 96)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(recording ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(.fill.tertiary))
+                }
+                .overlay {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(recording ? Color.accentColor : Color.clear, lineWidth: 1)
+                }
+                .contentShape(.rect(cornerRadius: 7))
+        }
+        .buttonStyle(.plain)
+        .help("Click, then press the new shortcut. Esc cancels.")
+        .accessibilityLabel("Shortcut")
+        .accessibilityValue(recording ? String(localized: "Recording") : combo.display)
+        .onDisappear { stop() }
+    }
+
+    private func start() {
+        recording = true
+        AppDelegate.shared?.shortcut.setSuspended(true)
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            if event.keyCode == UInt16(kVK_Escape), flags.isEmpty {
+                stop()
+                return nil
+            }
+            let combo = KeyCombo(event: event)
+            stop()
+            onRecord(combo)
+            return nil
+        }
+    }
+
+    private func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+        guard recording else { return }
+        recording = false
+        AppDelegate.shared?.shortcut.setSuspended(false)
     }
 }

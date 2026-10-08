@@ -30,7 +30,7 @@ struct PlaylistPickerView: View {
                 .background(.tint.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
-                Text(pick.phase == .loading ? "Reading playlist…" : pick.title)
+                Text(pick.phase == .loading ? String(localized: "Reading playlist…") : pick.title)
                     .font(.title3.weight(.semibold))
                     .lineLimit(2)
                 Text(summary)
@@ -43,12 +43,12 @@ struct PlaylistPickerView: View {
 
     private var summary: String {
         switch pick.phase {
-        case .loading: return "Looking up the videos in this link."
-        case .failed: return "Couldn’t read this playlist."
+        case .loading: return String(localized: "Looking up the videos in this link.")
+        case .failed: return String(localized: "Couldn’t read this playlist.")
         case .ready:
-            var parts = [pick.entries.count == 1 ? "1 item" : "\(pick.entries.count) items"]
+            var parts = [pick.entries.count == 1 ? String(localized: "1 item") : String(localized: "\(pick.entries.count) items")]
             if let owner = pick.owner { parts.append(owner) }
-            if pick.hiddenCount > 0 { parts.append("\(pick.hiddenCount) unavailable hidden") }
+            if pick.hiddenCount > 0 { parts.append(String(localized: "\(pick.hiddenCount) unavailable hidden")) }
             return parts.joined(separator: " · ")
         }
     }
@@ -138,10 +138,10 @@ struct PlaylistPickerView: View {
 
     private var downloadTitle: String {
         switch pick.selected.count {
-        case 0: "Download"
-        case 1: "Download 1 Item"
-        case pick.entries.count where pick.entries.count > 1: "Download All \(pick.entries.count)"
-        default: "Download \(pick.selected.count) Items"
+        case 0: String(localized: "Download")
+        case 1: String(localized: "Download 1 Item")
+        case pick.entries.count where pick.entries.count > 1: String(localized: "Download All \(pick.entries.count)")
+        default: String(localized: "Download \(pick.selected.count) Items")
         }
     }
 }

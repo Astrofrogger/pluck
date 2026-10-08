@@ -22,6 +22,9 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Pluck" "$APP/Contents/MacOS/Pluck"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+# Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
+xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null
+mkdir -p "$APP/Contents/Resources/en.lproj"   # English is the source language; marks it as available
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET"

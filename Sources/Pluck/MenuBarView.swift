@@ -87,9 +87,9 @@ struct MenuBarView: View {
 
     private var summary: String {
         let running = manager.items.filter(\.isActive)
-        guard !running.isEmpty else { return "Ready" }
+        guard !running.isEmpty else { return String(localized: "Ready") }
         let progress = running.map(\.progress).reduce(0, +) / Double(running.count)
-        return "\(running.count) downloading · \(Int(progress * 100))%"
+        return String(localized: "\(running.count) downloading · \(Int(progress * 100))%")
     }
 
     // MARK: - Input
@@ -324,25 +324,25 @@ private struct MenuBarRow: View {
             .accessibilityLabel("Downloading")
             .accessibilityValue("\(Int(item.progress * 100)) percent")
         case .processing:
-            caption(item.phase ?? "Finishing up…")
+            caption(item.phase ?? String(localized: "Finishing up…"))
         case .queued:
-            caption("Waiting…")
+            caption(String(localized: "Waiting…"))
         case .starting:
-            caption(item.phase ?? "Fetching info…")
+            caption(item.phase ?? String(localized: "Fetching info…"))
         case .finished where item.fileMissing:
-            caption("File moved or deleted")
+            caption(String(localized: "File moved or deleted"))
         case .finished:
-            Label(item.fileSize.map { "Done · \(Format.bytes($0))" } ?? "Done", systemImage: "checkmark.circle.fill")
+            Label(item.fileSize.map { String(localized: "Done · \(Format.bytes($0))") } ?? String(localized: "Done"), systemImage: "checkmark.circle.fill")
                 .font(.caption)
                 .foregroundStyle(.green)
         case .failed:
-            Label(item.errorMessage ?? "Failed", systemImage: "exclamationmark.triangle.fill")
+            Label(item.errorMessage ?? String(localized: "Failed"), systemImage: "exclamationmark.triangle.fill")
                 .font(.caption)
                 .foregroundStyle(.red)
                 .lineLimit(1)
                 .help(item.errorMessage ?? "")
         case .cancelled:
-            caption("Cancelled")
+            caption(String(localized: "Cancelled"))
         }
     }
 
@@ -411,7 +411,7 @@ struct MenuBarIcon: View {
         let progress = running.isEmpty ? nil
             : ((running.map(\.progress).reduce(0, +) / Double(running.count)) * 20).rounded() / 20
         Image(nsImage: Self.render(progress: progress))
-            .accessibilityLabel(running.isEmpty ? "Pluck" : "Pluck, \(running.count) downloading")
+            .accessibilityLabel(running.isEmpty ? "Pluck" : String(localized: "Pluck, \(running.count) downloading"))
             .onAppear {
                 AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
             }

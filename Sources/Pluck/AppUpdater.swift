@@ -75,10 +75,10 @@ final class AppUpdater {
 
         var errorDescription: String? {
             switch self {
-            case .noRelease: "No downloadable release was found."
-            case .checksumMismatch: "The update didn’t match its published checksum, so it was discarded."
-            case .badBundle: "The downloaded update isn’t a valid copy of Pluck."
-            case .notWritable: "Pluck can’t replace itself here. Move it to the Applications folder and try again."
+            case .noRelease: String(localized: "No downloadable release was found.")
+            case .checksumMismatch: String(localized: "The update didn’t match its published checksum, so it was discarded.")
+            case .badBundle: String(localized: "The downloaded update isn’t a valid copy of Pluck.")
+            case .notWritable: String(localized: "Pluck can’t replace itself here. Move it to the Applications folder and try again.")
             }
         }
     }

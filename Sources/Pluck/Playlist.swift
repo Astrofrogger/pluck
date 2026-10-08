@@ -27,7 +27,7 @@ final class PlaylistPick: Identifiable {
     var options: DownloadOptions
 
     var phase: Phase = .loading
-    var title = "Playlist"
+    var title = String(localized: "Playlist")
     var owner: String?
     var entries: [PlaylistEntry] = []
     var selected: Set<PlaylistEntry.ID> = []

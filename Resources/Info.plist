@@ -10,6 +10,13 @@
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>be.wideopen.pluck</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>nl</string>
+	</array>
 	<key>CFBundleName</key>
 	<string>Pluck</string>
 	<key>CFBundlePackageType</key>

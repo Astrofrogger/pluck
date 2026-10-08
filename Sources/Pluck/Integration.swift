@@ -14,7 +14,7 @@ final class ServiceProvider: NSObject {
                                  error: AutoreleasingUnsafeMutablePointer<NSString?>) {
         let links = Links.extract(from: pasteboard)
         guard !links.isEmpty else {
-            error.pointee = "No link to download was selected." as NSString
+            error.pointee = String(localized: "No link to download was selected.") as NSString
             return
         }
         manager.add(links)

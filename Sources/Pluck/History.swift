@@ -18,6 +18,7 @@ enum History {
         var errorMessage: String?
         var finishedAt: Date?
         var clip: ClipRange?
+        var sourceAudio: String?
     }
 
     static let limit = 200
@@ -42,6 +43,7 @@ enum History {
             item.errorMessage = e.errorMessage
             item.finishedAt = e.finishedAt
             item.clip = e.clip
+            item.sourceAudio = e.sourceAudio
             item.progress = e.state == "finished" ? 1 : 0
             item.state = switch e.state {
             case "finished": .finished
@@ -64,13 +66,13 @@ enum History {
             case .failed: state = "failed"
             case .queued, .starting, .downloading, .processing:
                 state = "failed"
-                error = "Interrupted when Pluck quit. Try again to restart it."
+                error = String(localized: "Interrupted when Pluck quit. Try again to restart it.")
             }
             return Entry(url: item.url, title: item.title, uploader: item.uploader, duration: item.duration,
                          thumbnail: item.thumbnail, options: item.options, folder: item.folder,
                          spotify: item.spotify, state: state, filePath: item.fileURL?.path,
                          fileSize: item.fileSize, errorMessage: error, finishedAt: item.finishedAt,
-                         clip: item.clip)
+                         clip: item.clip, sourceAudio: item.sourceAudio)
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

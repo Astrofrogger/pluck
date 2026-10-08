@@ -148,10 +148,10 @@ final class HelperToolsUpdater {
 
         var errorDescription: String? {
             switch self {
-            case .noRelease: "Couldn’t find the latest build."
-            case .checksumMismatch: "The download didn’t match its published checksum, so it was discarded."
-            case .badBinary: "The downloaded tool didn’t run."
-            case .badSignature: "The download isn’t signed by its developer, so it was discarded."
+            case .noRelease: String(localized: "Couldn’t find the latest build.")
+            case .checksumMismatch: String(localized: "The download didn’t match its published checksum, so it was discarded.")
+            case .badBinary: String(localized: "The downloaded tool didn’t run.")
+            case .badSignature: String(localized: "The download isn’t signed by its developer, so it was discarded.")
             }
         }
     }
