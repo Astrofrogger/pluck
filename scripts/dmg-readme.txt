@@ -10,9 +10,5 @@ Installing Pluck
      "Open Anyway" next to Pluck.
    You only need to do this once. Later updates install from inside the app.
 
-3. Pluck needs ffmpeg to merge video and convert audio. If the app shows an
-   ffmpeg warning, install Homebrew (https://brew.sh) and run:
-
-       brew install ffmpeg
-
-yt-dlp is downloaded and kept up to date by Pluck automatically.
+3. On first launch Pluck downloads the tools it needs (yt-dlp, ffmpeg and
+   Deno) and keeps them up to date, so there's nothing else to install.

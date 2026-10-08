@@ -15,14 +15,15 @@ A native macOS front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), built i
   - Embed metadata, cover art and subtitles
   - SponsorBlock and playlist downloads
   - Browser cookies from Safari, Chrome, Firefox, Zen, Brave, Edge, Vivaldi, Opera or Chromium
-- **Updates yt-dlp automatically:** keeps its own copy of the official release in `~/Library/Application Support/Pluck/bin`, checks daily, verifies the SHA-256 checksum, and offers optional nightly builds
+- **Manages its own tools:** yt-dlp (official release, optional nightly builds), ffmpeg/ffprobe ([signed static builds](https://ffmpeg.martin-riedl.de)) and Deno (the JavaScript runtime yt-dlp needs for YouTube). It checks daily and verifies every download's SHA-256 checksum
+- **Updates itself** from GitHub releases with one click
 - ⇧⌘D downloads whatever link is on the clipboard
 
 ## Install
 Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg)**, open it, and drag Pluck into Applications. The first time you open it, go to System Settings → Privacy & Security and click **Open Anyway**, because the app isn't signed with an Apple Developer ID. After that, Pluck checks GitHub for its own updates and installs them when you click **Install & Relaunch**.
 
 ## Requirements
-macOS 26+ and `brew install ffmpeg`. yt-dlp is downloaded automatically, or you can use your own (`brew install yt-dlp`) by turning off auto-update.
+macOS 26 or later, on Apple Silicon or Intel. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin`, and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
 
 ## Release
 ```bash
