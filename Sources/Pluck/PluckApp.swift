@@ -35,6 +35,9 @@ struct PluckApp: App {
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
             }
+            CommandGroup(before: .windowList) {
+                LibraryCommand()
+            }
             CommandGroup(after: .textEditing) {
                 Button("Search Inside Downloads…") { app.ai.searchShown = true; AppDelegate.openMainWindow?() }
                     .keyboardShortcut("f", modifiers: [.command, .shift])
@@ -58,6 +61,12 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("Library", id: "library") {
+            LibraryView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 1100, height: 700)
+
         WindowGroup("Pluck Player", for: PlayerTarget.self) { $target in
             if let target {
                 PlayerView(target: target)
@@ -77,6 +86,15 @@ struct PluckApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+private struct LibraryCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Library") { openWindow(id: "library") }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
     }
 }
 

@@ -342,6 +342,9 @@ enum Converting {
     /// A name next to nothing else: "Name.mp4", then "Name 2.mp4", and so on.
     static func outputURL(folder: String, name: String, fileExtension: String) -> URL {
         let directory = URL(fileURLWithPath: folder, isDirectory: true)
+        // "Title." would become "Title..mp4".
+        let trimmed = name.replacingOccurrences(of: "[.\\s]+$", with: "", options: .regularExpression)
+        let name = trimmed.isEmpty ? name : trimmed
         var url = directory.appendingPathComponent("\(name).\(fileExtension)")
         var number = 2
         while FileManager.default.fileExists(atPath: url.path) {

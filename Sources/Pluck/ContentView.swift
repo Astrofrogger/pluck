@@ -12,7 +12,10 @@ struct ContentView: View {
     @State private var confirmUpdate = false
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @State private var urlText = ""
-    @State private var selection: DownloadItem.ID?
+    /// Selected rows: click selects one, ⌘-click adds or removes, ⇧-click selects a range.
+    @State private var selection: Set<DownloadItem.ID> = []
+    /// The row clicked last, where ⇧-click ranges and the arrow keys start from.
+    @State private var anchor: DownloadItem.ID?
     @State private var shownPickID: PlaylistPick.ID?
     @State private var clipping = false
     @State private var clipStart = ""
@@ -77,20 +80,9 @@ struct ContentView: View {
             return true
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            autofillFromClipboard()
+            if ScreenshotMode.scene == nil { autofillFromClipboard() }
         }
-        .onAppear {
-            AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
-            if !AppDelegate.didHandleLaunchWindow {
-                AppDelegate.didHandleLaunchWindow = true
-                if AppDelegate.startsHidden, manager.pendingLink == nil {
-                    dismissWindow(id: "main")
-                    return
-                }
-            }
-            if !takePendingLink() { autofillFromClipboard() }
-            fieldFocused = true
-        }
+        .onAppear(perform: appeared)
         .onChange(of: manager.pendingLink) { _ = takePendingLink() }
         .alert(duplicateTitle, isPresented: Binding(
             get: { manager.picks.isEmpty && !manager.duplicates.isEmpty },
@@ -129,6 +121,24 @@ struct ContentView: View {
                 .environment(manager)
                 .onAppear { shownPickID = pick.id }
         }
+    }
+
+    private func appeared() {
+        AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+        if !AppDelegate.didHandleLaunchWindow {
+            AppDelegate.didHandleLaunchWindow = true
+            if AppDelegate.startsHidden, manager.pendingLink == nil {
+                dismissWindow(id: "main")
+                return
+            }
+        }
+        if ScreenshotMode.scene != nil {
+            // Nothing from the clipboard: screenshots show only demo content.
+            ScreenshotMode.run(manager: manager, ai: ai, openWindow: openWindow, openSettings: { openSettings() })
+            return
+        }
+        if !takePendingLink() { autofillFromClipboard() }
+        fieldFocused = true
     }
 
     private var subtitle: String {
@@ -404,7 +414,8 @@ struct ContentView: View {
             LazyVStack(spacing: 10) {
                 ForEach(manager.items) { item in
                     DownloadRow(item: item,
-                                isSelected: selection == item.id,
+                                isSelected: selection.contains(item.id),
+                                batch: selection.count > 1 ? manager.items.filter { selection.contains($0.id) } : [],
                                 onSelect: { select(item.id) },
                                 onQuickLook: { quickLook(item) })
                         .transition(.asymmetric(
@@ -433,11 +444,21 @@ struct ContentView: View {
     }
 
     private var selectedItem: DownloadItem? {
-        manager.items.first { $0.id == selection }
+        manager.items.first { $0.id == anchor }
     }
 
     private func select(_ id: DownloadItem.ID) {
-        selection = id
+        let modifiers = NSApp.currentEvent?.modifierFlags ?? []
+        if modifiers.contains(.command) {
+            if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+        } else if modifiers.contains(.shift), let anchor,
+                  let from = manager.items.firstIndex(where: { $0.id == anchor }),
+                  let to = manager.items.firstIndex(where: { $0.id == id }) {
+            selection = Set(manager.items[min(from, to)...max(from, to)].map(\.id))
+        } else {
+            selection = [id]
+        }
+        anchor = id
         fieldFocused = false
         listFocused = true
     }
@@ -451,9 +472,10 @@ struct ContentView: View {
     private func moveSelection(by offset: Int) -> KeyPress.Result {
         let ids = manager.items.map(\.id)
         guard !ids.isEmpty else { return .ignored }
-        let current = selection.flatMap { ids.firstIndex(of: $0) } ?? (offset > 0 ? -1 : ids.count)
+        let current = anchor.flatMap { ids.firstIndex(of: $0) } ?? (offset > 0 ? -1 : ids.count)
         let next = min(max(current + offset, 0), ids.count - 1)
-        selection = ids[next]
+        selection = [ids[next]]
+        anchor = ids[next]
         if previewURL != nil { previewURL = manager.items[next].existingFile }
         return .handled
     }
@@ -523,6 +545,13 @@ struct ContentView: View {
             .help("Open \((downloadPath as NSString).abbreviatingWithTildeInPath)")
 
             Button {
+                openWindow(id: "library")
+            } label: {
+                Label("Library", systemImage: "books.vertical")
+            }
+            .help("Everything Pluck has saved, with collections and tags (⇧⌘L)")
+
+            Button {
                 ai.searchShown = true
             } label: {
                 Label("Search Inside Downloads", systemImage: "text.magnifyingglass")
@@ -572,13 +601,37 @@ private struct AISheets: ViewModifier {
                                         set: { if !$0 { manager.subtitlesToTranslate = [] } })) {
                 TranslateSubtitlesSheet(files: manager.subtitlesToTranslate)
             }
+            .sheet(item: Binding(get: { ai.tightenBatch }, set: { ai.tightenBatch = $0 })) { batch in
+                TightenSheet(items: batch.items)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.languageAsk }, set: { ai.languageAsk = $0 })) { ask in
+                SpokenLanguageSheet(ask: ask)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.backgroundItem }, set: { ai.backgroundItem = $0 })) { item in
+                BackgroundSheet(item: item)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.blurItem }, set: { ai.blurItem = $0 })) { item in
+                PrivacyBlurSheet(item: item)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.enhanceItem }, set: { ai.enhanceItem = $0 })) { item in
+                EnhanceSheet(item: item)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.cleanupBatch }, set: { ai.cleanupBatch = $0 })) { batch in
+                AudioCleanupSheet(items: batch.items)
+                    .environment(ai)
+            }
             .sheet(item: Binding(get: { ai.shortsItem }, set: { ai.shortsItem = $0 })) { item in
                 ShortsSheet(item: item)
                     .environment(ai)
             }
-            .sheet(item: Binding(get: { ai.subtitleItem }, set: { ai.subtitleItem = $0 })) { item in
+            .sheet(item: Binding(get: { ai.subtitleBatch }, set: { ai.subtitleBatch = $0 })) { batch in
                 if #available(macOS 26, *) {
-                    SubtitleSheet(item: item)
+                    SubtitleSheet(items: batch.items)
                         .environment(ai)
                 }
             }

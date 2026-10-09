@@ -75,6 +75,8 @@ enum History {
     /// Saves the list. Downloads still running (only when quitting) are saved as interrupted,
     /// so they come back with Try Again.
     @MainActor static func save(_ items: [DownloadItem]) {
+        // Everything finished also goes into the library, which keeps it for good.
+        LibraryStore.shared.record(items)
         let entries = items.prefix(limit).map { item -> Entry in
             let state: String
             var error = item.errorMessage

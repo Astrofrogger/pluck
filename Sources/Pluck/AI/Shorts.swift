@@ -14,6 +14,8 @@ enum Shorts {
         /// nil: no captions.
         var captions: CaptionDesign? = CaptionDesign()
         var framing: FramingChoice = .automatic
+        /// The spoken language, when the user chose it (otherwise guessed).
+        var language: Locale?
     }
 
     enum FramingChoice: String, CaseIterable, Identifiable, Sendable {
@@ -110,7 +112,7 @@ enum Shorts {
         var parts: [[String]] = [[]]
         var words = 0
         for line in lines {
-            let count = line.split(separator: " ").count
+            let count = OnDeviceWriter.size(of: line)
             if words + count > 700, !(parts.last ?? []).isEmpty { parts.append([]); words = 0 }
             parts[parts.count - 1].append(line)
             words += count

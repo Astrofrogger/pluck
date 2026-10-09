@@ -16,7 +16,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-    <img src="docs/screenshots/main-light.png" width="620" alt="Pluck's main window: two films downloading, one paused, a Spotify song finished with lyrics at AAC 258 kbps, and a finished clip">
+    <img src="docs/screenshots/main-light.png" width="620" alt="Pluck's main window: Dua Lipa and Billie Eilish videos downloading, Olivia Rodrigo paused, and Sabrina Carpenter and Chappell Roan finished, the song with lyrics at AAC 256 kbps">
   </picture>
 </p>
 
@@ -26,7 +26,8 @@
 - 📋 **Many links at once:** paste or drop a whole list of links, or a text file full of them
 - 🎵 **Music done properly:** the best audio on offer (256 kbps with YouTube Premium), cover art, tags and lyrics, and added to Apple Music automatically if you like
 - 🎬 **Any video quality,** from 360p to 4K, clips of just the part you need, and pause and resume for big downloads
-- ✨ **Local AI, on your Mac:** subtitles and translations, search inside your downloads, summaries and chapters, shorts and stems. Nothing is uploaded
+- ✨ **Local AI, on your Mac:** subtitles and translations, who said what, summaries and chapters, shorts, removing silences, clean audio, upscaling and smooth motion, new backgrounds, privacy blur and stems. Nothing is uploaded
+- 📚 **Library:** everything you've saved, by kind and site, with tags, search, duplicates and the space it takes
 - 🗜️ **Convert your own files:** extract audio, convert to MP4, trim, make GIFs, shrink a video to the size and resolution you choose, or compress photos
 - 🌐 **Almost any website:** 1,800+ sites through yt-dlp, plus Spotify and Apple Music links and pages yt-dlp doesn't know
 - ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
@@ -36,7 +37,7 @@
     <td align="center" width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
-        <img src="docs/screenshots/search-light.png" width="380" alt="Search results for Kevin MacLeod on the Music tab, each with a download button">
+        <img src="docs/screenshots/search-light.png" width="380" alt="Search results for Sabrina Carpenter on the Music tab, each with a download button">
       </picture>
       <br><b>Search, then download</b><br>Songs from YouTube Music or videos from YouTube, one click each.
     </td>
@@ -62,6 +63,31 @@
         <img src="docs/screenshots/settings-light.png" width="360" alt="Settings, Downloads tab: embed metadata, cover art, subtitles and lyrics, and file names">
       </picture>
       <br><b>Simple settings</b><br>Formats, file names, lyrics, login at startup, browser cookies.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/player-dark.png">
+        <img src="docs/screenshots/player-light.png" width="380" alt="Pluck Player with a two-person interview: the transcript beside the video shows who says what, Mia and Daniel">
+      </picture>
+      <br><b>Who said what</b><br>Transcripts, summaries and chapters, with the speakers named.
+    </td>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/ai-dark.png">
+        <img src="docs/screenshots/ai-light.png" width="300" alt="The convert window for a video from your Mac, with ten local AI actions: shorts, subtitles, summaries, chapters, removing silences, upscaling, new background, privacy blur, clean audio and stems">
+      </picture>
+      <br><b>Local AI for your own files</b><br>Drop a video or song and pick what to do with it.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/library-dark.png">
+        <img src="docs/screenshots/library-light.png" width="620" alt="The Pluck Library: collections for videos, music, photos and sites, with a grid of saved videos and songs">
+      </picture>
+      <br><b>Library</b><br>Everything you've saved, by kind and site, with tags, duplicates and the space it takes.
     </td>
   </tr>
 </table>
@@ -94,16 +120,24 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Cover art and tags** (title, artist, album) are embedded automatically
 
 ### Local AI
-Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download, or drop a video or song from your Mac on the window to use these on your own files:
-- **Subtitles & transcripts:** transcribe any video or song, save an `.srt`, add subtitle tracks to the video or burn them into the picture, and translate them into another language
+Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation, voice isolation, video processing and Apple Intelligence, plus open-source models for stems and speakers. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download, or drop a video or song from your Mac on the window to use these on your own files. Select several items (⌘ or ⇧) to add subtitles, remove silences or clean up the audio of all of them at once:
+- **Subtitles & transcripts:** transcribe any video or song, save an `.srt`, add subtitle tracks to the video or burn them into the picture, and translate them into one or more other languages
+- **Translate subtitle files:** drop an `.srt` or `.vtt` on Pluck to translate it into one or more languages; the translations are saved next to it
+- **Who said what:** up to four speakers are told apart; subtitles and transcripts show their names (rename them in Pluck Player) and summaries know who said what. The speaker model (about 230 MB, NVIDIA Sortformer) is downloaded the first time
+- **Remove silences & fillers:** cuts long pauses and filler words like "uhm" into a tightened copy, at a tight, natural or relaxed pace. For editing, it can also save an EDL with the same cuts for DaVinci Resolve or Premiere Pro
+- **Clean up audio:** removes background noise, hum and wind around voices with Apple's voice isolation, then levels the loudness for online video (−14 LUFS), podcasts (−16) or broadcast (−23). The picture is copied untouched
+- **Upscale & smooth:** makes low-resolution video sharp in 1080p or 4K, and adds frames for twice as smooth motion or 2× and 4× slow motion
+- **New background:** separates people from what's behind them, no green screen needed: blur the background, replace it with a colour or picture, or make it transparent (ProRes 4444) for your editor
+- **Privacy blur:** finds faces and follows them through the video, and blurs or pixelates everyone except the people you keep sharp, optionally text like licence plates too
 - **Search inside downloads** (⇧⌘F): find what was said and jump straight to that moment. Turn on automatic transcripts in Settings → AI so new downloads are searchable
 - **Summaries & chapters:** a short summary with key points, and chapters for videos without them (written into the file, so QuickTime and Apple Music show them)
 - **Shorts:** 1–5 vertical 9:16 clips from a long video. Local AI picks the best moments, each shot is framed steadily on the speaker or subject (titles are shown whole), and the spoken word is highlighted
 - **Caption styles:** for shorts and burned-in subtitles, choose a highlight box or colored text, the color, a size and a font, including your own fonts
 - **Stems & karaoke:** split a song into vocals, drums, bass and other, plus an instrumental (karaoke) version. The model (168 MB, [HTDemucs](https://github.com/facebookresearch/demucs), MIT) is downloaded the first time and checked
-- **Pluck Player:** watch with the transcript, summary and chapters beside the video; click a line to jump there
+- **Pluck Player:** watch with the transcript, summary and chapters beside the video; click a line to jump there. Export the transcript as text, Markdown or Word, or save the frame on screen as a picture
+- **Spoken language:** for your own files, Pluck asks which language is spoken before it writes a transcript, so summaries, chapters and shorts get it right
 
-Requirements: transcripts, subtitles, search and shorts need macOS 26 or later; summaries, chapters and the smartest search and shorts also need Apple Intelligence; stems need macOS 27 on Apple silicon. On older Macs these features are simply hidden. Third-party licences are in [ThirdPartyLicenses.md](ThirdPartyLicenses.md).
+Requirements: transcripts, subtitles, search, shorts, filler words and upscaling need macOS 26 or later; summaries, chapters and the smartest search and shorts also need Apple Intelligence; speaker labels need Apple silicon; stems need macOS 27 on Apple silicon. Removing silences, cleaning up audio, new backgrounds and privacy blur work on every supported Mac. Features a Mac can't run are simply hidden. Third-party licences are in [ThirdPartyLicenses.md](ThirdPartyLicenses.md).
 
 ### Convert files on your Mac
 Drop a video, song or photo on the window, or choose File → Convert Files… (⌘O):
@@ -115,6 +149,8 @@ Drop a video, song or photo on the window, or choose File → Convert Files… (
 - **Compress photos** (JPEG, PNG, HEIC, TIFF…) to JPEG or HEIC with a quality slider and an optional maximum size, optionally removing location and camera details. The size estimate is measured by actually compressing the photos with your settings
 
 ### Your files
+- **Library** (⇧⌘L): everything Pluck has saved, kept for good, in collections by kind and site, with your own tags, search, sorting, duplicates, missing files and the largest files. Right-click to open, tag, Quick Look or move to the Trash
+- **Send to DaVinci Resolve:** right-click a download to import it into a "Pluck" bin of the project open in Resolve Studio
 - **Named your way:** Automatic (Artist - Title for music), Title, Artist - Title, Title (Year), Channel - Title, or your own pattern like `{artist} - {title} ({year})`
 - **Albums and playlists** go into their own folders (`Artist/Album`)
 - **Already downloaded?** Pluck notices and offers to show the file instead
@@ -161,4 +197,4 @@ Strings live in `Resources/Localizable.xcstrings` (a String Catalog you can open
 ```
 
 ---
-<sub>Screenshots show <a href="https://studio.blender.org/films/">Blender Studio open movies</a> (CC BY), music by <a href="https://incompetech.com">Kevin MacLeod</a> (CC BY) and a Spotify track. Pluck is meant for content you have the right to download.</sub>
+<sub>Screenshots show search results and download progress for songs by Dua Lipa, Billie Eilish, Olivia Rodrigo, Sabrina Carpenter and Chappell Roan, with their YouTube thumbnails; no music was downloaded to make them. The interview is <a href="https://mango.blender.org">Tears of Steel</a> (Blender Foundation, CC BY) with a made-up conversation, and the playlist shows <a href="https://studio.blender.org/films/">Blender Studio open movies</a> (CC BY). Pluck is meant for content you have the right to download.</sub>

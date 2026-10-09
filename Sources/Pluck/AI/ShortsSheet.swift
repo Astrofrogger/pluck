@@ -10,6 +10,13 @@ struct ShortsSheet: View {
     @AppStorage("shortsCaptionsOn") private var captionsOn = true
     @State private var design = CaptionDesign.load(CaptionDesign.shortsKey)
     @AppStorage("shortsFraming") private var framing: Shorts.FramingChoice = .automatic
+    @State private var languages: [Locale] = []
+    @State private var language: Locale?
+
+    /// Shorts need a transcript; without one yet, ask which language is spoken.
+    private var needsLanguage: Bool {
+        LocalAI.canTranscribe && item.transcriptID.flatMap(TranscriptStore.load)?.filePath != item.existingFile?.path
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -25,6 +32,9 @@ struct ShortsSheet: View {
             }
 
             Form {
+                if needsLanguage {
+                    SpokenLanguagePicker(item: item, languages: $languages, language: $language)
+                }
                 Stepper(value: $count, in: 1...5) {
                     LabeledContent("Number of shorts") { Text("\(count)").monospacedDigit() }
                 }
@@ -61,7 +71,8 @@ struct ShortsSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Make Shorts") {
-                    studio.makeShorts(item, options: Shorts.Options(count: count, length: length, captions: captionsOn ? design : nil, framing: framing))
+                    studio.makeShorts(item, options: Shorts.Options(count: count, length: length, captions: captionsOn ? design : nil,
+                                                                     framing: framing, language: needsLanguage ? language : nil))
                     design.save(CaptionDesign.shortsKey)
                     dismiss()
                 }

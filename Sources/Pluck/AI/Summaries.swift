@@ -37,7 +37,9 @@ enum OnDeviceWriter {
     }
 
     static func summarize(_ transcript: Transcript, progress: @escaping @Sendable (Double) -> Void) async throws -> (String, [String]) {
-        let parts = chunks(of: transcript.cues().map(\.text), size: wordsPerPart)
+        // With speakers known, lines say who's talking, so the summary can too.
+        let lines = transcript.hasSpeakers ? transcript.labeled(transcript.cues()).map(\.text) : transcript.cues().map(\.text)
+        let parts = chunks(of: lines, size: wordsPerPart)
         var notes: [String] = []
         if parts.count > 1 {
             for (index, part) in parts.enumerated() {
@@ -108,12 +110,20 @@ enum OnDeviceWriter {
         return result
     }
 
+    /// Roughly how much of the model's context a line takes, in words. Chinese, Japanese and
+    /// Korean are written without (many) spaces, so each of their characters counts as well.
+    static func size(of line: String) -> Int {
+        let wide = line.unicodeScalars.filter { (0x3040...0x30FF).contains($0.value) || (0x3400...0x9FFF).contains($0.value)
+            || (0xAC00...0xD7AF).contains($0.value) || (0xF900...0xFAFF).contains($0.value) }.count
+        return line.split(separator: " ").count + wide
+    }
+
     private static func chunks(of lines: [String], size: Int) -> [String] {
         var parts: [String] = []
         var current: [String] = []
         var count = 0
         for line in lines {
-            let words = line.split(separator: " ").count
+            let words = Self.size(of: line)
             if count + words > size, !current.isEmpty {
                 parts.append(current.joined(separator: "\n"))
                 current = []

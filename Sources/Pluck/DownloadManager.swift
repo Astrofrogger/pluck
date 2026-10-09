@@ -109,6 +109,8 @@ final class DownloadManager {
         }
         refreshVersion()
         items = History.load()
+        // Everything already finished goes into the library too (it starts empty after updating).
+        LibraryStore.shared.record(items)
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let online = path.status == .satisfied
             Task { @MainActor in
@@ -1067,8 +1069,20 @@ final class DownloadManager {
             item.uploader = (meta["uploader"] as? String) ?? (meta["channel"] as? String)
             item.duration = meta["duration"] as? Double
         } else if line.hasPrefix("PLUCKFILE ") {
-            item.fileURL = URL(fileURLWithPath: String(line.dropFirst("PLUCKFILE ".count)))
+            item.fileURL = Self.tidiedName(URL(fileURLWithPath: String(line.dropFirst("PLUCKFILE ".count))))
         }
+    }
+
+    /// A title ending in a full stop gives "Title..mp4": drop the stray dots (and spaces) before
+    /// the extension. Leaves the file alone if the tidy name is already taken.
+    nonisolated static func tidiedName(_ file: URL) -> URL {
+        let base = file.deletingPathExtension().lastPathComponent
+        let tidy = base.replacingOccurrences(of: "[.\\s]+$", with: "", options: .regularExpression)
+        guard tidy != base, !tidy.isEmpty, !file.pathExtension.isEmpty else { return file }
+        let target = file.deletingLastPathComponent().appendingPathComponent(tidy).appendingPathExtension(file.pathExtension)
+        guard !FileManager.default.fileExists(atPath: target.path),
+              (try? FileManager.default.moveItem(at: file, to: target)) != nil else { return file }
+        return target
     }
 
     /// "Opus 272 kbps", "AAC 256 kbps"… from yt-dlp's codec id and average bitrate.
@@ -1409,7 +1423,7 @@ final class DownloadManager {
         }
     }
 
-    private func notify(title: String, body: String, files: [URL] = []) {
+    func notify(title: String, body: String, files: [URL] = []) {
         guard defaults.bool(forKey: Prefs.notify),
               Bundle.main.bundleIdentifier != nil,
               !NSApp.isActive else { return }

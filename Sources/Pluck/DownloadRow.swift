@@ -6,6 +6,8 @@ struct DownloadRow: View {
     @Environment(\.openWindow) private var openWindow
     let item: DownloadItem
     var isSelected = false
+    /// The other selected rows (with this one), when several are selected.
+    var batch: [DownloadItem] = []
     var onSelect: () -> Void = {}
     var onQuickLook: () -> Void = {}
     @State private var hovering = false
@@ -315,6 +317,12 @@ struct DownloadRow: View {
             Button("Open", action: open)
             Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
+            if Resolve.isInstalled {
+                Button(targets.count > 1 ? String(localized: "Send \(targets.count) Files to DaVinci Resolve")
+                                         : String(localized: "Send to DaVinci Resolve")) {
+                    Resolve.sendAndShow(targets.compactMap(\.existingFile))
+                }
+            }
             Divider()
         }
         if isAIEligible {
@@ -356,6 +364,14 @@ struct DownloadRow: View {
 
     // MARK: - Local AI
 
+    /// What the multi-file actions run on: every selected video or song, when this row is part of
+    /// a bigger selection; otherwise just this one.
+    private var targets: [DownloadItem] {
+        guard batch.count > 1, batch.contains(where: { $0.id == item.id }) else { return [item] }
+        let usable = batch.filter { $0.aiStatus == nil && ($0.existingFile.map(Converting.isMedia) ?? false) }
+        return usable.isEmpty ? [item] : usable
+    }
+
     /// A finished video or song (not a folder or photo) that local AI can work with.
     private var isAIEligible: Bool {
         guard let file = item.existingFile, !file.hasDirectoryPath else { return false }
@@ -377,18 +393,31 @@ struct DownloadRow: View {
     @ViewBuilder
     private var aiActions: some View {
         Section("Local AI") {
-            Button("Subtitles & Transcript…", systemImage: "captions.bubble") { ai.subtitleItem = item }
+            if targets.count > 1 {
+                Text("Subtitles, silences and audio clean-up: all \(targets.count) selected")
+            }
+            Button("Subtitles & Transcript…", systemImage: "captions.bubble") { ai.subtitleBatch = AIStudio.Batch(targets) }
                 .disabled(!LocalAI.canTranscribe || item.aiStatus != nil)
             Button("Summarize", systemImage: "text.badge.star") {
-                ai.summarize(item) { openWindow(value: $0) }
+                ai.start(.summarize, item) { openWindow(value: $0) }
             }
             .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
             Button("Add Chapters", systemImage: "list.number") {
-                ai.addChapters(item) { openWindow(value: $0) }
+                ai.start(.chapters, item) { openWindow(value: $0) }
             }
             .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
             Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
                 .disabled(!LocalAI.canTranscribe || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
+                .disabled(item.aiStatus != nil)
+            Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceItem = item }
+                .disabled(!Enhance.isSupported || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("New Background…", systemImage: "person.and.background.dotted") { ai.backgroundItem = item }
+                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("Privacy Blur…", systemImage: "eye.slash") { ai.blurItem = item }
+                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("Clean Up Audio…", systemImage: "waveform") { ai.cleanupBatch = AIStudio.Batch(targets) }
+                .disabled(!AudioCleanup.isSupported || item.aiStatus != nil)
             Button("Separate Stems", systemImage: "slider.vertical.3") { ai.separateStems(item) }
                 .disabled(!Stems.isSupported || item.aiStatus != nil)
             Button("Open in Pluck Player", systemImage: "play.rectangle.on.rectangle") { openPlayer() }

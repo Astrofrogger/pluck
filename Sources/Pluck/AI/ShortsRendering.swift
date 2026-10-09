@@ -9,7 +9,7 @@ extension AIStudio {
             item.aiStatus = String(localized: "Preparing…")
             item.aiProgress = nil
             do {
-                let transcript = try await existingOrNewTranscript(for: item, file: file)
+                let transcript = try await existingOrNewTranscript(for: item, file: file, language: options.language)
                 item.aiStatus = String(localized: "Choosing the best moments…")
                 item.aiProgress = nil
                 let moments = await Shorts.moments(in: transcript, options: options)

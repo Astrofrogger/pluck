@@ -143,12 +143,7 @@ extension AIStudio {
                     try await encode(stem, to: folder.appendingPathComponent("\(index + 1) \(output.name).m4a"))
                 }
                 // Karaoke: everything except the vocals, summed back together.
-                let instrumental = (0..<2).map { channel in
-                    (0..<stems[0][channel].count).map { i in
-                        DemucsSeparator.sources.indices.filter { DemucsSeparator.sources[$0] != "vocals" }
-                            .reduce(Float(0)) { $0 + stems[$1][channel][i] }
-                    }
-                }
+                let instrumental = await Task.detached { Self.mix(stems, without: "vocals") }.value
                 try await encode(instrumental, to: folder.appendingPathComponent("5 \(String(localized: "Instrumental (karaoke)")).m4a"))
                 item.aiStatus = nil
                 item.aiProgress = nil
@@ -158,6 +153,20 @@ extension AIStudio {
                 item.aiProgress = nil
                 presentStemError(error, for: item)
             }
+        }
+    }
+
+    /// All stems added together except one: the karaoke track.
+    @available(macOS 27, *)
+    nonisolated static func mix(_ stems: [[[Float]]], without excluded: String) -> [[Float]] {
+        let kept = DemucsSeparator.sources.indices.filter { DemucsSeparator.sources[$0] != excluded && $0 < stems.count }
+        return (0..<2).map { channel in
+            var sum = [Float](repeating: 0, count: stems.first?[channel].count ?? 0)
+            for source in kept {
+                let samples = stems[source][channel]
+                for i in sum.indices where i < samples.count { sum[i] += samples[i] }
+            }
+            return sum
         }
     }
 

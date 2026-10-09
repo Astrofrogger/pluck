@@ -30,6 +30,17 @@ struct Transcript: Codable, Identifiable, Sendable {
     var summary: String?
     var keyPoints: [String]?
     var chapters: [Chapter]?
+    /// Who spoke when (local AI), if speakers were looked for.
+    var speakerTurns: [SpeakerTurn]?
+    /// Names the user gave the speakers, by number ("1": "Lowie").
+    var speakerNames: [String: String]?
+
+    struct SpeakerTurn: Codable, Sendable, Hashable {
+        var s: Double
+        var e: Double
+        /// 1, 2, 3… in the order they first speak.
+        var speaker: Int
+    }
 
     var text: String { words.map(\.t).joined().trimmingCharacters(in: .whitespaces) }
     var fileURL: URL { URL(fileURLWithPath: filePath) }
@@ -42,7 +53,53 @@ struct Transcript: Codable, Identifiable, Sendable {
         var text: String
         /// The words this cue was made from (indices into `words`), for karaoke-style captions.
         var words: Range<Int>
+        /// Who says it, when speakers are known.
+        var speaker: Int? = nil
         var id: Double { start }
+    }
+
+    // MARK: - Speakers
+
+    var hasSpeakers: Bool { !(speakerTurns ?? []).isEmpty }
+
+    /// The speaker of each word: the turn it falls in, or the nearest one close by.
+    func wordSpeakers() -> [Int?] {
+        guard let turns = speakerTurns, !turns.isEmpty else { return Array(repeating: nil, count: words.count) }
+        var result: [Int?] = []
+        var last: Int?
+        for word in words {
+            let middle = (word.s + word.e) / 2
+            let inside = turns.first { $0.s <= middle && middle <= $0.e }
+            let near = inside ?? turns.min { distance($0, middle) < distance($1, middle) }.flatMap { distance($0, middle) < 1 ? $0 : nil }
+            let speaker = near?.speaker ?? last
+            result.append(speaker)
+            last = speaker
+        }
+        return result
+    }
+
+    private func distance(_ turn: SpeakerTurn, _ time: Double) -> Double {
+        time < turn.s ? turn.s - time : (time > turn.e ? time - turn.e : 0)
+    }
+
+    /// "Speaker 2", or the name the user gave them.
+    func speakerName(_ speaker: Int) -> String {
+        if let name = speakerNames?[String(speaker)], !name.trimmingCharacters(in: .whitespaces).isEmpty { return name }
+        return String(localized: "Speaker \(speaker)")
+    }
+
+    /// The cue's text with "Name: " in front where the speaker changes (for subtitles and the
+    /// language model, so it knows who said what).
+    func labeled(_ cues: [Cue]) -> [Cue] {
+        var previous: Int?
+        return cues.map { cue in
+            var cue = cue
+            if let speaker = cue.speaker, speaker != previous {
+                cue.text = "\(speakerName(speaker)): " + cue.text
+            }
+            previous = cue.speaker ?? previous
+            return cue
+        }
     }
 
     /// Words grouped into readable subtitles: at most `maxCharacters`, at most `maxDuration`
@@ -51,11 +108,12 @@ struct Transcript: Codable, Identifiable, Sendable {
         var cues: [Cue] = []
         var first = 0
         var text = ""
+        let speakers = wordSpeakers()
         func close(at index: Int) {
             guard index > first else { return }
             let line = text.trimmingCharacters(in: .whitespaces)
             if !line.isEmpty {
-                cues.append(Cue(start: words[first].s, end: words[index - 1].e, text: line, words: first..<index))
+                cues.append(Cue(start: words[first].s, end: words[index - 1].e, text: line, words: first..<index, speaker: speakers[first]))
             }
             first = index
             text = ""
@@ -67,7 +125,9 @@ struct Transcript: Codable, Identifiable, Sendable {
                 let tooSlow = word.e - words[first].s > maxDuration
                 let pause = word.s - previous.e > 0.8
                 let sentenceEnd = [".", "?", "!", "…"].contains { previous.t.hasSuffix($0) } && text.count > 20
-                if tooLong || tooSlow || pause || sentenceEnd { close(at: index) }
+                // A new speaker always starts a new line.
+                let newSpeaker = speakers[index] != nil && speakers[index] != speakers[index - 1]
+                if tooLong || tooSlow || pause || sentenceEnd || newSpeaker { close(at: index) }
             }
             text += word.t
         }
@@ -182,7 +242,11 @@ enum TranscriptStore {
         encoder.dateEncodingStrategy = .iso8601
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? encoder.encode(transcript).write(to: url(for: transcript.id), options: .atomic)
+        NotificationCenter.default.post(name: didSave, object: transcript.id)
     }
+
+    /// Posted with the transcript's id after it's saved (a new summary, chapters…).
+    static let didSave = Notification.Name("PluckTranscriptSaved")
 
     static func all() -> [Transcript] {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []

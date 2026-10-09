@@ -36,7 +36,7 @@ struct ConvertSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    if LocalAI.canTranscribe || Stems.isSupported {
+                    if LocalAI.canTranscribe || Stems.isSupported || AudioCleanup.isSupported || Enhance.isSupported {
                         aiSection
                             .padding(.bottom, 6)
                     }
@@ -84,7 +84,7 @@ struct ConvertSheet: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
-                } else if let duration = details[files[0]]?.info?.duration {
+                } else if let file = files.first, let duration = details[file]?.info?.duration {
                     Text(Format.duration(duration))
                         .font(.callout.monospacedDigit())
                         .foregroundStyle(.secondary)
@@ -96,7 +96,7 @@ struct ConvertSheet: View {
     // MARK: - Local AI
 
     private enum AIAction {
-        case shorts, subtitles, summarize, chapters, stems
+        case shorts, subtitles, summarize, chapters, stems, tighten, cleanup, enhance, background, blur
     }
 
     private var aiSection: some View {
@@ -106,14 +106,18 @@ struct ConvertSheet: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 aiButton(.shorts, "Make Shorts…", "rectangle.portrait.on.rectangle.portrait.angled",
                          enabled: LocalAI.canTranscribe && files.count == 1 && hasVideo)
-                aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble",
-                         enabled: LocalAI.canTranscribe && files.count == 1)
+                aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble", enabled: LocalAI.canTranscribe)
                 aiButton(.summarize, "Summarize", "text.badge.star", enabled: LocalAI.canSummarize)
                 aiButton(.chapters, "Add Chapters", "list.number", enabled: LocalAI.canSummarize)
+                aiButton(.tighten, "Remove Silences & Fillers…", "scissors", enabled: true)
+                aiButton(.enhance, "Upscale & Smooth…", "sparkles.tv", enabled: Enhance.isSupported && files.count == 1 && hasVideo)
+                aiButton(.background, "New Background…", "person.and.background.dotted", enabled: files.count == 1 && hasVideo)
+                aiButton(.blur, "Privacy Blur…", "eye.slash", enabled: files.count == 1 && hasVideo)
+                aiButton(.cleanup, "Clean Up Audio…", "waveform", enabled: AudioCleanup.isSupported)
                 aiButton(.stems, "Separate Stems", "slider.vertical.3", enabled: Stems.isSupported)
             }
             Text(files.count > 1
-                 ? "Works on your files in place, on this Mac. Shorts and subtitles take one file at a time."
+                 ? "Works on your files in place, on this Mac. Shorts, upscaling, backgrounds and blurring take one file at a time."
                  : "Works on your file in place, on this Mac. Nothing is uploaded.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -140,16 +144,30 @@ struct ConvertSheet: View {
         let open: (PlayerTarget) -> Void = { openWindow(value: $0) }
         dismiss()
         switch action {
-        case .shorts, .subtitles:
+        case .shorts, .subtitles, .tighten, .cleanup, .enhance, .background, .blur:
             guard let item = items.first else { return }
             // After this sheet has closed, so the next one can open.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                if action == .shorts { ai.shortsItem = item } else { ai.subtitleItem = item }
+                switch action {
+                case .shorts: ai.shortsItem = item
+                case .tighten: ai.tightenBatch = AIStudio.Batch(items)
+                case .cleanup: ai.cleanupBatch = AIStudio.Batch(items)
+                case .enhance: ai.enhanceItem = item
+                case .background: ai.backgroundItem = item
+                case .blur: ai.blurItem = item
+                default: ai.subtitleBatch = AIStudio.Batch(items)
+                }
             }
-        case .summarize:
-            for item in items { ai.summarize(item, openPlayer: items.count == 1 ? open : { _ in }) }
-        case .chapters:
-            for item in items { ai.addChapters(item, openPlayer: items.count == 1 ? open : { _ in }) }
+        case .summarize, .chapters:
+            let kind: AIStudio.LanguageAsk.Action = action == .summarize ? .summarize : .chapters
+            if items.count == 1, let item = items.first {
+                // May ask for the spoken language, after this sheet has closed.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ai.start(kind, item, openPlayer: open) }
+            } else {
+                for item in items {
+                    if kind == .summarize { ai.summarize(item) { _ in } } else { ai.addChapters(item) { _ in } }
+                }
+            }
         case .stems:
             for item in items { ai.separateStems(item) }
         }

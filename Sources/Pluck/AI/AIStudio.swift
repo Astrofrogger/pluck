@@ -13,9 +13,57 @@ final class AIStudio {
     }
 
     /// Files waiting for the user to choose subtitle options.
-    var subtitleItem: DownloadItem?
+    var subtitleBatch: Batch?
+
+    /// One or more items an AI action runs on with the same options (a selection in the list,
+    /// or several files dropped at once).
+    struct Batch: Identifiable {
+        let id = UUID()
+        let items: [DownloadItem]
+        init(_ items: [DownloadItem]) { self.items = items }
+
+        /// The item's title, or "3 files".
+        @MainActor var title: String {
+            items.count == 1 ? items[0].title : String(localized: "\(items.count) files")
+        }
+    }
     /// A video waiting for the user to choose shorts options.
     var shortsItem: DownloadItem?
+    /// Summarize or Add Chapters waiting for the spoken language (files without a transcript).
+    var languageAsk: LanguageAsk?
+
+    struct LanguageAsk: Identifiable {
+        enum Action { case summarize, chapters }
+        let id = UUID()
+        let item: DownloadItem
+        let action: Action
+        let openPlayer: (PlayerTarget) -> Void
+    }
+
+    /// Summarize or Add Chapters: straight away when there's a transcript, otherwise after asking
+    /// which language is spoken (a guess from the title is often wrong for files from this Mac).
+    func start(_ action: LanguageAsk.Action, _ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
+        let hasTranscript = item.transcriptID.flatMap(TranscriptStore.load)?.filePath == item.existingFile?.path
+        guard !hasTranscript, LocalAI.canTranscribe else {
+            switch action {
+            case .summarize: summarize(item, openPlayer: openPlayer)
+            case .chapters: addChapters(item, openPlayer: openPlayer)
+            }
+            return
+        }
+        languageAsk = LanguageAsk(item: item, action: action, openPlayer: openPlayer)
+    }
+
+    /// A file waiting for Remove Silences & Fillers options.
+    var tightenBatch: Batch?
+    /// A file waiting for Clean Up Audio options.
+    var cleanupBatch: Batch?
+    /// A video waiting for Upscale & Smooth options.
+    var enhanceItem: DownloadItem?
+    /// A video waiting for New Background options.
+    var backgroundItem: DownloadItem?
+    /// A video waiting for Privacy Blur options.
+    var blurItem: DownloadItem?
     var searchShown = false
     @ObservationIgnored let search = TranscriptSearch()
 
@@ -76,8 +124,12 @@ final class AIStudio {
 
     struct SubtitleRequest {
         var language: Locale
-        /// Also make subtitles in this language (translated on this Mac).
-        var translateTo: Locale.Language?
+        /// Also make subtitles in these languages (translated on this Mac).
+        var translateTo: [Locale.Language] = []
+        /// The translation to burn into the picture; nil for the spoken language.
+        var burnInLanguage: Locale.Language?
+        /// Put "Name:" in front of lines where the speaker changes.
+        var labelSpeakers = false
         var saveFile = true
         var embed = false
         var burnIn = false
@@ -97,12 +149,20 @@ final class AIStudio {
             item.aiStatus = String(localized: "Preparing…")
             item.aiProgress = nil
             do {
-                let transcript = try await transcript(for: item, file: file, language: request.language)
+                var transcript = try await transcript(for: item, file: file, language: request.language)
+                if request.labelSpeakers, !transcript.hasSpeakers, Speakers.isSupported {
+                    try await addSpeakers(to: &transcript, file: file, item: item)
+                }
                 let cues = transcript.cues()
+                // Names go in after translating, so they're never translated themselves.
+                let finish = { (cues: [Transcript.Cue]) in request.labelSpeakers ? transcript.labeled(cues) : cues }
                 var tracks: [(cues: [Transcript.Cue], language: Locale.Language)] = [(cues, request.language.language)]
-                if let target = request.translateTo, target.languageCode != request.language.language.languageCode {
-                    item.aiStatus = String(localized: "Translating…")
-                    item.aiProgress = nil
+                let targets = request.translateTo.filter { $0.languageCode != request.language.language.languageCode }
+                for (index, target) in targets.enumerated() {
+                    item.aiStatus = targets.count > 1
+                        ? String(localized: "Translating \(index + 1) of \(targets.count)…")
+                        : String(localized: "Translating…")
+                    item.aiProgress = targets.count > 1 ? Double(index) / Double(targets.count) : nil
                     tracks.append((try await OnDeviceTranslation.translate(cues, from: request.language, to: target), target))
                 }
                 let base = file.deletingPathExtension()
@@ -111,17 +171,18 @@ final class AIStudio {
                         // "Video.srt" for the spoken language, "Video.nl.srt" for a translation.
                         let name = index == 0 ? base.lastPathComponent : "\(base.lastPathComponent).\(track.language.minimalIdentifier)"
                         let srt = base.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension("srt")
-                        try Transcript.srt(track.cues).write(to: srt, atomically: true, encoding: .utf8)
+                        try Transcript.srt(finish(track.cues)).write(to: srt, atomically: true, encoding: .utf8)
                     }
                 }
                 if request.embed, Self.canEmbedSubtitles(file) {
                     item.aiStatus = String(localized: "Adding subtitles to the video…")
-                    try await embed(tracks, into: file)
+                    try await embed(tracks.map { (finish($0.cues), $0.language) }, into: file)
                 }
-                if request.burnIn, Self.isVideo(file), let last = tracks.last {
+                if request.burnIn, Self.isVideo(file),
+                   let chosen = tracks.first(where: { $0.language.minimalIdentifier == request.burnInLanguage?.minimalIdentifier }) ?? tracks.first {
                     item.aiStatus = String(localized: "Burning in subtitles…")
                     item.aiProgress = 0
-                    try await burnIn(last.cues, design: request.design, into: file, item: item)
+                    try await burnIn(finish(chosen.cues), design: request.design, into: file, item: item)
                 }
                 item.aiStatus = nil
                 item.aiProgress = nil
@@ -134,27 +195,27 @@ final class AIStudio {
         }
     }
 
-    /// The saved transcript, or a new one in the guessed language (for jobs that just need one).
+    /// The saved transcript, or a new one: in `language` if the user chose it, otherwise in the
+    /// guessed language (for jobs that just need one).
     @available(macOS 26, *)
-    func existingOrNewTranscript(for item: DownloadItem, file: URL) async throws -> Transcript {
+    func existingOrNewTranscript(for item: DownloadItem, file: URL, language chosen: Locale? = nil) async throws -> Transcript {
+        if let chosen { return try await transcript(for: item, file: file, language: chosen) }
         if let id = item.transcriptID, let saved = TranscriptStore.load(id), saved.filePath == file.path { return saved }
         let guess = LocalAI.guessLanguage(title: item.title, metadata: item.spokenLanguage)
         let supported = await OnDeviceSpeech.languages()
-        let language = supported.first { $0.identifier == guess.identifier }
-            ?? supported.first { $0.language.languageCode == guess.language.languageCode }
-            ?? Locale(identifier: "en-US")
+        let language = LocalAI.match(guess, in: supported) ?? Locale(identifier: "en-US")
         return try await transcript(for: item, file: file, language: language)
     }
 
     // MARK: - Summaries and chapters
 
-    func summarize(_ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
+    func summarize(_ item: DownloadItem, language: Locale? = nil, openPlayer: @escaping (PlayerTarget) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
         enqueue(item) { [self] in
             item.aiStatus = String(localized: "Preparing…")
             item.aiProgress = nil
             do {
-                var transcript = try await existingOrNewTranscript(for: item, file: file)
+                var transcript = try await existingOrNewTranscript(for: item, file: file, language: language)
                 item.aiStatus = String(localized: "Summarizing…")
                 item.aiProgress = 0
                 let (summary, points) = try await OnDeviceWriter.summarize(transcript) { progress in
@@ -171,13 +232,13 @@ final class AIStudio {
         }
     }
 
-    func addChapters(_ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
+    func addChapters(_ item: DownloadItem, language: Locale? = nil, openPlayer: @escaping (PlayerTarget) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
         enqueue(item) { [self] in
             item.aiStatus = String(localized: "Preparing…")
             item.aiProgress = nil
             do {
-                var transcript = try await existingOrNewTranscript(for: item, file: file)
+                var transcript = try await existingOrNewTranscript(for: item, file: file, language: language)
                 item.aiStatus = String(localized: "Finding chapters…")
                 item.aiProgress = 0
                 let chapters = try await OnDeviceWriter.chapters(transcript) { progress in
@@ -217,13 +278,13 @@ final class AIStudio {
         _ = try FileManager.default.replaceItemAt(file, withItemAt: temp)
     }
 
-    private func finishJob(_ item: DownloadItem) {
+    func finishJob(_ item: DownloadItem) {
         item.aiStatus = nil
         item.aiProgress = nil
         manager.saveHistory()
     }
 
-    private func failJob(_ item: DownloadItem, _ error: Error) {
+    func failJob(_ item: DownloadItem, _ error: Error) {
         item.aiStatus = nil
         item.aiProgress = nil
         presentError(error, for: item)
@@ -328,6 +389,11 @@ final class AIStudio {
 
     /// Pluck's (or the Mac's) copy of a helper tool like ffmpeg.
     func toolPath(_ name: String) -> String? { manager.tool(name) }
+
+    /// A notification when Pluck is in the background (if the user turned them on).
+    func notify(title: String, body: String, files: [URL]) {
+        manager.notify(title: title, body: body, files: files)
+    }
 
     func videoSize(_ file: URL) async -> (Int, Int)? {
         guard let ffprobe = manager.tool("ffprobe"),

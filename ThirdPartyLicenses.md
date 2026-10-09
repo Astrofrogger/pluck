@@ -35,3 +35,16 @@ Francisco Massa and Alexandre Défossez (Meta), [facebookresearch/demucs](https:
 MIT licence. It isn't part of the app; Pluck downloads it when stems are first used.
 
 > S. Rouard, F. Massa, A. Défossez. "Hybrid Transformers for Music Source Separation." ICASSP 2023.
+
+## FluidAudio (speaker labels)
+Pluck uses [FluidAudio](https://github.com/FluidInference/FluidAudio) v0.17.7, © FluidInference,
+Apache License 2.0, to tell speakers apart. Its optional prebuilt text normalizer isn't included.
+The full licence and the notices FluidAudio ships for code it includes (fastcluster, VBx, Kokoro
+and its text frontends) are in [ThirdPartyLicenses/FluidAudio](ThirdPartyLicenses/FluidAudio).
+
+## Sortformer speaker model (downloaded on first use)
+The speaker model, [FluidInference/diar-streaming-sortformer-coreml](https://huggingface.co/FluidInference/diar-streaming-sortformer-coreml)
+(pinned to revision `ae9a27ab45dc0aa3abede7d2d6bad2b7a69aa6d1`), is a Core ML conversion of NVIDIA's
+[Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) diarization model,
+released under the NVIDIA Open Model License (the conversion is published as CC BY 4.0). It isn't part
+of the app; Pluck downloads it when speakers are first labelled.

@@ -88,6 +88,30 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.10.0", items: [
+                Item(symbol: "scissors", title: String(localized: "Remove silences and filler words"),
+                     detail: String(localized: "Local AI on your Mac cuts long pauses and filler words like “uhm” out of a video or recording, into a tightened copy. For editing, it can also save an edit list for DaVinci Resolve or Premiere Pro.")),
+                Item(symbol: "waveform", title: String(localized: "Clean up audio"),
+                     detail: String(localized: "Local AI on your Mac removes background noise, hum and wind around voices, and levels the loudness for online video, podcasts or broadcast.")),
+                Item(symbol: "sparkles.tv", title: String(localized: "Upscale and smooth motion"),
+                     detail: String(localized: "Local AI on your Mac makes low-resolution video sharp in 1080p or 4K, and adds frames for smoother motion or slow motion.")),
+                Item(symbol: "person.and.background.dotted", title: String(localized: "New background, no green screen"),
+                     detail: String(localized: "Local AI on your Mac separates people from what’s behind them: blur the background, replace it with a colour or picture, or make it transparent for editing.")),
+                Item(symbol: "eye.slash", title: String(localized: "Privacy blur"),
+                     detail: String(localized: "Local AI on your Mac finds faces and follows them through the video, and blurs everyone except the people you keep sharp. It can blur licence plates and other text too.")),
+                Item(symbol: "person.2.wave.2", title: String(localized: "Who said what"),
+                     detail: String(localized: "Local AI on your Mac tells up to four speakers apart. Subtitles and transcripts show their names, which you can change in Pluck Player, and summaries know who said what.")),
+                Item(symbol: "books.vertical", title: String(localized: "Pluck Library"),
+                     detail: String(localized: "Everything you’ve saved with Pluck in one place, kept for good: collections by kind and site, your own tags, search, duplicates, missing files and the space it all takes (⇧⌘L).")),
+                Item(symbol: "character.bubble", title: String(localized: "Translate into several languages"),
+                     detail: String(localized: "Subtitles can now be translated into several languages at once, with local AI on your Mac.")),
+                Item(symbol: "square.stack.3d.up", title: String(localized: "Several files at once"),
+                     detail: String(localized: "Select several items with ⌘ or ⇧ and add subtitles, remove silences or clean up the audio of all of them in one go.")),
+                Item(symbol: "play.rectangle.on.rectangle", title: String(localized: "More from Pluck Player"),
+                     detail: String(localized: "Export a transcript with its summary, chapters and speakers as text, Markdown or Word, save a frame as a picture, and send files straight to DaVinci Resolve.")),
+                Item(symbol: "checkmark.seal", title: String(localized: "Fixes"),
+                     detail: String(localized: "The player no longer crashes on macOS 27. Summaries, chapters and shorts ask which language is spoken in your own files, work better in Chinese, Japanese and Korean, and file names no longer end in two dots.")),
+            ]),
             Release(version: "1.9.4", items: [
                 Item(symbol: "globe", title: String(localized: "Firefox Nightly and Chrome Beta"),
                      detail: String(localized: "Pluck can now use the logins from Firefox Nightly and Google Chrome Beta. Pick one in Settings under Use cookies from.")),

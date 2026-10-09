@@ -50,6 +50,18 @@ enum LocalAI {
         }
     }
 
+    /// The supported language closest to a guess: same language and region, then the same
+    /// language in the user's region, then the same language anywhere.
+    static func match(_ guess: Locale, in supported: [Locale]) -> Locale? {
+        // "English" alone means US English, "Dutch" Dutch from the Netherlands, and so on.
+        let likely = Locale(identifier: guess.language.maximalIdentifier).region
+        return supported.first { $0.identifier == guess.identifier }
+            ?? supported.first { $0.language.languageCode == guess.language.languageCode && $0.region == guess.region && guess.region != nil }
+            ?? supported.first { $0.language.languageCode == guess.language.languageCode && $0.region == Locale.current.region }
+            ?? supported.first { $0.language.languageCode == guess.language.languageCode && $0.region == likely }
+            ?? supported.first { $0.language.languageCode == guess.language.languageCode }
+    }
+
     /// A good first guess for the spoken language: the site's own metadata, then the language of
     /// the title, then the Mac's own language.
     static func guessLanguage(title: String, metadata: String?) -> Locale {

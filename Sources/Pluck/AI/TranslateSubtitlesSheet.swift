@@ -38,13 +38,19 @@ private struct TranslateSubtitlesForm: View {
 
     @State private var languages: [Locale.Language] = []
     @State private var source: Locale.Language?
-    @State private var target: Locale.Language?
+    @State private var targets: [Locale.Language] = []
     @AppStorage("subtitleTranslationTarget") private var lastTarget = ""
+    private static let targetsKey = "subtitleFileTranslateTo"
+    /// Languages the source can't be translated into on this Mac.
+    @State private var unavailable: Set<String> = []
     @State private var configuration: TranslationSession.Configuration?
+    /// Languages still to do; the first is the one being translated.
+    @State private var queue: [Locale.Language] = []
+    @State private var outputs: [URL] = []
+    @State private var failures: [String] = []
     @State private var done = 0
     @State private var running = false
     @State private var problem: String?
-    @State private var unsupported = false
 
     private var heading: String {
         files.count == 1
@@ -52,9 +58,15 @@ private struct TranslateSubtitlesForm: View {
             : String(localized: "Translate \(files.count) Subtitle Files")
     }
 
+    /// The chosen languages this Mac can translate into.
+    private var validTargets: [Locale.Language] {
+        targets.filter { $0.languageCode != source?.languageCode && !unavailable.contains($0.minimalIdentifier) }
+    }
+
+    private var total: Int { max(files.count * max(validTargets.count, 1), 1) }
+
     private var canStart: Bool {
-        guard let source, let target else { return false }
-        return !running && !unsupported && source.languageCode != target.languageCode
+        source != nil && !running && !validTargets.isEmpty
     }
 
     var body: some View {
@@ -82,17 +94,15 @@ private struct TranslateSubtitlesForm: View {
                     if languages.isEmpty { Text("Loading…").tag(Locale.Language?.none) }
                     ForEach(languages, id: \.minimalIdentifier) { Text(name(of: $0)).tag(Optional($0)) }
                 }
-                Picker("To", selection: $target) {
-                    if languages.isEmpty { Text("Loading…").tag(Locale.Language?.none) }
-                    ForEach(languages, id: \.minimalIdentifier) { Text(name(of: $0)).tag(Optional($0)) }
-                }
+                TranslationTargetsMenu(title: "To", selection: $targets, languages: languages,
+                                       source: source, unavailable: unavailable, allowsNone: false)
             }
             .formStyle(.grouped)
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
             .disabled(running)
 
-            if unsupported {
+            if !targets.isEmpty, validTargets.isEmpty, !running {
                 Label("This Mac can’t translate between these languages.", systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.secondary)
             } else if let problem {
@@ -109,9 +119,9 @@ private struct TranslateSubtitlesForm: View {
 
             HStack {
                 if running {
-                    ProgressView(value: Double(done), total: Double(files.count))
+                    ProgressView(value: Double(done), total: Double(total))
                         .frame(width: 120)
-                    Text(files.count > 1 ? String(localized: "Translating \(done + 1) of \(files.count)…") : String(localized: "Translating…"))
+                    Text(total > 1 ? String(localized: "Translating \(min(done + 1, total)) of \(total)…") : String(localized: "Translating…"))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -126,7 +136,7 @@ private struct TranslateSubtitlesForm: View {
         .padding(24)
         .frame(width: 480)
         .task { await load() }
-        .task(id: "\(source?.minimalIdentifier ?? "")>\(target?.minimalIdentifier ?? "")") { await checkPair() }
+        .task(id: source?.minimalIdentifier) { await checkPairs() }
         // macOS asks to download the languages first if they aren't on this Mac yet.
         .translationTask(configuration) { session in
             await translate(with: session)
@@ -147,21 +157,42 @@ private struct TranslateSubtitlesForm: View {
                 ?? languages.first { $0.languageCode == language.languageCode }
         }
         source = match(detected) ?? match(Locale.Language(identifier: "en"))
-        let preferred = lastTarget.isEmpty ? nil : Locale.Language(identifier: lastTarget)
-        target = [preferred, Locale.current.language, Locale.Language(identifier: "en")]
-            .compactMap(match)
-            .first { $0.languageCode != source?.languageCode }
+        var remembered = TranslationTargetsMenu.load(Self.targetsKey)
+        if remembered.isEmpty, !lastTarget.isEmpty { remembered = [Locale.Language(identifier: lastTarget)] }
+        targets = remembered.compactMap(match).filter { $0.languageCode != source?.languageCode }
+        if targets.isEmpty {
+            targets = [Locale.current.language, Locale.Language(identifier: "en")]
+                .compactMap(match)
+                .filter { $0.languageCode != source?.languageCode }
+                .prefix(1).map { $0 }
+        }
     }
 
-    private func checkPair() async {
-        guard let source, let target else { return }
-        unsupported = await LanguageAvailability().status(from: source, to: target) == .unsupported
+    private func checkPairs() async {
+        guard let source else { return }
+        let availability = LanguageAvailability()
+        var blocked: Set<String> = []
+        for language in languages where await availability.status(from: source, to: language) == .unsupported {
+            blocked.insert(language.minimalIdentifier)
+        }
+        unavailable = blocked
     }
 
     private func start() {
-        guard let source, let target else { return }
+        guard source != nil else { return }
         problem = nil
-        lastTarget = target.minimalIdentifier
+        outputs = []
+        failures = []
+        done = 0
+        queue = validTargets
+        TranslationTargetsMenu.save(targets, Self.targetsKey)
+        running = true
+        translateNext()
+    }
+
+    /// Asks for a session for the next language (macOS downloads it first if needed).
+    private func translateNext() {
+        guard let source, let target = queue.first else { finish(); return }
         if configuration?.source == source, configuration?.target == target {
             configuration?.invalidate()
         } else {
@@ -170,26 +201,29 @@ private struct TranslateSubtitlesForm: View {
     }
 
     private func translate(with session: TranslationSession) async {
-        guard let target else { return }
-        await MainActor.run { running = true; done = 0 }
-        var outputs: [URL] = []
-        var failures: [String] = []
+        guard let target = await MainActor.run(body: { queue.first }) else { return }
         for file in files {
             do {
-                outputs.append(try await SubtitleFiles.translate(file, to: target, session: session))
+                let output = try await SubtitleFiles.translate(file, to: target, session: session)
+                await MainActor.run { outputs.append(output) }
             } catch {
-                failures.append(error.localizedDescription)
+                await MainActor.run { failures.append("\(TranslationTargetsMenu.name(of: target)): \(error.localizedDescription)") }
             }
             await MainActor.run { done += 1 }
         }
         await MainActor.run {
-            running = false
-            if !outputs.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(outputs) }
-            if failures.isEmpty {
-                dismiss()
-            } else {
-                problem = failures.joined(separator: "\n")
-            }
+            if !queue.isEmpty { queue.removeFirst() }
+            translateNext()
+        }
+    }
+
+    private func finish() {
+        running = false
+        if !outputs.isEmpty { NSWorkspace.shared.activateFileViewerSelecting(outputs) }
+        if failures.isEmpty {
+            dismiss()
+        } else {
+            problem = failures.joined(separator: "\n")
         }
     }
 }
