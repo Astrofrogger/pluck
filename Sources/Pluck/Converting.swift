@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct Conversion: Codable, Equatable {
     enum Preset: String, Codable, CaseIterable, Identifiable {
         /// `smaller` (720p) was replaced by `compress`; it stays so older history entries still load.
-        case audio, mp4, compress, trim, gif, smaller
+        case audio, mp4, compress, trim, gif, photo, smaller
 
         var id: String { rawValue }
 
@@ -17,6 +17,7 @@ struct Conversion: Codable, Equatable {
             case .compress: String(localized: "Compress")
             case .trim: String(localized: "Trim")
             case .gif: String(localized: "Make GIF")
+            case .photo: String(localized: "Compress Photo")
             case .smaller: String(localized: "Make Smaller")
             }
         }
@@ -28,6 +29,7 @@ struct Conversion: Codable, Equatable {
             case .compress: String(localized: "Makes the file the size you choose, for sharing or mail. The resolution stays the same unless the file gets very small.")
             case .trim: String(localized: "Saves only the part you choose above, in the same quality.")
             case .gif: String(localized: "Turns the video, or the part you choose above, into an animated GIF for chats and documents.")
+            case .photo: ""
             case .smaller: String(localized: "Shrinks the video to at most 720p, for sharing or mail.")
             }
         }
@@ -39,6 +41,7 @@ struct Conversion: Codable, Equatable {
             case .compress, .smaller: "arrow.down.right.and.arrow.up.left"
             case .trim: "scissors"
             case .gif: "photo.on.rectangle.angled"
+            case .photo: "photo"
             }
         }
 
@@ -55,6 +58,10 @@ struct Conversion: Codable, Equatable {
     var clip: ClipRange?
     /// For GIFs: width in pixels.
     var gifWidth: Int?
+    /// For photos: output format (quality is `percent`, longest edge `resolution`).
+    var photoFormat: Photos.Format?
+    /// For photos: location and camera details removed.
+    var removeDetails: Bool?
 
     /// Shown in the row instead of the download format.
     func label(options: DownloadOptions) -> String {
@@ -69,6 +76,7 @@ struct Conversion: Codable, Equatable {
             }
         case .trim: String(localized: "Trimmed")
         case .gif: "GIF · \(gifWidth ?? 480) px"
+        case .photo: "\((photoFormat ?? .jpeg).label) · \(percent ?? 75)%" + (resolution.map { " · \($0) px" } ?? "")
         case .smaller: "MP4 · 720p"
         }
     }
@@ -89,6 +97,9 @@ enum Converting {
             }
         }
     }
+
+    /// Anything the convert sheets accept: video, audio and photos.
+    static func isConvertible(_ url: URL) -> Bool { isMedia(url) || Photos.isPhoto(url) }
 
     static func isMedia(_ url: URL) -> Bool {
         UTType(filenameExtension: url.pathExtension)?.conforms(to: .audiovisualContent) ?? false
@@ -175,6 +186,8 @@ enum Converting {
                      sourceSize: Int64 = 0, passLog: String = "") throws -> Plan {
         let suffix = conversion.clip?.fileSuffix ?? ""
         switch conversion.preset {
+        case .photo:
+            throw Failure.unreadable   // photos go through Photos, not ffmpeg
         case .trim:
             // Songs keep their format: audio is copied, which cuts precisely enough.
             guard info.videoCodec != nil else {

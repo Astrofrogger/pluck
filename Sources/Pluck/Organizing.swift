@@ -108,7 +108,7 @@ extension Links {
     /// A key that's equal for two links to the same video or track, ignoring link style and
     /// tracking codes (youtu.be vs youtube.com/watch, ?si=…).
     static func identity(_ link: String) -> String {
-        if let spotify = Spotify.parse(link) { return "spotify:\(spotify.kind.rawValue):\(spotify.id)" }
+        if let music = MusicLinks.parse(link) { return "\(music.service.rawValue):\(music.kind.rawValue):\(music.id)" }
         guard let url = URL(string: link), var host = url.host?.lowercased() else { return link }
         if host.hasPrefix("www.") { host.removeFirst(4) }
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

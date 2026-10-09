@@ -9,7 +9,7 @@ struct PlaylistEntry: Identifiable, Equatable {
     let subtitle: String?
     let duration: Double?
     let thumbnail: URL?
-    /// Set for Spotify albums and playlists, so the download is matched and tagged like a track link.
+    /// Set for Spotify and Apple Music albums and playlists, so the download is matched and tagged like a track link.
     var spotify: SpotifyTrack?
 
     static func == (a: PlaylistEntry, b: PlaylistEntry) -> Bool { a.id == b.id }
@@ -59,7 +59,7 @@ enum Playlists {
     /// Links that point at a list rather than one video. Single videos skip the picker entirely,
     /// so they never wait for an extra lookup.
     static func looksLikePlaylist(_ link: String) -> Bool {
-        if let spotify = Spotify.parse(link) { return spotify.kind != .track }
+        if let music = MusicLinks.parse(link) { return music.kind != .track }
         guard let url = URL(string: link), let host = url.host?.lowercased() else { return false }
         let path = url.path.lowercased()
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

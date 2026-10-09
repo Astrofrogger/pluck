@@ -34,6 +34,9 @@ enum Prefs {
     static let searchKind = "searchKind"
     static let startInMenuBar = "startInMenuBar"
     static let splitChapters = "splitChapters"
+    static let musicImport = "musicImport"
+    static let musicImportTypes = "musicImportTypes"
+    static let musicImportAll = "musicImportAll"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -65,6 +68,9 @@ enum Prefs {
             lyrics: true,
             startInMenuBar: false,
             splitChapters: false,
+            musicImport: false,
+            musicImportTypes: MusicLibrary.defaultTypes,
+            musicImportAll: true,
         ])
     }
 }
@@ -199,10 +205,10 @@ final class DownloadManager {
         for url in urls {
             if Playlists.looksLikePlaylist(url) {
                 presentPicker(for: url, options: options, folder: folder)
-            } else if let existing = alreadyDownloaded(url, isAudio: options.isAudio || Spotify.isSpotify(url), clip: clip) {
+            } else if let existing = alreadyDownloaded(url, isAudio: options.isAudio || MusicLinks.isMusicLink(url), clip: clip) {
                 duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip))
                 AppDelegate.openMainWindow?()
-            } else if Spotify.isSpotify(url) {
+            } else if MusicLinks.isMusicLink(url) {
                 addSpotify(url, options: options, folder: folder, clip: clip)
             } else {
                 let item = DownloadItem(url: url, options: options, folder: folder)
@@ -242,17 +248,68 @@ final class DownloadManager {
     /// Files dropped on the window (or chosen in File → Convert Files…), waiting for the user to
     /// pick what to turn them into.
     var filesToConvert: [URL] = []
+    /// Photos dropped or chosen, waiting for compression settings.
+    var photosToCompress: [URL] = []
 
     func chooseFilesToConvert() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audiovisualContent]
+        panel.allowedContentTypes = [.audiovisualContent, .image]
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Choose")
-        panel.message = String(localized: "Choose videos or songs to convert.")
+        panel.message = String(localized: "Choose videos, songs or photos to convert.")
         NSApp.activate()
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
-        filesToConvert = panel.urls
+        openConverter(for: panel.urls)
         AppDelegate.openMainWindow?()
+    }
+
+    /// Videos and songs open the convert sheet, photos the photo sheet (after it, when both).
+    func openConverter(for files: [URL]) {
+        filesToConvert = files.filter(Converting.isMedia)
+        photosToCompress = files.filter(Photos.isPhoto)
+    }
+
+    func compressPhotos(_ files: [URL], settings: Photos.Settings) {
+        guard !files.isEmpty, let folder = destinationFolder(count: files.count) else { return }
+        for file in files {
+            let item = DownloadItem(url: file.absoluteString, options: DownloadOptions(), folder: folder)
+            item.title = file.deletingPathExtension().lastPathComponent
+            item.conversion = Conversion(source: file.path, preset: .photo, percent: Int((settings.quality * 100).rounded()),
+                                         resolution: settings.maxPixel, photoFormat: settings.format,
+                                         removeDetails: settings.removeDetails)
+            item.splitChapters = false
+            items.insert(item, at: 0)
+            Task { item.thumbnail = await Converting.thumbnail(for: file) }
+        }
+        pump()
+    }
+
+    private func runPhoto(_ item: DownloadItem, _ conversion: Conversion) {
+        let source = URL(fileURLWithPath: conversion.source)
+        let settings = Photos.Settings(format: conversion.photoFormat ?? .jpeg,
+                                       quality: Double(conversion.percent ?? 75) / 100,
+                                       maxPixel: conversion.resolution,
+                                       removeDetails: conversion.removeDetails ?? false)
+        let output = Converting.outputURL(folder: item.folder,
+                                          name: source.deletingPathExtension().lastPathComponent + String(localized: " (compressed)"),
+                                          fileExtension: settings.format.fileExtension)
+        item.phase = String(localized: "Compressing photo…")
+        Task {
+            let ok = await Task.detached { () -> Bool in
+                guard let data = Photos.compress(source, settings) else { return false }
+                return (try? data.write(to: output)) != nil
+            }.value
+            guard item.state == .starting else {
+                try? FileManager.default.removeItem(at: output)
+                return
+            }
+            if ok {
+                item.fileURL = output
+            } else {
+                item.errorMessage = Converting.Failure.unreadable.localizedDescription
+            }
+            finish(item, status: ok ? 0 : 1)
+        }
     }
 
     func convert(_ files: [URL], preset: Conversion.Preset, percent: Int? = nil, resolution: Int? = nil,
@@ -499,7 +556,7 @@ final class DownloadManager {
         case .showInFinder:
             if let file = prompt.existing.existingFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
         case .downloadAgain:
-            if Spotify.isSpotify(prompt.url) {
+            if MusicLinks.isMusicLink(prompt.url) {
                 addSpotify(prompt.url, options: prompt.options, folder: prompt.folder, clip: prompt.clip)
             } else {
                 let item = DownloadItem(url: prompt.url, options: prompt.options, folder: prompt.folder)
@@ -525,11 +582,12 @@ final class DownloadManager {
     }
 
     private func load(_ pick: PlaylistPick) async {
-        if let link = Spotify.parse(pick.sourceURL) {
+        if let link = MusicLinks.parse(pick.sourceURL) {
             do {
-                let collection = try await Spotify.fetch(link)
+                let collection = try await MusicLinks.fetch(link)
                 pick.title = collection.name
-                pick.owner = String(localized: "Spotify \(link.kind.rawValue)")
+                pick.owner = link.service == .spotify ? String(localized: "Spotify \(link.kind.rawValue)")
+                                                      : String(localized: "Apple Music \(link.kind.rawValue)")
                 if link.kind == .album, let artist = collection.tracks.first?.artists.first {
                     pick.folderPath = Folders.sanitize(artist) + "/" + Folders.sanitize(collection.name)
                 } else {
@@ -615,25 +673,28 @@ final class DownloadManager {
         return ["--cookies-from-browser", value]
     }
 
+    /// Spotify and Apple Music track links: read the song's details, then match it on YouTube Music.
     private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil) {
-        // Spotify is always audio; keep the chosen audio format even if video is selected.
+        // Music services are always audio; keep the chosen audio format even if video is selected.
         var audio = options
         audio.kind = .audio
+        let service = MusicLinks.service(of: url) ?? .spotify
 
         let placeholder = DownloadItem(url: url, options: audio, folder: folder)
-        placeholder.title = "Spotify"
+        placeholder.title = service.name
         placeholder.state = .starting
-        placeholder.phase = String(localized: "Reading Spotify link…")
+        placeholder.phase = service == .spotify ? String(localized: "Reading Spotify link…")
+                                                : String(localized: "Reading Apple Music link…")
         items.insert(placeholder, at: 0)
 
-        guard let link = Spotify.parse(url) else {
-            fail(placeholder, Spotify.Failure.unsupported.localizedDescription)
+        guard let link = MusicLinks.parse(url) else {
+            fail(placeholder, MusicLinks.unsupported(service))
             return
         }
 
         Task {
             do {
-                let collection = try await Spotify.fetch(link)
+                let collection = try await MusicLinks.fetch(link)
                 guard placeholder.state != .cancelled,
                       let index = items.firstIndex(where: { $0.id == placeholder.id }) else { return }
                 let tracks = collection.tracks.map { track in
@@ -658,7 +719,7 @@ final class DownloadManager {
     }
 
     func retry(_ item: DownloadItem) {
-        if item.spotify == nil, Spotify.isSpotify(item.url) {
+        if item.spotify == nil, MusicLinks.isMusicLink(item.url) {
             // A Spotify link that failed before its tracks were read.
             guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
             items.remove(at: index)
@@ -784,6 +845,18 @@ final class DownloadManager {
             if let album = track.album {
                 args += ["--parse-metadata", "\(Spotify.metadataLiteral(album)):%(album)s"]
             }
+            // Album position and year, so the song sorts right in Apple Music (meta_ fields go
+            // straight into the file's tags).
+            if let number = track.trackNumber {
+                let value = track.trackCount.map { "\(number)/\($0)" } ?? "\(number)"
+                args += ["--parse-metadata", "\(Spotify.metadataLiteral(value)):%(meta_track)s"]
+            }
+            if let disc = track.discNumber {
+                args += ["--parse-metadata", "\(Spotify.metadataLiteral(String(disc))):%(meta_disc)s"]
+            }
+            if let year = track.year {
+                args += ["--parse-metadata", "\(Spotify.metadataLiteral(year)):%(meta_date)s"]
+            }
             args += ["-o", outputName, "--no-playlist", "--embed-metadata"]
             if options.canEmbedThumbnail {
                 // YouTube Music art is 16:9 with bars; crop it to a square cover.
@@ -815,7 +888,7 @@ final class DownloadManager {
         item.retryAt = nil
         item.phase = nil
         if let conversion = item.conversion {
-            runConversion(item, conversion)
+            if conversion.preset == .photo { runPhoto(item, conversion) } else { runConversion(item, conversion) }
             return
         }
         guard executableURL != nil else {
@@ -985,30 +1058,36 @@ final class DownloadManager {
         }
     }
 
-    private func finish(_ item: DownloadItem, status: Int32, chaptersDone: Bool = false, lyricsDone: Bool = false) {
+    /// Chapter files get their own titles and track numbers (the whole video is then removed).
+    private func splitsChapters(_ item: DownloadItem) -> Bool {
+        item.splitChapters && item.conversion == nil && item.clip == nil
+    }
+
+    private func finish(_ item: DownloadItem, status: Int32, finishingDone: Bool = false) {
         item.process = nil
         guard item.state != .cancelled, item.state != .paused else { pump(); return }
 
         if status != 0, scheduleRetryIfNetworkProblem(item) { return }
 
-        // Chapter files get their own titles and track numbers; the whole video is then removed.
-        if status == 0, !chaptersDone, item.splitChapters, item.conversion == nil, item.clip == nil {
+        // The work after the download, in order: chapter files, the music service's own cover
+        // art, lyrics. Only then does the download count as done.
+        if status == 0, !finishingDone,
+           splitsChapters(item) || artworkToEmbed(for: item) != nil || lyricsLookup(for: item) != nil {
             item.state = .processing
-            item.phase = String(localized: "Tagging chapters…")
             Task {
-                await tagChapters(of: item)
-                finish(item, status: 0, chaptersDone: true)
-            }
-            return
-        }
-
-        // Songs get their lyrics written in before they count as done.
-        if status == 0, !lyricsDone, let song = lyricsLookup(for: item) {
-            item.state = .processing
-            item.phase = String(localized: "Adding lyrics…")
-            Task {
-                await addLyrics(to: item, artist: song.artist, title: song.title, duration: song.duration)
-                finish(item, status: 0, chaptersDone: true, lyricsDone: true)
+                if splitsChapters(item) {
+                    item.phase = String(localized: "Tagging chapters…")
+                    await tagChapters(of: item)
+                }
+                if let artwork = artworkToEmbed(for: item) {
+                    item.phase = String(localized: "Adding cover art…")
+                    await embed(artwork, into: item)
+                }
+                if let song = lyricsLookup(for: item) {
+                    item.phase = String(localized: "Adding lyrics…")
+                    await addLyrics(to: item, artist: song.artist, title: song.title, duration: song.duration)
+                }
+                finish(item, status: 0, finishingDone: true)
             }
             return
         }
@@ -1027,6 +1106,15 @@ final class DownloadManager {
             if let file = item.fileURL {
                 item.fileSize = Self.size(of: file)
                 batchFiles.append(file)
+                if MusicLibrary.isEnabled, let rule = MusicLibrary.currentRule(isMusic: item.options.isAudio || item.spotify != nil) {
+                    let ffmpeg = tool("ffmpeg")
+                    Task {
+                        if await MusicLibrary.add(file, rule: rule, ffmpeg: ffmpeg) {
+                            item.addedToMusic = true
+                            saveHistory()
+                        }
+                    }
+                }
             }
             batchFinished.append(item.title)
         } else {
@@ -1121,7 +1209,9 @@ final class DownloadManager {
         let ok = await Task.detached {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: ffmpeg)
-            p.arguments = ["-y", "-v", "error", "-i", file.path, "-map", "0", "-c", "copy",
+            // -dn: an MP4 chapter list copied as a data track can't be written back (the chapters
+            // themselves are kept).
+            p.arguments = ["-y", "-v", "error", "-i", file.path, "-map", "0", "-dn", "-c", "copy",
                            "-map_metadata", "0", "-metadata", "lyrics=\(text)", temp.path]
             p.environment = env
             p.standardOutput = FileHandle.nullDevice
@@ -1132,6 +1222,50 @@ final class DownloadManager {
         }.value
         if ok, (try? FileManager.default.replaceItemAt(file, withItemAt: temp)) != nil {
             item.hasLyrics = true
+        } else {
+            try? FileManager.default.removeItem(at: temp)
+        }
+    }
+
+    // MARK: - Cover art
+
+    /// Apple Music's album art, for songs saved in a format that holds a cover.
+    private func artworkToEmbed(for item: DownloadItem) -> URL? {
+        guard let artwork = item.spotify?.artwork, item.clip == nil, !item.hasArtwork,
+              let file = item.fileURL, ["m4a", "mp3", "flac"].contains(file.pathExtension.lowercased()),
+              defaults.bool(forKey: Prefs.embedThumbnail) else { return nil }
+        return artwork
+    }
+
+    /// Swaps YouTube Music's thumbnail for the service's album art (streams copied as-is).
+    private func embed(_ artwork: URL, into item: DownloadItem) async {
+        guard let file = item.fileURL, let ffmpeg = tool("ffmpeg"),
+              let (data, response) = try? await URLSession.shared.data(from: artwork),
+              (response as? HTTPURLResponse)?.statusCode == 200, !data.isEmpty else { return }
+        let folder = file.deletingLastPathComponent()
+        let image = folder.appendingPathComponent(".pluck-cover-\(UUID().uuidString).jpg")
+        let temp = folder.appendingPathComponent(".pluck-cover-\(UUID().uuidString).\(file.pathExtension)")
+        guard (try? data.write(to: image)) != nil else { return }
+        defer { try? FileManager.default.removeItem(at: image) }
+        var args = ["-y", "-v", "error", "-i", file.path, "-i", image.path, "-map", "0:a", "-map", "1:0",
+                    "-c", "copy", "-map_metadata", "0", "-disposition:v:0", "attached_pic"]
+        if file.pathExtension.lowercased() == "mp3" {
+            args += ["-id3v2_version", "3", "-metadata:s:v", "title=Album cover", "-metadata:s:v", "comment=Cover (front)"]
+        }
+        let env = environment
+        let ok = await Task.detached {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: ffmpeg)
+            p.arguments = args + [temp.path]
+            p.environment = env
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return false }
+            p.waitUntilExit()
+            return p.terminationStatus == 0
+        }.value
+        if ok, (try? FileManager.default.replaceItemAt(file, withItemAt: temp)) != nil {
+            item.hasArtwork = true
         } else {
             try? FileManager.default.removeItem(at: temp)
         }
@@ -1198,7 +1332,7 @@ final class DownloadManager {
     private func shouldSearchPage(_ item: DownloadItem) -> Bool {
         guard !item.triedPageSearch, item.spotify == nil, item.pageStream == nil,
               let host = URL(string: item.url)?.host?.lowercased() else { return false }
-        let skip = ["youtube.com", "youtu.be", "spotify.com"]
+        let skip = ["youtube.com", "youtu.be", "spotify.com", "music.apple.com"]
         if skip.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) { return false }
         let message = item.errorMessage?.lowercased() ?? ""
         return !["cookies", "logged-in", "log in", "login", "drm"].contains { message.contains($0) }

@@ -1,7 +1,20 @@
 import Foundation
 
-/// A track read from Spotify's public embed page. Spotify audio is DRM-protected, so the
-/// actual audio is matched on YouTube Music and tagged with Spotify's metadata.
+/// Streaming services whose links Pluck accepts. Their audio is DRM-protected, so Pluck reads
+/// the song's details and matches it on YouTube Music.
+enum MusicService: String, Sendable, Codable {
+    case spotify, apple
+
+    var name: String {
+        switch self {
+        case .spotify: "Spotify"
+        case .apple: "Apple Music"
+        }
+    }
+}
+
+/// A track read from Spotify or Apple Music. The audio is matched on YouTube Music and tagged
+/// with the service's metadata. (Named for Spotify, which came first; history files use it.)
 struct SpotifyTrack: Sendable, Codable {
     var id: String
     var title: String
@@ -9,8 +22,19 @@ struct SpotifyTrack: Sendable, Codable {
     var duration: Double?
     var album: String?
     var cover: URL?
+    /// nil for tracks saved before Apple Music was supported, which are all Spotify.
+    var service: MusicService?
+    /// The track's own page, when it isn't a Spotify one.
+    var link: String?
+    var trackNumber: Int?
+    var trackCount: Int?
+    var discNumber: Int?
+    var year: String?
+    /// Large album art to embed instead of YouTube Music's thumbnail.
+    var artwork: URL?
 
-    var url: String { "https://open.spotify.com/track/\(id)" }
+    var source: MusicService { service ?? .spotify }
+    var url: String { link ?? "https://open.spotify.com/track/\(id)" }
 }
 
 enum Spotify {
@@ -149,5 +173,49 @@ enum Spotify {
         "%(pluck|)s" + s.replacingOccurrences(of: "\\", with: "")
             .replacingOccurrences(of: "%", with: "%%")
             .replacingOccurrences(of: ":", with: "\\:")
+    }
+}
+
+
+/// Spotify and Apple Music links behind one interface, so downloads, playlists and matching
+/// treat both the same way.
+enum MusicLinks {
+    struct Link {
+        let service: MusicService
+        let kind: Spotify.Kind
+        let id: String
+        fileprivate let spotify: Spotify.Link?
+        fileprivate let apple: AppleMusic.Link?
+    }
+
+    static func parse(_ string: String) -> Link? {
+        if let link = Spotify.parse(string) {
+            return Link(service: .spotify, kind: link.kind, id: link.id, spotify: link, apple: nil)
+        }
+        if let link = AppleMusic.parse(string) {
+            return Link(service: .apple, kind: link.kind, id: link.id, spotify: nil, apple: link)
+        }
+        return nil
+    }
+
+    /// A Spotify or Apple Music address, even one Pluck can't read (artist pages…).
+    static func isMusicLink(_ string: String) -> Bool {
+        Spotify.isSpotify(string) || AppleMusic.isAppleMusic(string)
+    }
+
+    static func service(of string: String) -> MusicService? {
+        Spotify.isSpotify(string) ? .spotify : AppleMusic.isAppleMusic(string) ? .apple : nil
+    }
+
+    static func fetch(_ link: Link) async throws -> Spotify.Collection {
+        if let apple = link.apple { return try await AppleMusic.fetch(apple) }
+        return try await Spotify.fetch(link.spotify!)
+    }
+
+    static func unsupported(_ service: MusicService) -> String {
+        switch service {
+        case .spotify: Spotify.Failure.unsupported.localizedDescription
+        case .apple: AppleMusic.Failure.unsupported.localizedDescription
+        }
     }
 }

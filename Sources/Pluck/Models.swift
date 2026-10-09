@@ -217,6 +217,10 @@ final class DownloadItem: Identifiable {
     var musicTrack: String?
     /// Lyrics were written into the file.
     var hasLyrics = false
+    /// The music service's album art replaced YouTube Music's thumbnail.
+    var hasArtwork = false
+    /// Copied into Apple Music (Settings → Downloads → Add to Apple Music).
+    var addedToMusic = false
     /// Split into one file per chapter (Format menu → Split into Chapters); the result is a folder.
     var splitChapters = UserDefaults.standard.bool(forKey: Prefs.splitChapters)
     /// How many files a chapter split produced, once it's done.
@@ -289,5 +293,7 @@ final class DownloadItem: Identifiable {
         fileSize = nil
         errorMessage = nil
         chapterCount = nil
+        hasArtwork = false
+        addedToMusic = false
     }
 }

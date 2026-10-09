@@ -1182,6 +1182,9 @@
         }
       }
     },
+    "%lld px": {
+      "shouldTranslate": false
+    },
     "%lld saved, %lld failed": {
       "localizations": {
         "de": {
@@ -1603,6 +1606,180 @@
         }
       }
     },
+    "Add": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg toe"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加"
+          }
+        }
+      }
+    },
+    "Add finished downloads to Apple Music": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg voltooide downloads toe aan Apple Music"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertige Downloads zu Apple Music hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter les téléchargements terminés à Apple Music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir las descargas terminadas a Apple Music"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi i download completati ad Apple Music"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar downloads concluídos ao Apple Music"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完了したダウンロードを Apple Music に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "완료된 다운로드를 Apple Music에 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将完成的下载添加到 Apple Music"
+          }
+        }
+      }
+    },
+    "Add to Apple Music": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toevoegen aan Apple Music"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu Apple Music hinzufügen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajout à Apple Music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a Apple Music"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunta ad Apple Music"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar ao Apple Music"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music에 추가"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到 Apple Music"
+          }
+        }
+      }
+    },
     "Added": {
       "localizations": {
         "de": {
@@ -1657,6 +1834,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加时间"
+          }
+        }
+      }
+    },
+    "Added to Apple Music": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toegevoegd aan Apple Music"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu Apple Music hinzugefügt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouté à Apple Music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadido a Apple Music"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunto ad Apple Music"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionado ao Apple Music"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music に追加済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music에 추가됨"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已添加到 Apple Music"
+          }
+        }
+      }
+    },
+    "Adding cover art…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Albumhoes toevoegen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cover wird hinzugefügt …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajout de la pochette…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadiendo carátula…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiunta della copertina…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionando capa…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アートワークを追加中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "커버 아트 추가 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在添加封面…"
           }
         }
       }
@@ -1889,6 +2182,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载两个或更多项目时，专辑存入“艺人/专辑”，播放列表存入以其名称命名的文件夹。"
+          }
+        }
+      }
+    },
+    "All songs": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle nummers"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Songs"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les morceaux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas las canciones"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti i brani"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as músicas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての曲"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 노래"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有歌曲"
           }
         }
       }
@@ -2237,6 +2588,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "另一个 App 已在使用此快捷键。"
+          }
+        }
+      }
+    },
+    "Apple Music": {
+      "shouldTranslate": false
+    },
+    "Apple Music %@": {
+      "shouldTranslate": false
+    },
+    "Apple Music links": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music-links"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple-Music-Links"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liens Apple Music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlaces de Apple Music"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link di Apple Music"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links do Apple Music"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music のリンク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 링크"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 链接"
           }
         }
       }
@@ -3981,60 +4396,60 @@
         }
       }
     },
-    "Choose videos or songs to convert.": {
+    "Choose videos, songs or photos to convert.": {
       "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies video’s, nummers of foto’s om te converteren."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wähle Videos oder Songs zum Konvertieren."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Elige vídeos o canciones para convertir."
+            "value": "Wähle Videos, Songs oder Fotos zum Konvertieren."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Choisissez des vidéos ou des morceaux à convertir."
+            "value": "Choisissez des vidéos, des morceaux ou des photos à convertir."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige vídeos, canciones o fotos para convertir."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Scegli video o brani da convertire."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "変換するビデオや曲を選んでください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "변환할 비디오나 노래를 선택하십시오."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kies video’s of nummers om te converteren."
+            "value": "Scegli video, brani o foto da convertire."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Escolha vídeos ou músicas para converter."
+            "value": "Escolha vídeos, músicas ou fotos para converter."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換するビデオ、曲、写真を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변환할 비디오, 노래 또는 사진을 선택하십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "选择要转换的视频或歌曲。"
+            "value": "选择要转换的视频、歌曲或照片。"
           }
         }
       }
@@ -5025,6 +5440,238 @@
         }
       }
     },
+    "Compress %lld Photos": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimeer %lld foto’s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Fotos komprimieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser %lld photos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir %lld fotos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi %lld foto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir %lld fotos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 枚の写真を圧縮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 %lld장 압축"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩 %lld 张照片"
+          }
+        }
+      }
+    },
+    "Compress Photo": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimeer foto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto komprimieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser la photo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir foto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi foto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir foto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を圧縮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 압축"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩照片"
+          }
+        }
+      }
+    },
+    "Compress photos": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimeer foto’s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos komprimieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressez vos photos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprime fotos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi le foto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprima fotos"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を圧縮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 압축"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩照片"
+          }
+        }
+      }
+    },
+    "Compress “%@”": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimeer “%@”"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ komprimieren"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser « %@ »"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir “%@”"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimi “%@”"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を圧縮"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’ 압축"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "压缩“%@”"
+          }
+        }
+      }
+    },
     "Compressed to %lld%%": {
       "localizations": {
         "de": {
@@ -5143,6 +5790,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "已压缩至 %1$lld%% · %2$lldp"
+          }
+        }
+      }
+    },
+    "Compressing photo…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto comprimeren…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto wird komprimiert …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compression de la photo…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimiendo foto…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressione della foto…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimindo foto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を圧縮中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 압축 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在压缩照片…"
           }
         }
       }
@@ -6193,6 +6898,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 YouTube Music 上找不到这首歌。"
+          }
+        }
+      }
+    },
+    "Couldn’t read this Apple Music page. It may be private or not available in your country.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kon deze Apple Music-pagina niet lezen. Misschien is ze privé of niet beschikbaar in je land."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Apple-Music-Seite konnte nicht gelesen werden. Sie ist vielleicht privat oder in deinem Land nicht verfügbar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de lire cette page Apple Music. Elle est peut-être privée ou indisponible dans votre pays."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer esta página de Apple Music. Puede que sea privada o no esté disponible en tu país."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile leggere questa pagina di Apple Music. Potrebbe essere privata o non disponibile nel tuo paese."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler esta página do Apple Music. Ela pode ser privada ou não estar disponível no seu país."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Apple Music ページを読み込めませんでした。非公開か、お住まいの国では利用できない可能性があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Apple Music 페이지를 읽을 수 없습니다. 비공개이거나 사용자의 국가에서 이용할 수 없을 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取此 Apple Music 页面。它可能是私密的，或在你所在的国家或地区不可用。"
           }
         }
       }
@@ -8578,6 +9341,64 @@
         }
       }
     },
+    "Drop photos on Pluck to make them smaller as JPEG or HEIC, with a live size estimate and the option to remove location details.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep foto’s op Pluck om ze kleiner te maken als JPEG of HEIC, met een live schatting van de grootte en de optie om locatiegegevens te verwijderen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zieh Fotos auf Pluck, um sie als JPEG oder HEIC zu verkleinern – mit Live-Größenschätzung und der Option, Ortsdaten zu entfernen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déposez des photos sur Pluck pour les alléger en JPEG ou HEIC, avec une estimation de taille en direct et l’option de retirer la localisation."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta fotos en Pluck para reducirlas como JPEG o HEIC, con una estimación del tamaño en directo y la opción de quitar la ubicación."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina le foto su Pluck per ridurle in JPEG o HEIC, con una stima della dimensione in tempo reale e l’opzione di rimuovere la posizione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte fotos no Pluck para deixá-las menores em JPEG ou HEIC, com uma estimativa de tamanho ao vivo e a opção de remover a localização."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を Pluck にドロップすると、JPEG や HEIC で小さくできます。サイズの見積もりがリアルタイムで表示され、位置情報も削除できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진을 Pluck에 놓으면 JPEG 또는 HEIC로 크기를 줄일 수 있습니다. 실시간 크기 예상치와 위치 정보 삭제 옵션도 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将照片拖到 Pluck 上，即可压缩为 JPEG 或 HEIC，实时显示预计大小，还可选择移除位置信息。"
+          }
+        }
+      }
+    },
     "Embed": {
       "localizations": {
         "de": {
@@ -8806,6 +9627,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "每个按钮都有恰当的标签。"
+          }
+        }
+      }
+    },
+    "Every song Pluck downloads is added. Apple Music can’t import FLAC, Opus or WebM, so those get a copy made for it: FLAC as Apple Lossless, the others as AAC. The originals stay where they are.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elk nummer dat Pluck downloadt wordt toegevoegd. Apple Music kan geen FLAC, Opus of WebM importeren, dus daarvan wordt een kopie gemaakt: FLAC als Apple Lossless, de rest als AAC. De originelen blijven waar ze zijn."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Song, den Pluck lädt, wird hinzugefügt. Apple Music kann FLAC, Opus und WebM nicht importieren, daher wird dafür eine Kopie erstellt: FLAC als Apple Lossless, der Rest als AAC. Die Originale bleiben, wo sie sind."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque morceau téléchargé par Pluck est ajouté. Apple Music ne peut pas importer le FLAC, l’Opus ni le WebM : une copie est donc créée, en Apple Lossless pour le FLAC et en AAC pour les autres. Les originaux restent à leur place."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se añade cada canción que descarga Pluck. Apple Music no puede importar FLAC, Opus ni WebM, así que se hace una copia para él: FLAC como Apple Lossless y el resto como AAC. Los originales se quedan donde están."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni brano scaricato da Pluck viene aggiunto. Apple Music non può importare FLAC, Opus o WebM, quindi ne viene creata una copia: FLAC come Apple Lossless, gli altri come AAC. Gli originali restano dove sono."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada música que o Pluck baixa é adicionada. O Apple Music não importa FLAC, Opus nem WebM, então é feita uma cópia para ele: FLAC como Apple Lossless e os outros como AAC. Os originais ficam onde estão."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck でダウンロードしたすべての曲が追加されます。Apple Music は FLAC、Opus、WebM を読み込めないため、専用のコピーを作ります（FLAC は Apple ロスレス、それ以外は AAC）。元のファイルはそのまま残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck이 다운로드하는 모든 노래가 추가됩니다. Apple Music은 FLAC, Opus, WebM을 가져올 수 없으므로 전용 사본을 만듭니다. FLAC은 Apple 무손실로, 나머지는 AAC로 만듭니다. 원본은 그대로 남습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 下载的每首歌曲都会被添加。Apple Music 无法导入 FLAC、Opus 或 WebM，因此会为其制作副本：FLAC 转为 Apple 无损，其他转为 AAC。原始文件保持不变。"
           }
         }
       }
@@ -9216,6 +10095,64 @@
         }
       }
     },
+    "File types": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestandstypen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateitypen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Types de fichiers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipos de archivo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipi di file"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipos de arquivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの種類"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 유형"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件类型"
+          }
+        }
+      }
+    },
     "Files": {
       "localizations": {
         "de": {
@@ -9450,22 +10387,10 @@
     },
     "From": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Van"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Von"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "De"
           }
         },
         "es": {
@@ -9474,16 +10399,16 @@
             "value": "Desde"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Da"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "De"
           }
         },
         "ja": {
@@ -9496,6 +10421,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "시작"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De"
           }
         },
         "zh-Hans": {
@@ -9566,22 +10503,10 @@
     },
     "GIFs of %@ get very big. Pick a shorter part above.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIF’s van %@ worden erg groot. Kies hierboven een korter stuk."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "GIFs mit %@ werden sehr groß. Wähle oben einen kürzeren Teil."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Les GIF de %@ deviennent très lourds. Choisissez une partie plus courte ci-dessus."
           }
         },
         "es": {
@@ -9590,16 +10515,16 @@
             "value": "Los GIF de %@ ocupan mucho. Elige una parte más corta arriba."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les GIF de %@ deviennent très lourds. Choisissez une partie plus courte ci-dessus."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Le GIF di %@ diventano molto pesanti. Scegli una parte più breve qui sopra."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "GIFs de %@ ficam muito grandes. Escolha uma parte menor acima."
           }
         },
         "ja": {
@@ -9612,6 +10537,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 길이의 GIF는 매우 커집니다. 위에서 더 짧은 부분을 선택하십시오."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF’s van %@ worden erg groot. Kies hierboven een korter stuk."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIFs de %@ ficam muito grandes. Escolha uma parte menor acima."
           }
         },
         "zh-Hans": {
@@ -9792,6 +10729,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "随处可播放的 H.264 视频。已兼容的文件只会重新封装，不损失画质。"
+          }
+        }
+      }
+    },
+    "HEIC (smaller, Apple devices)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (kleiner, Apple-apparaten)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (kleiner, Apple-Geräte)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (plus léger, appareils Apple)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (más pequeño, dispositivos Apple)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (più piccolo, dispositivi Apple)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (menor, aparelhos Apple)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC（小さい、Apple デバイス向け）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC (더 작음, Apple 기기)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HEIC（更小，适用于 Apple 设备）"
           }
         }
       }
@@ -10202,6 +11197,64 @@
         }
       }
     },
+    "JPEG (works everywhere)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (werkt overal)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (funktioniert überall)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (compatible partout)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (funciona en todas partes)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (funziona ovunque)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (funciona em qualquer lugar)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG（どこでも使える）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG (어디서나 작동)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JPEG（随处可用）"
+          }
+        }
+      }
+    },
     "JavaScript runtime yt-dlp needs for YouTube": {
       "localizations": {
         "de": {
@@ -10378,22 +11431,10 @@
     },
     "Large (720 px)": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Groot (720 px)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Groß (720 px)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grand (720 px)"
           }
         },
         "es": {
@@ -10402,13 +11443,13 @@
             "value": "Grande (720 px)"
           }
         },
-        "it": {
+        "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grande (720 px)"
+            "value": "Grand (720 px)"
           }
         },
-        "pt-BR": {
+        "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Grande (720 px)"
@@ -10424,6 +11465,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "크게 (720px)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groot (720 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grande (720 px)"
           }
         },
         "zh-Hans": {
@@ -11130,60 +12183,60 @@
         }
       }
     },
-    "Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, YouTube Music).": {
+    "Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, Apple Music, YouTube Music).": {
       "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songteksten komen van LRCLIB, een gratis songtekstdatabase: Pluck stuurt de artiest en titel door. Ze worden toegevoegd aan MP3-, M4A- en FLAC-bestanden als de artiest bekend is (Spotify, Apple Music, YouTube Music)."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Songtexte kommen von LRCLIB, einer freien Songtext-Datenbank: Pluck schickt ihr Künstler und Titel. Sie werden zu MP3-, M4A- und FLAC-Dateien hinzugefügt, wenn der Künstler bekannt ist (Spotify, YouTube Music)."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Las letras vienen de LRCLIB, una base de datos de letras gratuita: Pluck le envía el artista y el título. Se añaden a archivos MP3, M4A y FLAC cuando se conoce el artista (Spotify, YouTube Music)."
+            "value": "Songtexte kommen von LRCLIB, einer freien Songtext-Datenbank: Pluck schickt ihr Künstler und Titel. Sie werden zu MP3-, M4A- und FLAC-Dateien hinzugefügt, wenn der Künstler bekannt ist (Spotify, Apple Music, YouTube Music)."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les paroles viennent de LRCLIB, une base de paroles gratuite : Pluck lui envoie l’artiste et le titre. Elles sont ajoutées aux fichiers MP3, M4A et FLAC quand l’artiste est connu (Spotify, YouTube Music)."
+            "value": "Les paroles viennent de LRCLIB, une base de paroles gratuite : Pluck lui envoie l’artiste et le titre. Elles sont ajoutées aux fichiers MP3, M4A et FLAC quand l’artiste est connu (Spotify, Apple Music, YouTube Music)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las letras vienen de LRCLIB, una base de datos de letras gratuita: Pluck le envía el artista y el título. Se añaden a archivos MP3, M4A y FLAC cuando se conoce el artista (Spotify, Apple Music, YouTube Music)."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "I testi provengono da LRCLIB, un database di testi gratuito: Pluck gli invia artista e titolo. Vengono aggiunti ai file MP3, M4A e FLAC quando l’artista è noto (Spotify, YouTube Music)."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "歌詞は無料の歌詞データベース LRCLIB から取得します。Pluck はアーティスト名と曲名を送信します。アーティストがわかる場合（Spotify、YouTube Music）、MP3、M4A、FLAC ファイルに追加されます。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "가사는 무료 가사 데이터베이스인 LRCLIB에서 가져옵니다. Pluck은 아티스트와 제목을 보냅니다. 아티스트를 알 수 있을 때(Spotify, YouTube Music) MP3, M4A, FLAC 파일에 추가됩니다."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Songteksten komen van LRCLIB, een gratis songtekstdatabase: Pluck stuurt de artiest en titel door. Ze worden toegevoegd aan MP3-, M4A- en FLAC-bestanden als de artiest bekend is (Spotify, YouTube Music)."
+            "value": "I testi provengono da LRCLIB, un database di testi gratuito: Pluck gli invia artista e titolo. Vengono aggiunti ai file MP3, M4A e FLAC quando l’artista è noto (Spotify, Apple Music, YouTube Music)."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "As letras vêm do LRCLIB, um banco de letras gratuito: o Pluck envia o artista e o título. Elas são adicionadas a arquivos MP3, M4A e FLAC quando o artista é conhecido (Spotify, YouTube Music)."
+            "value": "As letras vêm do LRCLIB, um banco de letras gratuito: o Pluck envia o artista e o título. Elas são adicionadas a arquivos MP3, M4A e FLAC quando o artista é conhecido (Spotify, Apple Music, YouTube Music)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "歌詞は無料の歌詞データベース LRCLIB から取得します。Pluck はアーティスト名と曲名を送信します。アーティストがわかる場合（Spotify、Apple Music、YouTube Music）、MP3、M4A、FLAC ファイルに追加されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가사는 무료 가사 데이터베이스인 LRCLIB에서 가져옵니다. Pluck은 아티스트와 제목을 보냅니다. 아티스트를 알 수 있을 때(Spotify, Apple Music, YouTube Music) MP3, M4A, FLAC 파일에 추가됩니다."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "歌词来自免费歌词数据库 LRCLIB：Pluck 会向其发送艺人和标题。已知艺人时（Spotify、YouTube Music），歌词会添加到 MP3、M4A 和 FLAC 文件中。"
+            "value": "歌词来自免费歌词数据库 LRCLIB：Pluck 会向其发送艺人和标题。已知艺人时（Spotify、Apple Music、YouTube Music），歌词会添加到 MP3、M4A 和 FLAC 文件中。"
           }
         }
       }
@@ -11362,24 +12415,186 @@
         }
       }
     },
-    "Make GIF": {
+    "M4V video": {
       "localizations": {
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Maak GIF"
+            "value": "M4V-video"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "GIF erstellen"
+            "value": "M4V-Video"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Créer un GIF"
+            "value": "Vidéo M4V"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo M4V"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video M4V"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo M4V"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V ビデオ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V 비디오"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "M4V 视频"
+          }
+        }
+      }
+    },
+    "MOV video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MOV-video"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MOV-Video"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo MOV"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo MOV"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video MOV"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo MOV"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MOV ビデオ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MOV 비디오"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MOV 视频"
+          }
+        }
+      }
+    },
+    "MP4 video": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4-video"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4-Video"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vidéo MP4"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo MP4"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video MP4"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vídeo MP4"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 ビデオ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 비디오"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MP4 视频"
+          }
+        }
+      }
+    },
+    "Make GIF": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF erstellen"
           }
         },
         "es": {
@@ -11388,16 +12603,16 @@
             "value": "Crear GIF"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un GIF"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Crea GIF"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Criar GIF"
           }
         },
         "ja": {
@@ -11410,6 +12625,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF 만들기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak GIF"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar GIF"
           }
         },
         "zh-Hans": {
@@ -11422,22 +12649,10 @@
     },
     "Make GIFs": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maak GIF’s"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "GIFs erstellen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Créez des GIF"
           }
         },
         "es": {
@@ -11446,16 +12661,16 @@
             "value": "Crea GIF"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez des GIF"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Crea GIF"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crie GIFs"
           }
         },
         "ja": {
@@ -11468,6 +12683,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "GIF 만들기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak GIF’s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crie GIFs"
           }
         },
         "zh-Hans": {
@@ -11652,6 +12879,64 @@
         }
       }
     },
+    "Matched on YouTube Music and tagged with Apple Music’s metadata and cover": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gevonden op YouTube Music en getagd met de gegevens en hoes van Apple Music"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf YouTube Music gefunden und mit Metadaten und Cover von Apple Music versehen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouvé sur YouTube Music et étiqueté avec les métadonnées et la pochette d’Apple Music"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrado en YouTube Music y etiquetado con los metadatos y la carátula de Apple Music"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trovato su YouTube Music e taggato con i metadati e la copertina di Apple Music"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrado no YouTube Music e marcado com os metadados e a capa do Apple Music"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Music で見つけ、Apple Music のメタデータとアートワークでタグ付けしました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YouTube Music에서 찾아 Apple Music의 메타데이터와 커버로 태그를 지정함"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 YouTube Music 上匹配，并使用 Apple Music 的元数据和封面标记"
+          }
+        }
+      }
+    },
     "Matched on YouTube Music and tagged with Spotify’s metadata": {
       "localizations": {
         "de": {
@@ -11768,6 +13053,64 @@
         }
       }
     },
+    "Maximum size": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale grootte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maximale Größe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille maximale"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño máximo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione massima"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho máximo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大サイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최대 크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最大尺寸"
+          }
+        }
+      }
+    },
     "Measuring…": {
       "localizations": {
         "de": {
@@ -11828,22 +13171,10 @@
     },
     "Medium (480 px)": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Middel (480 px)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Mittel (480 px)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Moyen (480 px)"
           }
         },
         "es": {
@@ -11852,16 +13183,16 @@
             "value": "Mediano (480 px)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moyen (480 px)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Medio (480 px)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Médio (480 px)"
           }
         },
         "ja": {
@@ -11874,6 +13205,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "중간 (480px)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middel (480 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médio (480 px)"
           }
         },
         "zh-Hans": {
@@ -12980,6 +14323,64 @@
         }
       }
     },
+    "Only Apple Music song, album and playlist links are supported.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen links naar Apple Music-nummers, -albums en -afspeellijsten worden ondersteund."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Apple-Music-Links zu Songs, Alben und Playlists werden unterstützt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les liens Apple Music de morceaux, d’albums et de playlists sont pris en charge."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo se admiten enlaces de Apple Music de canciones, álbumes y listas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sono supportati solo link di Apple Music a brani, album e playlist."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só são aceitos links do Apple Music de músicas, álbuns e playlists."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music の曲、アルバム、プレイリストのリンクのみに対応しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 노래, 앨범, 재생목록 링크만 지원됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅支持 Apple Music 歌曲、专辑和播放列表链接。"
+          }
+        }
+      }
+    },
     "Only Spotify track, album and playlist links are supported.": {
       "localizations": {
         "de": {
@@ -13040,22 +14441,10 @@
     },
     "Only part of the file": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Alleen een deel van het bestand"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Nur einen Teil der Datei"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Seulement une partie du fichier"
           }
         },
         "es": {
@@ -13064,16 +14453,16 @@
             "value": "Solo una parte del archivo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement une partie du fichier"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Solo una parte del file"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Só uma parte do arquivo"
           }
         },
         "ja": {
@@ -13088,10 +14477,80 @@
             "value": "파일의 일부만"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen een deel van het bestand"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só uma parte do arquivo"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "仅文件的一部分"
+          }
+        }
+      }
+    },
+    "Only these file types": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen deze bestandstypen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur diese Dateitypen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement ces types de fichiers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo estos tipos de archivo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo questi tipi di file"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só estes tipos de arquivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのファイルの種類のみ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일 유형만"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅这些文件类型"
           }
         }
       }
@@ -13440,6 +14899,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "登录时打开 Pluck"
+          }
+        }
+      }
+    },
+    "Open the Music app once, so it creates the folder Pluck adds songs to.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open de Muziek-app één keer, zodat die de map aanmaakt waar Pluck nummers aan toevoegt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffne die Musik-App einmal, damit sie den Ordner anlegt, in den Pluck Songs legt."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrez l’app Musique une fois pour qu’elle crée le dossier où Pluck ajoute les morceaux."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre la app Música una vez para que cree la carpeta donde Pluck añade las canciones."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri l’app Musica una volta, così crea la cartella in cui Pluck aggiunge i brani."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abra o app Música uma vez para que ele crie a pasta onde o Pluck adiciona as músicas."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュージック App を一度開いて、Pluck が曲を追加するフォルダを作成させてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음악 앱을 한 번 열어 Pluck이 노래를 추가할 폴더를 만들게 하십시오."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先打开一次“音乐”App，让它创建 Pluck 添加歌曲的文件夹。"
           }
         }
       }
@@ -13966,6 +15483,64 @@
         }
       }
     },
+    "Paste a song, album or playlist from Apple Music. Pluck finds it on YouTube Music and tags it with Apple’s details and sharp album art.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak een nummer, album of afspeellijst uit Apple Music. Pluck vindt het op YouTube Music en tagt het met de gegevens en scherpe albumhoes van Apple."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge einen Song, ein Album oder eine Playlist aus Apple Music ein. Pluck findet sie auf YouTube Music und versieht sie mit Apples Angaben und scharfem Cover."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collez un morceau, un album ou une playlist d’Apple Music. Pluck le trouve sur YouTube Music et l’étiquette avec les infos et la pochette nette d’Apple."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega una canción, un álbum o una lista de Apple Music. Pluck la encuentra en YouTube Music y la etiqueta con los datos y la carátula nítida de Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla un brano, un album o una playlist da Apple Music. Pluck lo trova su YouTube Music e lo tagga con i dati e la copertina nitida di Apple."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cole uma música, álbum ou playlist do Apple Music. O Pluck encontra no YouTube Music e marca com os dados e a capa nítida da Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music の曲、アルバム、プレイリストをペーストすると、Pluck が YouTube Music で見つけ、Apple の情報と鮮明なアートワークでタグ付けします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music의 노래, 앨범 또는 재생목록을 붙여 넣으면 Pluck이 YouTube Music에서 찾아 Apple의 정보와 선명한 앨범 아트로 태그를 지정합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴 Apple Music 的歌曲、专辑或播放列表，Pluck 会在 YouTube Music 上找到它，并用 Apple 的信息和清晰的专辑封面进行标记。"
+          }
+        }
+      }
+    },
     "Paste links and follow progress from the menu bar. Pluck keeps running there when you close the window, and can open at login.": {
       "localizations": {
         "de": {
@@ -14024,60 +15599,60 @@
         }
       }
     },
-    "Paste one or more links above, or drop links, a list of links or a video or song to convert anywhere in this window.": {
+    "Paste one or more links above, or drop links, a list of links, or a video, song or photo to convert anywhere in this window.": {
       "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plak hierboven een of meer links, of sleep links, een lijst met links, of een video, nummer of foto om te converteren ergens in dit venster."
+          }
+        },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge oben einen oder mehrere Links ein, oder zieh Links, eine Linkliste oder ein Video bzw. einen Song zum Konvertieren irgendwo in dieses Fenster."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pega uno o más enlaces arriba, o suelta enlaces, una lista de enlaces o un vídeo o canción para convertir en cualquier parte de esta ventana."
+            "value": "Füge oben einen oder mehrere Links ein, oder zieh Links, eine Linkliste oder ein Video, einen Song oder ein Foto zum Konvertieren irgendwo in dieses Fenster."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Collez un ou plusieurs liens ci-dessus, ou déposez des liens, une liste de liens ou une vidéo ou un morceau à convertir n’importe où dans cette fenêtre."
+            "value": "Collez un ou plusieurs liens ci-dessus, ou déposez des liens, une liste de liens, ou une vidéo, un morceau ou une photo à convertir n’importe où dans cette fenêtre."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pega uno o más enlaces arriba, o suelta enlaces, una lista de enlaces, o un vídeo, canción o foto para convertir en cualquier parte de esta ventana."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Incolla uno o più link qui sopra, oppure trascina link, un elenco di link o un video o brano da convertire ovunque in questa finestra."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "上に 1 つ以上のリンクをペーストするか、リンク、リンクのリスト、変換するビデオや曲をこのウインドウのどこかにドロップしてください。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "위에 하나 이상의 링크를 붙여 넣거나, 링크, 링크 목록 또는 변환할 비디오나 노래를 이 윈도우 아무 곳에나 놓으십시오."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plak hierboven een of meer links, of sleep links, een lijst met links of een video of nummer om te converteren ergens in dit venster."
+            "value": "Incolla uno o più link qui sopra, oppure trascina link, un elenco di link, o un video, brano o foto da convertire ovunque in questa finestra."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cole um ou mais links acima, ou solte links, uma lista de links ou um vídeo ou música para converter em qualquer lugar desta janela."
+            "value": "Cole um ou mais links acima, ou solte links, uma lista de links, ou um vídeo, música ou foto para converter em qualquer lugar desta janela."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上に 1 つ以上のリンクをペーストするか、リンク、リンクのリスト、変換するビデオ、曲、写真をこのウインドウのどこかにドロップしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위에 하나 이상의 링크를 붙여 넣거나, 링크, 링크 목록 또는 변환할 비디오, 노래, 사진을 이 윈도우 아무 곳에나 놓으십시오."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在上方粘贴一个或多个链接，或将链接、链接列表或要转换的视频或歌曲拖放到此窗口中的任意位置。"
+            "value": "在上方粘贴一个或多个链接，或将链接、链接列表，或要转换的视频、歌曲或照片拖放到此窗口中的任意位置。"
           }
         }
       }
@@ -14835,6 +16410,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 无法在此位置替换自身。请将其移到“应用程序”文件夹后重试。"
+          }
+        }
+      }
+    },
+    "Pluck copies finished files of the chosen types, videos included, into Music’s “Automatically Add to Music” folder; the originals stay where they are. Apple Music can’t import FLAC, Opus or WebM files.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kopieert voltooide bestanden van de gekozen types, ook video’s, naar de map “Voeg automatisch toe aan Muziek”; de originelen blijven waar ze zijn. Apple Music kan geen FLAC-, Opus- of WebM-bestanden importeren."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kopiert fertige Dateien der gewählten Typen, auch Videos, in den Ordner „Automatisch zu Musik hinzufügen“; die Originale bleiben, wo sie sind. Apple Music kann keine FLAC-, Opus- oder WebM-Dateien importieren."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck copie les fichiers terminés des types choisis, vidéos comprises, dans le dossier « Ajouter automatiquement à Musique » ; les originaux restent à leur place. Apple Music ne peut pas importer de fichiers FLAC, Opus ou WebM."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck copia los archivos terminados de los tipos elegidos, vídeos incluidos, en la carpeta “Añadir automáticamente a Música”; los originales se quedan donde están. Apple Music no puede importar archivos FLAC, Opus ni WebM."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck copia i file completati dei tipi scelti, video compresi, nella cartella “Aggiungi automaticamente a Musica”; gli originali restano dove sono. Apple Music non può importare file FLAC, Opus o WebM."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck copia os arquivos concluídos dos tipos escolhidos, incluindo vídeos, para a pasta “Adicionar Automaticamente ao Música”; os originais ficam onde estão. O Apple Music não importa arquivos FLAC, Opus nem WebM."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck は選んだ種類の完了したファイル（ビデオを含む）を「ミュージックに自動的に追加」フォルダにコピーします。元のファイルはそのまま残ります。Apple Music は FLAC、Opus、WebM ファイルを読み込めません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck은 선택한 유형의 완료된 파일(비디오 포함)을 ‘음악에 자동으로 추가’ 폴더로 복사합니다. 원본은 그대로 남습니다. Apple Music은 FLAC, Opus, WebM 파일을 가져올 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 会将所选类型的已完成文件（包括视频）复制到“自动添加到音乐”文件夹；原始文件保持不变。Apple Music 无法导入 FLAC、Opus 或 WebM 文件。"
           }
         }
       }
@@ -15825,6 +17458,64 @@
         }
       }
     },
+    "Reading Apple Music link…": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music-link lezen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple-Music-Link wird gelesen …"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture du lien Apple Music…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leyendo enlace de Apple Music…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettura del link di Apple Music…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lendo link do Apple Music…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music のリンクを読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple Music 링크 읽는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在读取 Apple Music 链接…"
+          }
+        }
+      }
+    },
     "Reading Spotify link…": {
       "localizations": {
         "de": {
@@ -16169,6 +17860,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "从列表中移除"
+          }
+        }
+      }
+    },
+    "Remove location and camera details": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwijder locatie- en cameragegevens"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orts- und Kameradaten entfernen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer la localisation et les infos de l’appareil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quitar ubicación y datos de la cámara"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovi posizione e dati della fotocamera"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover localização e dados da câmera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置情報とカメラ情報を削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위치 및 카메라 정보 삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移除位置和相机信息"
           }
         }
       }
@@ -16811,6 +18560,70 @@
         }
       }
     },
+    "Saves %@ (%lld%%)": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Saves %1$@ (%2$lld%%)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bespaart %1$@ (%2$lld%%)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spart %1$@ (%2$lld %%)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économise %1$@ (%2$lld %%)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahorra %1$@ (%2$lld %%)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Risparmia %1$@ (%2$lld%%)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economiza %1$@ (%2$lld%%)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 節約（%2$lld%%）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ 절약 (%2$lld%%)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "节省 %1$@（%2$lld%%）"
+          }
+        }
+      }
+    },
     "Saves as %@": {
       "localizations": {
         "de": {
@@ -16871,22 +18684,10 @@
     },
     "Saves only the part you choose above, in the same quality.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bewaart alleen het stuk dat je hierboven kiest, in dezelfde kwaliteit."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Sichert nur den oben gewählten Teil, in gleicher Qualität."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Enregistre seulement la partie choisie ci-dessus, avec la même qualité."
           }
         },
         "es": {
@@ -16895,16 +18696,16 @@
             "value": "Guarda solo la parte que elijas arriba, con la misma calidad."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistre seulement la partie choisie ci-dessus, avec la même qualité."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Salva solo la parte che scegli qui sopra, con la stessa qualità."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Salva só a parte que você escolher acima, com a mesma qualidade."
           }
         },
         "ja": {
@@ -16917,6 +18718,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "위에서 선택한 부분만 같은 품질로 저장합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaart alleen het stuk dat je hierboven kiest, in dezelfde kwaliteit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva só a parte que você escolher acima, com a mesma qualidade."
           }
         },
         "zh-Hans": {
@@ -17973,22 +19786,10 @@
     },
     "Size": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Grootte"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Größe"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille"
           }
         },
         "es": {
@@ -17997,16 +19798,16 @@
             "value": "Tamaño"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Dimensione"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamanho"
           }
         },
         "ja": {
@@ -18021,6 +19822,18 @@
             "value": "크기"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grootte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -18031,22 +19844,10 @@
     },
     "Small (320 px)": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Klein (320 px)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Klein (320 px)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Petit (320 px)"
           }
         },
         "es": {
@@ -18055,16 +19856,16 @@
             "value": "Pequeño (320 px)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petit (320 px)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Piccolo (320 px)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pequeno (320 px)"
           }
         },
         "ja": {
@@ -18077,6 +19878,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "작게 (320px)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klein (320 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pequeno (320 px)"
           }
         },
         "zh-Hans": {
@@ -18434,9 +20247,6 @@
           }
         }
       }
-    },
-    "Spotify": {
-      "shouldTranslate": false
     },
     "Spotify %@": {
       "localizations": {
@@ -19482,6 +21292,64 @@
         }
       }
     },
+    "The longest side of the photo": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De langste zijde van de foto"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die längste Seite des Fotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le côté le plus long de la photo"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El lado más largo de la foto"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il lato più lungo della foto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O lado mais longo da foto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真の長い辺"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진의 긴 변"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片的长边"
+          }
+        }
+      }
+    },
     "The original file was moved or deleted.": {
       "localizations": {
         "de": {
@@ -19710,6 +21578,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新与已发布的校验和不符，已被丢弃。"
+          }
+        }
+      }
+    },
+    "These settings make the photos bigger. Lower the quality or the size.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met deze instellingen worden de foto’s groter. Verlaag de kwaliteit of de grootte."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit diesen Einstellungen werden die Fotos größer. Senke die Qualität oder die Größe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces réglages rendent les photos plus lourdes. Baissez la qualité ou la taille."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con estos ajustes las fotos ocupan más. Baja la calidad o el tamaño."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con queste impostazioni le foto diventano più grandi. Riduci la qualità o la dimensione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com esses ajustes as fotos ficam maiores. Diminua a qualidade ou o tamanho."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定では写真が大きくなります。品質かサイズを下げてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 설정에서는 사진이 더 커집니다. 품질이나 크기를 낮추십시오."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些设置会使照片变大。请降低质量或尺寸。"
           }
         }
       }
@@ -20412,22 +22338,10 @@
     },
     "Trim": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Knip bij"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Kürzen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rogner"
           }
         },
         "es": {
@@ -20436,16 +22350,16 @@
             "value": "Recortar"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rogner"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Taglia"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cortar"
           }
         },
         "ja": {
@@ -20460,6 +22374,18 @@
             "value": "다듬기"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knip bij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortar"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -20470,22 +22396,10 @@
     },
     "Trim your own videos and songs": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Knip je eigen video’s en nummers bij"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Eigene Videos und Songs kürzen"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rognez vos propres vidéos et morceaux"
           }
         },
         "es": {
@@ -20494,16 +22408,16 @@
             "value": "Recorta tus propios vídeos y canciones"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rognez vos propres vidéos et morceaux"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Taglia i tuoi video e brani"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Corte seus próprios vídeos e músicas"
           }
         },
         "ja": {
@@ -20518,6 +22432,18 @@
             "value": "내 비디오와 노래 다듬기"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knip je eigen video’s en nummers bij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corte seus próprios vídeos e músicas"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -20528,22 +22454,10 @@
     },
     "Trimmed": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bijgeknipt"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Gekürzt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rogné"
           }
         },
         "es": {
@@ -20552,16 +22466,16 @@
             "value": "Recortado"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rogné"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Tagliato"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cortado"
           }
         },
         "ja": {
@@ -20574,6 +22488,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "다듬음"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijgeknipt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortado"
           }
         },
         "zh-Hans": {
@@ -20702,22 +22628,10 @@
     },
     "Turn a video, or part of it, into an animated GIF in three sizes.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maak van een video, of een deel ervan, een geanimeerde GIF in drie formaten."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Mach aus einem Video oder einem Teil davon ein animiertes GIF in drei Größen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transformez une vidéo, ou une partie, en GIF animé en trois tailles."
           }
         },
         "es": {
@@ -20726,16 +22640,16 @@
             "value": "Convierte un vídeo, o una parte, en un GIF animado en tres tamaños."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transformez une vidéo, ou une partie, en GIF animé en trois tailles."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Trasforma un video, o una parte, in una GIF animata in tre dimensioni."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transforme um vídeo, ou parte dele, em um GIF animado em três tamanhos."
           }
         },
         "ja": {
@@ -20750,10 +22664,80 @@
             "value": "비디오나 그 일부를 세 가지 크기의 움직이는 GIF로 만듭니다."
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak van een video, of een deel ervan, een geanimeerde GIF in drie formaten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme um vídeo, ou parte dele, em um GIF animado em três tamanhos."
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "将视频或其中一部分制作成三种尺寸的动画 GIF。"
+          }
+        }
+      }
+    },
+    "Turn it on in Settings → Downloads to add every song you download to Apple Music, or only the file types you choose.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet het aan in Instellingen → Downloads om elk nummer dat je downloadt toe te voegen aan Apple Music, of alleen de bestandstypen die je kiest."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schalte es in Einstellungen → Downloads ein, um jeden geladenen Song zu Apple Music hinzuzufügen, oder nur die Dateitypen, die du wählst."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Activez-le dans Réglages → Téléchargements pour ajouter chaque morceau téléchargé à Apple Music, ou seulement les types de fichiers choisis."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actívalo en Ajustes → Descargas para añadir cada canción que descargues a Apple Music, o solo los tipos de archivo que elijas."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attivalo in Impostazioni → Download per aggiungere ad Apple Music ogni brano che scarichi, o solo i tipi di file che scegli."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ative em Ajustes → Downloads para adicionar cada música que você baixar ao Apple Music, ou só os tipos de arquivo que escolher."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → ダウンロード でオンにすると、ダウンロードしたすべての曲、または選んだ種類のファイルだけを Apple Music に追加します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → 다운로드에서 켜면 다운로드하는 모든 노래 또는 선택한 파일 유형만 Apple Music에 추가합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“设置”→“下载”中打开后，可将下载的每首歌曲，或仅所选类型的文件，添加到 Apple Music。"
           }
         }
       }
@@ -20818,22 +22802,10 @@
     },
     "Turns the video, or the part you choose above, into an animated GIF for chats and documents.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maakt van de video, of het stuk dat je hierboven kiest, een geanimeerde GIF voor chats en documenten."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Macht aus dem Video oder dem oben gewählten Teil ein animiertes GIF für Chats und Dokumente."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transforme la vidéo, ou la partie choisie ci-dessus, en GIF animé pour les discussions et les documents."
           }
         },
         "es": {
@@ -20842,16 +22814,16 @@
             "value": "Convierte el vídeo, o la parte que elijas arriba, en un GIF animado para chats y documentos."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme la vidéo, ou la partie choisie ci-dessus, en GIF animé pour les discussions et les documents."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Trasforma il video, o la parte che scegli qui sopra, in una GIF animata per chat e documenti."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Transforma o vídeo, ou a parte que você escolher acima, em um GIF animado para conversas e documentos."
           }
         },
         "ja": {
@@ -20864,6 +22836,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "비디오나 위에서 선택한 부분을 채팅과 문서용 움직이는 GIF로 만듭니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maakt van de video, of het stuk dat je hierboven kiest, een geanimeerde GIF voor chats en documenten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforma o vídeo, ou a parte que você escolher acima, em um GIF animado para conversas e documentos."
           }
         },
         "zh-Hans": {
@@ -22384,22 +24368,10 @@
     },
     "When converting a file, choose Only part of the file to keep just a section, or use it with any other option.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Kies bij het converteren Alleen een deel van het bestand om maar een stuk te houden, of combineer het met een andere optie."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wähle beim Konvertieren „Nur einen Teil der Datei“, um nur einen Abschnitt zu behalten, oder kombiniere es mit jeder anderen Option."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lors d’une conversion, choisissez Seulement une partie du fichier pour n’en garder qu’un passage, seul ou avec n’importe quelle autre option."
           }
         },
         "es": {
@@ -22408,16 +24380,16 @@
             "value": "Al convertir, elige Solo una parte del archivo para quedarte con un fragmento, o úsalo con cualquier otra opción."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lors d’une conversion, choisissez Seulement une partie du fichier pour n’en garder qu’un passage, seul ou avec n’importe quelle autre option."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Durante la conversione, scegli Solo una parte del file per tenerne solo un pezzo, o usalo con qualsiasi altra opzione."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ao converter, escolha Só uma parte do arquivo para manter apenas um trecho, ou use com qualquer outra opção."
           }
         },
         "ja": {
@@ -22430,6 +24402,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "파일을 변환할 때 ‘파일의 일부만’을 선택하면 한 구간만 남기거나 다른 옵션과 함께 쓸 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies bij het converteren Alleen een deel van het bestand om maar een stuk te houden, of combineer het met een andere optie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao converter, escolha Só uma parte do arquivo para manter apenas um trecho, ou use com qualquer outra opção."
           }
         },
         "zh-Hans": {

@@ -40,7 +40,7 @@ enum Links {
     /// Accepts web links and Spotify links only.
     static func validated(_ text: String) -> String? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        if Spotify.parse(trimmed) != nil { return trimmed }
+        if MusicLinks.parse(trimmed) != nil { return trimmed }
         guard let url = URL(string: trimmed), let scheme = url.scheme?.lowercased(),
               scheme == "http" || scheme == "https", url.host?.isEmpty == false else { return nil }
         return trimmed

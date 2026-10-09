@@ -12,7 +12,7 @@ struct MenuBarView: View {
     private var fieldLinks: [String] { Links.extract(fromText: trimmed) }
     private var isValid: Bool {
         if fieldLinks.count > 1 { return true }
-        if Spotify.parse(trimmed) != nil { return true }
+        if MusicLinks.parse(trimmed) != nil { return true }
         guard let url = URL(string: trimmed), let scheme = url.scheme else { return false }
         return (scheme == "http" || scheme == "https") && url.host != nil
     }

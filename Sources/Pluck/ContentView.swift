@@ -28,7 +28,7 @@ struct ContentView: View {
     private var isMultiple: Bool { fieldLinks.count > 1 }
     private var isValid: Bool {
         if isMultiple { return true }
-        if Spotify.parse(trimmed) != nil { return true }
+        if MusicLinks.parse(trimmed) != nil { return true }
         guard let url = URL(string: trimmed), let scheme = url.scheme else { return false }
         return (scheme == "http" || scheme == "https") && url.host != nil
     }
@@ -109,6 +109,11 @@ struct ContentView: View {
         .sheet(isPresented: Binding(get: { !manager.filesToConvert.isEmpty && manager.picks.isEmpty },
                                     set: { if !$0 { manager.filesToConvert = [] } })) {
             ConvertSheet(files: manager.filesToConvert)
+                .environment(manager)
+        }
+        .sheet(isPresented: Binding(get: { !manager.photosToCompress.isEmpty && manager.filesToConvert.isEmpty && manager.picks.isEmpty },
+                                    set: { if !$0 { manager.photosToCompress = [] } })) {
+            PhotoSheet(files: manager.photosToCompress)
                 .environment(manager)
         }
         .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
@@ -454,7 +459,7 @@ struct ContentView: View {
         ContentUnavailableView {
             Label("Nothing Downloading", systemImage: "arrow.down.circle.dotted")
         } description: {
-            Text("Paste one or more links above, or drop links, a list of links or a video or song to convert anywhere in this window.")
+            Text("Paste one or more links above, or drop links, a list of links, or a video, song or photo to convert anywhere in this window.")
         } actions: {
             let copied = Links.extract(from: NSPasteboard.general)
             if copied.count > 1 {
@@ -477,7 +482,7 @@ struct ContentView: View {
         for provider in providers {
             let url = await provider.load(URL.self)
             if let url, url.isFileURL {
-                if Converting.isMedia(url) {
+                if Converting.isConvertible(url) {
                     media.append(url)
                 } else if Converting.isText(url) {
                     links += Links.extract(fromFile: url)
@@ -490,7 +495,7 @@ struct ContentView: View {
             }
         }
         if !links.isEmpty { manager.add(links) }
-        if !media.isEmpty { manager.filesToConvert = media }
+        if !media.isEmpty { manager.openConverter(for: media) }
         if links.isEmpty, media.isEmpty { NSSound.beep() }
     }
 

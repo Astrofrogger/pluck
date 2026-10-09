@@ -353,9 +353,58 @@ private struct DownloadSettings: View {
     @AppStorage(Prefs.fileNaming) private var fileNaming: FileNaming = .automatic
     @AppStorage(Prefs.customFileName) private var customFileName = "{artist} - {title}"
     @AppStorage(Prefs.playlistFolders) private var playlistFolders = true
+    @AppStorage(Prefs.musicImport) private var musicImport = false
+    @AppStorage(Prefs.musicImportTypes) private var musicImportTypes = MusicLibrary.defaultTypes
+    @AppStorage(Prefs.musicImportAll) private var musicImportAll = true
+    @State private var musicFolderFound = true
+
+    /// One checkbox per file type, stored as "m4a,mp3".
+    private func importsType(_ ext: String) -> Binding<Bool> {
+        Binding(get: { musicImportTypes.split(separator: ",").contains(Substring(ext)) },
+                set: { on in
+                    var types = Set(musicImportTypes.split(separator: ",").map(String.init))
+                    if on { types.insert(ext) } else { types.remove(ext) }
+                    musicImportTypes = MusicLibrary.types.map(\.ext).filter(types.contains).joined(separator: ",")
+                })
+    }
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Add finished downloads to Apple Music", isOn: $musicImport)
+                if musicImport {
+                    Picker("Add", selection: $musicImportAll) {
+                        Text("All songs").tag(true)
+                        Text("Only these file types").tag(false)
+                    }
+                    .pickerStyle(.radioGroup)
+                }
+                if musicImport, !musicImportAll {
+                    LabeledContent("File types") {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(MusicLibrary.types, id: \.ext) { type in
+                                Toggle(type.label, isOn: importsType(type.ext))
+                                    .toggleStyle(.checkbox)
+                            }
+                        }
+                    }
+                }
+                if musicImport {
+                    if !musicFolderFound {
+                        Label("Open the Music app once, so it creates the folder Pluck adds songs to.", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    }
+                }
+            } header: {
+                Text("Apple Music")
+            } footer: {
+                Text(musicImportAll
+                     ? "Every song Pluck downloads is added. Apple Music can’t import FLAC, Opus or WebM, so those get a copy made for it: FLAC as Apple Lossless, the others as AAC. The originals stay where they are."
+                     : "Pluck copies finished files of the chosen types, videos included, into Music’s “Automatically Add to Music” folder; the originals stay where they are. Apple Music can’t import FLAC, Opus or WebM files.")
+                    .foregroundStyle(.secondary)
+            }
+            .task(id: musicImport) { musicFolderFound = MusicLibrary.folder != nil }
+
             Section {
                 Toggle("Title, artist & description", isOn: $embedMetadata)
                 Toggle("Thumbnail as cover art", isOn: $embedThumbnail)
@@ -364,7 +413,7 @@ private struct DownloadSettings: View {
             } header: {
                 Text("Embed")
             } footer: {
-                Text("Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, YouTube Music).")
+                Text("Lyrics come from LRCLIB, a free lyrics database: Pluck sends it the artist and title. They’re added to MP3, M4A and FLAC files when the artist is known (Spotify, Apple Music, YouTube Music).")
                     .foregroundStyle(.secondary)
             }
             Section {

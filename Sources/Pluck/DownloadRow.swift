@@ -99,14 +99,16 @@ struct DownloadRow: View {
 
     private var details: some View {
         HStack(spacing: 6) {
-            if item.spotify != nil || Spotify.isSpotify(item.url) {
-                Text("Spotify")
+            if let service = item.spotify?.source ?? MusicLinks.service(of: item.url) {
+                Text(service.name)
                     .font(.caption2.weight(.semibold))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
                     .foregroundStyle(.white)
-                    .background(Color(red: 0.11, green: 0.73, blue: 0.33), in: .capsule)
-                    .help("Matched on YouTube Music and tagged with Spotify’s metadata")
+                    .background(service == .spotify ? Color(red: 0.11, green: 0.73, blue: 0.33)
+                                                    : Color(red: 0.98, green: 0.14, blue: 0.24), in: .capsule)
+                    .help(service == .spotify ? String(localized: "Matched on YouTube Music and tagged with Spotify’s metadata")
+                                              : String(localized: "Matched on YouTube Music and tagged with Apple Music’s metadata and cover"))
             }
             if let conversion = item.conversion {
                 Label(conversion.label(options: item.options), systemImage: conversion.preset.symbol)
@@ -194,6 +196,12 @@ struct DownloadRow: View {
                         .overlay(Capsule().strokeBorder(.secondary.opacity(0.6), lineWidth: 1))
                         .foregroundStyle(.secondary)
                         .help("The source was lossless and the file wasn’t converted to a lossy format")
+                }
+                if item.addedToMusic {
+                    Label("Music", systemImage: "music.note.house")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Added to Apple Music")
                 }
                 if item.hasLyrics {
                     Label("Lyrics", systemImage: "text.quote")

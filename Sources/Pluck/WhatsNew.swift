@@ -88,6 +88,14 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.8.0", items: [
+                Item(symbol: "music.note", title: String(localized: "Apple Music links"),
+                     detail: String(localized: "Paste a song, album or playlist from Apple Music. Pluck finds it on YouTube Music and tags it with Apple’s details and sharp album art.")),
+                Item(symbol: "music.note.house", title: String(localized: "Add to Apple Music"),
+                     detail: String(localized: "Turn it on in Settings → Downloads to add every song you download to Apple Music, or only the file types you choose.")),
+                Item(symbol: "photo", title: String(localized: "Compress photos"),
+                     detail: String(localized: "Drop photos on Pluck to make them smaller as JPEG or HEIC, with a live size estimate and the option to remove location details.")),
+            ]),
             Release(version: "1.7.1", items: [
                 Item(symbol: "scissors", title: String(localized: "Trim your own videos and songs"),
                      detail: String(localized: "When converting a file, choose Only part of the file to keep just a section, or use it with any other option.")),
