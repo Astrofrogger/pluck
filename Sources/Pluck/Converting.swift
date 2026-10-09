@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct Conversion: Codable, Equatable {
     enum Preset: String, Codable, CaseIterable, Identifiable {
         /// `smaller` (720p) was replaced by `compress`; it stays so older history entries still load.
-        case audio, mp4, compress, smaller
+        case audio, mp4, compress, trim, gif, smaller
 
         var id: String { rawValue }
 
@@ -15,6 +15,8 @@ struct Conversion: Codable, Equatable {
             case .audio: String(localized: "Extract Audio")
             case .mp4: String(localized: "Convert to MP4")
             case .compress: String(localized: "Compress")
+            case .trim: String(localized: "Trim")
+            case .gif: String(localized: "Make GIF")
             case .smaller: String(localized: "Make Smaller")
             }
         }
@@ -24,6 +26,8 @@ struct Conversion: Codable, Equatable {
             case .audio: String(localized: "Saves the sound as an audio file in the format below. Audio that’s already in that format is copied without quality loss.")
             case .mp4: String(localized: "H.264 video that plays everywhere. Files that are already compatible are only repackaged, without quality loss.")
             case .compress: String(localized: "Makes the file the size you choose, for sharing or mail. The resolution stays the same unless the file gets very small.")
+            case .trim: String(localized: "Saves only the part you choose above, in the same quality.")
+            case .gif: String(localized: "Turns the video, or the part you choose above, into an animated GIF for chats and documents.")
             case .smaller: String(localized: "Shrinks the video to at most 720p, for sharing or mail.")
             }
         }
@@ -33,10 +37,12 @@ struct Conversion: Codable, Equatable {
             case .audio: "waveform"
             case .mp4: "film"
             case .compress, .smaller: "arrow.down.right.and.arrow.up.left"
+            case .trim: "scissors"
+            case .gif: "photo.on.rectangle.angled"
             }
         }
 
-        var needsVideo: Bool { self == .mp4 || self == .smaller }
+        var needsVideo: Bool { self == .mp4 || self == .smaller || self == .gif }
     }
 
     var source: String
@@ -45,6 +51,10 @@ struct Conversion: Codable, Equatable {
     var percent: Int?
     /// For Compress: output height. nil lets Pluck decide, 0 keeps the original.
     var resolution: Int?
+    /// Only this part of the file.
+    var clip: ClipRange?
+    /// For GIFs: width in pixels.
+    var gifWidth: Int?
 
     /// Shown in the row instead of the download format.
     func label(options: DownloadOptions) -> String {
@@ -57,6 +67,8 @@ struct Conversion: Codable, Equatable {
             } else {
                 String(localized: "Compressed to \(percent ?? 50)%")
             }
+        case .trim: String(localized: "Trimmed")
+        case .gif: "GIF · \(gifWidth ?? 480) px"
         case .smaller: "MP4 · 720p"
         }
     }
@@ -153,9 +165,45 @@ enum Converting {
         var suffix = ""
     }
 
+    /// GIF widths offered, with the frame rate each uses (bigger GIFs get smoother motion).
+    static let gifWidths = [320, 480, 720]
+    static func gifFrameRate(width: Int) -> Int { width <= 320 ? 10 : width <= 480 ? 15 : 20 }
+
+    /// `info` describes the part being converted (its length when trimming). Cutting copied
+    /// video would start on a keyframe, so a part is always re-encoded.
     static func plan(_ conversion: Conversion, options: DownloadOptions, info: MediaInfo, sourceExtension: String,
                      sourceSize: Int64 = 0, passLog: String = "") throws -> Plan {
+        let suffix = conversion.clip?.fileSuffix ?? ""
         switch conversion.preset {
+        case .trim:
+            // Songs keep their format: audio is copied, which cuts precisely enough.
+            guard info.videoCodec != nil else {
+                guard let codec = info.audioCodec else { throw Failure.noAudio }
+                var original = options
+                original.audioFormat = .original
+                var plan = audioPlan(codec: codec, options: original)
+                // FLAC and WAV keep the full length in their header when copied; re-encoding them
+                // is lossless anyway and writes the right one.
+                if codec == "flac" || codec.hasPrefix("pcm"), let copy = plan.arguments.firstIndex(of: "copy") {
+                    plan.arguments[copy] = codec == "flac" ? "flac" : codec
+                }
+                plan.suffix = suffix
+                return plan
+            }
+            let audioFits = info.audioCodec.map { ["aac", "alac", "mp3"].contains($0) } ?? true
+            let container = ["mp4", "mov", "m4v"].contains(sourceExtension) ? sourceExtension : "mp4"
+            return Plan(arguments: ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0",
+                                    "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p"]
+                            + (audioFits ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"])
+                            + ["-movflags", "+faststart"],
+                        fileExtension: container, suffix: suffix)
+        case .gif:
+            guard info.videoCodec != nil else { throw Failure.noVideo }
+            let width = conversion.gifWidth ?? 480
+            // One pass with its own palette, so colours stay clean instead of the 256-colour default.
+            let filter = "fps=\(gifFrameRate(width: width)),scale='min(\(width),iw)':-2:flags=lanczos,"
+                + "split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
+            return Plan(arguments: ["-map", "0:v:0", "-an", "-vf", filter, "-loop", "0"], fileExtension: "gif", suffix: suffix)
         case .compress:
             guard let duration = info.duration, duration > 0 else { throw Failure.tooShort }
             let target = compression(info: info, sourceSize: sourceSize, percent: conversion.percent ?? 50,
@@ -164,7 +212,7 @@ enum Converting {
                 guard info.audioCodec != nil else { throw Failure.noAudio }
                 return Plan(arguments: ["-map", "0:a:0", "-vn", "-map_metadata", "0",
                                         "-c:a", "aac", "-b:a", "\(target.audioKbps)k"],
-                            fileExtension: "m4a", suffix: String(localized: " (compressed)"))
+                            fileExtension: "m4a", suffix: String(localized: " (compressed)") + suffix)
             }
             var video264 = ["-c:v", "libx264", "-preset", "medium", "-b:v", "\(video)k", "-pix_fmt", "yuv420p"]
             if let height = target.height { video264 += ["-vf", "scale=-2:\(height)"] }
@@ -172,13 +220,15 @@ enum Converting {
             return Plan(firstPass: ["-map", "0:v:0"] + video264 + ["-pass", "1"] + log + ["-an", "-f", "mp4"],
                         arguments: ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0"] + video264 + ["-pass", "2"] + log
                             + ["-c:a", "aac", "-b:a", "\(target.audioKbps)k", "-movflags", "+faststart"],
-                        fileExtension: "mp4", suffix: String(localized: " (compressed)"))
+                        fileExtension: "mp4", suffix: String(localized: " (compressed)") + suffix)
         case .audio:
             guard let codec = info.audioCodec else { throw Failure.noAudio }
-            return audioPlan(codec: codec, options: options)
+            var plan = audioPlan(codec: codec, options: options)
+            plan.suffix = suffix
+            return plan
         case .mp4:
             guard let video = info.videoCodec else { throw Failure.noVideo }
-            let videoFits = ["h264", "hevc"].contains(video)
+            let videoFits = ["h264", "hevc"].contains(video) && conversion.clip == nil
             let audioFits = info.audioCodec.map { ["aac", "alac", "mp3"].contains($0) } ?? true
             var args = ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0"]
             args += videoFits ? ["-c:v", "copy"] : ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p"]
@@ -186,7 +236,7 @@ enum Converting {
             args += audioFits ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"]
             args += ["-movflags", "+faststart"]
             return Plan(arguments: args, fileExtension: "mp4",
-                        suffix: sourceExtension == "mp4" ? String(localized: " (converted)") : "")
+                        suffix: (sourceExtension == "mp4" && suffix.isEmpty ? String(localized: " (converted)") : "") + suffix)
         case .smaller:
             guard info.videoCodec != nil else { throw Failure.noVideo }
             let args = ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0",

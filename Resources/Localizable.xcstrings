@@ -3,22 +3,10 @@
   "strings": {
     " (compressed)": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " (gecomprimeerd)"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": " (komprimiert)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " (compressé)"
           }
         },
         "es": {
@@ -27,16 +15,16 @@
             "value": " (comprimido)"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (compressé)"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": " (compresso)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": " (comprimido)"
           }
         },
         "ja": {
@@ -49,6 +37,18 @@
           "stringUnit": {
             "state": "translated",
             "value": " (압축됨)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (gecomprimeerd)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (comprimido)"
           }
         },
         "zh-Hans": {
@@ -467,28 +467,16 @@
     },
     "%@ → about %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@ → about %2$@"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ → ongeveer %2$@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ → etwa %2$@"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ → environ %2$@"
+            "state": "new",
+            "value": "%1$@ → about %2$@"
           }
         },
         "es": {
@@ -497,16 +485,16 @@
             "value": "%1$@ → unos %2$@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → environ %2$@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ → circa %2$@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%1$@ → cerca de %2$@"
           }
         },
         "ja": {
@@ -519,6 +507,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ → 약 %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → ongeveer %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ → cerca de %2$@"
           }
         },
         "zh-Hans": {
@@ -2301,22 +2301,10 @@
     },
     "At this size the quality drops noticeably": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bij deze grootte gaat de kwaliteit merkbaar achteruit"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bei dieser Größe leidet die Qualität deutlich"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "À cette taille, la qualité baisse nettement"
           }
         },
         "es": {
@@ -2325,16 +2313,16 @@
             "value": "A este tamaño la calidad baja notablemente"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À cette taille, la qualité baisse nettement"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "A questa dimensione la qualità cala visibilmente"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nesse tamanho a qualidade cai visivelmente"
           }
         },
         "ja": {
@@ -2347,6 +2335,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 크기에서는 품질이 눈에 띄게 떨어집니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bij deze grootte gaat de kwaliteit merkbaar achteruit"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nesse tamanho a qualidade cai visivelmente"
           }
         },
         "zh-Hans": {
@@ -2707,22 +2707,10 @@
     },
     "Automatic keeps the resolution unless the file gets so small that a lower one looks sharper": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatisch houdt de resolutie, tenzij het bestand zo klein wordt dat een lagere scherper oogt"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Automatisch behält die Auflösung, außer die Datei wird so klein, dass eine niedrigere schärfer aussieht"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automatique conserve la résolution, sauf si le fichier devient si petit qu’une résolution inférieure paraît plus nette"
           }
         },
         "es": {
@@ -2731,16 +2719,16 @@
             "value": "Automático mantiene la resolución, salvo que el archivo quede tan pequeño que una menor se vea más nítida"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatique conserve la résolution, sauf si le fichier devient si petit qu’une résolution inférieure paraît plus nette"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Automatico mantiene la risoluzione, a meno che il file diventi così piccolo che una inferiore appaia più nitida"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Automático mantém a resolução, a menos que o arquivo fique tão pequeno que uma menor pareça mais nítida"
           }
         },
         "ja": {
@@ -2753,6 +2741,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "자동은 해상도를 유지하지만, 파일이 아주 작아져 더 낮은 해상도가 더 선명해 보이면 낮춥니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch houdt de resolutie, tenzij het bestand zo klein wordt dat een lagere scherper oogt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automático mantém a resolução, a menos que o arquivo fique tão pequeno que uma menor pareça mais nítida"
           }
         },
         "zh-Hans": {
@@ -4969,22 +4969,10 @@
     },
     "Compress": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comprimeer"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Komprimieren"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compresser"
           }
         },
         "es": {
@@ -4993,16 +4981,16 @@
             "value": "Comprimir"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compresser"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Comprimi"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comprimir"
           }
         },
         "ja": {
@@ -5017,6 +5005,18 @@
             "value": "압축"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimeer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimir"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -5027,22 +5027,10 @@
     },
     "Compressed to %lld%%": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gecomprimeerd tot %lld%%"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auf %lld %% komprimiert"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Compressé à %lld %%"
           }
         },
         "es": {
@@ -5051,16 +5039,16 @@
             "value": "Comprimido al %lld %%"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressé à %lld %%"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Compresso al %lld%%"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comprimido para %lld%%"
           }
         },
         "ja": {
@@ -5075,6 +5063,18 @@
             "value": "%lld%%로 압축"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gecomprimeerd tot %lld%%"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimido para %lld%%"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -5085,28 +5085,16 @@
     },
     "Compressed to %lld%% · %lldp": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Compressed to %1$lld%% · %2$lldp"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Gecomprimeerd tot %1$lld%% · %2$lldp"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auf %1$lld %% komprimiert · %2$lldp"
           }
         },
-        "fr": {
+        "en": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Compressé à %1$lld %% · %2$lldp"
+            "state": "new",
+            "value": "Compressed to %1$lld%% · %2$lldp"
           }
         },
         "es": {
@@ -5115,16 +5103,16 @@
             "value": "Comprimido al %1$lld %% · %2$lldp"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compressé à %1$lld %% · %2$lldp"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Compresso al %1$lld%% · %2$lldp"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Comprimido para %1$lld%% · %2$lldp"
           }
         },
         "ja": {
@@ -5137,6 +5125,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld%%로 압축 · %2$lldp"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gecomprimeerd tot %1$lld%% · %2$lldp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comprimido para %1$lld%% · %2$lldp"
           }
         },
         "zh-Hans": {
@@ -8522,22 +8522,10 @@
     },
     "Drop a video or song on Pluck to extract the audio, convert it to MP4, or compress it to the size and resolution you choose.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sleep een video of nummer op Pluck om de audio eruit te halen, naar MP4 te converteren of te comprimeren tot de grootte en resolutie die je kiest."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Zieh ein Video oder einen Song auf Pluck, um das Audio zu extrahieren, in MP4 zu konvertieren oder auf die gewünschte Größe und Auflösung zu komprimieren."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Déposez une vidéo ou un morceau sur Pluck pour en extraire l’audio, le convertir en MP4 ou le compresser à la taille et à la résolution de votre choix."
           }
         },
         "es": {
@@ -8546,16 +8534,16 @@
             "value": "Suelta un vídeo o una canción en Pluck para extraer el audio, convertirlo a MP4 o comprimirlo al tamaño y la resolución que elijas."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déposez une vidéo ou un morceau sur Pluck pour en extraire l’audio, le convertir en MP4 ou le compresser à la taille et à la résolution de votre choix."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Trascina un video o un brano su Pluck per estrarre l’audio, convertirlo in MP4 o comprimerlo alla dimensione e risoluzione che scegli."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Solte um vídeo ou uma música no Pluck para extrair o áudio, converter para MP4 ou comprimir no tamanho e na resolução que você escolher."
           }
         },
         "ja": {
@@ -8568,6 +8556,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "비디오나 노래를 Pluck에 놓으면 오디오 추출, MP4 변환 또는 원하는 크기와 해상도로 압축할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep een video of nummer op Pluck om de audio eruit te halen, naar MP4 te converteren of te comprimeren tot de grootte en resolutie die je kiest."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte um vídeo ou uma música no Pluck para extrair o áudio, converter para MP4 ou comprimir no tamanho e na resolução que você escolher."
           }
         },
         "zh-Hans": {
@@ -9448,6 +9448,64 @@
         }
       }
     },
+    "From": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desde"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从"
+          }
+        }
+      }
+    },
     "From %@ to the end": {
       "localizations": {
         "de": {
@@ -9502,6 +9560,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "从 %@ 到结尾"
+          }
+        }
+      }
+    },
+    "GIFs of %@ get very big. Pick a shorter part above.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF’s van %@ worden erg groot. Kies hierboven een korter stuk."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIFs mit %@ werden sehr groß. Wähle oben einen kürzeren Teil."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les GIF de %@ deviennent très lourds. Choisissez une partie plus courte ci-dessus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los GIF de %@ ocupan mucho. Elige una parte más corta arriba."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le GIF di %@ diventano molto pesanti. Scegli una parte più breve qui sopra."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIFs de %@ ficam muito grandes. Escolha uma parte menor acima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の GIF はとても大きくなります。上でもっと短い部分を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 길이의 GIF는 매우 커집니다. 위에서 더 짧은 부분을 선택하십시오."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 的 GIF 会非常大。请在上方选择更短的片段。"
           }
         }
       }
@@ -10260,6 +10376,64 @@
         }
       }
     },
+    "Large (720 px)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groot (720 px)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groß (720 px)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grand (720 px)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grande (720 px)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grande (720 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grande (720 px)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大（720 px）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크게 (720px)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大（720 像素）"
+          }
+        }
+      }
+    },
     "Last checked": {
       "localizations": {
         "de": {
@@ -10842,22 +11016,10 @@
     },
     "Lowered to %lldp to stay sharp": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Verlaagd naar %lldp om scherp te blijven"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auf %lldp gesenkt, damit es scharf bleibt"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Abaissé à %lldp pour rester net"
           }
         },
         "es": {
@@ -10866,16 +11028,16 @@
             "value": "Reducido a %lldp para mantener la nitidez"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abaissé à %lldp pour rester net"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Ridotto a %lldp per restare nitido"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reduzido para %lldp para continuar nítido"
           }
         },
         "ja": {
@@ -10888,6 +11050,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "선명도를 유지하도록 %lldp로 낮춤"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlaagd naar %lldp om scherp te blijven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reduzido para %lldp para continuar nítido"
           }
         },
         "zh-Hans": {
@@ -11188,6 +11362,122 @@
         }
       }
     },
+    "Make GIF": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak GIF"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer un GIF"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear GIF"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea GIF"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar GIF"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF を作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF 만들기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制作 GIF"
+          }
+        }
+      }
+    },
+    "Make GIFs": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak GIF’s"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIFs erstellen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créez des GIF"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea GIF"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea GIF"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crie GIFs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF を作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GIF 만들기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "制作 GIF"
+          }
+        }
+      }
+    },
     "Make Smaller": {
       "localizations": {
         "de": {
@@ -11248,22 +11538,10 @@
     },
     "Makes the file the size you choose, for sharing or mail. The resolution stays the same unless the file gets very small.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Maakt het bestand zo groot als je kiest, om te delen of te mailen. De resolutie blijft gelijk, tenzij het bestand heel klein wordt."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Bringt die Datei auf die gewünschte Größe, zum Teilen oder Mailen. Die Auflösung bleibt gleich, außer die Datei wird sehr klein."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Donne au fichier la taille de votre choix, pour le partager ou l’envoyer par mail. La résolution reste la même, sauf si le fichier devient très petit."
           }
         },
         "es": {
@@ -11272,16 +11550,16 @@
             "value": "Deja el archivo del tamaño que elijas, para compartirlo o enviarlo por correo. La resolución no cambia salvo que el archivo quede muy pequeño."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donne au fichier la taille de votre choix, pour le partager ou l’envoyer par mail. La résolution reste la même, sauf si le fichier devient très petit."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Porta il file alla dimensione che scegli, per condividerlo o inviarlo via mail. La risoluzione resta uguale, a meno che il file diventi molto piccolo."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Deixa o arquivo do tamanho que você escolher, para compartilhar ou enviar por e-mail. A resolução continua a mesma, a menos que o arquivo fique muito pequeno."
           }
         },
         "ja": {
@@ -11294,6 +11572,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "공유나 메일 전송을 위해 파일을 원하는 크기로 만듭니다. 파일이 아주 작아지지 않는 한 해상도는 그대로입니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maakt het bestand zo groot als je kiest, om te delen of te mailen. De resolutie blijft gelijk, tenzij het bestand heel klein wordt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deixa o arquivo do tamanho que você escolher, para compartilhar ou enviar por e-mail. A resolução continua a mesma, a menos que o arquivo fique muito pequeno."
           }
         },
         "zh-Hans": {
@@ -11480,22 +11770,10 @@
     },
     "Measuring…": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Meten…"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Wird gemessen …"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mesure…"
           }
         },
         "es": {
@@ -11504,16 +11782,16 @@
             "value": "Midiendo…"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mesure…"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Misurazione…"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Medindo…"
           }
         },
         "ja": {
@@ -11528,10 +11806,80 @@
             "value": "측정 중…"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meten…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medindo…"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "正在测量…"
+          }
+        }
+      }
+    },
+    "Medium (480 px)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middel (480 px)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mittel (480 px)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moyen (480 px)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mediano (480 px)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medio (480 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Médio (480 px)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中（480 px）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중간 (480px)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中（480 像素）"
           }
         }
       }
@@ -12690,6 +13038,64 @@
         }
       }
     },
+    "Only part of the file": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen een deel van het bestand"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur einen Teil der Datei"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement une partie du fichier"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo una parte del archivo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo una parte del file"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só uma parte do arquivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルの一部だけ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일의 일부만"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅文件的一部分"
+          }
+        }
+      }
+    },
     "Open": {
       "localizations": {
         "de": {
@@ -13040,13 +13446,13 @@
     },
     "Original": {
       "localizations": {
-        "nl": {
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Origineel"
+            "value": "Original"
           }
         },
-        "de": {
+        "es": {
           "stringUnit": {
             "state": "translated",
             "value": "Original"
@@ -13058,22 +13464,10 @@
             "value": "Originale"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original"
-          }
-        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Originale"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original"
           }
         },
         "ja": {
@@ -13088,6 +13482,18 @@
             "value": "원본"
           }
         },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origineel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original"
+          }
+        },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
@@ -13098,13 +13504,13 @@
     },
     "Original (%lldp)": {
       "localizations": {
-        "nl": {
+        "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Origineel (%lldp)"
+            "value": "Original (%lldp)"
           }
         },
-        "de": {
+        "es": {
           "stringUnit": {
             "state": "translated",
             "value": "Original (%lldp)"
@@ -13116,22 +13522,10 @@
             "value": "Originale (%lldp)"
           }
         },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original (%lldp)"
-          }
-        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Originale (%lldp)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Original (%lldp)"
           }
         },
         "ja": {
@@ -13144,6 +13538,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "원본 (%lldp)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Origineel (%lldp)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Original (%lldp)"
           }
         },
         "zh-Hans": {
@@ -14493,22 +14899,10 @@
     },
     "Pluck couldn’t tell how long this file is, so it can’t aim for a size.": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pluck kon niet bepalen hoe lang dit bestand is, dus kan het niet op een grootte mikken."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Pluck konnte die Länge dieser Datei nicht ermitteln und kann daher keine Größe anpeilen."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pluck n’a pas pu déterminer la durée de ce fichier et ne peut donc pas viser une taille."
           }
         },
         "es": {
@@ -14517,16 +14911,16 @@
             "value": "Pluck no pudo saber cuánto dura este archivo, así que no puede apuntar a un tamaño."
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck n’a pas pu déterminer la durée de ce fichier et ne peut donc pas viser une taille."
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Pluck non è riuscito a capire quanto dura questo file, quindi non può puntare a una dimensione."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "O Pluck não conseguiu saber a duração deste arquivo, então não pode mirar um tamanho."
           }
         },
         "ja": {
@@ -14539,6 +14933,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "이 파일의 길이를 알 수 없어 크기를 맞출 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kon niet bepalen hoe lang dit bestand is, dus kan het niet op een grootte mikken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck não conseguiu saber a duração deste arquivo, então não pode mirar um tamanho."
           }
         },
         "zh-Hans": {
@@ -15943,22 +16349,10 @@
     },
     "Resolution": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resolutie"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Auflösung"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Résolution"
           }
         },
         "es": {
@@ -15967,16 +16361,16 @@
             "value": "Resolución"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Résolution"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Risoluzione"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Resolução"
           }
         },
         "ja": {
@@ -15989,6 +16383,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "해상도"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolutie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolução"
           }
         },
         "zh-Hans": {
@@ -16349,22 +16755,10 @@
     },
     "Saves %@": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bespaart %@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Spart %@"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Économise %@"
           }
         },
         "es": {
@@ -16373,16 +16767,16 @@
             "value": "Ahorra %@"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Économise %@"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Risparmia %@"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Economiza %@"
           }
         },
         "ja": {
@@ -16395,6 +16789,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 절약"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bespaart %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Economiza %@"
           }
         },
         "zh-Hans": {
@@ -16459,6 +16865,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "存储为 %@"
+          }
+        }
+      }
+    },
+    "Saves only the part you choose above, in the same quality.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaart alleen het stuk dat je hierboven kiest, in dezelfde kwaliteit."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sichert nur den oben gewählten Teil, in gleicher Qualität."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistre seulement la partie choisie ci-dessus, avec la même qualité."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guarda solo la parte que elijas arriba, con la misma calidad."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva solo la parte che scegli qui sopra, con la stessa qualità."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva só a parte que você escolher acima, com a mesma qualidade."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上で選んだ部分だけを同じ品質で保存します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위에서 선택한 부분만 같은 품질로 저장합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅以相同质量存储你在上方选择的部分。"
           }
         }
       }
@@ -17507,6 +17971,122 @@
         }
       }
     },
+    "Size": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grootte"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Größe"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamaño"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimensione"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "크기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大小"
+          }
+        }
+      }
+    },
+    "Small (320 px)": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klein (320 px)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klein (320 px)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Petit (320 px)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pequeño (320 px)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Piccolo (320 px)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pequeno (320 px)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小（320 px）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작게 (320px)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小（320 像素）"
+          }
+        }
+      }
+    },
     "Songs get their lyrics, so they show up in Apple Music and on iPhone.": {
       "localizations": {
         "de": {
@@ -18324,22 +18904,10 @@
     },
     "Target size": {
       "localizations": {
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Doelgrootte"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Zielgröße"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Taille cible"
           }
         },
         "es": {
@@ -18348,16 +18916,16 @@
             "value": "Tamaño objetivo"
           }
         },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taille cible"
+          }
+        },
         "it": {
           "stringUnit": {
             "state": "translated",
             "value": "Dimensione obiettivo"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Tamanho-alvo"
           }
         },
         "ja": {
@@ -18370,6 +18938,18 @@
           "stringUnit": {
             "state": "translated",
             "value": "목표 크기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doelgrootte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tamanho-alvo"
           }
         },
         "zh-Hans": {
@@ -19830,6 +20410,180 @@
         }
       }
     },
+    "Trim": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knip bij"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kürzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rogner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recortar"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taglia"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortar"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トリミング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다듬기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修剪"
+          }
+        }
+      }
+    },
+    "Trim your own videos and songs": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knip je eigen video’s en nummers bij"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigene Videos und Songs kürzen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rognez vos propres vidéos et morceaux"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorta tus propios vídeos y canciones"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Taglia i tuoi video e brani"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corte seus próprios vídeos e músicas"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自分のビデオや曲をトリミング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 비디오와 노래 다듬기"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "修剪你自己的视频和歌曲"
+          }
+        }
+      }
+    },
+    "Trimmed": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijgeknipt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekürzt"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rogné"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recortado"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tagliato"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortado"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トリミング済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다듬음"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已修剪"
+          }
+        }
+      }
+    },
     "Try Again": {
       "localizations": {
         "de": {
@@ -19946,6 +20700,64 @@
         }
       }
     },
+    "Turn a video, or part of it, into an animated GIF in three sizes.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maak van een video, of een deel ervan, een geanimeerde GIF in drie formaten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mach aus einem Video oder einem Teil davon ein animiertes GIF in drei Größen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transformez une vidéo, ou une partie, en GIF animé en trois tailles."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convierte un vídeo, o una parte, en un GIF animado en tres tamaños."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasforma un video, o una parte, in una GIF animata in tre dimensioni."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme um vídeo, ou parte dele, em um GIF animado em três tamanhos."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオやその一部を、3 つのサイズのアニメーション GIF にできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오나 그 일부를 세 가지 크기의 움직이는 GIF로 만듭니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将视频或其中一部分制作成三种尺寸的动画 GIF。"
+          }
+        }
+      }
+    },
     "Turn on Split into Chapters in the format menu to save DJ mixes and full albums as separate, tagged tracks.": {
       "localizations": {
         "de": {
@@ -20000,6 +20812,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在格式菜单中打开“按章节拆分”，即可将 DJ 混音和整张专辑存储为单独的、带标签的曲目。"
+          }
+        }
+      }
+    },
+    "Turns the video, or the part you choose above, into an animated GIF for chats and documents.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maakt van de video, of het stuk dat je hierboven kiest, een geanimeerde GIF voor chats en documenten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macht aus dem Video oder dem oben gewählten Teil ein animiertes GIF für Chats und Dokumente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforme la vidéo, ou la partie choisie ci-dessus, en GIF animé pour les discussions et les documents."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Convierte el vídeo, o la parte que elijas arriba, en un GIF animado para chats y documentos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasforma il video, o la parte che scegli qui sopra, in una GIF animata per chat e documenti."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transforma o vídeo, ou a parte que você escolher acima, em um GIF animado para conversas e documentos."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオ、または上で選んだ部分を、チャットや書類用のアニメーション GIF にします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비디오나 위에서 선택한 부분을 채팅과 문서용 움직이는 GIF로 만듭니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将视频或你在上方选择的部分制作成用于聊天和文稿的动画 GIF。"
           }
         }
       }
@@ -21508,6 +22378,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 新功能"
+          }
+        }
+      }
+    },
+    "When converting a file, choose Only part of the file to keep just a section, or use it with any other option.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies bij het converteren Alleen een deel van het bestand om maar een stuk te houden, of combineer het met een andere optie."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle beim Konvertieren „Nur einen Teil der Datei“, um nur einen Abschnitt zu behalten, oder kombiniere es mit jeder anderen Option."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lors d’une conversion, choisissez Seulement une partie du fichier pour n’en garder qu’un passage, seul ou avec n’importe quelle autre option."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al convertir, elige Solo una parte del archivo para quedarte con un fragmento, o úsalo con cualquier otra opción."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durante la conversione, scegli Solo una parte del file per tenerne solo un pezzo, o usalo con qualsiasi altra opzione."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao converter, escolha Só uma parte do arquivo para manter apenas um trecho, ou use com qualquer outra opção."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変換時に「ファイルの一部だけ」を選ぶと一部分だけを残せます。ほかのどのオプションとも組み合わせられます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일을 변환할 때 ‘파일의 일부만’을 선택하면 한 구간만 남기거나 다른 옵션과 함께 쓸 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转换文件时，选择“仅文件的一部分”即可只保留一段，也可与其他任何选项一起使用。"
           }
         }
       }

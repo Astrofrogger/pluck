@@ -26,7 +26,7 @@
 - 📋 **Many links at once:** paste or drop a whole list of links, or a text file full of them
 - 🎵 **Music done properly:** the best audio on offer (256 kbps with YouTube Premium), cover art, tags and lyrics, ready for Apple Music
 - 🎬 **Any video quality,** from 360p to 4K, clips of just the part you need, and pause and resume for big downloads
-- 🗜️ **Convert and compress your own files:** extract audio, convert to MP4, or shrink a video to the size and resolution you choose
+- 🗜️ **Convert your own files:** extract audio, convert to MP4, trim, make GIFs, or shrink a video to the size and resolution you choose
 - 🌐 **Almost any website:** 1,800+ sites through yt-dlp, plus Spotify links and pages yt-dlp doesn't know
 - ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
 
@@ -95,6 +95,8 @@ Drop a video or song on the window, or choose File → Convert Files… (⌘O):
 - **Extract Audio** in the format you choose. Audio that's already in that format is copied without quality loss
 - **Convert to MP4** (H.264, plays everywhere). Files that are already compatible are only repackaged
 - **Compress** to a size you pick with a slider (10–90% of the original), with a live estimate of the new file size. Keep the resolution, pick a lower one, or let Pluck lower it only when that looks sharper. Pluck encodes in two passes, so files land close to the size you chose
+- **Trim:** turn on *Only part of the file*, enter a start and end time (e.g. 1:30 to 2:45), and keep just that part in the same quality. The part also works with every option above
+- **Make GIF** from a video or part of it, in small (320 px), medium (480 px) or large (720 px)
 
 ### Your files
 - **Named your way:** Automatic (Artist - Title for music), Title, Artist - Title, Title (Year), Channel - Title, or your own pattern like `{artist} - {title} ({year})`

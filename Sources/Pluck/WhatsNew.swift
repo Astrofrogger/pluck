@@ -88,6 +88,12 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.7.1", items: [
+                Item(symbol: "scissors", title: String(localized: "Trim your own videos and songs"),
+                     detail: String(localized: "When converting a file, choose Only part of the file to keep just a section, or use it with any other option.")),
+                Item(symbol: "photo.on.rectangle.angled", title: String(localized: "Make GIFs"),
+                     detail: String(localized: "Turn a video, or part of it, into an animated GIF in three sizes.")),
+            ]),
             Release(version: "1.7.0", items: [
                 Item(symbol: "doc.on.clipboard", title: String(localized: "Many links at once"),
                      detail: String(localized: "Paste or drop a list of links, or a text file full of them, and Pluck downloads them all.")),

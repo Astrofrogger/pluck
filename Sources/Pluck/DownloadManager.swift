@@ -255,7 +255,8 @@ final class DownloadManager {
         AppDelegate.openMainWindow?()
     }
 
-    func convert(_ files: [URL], preset: Conversion.Preset, percent: Int? = nil, resolution: Int? = nil) {
+    func convert(_ files: [URL], preset: Conversion.Preset, percent: Int? = nil, resolution: Int? = nil,
+                 clip: ClipRange? = nil, gifWidth: Int? = nil) {
         guard !files.isEmpty, let folder = destinationFolder(count: files.count) else { return }
         let format = DownloadOptions.current
         for file in files {
@@ -267,7 +268,9 @@ final class DownloadManager {
             }
             let item = DownloadItem(url: file.absoluteString, options: options, folder: folder)
             item.title = file.deletingPathExtension().lastPathComponent
-            item.conversion = Conversion(source: file.path, preset: preset, percent: percent, resolution: resolution)
+            item.conversion = Conversion(source: file.path, preset: preset, percent: percent, resolution: resolution,
+                                         clip: clip, gifWidth: gifWidth)
+            item.clip = clip
             item.splitChapters = false
             items.insert(item, at: 0)
             Task { item.thumbnail = await Converting.thumbnail(for: file) }
@@ -299,8 +302,23 @@ final class DownloadManager {
         Task {
             let info = await Converting.probe(source, ffprobe: ffprobe)
             guard item.state == .starting else { return }
-            guard let info else { fail(item, Converting.Failure.unreadable.localizedDescription); return }
+            guard var info else { fail(item, Converting.Failure.unreadable.localizedDescription); return }
             item.duration = info.duration
+            // A part of the file: plan (and size estimates) for that part only.
+            var sourceSize = Self.size(of: source) ?? 0
+            var cut: [String] = []
+            var limit: [String] = []
+            if let clip = conversion.clip {
+                let full = info.duration ?? 0
+                let end = full > 0 ? min(clip.end ?? full, full) : clip.end
+                cut = ["-ss", String(clip.start)]
+                if let end {
+                    let length = max(end - clip.start, 0.1)
+                    limit = ["-t", String(length)]
+                    if full > 0 { sourceSize = Int64(Double(sourceSize) * length / full) }
+                    info.duration = length
+                }
+            }
             item.sourceAudio = Self.describeAudio(codec: info.audioCodec, bitrate: info.audioBitrate.map { $0 / 1000 })
             let plan: Converting.Plan
             // Two-pass encodes keep their analysis here; removed when the conversion ends.
@@ -309,7 +327,7 @@ final class DownloadManager {
             do {
                 plan = try Converting.plan(conversion, options: item.options, info: info,
                                            sourceExtension: source.pathExtension.lowercased(),
-                                           sourceSize: Self.size(of: source) ?? 0, passLog: passLog)
+                                           sourceSize: sourceSize, passLog: passLog)
             } catch {
                 fail(item, error.localizedDescription)
                 return
@@ -317,7 +335,8 @@ final class DownloadManager {
             let output = Converting.outputURL(folder: item.folder,
                                               name: source.deletingPathExtension().lastPathComponent + plan.suffix,
                                               fileExtension: plan.fileExtension)
-            let input = ["-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats", "-i", source.path]
+            let input = ["-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats"]
+                + cut + ["-i", source.path] + limit
             var passes = [input + plan.arguments + [output.path]]
             if let first = plan.firstPass { passes.insert(input + first + ["/dev/null"], at: 0) }
             Task {
