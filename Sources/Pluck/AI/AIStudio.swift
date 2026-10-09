@@ -21,8 +21,25 @@ final class AIStudio {
 
     // MARK: - Transcripts in the background (for search)
 
-    @ObservationIgnored private var queue: [DownloadItem] = []
-    @ObservationIgnored private var queueRunning = false
+    /// AI jobs run one at a time, in the order they were asked for, so a pile of them doesn't
+    /// overload the Mac. Each item shows "Waiting…" until its turn.
+    @ObservationIgnored private var jobs: [(item: DownloadItem, work: @MainActor () async -> Void)] = []
+    @ObservationIgnored private var jobsRunning = false
+
+    func enqueue(_ item: DownloadItem, waiting: String = String(localized: "Waiting…"), _ work: @escaping @MainActor () async -> Void) {
+        item.aiStatus = waiting
+        item.aiProgress = nil
+        jobs.append((item, work))
+        guard !jobsRunning else { return }
+        jobsRunning = true
+        Task {
+            while !jobs.isEmpty {
+                let job = jobs.removeFirst()
+                await job.work()
+            }
+            jobsRunning = false
+        }
+    }
 
     /// A download finished: transcribe it if automatic transcripts are on.
     func downloadFinished(_ item: DownloadItem) {
@@ -41,24 +58,17 @@ final class AIStudio {
     /// Transcribes one file at a time, quietly, so search can find what was said in them.
     func transcribeInBackground(_ items: [DownloadItem]) {
         guard LocalAI.canTranscribe else { return }
-        let new = needsTranscript(items).filter { item in !queue.contains { $0.id == item.id } }
-        queue += new
-        for item in new where item.aiStatus == nil { item.aiStatus = String(localized: "Waiting to transcribe…") }
-        guard !queueRunning else { return }
-        queueRunning = true
-        Task {
-            while !queue.isEmpty {
-                let item = queue.removeFirst()
-                guard #available(macOS 26, *), let file = item.existingFile else { item.aiStatus = nil; continue }
+        for item in needsTranscript(items) where item.aiStatus == nil {
+            enqueue(item, waiting: String(localized: "Waiting to transcribe…")) {
+                guard #available(macOS 26, *), let file = item.existingFile else { item.aiStatus = nil; return }
                 do {
-                    _ = try await existingOrNewTranscript(for: item, file: file)
+                    _ = try await self.existingOrNewTranscript(for: item, file: file)
                 } catch {
                     // A file without speech just doesn't get a transcript; nothing to tell anyone.
                 }
                 item.aiStatus = nil
                 item.aiProgress = nil
             }
-            queueRunning = false
         }
     }
 
@@ -71,6 +81,7 @@ final class AIStudio {
         var saveFile = true
         var embed = false
         var burnIn = false
+        var design = CaptionDesign.load(CaptionDesign.subtitlesKey)
     }
 
     /// Whether this file can get subtitle tracks added (video containers ffmpeg can write them to).
@@ -82,9 +93,9 @@ final class AIStudio {
 
     func makeSubtitles(for item: DownloadItem, _ request: SubtitleRequest) {
         guard #available(macOS 26, *), let file = item.existingFile, item.aiStatus == nil else { return }
-        item.aiStatus = String(localized: "Preparing…")
-        item.aiProgress = nil
-        Task {
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Preparing…")
+            item.aiProgress = nil
             do {
                 let transcript = try await transcript(for: item, file: file, language: request.language)
                 let cues = transcript.cues()
@@ -110,7 +121,7 @@ final class AIStudio {
                 if request.burnIn, Self.isVideo(file), let last = tracks.last {
                     item.aiStatus = String(localized: "Burning in subtitles…")
                     item.aiProgress = 0
-                    try await burnIn(last.cues, words: transcript.words, into: file, item: item)
+                    try await burnIn(last.cues, design: request.design, into: file, item: item)
                 }
                 item.aiStatus = nil
                 item.aiProgress = nil
@@ -139,8 +150,9 @@ final class AIStudio {
 
     func summarize(_ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
-        item.aiStatus = String(localized: "Preparing…")
-        Task {
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Preparing…")
+            item.aiProgress = nil
             do {
                 var transcript = try await existingOrNewTranscript(for: item, file: file)
                 item.aiStatus = String(localized: "Summarizing…")
@@ -161,8 +173,9 @@ final class AIStudio {
 
     func addChapters(_ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
-        item.aiStatus = String(localized: "Preparing…")
-        Task {
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Preparing…")
+            item.aiProgress = nil
             do {
                 var transcript = try await existingOrNewTranscript(for: item, file: file)
                 item.aiStatus = String(localized: "Finding chapters…")
@@ -296,22 +309,25 @@ final class AIStudio {
     }
 
     /// A new copy of the video with the subtitles drawn into the picture.
-    private func burnIn(_ cues: [Transcript.Cue], words: [Transcript.Word], into file: URL, item: DownloadItem) async throws {
+    private func burnIn(_ cues: [Transcript.Cue], design: CaptionDesign, into file: URL, item: DownloadItem) async throws {
         let size = await videoSize(file) ?? (1920, 1080)
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-burn-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
         let ass = folder.appendingPathComponent("subs.ass")
-        try Transcript.ass(cues, words: words, width: size.0, height: size.1, karaoke: false).write(to: ass, atomically: true, encoding: .utf8)
+        try Captions.subtitles(cues, width: size.0, height: size.1, design: design).write(to: ass, atomically: true, encoding: .utf8)
         let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,
                                           name: file.deletingPathExtension().lastPathComponent + String(localized: " (subtitled)"),
                                           fileExtension: "mp4")
         try await ffmpeg(["-y", "-v", "error", "-progress", "pipe:1", "-nostats", "-i", file.path,
-                          "-vf", "subtitles=\(FFmpegFilter.path(ass)):fontsdir=/System/Library/Fonts",
+                          "-vf", Captions.filter(ass),
                           "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p",
                           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output.path],
                          failure: LocalAI.Failure.noAudio, duration: item.duration, item: item)
     }
+
+    /// Pluck's (or the Mac's) copy of a helper tool like ffmpeg.
+    func toolPath(_ name: String) -> String? { manager.tool(name) }
 
     func videoSize(_ file: URL) async -> (Int, Int)? {
         guard let ffprobe = manager.tool("ffprobe"),

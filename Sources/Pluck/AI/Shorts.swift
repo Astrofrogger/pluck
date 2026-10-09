@@ -11,8 +11,28 @@ enum Shorts {
     struct Options: Sendable {
         var count = 3
         var length: Length = .medium
-        var captions: CaptionStyle = .animated
-        var followSubject = true
+        /// nil: no captions.
+        var captions: CaptionDesign? = CaptionDesign()
+        var framing: FramingChoice = .automatic
+    }
+
+    enum FramingChoice: String, CaseIterable, Identifiable, Sendable {
+        case automatic, whole, crop
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .automatic: String(localized: "Automatic")
+            case .whole: String(localized: "Whole picture")
+            case .crop: String(localized: "Crop to fill")
+            }
+        }
+        var detail: String {
+            switch self {
+            case .automatic: String(localized: "Follows the speaker or subject, and shows titles whole.")
+            case .whole: String(localized: "The full picture over a blurred fill, for videos with a lot of text and graphics.")
+            case .crop: String(localized: "Always fills the frame, steady on the subject of each shot.")
+            }
+        }
     }
 
     enum Length: String, CaseIterable, Identifiable, Sendable {
@@ -30,18 +50,6 @@ enum Shorts {
             case .short: String(localized: "15–30 seconds")
             case .medium: String(localized: "30–45 seconds")
             case .long: String(localized: "45–60 seconds")
-            }
-        }
-    }
-
-    enum CaptionStyle: String, CaseIterable, Identifiable, Sendable {
-        case animated, plain, none
-        var id: String { rawValue }
-        var label: String {
-            switch self {
-            case .animated: String(localized: "Word by word")
-            case .plain: String(localized: "Plain")
-            case .none: String(localized: "None")
             }
         }
     }
@@ -154,102 +162,201 @@ enum Shorts {
         return Moment(start: first.start, end: max(end, first.start + 3), title: moment.title)
     }
 
-    // MARK: - Following the subject
+    // MARK: - Framing, shot by shot
 
-    /// Where the 9:16 window should be, as the horizontal centre (0…1) over time, sampled every
-    /// 0.25 s. Faces first, then people, then whatever stands out; smoothed like a camera
-    /// operator would (hold still, ease toward the subject, cut on scene changes).
-    static func track(_ file: URL, from start: Double, to end: Double, cropWidth: Double) async -> [(time: Double, x: Double)] {
+    /// How one shot of the short is framed.
+    struct Shot: Sendable {
+        var start: Double
+        var end: Double
+        enum Framing: Sendable, Equatable {
+            /// A 9:16 window centred here (0…1 across the source).
+            case crop(Double)
+            /// The whole picture over a blurred fill: titles, maps, wide scenes.
+            case fit
+        }
+        var framing: Framing
+    }
+
+    /// Cuts in the clip, in seconds from its start, found by ffmpeg's scene detection.
+    static func cuts(in file: URL, from start: Double, to end: Double, ffmpeg: String) async -> [Double] {
+        await Task.detached {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: ffmpeg)
+            p.arguments = ["-v", "error", "-ss", String(start), "-t", String(end - start), "-i", file.path, "-an",
+                           "-vf", "scale=320:-2,scdet=threshold=6,metadata=print:key=lavfi.scd.time:file=-", "-f", "null", "-"]
+            let pipe = Pipe()
+            p.standardOutput = pipe
+            p.standardError = FileHandle.nullDevice
+            guard (try? p.run()) != nil else { return [] }
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return String(decoding: data, as: UTF8.self).split(separator: "\n").compactMap { line in
+                line.hasPrefix("lavfi.scd.time=") ? Double(line.dropFirst("lavfi.scd.time=".count)) : nil
+            }
+        }.value
+    }
+
+    /// One framing per shot, held still for the whole shot like an editor would: on the face or
+    /// person if there is one, otherwise on the main subject; shots with big text wider than a
+    /// vertical frame (titles, lower thirds) are shown whole instead of cut off.
+    static func shots(_ file: URL, from start: Double, to end: Double, cuts: [Double], cropFraction: Double,
+                      choice: FramingChoice = .automatic) async -> [Shot] {
         let asset = AVURLAsset(url: file)
         let generator = AVAssetImageGenerator(asset: asset)
         generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: 640, height: 640)
-        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.1, preferredTimescale: 600)
-        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.1, preferredTimescale: 600)
-        let step = 0.25
-        let times = stride(from: start, through: end, by: step).map { CMTime(seconds: $0, preferredTimescale: 600) }
+        generator.requestedTimeToleranceBefore = CMTime(seconds: 0.05, preferredTimescale: 600)
+        generator.requestedTimeToleranceAfter = CMTime(seconds: 0.05, preferredTimescale: 600)
 
-        var raw: [(Double, Double?)] = []
-        for time in times {
-            guard let image = try? await generator.image(at: time).image else { raw.append((time.seconds - start, nil)); continue }
-            raw.append((time.seconds - start, subjectCentre(in: image)))
-        }
-        // Fill gaps with the last known position (or the middle).
-        var targets: [Double] = []
-        var last = 0.5
-        for (_, x) in raw {
-            if let x { last = x }
-            targets.append(last)
-        }
-        // A camera that holds still while the subject stays near the middle of the frame,
-        // eases toward it otherwise, and jumps on a cut.
-        let halfWindow = cropWidth / 2
-        let clamp = { (x: Double) in min(max(x, halfWindow), 1 - halfWindow) }
-        var camera = clamp(targets.first ?? 0.5)
-        var path: [(Double, Double)] = []
-        for (index, target) in targets.enumerated() {
-            let goal = clamp(target)
-            let distance = goal - camera
-            if abs(distance) > 0.3 {
-                camera = goal                                   // scene change: cut
-            } else if abs(distance) > cropWidth * 0.18 {
-                camera += distance.sign == .minus ? -min(abs(distance) * 0.35, 0.35 * step) : min(abs(distance) * 0.35, 0.35 * step)
+        // A look at the picture every half second: what's in it, and a tiny greyscale copy to
+        // notice changes that aren't hard cuts (dissolves, animated transitions).
+        let duration = end - start
+        let step = 0.5
+        var samples: [(time: Double, look: Look, thumb: [Float])] = []
+        var t = step / 2
+        while t < duration {
+            if let image = try? await generator.image(at: CMTime(seconds: start + t, preferredTimescale: 600)).image {
+                samples.append((t, look(at: image), thumbnail(image)))
             }
-            path.append((raw[index].0, camera))
+            t += step
         }
-        return path
+        // Hard cuts from ffmpeg, plus big changes between neighbouring samples.
+        var bounds = cuts.filter { $0 > 0.2 && $0 < duration - 0.2 }
+        for i in samples.indices.dropFirst() {
+            let a = samples[i - 1], b = samples[i]
+            let between = (a.time + b.time) / 2
+            guard !bounds.contains(where: { $0 > a.time && $0 < b.time }) else { continue }
+            if difference(a.thumb, b.thumb) > 0.18 { bounds.append(between) }
+        }
+        bounds = [0] + bounds.sorted() + [duration]
+
+        var shots: [Shot] = []
+        for index in 0..<(bounds.count - 1) {
+            let a = bounds[index], b = bounds[index + 1]
+            guard b - a > 0.01 else { continue }
+            var looks = samples.filter { $0.time >= a && $0.time < b }.map(\.look)
+            if looks.isEmpty, let image = try? await generator.image(at: CMTime(seconds: start + (a + b) / 2, preferredTimescale: 600)).image {
+                looks = [look(at: image)]
+            }
+            var framing = framing(for: looks, cropFraction: cropFraction)
+            if choice == .crop, framing == .fit {
+                framing = .crop(looks.compactMap { $0.subject.map { Double($0.midX) } }.first ?? 0.5)
+            }
+            shots.append(Shot(start: a, end: b, framing: framing))
+        }
+        return shots
     }
 
-    /// The horizontal centre (0…1) of the most important thing in the frame, or nil.
-    private static func subjectCentre(in image: CGImage) -> Double? {
+    /// 32×18 greyscale, for comparing frames.
+    private static func thumbnail(_ image: CGImage) -> [Float] {
+        let width = 32, height = 18
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
+            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: width, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+            else { return false }
+            context.interpolationQuality = .medium
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        return drawn ? pixels.map { Float($0) / 255 } : []
+    }
+
+    /// Mean absolute difference between two thumbnails (0 same … 1 opposite).
+    private static func difference(_ a: [Float], _ b: [Float]) -> Float {
+        guard a.count == b.count, !a.isEmpty else { return 0 }
+        return zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) } / Float(a.count)
+    }
+
+    /// What Vision sees in one frame.
+    private struct Look {
+        var face: Double?
+        var person: Double?
+        var subject: CGRect?
+        var textWidth: Double
+    }
+
+    private static func look(at image: CGImage) -> Look {
         let handler = VNImageRequestHandler(cgImage: image)
         let faces = VNDetectFaceRectanglesRequest()
         let people = VNDetectHumanRectanglesRequest()
         let saliency = VNGenerateAttentionBasedSaliencyImageRequest()
-        try? handler.perform([faces, people, saliency])
-        if let face = faces.results?.max(by: { $0.boundingBox.area < $1.boundingBox.area }), face.boundingBox.area > 0.002 {
-            return face.boundingBox.midX
-        }
-        if let person = people.results?.max(by: { $0.boundingBox.area < $1.boundingBox.area }), person.confidence > 0.5 {
-            return person.boundingBox.midX
-        }
-        if let object = (saliency.results?.first)?.salientObjects?.max(by: { $0.boundingBox.area < $1.boundingBox.area }) {
-            return object.boundingBox.midX
-        }
-        return nil
+        let text = VNDetectTextRectanglesRequest()
+        try? handler.perform([faces, people, saliency, text])
+        let face = faces.results?.filter { $0.boundingBox.area > 0.003 }.max { $0.boundingBox.area < $1.boundingBox.area }
+        let person = people.results?.filter { $0.confidence > 0.5 && $0.boundingBox.area > 0.02 }.max { $0.boundingBox.area < $1.boundingBox.area }
+        let objects = (saliency.results?.first)?.salientObjects ?? []
+        var subject: CGRect?
+        for object in objects { subject = subject.map { $0.union(object.boundingBox) } ?? object.boundingBox }
+        // Big text only (titles, lower thirds), not a sign in the background.
+        let bigText = (text.results ?? []).filter { $0.boundingBox.height > 0.05 }
+        let textSpan = bigText.isEmpty ? 0 : Double(bigText.map(\.boundingBox.maxX).max()! - bigText.map(\.boundingBox.minX).min()!)
+        return Look(face: face.map { Double($0.boundingBox.midX) }, person: person.map { Double($0.boundingBox.midX) },
+                    subject: subject, textWidth: textSpan)
     }
-}
 
-extension Shorts {
-    /// The ffmpeg filter graph for one short: the moving 9:16 window (from `path`, as written to
-    /// a sendcmd file), scaling to 1080×1920 and the captions.
-    static func filters(sourceWidth width: Int, sourceHeight height: Int, path: [(time: Double, x: Double)]?,
-                        commandFile: URL, captions: URL?) throws -> [String] {
-        var filters: [String] = []
+    private static func framing(for looks: [Look], cropFraction: Double) -> Shot.Framing {
+        func median(_ values: [Double]) -> Double? {
+            guard !values.isEmpty else { return nil }
+            let sorted = values.sorted()
+            return sorted[sorted.count / 2]
+        }
+        let clamp = { (x: Double) in min(max(x, cropFraction / 2), 1 - cropFraction / 2) }
+        // Text wider than the vertical window would be cut off: show the whole frame.
+        if looks.contains(where: { $0.textWidth > cropFraction * 1.15 }) { return .fit }
+        if let x = median(looks.compactMap(\.face)) { return .crop(clamp(x)) }
+        if let x = median(looks.compactMap(\.person)) { return .crop(clamp(x)) }
+        // Wide scenes (drone shots, crowds) still crop well on their centre of interest; only
+        // text is shown whole, because cut-off words look broken.
+        let subjects = looks.compactMap(\.subject)
+        if let x = median(subjects.map { Double($0.midX) }) { return .crop(clamp(x)) }
+        return .crop(0.5)
+    }
+
+    /// The ffmpeg filter graph for one short (input [0:v], output [out]): each shot cropped at
+    /// its own fixed position (switched exactly on the cuts) or shown whole over a blurred fill,
+    /// scaled to 1080×1920, with the captions on top.
+    static func filterGraph(sourceWidth width: Int, sourceHeight height: Int, shots: [Shot],
+                            commandFile: URL, captions: URL?) throws -> String {
         let cropWidth = (Double(height) * 9 / 16).rounded(.down)
-        if Double(width) > cropWidth * 1.05 {
-            let fraction = cropWidth / Double(width)
-            var startX = ((Double(width) - cropWidth) / 2).rounded()
-            if let path, !path.isEmpty {
-                let pixels = path.map { (time: $0.time, x: min(max((($0.x - fraction / 2) * Double(width)).rounded(), 0), Double(width) - cropWidth)) }
-                startX = pixels[0].x
-                let commands = pixels.map { String(format: "%.2f crop@reframe x %.0f;", $0.time, $0.x) }.joined(separator: "\n")
-                try commands.write(to: commandFile, atomically: true, encoding: .utf8)
-                filters.append("sendcmd=f=\(FFmpegFilter.path(commandFile))")
-            }
-            filters.append(String(format: "crop@reframe=w=%.0f:h=%d:x=%.0f:y=0", cropWidth, height, startX))
+        let captionFilter = captions.map { "," + Captions.filter($0) } ?? ""
+        guard Double(width) > cropWidth * 1.05 else {
+            // Already vertical: fill the frame.
+            return "[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1\(captionFilter)[out]"
         }
-        filters.append("scale=1080:1920:flags=lanczos,setsar=1")
-        if let captions { filters.append("ass=\(FFmpegFilter.path(captions)):fontsdir=/System/Library/Fonts") }
-        return filters
+        let fraction = cropWidth / Double(width)
+        let x = { (centre: Double) in min(max((centre - fraction / 2) * Double(width), 0), Double(width) - cropWidth).rounded() }
+        // Fit shots keep the last crop position underneath (hidden), so nothing slides there.
+        var positions: [(Double, Double)] = []
+        var last = 0.5
+        for shot in shots {
+            if case .crop(let centre) = shot.framing { last = centre }
+            positions.append((shot.start, x(last)))
+        }
+        let commands = positions.map { String(format: "%.3f crop@frame x %.0f;", $0.0, $0.1) }.joined(separator: "\n")
+        try commands.write(to: commandFile, atomically: true, encoding: .utf8)
+        let fits = shots.filter { $0.framing == .fit }
+
+        var graph: [String] = []
+        graph.append(fits.isEmpty ? "[0:v]null[c]" : "[0:v]split=2[c][f]")
+        graph.append("[c]sendcmd=f=\(FFmpegFilter.path(commandFile)),crop@frame=w=\(Int(cropWidth)):h=\(height):x=\(Int(positions.first?.1 ?? 0)):y=0,scale=1080:1920:flags=lanczos,setsar=1[cropped]")
+        if fits.isEmpty {
+            graph.append("[cropped]null\(captionFilter)[out]")
+        } else {
+            graph.append("[f]split=2[f1][f2]")
+            graph.append("[f1]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,gblur=sigma=36,eq=brightness=-0.12:saturation=1.1[bg]")
+            graph.append("[f2]scale=1080:-2:flags=lanczos[fg]")
+            graph.append("[bg][fg]overlay=(W-w)/2:(H-h)/2,setsar=1[fitted]")
+            let enable = fits.map { String(format: "between(t\\,%.3f\\,%.3f)", $0.start, $0.end - 0.001) }.joined(separator: "+")
+            graph.append("[cropped][fitted]overlay=enable='\(enable)'\(captionFilter)[out]")
+        }
+        return graph.joined(separator: ";")
     }
 
-    /// Caption cues for one moment: short lines for word-by-word captions, longer for plain.
-    static func captionFile(for moment: Moment, transcript: Transcript, style: CaptionStyle, to url: URL) throws {
+    /// Caption file for one short, in Pluck's caption style.
+    static func captionFile(for moment: Moment, transcript: Transcript, design: CaptionDesign, cuts: [Double], to url: URL) throws {
         let words = transcript.words.filter { $0.s >= moment.start - 0.05 && $0.e <= moment.end + 0.2 }
-        let cues = Transcript(id: "", title: "", filePath: "", language: transcript.language, created: .now, words: words)
-            .cues(maxCharacters: style == .animated ? 26 : 60, maxDuration: style == .animated ? 2.6 : 5)
-        try Transcript.ass(cues, words: words, width: 1080, height: 1920, karaoke: style == .animated, offset: moment.start)
+        try Captions.short(words: words, from: moment.start, cuts: cuts, design: design)
             .write(to: url, atomically: true, encoding: .utf8)
     }
 }

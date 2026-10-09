@@ -7,8 +7,9 @@ struct ShortsSheet: View {
     let item: DownloadItem
     @AppStorage("shortsCount") private var count = 3
     @AppStorage("shortsLength") private var length: Shorts.Length = .medium
-    @AppStorage("shortsCaptions") private var captions: Shorts.CaptionStyle = .animated
-    @AppStorage("shortsFollow") private var follow = true
+    @AppStorage("shortsCaptionsOn") private var captionsOn = true
+    @State private var design = CaptionDesign.load(CaptionDesign.shortsKey)
+    @AppStorage("shortsFraming") private var framing: Shorts.FramingChoice = .automatic
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -30,10 +31,18 @@ struct ShortsSheet: View {
                 Picker("Length", selection: $length) {
                     ForEach(Shorts.Length.allCases) { Text($0.label).tag($0) }
                 }
-                Picker("Captions", selection: $captions) {
-                    ForEach(Shorts.CaptionStyle.allCases) { Text($0.label).tag($0) }
+                Picker(selection: $framing) {
+                    ForEach(Shorts.FramingChoice.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    Text("Framing")
+                    Text(framing.detail)
                 }
-                Toggle("Keep the speaker or subject in frame", isOn: $follow)
+                Section {
+                    Toggle("Captions", isOn: $captionsOn)
+                    if captionsOn {
+                        CaptionDesignEditor(design: $design, forShorts: true)
+                    }
+                }
             }
             .formStyle(.grouped)
             .scrollDisabled(true)
@@ -52,7 +61,8 @@ struct ShortsSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Make Shorts") {
-                    studio.makeShorts(item, options: Shorts.Options(count: count, length: length, captions: captions, followSubject: follow))
+                    studio.makeShorts(item, options: Shorts.Options(count: count, length: length, captions: captionsOn ? design : nil, framing: framing))
+                    design.save(CaptionDesign.shortsKey)
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)

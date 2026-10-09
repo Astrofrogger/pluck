@@ -351,6 +351,17 @@ enum Converting {
         return url
     }
 
+    /// A folder name next to nothing else: "Name", then "Name 2", and so on.
+    static func outputFolder(in parent: URL, name: String) -> URL {
+        var url = parent.appendingPathComponent(name, isDirectory: true)
+        var number = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = parent.appendingPathComponent("\(name) \(number)", isDirectory: true)
+            number += 1
+        }
+        return url
+    }
+
     /// A Quick Look thumbnail of the file, saved so the row can show it like a video's thumbnail.
     static func thumbnail(for file: URL) async -> URL? {
         let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: 256, height: 144),

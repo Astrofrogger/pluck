@@ -88,6 +88,16 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.9.1", items: [
+                Item(symbol: "sparkles", title: String(localized: "Local AI for your own videos"),
+                     detail: String(localized: "Drop a video or song from your Mac on Pluck to make shorts, subtitles, summaries, chapters or stems with local AI, right from the original file.")),
+                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Better shorts"),
+                     detail: String(localized: "Steady framing shot by shot, titles shown whole, a Framing choice, and sleek new captions with the spoken word highlighted in pink.")),
+                Item(symbol: "textformat", title: String(localized: "Style your captions"),
+                     detail: String(localized: "Choose how captions and burned-in subtitles look: a highlight box or colored text, the color, a size and a font, including your own fonts.")),
+                Item(symbol: "list.bullet", title: String(localized: "One AI job at a time"),
+                     detail: String(localized: "AI jobs now wait their turn, so starting several at once won’t slow your Mac down.")),
+            ]),
             Release(version: "1.9.0", items: [
                 Item(symbol: "sparkles", title: String(localized: "Local AI, right on your Mac"),
                      detail: String(localized: "Pluck’s new AI features run entirely on your Mac with local AI: Apple’s on-device speech recognition, translation and Apple Intelligence. Nothing you download, say or search is uploaded.")),

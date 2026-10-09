@@ -116,7 +116,10 @@ struct DownloadRow: View {
                     .help(service == .spotify ? String(localized: "Matched on YouTube Music and tagged with Spotify’s metadata")
                                               : String(localized: "Matched on YouTube Music and tagged with Apple Music’s metadata and cover"))
             }
-            if let conversion = item.conversion {
+            if item.isLocalFile {
+                Label("On this Mac", systemImage: "internaldrive")
+                    .labelStyle(.titleAndIcon)
+            } else if let conversion = item.conversion {
                 Label(conversion.label(options: item.options), systemImage: conversion.preset.symbol)
                     .labelStyle(.titleAndIcon)
                 Text("·")
@@ -131,7 +134,7 @@ struct DownloadRow: View {
                     .labelStyle(.titleAndIcon)
                     .accessibilityLabel("Clip \(clip.label)")
             }
-            if let uploader = item.uploader, item.conversion == nil {
+            if let uploader = item.uploader, item.conversion == nil, !item.isLocalFile {
                 Text("·")
                 Text(uploader)
             }
@@ -276,6 +279,8 @@ struct DownloadRow: View {
                 cancelButton
             case .starting, .processing:
                 cancelButton
+            case .finished where item.fileMissing && item.isLocalFile:
+                EmptyView()
             case .finished where item.fileMissing:
                 Button { manager.retry(item) } label: { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("Download Again")
@@ -323,12 +328,14 @@ struct DownloadRow: View {
         }
         if item.isActive || item.state == .paused {
             Button("Cancel") { manager.cancel(item) }
-        } else if item.fileMissing {
+        } else if item.fileMissing, !item.isLocalFile {
             Button("Download Again") { manager.retry(item) }
         } else if item.state != .finished {
             Button("Try Again") { manager.retry(item) }
         }
-        if let conversion = item.conversion {
+        if item.isLocalFile {
+            EmptyView()
+        } else if let conversion = item.conversion {
             Button("Show Original in Finder") {
                 NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: conversion.source)])
             }

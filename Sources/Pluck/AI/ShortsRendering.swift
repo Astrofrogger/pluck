@@ -5,9 +5,9 @@ extension AIStudio {
     /// Makes vertical shorts from a video into a "(shorts)" folder next to it.
     func makeShorts(_ item: DownloadItem, options: Shorts.Options) {
         guard #available(macOS 26, *), let file = item.existingFile, item.aiStatus == nil else { return }
-        item.aiStatus = String(localized: "Preparing…")
-        item.aiProgress = nil
-        Task {
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Preparing…")
+            item.aiProgress = nil
             do {
                 let transcript = try await existingOrNewTranscript(for: item, file: file)
                 item.aiStatus = String(localized: "Choosing the best moments…")
@@ -16,9 +16,8 @@ extension AIStudio {
                 guard !moments.isEmpty else { throw LocalAI.Failure.noSpeech }
                 guard let size = await videoSize(file) else { throw Converting.Failure.noVideo }
 
-                let folder = Converting.outputURL(folder: file.deletingLastPathComponent().path,
-                                                  name: file.deletingPathExtension().lastPathComponent + String(localized: " (shorts)"),
-                                                  fileExtension: "").deletingPathExtension()
+                let folder = Converting.outputFolder(in: file.deletingLastPathComponent(),
+                                                     name: file.deletingPathExtension().lastPathComponent + String(localized: " (shorts)"))
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 for (index, moment) in moments.enumerated() {
                     item.aiStatus = String(localized: "Making short \(index + 1) of \(moments.count)…")
@@ -49,23 +48,34 @@ extension AIStudio {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: work) }
 
-        // Landscape: a 9:16 window that follows the subject. Already vertical: just scale.
+        // Find the cuts, then frame each shot on its own (steady crop, or the whole picture).
         let cropFraction = (Double(height) * 9 / 16).rounded(.down) / Double(width)
-        let path = options.followSubject && cropFraction < 0.95
-            ? await Shorts.track(file, from: moment.start, to: moment.end, cropWidth: cropFraction) : nil
-        var captions: URL?
-        if options.captions != .none {
-            captions = work.appendingPathComponent("captions.ass")
-            try Shorts.captionFile(for: moment, transcript: transcript, style: options.captions, to: captions!)
+        var cuts: [Double] = []
+        if let ffmpegPath = toolPath("ffmpeg") {
+            cuts = await Shorts.cuts(in: file, from: moment.start, to: moment.end, ffmpeg: ffmpegPath)
         }
-        let filters = try Shorts.filters(sourceWidth: width, sourceHeight: height, path: path,
-                                         commandFile: work.appendingPathComponent("reframe.txt"), captions: captions)
+        let shots: [Shorts.Shot]
+        if cropFraction >= 0.95 {
+            shots = [Shorts.Shot(start: 0, end: duration, framing: .crop(0.5))]     // already vertical
+        } else if options.framing == .whole {
+            shots = [Shorts.Shot(start: 0, end: duration, framing: .fit)]
+        } else {
+            shots = await Shorts.shots(file, from: moment.start, to: moment.end, cuts: cuts, cropFraction: cropFraction,
+                                       choice: options.framing)
+        }
+        var captions: URL?
+        if let design = options.captions {
+            captions = work.appendingPathComponent("captions.ass")
+            try Shorts.captionFile(for: moment, transcript: transcript, design: design, cuts: cuts, to: captions!)
+        }
+        let graph = try Shorts.filterGraph(sourceWidth: width, sourceHeight: height, shots: shots,
+                                           commandFile: work.appendingPathComponent("framing.txt"), captions: captions)
 
         let name = "\(number) - \(Folders.sanitize(moment.title))"
         let output = Converting.outputURL(folder: folder.path, name: name, fileExtension: "mp4")
         try await ffmpeg(["-y", "-v", "error", "-progress", "pipe:1", "-nostats",
                           "-ss", String(moment.start), "-t", String(duration), "-i", file.path,
-                          "-vf", filters.joined(separator: ","),
+                          "-filter_complex", graph, "-map", "[out]", "-map", "0:a?",
                           "-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p", "-r", "30",
                           "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", output.path],
                          failure: Converting.Failure.noVideo, duration: duration, item: item)

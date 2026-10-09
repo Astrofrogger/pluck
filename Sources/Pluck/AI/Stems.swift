@@ -116,9 +116,9 @@ extension AIStudio {
     /// (everything but the vocals: karaoke), in a folder next to it.
     func separateStems(_ item: DownloadItem) {
         guard #available(macOS 27, *), Stems.isSupported, let file = item.existingFile, item.aiStatus == nil else { return }
-        item.aiStatus = String(localized: "Preparing…")
-        item.aiProgress = nil
-        Task {
+        enqueue(item) { [self] in
+            item.aiStatus = String(localized: "Preparing…")
+            item.aiProgress = nil
             do {
                 if !Stems.isModelInstalled {
                     item.aiStatus = String(localized: "Downloading stem model…")
@@ -135,9 +135,8 @@ extension AIStudio {
                 }
                 item.aiStatus = String(localized: "Saving stems…")
                 item.aiProgress = nil
-                let folder = Converting.outputURL(folder: file.deletingLastPathComponent().path,
-                                                  name: file.deletingPathExtension().lastPathComponent + String(localized: " (stems)"),
-                                                  fileExtension: "").deletingPathExtension()
+                let folder = Converting.outputFolder(in: file.deletingLastPathComponent(),
+                                                     name: file.deletingPathExtension().lastPathComponent + String(localized: " (stems)"))
                 try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
                 for (index, output) in Stems.outputs.enumerated() {
                     guard let stem = DemucsSeparator.sources.firstIndex(of: output.source).map({ stems[$0] }) else { continue }

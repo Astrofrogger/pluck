@@ -16,6 +16,7 @@ struct SubtitleSheet: View {
     @AppStorage("subtitlesSaveFile") private var saveFile = true
     @AppStorage("subtitlesEmbed") private var embed = true
     @AppStorage("subtitlesBurnIn") private var burnIn = false
+    @State private var design = CaptionDesign.load(CaptionDesign.subtitlesKey)
     /// Set to ask macOS to download a translation language pair before starting.
     @State private var translationSetup: TranslationSession.Configuration?
 
@@ -55,6 +56,11 @@ struct SubtitleSheet: View {
                     Toggle("Add subtitles to the video file", isOn: $embed)
                         .disabled(!canEmbed)
                     Toggle("Burn subtitles into the picture (new copy)", isOn: $burnIn)
+                }
+                if isVideo, burnIn {
+                    Section("Look") {
+                        CaptionDesignEditor(design: $design, forShorts: false)
+                    }
                 }
             }
             .formStyle(.grouped)
@@ -132,6 +138,8 @@ struct SubtitleSheet: View {
         request.saveFile = saveFile
         request.embed = embed && canEmbed && isVideo
         request.burnIn = burnIn && isVideo
+        request.design = design
+        design.save(CaptionDesign.subtitlesKey)
         studio.makeSubtitles(for: item, request)
         dismiss()
     }

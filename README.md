@@ -94,11 +94,12 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Cover art and tags** (title, artist, album) are embedded automatically
 
 ### Local AI
-Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download:
+Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download, or drop a video or song from your Mac on the window to use these on your own files:
 - **Subtitles & transcripts:** transcribe any video or song, save an `.srt`, add subtitle tracks to the video or burn them into the picture, and translate them into another language
 - **Search inside downloads** (⇧⌘F): find what was said and jump straight to that moment. Turn on automatic transcripts in Settings → AI so new downloads are searchable
 - **Summaries & chapters:** a short summary with key points, and chapters for videos without them (written into the file, so QuickTime and Apple Music show them)
-- **Shorts:** 1–5 vertical 9:16 clips from a long video. Local AI picks the best moments, the picture follows the speaker or subject, and every word lights up as it's spoken
+- **Shorts:** 1–5 vertical 9:16 clips from a long video. Local AI picks the best moments, each shot is framed steadily on the speaker or subject (titles are shown whole), and the spoken word is highlighted
+- **Caption styles:** for shorts and burned-in subtitles, choose a highlight box or colored text, the color, a size and a font, including your own fonts
 - **Stems & karaoke:** split a song into vocals, drums, bass and other, plus an instrumental (karaoke) version. The model (168 MB, [HTDemucs](https://github.com/facebookresearch/demucs), MIT) is downloaded the first time and checked
 - **Pluck Player:** watch with the transcript, summary and chapters beside the video; click a line to jump there
 

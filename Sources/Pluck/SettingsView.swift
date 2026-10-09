@@ -45,7 +45,8 @@ struct SettingsView: View {
             case .support: SupportSettings()
             }
         }
-        .frame(width: 480, height: 400)
+        // Wide enough for all six tabs in the toolbar (narrower windows push the last ones into an overflow menu).
+        .frame(width: 600, height: 440)
         .scenePadding()
         .navigationTitle("Settings")
         .toolbar {

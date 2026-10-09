@@ -111,6 +111,7 @@ struct ContentView: View {
                                     set: { if !$0 { manager.filesToConvert = [] } })) {
             ConvertSheet(files: manager.filesToConvert)
                 .environment(manager)
+                .environment(ai)
         }
         .sheet(isPresented: Binding(get: { !manager.photosToCompress.isEmpty && manager.filesToConvert.isEmpty && manager.picks.isEmpty },
                                     set: { if !$0 { manager.photosToCompress = [] } })) {

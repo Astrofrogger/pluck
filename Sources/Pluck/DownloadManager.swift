@@ -273,6 +273,38 @@ final class DownloadManager {
         photosToCompress = files.filter(Photos.isPhoto)
     }
 
+    /// Videos and songs from this Mac, listed so local AI can work on them in place (the
+    /// files themselves aren't copied). A file that's already listed is reused.
+    @discardableResult
+    func addLocalFiles(_ files: [URL]) -> [DownloadItem] {
+        let added = files.map { file -> DownloadItem in
+            if let existing = items.first(where: { $0.fileURL?.path == file.path && $0.state == .finished }) {
+                return existing
+            }
+            var options = DownloadOptions()
+            if !Converting.isVideo(file) { options.kind = .audio }
+            let item = DownloadItem(url: file.absoluteString, options: options, folder: file.deletingLastPathComponent().path)
+            item.title = file.deletingPathExtension().lastPathComponent
+            item.state = .finished
+            item.progress = 1
+            item.fileURL = file
+            item.fileSize = Self.size(of: file)
+            item.finishedAt = .now
+            item.splitChapters = false
+            items.insert(item, at: 0)
+            Task {
+                item.thumbnail = await Converting.thumbnail(for: file)
+                if let ffprobe = tool("ffprobe"), let info = await Converting.probe(file, ffprobe: ffprobe) {
+                    item.duration = info.duration
+                }
+                saveHistory()
+            }
+            return item
+        }
+        saveHistory()
+        return added
+    }
+
     func compressPhotos(_ files: [URL], settings: Photos.Settings) {
         guard !files.isEmpty, let folder = destinationFolder(count: files.count) else { return }
         for file in files {
@@ -723,6 +755,7 @@ final class DownloadManager {
     }
 
     func retry(_ item: DownloadItem) {
+        guard !item.isLocalFile else { return }
         if item.spotify == nil, MusicLinks.isMusicLink(item.url) {
             // A Spotify link that failed before its tracks were read.
             guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }

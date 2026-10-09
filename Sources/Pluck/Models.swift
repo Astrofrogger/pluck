@@ -286,6 +286,11 @@ final class DownloadItem: Identifiable {
         return losslessSource && [.original, .flac, .wav].contains(options.audioFormat)
     }
 
+    /// A video or song from this Mac added for local AI (not downloaded, not converted).
+    var isLocalFile: Bool {
+        conversion == nil && URL(string: url)?.isFileURL == true
+    }
+
     var isRunning: Bool {
         state == .starting || state == .downloading || state == .processing
     }

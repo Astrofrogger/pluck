@@ -4,7 +4,9 @@ import SwiftUI
 /// Convert Files…): pick what to turn them into, optionally for just part of the file.
 struct ConvertSheet: View {
     @Environment(DownloadManager.self) private var manager
+    @Environment(AIStudio.self) private var ai
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openWindow) private var openWindow
     @AppStorage(Prefs.audioFormat) private var audioFormat: AudioFormat = .m4a
     @AppStorage("compressPercent") private var percent = 50
     @AppStorage("gifWidth") private var gifWidth = 480
@@ -34,6 +36,10 @@ struct ConvertSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
+                    if LocalAI.canTranscribe || Stems.isSupported {
+                        aiSection
+                            .padding(.bottom, 6)
+                    }
                     partRow
                         .padding(.bottom, 6)
                     presetButton(.audio)
@@ -84,6 +90,68 @@ struct ConvertSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    // MARK: - Local AI
+
+    private enum AIAction {
+        case shorts, subtitles, summarize, chapters, stems
+    }
+
+    private var aiSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Local AI", systemImage: "sparkles")
+                .font(.headline)
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                aiButton(.shorts, "Make Shorts…", "rectangle.portrait.on.rectangle.portrait.angled",
+                         enabled: LocalAI.canTranscribe && files.count == 1 && hasVideo)
+                aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble",
+                         enabled: LocalAI.canTranscribe && files.count == 1)
+                aiButton(.summarize, "Summarize", "text.badge.star", enabled: LocalAI.canSummarize)
+                aiButton(.chapters, "Add Chapters", "list.number", enabled: LocalAI.canSummarize)
+                aiButton(.stems, "Separate Stems", "slider.vertical.3", enabled: Stems.isSupported)
+            }
+            Text(files.count > 1
+                 ? "Works on your files in place, on this Mac. Shorts and subtitles take one file at a time."
+                 : "Works on your file in place, on this Mac. Nothing is uploaded.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.purple.opacity(0.08)))
+    }
+
+    private func aiButton(_ action: AIAction, _ title: LocalizedStringKey, _ symbol: String, enabled: Bool) -> some View {
+        Button { run(action) } label: {
+            Label(title, systemImage: symbol)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+                .padding(.horizontal, 10)
+                .contentShape(.rect(cornerRadius: 8))
+        }
+        .buttonStyle(ConvertCardStyle())
+        .disabled(!enabled)
+    }
+
+    /// Lists the files (as local files, not copies) and starts the AI action on them.
+    private func run(_ action: AIAction) {
+        let items = manager.addLocalFiles(files.filter(Converting.isMedia))
+        let open: (PlayerTarget) -> Void = { openWindow(value: $0) }
+        dismiss()
+        switch action {
+        case .shorts, .subtitles:
+            guard let item = items.first else { return }
+            // After this sheet has closed, so the next one can open.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                if action == .shorts { ai.shortsItem = item } else { ai.subtitleItem = item }
+            }
+        case .summarize:
+            for item in items { ai.summarize(item, openPlayer: items.count == 1 ? open : { _ in }) }
+        case .chapters:
+            for item in items { ai.addChapters(item, openPlayer: items.count == 1 ? open : { _ in }) }
+        case .stems:
+            for item in items { ai.separateStems(item) }
         }
     }
 
