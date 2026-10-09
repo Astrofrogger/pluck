@@ -88,6 +88,10 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.9.2", items: [
+                Item(symbol: "bold", title: String(localized: "Font weights for captions"),
+                     detail: String(localized: "Pick Light, Regular, Bold or Black for shorts captions and burned-in subtitles.")),
+            ]),
             Release(version: "1.9.1", items: [
                 Item(symbol: "sparkles", title: String(localized: "Local AI for your own videos"),
                      detail: String(localized: "Drop a video or song from your Mac on Pluck to make shorts, subtitles, summaries, chapters or stems with local AI, right from the original file.")),

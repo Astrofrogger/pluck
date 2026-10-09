@@ -28,12 +28,47 @@ struct CaptionDesign: Codable, Equatable, Sendable {
         }
     }
 
+    enum Weight: String, Codable, CaseIterable, Identifiable, Sendable {
+        case light, regular, bold, black
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .light: String(localized: "Light")
+            case .regular: String(localized: "Regular")
+            case .bold: String(localized: "Bold")
+            case .black: String(localized: "Black")
+            }
+        }
+        /// CoreText's weight scale (-1 thin … 1 heaviest).
+        var value: Double {
+            switch self {
+            case .light: -0.4
+            case .regular: 0
+            case .bold: 0.4
+            case .black: 0.62
+            }
+        }
+    }
+
     var emphasis: Emphasis = .box
     /// RGB hex without "#".
     var color = "FF5C6B"
     var size: Size = .medium
-    /// A font id from `CaptionFonts`.
+    /// A font family from `CaptionFonts`.
     var font = "Avenir Next"
+    var weight: Weight = .bold
+
+    init() {}
+
+    /// Tolerates designs saved before a setting existed.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        emphasis = try c.decodeIfPresent(Emphasis.self, forKey: .emphasis) ?? .box
+        color = try c.decodeIfPresent(String.self, forKey: .color) ?? "FF5C6B"
+        size = try c.decodeIfPresent(Size.self, forKey: .size) ?? .medium
+        font = try c.decodeIfPresent(String.self, forKey: .font) ?? "Avenir Next"
+        weight = try c.decodeIfPresent(Weight.self, forKey: .weight) ?? .bold
+    }
 
     static let shortsKey = "captionDesignShorts"
     static let subtitlesKey = "captionDesignSubtitles"
@@ -85,37 +120,69 @@ struct CaptionDesign: Codable, Equatable, Sendable {
 /// Fonts for captions: a few good built-in ones, plus fonts the user adds (copied into
 /// Application Support/Pluck/Fonts, which ffmpeg's subtitle renderer is pointed at).
 enum CaptionFonts {
+    /// A font family to choose from.
     struct Font: Identifiable, Hashable {
-        /// Family name for built-ins, file name for added fonts.
+        /// The family name.
         let id: String
-        let displayName: String
-        /// The name the subtitle renderer looks up (family, or full name for added fonts).
-        let assName: String
-        let postScriptName: String
-        /// Whether the renderer should pick the family's bold face.
-        let bold: Bool
+        var displayName: String { id }
         let isCustom: Bool
     }
 
-    static let builtIn: [Font] = [
-        Font(id: "Avenir Next", displayName: "Avenir Next", assName: "Avenir Next", postScriptName: "AvenirNext-Bold", bold: true, isCustom: false),
-        Font(id: "Helvetica Neue", displayName: "Helvetica Neue", assName: "Helvetica Neue", postScriptName: "HelveticaNeue-Bold", bold: true, isCustom: false),
-        Font(id: "Futura", displayName: "Futura", assName: "Futura", postScriptName: "Futura-Bold", bold: true, isCustom: false),
-        Font(id: "DIN Alternate", displayName: "DIN Alternate", assName: "DIN Alternate", postScriptName: "DINAlternate-Bold", bold: true, isCustom: false),
-        Font(id: "Georgia", displayName: "Georgia", assName: "Georgia", postScriptName: "Georgia-Bold", bold: true, isCustom: false),
-    ]
+    /// One face of a family: what the subtitle renderer looks up (its full name) and what
+    /// CoreText measures with (its PostScript name).
+    struct Face: Hashable {
+        let fullName: String
+        let postScriptName: String
+        let weight: Double
+    }
+
+    static let builtIn: [Font] = ["Avenir Next", "Helvetica Neue", "Futura", "DIN Alternate", "Georgia"]
+        .map { Font(id: $0, isCustom: false) }
+
+    /// The family's upright, normal-width faces, lightest first. Added fonts count too (they're
+    /// registered with this app).
+    static func faces(of family: String) -> [Face] {
+        _ = custom   // make sure added fonts are registered
+        let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: family] as CFDictionary)
+        let matches = (CTFontDescriptorCreateMatchingFontDescriptors(descriptor, nil) as? [CTFontDescriptor]) ?? []
+        var faces: [Face] = []
+        for match in matches {
+            let traits = CTFontDescriptorCopyAttribute(match, kCTFontTraitsAttribute) as? [CFString: Any] ?? [:]
+            let symbolic = traits[kCTFontSymbolicTrait] as? UInt32 ?? 0
+            let skip = CTFontSymbolicTraits.traitItalic.rawValue | CTFontSymbolicTraits.traitCondensed.rawValue | CTFontSymbolicTraits.traitExpanded.rawValue
+            guard symbolic & skip == 0,
+                  let postScript = CTFontDescriptorCopyAttribute(match, kCTFontNameAttribute) as? String,
+                  let full = CTFontDescriptorCopyAttribute(match, kCTFontDisplayNameAttribute) as? String else { continue }
+            let face = Face(fullName: full, postScriptName: postScript, weight: traits[kCTFontWeightTrait] as? Double ?? 0)
+            if !faces.contains(where: { $0.weight == face.weight }) { faces.append(face) }
+        }
+        return faces.sorted { $0.weight < $1.weight }
+    }
+
+    /// The face closest to the chosen weight; between two equally close ones, the one in the
+    /// direction asked for (Light picks the lighter, Black the heavier).
+    static func face(_ family: String, weight: CaptionDesign.Weight) -> Face {
+        let all = faces(of: family)
+        let fallback = Face(fullName: "Avenir Next Bold", postScriptName: "AvenirNext-Bold", weight: 0.4)
+        return all.min { a, b in
+            let da = abs(a.weight - weight.value), db = abs(b.weight - weight.value)
+            if abs(da - db) > 0.001 { return da < db }
+            return weight.value < 0 ? a.weight < b.weight : a.weight > b.weight
+        } ?? (family == "Avenir Next" ? fallback : face("Avenir Next", weight: weight))
+    }
 
     static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Pluck/Fonts", isDirectory: true)
     }
 
-    /// Fonts the user added, registered for this app so previews and measuring can use them.
+    /// Families the user added (one entry per family, however many weights), registered for this
+    /// app so previews and measuring can use them.
     static var custom: [Font] {
         let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { ["ttf", "otf", "ttc"].contains($0.pathExtension.lowercased()) }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
-            .compactMap(font(at:))
+        let families = files.filter { ["ttf", "otf", "ttc"].contains($0.pathExtension.lowercased()) }
+            .compactMap(family(at:))
+        return Array(Set(families)).sorted().map { Font(id: $0, isCustom: true) }
     }
 
     static var all: [Font] { builtIn + custom }
@@ -124,18 +191,22 @@ enum CaptionFonts {
         all.first { $0.id == id } ?? builtIn[0]
     }
 
+    /// The face to use for a design.
+    static func face(for design: CaptionDesign) -> Face {
+        face(find(design.font).id, weight: design.weight)
+    }
+
     private static var registered: Set<String> = []
 
-    private static func font(at url: URL) -> Font? {
+    /// Registers an added font file and returns its family name.
+    private static func family(at url: URL) -> String? {
         guard let descriptor = (CTFontManagerCreateFontDescriptorsFromURL(url as CFURL) as? [CTFontDescriptor])?.first,
-              let postScript = CTFontDescriptorCopyAttribute(descriptor, kCTFontNameAttribute) as? String else { return nil }
-        let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String ?? postScript
-        let full = CTFontDescriptorCopyAttribute(descriptor, kCTFontDisplayNameAttribute) as? String ?? family
+              let family = CTFontDescriptorCopyAttribute(descriptor, kCTFontFamilyNameAttribute) as? String else { return nil }
         if !registered.contains(url.path) {
             CTFontManagerRegisterFontsForURL(url as CFURL, .process, nil)
             registered.insert(url.path)
         }
-        return Font(id: url.lastPathComponent, displayName: full, assName: full, postScriptName: postScript, bold: false, isCustom: true)
+        return family
     }
 
     /// Asks for font files and copies them in. Returns the first added font's id.
@@ -150,8 +221,8 @@ enum CaptionFonts {
         for url in panel.urls {
             let target = folder.appendingPathComponent(url.lastPathComponent)
             try? FileManager.default.removeItem(at: target)
-            guard (try? FileManager.default.copyItem(at: url, to: target)) != nil, font(at: target) != nil else { continue }
-            first = first ?? target.lastPathComponent
+            guard (try? FileManager.default.copyItem(at: url, to: target)) != nil, let family = family(at: target) else { continue }
+            first = first ?? family
         }
         return first
     }
@@ -190,6 +261,10 @@ struct CaptionDesignEditor: View {
             ForEach(CaptionDesign.Size.allCases) { Text($0.label).tag($0) }
         }
         .pickerStyle(.segmented)
+        Picker("Weight", selection: $design.weight) {
+            ForEach(CaptionDesign.Weight.allCases) { Text($0.label).tag($0) }
+        }
+        .pickerStyle(.segmented)
         HStack {
             Picker("Font", selection: $design.font) {
                 ForEach(fonts) { font in
@@ -203,6 +278,20 @@ struct CaptionDesignEditor: View {
                 }
             }
         }
+        if let note = weightNote {
+            Text(note)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Says which weights a font has when it doesn't have all four.
+    private var weightNote: String? {
+        let faces = CaptionFonts.faces(of: CaptionFonts.find(design.font).id)
+        let distinct = Set(CaptionDesign.Weight.allCases.map { CaptionFonts.face(design.font, weight: $0) })
+        guard distinct.count < CaptionDesign.Weight.allCases.count, !faces.isEmpty else { return nil }
+        let names = faces.map(\.fullName).formatted(.list(type: .and))
+        return String(localized: "This font comes in \(names); the closest is used.")
     }
 
     private func swatch(_ hex: String) -> some View {
@@ -221,7 +310,7 @@ struct CaptionDesignEditor: View {
 
     /// What it'll look like, drawn with the real font.
     private var preview: some View {
-        let font = CaptionFonts.find(design.font)
+        let face = CaptionFonts.face(for: design)
         let size: CGFloat = switch design.size {
         case .small: 17
         case .medium: 21
@@ -240,7 +329,7 @@ struct CaptionDesignEditor: View {
         return HStack(spacing: size * 0.28) {
             ForEach(words.indices, id: \.self) { index in
                 Text(words[index])
-                    .font(.custom(font.postScriptName, size: size))
+                    .font(.custom(face.postScriptName, size: size))
                     .foregroundStyle(textColor(index == active))
                     .padding(.horizontal, forShorts && index == active && design.emphasis == .box ? size * 0.22 : 0)
                     .background {

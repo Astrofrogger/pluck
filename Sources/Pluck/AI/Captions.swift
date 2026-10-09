@@ -13,13 +13,13 @@ enum Captions {
     /// pauses, sentence ends, cuts in the video (`cuts`, seconds into the short) and when they'd
     /// get wider than the frame allows.
     static func short(words: [Transcript.Word], from start: Double, cuts: [Double], design: CaptionDesign) -> String {
-        let fontInfo = CaptionFonts.find(design.font)
+        let face = CaptionFonts.face(for: design)
         let size: Double = switch design.size {
         case .small: 74
         case .medium: 92
         case .large: 112
         }
-        let font = measuringFont(fontInfo.postScriptName, size: size)
+        let font = measuringFont(face.postScriptName, size: size)
         let space = width(" ", font)
         let maxWidth = 900.0
         let y = 1920.0 * 0.70
@@ -83,8 +83,8 @@ enum Captions {
             }
         }
         return header(width: 1080, height: 1920, styles: [
-            "Style: Text,\(fontInfo.assName),\(Int(size)),&H00FFFFFF,&H00FFFFFF,&H90000000,&H70000000,\(fontInfo.bold ? -1 : 0),0,0,0,100,100,0,0,1,1.5,3,5,0,0,0,1",
-            "Style: Box,\(fontInfo.assName),\(Int(size)),\(design.assColor()),\(design.assColor()),&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,0,2,7,0,0,0,1",
+            "Style: Text,\(face.fullName),\(Int(size)),&H00FFFFFF,&H00FFFFFF,&H90000000,&H70000000,0,0,0,0,100,100,0,0,1,1.5,3,5,0,0,0,1",
+            "Style: Box,\(face.fullName),\(Int(size)),\(design.assColor()),\(design.assColor()),&H00000000,&H60000000,0,0,0,0,100,100,0,0,1,0,2,7,0,0,0,1",
         ]) + events.joined(separator: "\n") + "\n"
     }
 
@@ -103,7 +103,7 @@ enum Captions {
 
     /// Classic subtitles at the bottom: plain, in a colour, or on a coloured background.
     static func subtitles(_ cues: [Transcript.Cue], width: Int, height: Int, design: CaptionDesign) -> String {
-        let fontInfo = CaptionFonts.find(design.font)
+        let face = CaptionFonts.face(for: design)
         let factor: Double = switch design.size {
         case .small: 0.042
         case .medium: 0.05
@@ -115,10 +115,10 @@ enum Captions {
         case .box:
             // BorderStyle 3: an opaque box behind each line, in the colour (slightly see-through).
             let text = design.isLight ? "&H00141414" : "&H00FFFFFF"
-            style = "Style: Sub,\(fontInfo.assName),\(Int(size)),\(text),\(text),\(design.assColor(alpha: 0x22)),&H00000000,\(fontInfo.bold ? -1 : 0),0,0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),0,2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
+            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),\(design.assColor(alpha: 0x22)),&H00000000,0,0,0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),0,2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
         case .color, .plain:
             let text = design.emphasis == .color ? design.assColor() : "&H00FFFFFF"
-            style = "Style: Sub,\(fontInfo.assName),\(Int(size)),\(text),\(text),&H90000000,&H70000000,\(fontInfo.bold ? -1 : 0),0,0,0,100,100,0,0,1,\(String(format: "%.1f", size / 40)),\(String(format: "%.1f", size / 26)),2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
+            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),&H90000000,&H70000000,0,0,0,0,100,100,0,0,1,\(String(format: "%.1f", size / 40)),\(String(format: "%.1f", size / 26)),2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
         }
         let blur = design.emphasis == .box ? "" : "{\\blur1.2}"
         let events = cues.map { cue in
