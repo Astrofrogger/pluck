@@ -37,6 +37,7 @@ enum Prefs {
     static let musicImport = "musicImport"
     static let musicImportTypes = "musicImportTypes"
     static let musicImportAll = "musicImportAll"
+    static let aiAutoTranscribe = "aiAutoTranscribe"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -71,6 +72,7 @@ enum Prefs {
             musicImport: false,
             musicImportTypes: MusicLibrary.defaultTypes,
             musicImportAll: true,
+            aiAutoTranscribe: false,
         ])
     }
 }
@@ -79,6 +81,8 @@ enum Prefs {
 @Observable
 final class DownloadManager {
     var items: [DownloadItem] = []
+    /// Called when a download or conversion has finished successfully (local AI listens).
+    @ObservationIgnored var onFinished: ((DownloadItem) -> Void)?
     var ytdlpVersion: String?
     /// A link handed over by a pluck:// URL, waiting in the link field for the user to confirm.
     var pendingLink: String?
@@ -156,7 +160,7 @@ final class DownloadManager {
     }
 
     /// Apps launched from Finder get a minimal PATH, so add the usual places ffmpeg lives.
-    private var environment: [String: String] {
+    var environment: [String: String] {
         var env = ProcessInfo.processInfo.environment
         let existing = env["PATH"] ?? "/usr/bin:/bin"
         env["PATH"] = (toolDirectories + [existing]).joined(separator: ":")
@@ -341,7 +345,7 @@ final class DownloadManager {
         return await Converting.probe(file, ffprobe: ffprobe)
     }
 
-    private func tool(_ name: String) -> String? {
+    func tool(_ name: String) -> String? {
         toolDirectories.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
     }
 
@@ -810,7 +814,7 @@ final class DownloadManager {
             "--progress-template",
             "download:PLUCK|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
             "--progress-template", "postprocess:PLUCKPP|%(progress.postprocessor)s",
-            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr,artist,track})j",
+            "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr,artist,track,language})j",
             "--print", "after_move:PLUCKFILE %(filepath)s",
             "-P", item.folder,
         ]
@@ -1011,6 +1015,7 @@ final class DownloadManager {
             let json = Data(line.dropFirst("PLUCKMETA ".count).utf8)
             guard let meta = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
             if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String { item.thumbnail = URL(string: thumb) }
+            item.spokenLanguage = meta["language"] as? String
             if item.options.isAudio {
                 item.sourceAudio = Self.describeAudio(codec: meta["acodec"] as? String, bitrate: meta["abr"] as? Double)
                 item.musicArtist = meta["artist"] as? String
@@ -1117,6 +1122,7 @@ final class DownloadManager {
                 }
             }
             batchFinished.append(item.title)
+            onFinished?(item)
         } else {
             item.state = .failed
             if item.errorMessage == nil { item.errorMessage = String(localized: "yt-dlp exited with code \(status).") }

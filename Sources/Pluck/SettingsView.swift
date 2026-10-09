@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, format, downloads, advanced, support
+    case general, format, downloads, ai, advanced, support
 
     var id: String { rawValue }
 
@@ -11,6 +11,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: String(localized: "General")
         case .format: String(localized: "Format")
         case .downloads: String(localized: "Downloads")
+        case .ai: String(localized: "AI")
         case .advanced: String(localized: "Advanced")
         case .support: String(localized: "Support")
         }
@@ -21,6 +22,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .format: "slider.horizontal.3"
         case .downloads: "arrow.down.circle"
+        case .ai: "sparkles"
         case .advanced: "terminal"
         case .support: "heart"
         }
@@ -38,6 +40,7 @@ struct SettingsView: View {
             case .general: GeneralSettings()
             case .format: FormatSettingsView()
             case .downloads: DownloadSettings()
+            case .ai: AISettings()
             case .advanced: AdvancedSettings()
             case .support: SupportSettings()
             }
@@ -63,6 +66,12 @@ struct OpenSettingsAction {
     func callAsFunction() {
         openWindow(id: "settings")
         NSApp.activate()
+    }
+
+    /// Opens Settings on a particular tab.
+    func callAsFunction(_ tab: SettingsTab) {
+        UserDefaults.standard.set(tab.rawValue, forKey: "settingsTab")
+        callAsFunction()
     }
 }
 

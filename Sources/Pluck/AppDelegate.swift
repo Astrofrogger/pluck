@@ -10,6 +10,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let updater = Updater()
     let appUpdater = AppUpdater()
     let toolsUpdater = HelperToolsUpdater()
+    /// Local-AI jobs (transcripts, summaries, shorts, stems) on finished files.
+    lazy var ai = AIStudio(manager: manager)
     private lazy var services = ServiceProvider(manager: manager)
     lazy var shortcut = GlobalShortcut { [weak self] in self?.downloadClipboardLink() }
     static weak var shared: AppDelegate?
@@ -33,6 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         CookieBrowser.chooseOnFirstLaunch()
+        manager.onFinished = { [weak self] item in self?.ai.downloadFinished(item) }
         UNUserNotificationCenter.current().delegate = self
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()

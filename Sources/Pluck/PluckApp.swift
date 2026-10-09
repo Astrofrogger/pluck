@@ -14,6 +14,7 @@ struct PluckApp: App {
         Window("Pluck", id: "main") {
             ContentView()
                 .environment(manager)
+                .environment(app.ai)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }
@@ -34,6 +35,10 @@ struct PluckApp: App {
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
             }
+            CommandGroup(after: .textEditing) {
+                Button("Search Inside Downloads…") { app.ai.searchShown = true; AppDelegate.openMainWindow?() }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+            }
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Download Link from Clipboard") {
@@ -53,9 +58,18 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        WindowGroup("Pluck Player", for: PlayerTarget.self) { $target in
+            if let target {
+                PlayerView(target: target)
+                    .environment(app.ai)
+            }
+        }
+        .defaultSize(width: 1100, height: 640)
+
         Window("Settings", id: "settings") {
             SettingsView()
                 .environment(manager)
+                .environment(app.ai)
                 .environment(updater)
                 .environment(appUpdater)
                 .environment(toolsUpdater)

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct DownloadRow: View {
     @Environment(DownloadManager.self) private var manager
+    @Environment(AIStudio.self) private var ai
+    @Environment(\.openWindow) private var openWindow
     let item: DownloadItem
     var isSelected = false
     var onSelect: () -> Void = {}
@@ -25,6 +27,10 @@ struct DownloadRow: View {
                     .lineLimit(1)
 
                 status
+
+                if let task = item.aiStatus {
+                    aiProgress(task)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             // VoiceOver reads title, format, uploader and status as one item.
@@ -275,6 +281,9 @@ struct DownloadRow: View {
                     .accessibilityLabel("Download Again")
                     .help("Download Again")
             case .finished:
+                if isAIEligible {
+                    aiMenu
+                }
                 Button { reveal() } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Show in Finder")
                     .help("Show in Finder")
@@ -301,6 +310,10 @@ struct DownloadRow: View {
             Button("Open", action: open)
             Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
+            Divider()
+        }
+        if isAIEligible {
+            aiActions
             Divider()
         }
         if item.conversion == nil, item.state == .downloading || item.state == .queued {
@@ -331,6 +344,71 @@ struct DownloadRow: View {
         Divider()
         Button("Remove from List", role: .destructive) {
             withAnimation { manager.remove(item) }
+        }
+    }
+
+    // MARK: - Local AI
+
+    /// A finished video or song (not a folder or photo) that local AI can work with.
+    private var isAIEligible: Bool {
+        guard let file = item.existingFile, !file.hasDirectoryPath else { return false }
+        return Converting.isMedia(file)
+    }
+
+    private var aiMenu: some View {
+        Menu {
+            aiActions
+        } label: {
+            Image(systemName: "sparkles")
+        }
+        .menuIndicator(.hidden)
+        .disabled(item.aiStatus != nil)
+        .accessibilityLabel("Local AI")
+        .help("Local AI: subtitles, summaries, shorts and more, made on this Mac")
+    }
+
+    @ViewBuilder
+    private var aiActions: some View {
+        Section("Local AI") {
+            Button("Subtitles & Transcript…", systemImage: "captions.bubble") { ai.subtitleItem = item }
+                .disabled(!LocalAI.canTranscribe || item.aiStatus != nil)
+            Button("Summarize", systemImage: "text.badge.star") {
+                ai.summarize(item) { openWindow(value: $0) }
+            }
+            .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
+            Button("Add Chapters", systemImage: "list.number") {
+                ai.addChapters(item) { openWindow(value: $0) }
+            }
+            .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
+            Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
+                .disabled(!LocalAI.canTranscribe || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("Separate Stems", systemImage: "slider.vertical.3") { ai.separateStems(item) }
+                .disabled(!Stems.isSupported || item.aiStatus != nil)
+            Button("Open in Pluck Player", systemImage: "play.rectangle.on.rectangle") { openPlayer() }
+        }
+        if LocalAI.canTranscribe, let reason = LocalAI.summarizeUnavailableReason {
+            Text(reason)
+        }
+        if !LocalAI.canTranscribe {
+            Text("Local AI needs macOS 26 or later.")
+        }
+    }
+
+    private func openPlayer(at start: Double? = nil) {
+        guard let file = item.existingFile else { return }
+        openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: start))
+    }
+
+    private func aiProgress(_ task: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let progress = item.aiProgress {
+                ProgressView(value: progress).progressViewStyle(.linear).tint(.purple)
+            } else {
+                ProgressView().progressViewStyle(.linear).tint(.purple)
+            }
+            Label(item.aiProgress.map { "\(task) \(Int($0 * 100))%" } ?? task, systemImage: "sparkles")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 

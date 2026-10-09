@@ -26,6 +26,7 @@
 - 📋 **Many links at once:** paste or drop a whole list of links, or a text file full of them
 - 🎵 **Music done properly:** the best audio on offer (256 kbps with YouTube Premium), cover art, tags and lyrics, and added to Apple Music automatically if you like
 - 🎬 **Any video quality,** from 360p to 4K, clips of just the part you need, and pause and resume for big downloads
+- ✨ **Local AI, on your Mac:** subtitles and translations, search inside your downloads, summaries and chapters, shorts and stems. Nothing is uploaded
 - 🗜️ **Convert your own files:** extract audio, convert to MP4, trim, make GIFs, shrink a video to the size and resolution you choose, or compress photos
 - 🌐 **Almost any website:** 1,800+ sites through yt-dlp, plus Spotify and Apple Music links and pages yt-dlp doesn't know
 - ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
@@ -91,6 +92,17 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Lyrics** from [LRCLIB](https://lrclib.net) are written into MP3, M4A and FLAC files, so they show up in Apple Music and on iPhone
 - **Add to Apple Music:** turn it on in Settings → Downloads to add every song you download, or only the file types you pick (M4A, MP3, WAV, AIFF, MP4, M4V, MOV). With *All songs*, FLAC gets an Apple Lossless copy and Opus/WebM an AAC copy, since Apple Music can't import those. Your original files stay where they are
 - **Cover art and tags** (title, artist, album) are embedded automatically
+
+### Local AI
+Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download:
+- **Subtitles & transcripts:** transcribe any video or song, save an `.srt`, add subtitle tracks to the video or burn them into the picture, and translate them into another language
+- **Search inside downloads** (⇧⌘F): find what was said and jump straight to that moment. Turn on automatic transcripts in Settings → AI so new downloads are searchable
+- **Summaries & chapters:** a short summary with key points, and chapters for videos without them (written into the file, so QuickTime and Apple Music show them)
+- **Shorts:** 1–5 vertical 9:16 clips from a long video. Local AI picks the best moments, the picture follows the speaker or subject, and every word lights up as it's spoken
+- **Stems & karaoke:** split a song into vocals, drums, bass and other, plus an instrumental (karaoke) version. The model (168 MB, [HTDemucs](https://github.com/facebookresearch/demucs), MIT) is downloaded the first time and checked
+- **Pluck Player:** watch with the transcript, summary and chapters beside the video; click a line to jump there
+
+Requirements: transcripts, subtitles, search and shorts need macOS 26 or later; summaries, chapters and the smartest search and shorts also need Apple Intelligence; stems need macOS 27 on Apple silicon. On older Macs these features are simply hidden. Third-party licences are in [ThirdPartyLicenses.md](ThirdPartyLicenses.md).
 
 ### Convert files on your Mac
 Drop a video, song or photo on the window, or choose File → Convert Files… (⌘O):

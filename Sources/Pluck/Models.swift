@@ -221,6 +221,13 @@ final class DownloadItem: Identifiable {
     var hasArtwork = false
     /// Copied into Apple Music (Settings → Downloads → Add to Apple Music).
     var addedToMusic = false
+    /// The local-AI transcript of this file (see TranscriptStore).
+    var transcriptID: String?
+    /// What local AI is doing with this file right now ("Transcribing…"), with progress if known.
+    var aiStatus: String?
+    var aiProgress: Double?
+    /// The spoken language the site reported, used as the first guess for transcripts.
+    var spokenLanguage: String?
     /// Split into one file per chapter (Format menu → Split into Chapters); the result is a folder.
     var splitChapters = UserDefaults.standard.bool(forKey: Prefs.splitChapters)
     /// How many files a chapter split produced, once it's done.

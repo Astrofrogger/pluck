@@ -26,6 +26,8 @@ enum History {
         var chapterCount: Int?
         var conversion: Conversion?
         var addedToMusic: Bool?
+        var transcriptID: String?
+        var spokenLanguage: String?
     }
 
     static let limit = 200
@@ -57,6 +59,8 @@ enum History {
             item.chapterCount = e.chapterCount
             item.conversion = e.conversion
             item.addedToMusic = e.addedToMusic ?? false
+            item.transcriptID = e.transcriptID
+            item.spokenLanguage = e.spokenLanguage
             item.progress = e.state == "finished" ? 1 : (e.progress ?? 0)
             item.state = switch e.state {
             case "finished": .finished
@@ -90,7 +94,8 @@ enum History {
                          clip: item.clip, sourceAudio: item.sourceAudio, hasLyrics: item.hasLyrics,
                          progress: item.progress, resolvedURL: item.spotify != nil ? item.resolvedURL : nil,
                          splitChapters: item.splitChapters, chapterCount: item.chapterCount,
-                         conversion: item.conversion, addedToMusic: item.addedToMusic)
+                         conversion: item.conversion, addedToMusic: item.addedToMusic,
+                         transcriptID: item.transcriptID, spokenLanguage: item.spokenLanguage)
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

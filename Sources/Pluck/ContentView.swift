@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(DownloadManager.self) private var manager
+    @Environment(AIStudio.self) private var ai
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openPluckSettings) private var openSettings
@@ -116,6 +117,7 @@ struct ContentView: View {
             PhotoSheet(files: manager.photosToCompress)
                 .environment(manager)
         }
+        .modifier(AISheets(ai: ai, manager: manager))
         .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
             // Closing the sheet cancels only the playlist that was on screen, never the next one.
             if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
@@ -520,6 +522,13 @@ struct ContentView: View {
             .help("Open \((downloadPath as NSString).abbreviatingWithTildeInPath)")
 
             Button {
+                ai.searchShown = true
+            } label: {
+                Label("Search Inside Downloads", systemImage: "text.magnifyingglass")
+            }
+            .help("Search what was said in your downloads (⇧⌘F)")
+
+            Button {
                 withAnimation { manager.clearFinished() }
             } label: {
                 Label("Clear Finished", systemImage: "checklist.checked")
@@ -542,5 +551,30 @@ extension NSItemProvider {
         return await withCheckedContinuation { continuation in
             _ = loadObject(ofClass: type) { value, _ in continuation.resume(returning: value) }
         }
+    }
+}
+
+/// The local-AI windows the main window can show: search, and subtitles for a download.
+private struct AISheets: ViewModifier {
+    let ai: AIStudio
+    let manager: DownloadManager
+
+    func body(content: Content) -> some View {
+        content
+            .sheet(isPresented: Binding(get: { ai.searchShown }, set: { ai.searchShown = $0 })) {
+                SearchInsideView()
+                    .environment(ai)
+                    .environment(manager)
+            }
+            .sheet(item: Binding(get: { ai.shortsItem }, set: { ai.shortsItem = $0 })) { item in
+                ShortsSheet(item: item)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.subtitleItem }, set: { ai.subtitleItem = $0 })) { item in
+                if #available(macOS 26, *) {
+                    SubtitleSheet(item: item)
+                        .environment(ai)
+                }
+            }
     }
 }

@@ -88,6 +88,22 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.9.0", items: [
+                Item(symbol: "sparkles", title: String(localized: "Local AI, right on your Mac"),
+                     detail: String(localized: "Pluck’s new AI features run entirely on your Mac with local AI: Apple’s on-device speech recognition, translation and Apple Intelligence. Nothing you download, say or search is uploaded.")),
+                Item(symbol: "captions.bubble", title: String(localized: "Subtitles & transcripts"),
+                     detail: String(localized: "Transcribe any video or song with local AI, save subtitles, add them to the video or burn them in, and translate them into another language.")),
+                Item(symbol: "text.magnifyingglass", title: String(localized: "Search inside your downloads"),
+                     detail: String(localized: "Search what was said in your videos and jump straight to that moment (⇧⌘F). Local AI understands questions, not just keywords.")),
+                Item(symbol: "text.badge.star", title: String(localized: "Summaries & chapters"),
+                     detail: String(localized: "Local AI summarizes a video in a few lines and adds chapters to videos that don’t have them.")),
+                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Shorts"),
+                     detail: String(localized: "Turn a long video into vertical shorts: local AI picks the best moments, keeps the speaker in frame and captions every word.")),
+                Item(symbol: "slider.vertical.3", title: String(localized: "Stems & karaoke"),
+                     detail: String(localized: "Split a song into vocals, drums, bass and other, plus a karaoke version, with an open-source AI model running locally on your Mac (macOS 27, Apple silicon).")),
+                Item(symbol: "play.rectangle.on.rectangle", title: String(localized: "Pluck Player"),
+                     detail: String(localized: "Watch with the transcript, summary and chapters beside the video. Click a line to jump there.")),
+            ]),
             Release(version: "1.8.0", items: [
                 Item(symbol: "music.note", title: String(localized: "Apple Music links"),
                      detail: String(localized: "Paste a song, album or playlist from Apple Music. Pluck finds it on YouTube Music and tags it with Apple’s details and sharp album art.")),
