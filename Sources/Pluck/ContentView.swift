@@ -478,14 +478,14 @@ struct ContentView: View {
     }
 
     /// Links (or text containing them) start downloading; text files are read for their links;
-    /// videos and songs from this Mac open the convert sheet.
+    /// videos, songs, photos and subtitle files from this Mac open the matching sheet.
     private func handleDrop(_ providers: [NSItemProvider]) async {
         var links: [String] = []
         var media: [URL] = []
         for provider in providers {
             let url = await provider.load(URL.self)
             if let url, url.isFileURL {
-                if Converting.isConvertible(url) {
+                if Converting.isConvertible(url) || SubtitleFiles.isSubtitle(url) {
                     media.append(url)
                 } else if Converting.isText(url) {
                     links += Links.extract(fromFile: url)
@@ -566,6 +566,11 @@ private struct AISheets: ViewModifier {
                 SearchInsideView()
                     .environment(ai)
                     .environment(manager)
+            }
+            .sheet(isPresented: Binding(get: { !manager.subtitlesToTranslate.isEmpty && manager.filesToConvert.isEmpty
+                                                    && manager.photosToCompress.isEmpty && manager.picks.isEmpty },
+                                        set: { if !$0 { manager.subtitlesToTranslate = [] } })) {
+                TranslateSubtitlesSheet(files: manager.subtitlesToTranslate)
             }
             .sheet(item: Binding(get: { ai.shortsItem }, set: { ai.shortsItem = $0 })) { item in
                 ShortsSheet(item: item)

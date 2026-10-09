@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import Network
 import Observation
+import UniformTypeIdentifiers
 import UserNotifications
 
 enum Prefs {
@@ -254,10 +255,12 @@ final class DownloadManager {
     var filesToConvert: [URL] = []
     /// Photos dropped or chosen, waiting for compression settings.
     var photosToCompress: [URL] = []
+    /// Subtitle files (.srt, .vtt) dropped or chosen, waiting for a language to translate to.
+    var subtitlesToTranslate: [URL] = []
 
     func chooseFilesToConvert() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audiovisualContent, .image]
+        panel.allowedContentTypes = [.audiovisualContent, .image] + SubtitleFiles.extensions.compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Choose")
         panel.message = String(localized: "Choose videos, songs or photos to convert.")
@@ -267,10 +270,12 @@ final class DownloadManager {
         AppDelegate.openMainWindow?()
     }
 
-    /// Videos and songs open the convert sheet, photos the photo sheet (after it, when both).
+    /// Videos and songs open the convert sheet, photos the photo sheet and subtitle files the
+    /// translate sheet (one after the other, when there are several kinds).
     func openConverter(for files: [URL]) {
         filesToConvert = files.filter(Converting.isMedia)
         photosToCompress = files.filter(Photos.isPhoto)
+        subtitlesToTranslate = files.filter(SubtitleFiles.isSubtitle)
     }
 
     /// Videos and songs from this Mac, listed so local AI can work on them in place (the
