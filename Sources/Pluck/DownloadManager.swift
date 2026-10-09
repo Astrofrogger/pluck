@@ -33,6 +33,7 @@ enum Prefs {
     static let lyrics = "lyrics"
     static let searchKind = "searchKind"
     static let startInMenuBar = "startInMenuBar"
+    static let splitChapters = "splitChapters"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -63,6 +64,7 @@ enum Prefs {
             playlistFolders: true,
             lyrics: true,
             startInMenuBar: false,
+            splitChapters: false,
         ])
     }
 }
@@ -80,6 +82,7 @@ final class DownloadManager {
 
     /// Results since the queue was last empty, for one summary notification per batch.
     private var batchFinished: [String] = []
+    private var batchFiles: [URL] = []
     private var batchFailed = 0
 
     private let defaults = UserDefaults.standard
@@ -91,7 +94,7 @@ final class DownloadManager {
     init() {
         Prefs.registerDefaults()
         if Bundle.main.bundleIdentifier != nil {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            Notifications.registerActions()
         }
         refreshVersion()
         items = History.load()
@@ -192,12 +195,7 @@ final class DownloadManager {
 
     /// Adds downloads for one or more links. When "Ask where to save" is on, asks once for the batch.
     func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil, clip: ClipRange? = nil) {
-        guard !urls.isEmpty else { return }
-        var folder = override ?? defaults.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory()
-        if override == nil, defaults.bool(forKey: Prefs.askLocation) {
-            guard let chosen = askForFolder(starting: folder, count: urls.count) else { return }
-            folder = chosen
-        }
+        guard !urls.isEmpty, let folder = override ?? destinationFolder(count: urls.count) else { return }
         for url in urls {
             if Playlists.looksLikePlaylist(url) {
                 presentPicker(for: url, options: options, folder: folder)
@@ -217,6 +215,171 @@ final class DownloadManager {
 
     func add(_ url: String, options: DownloadOptions = .current, folder: String? = nil, clip: ClipRange? = nil) {
         add([url], options: options, folder: folder, clip: clip)
+    }
+
+    /// The Downloads setting, or a folder the user picks when "Always ask where to save" is on.
+    private func destinationFolder(count: Int) -> String? {
+        let folder = defaults.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory()
+        return defaults.bool(forKey: Prefs.askLocation) ? askForFolder(starting: folder, count: count) : folder
+    }
+
+    /// File → Download Links from File…: every link in a text file.
+    func chooseLinkFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.text]
+        panel.allowsMultipleSelection = true
+        panel.message = String(localized: "Choose a text file with links, one per line or mixed with other text.")
+        NSApp.activate()
+        guard panel.runModal() == .OK else { return }
+        let links = panel.urls.flatMap(Links.extract(fromFile:))
+        guard !links.isEmpty else { NSSound.beep(); return }
+        add(links)
+        AppDelegate.openMainWindow?()
+    }
+
+    // MARK: - Converting files on this Mac
+
+    /// Files dropped on the window (or chosen in File → Convert Files…), waiting for the user to
+    /// pick what to turn them into.
+    var filesToConvert: [URL] = []
+
+    func chooseFilesToConvert() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audiovisualContent]
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose videos or songs to convert.")
+        NSApp.activate()
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        filesToConvert = panel.urls
+        AppDelegate.openMainWindow?()
+    }
+
+    func convert(_ files: [URL], preset: Conversion.Preset, percent: Int? = nil, resolution: Int? = nil) {
+        guard !files.isEmpty, let folder = destinationFolder(count: files.count) else { return }
+        let format = DownloadOptions.current
+        for file in files {
+            var options = DownloadOptions()
+            if preset == .audio {
+                options.kind = .audio
+                options.audioFormat = format.audioFormat
+                options.audioBitrate = format.audioBitrate
+            }
+            let item = DownloadItem(url: file.absoluteString, options: options, folder: folder)
+            item.title = file.deletingPathExtension().lastPathComponent
+            item.conversion = Conversion(source: file.path, preset: preset, percent: percent, resolution: resolution)
+            item.splitChapters = false
+            items.insert(item, at: 0)
+            Task { item.thumbnail = await Converting.thumbnail(for: file) }
+        }
+        pump()
+    }
+
+    /// Length, codecs and size of a file, for the size estimate in the convert sheet.
+    func mediaInfo(for file: URL) async -> Converting.MediaInfo? {
+        guard let ffprobe = tool("ffprobe") else { return nil }
+        return await Converting.probe(file, ffprobe: ffprobe)
+    }
+
+    private func tool(_ name: String) -> String? {
+        toolDirectories.map { "\($0)/\(name)" }.first { FileManager.default.isExecutableFile(atPath: $0) }
+    }
+
+    private func runConversion(_ item: DownloadItem, _ conversion: Conversion) {
+        let source = URL(fileURLWithPath: conversion.source)
+        guard FileManager.default.fileExists(atPath: source.path) else {
+            fail(item, Converting.Failure.sourceMissing.localizedDescription)
+            return
+        }
+        guard let ffmpeg = tool("ffmpeg"), let ffprobe = tool("ffprobe") else {
+            fail(item, Converting.Failure.noFFmpeg.localizedDescription)
+            return
+        }
+        item.phase = String(localized: "Reading file…")
+        Task {
+            let info = await Converting.probe(source, ffprobe: ffprobe)
+            guard item.state == .starting else { return }
+            guard let info else { fail(item, Converting.Failure.unreadable.localizedDescription); return }
+            item.duration = info.duration
+            item.sourceAudio = Self.describeAudio(codec: info.audioCodec, bitrate: info.audioBitrate.map { $0 / 1000 })
+            let plan: Converting.Plan
+            // Two-pass encodes keep their analysis here; removed when the conversion ends.
+            let passLog = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pluck-pass-\(UUID().uuidString)").path
+            do {
+                plan = try Converting.plan(conversion, options: item.options, info: info,
+                                           sourceExtension: source.pathExtension.lowercased(),
+                                           sourceSize: Self.size(of: source) ?? 0, passLog: passLog)
+            } catch {
+                fail(item, error.localizedDescription)
+                return
+            }
+            let output = Converting.outputURL(folder: item.folder,
+                                              name: source.deletingPathExtension().lastPathComponent + plan.suffix,
+                                              fileExtension: plan.fileExtension)
+            let input = ["-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats", "-i", source.path]
+            var passes = [input + plan.arguments + [output.path]]
+            if let first = plan.firstPass { passes.insert(input + first + ["/dev/null"], at: 0) }
+            Task {
+                let status = await runFFmpeg(item, ffmpeg: ffmpeg, passes: passes, duration: info.duration)
+                for suffix in ["-0.log", "-0.log.mbtree", "-0.log.temp", "-0.log.mbtree.temp"] {
+                    try? FileManager.default.removeItem(atPath: passLog + suffix)
+                }
+                if status == 0 {
+                    item.fileURL = output
+                } else {
+                    try? FileManager.default.removeItem(at: output)
+                }
+                finish(item, status: status)
+            }
+        }
+    }
+
+    /// Runs ffmpeg once per pass, with one progress bar across all of them. Returns the exit
+    /// status of the last pass that ran.
+    private func runFFmpeg(_ item: DownloadItem, ffmpeg: String, passes: [[String]], duration: Double?) async -> Int32 {
+        let started = Date()
+        var status: Int32 = 0
+        for (index, arguments) in passes.enumerated() {
+            guard item.state == .starting || item.state == .downloading else { return 15 }
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ffmpeg)
+            process.arguments = arguments
+            process.environment = environment
+            let out = Pipe(), err = Pipe()
+            process.standardOutput = out
+            process.standardError = err
+            item.process = process
+            do {
+                try process.run()
+            } catch {
+                item.errorMessage = error.localizedDescription
+                return 1
+            }
+            item.phase = nil
+            let errors = Task.detached {
+                var last: String?
+                for await line in PipeLines.stream(err.fileHandleForReading) where !line.isEmpty { last = line }
+                return last
+            }
+            let count = Double(passes.count)
+            for await line in PipeLines.stream(out.fileHandleForReading) where line.hasPrefix("out_time_us=") {
+                guard let micro = Double(line.dropFirst("out_time_us=".count)), let duration, duration > 0,
+                      item.state == .starting || item.state == .downloading else { continue }
+                let progress = (Double(index) + min(max(micro / 1_000_000 / duration, 0), 1)) / count
+                item.state = .downloading
+                item.progress = progress
+                let elapsed = Date().timeIntervalSince(started)
+                item.eta = progress > 0.02 ? elapsed / progress - elapsed : nil
+            }
+            await Task.detached { process.waitUntilExit() }.value
+            status = process.terminationStatus
+            if status != 0 {
+                if let last = await errors.value { item.errorMessage = last }
+                return status
+            }
+        }
+        return status
     }
 
     private func askForFolder(starting path: String, count: Int) -> String? {
@@ -273,11 +436,7 @@ final class DownloadManager {
     func download(_ result: SearchResult, from session: SearchSession) {
         var options = DownloadOptions.current
         if session.kind == .music { options.kind = .audio }
-        var folder = defaults.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory()
-        if defaults.bool(forKey: Prefs.askLocation) {
-            guard let chosen = askForFolder(starting: folder, count: 1) else { return }
-            folder = chosen
-        }
+        guard let folder = destinationFolder(count: 1) else { return }
         let item = DownloadItem(url: result.url, options: options, folder: folder)
         item.title = result.title
         item.uploader = result.subtitle
@@ -529,6 +688,7 @@ final class DownloadManager {
 
     /// Starts queued items, oldest first, up to the concurrency limit.
     func pump() {
+        if items.contains(where: \.isActive) { Notifications.requestPermissionIfNeeded() }
         // On first launch, wait for Pluck to finish fetching yt-dlp/ffmpeg instead of failing.
         if toolsInstalling, executableURL == nil || ffmpegMissing {
             updateBadge()
@@ -581,6 +741,10 @@ final class DownloadManager {
         let outputName = FileNaming.template(isAudio: options.isAudio) + clipSuffix + ".%(ext)s"
         if let clip = item.clip {
             args += ["--download-sections", clip.sectionArgument, "--force-keyframes-at-cuts"]
+        } else if item.splitChapters, item.spotify == nil {
+            // One file per chapter, in a folder named like the whole video would have been.
+            args += ["--split-chapters",
+                     "-o", "chapter:" + FileNaming.template(isAudio: options.isAudio) + "/%(section_number)02d - %(section_title)s.%(ext)s"]
         }
 
         if let stream = item.pageStream {
@@ -631,6 +795,10 @@ final class DownloadManager {
         item.state = .starting
         item.retryAt = nil
         item.phase = nil
+        if let conversion = item.conversion {
+            runConversion(item, conversion)
+            return
+        }
         guard executableURL != nil else {
             fail(item, String(localized: "yt-dlp not found. Install it with “brew install yt-dlp” or set its path in Settings."))
             return
@@ -778,6 +946,7 @@ final class DownloadManager {
         case let c where c.hasPrefix("mp3"): "MP3"
         case let c where c.hasPrefix("flac"): "FLAC"
         case let c where c.hasPrefix("alac"): "ALAC"
+        case let c where c.hasPrefix("pcm"): "PCM"
         default: codec.uppercased()
         }
         guard let bitrate, bitrate > 0 else { return name }
@@ -792,15 +961,27 @@ final class DownloadManager {
         case "FFmpegMetadata", "Metadata", "MetadataParser": String(localized: "Writing metadata…")
         case "EmbedSubtitle": String(localized: "Embedding subtitles…")
         case "SponsorBlock", "ModifyChapters": String(localized: "Removing sponsors…")
+        case "SplitChapters": String(localized: "Splitting into chapters…")
         default: String(localized: "Finishing up…")
         }
     }
 
-    private func finish(_ item: DownloadItem, status: Int32, lyricsDone: Bool = false) {
+    private func finish(_ item: DownloadItem, status: Int32, chaptersDone: Bool = false, lyricsDone: Bool = false) {
         item.process = nil
         guard item.state != .cancelled, item.state != .paused else { pump(); return }
 
         if status != 0, scheduleRetryIfNetworkProblem(item) { return }
+
+        // Chapter files get their own titles and track numbers; the whole video is then removed.
+        if status == 0, !chaptersDone, item.splitChapters, item.conversion == nil, item.clip == nil {
+            item.state = .processing
+            item.phase = String(localized: "Tagging chapters…")
+            Task {
+                await tagChapters(of: item)
+                finish(item, status: 0, chaptersDone: true)
+            }
+            return
+        }
 
         // Songs get their lyrics written in before they count as done.
         if status == 0, !lyricsDone, let song = lyricsLookup(for: item) {
@@ -808,7 +989,7 @@ final class DownloadManager {
             item.phase = String(localized: "Adding lyrics…")
             Task {
                 await addLyrics(to: item, artist: song.artist, title: song.title, duration: song.duration)
-                finish(item, status: 0, lyricsDone: true)
+                finish(item, status: 0, chaptersDone: true, lyricsDone: true)
             }
             return
         }
@@ -824,9 +1005,9 @@ final class DownloadManager {
             item.state = .finished
             item.finishedAt = .now
             item.progress = 1
-            if let file = item.fileURL,
-               let size = try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? Int64 {
-                item.fileSize = size
+            if let file = item.fileURL {
+                item.fileSize = Self.size(of: file)
+                batchFiles.append(file)
             }
             batchFinished.append(item.title)
         } else {
@@ -837,12 +1018,13 @@ final class DownloadManager {
 
         guard !items.contains(where: { $0.isActive && $0.id != item.id }) else { return }
         switch (batchFinished.count, batchFailed) {
-        case (1, 0): notify(title: String(localized: "Download complete"), body: batchFinished[0])
-        case (let ok, 0): notify(title: String(localized: "Downloads complete"), body: String(localized: "\(ok) files saved"))
+        case (1, 0): notify(title: String(localized: "Download complete"), body: batchFinished[0], files: batchFiles)
+        case (let ok, 0): notify(title: String(localized: "Downloads complete"), body: String(localized: "\(ok) files saved"), files: batchFiles)
         case (0, 1): notify(title: String(localized: "Download failed"), body: item.title)
-        case (let ok, let bad): notify(title: String(localized: "Downloads finished"), body: String(localized: "\(ok) saved, \(bad) failed"))
+        case (let ok, let bad): notify(title: String(localized: "Downloads finished"), body: String(localized: "\(ok) saved, \(bad) failed"), files: batchFiles)
         }
         batchFinished = []
+        batchFiles = []
         batchFailed = 0
     }
 
@@ -870,7 +1052,7 @@ final class DownloadManager {
     /// Queues the download again after a pause that grows with each try (up to five). It continues
     /// from the partial file, and waits for the connection if the Mac is offline.
     private func scheduleRetryIfNetworkProblem(_ item: DownloadItem) -> Bool {
-        guard isNetworkProblem(item), item.retryCount < Self.retryDelays.count else { return false }
+        guard item.conversion == nil, isNetworkProblem(item), item.retryCount < Self.retryDelays.count else { return false }
         let delay = Self.retryDelays[item.retryCount]
         item.retryCount += 1
         item.retryAt = Date().addingTimeInterval(delay)
@@ -936,6 +1118,60 @@ final class DownloadManager {
         }
     }
 
+    // MARK: - Chapters
+
+    /// After `--split-chapters`: each chapter file gets its chapter as title, a track number and
+    /// the video as album (yt-dlp copies the whole video's tags into every piece). The full-length
+    /// file is removed and the row points at the folder. Videos without chapters are left alone.
+    private func tagChapters(of item: DownloadItem) async {
+        guard let file = item.fileURL, let ffmpeg = tool("ffmpeg") else { return }
+        let folder = file.deletingPathExtension()
+        let pieces = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") }
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        guard !pieces.isEmpty else { return }
+        let album = item.title
+        let env = environment
+        await Task.detached {
+            for (index, piece) in pieces.enumerated() {
+                // "03 - Chapter Title.m4a" → "Chapter Title"
+                let name = piece.deletingPathExtension().lastPathComponent
+                let title = name.range(of: #"^\d+ - "#, options: .regularExpression).map { String(name[$0.upperBound...]) } ?? name
+                let temp = folder.appendingPathComponent(".pluck-tag-\(UUID().uuidString).\(piece.pathExtension)")
+                let p = Process()
+                p.executableURL = URL(fileURLWithPath: ffmpeg)
+                p.arguments = ["-y", "-v", "error", "-i", piece.path, "-map", "0", "-dn", "-c", "copy",
+                               "-map_metadata", "0", "-map_chapters", "-1",
+                               "-metadata", "title=\(title)", "-metadata", "track=\(index + 1)/\(pieces.count)",
+                               "-metadata", "album=\(album)", temp.path]
+                p.environment = env
+                p.standardOutput = FileHandle.nullDevice
+                p.standardError = FileHandle.nullDevice
+                guard (try? p.run()) != nil else { continue }
+                p.waitUntilExit()
+                if p.terminationStatus == 0 {
+                    _ = try? FileManager.default.replaceItemAt(piece, withItemAt: temp)
+                } else {
+                    try? FileManager.default.removeItem(at: temp)
+                }
+            }
+        }.value
+        try? FileManager.default.removeItem(at: file)
+        item.fileURL = folder
+        item.chapterCount = pieces.count
+    }
+
+    /// A file's size, or everything in a folder (chapter splits).
+    static func size(of url: URL) -> Int64? {
+        var isFolder: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder) else { return nil }
+        guard isFolder.boolValue else {
+            return (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int64) ?? nil
+        }
+        let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: [.fileSizeKey])) ?? []
+        return files.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+    }
+
     // MARK: - Page fallback
 
     /// Sites yt-dlp has a dedicated extractor for are left alone; so are login/cookie problems,
@@ -976,7 +1212,7 @@ final class DownloadManager {
         }
     }
 
-    private func notify(title: String, body: String) {
+    private func notify(title: String, body: String, files: [URL] = []) {
         guard defaults.bool(forKey: Prefs.notify),
               Bundle.main.bundleIdentifier != nil,
               !NSApp.isActive else { return }
@@ -984,6 +1220,13 @@ final class DownloadManager {
         content.title = title
         content.body = body
         content.sound = .default
+        // Buttons to play the file or show it (them) in Finder; see Notifications.
+        if !files.isEmpty {
+            content.userInfo = [Notifications.filesKey: files.map(\.path)]
+            let isFolder = (try? files[0].resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            content.categoryIdentifier = files.count == 1 && !isFolder
+                ? Notifications.fileCategory : Notifications.filesCategory
+        }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }

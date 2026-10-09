@@ -48,20 +48,36 @@ enum Links {
 
     /// Every distinct link on a pasteboard: copied URLs first, then any found in selected text.
     static func extract(from pasteboard: NSPasteboard) -> [String] {
-        var found: [String] = []
-        func add(_ candidate: String) {
-            if let link = validated(candidate), !found.contains(link) { found.append(link) }
-        }
         let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: nil) as? [URL] ?? []
-        urls.forEach { add($0.absoluteString) }
-        if let text = pasteboard.string(forType: .string),
-           let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
-            let range = NSRange(text.startIndex..., in: text)
-            for match in detector.matches(in: text, range: range) {
-                if let url = match.url { add(url.absoluteString) }
-            }
-            if found.isEmpty { add(text) }
+        var found = unique(urls.compactMap { validated($0.absoluteString) })
+        if let text = pasteboard.string(forType: .string) {
+            found = unique(found + extract(fromText: text))
         }
         return found
+    }
+
+    /// Every distinct web or Spotify link in a piece of text, in order: one per line, separated by
+    /// spaces, or mixed in with other words.
+    static func extract(fromText text: String) -> [String] {
+        var found: [String] = []
+        if let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) {
+            for match in detector.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                if let url = match.url, let link = validated(url.absoluteString) { found.append(link) }
+            }
+        }
+        if found.isEmpty, let link = validated(text) { found.append(link) }
+        return unique(found)
+    }
+
+    /// The links in a text file, such as a list someone sent or exported.
+    static func extract(fromFile url: URL) -> [String] {
+        guard let data = try? Data(contentsOf: url), data.count < 10_000_000 else { return [] }
+        let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        return extract(fromText: text)
+    }
+
+    private static func unique(_ links: [String]) -> [String] {
+        var seen = Set<String>()
+        return links.filter { seen.insert($0).inserted }
     }
 }

@@ -217,6 +217,12 @@ final class DownloadItem: Identifiable {
     var musicTrack: String?
     /// Lyrics were written into the file.
     var hasLyrics = false
+    /// Split into one file per chapter (Format menu → Split into Chapters); the result is a folder.
+    var splitChapters = UserDefaults.standard.bool(forKey: Prefs.splitChapters)
+    /// How many files a chapter split produced, once it's done.
+    var chapterCount: Int?
+    /// Set for a file on this Mac being converted with ffmpeg rather than downloaded.
+    var conversion: Conversion?
     /// Automatic retries after connection problems, and when the next one may start.
     var retryCount = 0
     var retryAt: Date?
@@ -261,6 +267,14 @@ final class DownloadItem: Identifiable {
         state == .finished || state == .failed || state == .cancelled
     }
 
+    /// The audio is lossless all the way: the source was (FLAC, ALAC, WAV…) and the file wasn't
+    /// turned into a lossy format. A FLAC made from a YouTube stream doesn't count.
+    var isLossless: Bool {
+        guard options.isAudio, let source = sourceAudio else { return false }
+        let losslessSource = ["FLAC", "ALAC", "PCM", "WAV", "AIFF"].contains { source.hasPrefix($0) }
+        return losslessSource && [.original, .flac, .wav].contains(options.audioFormat)
+    }
+
     var isRunning: Bool {
         state == .starting || state == .downloading || state == .processing
     }
@@ -274,5 +288,6 @@ final class DownloadItem: Identifiable {
         fileURL = nil
         fileSize = nil
         errorMessage = nil
+        chapterCount = nil
     }
 }

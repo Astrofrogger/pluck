@@ -9,7 +9,9 @@ struct MenuBarView: View {
     @FocusState private var focused: Bool
 
     private var trimmed: String { urlText.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var fieldLinks: [String] { Links.extract(fromText: trimmed) }
     private var isValid: Bool {
+        if fieldLinks.count > 1 { return true }
         if Spotify.parse(trimmed) != nil { return true }
         guard let url = URL(string: trimmed), let scheme = url.scheme else { return false }
         return (scheme == "http" || scheme == "https") && url.host != nil
@@ -244,7 +246,7 @@ struct MenuBarView: View {
             return
         }
         guard isValid else { return }
-        manager.add(trimmed)
+        manager.add(fieldLinks.count > 1 ? fieldLinks : [trimmed])
         urlText = ""
     }
 }

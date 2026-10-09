@@ -23,7 +23,11 @@ struct ContentView: View {
     @FocusState private var fieldFocused: Bool
 
     private var trimmed: String { urlText.trimmingCharacters(in: .whitespacesAndNewlines) }
+    /// Several links pasted at once (one per line, or separated by spaces) download together.
+    private var fieldLinks: [String] { Links.extract(fromText: trimmed) }
+    private var isMultiple: Bool { fieldLinks.count > 1 }
     private var isValid: Bool {
+        if isMultiple { return true }
         if Spotify.parse(trimmed) != nil { return true }
         guard let url = URL(string: trimmed), let scheme = url.scheme else { return false }
         return (scheme == "http" || scheme == "https") && url.host != nil
@@ -67,11 +71,10 @@ struct ContentView: View {
         .navigationSubtitle(subtitle)
         .toolbar { toolbarContent }
         .overlay { if isTargeted { dropHighlight } }
-        .dropDestination(for: URL.self) { urls, _ in
-            let links = urls.filter { $0.scheme?.hasPrefix("http") == true }
-            manager.add(links.map(\.absoluteString))
-            return !links.isEmpty
-        } isTargeted: { isTargeted = $0 }
+        .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
+            Task { await handleDrop(providers) }
+            return true
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             autofillFromClipboard()
         }
@@ -101,6 +104,11 @@ struct ContentView: View {
         .sheet(item: Binding(get: { manager.picks.isEmpty ? manager.search : nil },
                              set: { if $0 == nil { manager.search = nil } })) { session in
             SearchResultsView(session: session)
+                .environment(manager)
+        }
+        .sheet(isPresented: Binding(get: { !manager.filesToConvert.isEmpty && manager.picks.isEmpty },
+                                    set: { if !$0 { manager.filesToConvert = [] } })) {
+            ConvertSheet(files: manager.filesToConvert)
                 .environment(manager)
         }
         .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
@@ -223,6 +231,15 @@ struct ContentView: View {
                         .font(.title3)
                         .focused($fieldFocused)
                         .onSubmit(submit)
+                    if isMultiple {
+                        Text("\(fieldLinks.count) links")
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(.tint.opacity(0.15), in: .capsule)
+                            .foregroundStyle(.tint)
+                            .transition(.opacity.combined(with: .scale))
+                    }
                     if !urlText.isEmpty {
                         Button {
                             urlText = ""
@@ -255,6 +272,7 @@ struct ContentView: View {
                 .glassButtonStyle()
                 .buttonBorderShape(.circle)
                 .controlSize(.large)
+                .disabled(isMultiple)
                 .accessibilityLabel(clipping ? "Download Whole Video" : "Download a Clip")
                 .help(clipping ? "Download the whole video" : "Download only part of the video")
 
@@ -327,7 +345,9 @@ struct ContentView: View {
             return
         }
         guard isValid else { return }
-        if clipping {
+        if isMultiple {
+            manager.add(fieldLinks)
+        } else if clipping {
             guard let clip else { NSSound.beep(); return }
             manager.add(trimmed, clip: clip)
             withAnimation(.snappy(duration: 0.25)) { clipping = false }
@@ -351,6 +371,15 @@ struct ContentView: View {
     }
 
     private func autofillFromClipboard() {
+        // Several copied links fill the field together, ready to download as a batch.
+        let copied = Links.extract(from: NSPasteboard.general)
+        if urlText.isEmpty, copied.count > 1 {
+            let joined = copied.joined(separator: " ")
+            guard joined != lastAutofilled else { return }
+            lastAutofilled = joined
+            urlText = joined
+            return
+        }
         guard urlText.isEmpty,
               let link = Clipboard.videoURL(),
               link != lastAutofilled,
@@ -425,15 +454,44 @@ struct ContentView: View {
         ContentUnavailableView {
             Label("Nothing Downloading", systemImage: "arrow.down.circle.dotted")
         } description: {
-            Text("Paste a link above, or drop one anywhere in this window.")
+            Text("Paste one or more links above, or drop links, a list of links or a video or song to convert anywhere in this window.")
         } actions: {
-            if let link = Clipboard.videoURL() {
+            let copied = Links.extract(from: NSPasteboard.general)
+            if copied.count > 1 {
+                Button("Download \(copied.count) Links from Clipboard") { manager.add(copied) }
+                    .glassButtonStyle()
+            } else if let link = Clipboard.videoURL() {
                 Button("Download from Clipboard") { manager.add(link) }
                     .glassButtonStyle()
                     .help(link)
             }
         }
         .frame(maxHeight: .infinity)
+    }
+
+    /// Links (or text containing them) start downloading; text files are read for their links;
+    /// videos and songs from this Mac open the convert sheet.
+    private func handleDrop(_ providers: [NSItemProvider]) async {
+        var links: [String] = []
+        var media: [URL] = []
+        for provider in providers {
+            let url = await provider.load(URL.self)
+            if let url, url.isFileURL {
+                if Converting.isMedia(url) {
+                    media.append(url)
+                } else if Converting.isText(url) {
+                    links += Links.extract(fromFile: url)
+                }
+            } else if let link = url.flatMap({ Links.validated($0.absoluteString) }) {
+                links.append(link)
+            } else if let text = await provider.load(String.self) {
+                // Selected text from a browser or a note, with one or more links in it.
+                links += Links.extract(fromText: text)
+            }
+        }
+        if !links.isEmpty { manager.add(links) }
+        if !media.isEmpty { manager.filesToConvert = media }
+        if links.isEmpty, media.isEmpty { NSSound.beep() }
     }
 
     private var dropHighlight: some View {
@@ -468,6 +526,16 @@ struct ContentView: View {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Settings (⌘,)")
+        }
+    }
+}
+
+extension NSItemProvider {
+    /// Loads a dropped URL or string, or nil when the item isn't one.
+    func load<T: _ObjectiveCBridgeable>(_ type: T.Type) async -> T? where T._ObjectiveCType: NSItemProviderReading {
+        guard canLoadObject(ofClass: type) else { return nil }
+        return await withCheckedContinuation { continuation in
+            _ = loadObject(ofClass: type) { value, _ in continuation.resume(returning: value) }
         }
     }
 }

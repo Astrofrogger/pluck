@@ -9,6 +9,7 @@ struct FormatSettings: DynamicProperty {
     @AppStorage(Prefs.prefer60fps) var prefer60fps = false
     @AppStorage(Prefs.audioFormat) var audioFormat: AudioFormat = .m4a
     @AppStorage(Prefs.audioBitrate) var audioBitrate: AudioBitrate = .best
+    @AppStorage(Prefs.splitChapters) var splitChapters = false
 
     var options: DownloadOptions {
         DownloadOptions(kind: kind, resolution: resolution, codec: codec, container: container,
@@ -70,6 +71,12 @@ struct FormatMenu: View {
                 Label("Audio Quality", systemImage: "waveform")
             }
             .disabled(!format.audioFormat.supportsBitrate)
+
+            Divider()
+            Toggle(isOn: format.$splitChapters) {
+                Label("Split into Chapters", systemImage: "list.number")
+            }
+            .help("Videos with chapters, like DJ mixes and full albums, are saved as one file per chapter")
 
             Divider()
             Button("More Settings…") { openSettings() }

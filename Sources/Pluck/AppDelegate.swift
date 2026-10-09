@@ -1,10 +1,11 @@
 import AppKit
 import ServiceManagement
+import UserNotifications
 
 /// Owns the app's long-lived state so it keeps running with no windows open: Pluck lives on in the
 /// menu bar after its window closes, hiding its Dock icon until a window opens again.
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     let manager = DownloadManager()
     let updater = Updater()
     let appUpdater = AppUpdater()
@@ -25,8 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.bool(forKey: Prefs.startInMenuBar) && UserDefaults.standard.bool(forKey: Prefs.showMenuBarIcon)
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Before anything writes preferences: an empty set means a fresh install, not an update.
+        WhatsNew.prepare()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         CookieBrowser.chooseOnFirstLaunch()
+        UNUserNotificationCenter.current().delegate = self
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
         Self.shared = self
@@ -39,6 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appUpdater.startAutomaticChecks()
 
         if Self.startsHidden { NSApp.setActivationPolicy(.accessory) }
+        // After the main window, so the notes open on top of it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WhatsNew.showIfNeeded() }
 
         let center = NotificationCenter.default
         center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in
@@ -68,13 +77,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    /// The global shortcut: the clipboard's link starts downloading without switching apps.
+    /// The global shortcut: the clipboard's links start downloading without switching apps.
     private func downloadClipboardLink() {
-        guard let link = Clipboard.videoURL() ?? NSPasteboard.general.string(forType: .string).flatMap(Links.validated) else {
+        let links = Links.extract(from: NSPasteboard.general)
+        guard !links.isEmpty else {
             NSSound.beep()
             return
         }
-        manager.add(link)
+        manager.add(links)
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let action = response.actionIdentifier
+        let info = response.notification.request.content.userInfo
+        let files = info[Notifications.filesKey] as? [String] ?? []
+        await MainActor.run { Notifications.handle(action: action, userInfo: [Notifications.filesKey: files]) }
     }
 
     /// A Dock icon only while a real window (main or Settings) is open.

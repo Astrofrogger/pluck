@@ -9,6 +9,8 @@ VERSION="${1:?usage: release.sh <version> [notes]}"
 CHANGES="${2:-}"
 [[ -z "$(git status --porcelain)" ]] || { echo "Commit or stash your changes first." >&2; exit 1; }
 git rev-parse "v$VERSION" >/dev/null 2>&1 && { echo "v$VERSION already exists." >&2; exit 1; }
+grep -q "version: \"$VERSION\"" Sources/Pluck/WhatsNew.swift \
+  || { echo "Add the notes for $VERSION to Sources/Pluck/WhatsNew.swift first; people see them after updating." >&2; exit 1; }
 
 PLIST=Resources/Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"

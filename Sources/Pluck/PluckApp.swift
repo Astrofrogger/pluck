@@ -29,11 +29,16 @@ struct PluckApp: App {
             CommandGroup(replacing: .appSettings) {
                 SettingsCommand()
             }
-            CommandGroup(replacing: .newItem) {}
+            CommandGroup(replacing: .newItem) {
+                Button("Download Links from File…") { manager.chooseLinkFile() }
+                Button("Convert Files…") { manager.chooseFilesToConvert() }
+                    .keyboardShortcut("o")
+            }
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Download Link from Clipboard") {
-                    if let url = Clipboard.videoURL() { manager.add(url) }
+                    let links = Links.extract(from: NSPasteboard.general)
+                    if links.isEmpty { NSSound.beep() } else { manager.add(links) }
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             }

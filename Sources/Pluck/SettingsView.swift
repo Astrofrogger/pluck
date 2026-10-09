@@ -117,6 +117,7 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @AppStorage(Prefs.maxConcurrent) private var maxConcurrent = 3
     @AppStorage(Prefs.notify) private var notify = true
+    @State private var notificationsAllowed = true
     @AppStorage(Prefs.askLocation) private var askLocation = false
     @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
     @AppStorage(Prefs.startInMenuBar) private var startInMenuBar = false
@@ -151,6 +152,18 @@ private struct GeneralSettings: View {
                 ForEach(1...6, id: \.self) { Text("\($0)").tag($0) }
             }
             Toggle("Notify when downloads finish in the background", isOn: $notify)
+                .onChange(of: notify) { _, on in
+                    if on { Notifications.requestPermissionIfNeeded() }
+                    Task { notificationsAllowed = await Notifications.areAllowed() }
+                }
+            if notify, !notificationsAllowed {
+                HStack {
+                    Label("Notifications are turned off for Pluck in System Settings.", systemImage: "bell.slash")
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Turn On…") { Notifications.openSystemSettings() }
+                }
+            }
             Toggle(isOn: $globalShortcut) {
                 Text("Download copied link from any app")
                 Text("Works without switching to Pluck.")
@@ -241,6 +254,11 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
+        // Back from System Settings? Show whether notifications are allowed now.
+        .task { notificationsAllowed = await Notifications.areAllowed() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { notificationsAllowed = await Notifications.areAllowed() }
+        }
     }
 
     private func applyShortcut(_ enabled: Bool) {

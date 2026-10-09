@@ -22,6 +22,9 @@ enum History {
         var hasLyrics: Bool?
         var progress: Double?
         var resolvedURL: String?
+        var splitChapters: Bool?
+        var chapterCount: Int?
+        var conversion: Conversion?
     }
 
     static let limit = 200
@@ -49,6 +52,9 @@ enum History {
             item.sourceAudio = e.sourceAudio
             item.hasLyrics = e.hasLyrics ?? false
             item.resolvedURL = e.resolvedURL
+            item.splitChapters = e.splitChapters ?? false
+            item.chapterCount = e.chapterCount
+            item.conversion = e.conversion
             item.progress = e.state == "finished" ? 1 : (e.progress ?? 0)
             item.state = switch e.state {
             case "finished": .finished
@@ -80,7 +86,9 @@ enum History {
                          spotify: item.spotify, state: state, filePath: item.fileURL?.path,
                          fileSize: item.fileSize, errorMessage: error, finishedAt: item.finishedAt,
                          clip: item.clip, sourceAudio: item.sourceAudio, hasLyrics: item.hasLyrics,
-                         progress: item.progress, resolvedURL: item.spotify != nil ? item.resolvedURL : nil)
+                         progress: item.progress, resolvedURL: item.spotify != nil ? item.resolvedURL : nil,
+                         splitChapters: item.splitChapters, chapterCount: item.chapterCount,
+                         conversion: item.conversion)
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

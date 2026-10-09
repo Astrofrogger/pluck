@@ -69,7 +69,7 @@ struct DownloadRow: View {
             if let image = phase.image {
                 image.resizable().scaledToFill()
             } else {
-                Image(systemName: item.options.isAudio ? "music.note" : "play.rectangle")
+                Image(systemName: item.conversion != nil ? "arrow.triangle.2.circlepath" : (item.options.isAudio ? "music.note" : "play.rectangle"))
                     .font(.title2)
                     .foregroundStyle(.tertiary)
             }
@@ -108,15 +108,22 @@ struct DownloadRow: View {
                     .background(Color(red: 0.11, green: 0.73, blue: 0.33), in: .capsule)
                     .help("Matched on YouTube Music and tagged with Spotify’s metadata")
             }
-            Label(item.options.longLabel, systemImage: item.options.symbol)
-                .labelStyle(.titleAndIcon)
+            if let conversion = item.conversion {
+                Label(conversion.label(options: item.options), systemImage: conversion.preset.symbol)
+                    .labelStyle(.titleAndIcon)
+                Text("·")
+                Text(URL(fileURLWithPath: conversion.source).lastPathComponent)
+            } else {
+                Label(item.options.longLabel, systemImage: item.options.symbol)
+                    .labelStyle(.titleAndIcon)
+            }
             if let clip = item.clip {
                 Text("·")
                 Label(clip.label, systemImage: "scissors")
                     .labelStyle(.titleAndIcon)
                     .accessibilityLabel("Clip \(clip.label)")
             }
-            if let uploader = item.uploader {
+            if let uploader = item.uploader, item.conversion == nil {
                 Text("·")
                 Text(uploader)
             }
@@ -173,6 +180,21 @@ struct DownloadRow: View {
                 Label(item.fileSize.map { String(localized: "Done · \(Format.bytes($0))") } ?? String(localized: "Done"), systemImage: "checkmark.circle.fill")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.green)
+                if let count = item.chapterCount {
+                    Label("\(count) chapters", systemImage: "list.number")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .help("Split into one file per chapter, in a folder")
+                }
+                if item.isLossless {
+                    Text("Lossless")
+                        .font(.caption2.weight(.semibold))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .overlay(Capsule().strokeBorder(.secondary.opacity(0.6), lineWidth: 1))
+                        .foregroundStyle(.secondary)
+                        .help("The source was lossless and the file wasn’t converted to a lossy format")
+                }
                 if item.hasLyrics {
                     Label("Lyrics", systemImage: "text.quote")
                         .font(.caption)
@@ -216,6 +238,7 @@ struct DownloadRow: View {
 
     private var downloadStats: String {
         var parts = ["\(Int(item.progress * 100))%"]
+        if item.conversion != nil { parts.insert(String(localized: "Converting"), at: 0) }
         if let speed = item.speed { parts.append("\(Format.bytes(Int64(speed)))/s") }
         if let eta = item.eta, eta > 0 { parts.append(String(localized: "\(Format.duration(eta)) left")) }
         return parts.joined(separator: " · ")
@@ -225,6 +248,8 @@ struct DownloadRow: View {
     private var actionButton: some View {
         HStack(spacing: 8) {
             switch item.state {
+            case .downloading where item.conversion != nil, .queued where item.conversion != nil:
+                cancelButton
             case .downloading, .queued:
                 Button { manager.pause(item) } label: { Image(systemName: "pause.fill") }
                     .accessibilityLabel("Pause Download")
@@ -270,7 +295,7 @@ struct DownloadRow: View {
             Button("Show in Finder", action: reveal)
             Divider()
         }
-        if item.state == .downloading || item.state == .queued {
+        if item.conversion == nil, item.state == .downloading || item.state == .queued {
             Button("Pause") { manager.pause(item) }
         } else if item.state == .paused {
             Button("Resume") { manager.resume(item) }
@@ -282,12 +307,18 @@ struct DownloadRow: View {
         } else if item.state != .finished {
             Button("Try Again") { manager.retry(item) }
         }
-        Button("Copy Link") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(item.url, forType: .string)
-        }
-        Button("Open Link in Browser") {
-            if let url = URL(string: item.url) { NSWorkspace.shared.open(url) }
+        if let conversion = item.conversion {
+            Button("Show Original in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: conversion.source)])
+            }
+        } else {
+            Button("Copy Link") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(item.url, forType: .string)
+            }
+            Button("Open Link in Browser") {
+                if let url = URL(string: item.url) { NSWorkspace.shared.open(url) }
+            }
         }
         Divider()
         Button("Remove from List", role: .destructive) {
