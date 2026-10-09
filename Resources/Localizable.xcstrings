@@ -12996,6 +12996,64 @@
         }
       }
     },
+    "Firefox Nightly and Chrome Beta": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly en Chrome Beta"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly und Chrome Beta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly et Chrome Beta"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly y Chrome Beta"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly e Chrome Beta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly e Chrome Beta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox NightlyとChrome Beta"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly 및 Chrome Beta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Firefox Nightly 和 Chrome Beta"
+          }
+        }
+      }
+    },
     "Follows the speaker or subject, and shows titles whole.": {
       "localizations": {
         "de": {
@@ -21753,6 +21811,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 更新"
+          }
+        }
+      }
+    },
+    "Pluck can now use the logins from Firefox Nightly and Google Chrome Beta. Pick one in Settings under Use cookies from.": {
+      "localizations": {
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kan nu de logins van Firefox Nightly en Google Chrome Beta gebruiken. Kies er een in Instellingen bij Gebruik cookies van."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck kann jetzt die Anmeldungen aus Firefox Nightly und Google Chrome Beta verwenden. Wähle einen Browser in den Einstellungen unter „Cookies verwenden von“."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck peut désormais utiliser les connexions de Firefox Nightly et de Google Chrome Beta. Choisissez-en un dans les réglages, sous Utiliser les cookies de."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ya puede usar las sesiones de Firefox Nightly y Google Chrome Beta. Elige uno en Ajustes, en Usar cookies de."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ora può usare gli accessi di Firefox Nightly e Google Chrome Beta. Scegline uno nelle Impostazioni, alla voce Usa i cookie di."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck agora pode usar os logins do Firefox Nightly e do Google Chrome Beta. Escolha um nos Ajustes, em Usar cookies de."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PluckでFirefox NightlyとGoogle Chrome Betaのログインを使えるようになりました。設定の「Cookie の取得元」で選択できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 Pluck에서 Firefox Nightly와 Google Chrome Beta의 로그인을 사용할 수 있습니다. 설정의 ‘쿠키 가져올 브라우저’에서 선택하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 现在可以使用 Firefox Nightly 和 Google Chrome Beta 的登录信息。请在设置的“使用 Cookie 来源”中选择。"
           }
         }
       }

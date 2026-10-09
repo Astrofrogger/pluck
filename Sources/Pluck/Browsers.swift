@@ -2,7 +2,7 @@ import AppKit
 
 /// Browsers yt-dlp can read cookies from on macOS.
 enum CookieBrowser: String, CaseIterable, Identifiable {
-    case safari, chrome, firefox, zen, brave, edge, vivaldi, opera, chromium
+    case safari, chrome, chromeBeta, firefox, firefoxNightly, zen, brave, edge, vivaldi, opera, chromium
 
     var id: String { rawValue }
 
@@ -10,7 +10,9 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         switch self {
         case .safari: "Safari"
         case .chrome: "Google Chrome"
+        case .chromeBeta: "Google Chrome Beta"
         case .firefox: "Firefox"
+        case .firefoxNightly: "Firefox Nightly"
         case .zen: "Zen"
         case .brave: "Brave"
         case .edge: "Microsoft Edge"
@@ -24,7 +26,9 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         switch self {
         case .safari: "com.apple.Safari"
         case .chrome: "com.google.Chrome"
+        case .chromeBeta: "com.google.Chrome.beta"
         case .firefox: "org.mozilla.firefox"
+        case .firefoxNightly: "org.mozilla.nightly"
         case .zen: "app.zen-browser.zen"
         case .brave: "com.brave.Browser"
         case .edge: "com.microsoft.edgemac"
@@ -34,11 +38,11 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Variants that share the same cookie storage, e.g. Firefox Developer Edition and Nightly.
+    /// Variants that share the same cookie storage, e.g. Firefox Developer Edition.
     private var bundleIDs: [String] {
         switch self {
-        case .firefox: [bundleID, "org.mozilla.firefoxdeveloperedition", "org.mozilla.firefoxbeta", "org.mozilla.nightly"]
-        case .chrome: [bundleID, "com.google.Chrome.beta", "com.google.Chrome.canary"]
+        case .firefox: [bundleID, "org.mozilla.firefoxdeveloperedition", "org.mozilla.firefoxbeta"]
+        case .chrome: [bundleID, "com.google.Chrome.canary"]
         case .edge: [bundleID, "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev"]
         default: [bundleID]
         }
@@ -49,11 +53,19 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
     }
     var isInstalled: Bool { appURL != nil }
 
-    /// The value for yt-dlp's --cookies-from-browser. Zen is Firefox-based, so it's passed as
-    /// Firefox pointed at Zen's profile folder.
+    /// The value for yt-dlp's --cookies-from-browser. Zen and Firefox Nightly are passed as
+    /// Firefox pointed at their profile folder, Chrome Beta as Chrome pointed at its own folder.
     var argument: String? {
-        guard self == .zen else { return rawValue }
-        return Self.zenProfile().map { "firefox:\($0.path)" }
+        switch self {
+        case .zen: Self.zenProfile().map { "firefox:\($0.path)" }
+        case .firefoxNightly: Self.nightlyProfile().map { "firefox:\($0.path)" }
+        case .chromeBeta: "chrome:\(Self.support.appendingPathComponent("Google/Chrome Beta").path)"
+        default: rawValue
+        }
+    }
+
+    private static var support: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
     }
 
     /// Picks a browser the first time Pluck runs, so sites that need a login (and YouTube's bot
@@ -64,7 +76,7 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         guard let domain = Bundle.main.bundleIdentifier,
               defaults.persistentDomain(forName: domain)?[Prefs.cookiesBrowser] == nil else { return }
         // Firefox-based browsers first: they never ask for the keychain.
-        let fallback: [CookieBrowser] = [.firefox, .zen, .chrome, .brave, .edge, .vivaldi, .opera, .chromium, .safari]
+        let fallback: [CookieBrowser] = [.firefox, .zen, .firefoxNightly, .chrome, .chromeBeta, .brave, .edge, .vivaldi, .opera, .chromium, .safari]
         let pick = ([defaultBrowser].compactMap { $0 } + fallback).first { $0.isInstalled && $0.hasReadableCookies }
         defaults.set(pick?.rawValue ?? "none", forKey: Prefs.cookiesBrowser)
     }
@@ -90,13 +102,16 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
             return true
         case .zen:
             return Self.zenProfile() != nil
+        case .firefoxNightly:
+            return Self.nightlyProfile() != nil
         case .firefox:
             let profiles = support.appendingPathComponent("Firefox/Profiles")
             let dirs = (try? FileManager.default.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil)) ?? []
             return dirs.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("cookies.sqlite").path) }
-        case .chrome, .brave, .edge, .vivaldi, .opera, .chromium:
+        case .chrome, .chromeBeta, .brave, .edge, .vivaldi, .opera, .chromium:
             let folder = switch self {
             case .chrome: "Google/Chrome"
+            case .chromeBeta: "Google/Chrome Beta"
             case .brave: "BraveSoftware/Brave-Browser"
             case .edge: "Microsoft Edge"
             case .vivaldi: "Vivaldi"
@@ -109,10 +124,19 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
 
     /// The Zen profile whose cookies were used most recently.
     static func zenProfile() -> URL? {
-        let profiles = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("zen/Profiles", isDirectory: true)
+        newestProfile(in: "zen/Profiles")
+    }
+
+    /// Firefox Nightly's profile ("….default-nightly"), next to Firefox's own in the same folder.
+    static func nightlyProfile() -> URL? {
+        newestProfile(in: "Firefox/Profiles") { $0.lastPathComponent.localizedCaseInsensitiveContains("nightly") }
+    }
+
+    private static func newestProfile(in folder: String, where matches: (URL) -> Bool = { _ in true }) -> URL? {
+        let profiles = support.appendingPathComponent(folder, isDirectory: true)
         let dirs = (try? FileManager.default.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil)) ?? []
         return dirs
+            .filter(matches)
             .compactMap { dir -> (URL, Date)? in
                 let cookies = dir.appendingPathComponent("cookies.sqlite")
                 guard let date = try? cookies.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate

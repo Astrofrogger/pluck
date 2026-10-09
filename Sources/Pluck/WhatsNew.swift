@@ -88,6 +88,10 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.9.4", items: [
+                Item(symbol: "globe", title: String(localized: "Firefox Nightly and Chrome Beta"),
+                     detail: String(localized: "Pluck can now use the logins from Firefox Nightly and Google Chrome Beta. Pick one in Settings under Use cookies from.")),
+            ]),
             Release(version: "1.9.3", items: [
                 Item(symbol: "character.bubble", title: String(localized: "Translate subtitle files"),
                      detail: String(localized: "Drop .srt or .vtt subtitles on Pluck to translate them to another language with local AI on your Mac. The translation is saved next to the original.")),
