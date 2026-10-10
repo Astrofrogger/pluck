@@ -13,6 +13,10 @@ struct LibraryView: View {
     @State private var newTag = ""
     @State private var trashing: LibraryStore.Entry?
     @State private var preview: URL?
+    @State private var sharing = false
+    @State private var sending: LibraryStore.Entry?
+    @State private var network = NetworkLibraries.shared
+    @State private var server = LibraryServer.shared
     /// The highlighted item (its path): Space shows it in Quick Look, arrow keys move it.
     @State private var selected: String?
     @State private var columns = 1
@@ -23,6 +27,8 @@ struct LibraryView: View {
     enum Collection: Hashable {
         case all, videos, audio, photos, recent, duplicates, missing, largest
         case site(String), tag(String)
+        /// Another Mac's shared Library, by its name.
+        case network(String)
 
         var title: String {
             switch self {
@@ -36,6 +42,7 @@ struct LibraryView: View {
             case .largest: String(localized: "Largest")
             case .site(let name): name
             case .tag(let name): name
+            case .network(let name): name
             }
         }
     }
@@ -78,13 +85,34 @@ struct LibraryView: View {
                     row(.missing, "questionmark.folder")
                     row(.largest, "externaldrive")
                 }
+                if !network.peers.isEmpty {
+                    Section("On This Network") {
+                        ForEach(network.peers) { peer in
+                            Label(peer.name, systemImage: "desktopcomputer").tag(Collection.network(peer.name))
+                        }
+                    }
+                }
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 210)
         } detail: {
-            detail
+            if case .network(let name) = collection, let peer = network.peers.first(where: { $0.name == name }) {
+                RemoteLibraryView(peer: peer, search: search)
+            } else {
+                detail
+            }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Search titles, channels and tags")
         .toolbar {
+            ToolbarItem {
+                Button {
+                    sharing.toggle()
+                } label: {
+                    Label("Share on This Network", systemImage: server.isRunning ? "dot.radiowaves.left.and.right" : "antenna.radiowaves.left.and.right")
+                }
+                .foregroundStyle(server.isRunning ? Color.accentColor : Color.primary)
+                .help(server.isRunning ? "Shared on this network" : "Share on this network")
+                .popover(isPresented: $sharing, arrowEdge: .bottom) { LibrarySharingView() }
+            }
             ToolbarItem {
                 Picker("Sort", selection: $sort) {
                     ForEach(Sort.allCases) { Text($0.label).tag($0) }
@@ -96,8 +124,16 @@ struct LibraryView: View {
         .navigationTitle(collection?.title ?? String(localized: "Library"))
         .navigationSubtitle(summary)
         .frame(minWidth: 760, minHeight: 460)
-        .onAppear(perform: checkFiles)
+        .onAppear {
+            checkFiles()
+            network.start()
+        }
+        .onDisappear { network.stop() }
         .quickLookPreview($preview)
+        .sheet(item: $sending) { entry in
+            SendToPhoneView(entry: entry)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sending = nil } } }
+        }
         .alert("Add Tag", isPresented: Binding(get: { tagging != nil }, set: { if !$0 { tagging = nil } })) {
             TextField("Tag", text: $newTag)
             Button("Add") { addTag() }
@@ -134,12 +170,14 @@ struct LibraryView: View {
         case .largest: Array(library.entries.filter { ($0.size ?? 0) > 0 }.sorted { ($0.size ?? 0) > ($1.size ?? 0) }.prefix(100))
         case .site(let name): library.entries.filter { $0.site == name }
         case .tag(let name): library.entries.filter { $0.tags.contains(name) }
+        case .network: []
         }
     }
 
     private func count(_ collection: Collection) -> Int {
         switch collection {
         case .duplicates, .missing, .largest, .all, .videos, .audio, .photos, .recent, .site, .tag: entries(in: collection).count
+        case .network: 0
         }
     }
 
@@ -251,6 +289,7 @@ struct LibraryView: View {
         }
         Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) }.disabled(!exists)
+        Button("Send to Phone…") { sending = entry }.disabled(!exists)
         if Resolve.isInstalled, entry.kind != .other {
             Button("Send to DaVinci Resolve") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
         }

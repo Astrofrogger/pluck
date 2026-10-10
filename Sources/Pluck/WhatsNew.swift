@@ -88,6 +88,16 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.12.0", items: [
+                Item(symbol: "dot.radiowaves.left.and.right", title: String(localized: "Share your Library on your network"),
+                     detail: String(localized: "Phones and computers on the same network can browse, play and download your Library in a browser. Turn it on with the network button in the Library window and scan the QR code with your phone. Protected by an access code, and off until you turn it on.")),
+                Item(symbol: "arrow.down.circle", title: String(localized: "Download from your phone"),
+                     detail: String(localized: "Paste a link on your phone and your Mac downloads it, or send files from your phone to your Mac. The page shows what’s downloading. Both are switches in the share panel.")),
+                Item(symbol: "iphone.and.arrow.forward", title: String(localized: "Send to Phone"),
+                     detail: String(localized: "Right-click something in the Library, scan the QR code, and it saves straight to your phone.")),
+                Item(symbol: "desktopcomputer", title: String(localized: "Libraries on your network"),
+                     detail: String(localized: "Colleagues’ Macs that share their Library appear in yours: play, copy to your Mac, or send a link for that Mac to download, so one Mac can download for the whole team.")),
+            ]),
             Release(version: "1.11.0", items: [
                 Item(symbol: "lock.shield", title: String(localized: "Downloads keep working on macOS 27"),
                      detail: String(localized: "macOS 27 no longer lets other apps read the logins of Chrome, Brave, Edge and Firefox, which made downloads fail. Pluck now notices this and downloads without them. For members-only videos, pick Safari, Zen, Vivaldi, Opera or Chrome Beta in Settings.")),

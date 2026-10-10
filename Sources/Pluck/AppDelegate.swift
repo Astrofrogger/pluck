@@ -35,6 +35,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         CookieBrowser.chooseOnFirstLaunch()
+        LibraryServer.shared.manager = manager
+        LibraryServer.shared.startIfEnabled()
         if ScreenshotMode.scene == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { CookieBrowser.warnIfBlocked() }
         }
