@@ -127,3 +127,25 @@ struct BarButtonStyle: ButtonStyle {
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
 }
+
+/// A capsule bar button with text, the shared height: the main action of a bar (accent), or one
+/// that ends something (red), like Record and Stop.
+struct BarCapsuleButtonStyle: ButtonStyle {
+    var tint: Color = .accentColor
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Design.Typography.control.weight(.semibold))
+            .labelStyle(.titleAndIcon)
+            .foregroundStyle(.white)
+            .padding(.horizontal, Design.Spacing.inset + 4)
+            .frame(height: Design.Size.control)
+            .background(Capsule().fill(tint))
+            .glassBackground(in: .capsule, interactive: true)
+            .contentShape(.capsule)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}

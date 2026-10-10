@@ -88,6 +88,14 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.13.0", items: [
+                Item(symbol: "film.stack", title: String(localized: "Derush Footage"),
+                     detail: String(localized: "Drop a folder of raw footage and local AI on your Mac judges every shot for focus, light, faces, action and its look, and marks cheers, music and the best quotes. It then looks at the whole shoot, picks selects for a corporate, commercial, aftermovie, music or brand video, and says which shots are missing. Build it as a marked-up timeline in DaVinci Resolve. Find it in the File menu.")),
+                Item(symbol: "magnifyingglass", title: String(localized: "Find Shots"),
+                     detail: String(localized: "Search your downloads and footage by what’s in the picture, like “drone shot of a forest” or “whip pan”, with filters for camera movement and framing. Local AI on your Mac describes every shot. Press ⌥⌘F.")),
+                Item(symbol: "record.circle", title: String(localized: "Live Recorder"),
+                     detail: String(localized: "Record a live stream and Pluck marks cheers, music and silence as it goes, with a live transcript by local AI on your Mac and highlights for the edit.")),
+            ]),
             Release(version: "1.12.0", items: [
                 Item(symbol: "dot.radiowaves.left.and.right", title: String(localized: "Share your Library on your network"),
                      detail: String(localized: "Phones and computers on the same network can browse, play and download your Library in a browser. Turn it on with the network button in the Library window and scan the QR code with your phone. Protected by an access code, and off until you turn it on.")),

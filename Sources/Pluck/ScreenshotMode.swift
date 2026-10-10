@@ -6,7 +6,7 @@ import SwiftUI
 /// use (nothing sets that argument).
 ///
 /// Scenes: main, search:<words>, convert, subtitles, tighten, cleanup, enhance, background, blur,
-/// shorts, summarize, library, player, settings. Options: `-PluckScreenshotItem <title start>`
+/// shorts, summarize, library, player, settings, live, derush. Options: `-PluckScreenshotItem <title start>`
 /// picks the item, `-PluckScreenshotDownloading <n>` shows the first n paused items as
 /// downloading, `-PluckScreenshotSize <w>x<h>` sizes the main window and
 /// `-PluckScreenshotAppearance light|dark` picks the look.
@@ -75,6 +75,26 @@ enum ScreenshotMode {
             case "shorts": ai.shortsItem = item
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
             case "library": openWindow(id: "library")
+            case "live":
+                // -PluckScreenshotLink <stream> records it; -PluckScreenshotFile <path> analyses a file.
+                openWindow(id: "liveRecorder")
+                let session = LiveRecorderView.shared
+                session.manager = manager
+                let language = Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US")
+                if let link = defaults.string(forKey: "PluckScreenshotLink") {
+                    session.record(link, fromStart: false, language: language)
+                }
+            case "derush":
+                // -PluckScreenshotFile <file or folder> is added and analysed.
+                openWindow(id: "derush")
+                let derush = DerushView.shared
+                derush.manager = manager
+                if let path = defaults.string(forKey: "PluckScreenshotFile") {
+                    derush.add([URL(fileURLWithPath: path)])
+                    derush.showOverview = defaults.bool(forKey: "PluckScreenshotOverview")
+                    derush.start(language: Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US"),
+                                 lookAtPicture: true, kind: ShootPlan.Kind(rawValue: defaults.string(forKey: "derushKind") ?? "") ?? .corporate)
+                }
             case "player":
                 if let item, let file = item.existingFile {
                     openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript"))

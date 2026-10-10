@@ -40,7 +40,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         if ScreenshotMode.scene == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { CookieBrowser.warnIfBlocked() }
         }
-        manager.onFinished = { [weak self] item in self?.ai.downloadFinished(item) }
+        manager.onFinished = { [weak self] item in
+            self?.ai.downloadFinished(item)
+            if let file = item.fileURL { VisualIndexer.shared.downloaded(file) }
+        }
+        VisualIndexer.shared.manager = manager
         UNUserNotificationCenter.current().delegate = self
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()

@@ -36,6 +36,9 @@ struct PluckApp: App {
                     .keyboardShortcut("o")
                 MusicFitCommand()
                 LogoAnimatorCommand()
+                FindShotsCommand()
+                LiveRecorderCommand()
+                DerushCommand()
             }
             CommandGroup(before: .windowList) {
                 LibraryCommand()
@@ -62,6 +65,24 @@ struct PluckApp: App {
                 .environment(manager)
         }
         .menuBarExtraStyle(.window)
+
+        Window("Derush Footage", id: "derush") {
+            DerushView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 1040, height: 720)
+
+        Window("Live Recorder", id: "liveRecorder") {
+            LiveRecorderView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 980, height: 720)
+
+        Window("Find Shots", id: "findShots") {
+            VisualSearchView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 960, height: 720)
 
         Window("Logo Animator", id: "logoAnimator") {
             LogoAnimatorView()
@@ -100,6 +121,31 @@ struct PluckApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+private struct DerushCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Derush Footage…") { openWindow(id: "derush") }
+    }
+}
+
+private struct LiveRecorderCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Live Recorder…") { openWindow(id: "liveRecorder") }
+    }
+}
+
+private struct FindShotsCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Find Shots…") { openWindow(id: "findShots") }
+            .keyboardShortcut("f", modifiers: [.command, .option])
     }
 }
 
