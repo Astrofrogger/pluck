@@ -57,8 +57,7 @@ struct SearchInsideView: View {
                 Label(LocalAI.canSummarize ? "Local AI on this Mac helps find the right moment. Nothing is uploaded."
                                            : "Searching runs on this Mac. Nothing is uploaded.",
                       systemImage: "lock.shield")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .noteStyle()
                 Spacer()
                 Button("Done") { dismiss() }
                     .keyboardShortcut(.cancelAction)

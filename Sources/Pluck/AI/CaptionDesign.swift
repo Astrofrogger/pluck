@@ -344,12 +344,12 @@ struct CaptionDesignEditor: View {
         .padding(.vertical, !forShorts && design.emphasis == .box ? size * 0.15 : 0)
         .background {
             if !forShorts, design.emphasis == .box {
-                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(design.swiftUIColor.opacity(0.9))
+                RoundedRectangle(cornerRadius: Design.Radius.small, style: .continuous).fill(design.swiftUIColor.opacity(0.9))
             }
         }
         .frame(maxWidth: .infinity, minHeight: 86)
         .background(LinearGradient(colors: [Color(white: 0.35), Color(white: 0.12)], startPoint: .top, endPoint: .bottom),
-                    in: .rect(cornerRadius: 10))
+                    in: .rect(cornerRadius: Design.Radius.thumbnail))
         .accessibilityHidden(true)
     }
 }

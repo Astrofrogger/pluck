@@ -35,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         CookieBrowser.chooseOnFirstLaunch()
+        if ScreenshotMode.scene == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { CookieBrowser.warnIfBlocked() }
+        }
         manager.onFinished = { [weak self] item in self?.ai.downloadFinished(item) }
         UNUserNotificationCenter.current().delegate = self
         NSApp.servicesProvider = services

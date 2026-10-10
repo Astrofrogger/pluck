@@ -19,17 +19,8 @@ struct ShortsSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "rectangle.portrait.on.rectangle.portrait.angled")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Make Shorts").font(.title3.weight(.semibold))
-                    Text(item.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: Text("Make Shorts"), subtitle: Text(item.title))
 
             Form {
                 if needsLanguage {
@@ -62,9 +53,7 @@ struct ShortsSheet: View {
                   ? "Local AI on this Mac picks the best moments from what’s said, keeps the subject in frame and captions every word. Nothing is uploaded."
                   : "Pluck picks the busiest moments, keeps the subject in frame and captions every word, all on this Mac. With Apple Intelligence on, local AI picks moments by what’s said.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -80,7 +69,7 @@ struct ShortsSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 460)
     }
 }

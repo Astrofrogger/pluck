@@ -11,17 +11,8 @@ struct BackgroundSheet: View {
     @State private var picture: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "person.and.background.dotted")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("New Background").font(.title3.weight(.semibold))
-                    Text(item.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "person.and.background.dotted", title: Text("New Background"), subtitle: Text(item.title))
 
             Form {
                 Picker(selection: $kind) {
@@ -68,9 +59,7 @@ struct BackgroundSheet: View {
 
             Label("Works best when people stand free in the picture: things in front of them, like a railing or a table edge, can be cut away too. Runs entirely on this Mac with local AI; the original isn’t changed.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -85,7 +74,7 @@ struct BackgroundSheet: View {
                 .disabled(kind == .image && picture == nil)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 500)
     }
 

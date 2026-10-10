@@ -483,7 +483,8 @@ private struct AdvancedSettings: View {
                     Section("Installed") {
                         ForEach(installed) { browser in
                             Label {
-                                Text(browser.name)
+                                Text(browser.access == .blockedByMacOS
+                                     ? String(localized: "\(browser.name) (blocked by macOS)") : browser.name)
                             } icon: {
                                 if let url = browser.appURL {
                                     Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
@@ -576,8 +577,11 @@ private struct AdvancedSettings: View {
     }
 
     private var cookiesFooter: String {
-        if cookiesBrowser != "none", CookieBrowser(rawValue: cookiesBrowser)?.isInstalled == false {
-            return String(localized: "That browser isn’t installed on this Mac, so cookies are skipped until you pick another.")
+        if cookiesBrowser != "none", let browser = CookieBrowser(rawValue: cookiesBrowser) {
+            if !browser.isInstalled {
+                return String(localized: "That browser isn’t installed on this Mac, so cookies are skipped until you pick another.")
+            }
+            if let problem = browser.accessProblem { return problem }
         }
         return String(localized: "Lets yt-dlp access age-restricted or members-only videos you can already watch in that browser. With YouTube Premium, it also gets the higher-quality audio (about 256 kbps instead of 128–136).")
     }
@@ -622,14 +626,14 @@ private struct ShortcutRecorder: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
                         .fill(recording ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(.fill.tertiary))
                 }
                 .overlay {
-                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
                         .strokeBorder(recording ? Color.accentColor : Color.clear, lineWidth: 1)
                 }
-                .contentShape(.rect(cornerRadius: 7))
+                .contentShape(.rect(cornerRadius: Design.Radius.control))
         }
         .buttonStyle(.plain)
         .help("Click, then press the new shortcut. Esc cancels.")

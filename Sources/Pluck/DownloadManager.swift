@@ -711,8 +711,10 @@ final class DownloadManager {
     }
 
     private func cookieArguments() -> [String] {
+        // Only when the cookies can actually be read: otherwise yt-dlp stops every download with
+        // "could not find … cookies database" (macOS 27 blocks Chrome, Brave, Edge and Firefox).
         guard let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
-              browser.isInstalled, let value = browser.argument else { return [] }
+              browser.isInstalled, browser.hasReadableCookies, let value = browser.argument else { return [] }
         return ["--cookies-from-browser", value]
     }
 

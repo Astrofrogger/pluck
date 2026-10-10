@@ -52,9 +52,7 @@ struct AISettings: View {
         .formStyle(.grouped)
         Label("Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded.",
               systemImage: "lock.shield")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
+            .noteStyle()
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
     }

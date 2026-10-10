@@ -34,17 +34,8 @@ struct SubtitleSheet: View {
     private var canEmbed: Bool { items.contains(where: canEmbed) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "captions.bubble")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Subtitles & Transcript").font(.title3.weight(.semibold))
-                    Text(AIStudio.Batch(items).title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "captions.bubble", title: Text("Subtitles & Transcript"), subtitle: Text(AIStudio.Batch(items).title))
 
             Form {
                 Picker("Spoken language", selection: $language) {
@@ -87,9 +78,7 @@ struct SubtitleSheet: View {
 
             Label("Runs entirely on this Mac with local AI: Apple’s on-device speech recognition and translation. Nothing is uploaded.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -101,7 +90,7 @@ struct SubtitleSheet: View {
                     .disabled(language == nil)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 480)
         .task { await loadLanguages() }
         .onChange(of: translateTo.map(\.minimalIdentifier)) { old, _ in

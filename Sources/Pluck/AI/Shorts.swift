@@ -224,11 +224,20 @@ enum Shorts {
         }
         // Hard cuts from ffmpeg, plus big changes between neighbouring samples.
         var bounds = cuts.filter { $0 > 0.2 && $0 < duration - 0.2 }
+        // Whether a title is on screen, steadied: text has to be there (or gone) for a second
+        // before it counts, since detection flickers while a title fades.
+        var titled = samples.map { $0.look.text != nil }
+        for i in titled.indices where i > 0 && i + 1 < titled.count && titled[i - 1] == titled[i + 1] {
+            titled[i] = titled[i - 1]
+        }
         for i in samples.indices.dropFirst() {
             let a = samples[i - 1], b = samples[i]
             let between = (a.time + b.time) / 2
             guard !bounds.contains(where: { $0 > a.time && $0 < b.time }) else { continue }
             if difference(a.thumb, b.thumb) > 0.18 { bounds.append(between) }
+            // A title fading in or out over a shot: framed on its own, so the rest of the shot
+            // can stay on its people.
+            else if titled[i - 1] != titled[i] { bounds.append(between) }
         }
         bounds = [0] + bounds.sorted() + [duration]
 
@@ -275,7 +284,8 @@ enum Shorts {
         var face: Double?
         var person: Double?
         var subject: CGRect?
-        var textWidth: Double
+        /// Where big text sits across the frame (0…1), if there is any.
+        var text: ClosedRange<Double>?
     }
 
     private static func look(at image: CGImage) -> Look {
@@ -292,9 +302,9 @@ enum Shorts {
         for object in objects { subject = subject.map { $0.union(object.boundingBox) } ?? object.boundingBox }
         // Big text only (titles, lower thirds), not a sign in the background.
         let bigText = (text.results ?? []).filter { $0.boundingBox.height > 0.05 }
-        let textSpan = bigText.isEmpty ? 0 : Double(bigText.map(\.boundingBox.maxX).max()! - bigText.map(\.boundingBox.minX).min()!)
+        let textSpan = bigText.isEmpty ? nil : Double(bigText.map(\.boundingBox.minX).min()!)...Double(bigText.map(\.boundingBox.maxX).max()!)
         return Look(face: face.map { Double($0.boundingBox.midX) }, person: person.map { Double($0.boundingBox.midX) },
-                    subject: subject, textWidth: textSpan)
+                    subject: subject, text: textSpan)
     }
 
     private static func framing(for looks: [Look], cropFraction: Double) -> Shot.Framing {
@@ -303,16 +313,25 @@ enum Shorts {
             let sorted = values.sorted()
             return sorted[sorted.count / 2]
         }
-        let clamp = { (x: Double) in min(max(x, cropFraction / 2), 1 - cropFraction / 2) }
-        // Text wider than the vertical window would be cut off: show the whole frame.
-        if looks.contains(where: { $0.textWidth > cropFraction * 1.15 }) { return .fit }
+        var low = cropFraction / 2, high = 1 - cropFraction / 2
+        // Cut-off words look broken: text stays whole in the window, which moves to take it in,
+        // and if it can't, the whole frame is shown.
+        // One glimpse of text (a T-shirt print, a sign going by) isn't a title.
+        let texts = looks.compactMap(\.text)
+        if let first = texts.first, texts.count >= min(2, looks.count) {
+            let span = texts.dropFirst().reduce(first) { min($0.lowerBound, $1.lowerBound)...max($0.upperBound, $1.upperBound) }
+            if span.upperBound - span.lowerBound > cropFraction * 0.96 { return .fit }
+            low = max(low, span.upperBound + 0.01 - cropFraction / 2)
+            high = min(high, span.lowerBound - 0.01 + cropFraction / 2)
+            if low > high { return .fit }
+        }
+        let clamp = { (x: Double) in min(max(x, low), high) }
         if let x = median(looks.compactMap(\.face)) { return .crop(clamp(x)) }
         if let x = median(looks.compactMap(\.person)) { return .crop(clamp(x)) }
-        // Wide scenes (drone shots, crowds) still crop well on their centre of interest; only
-        // text is shown whole, because cut-off words look broken.
+        // Wide scenes (drone shots, crowds) still crop well on their centre of interest.
         let subjects = looks.compactMap(\.subject)
         if let x = median(subjects.map { Double($0.midX) }) { return .crop(clamp(x)) }
-        return .crop(0.5)
+        return .crop(clamp(0.5))
     }
 
     /// The ffmpeg filter graph for one short (input [0:v], output [out]): each shot cropped at

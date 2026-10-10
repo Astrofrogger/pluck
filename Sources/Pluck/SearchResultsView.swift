@@ -122,7 +122,7 @@ private struct SearchResultRow: View {
             }
             .frame(width: isMusic ? 44 : 78, height: 44)
             .background(.fill.tertiary)
-            .clipShape(.rect(cornerRadius: 6, style: .continuous))
+            .clipShape(.rect(cornerRadius: Design.Radius.small, style: .continuous))
             .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -153,7 +153,7 @@ private struct SearchResultRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.thumbnail, style: .continuous)
                 .fill(.fill.quaternary)
                 .opacity(hovering ? 1 : 0)
         }

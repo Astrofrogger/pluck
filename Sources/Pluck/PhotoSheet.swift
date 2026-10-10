@@ -28,7 +28,7 @@ struct PhotoSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
             HStack(spacing: 14) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: files.first?.path ?? ""))
                     .resizable()
@@ -79,7 +79,7 @@ struct PhotoSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 460)
         .task(id: settings) { await measure() }
     }

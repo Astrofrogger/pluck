@@ -17,17 +17,8 @@ struct TightenSheet: View {
     private var removesFillers: Bool { fillers && LocalAI.canTranscribe }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "scissors")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Remove Silences & Fillers").font(.title3.weight(.semibold))
-                    Text(AIStudio.Batch(items).title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "scissors", title: Text("Remove Silences & Fillers"), subtitle: Text(AIStudio.Batch(items).title))
 
             Form {
                 Picker(selection: $pace) {
@@ -63,9 +54,7 @@ struct TightenSheet: View {
 
             Label("Runs entirely on this Mac with local AI. Pluck saves a tightened copy next to the original; the original isn’t changed.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -85,7 +74,7 @@ struct TightenSheet: View {
                 .disabled(removesFillers && language == nil)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 480)
         .task { await loadLanguages() }
     }

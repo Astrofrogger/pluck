@@ -19,14 +19,14 @@ private struct UnavailableTranslation: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
             Label("Translating subtitles needs macOS 15 or later.", systemImage: "character.bubble")
             HStack {
                 Spacer()
                 Button("OK") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 420)
     }
 }
@@ -70,24 +70,10 @@ private struct TranslateSubtitlesForm: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "character.bubble")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(heading)
-                        .font(.title3.weight(.semibold))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                    if files.count > 1 {
-                        Text(files.map(\.lastPathComponent).joined(separator: ", "))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "character.bubble", title: Text(heading),
+                        subtitle: files.count > 1 ? Text(files.map(\.lastPathComponent).joined(separator: ", ")) : nil,
+                        subtitleIsName: false)
 
             Form {
                 Picker("From", selection: $source) {
@@ -112,9 +98,7 @@ private struct TranslateSubtitlesForm: View {
             } else {
                 Label("Translated on this Mac with local AI: Apple’s on-device translation. Nothing is uploaded. The translation is saved next to the original.",
                       systemImage: "lock.shield")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .noteStyle()
             }
 
             HStack {
@@ -133,7 +117,7 @@ private struct TranslateSubtitlesForm: View {
                     .disabled(!canStart)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 480)
         .task { await load() }
         .task(id: source?.minimalIdentifier) { await checkPairs() }

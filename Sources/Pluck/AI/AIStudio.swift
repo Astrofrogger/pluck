@@ -29,6 +29,8 @@ final class AIStudio {
     }
     /// A video waiting for the user to choose shorts options.
     var shortsItem: DownloadItem?
+    /// A video waiting for the user to choose its deliverables.
+    var deliverablesItem: DownloadItem?
     /// Summarize or Add Chapters waiting for the spoken language (files without a transcript).
     var languageAsk: LanguageAsk?
 

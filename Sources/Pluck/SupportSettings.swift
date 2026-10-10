@@ -84,11 +84,11 @@ struct SupportSettings: View {
         }
         .padding(16)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .fill(.fill.quaternary)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .strokeBorder(.separator.opacity(0.6), lineWidth: 0.5)
         }
     }

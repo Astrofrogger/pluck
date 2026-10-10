@@ -14,17 +14,8 @@ struct PrivacyBlurSheet: View {
     @State private var task: Task<Void, Never>?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "eye.slash")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Privacy Blur").font(.title3.weight(.semibold))
-                    Text(item.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "eye.slash", title: Text("Privacy Blur"), subtitle: Text(item.title))
 
             if let problem {
                 Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
@@ -54,9 +45,7 @@ struct PrivacyBlurSheet: View {
 
             Label("Runs entirely on this Mac with local AI. Check the result before sharing it: a face that’s turned away or very small can be missed. The original isn’t changed.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -75,7 +64,7 @@ struct PrivacyBlurSheet: View {
                 .disabled(analysis == nil || (analysis?.faces.count == keepSharp.count && !blurText))
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 540)
         .onAppear(perform: analyze)
         .onDisappear { task?.cancel() }
@@ -121,7 +110,7 @@ struct PrivacyBlurSheet: View {
                         }
                     }
                     .frame(width: 76, height: 76)
-                    .clipShape(.rect(cornerRadius: 10))
+                    .clipShape(.rect(cornerRadius: Design.Radius.thumbnail))
                     Image(systemName: sharp ? "eye.circle.fill" : "eye.slash.circle.fill")
                         .font(.title3)
                         .symbolRenderingMode(.palette)

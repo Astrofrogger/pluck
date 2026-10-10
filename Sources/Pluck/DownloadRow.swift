@@ -42,17 +42,17 @@ struct DownloadRow: View {
         }
         .padding(12)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                 .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.16)) : AnyShapeStyle(.fill.quaternary))
                 .opacity(isSelected || hovering ? 1 : 0.6)
         }
         .overlay {
             if isSelected {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
                     .strokeBorder(Color.accentColor.opacity(0.55), lineWidth: 1)
             }
         }
-        .contentShape(.rect(cornerRadius: 16))
+        .contentShape(.rect(cornerRadius: Design.Radius.card))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.15), value: hovering)
         .animation(.easeOut(duration: 0.12), value: isSelected)
@@ -84,14 +84,14 @@ struct DownloadRow: View {
         }
         .frame(width: 128, height: 72)
         .background(.fill.tertiary)
-        .clipShape(.rect(cornerRadius: 10, style: .continuous))
+        .clipShape(.rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
         .overlay(alignment: .bottomTrailing) {
             if let duration = displayedDuration {
                 Text(Format.duration(duration))
                     .font(.caption2.weight(.semibold).monospacedDigit())
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(.black.opacity(0.65), in: .rect(cornerRadius: 4))
+                    .background(.black.opacity(0.65), in: .rect(cornerRadius: Design.Radius.badge))
                     .foregroundStyle(.white)
                     .padding(5)
             }
@@ -408,6 +408,8 @@ struct DownloadRow: View {
             .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
             Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
                 .disabled(!LocalAI.canTranscribe || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
+            Button("Make Deliverables…", systemImage: "square.stack.3d.down.right") { ai.deliverablesItem = item }
+                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
             Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
                 .disabled(item.aiStatus != nil)
             Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceItem = item }

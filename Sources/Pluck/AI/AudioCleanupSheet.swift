@@ -9,17 +9,8 @@ struct AudioCleanupSheet: View {
     @AppStorage("cleanupLoudness") private var loudness: AudioCleanup.Loudness = .online
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "waveform")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Clean Up Audio").font(.title3.weight(.semibold))
-                    Text(AIStudio.Batch(items).title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "waveform", title: Text("Clean Up Audio"), subtitle: Text(AIStudio.Batch(items).title))
 
             Form {
                 Picker(selection: $strength) {
@@ -38,9 +29,7 @@ struct AudioCleanupSheet: View {
 
             Label("Made for speech: background noise, hum and wind are removed, and so is music. Runs entirely on this Mac with local AI (Apple’s voice isolation). Pluck saves a copy next to the original; the original isn’t changed.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 Spacer()
@@ -56,7 +45,7 @@ struct AudioCleanupSheet: View {
                 .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 460)
     }
 }

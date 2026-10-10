@@ -16,17 +16,8 @@ struct SpokenLanguageSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: ask.action == .summarize ? "text.badge.star" : "list.number")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(actionTitle).font(.title3.weight(.semibold))
-                    Text(ask.item.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: ask.action == .summarize ? "text.badge.star" : "list.number", title: Text(actionTitle), subtitle: Text(ask.item.title))
 
             Form {
                 SpokenLanguagePicker(item: ask.item, languages: $languages, language: $language)
@@ -56,7 +47,7 @@ struct SpokenLanguageSheet: View {
                 .disabled(language == nil)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 440)
     }
 }

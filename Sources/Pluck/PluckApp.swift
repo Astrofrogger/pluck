@@ -34,6 +34,8 @@ struct PluckApp: App {
                 Button("Download Links from File…") { manager.chooseLinkFile() }
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
+                MusicFitCommand()
+                LogoAnimatorCommand()
             }
             CommandGroup(before: .windowList) {
                 LibraryCommand()
@@ -61,6 +63,18 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("Logo Animator", id: "logoAnimator") {
+            LogoAnimatorView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 680, height: 760)
+
+        Window("Fit Music to Length", id: "musicFit") {
+            MusicFitView()
+                .environment(app.ai)
+        }
+        .defaultSize(width: 540, height: 400)
+
         Window("Library", id: "library") {
             LibraryView()
                 .environment(app.ai)
@@ -86,6 +100,22 @@ struct PluckApp: App {
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+private struct LogoAnimatorCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Logo Animator…") { openWindow(id: "logoAnimator") }
+    }
+}
+
+private struct MusicFitCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Fit Music to Length…") { openWindow(id: "musicFit") }
     }
 }
 

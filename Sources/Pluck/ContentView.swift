@@ -179,7 +179,7 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .glassBackground(in: .rect(cornerRadius: 16))
+        .glassBackground(in: .rect(cornerRadius: Design.Radius.card))
         .padding(.horizontal, 20)
         .padding(.top, 12)
         .transition(.move(edge: .top).combined(with: .opacity))
@@ -202,7 +202,7 @@ struct ContentView: View {
             Spacer()
         }
         .padding(12)
-        .glassBackground(in: .rect(cornerRadius: 16))
+        .glassBackground(in: .rect(cornerRadius: Design.Radius.card))
         .padding(.horizontal, 20)
         .padding(.top, 12)
     }
@@ -230,7 +230,7 @@ struct ContentView: View {
             }
         }
         .padding(12)
-        .glassBackground(in: .rect(cornerRadius: 16), tint: .orange.opacity(0.15))
+        .glassBackground(in: .rect(cornerRadius: Design.Radius.card), tint: .orange.opacity(0.15))
         .padding(.horizontal, 20)
         .padding(.top, 12)
     }
@@ -238,20 +238,21 @@ struct ContentView: View {
     // MARK: - Input
 
     private var inputBar: some View {
-        GlassGroup(spacing: 10) {
-            HStack(spacing: 10) {
-                HStack(spacing: 10) {
+        GlassGroup(spacing: Design.Spacing.controls) {
+            HStack(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
                     Image(systemName: "link")
+                        .font(.system(size: Design.Size.icon - 2, weight: .medium))
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                     TextField("Paste a link, or type to search YouTube", text: $urlText)
                         .textFieldStyle(.plain)
-                        .font(.title3)
+                        .font(Design.Typography.control)
                         .focused($fieldFocused)
                         .onSubmit(submit)
                     if isMultiple {
                         Text("\(fieldLinks.count) links")
-                            .font(.callout.weight(.medium))
+                            .font(Design.Typography.badge)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 2)
                             .background(.tint.opacity(0.15), in: .capsule)
@@ -271,38 +272,26 @@ struct ContentView: View {
                         .transition(.opacity.combined(with: .scale))
                     }
                 }
-                .padding(.horizontal, 16)
-                .frame(height: 46)
-                .glassBackground(in: .capsule, interactive: true)
+                .barControl()
 
-                FormatMenu()
-                    .controlSize(.large)
-                    .glassButtonStyle()
+                FormatMenu(inBar: true)
 
                 Button {
                     withAnimation(.snappy(duration: 0.25)) { clipping.toggle() }
                 } label: {
                     Image(systemName: "scissors")
-                        .font(.body.weight(.medium))
-                        .frame(width: 22, height: 22)
                         .foregroundStyle(clipping ? Color.accentColor : Color.primary)
                 }
-                .glassButtonStyle()
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
+                .buttonStyle(BarButtonStyle())
                 .disabled(isMultiple)
                 .accessibilityLabel(clipping ? "Download Whole Video" : "Download a Clip")
                 .help(clipping ? "Download the whole video" : "Download only part of the video")
 
                 Button(action: submit) {
                     Image(systemName: isSearch ? "magnifyingglass" : "arrow.down")
-                        .font(.title3.weight(.semibold))
-                        .frame(width: 30, height: 30)
                         .contentTransition(.symbolEffect(.replace))
                 }
-                .glassProminentButtonStyle()
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
+                .buttonStyle(BarButtonStyle(prominent: true))
                 .disabled(!(isValid || isSearch) || (clipping && clip == nil))
                 .keyboardShortcut(.defaultAction)
                 .accessibilityLabel(isSearch ? String(localized: "Search") : String(localized: "Download"))
@@ -351,8 +340,8 @@ struct ContentView: View {
             Spacer(minLength: 0)
         }
         .textFieldStyle(.roundedBorder)
-        .padding(.horizontal, 14)
-        .frame(height: 40)
+        .padding(.horizontal, Design.Spacing.inset)
+        .frame(height: Design.Size.control)
         .glassBackground(in: .capsule)
         .onSubmit(submit)
     }
@@ -525,9 +514,9 @@ struct ContentView: View {
     }
 
     private var dropHighlight: some View {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
+        RoundedRectangle(cornerRadius: Design.Radius.panel, style: .continuous)
             .strokeBorder(Color.accentColor, style: StrokeStyle(lineWidth: 2.5, dash: [8, 6]))
-            .background(Color.accentColor.opacity(0.06), in: .rect(cornerRadius: 18, style: .continuous))
+            .background(Color.accentColor.opacity(0.06), in: .rect(cornerRadius: Design.Radius.panel, style: .continuous))
             .padding(10)
             .allowsHitTesting(false)
     }
@@ -627,6 +616,10 @@ private struct AISheets: ViewModifier {
             }
             .sheet(item: Binding(get: { ai.shortsItem }, set: { ai.shortsItem = $0 })) { item in
                 ShortsSheet(item: item)
+                    .environment(ai)
+            }
+            .sheet(item: Binding(get: { ai.deliverablesItem }, set: { ai.deliverablesItem = $0 })) { item in
+                DeliverablesSheet(item: item)
                     .environment(ai)
             }
             .sheet(item: Binding(get: { ai.subtitleBatch }, set: { ai.subtitleBatch = $0 })) { batch in

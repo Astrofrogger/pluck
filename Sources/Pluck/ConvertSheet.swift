@@ -31,7 +31,7 @@ struct ConvertSheet: View {
     private var partIsInvalid: Bool { onlyPart && clip == nil }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
             header
 
             ScrollView {
@@ -63,7 +63,7 @@ struct ConvertSheet: View {
                     .keyboardShortcut(.cancelAction)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 500)
         .task { await loadDetails() }
     }
@@ -96,7 +96,7 @@ struct ConvertSheet: View {
     // MARK: - Local AI
 
     private enum AIAction {
-        case shorts, subtitles, summarize, chapters, stems, tighten, cleanup, enhance, background, blur
+        case shorts, deliverables, subtitles, summarize, chapters, stems, tighten, cleanup, enhance, background, blur
     }
 
     private var aiSection: some View {
@@ -106,6 +106,7 @@ struct ConvertSheet: View {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                 aiButton(.shorts, "Make Shorts…", "rectangle.portrait.on.rectangle.portrait.angled",
                          enabled: LocalAI.canTranscribe && files.count == 1 && hasVideo)
+                aiButton(.deliverables, "Make Deliverables…", "square.stack.3d.down.right", enabled: files.count == 1 && hasVideo)
                 aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble", enabled: LocalAI.canTranscribe)
                 aiButton(.summarize, "Summarize", "text.badge.star", enabled: LocalAI.canSummarize)
                 aiButton(.chapters, "Add Chapters", "list.number", enabled: LocalAI.canSummarize)
@@ -123,7 +124,7 @@ struct ConvertSheet: View {
                 .foregroundStyle(.secondary)
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.purple.opacity(0.08)))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous).fill(.purple.opacity(0.08)))
     }
 
     private func aiButton(_ action: AIAction, _ title: LocalizedStringKey, _ symbol: String, enabled: Bool) -> some View {
@@ -132,7 +133,7 @@ struct ConvertSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 8)
                 .padding(.horizontal, 10)
-                .contentShape(.rect(cornerRadius: 8))
+                .contentShape(.rect(cornerRadius: Design.Radius.control))
         }
         .buttonStyle(ConvertCardStyle())
         .disabled(!enabled)
@@ -144,12 +145,13 @@ struct ConvertSheet: View {
         let open: (PlayerTarget) -> Void = { openWindow(value: $0) }
         dismiss()
         switch action {
-        case .shorts, .subtitles, .tighten, .cleanup, .enhance, .background, .blur:
+        case .shorts, .deliverables, .subtitles, .tighten, .cleanup, .enhance, .background, .blur:
             guard let item = items.first else { return }
             // After this sheet has closed, so the next one can open.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 switch action {
                 case .shorts: ai.shortsItem = item
+                case .deliverables: ai.deliverablesItem = item
                 case .tighten: ai.tightenBatch = AIStudio.Batch(items)
                 case .cleanup: ai.cleanupBatch = AIStudio.Batch(items)
                 case .enhance: ai.enhanceItem = item
@@ -226,7 +228,7 @@ struct ConvertSheet: View {
                     .accessibilityHidden(true)
             }
             .padding(12)
-            .contentShape(.rect(cornerRadius: 12))
+            .contentShape(.rect(cornerRadius: Design.Radius.box))
         }
         .buttonStyle(ConvertCardStyle())
         .disabled(!enabled || partIsInvalid || (preset.needsVideo && !hasVideo))
@@ -273,7 +275,7 @@ struct ConvertSheet: View {
             }
         }
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.fill.tertiary).opacity(0.8))
+        .background(RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous).fill(.fill.tertiary).opacity(0.8))
         .opacity(enabled ? 1 : 0.45)
     }
 
@@ -407,7 +409,7 @@ private struct ConvertCardStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous)
                     .fill(.fill.tertiary)
                     .opacity(configuration.isPressed ? 1.6 : (hovering && isEnabled ? 1.2 : 0.8))
             }

@@ -158,7 +158,7 @@ struct MenuBarView: View {
                     .foregroundStyle(.tint)
             }
             .padding(10)
-            .contentShape(.rect(cornerRadius: 12))
+            .contentShape(.rect(cornerRadius: Design.Radius.box))
         }
         .buttonStyle(MenuBarCardStyle())
         .accessibilityLabel("Download from Clipboard")
@@ -258,7 +258,7 @@ private struct MenuBarCardStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .background {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous)
                     .fill(.fill.tertiary)
                     .opacity(configuration.isPressed ? 1 : hovering ? 0.8 : 0.5)
             }
@@ -287,11 +287,11 @@ private struct MenuBarRow: View {
         }
         .padding(8)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.thumbnail, style: .continuous)
                 .fill(.fill.quaternary)
                 .opacity(hovering ? 1 : 0)
         }
-        .contentShape(.rect(cornerRadius: 10))
+        .contentShape(.rect(cornerRadius: Design.Radius.thumbnail))
         .onHover { hovering = $0 }
         .onTapGesture(count: 2) { if let file = item.existingFile { NSWorkspace.shared.open(file) } }
         .onDrag {
@@ -313,7 +313,7 @@ private struct MenuBarRow: View {
         }
         .frame(width: 52, height: 30)
         .background(.fill.tertiary)
-        .clipShape(.rect(cornerRadius: 6, style: .continuous))
+        .clipShape(.rect(cornerRadius: Design.Radius.small, style: .continuous))
         .accessibilityHidden(true)
     }
 

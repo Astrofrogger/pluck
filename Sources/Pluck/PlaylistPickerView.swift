@@ -27,7 +27,7 @@ struct PlaylistPickerView: View {
                 .font(.title2)
                 .foregroundStyle(.tint)
                 .frame(width: 44, height: 44)
-                .background(.tint.opacity(0.12), in: .rect(cornerRadius: 11, style: .continuous))
+                .background(.tint.opacity(0.12), in: .rect(cornerRadius: Design.Radius.box, style: .continuous))
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 3) {
                 Text(pick.phase == .loading ? String(localized: "Reading playlist…") : pick.title)
@@ -176,7 +176,7 @@ private struct PlaylistEntryRow: View {
             }
             .frame(width: 72, height: 41)
             .background(.fill.tertiary)
-            .clipShape(.rect(cornerRadius: 6, style: .continuous))
+            .clipShape(.rect(cornerRadius: Design.Radius.small, style: .continuous))
             VStack(alignment: .leading, spacing: 2) {
                 Text(entry.title)
                     .lineLimit(1)
@@ -204,11 +204,11 @@ private struct PlaylistEntryRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle(cornerRadius: Design.Radius.thumbnail, style: .continuous)
                 .fill(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.10)) : AnyShapeStyle(.fill.quaternary))
                 .opacity(isSelected || hovering ? 1 : 0)
         }
-        .contentShape(.rect(cornerRadius: 10))
+        .contentShape(.rect(cornerRadius: Design.Radius.thumbnail))
         .onHover { hovering = $0 }
         .onTapGesture(perform: toggle)
         .accessibilityElement(children: .ignore)

@@ -102,7 +102,9 @@ enum Captions {
     // MARK: - Subtitles burned into a regular video
 
     /// Classic subtitles at the bottom: plain, in a colour, or on a coloured background.
-    static func subtitles(_ cues: [Transcript.Cue], width: Int, height: Int, design: CaptionDesign) -> String {
+    /// `bottom` is the space below the subtitles, as a share of the height (vertical video needs
+    /// more, to stay clear of the app's buttons).
+    static func subtitles(_ cues: [Transcript.Cue], width: Int, height: Int, design: CaptionDesign, bottom: Double = 0.06) -> String {
         let face = CaptionFonts.face(for: design)
         let factor: Double = switch design.size {
         case .small: 0.042
@@ -115,10 +117,10 @@ enum Captions {
         case .box:
             // BorderStyle 3: an opaque box behind each line, in the colour (slightly see-through).
             let text = design.isLight ? "&H00141414" : "&H00FFFFFF"
-            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),\(design.assColor(alpha: 0x22)),&H00000000,0,0,0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),0,2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
+            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),\(design.assColor(alpha: 0x22)),&H00000000,0,0,0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),0,2,\(width / 10),\(width / 10),\(Int(Double(height) * bottom)),1"
         case .color, .plain:
             let text = design.emphasis == .color ? design.assColor() : "&H00FFFFFF"
-            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),&H90000000,&H70000000,0,0,0,0,100,100,0,0,1,\(String(format: "%.1f", size / 40)),\(String(format: "%.1f", size / 26)),2,\(width / 10),\(width / 10),\(Int(Double(height) * 0.06)),1"
+            style = "Style: Sub,\(face.fullName),\(Int(size)),\(text),\(text),&H90000000,&H70000000,0,0,0,0,100,100,0,0,1,\(String(format: "%.1f", size / 40)),\(String(format: "%.1f", size / 26)),2,\(width / 10),\(width / 10),\(Int(Double(height) * bottom)),1"
         }
         let blur = design.emphasis == .box ? "" : "{\\blur1.2}"
         let events = cues.map { cue in

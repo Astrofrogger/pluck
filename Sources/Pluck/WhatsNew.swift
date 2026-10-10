@@ -88,6 +88,20 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.11.0", items: [
+                Item(symbol: "lock.shield", title: String(localized: "Downloads keep working on macOS 27"),
+                     detail: String(localized: "macOS 27 no longer lets other apps read the logins of Chrome, Brave, Edge and Firefox, which made downloads fail. Pluck now notices this and downloads without them. For members-only videos, pick Safari, Zen, Vivaldi, Opera or Chrome Beta in Settings.")),
+                Item(symbol: "wand.and.stars", title: String(localized: "Logo Animator"),
+                     detail: String(localized: "Turn a logo into a smooth animation. Pluck finds the shapes and letters in it and animates them in, with an outro and the length you choose. Export transparent ProRes or MP4, in any format. Find it in the File menu.")),
+                Item(symbol: "square.stack.3d.down.right", title: String(localized: "Make Deliverables"),
+                     detail: String(localized: "From one finished video: 16:9, 9:16, 1:1 and 4:5 versions framed on the people in each shot, the right loudness for online or broadcast, and subtitles in several languages, made with local AI on your Mac. All named the way your client wants.")),
+                Item(symbol: "music.note.list", title: String(localized: "Fit Music to Length"),
+                     detail: String(localized: "Shorten or lengthen a song to an exact length on its musical phrases, keeping the intro and the real ending.")),
+                Item(symbol: "space", title: String(localized: "Quick Look in the Library"),
+                     detail: String(localized: "Click something in the Library and press Space to play it. The arrow keys move to the next one.")),
+                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Sharper shorts framing"),
+                     detail: String(localized: "Titles in a shot always stay whole, and the rest of the shot stays on the people in it.")),
+            ]),
             Release(version: "1.10.0", items: [
                 Item(symbol: "scissors", title: String(localized: "Remove silences and filler words"),
                      detail: String(localized: "Local AI on your Mac cuts long pauses and filler words like “uhm” out of a video or recording, into a tightened copy. For editing, it can also save an edit list for DaVinci Resolve or Premiere Pro.")),
@@ -310,7 +324,7 @@ struct WhatsNewView: View {
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
             .keyboardShortcut(.defaultAction)
-            .padding(24)
+            .padding(Design.Spacing.sheet)
         }
         .frame(width: 480)
     }

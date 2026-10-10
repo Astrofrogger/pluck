@@ -13,6 +13,10 @@ struct LibraryView: View {
     @State private var newTag = ""
     @State private var trashing: LibraryStore.Entry?
     @State private var preview: URL?
+    /// The highlighted item (its path): Space shows it in Quick Look, arrow keys move it.
+    @State private var selected: String?
+    @State private var columns = 1
+    @FocusState private var gridFocused: Bool
     /// Checked when the window opens and on refresh, not on every redraw.
     @State private var missing: Set<String> = []
 
@@ -176,15 +180,41 @@ struct LibraryView: View {
                 Text(emptyDescription)
             }
         } else {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)], spacing: 18) {
-                    ForEach(list) { entry in
-                        LibraryCard(entry: entry, isMissing: missing.contains(entry.path))
-                            .onTapGesture(count: 2) { open(entry) }
-                            .contextMenu { menu(for: entry) }
+            ScrollViewReader { scroller in
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)], spacing: 18) {
+                        ForEach(list) { entry in
+                            LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selected == entry.id)
+                                .id(entry.id)
+                                // One click handler, so highlighting doesn't wait to see if a
+                                // double-click follows; the second click of one opens it.
+                                .onTapGesture {
+                                    select(entry)
+                                    if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { open(entry) }
+                                }
+                                .contextMenu { menu(for: entry) }
+                        }
+                    }
+                    .padding(20)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                        // How many cards fit in a row, the way the adaptive grid lays them out.
+                        columns = max(1, Int((width - 40 + 16) / (190 + 16)))
                     }
                 }
-                .padding(20)
+                // Like the Finder: click to highlight, Space for Quick Look, arrows to move.
+                .focusable()
+                .focused($gridFocused)
+                .focusEffectDisabled()
+                .onKeyPress(.space) { togglePreview() }
+                .onKeyPress(.leftArrow) { move(by: -1, in: list, scroller) }
+                .onKeyPress(.rightArrow) { move(by: 1, in: list, scroller) }
+                .onKeyPress(.upArrow) { move(by: -columns, in: list, scroller) }
+                .onKeyPress(.downArrow) { move(by: columns, in: list, scroller) }
+                .onKeyPress(.return) {
+                    guard let entry = list.first(where: { $0.id == selected }) else { return .ignored }
+                    open(entry)
+                    return .handled
+                }
             }
         }
     }
@@ -219,7 +249,7 @@ struct LibraryView: View {
             }
             .disabled(!exists)
         }
-        Button("Quick Look") { preview = entry.file }.disabled(!exists)
+        Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) }.disabled(!exists)
         if Resolve.isInstalled, entry.kind != .other {
             Button("Send to DaVinci Resolve") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
@@ -239,6 +269,34 @@ struct LibraryView: View {
         Divider()
         Button("Remove from Library") { library.remove([entry]) }
         Button("Move to Trash…", role: .destructive) { trashing = entry }.disabled(!exists)
+    }
+
+    private func select(_ entry: LibraryStore.Entry) {
+        selected = entry.id
+        gridFocused = true
+        // An open Quick Look follows the selection.
+        if preview != nil { preview = missing.contains(entry.path) ? nil : entry.file }
+    }
+
+    private func togglePreview() -> KeyPress.Result {
+        guard let path = selected else { return .ignored }
+        if preview != nil {
+            preview = nil
+        } else if missing.contains(path) {
+            NSSound.beep()
+        } else {
+            preview = URL(fileURLWithPath: path)
+        }
+        return .handled
+    }
+
+    private func move(by offset: Int, in list: [LibraryStore.Entry], _ scroller: ScrollViewProxy) -> KeyPress.Result {
+        guard !list.isEmpty else { return .ignored }
+        let current = selected.flatMap { id in list.firstIndex { $0.id == id } }
+        let index = current.map { min(max($0 + offset, 0), list.count - 1) } ?? (offset > 0 ? 0 : list.count - 1)
+        select(list[index])
+        withAnimation(.smooth(duration: 0.2)) { scroller.scrollTo(list[index].id) }
+        return .handled
     }
 
     private func open(_ entry: LibraryStore.Entry) {
@@ -275,6 +333,7 @@ struct LibraryView: View {
 private struct LibraryCard: View {
     let entry: LibraryStore.Entry
     let isMissing: Bool
+    var isSelected = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -291,13 +350,18 @@ private struct LibraryCard: View {
                         }
                     }
                 }
-                .clipShape(.rect(cornerRadius: 10, style: .continuous))
+                .clipShape(.rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
+                .overlay {
+                    if isSelected {
+                        RoundedRectangle(cornerRadius: Design.Radius.thumbnail, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
+                    }
+                }
             .overlay(alignment: .bottomTrailing) {
                 if let duration = entry.duration, duration > 0 {
                     Text(Format.duration(duration))
                         .font(.caption2.monospacedDigit().weight(.medium))
                         .padding(.horizontal, 5).padding(.vertical, 2)
-                        .background(.black.opacity(0.65), in: .rect(cornerRadius: 4))
+                        .background(.black.opacity(0.65), in: .rect(cornerRadius: Design.Radius.badge))
                         .foregroundStyle(.white)
                         .padding(6)
                 }
@@ -324,8 +388,12 @@ private struct LibraryCard: View {
                     .lineLimit(1)
             }
         }
+        .padding(6)
+        .background(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Design.Radius.box, style: .continuous))
+        .padding(-6)
         .contentShape(.rect)
         .help(entry.path)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var symbol: String {

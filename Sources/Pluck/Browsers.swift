@@ -38,12 +38,12 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         }
     }
 
-    /// Variants that share the same cookie storage, e.g. Firefox Developer Edition.
+    /// Variants that share the same cookie storage: Firefox Developer Edition and Beta keep their
+    /// profiles in Firefox's folder. (Chrome Canary and Edge Beta/Dev don't: they have folders of
+    /// their own, which yt-dlp's "chrome" and "edge" don't read.)
     private var bundleIDs: [String] {
         switch self {
         case .firefox: [bundleID, "org.mozilla.firefoxdeveloperedition", "org.mozilla.firefoxbeta"]
-        case .chrome: [bundleID, "com.google.Chrome.canary"]
-        case .edge: [bundleID, "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev"]
         default: [bundleID]
         }
     }
@@ -81,6 +81,22 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         defaults.set(pick?.rawValue ?? "none", forKey: Prefs.cookiesBrowser)
     }
 
+    /// Once per browser: when the chosen browser's cookies have become unreadable because of
+    /// macOS 27's protection, say so (downloads go on without them; see `accessProblem`).
+    @MainActor static func warnIfBlocked() {
+        let defaults = UserDefaults.standard
+        guard let browser = CookieBrowser(rawValue: defaults.string(forKey: Prefs.cookiesBrowser) ?? ""),
+              browser.isInstalled, browser.access == .blockedByMacOS else { return }
+        let key = "cookiesBlockedWarned-\(browser.rawValue)"
+        guard !defaults.bool(forKey: key) else { return }
+        defaults.set(true, forKey: key)
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Pluck can no longer use \(browser.name)’s cookies")
+        alert.informativeText = browser.accessProblem ?? ""
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModal()
+    }
+
     /// The browser that opens web links, if it's one yt-dlp can read cookies from.
     static var defaultBrowser: CookieBrowser? {
         guard let web = URL(string: "https://example.com"),
@@ -89,36 +105,102 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         return allCases.first { $0.bundleIDs.contains(id) }
     }
 
-    /// Whether this browser has been used on this Mac and Pluck may read its cookies. Safari's are
-    /// behind Full Disk Access, so they're only usable when the file actually opens.
-    var hasReadableCookies: Bool {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+    /// Whether Pluck can read this browser's cookies.
+    enum Access: Equatable {
+        case readable
+        /// Never used on this Mac (no profile with cookies).
+        case notUsed
+        /// macOS 27 locks the data of Chrome, Brave, Edge and Firefox to the browser itself: the
+        /// folder is there, but no other app may read it, not even with Full Disk Access.
+        case blockedByMacOS
+        /// Safari's cookies are behind Full Disk Access.
+        case needsFullDiskAccess
+    }
+
+    /// Whether this browser has been used on this Mac and Pluck may read its cookies.
+    var hasReadableCookies: Bool { access == .readable }
+
+    /// Tries to read the cookies, the way yt-dlp will: a folder that merely exists isn't enough
+    /// (macOS 27's protection lets apps see a protected folder but not open anything in it).
+    var access: Access {
         switch self {
         case .safari:
-            let file = home.appendingPathComponent("Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")
-            guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
-            try? handle.close()
-            return true
+            let file = FileManager.default.homeDirectoryForCurrentUser
+                .appendingPathComponent("Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")
+            guard FileManager.default.fileExists(atPath: file.path) else { return .notUsed }
+            return Self.canOpen(file) ? .readable : .needsFullDiskAccess
         case .zen:
-            return Self.zenProfile() != nil
+            return Self.profileAccess(in: "zen/Profiles")
         case .firefoxNightly:
-            return Self.nightlyProfile() != nil
+            return Self.profileAccess(in: "Firefox/Profiles") { $0.lastPathComponent.localizedCaseInsensitiveContains("nightly") }
         case .firefox:
-            let profiles = support.appendingPathComponent("Firefox/Profiles")
-            let dirs = (try? FileManager.default.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil)) ?? []
-            return dirs.contains { FileManager.default.fileExists(atPath: $0.appendingPathComponent("cookies.sqlite").path) }
+            return Self.profileAccess(in: "Firefox/Profiles")
         case .chrome, .chromeBeta, .brave, .edge, .vivaldi, .opera, .chromium:
-            let folder = switch self {
-            case .chrome: "Google/Chrome"
-            case .chromeBeta: "Google/Chrome Beta"
-            case .brave: "BraveSoftware/Brave-Browser"
-            case .edge: "Microsoft Edge"
-            case .vivaldi: "Vivaldi"
-            case .opera: "com.operasoftware.Opera"
-            default: "Chromium"
+            let folder = Self.support.appendingPathComponent(chromiumFolder)
+            guard FileManager.default.fileExists(atPath: folder.path) else { return .notUsed }
+            guard let profiles = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil) else {
+                return Self.isBlocked(folder) ? .blockedByMacOS : .notUsed
             }
-            return FileManager.default.fileExists(atPath: support.appendingPathComponent(folder).path)
+            // Opera keeps its cookies in the folder itself; the others in a profile folder.
+            let candidates = [folder.appendingPathComponent("Cookies")]
+                + profiles.flatMap { [$0.appendingPathComponent("Cookies"), $0.appendingPathComponent("Network/Cookies")] }
+            guard let cookies = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return .notUsed }
+            return Self.canOpen(cookies) ? .readable : .blockedByMacOS
+        }
+    }
+
+    /// Where a Chromium-based browser keeps its profiles (as yt-dlp looks for them).
+    private var chromiumFolder: String {
+        switch self {
+        case .chrome: "Google/Chrome"
+        case .chromeBeta: "Google/Chrome Beta"
+        case .brave: "BraveSoftware/Brave-Browser"
+        case .edge: "Microsoft Edge"
+        case .vivaldi: "Vivaldi"
+        case .opera: "com.operasoftware.Opera"
+        default: "Chromium"
+        }
+    }
+
+    private static func canOpen(_ file: URL) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return false }
+        try? handle.close()
+        return true
+    }
+
+    /// Whether listing the folder is refused by the system (EPERM), rather than failing otherwise.
+    private static func isBlocked(_ folder: URL) -> Bool {
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: folder.path)
+            return false
+        } catch let error as NSError {
+            let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+            return error.code == NSFileReadNoPermissionError || underlying?.code == Int(EPERM) || underlying?.code == Int(EACCES)
+        }
+    }
+
+    /// Firefox-style profiles: readable if a profile with cookies opens.
+    private static func profileAccess(in folder: String, where matches: (URL) -> Bool = { _ in true }) -> Access {
+        let profiles = support.appendingPathComponent(folder, isDirectory: true)
+        // Firefox's whole folder is protected on macOS 27, so the Profiles folder inside it is too.
+        let root = profiles.deletingLastPathComponent()
+        guard FileManager.default.fileExists(atPath: root.path) else { return .notUsed }
+        guard let dirs = try? FileManager.default.contentsOfDirectory(at: profiles, includingPropertiesForKeys: nil) else {
+            return isBlocked(profiles) || isBlocked(root) ? .blockedByMacOS : .notUsed
+        }
+        let files = dirs.filter(matches).map { $0.appendingPathComponent("cookies.sqlite") }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        guard let file = files.first else { return .notUsed }
+        return canOpen(file) ? .readable : .blockedByMacOS
+    }
+
+    /// What's wrong, for Settings (nil when the cookies can be read).
+    var accessProblem: String? {
+        switch access {
+        case .readable: nil
+        case .notUsed: String(localized: "Pluck can’t find any cookies from \(name) on this Mac. Sign in to the site in \(name) first.")
+        case .blockedByMacOS: String(localized: "macOS 27 no longer lets other apps read \(name)’s cookies, not even with Full Disk Access. Downloads still work, just without your logins. For members-only or age-restricted videos, pick Safari, Zen, Vivaldi, Opera or Chrome Beta.")
+        case .needsFullDiskAccess: String(localized: "Safari’s cookies need Full Disk Access: turn on Pluck in System Settings → Privacy & Security → Full Disk Access.")
         }
     }
 

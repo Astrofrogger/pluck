@@ -29,17 +29,8 @@ struct EnhanceSheet: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(spacing: 12) {
-                Image(systemName: "sparkles.tv")
-                    .font(.largeTitle)
-                    .foregroundStyle(.tint)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Upscale & Smooth").font(.title3.weight(.semibold))
-                    Text(item.title).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                }
-            }
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+            SheetHeader(symbol: "sparkles.tv", title: Text("Upscale & Smooth"), subtitle: Text(item.title))
 
             Form {
                 Picker(selection: $upscale) {
@@ -68,9 +59,7 @@ struct EnhanceSheet: View {
 
             Label("Runs entirely on this Mac with local AI (Apple’s video processing). Pluck saves an enhanced copy next to the original; the original isn’t changed.",
                   systemImage: "lock.shield")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .noteStyle()
 
             HStack {
                 if let estimate {
@@ -90,7 +79,7 @@ struct EnhanceSheet: View {
                 .disabled(!hasWork)
             }
         }
-        .padding(24)
+        .padding(Design.Spacing.sheet)
         .frame(width: 500)
         .task {
             guard let file = item.existingFile, let ffprobe = studio.toolPath("ffprobe") else { return }
