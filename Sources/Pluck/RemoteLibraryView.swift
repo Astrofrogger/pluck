@@ -63,26 +63,27 @@ struct RemoteLibraryView: View {
     }
 
     private var codeForm: some View {
-        VStack(spacing: Design.Spacing.section) {
-            Image(systemName: "desktopcomputer").font(Design.Typography.sheetSymbol).foregroundStyle(.tint)
-                .accessibilityHidden(true)
-            Text(peer.name).font(Design.Typography.sheetTitle)
-            Text("Type the access code shown in that Mac’s Library window, under Share on This Network.")
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 320)
-            TextField("Access code", text: $code)
-                .font(.title2.monospacedDigit())
-                .multilineTextAlignment(.center)
-                .frame(width: 180)
-                .onSubmit { Task { await load(code: code) } }
-            if let problem { Text(problem).foregroundStyle(.red) }
-            Button("Open") { Task { await load(code: code) } }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(code.filter(\.isNumber).count != 6)
+        ToolPage(maxWidth: 560) {
+            ToolWelcome(symbol: "desktopcomputer", title: Text(peer.name),
+                        subtitle: Text("Type the access code shown in that Mac’s Library window, under Share on This Network."))
+            GlassGroup(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
+                    TextField("Access code", text: $code, prompt: Text(verbatim: "000000"))
+                        .textFieldStyle(.plain)
+                        .font(Design.Typography.control.monospacedDigit())
+                        .multilineTextAlignment(.center)
+                        .barControl()
+                        .frame(width: 180)
+                        .onSubmit { Task { await load(code: code) } }
+                    Button("Open") { Task { await load(code: code) } }
+                        .buttonStyle(BarCapsuleButtonStyle())
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(code.filter(\.isNumber).count != 6)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            if let problem { ProblemLabel(text: problem) }
         }
-        .padding(Design.Spacing.sheet)
     }
 
     /// Links to download on that Mac (the team's download Mac).

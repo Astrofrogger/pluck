@@ -7,6 +7,7 @@ import UniformTypeIdentifiers
 struct DeliveryCheckView: View {
     /// A video to check as soon as the window opens (screenshots).
     @MainActor static var openFile: URL?
+    static let openNotification = Notification.Name("PluckDeliveryCheckOpen")
     @Environment(DownloadManager.self) private var manager
     @AppStorage("deliveryCheckDestination") private var destination = DeliveryCheck.Destination.online
     @State private var file: URL?
@@ -20,24 +21,33 @@ struct DeliveryCheckView: View {
     @State private var dropping = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(alignment: .leading, spacing: Design.Spacing.section) {
-                SheetHeader(symbol: "checkmark.seal", title: Text("Delivery Check"),
-                            subtitle: Text("Look over a finished export before it goes out: flash frames, black, sound, loudness, typos in titles and more. Runs on this Mac."),
-                            subtitleIsName: false)
-                controls
+        Group {
+            if let report, running == nil {
+                results(report)
+            } else {
+                ToolPage {
+                    ToolWelcome(symbol: "checkmark.seal", title: Text("Delivery Check"),
+                                subtitle: Text("Look over a finished export before it goes out: flash frames, black, sound, loudness, typos in titles and more."))
+                    bar
+                    if running != nil {
+                        checking
+                    } else {
+                        dropZone
+                    }
+                    if let problem { ProblemLabel(text: problem) }
+                    PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
+                }
             }
-            .padding(Design.Spacing.window)
-            Divider()
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 900, minHeight: 620)
+        .frame(minWidth: 760, minHeight: 600)
         .onAppear {
             if let url = Self.openFile {
                 Self.openFile = nil
                 open(url)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
+            if let url = note.object as? URL { Self.openFile = nil; open(url) }
         }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
             Task {
@@ -47,136 +57,123 @@ struct DeliveryCheckView: View {
         }
     }
 
-    private var controls: some View {
-        HStack(spacing: Design.Spacing.controls) {
-            Button("Choose Video…") { choose() }
-            if let file {
-                Text(file.lastPathComponent).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+    /// The video, where it's going, and the main action, like the main window's bar.
+    private var bar: some View {
+        GlassGroup(spacing: Design.Spacing.controls) {
+            HStack(spacing: Design.Spacing.controls) {
+                FileCapsule(file: file, symbol: "film", placeholder: Text("Drop a finished video, or choose one"))
+                BarPicker(symbol: "paperplane", label: Text("Going to"), selection: $destination,
+                          current: Text(destination.shortLabel)) {
+                    ForEach(DeliveryCheck.Destination.allCases) { Text($0.label).tag($0) }
+                }
+                Button(file == nil ? "Choose Video…" : "Choose…") { choose() }
+                    .buttonStyle(GlassCapsuleButtonStyle())
+                    .disabled(running != nil)
+                Button("Check", systemImage: "checkmark.seal") { check() }
+                    .buttonStyle(BarCapsuleButtonStyle())
+                    .disabled(file == nil || running != nil)
+                    .keyboardShortcut(.defaultAction)
             }
-            Spacer()
-            Picker("Going to", selection: $destination) {
-                ForEach(DeliveryCheck.Destination.allCases) { Text($0.label).tag($0) }
-            }
-            .fixedSize()
-            Button("Check") { check() }
-                .buttonStyle(.borderedProminent)
-                .disabled(file == nil || running != nil)
-                .keyboardShortcut(.defaultAction)
         }
     }
 
-    @ViewBuilder
-    private var content: some View {
-        if running != nil {
-            VStack(spacing: 12) {
-                ProgressView(value: progress).frame(width: 320)
-                Text(stage).foregroundStyle(.secondary)
-                Button("Stop") { running?.cancel(); running = nil }
-            }
-        } else if let report {
-            results(report)
-        } else {
-            VStack(spacing: 10) {
-                Image(systemName: "film.stack")
-                    .font(.system(size: 40)).foregroundStyle(dropping ? .blue : .secondary)
-                    .accessibilityHidden(true)
-                Text("Drop a finished video here").font(.title3.weight(.semibold))
-                Text("Flash frames, black, a frozen picture, sound dropping out, a silent channel, loudness for where it’s going, spelling in on-screen text, text too close to the edge, and the right size and frame rate.")
-                    .multilineTextAlignment(.center).foregroundStyle(.secondary).frame(maxWidth: 460)
-                if let problem {
-                    Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
-                }
-            }
-            .padding()
+    private var dropZone: some View {
+        DropZone(symbol: "film.stack",
+                 text: Text("Flash frames, black, a frozen picture, sound dropping out, a silent channel, loudness for where it’s going, spelling in on-screen text, text too close to the edge, and the right size and frame rate."),
+                 targeted: dropping)
+    }
+
+    private var checking: some View {
+        ItemRow(symbol: "checkmark.seal", title: Text(file?.lastPathComponent ?? ""), subtitle: Text(stage)) {
+            ProgressView(value: progress).padding(.top, 4)
+        } actions: {
+            RowButton(symbol: "stop.fill", label: "Stop") { running?.cancel(); running = nil }
         }
     }
 
     private func results(_ report: DeliveryCheck.Report) -> some View {
-        HSplitView {
-            VStack(alignment: .leading, spacing: Design.Spacing.controls) {
-                ZStack {
-                    VideoPlayer(player: player)
-                    if let box = selectedIssue?.box { highlight(box) }
-                }
-                .aspectRatio(report.size.width / report.size.height, contentMode: .fit)
-                .background(.black)
-                .clipShape(.rect(cornerRadius: Design.Radius.control))
-                ForEach(report.facts, id: \.0) { fact in
-                    LabeledContent(fact.0) { Text(fact.1).monospacedDigit().textSelection(.enabled) }
-                        .font(.callout)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(Design.Spacing.inset)
-            .frame(minWidth: 380, idealWidth: 460)
-
-            VStack(alignment: .leading, spacing: 0) {
-                summary(report)
-                    .padding(Design.Spacing.inset)
-                Divider()
-                List(selection: $selected) {
-                    ForEach(report.issues) { issue in
-                        row(issue, fps: report.fps).tag(issue.id)
+        VStack(spacing: 0) {
+            bar
+                .padding([.horizontal, .top], Design.Spacing.window)
+                .padding(.bottom, Design.Spacing.section)
+            HStack(alignment: .top, spacing: Design.Spacing.section) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                        ZStack {
+                            VideoPlayer(player: player)
+                            if let box = selectedIssue?.box { highlight(box) }
+                        }
+                        .aspectRatio(report.size.width / report.size.height, contentMode: .fit)
+                        .background(.black)
+                        .clipShape(.rect(cornerRadius: Design.Radius.card, style: .continuous))
+                        Card {
+                            CardHeader(symbol: "info.circle", title: Text("The file"))
+                            ForEach(report.facts, id: \.0) { fact in
+                                CardField(label: Text(fact.0).foregroundStyle(.secondary)) {
+                                    Text(fact.1).monospacedDigit().textSelection(.enabled)
+                                }
+                                .font(.callout)
+                            }
+                        }
                     }
                 }
-                .onChange(of: selected) { _, id in
-                    if let issue = report.issues.first(where: { $0.id == id }), let time = issue.time { seek(time) }
+                .frame(minWidth: 360, idealWidth: 460)
+                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                    summary(report)
+                    ScrollView {
+                        LazyVStack(spacing: 8) {
+                            ForEach(report.issues) { issue in
+                                row(issue, fps: report.fps)
+                            }
+                        }
+                    }
+                    PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
                 }
-                Divider()
-                HStack {
-                    Spacer()
-                    Button("Save Report…") { save(report) }
-                }
-                .padding(Design.Spacing.inset)
+                .frame(minWidth: 380)
             }
-            .frame(minWidth: 420)
+            .padding([.horizontal, .bottom], Design.Spacing.window)
         }
     }
 
     private func summary(_ report: DeliveryCheck.Report) -> some View {
         let problems = report.issues.filter { $0.severity == .problem }.count
         let warnings = report.issues.filter { $0.severity == .warning }.count
-        return Group {
-            if problems == 0 && warnings == 0 {
-                Label("Ready to deliver", systemImage: "checkmark.seal.fill").foregroundStyle(.green)
-            } else {
-                Label {
-                    if problems > 0 {
-                        Text("^[\(problems) problem](inflect: true) to fix, ^[\(warnings) thing](inflect: true) to check")
-                    } else {
-                        Text("^[\(warnings) thing](inflect: true) to check")
-                    }
-                } icon: {
-                    Image(systemName: problems > 0 ? "xmark.octagon.fill" : "exclamationmark.triangle.fill")
-                }
-                .foregroundStyle(problems > 0 ? .red : .orange)
-            }
+        return CardHeader(symbol: problems > 0 ? "xmark.octagon" : warnings > 0 ? "exclamationmark.triangle" : "checkmark.seal",
+                          title: problems == 0 && warnings == 0 ? Text("Ready to deliver")
+                              : problems > 0 ? Text("^[\(problems) problem](inflect: true) to fix")
+                              : Text("^[\(warnings) thing](inflect: true) to check"),
+                          subtitle: problems > 0 && warnings > 0 ? Text("^[\(warnings) thing](inflect: true) to check") : Text(report.destination.label),
+                          tint: problems > 0 ? .red : warnings > 0 ? .orange : .green) {
+            Button("Save Report…") { save(report) }
+                .buttonStyle(GlassCapsuleButtonStyle())
         }
-        .font(.headline)
     }
 
     private func row(_ issue: DeliveryCheck.Issue, fps: Double) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon(issue.severity))
-                .foregroundStyle(color(issue.severity))
-                .accessibilityLabel(label(issue.severity))
-            VStack(alignment: .leading, spacing: 2) {
-                HStack {
-                    Text(issue.title).fontWeight(.medium)
-                    Spacer()
-                    if let time = issue.time {
-                        Text(DeliveryCheck.timecode(time, fps: fps)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                    }
-                }
-                Text(issue.detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if let word = issue.word {
-                    Button("It’s Spelled Right") { learn(word) }
-                        .controlSize(.small)
-                        .help("Pluck remembers “\(word)” and won’t mark it again")
-                }
+        ItemRow(symbol: icon(issue.severity), tint: color(issue.severity), title: Text(issue.title), subtitle: Text(issue.detail)) {
+            if let word = issue.word {
+                Button("It’s Spelled Right") { learn(word) }
+                    .buttonStyle(.link)
+                    .font(.caption)
+                    .help("Pluck remembers “\(word)” and won’t mark it again")
+            }
+        } actions: {
+            if let time = issue.time {
+                Text(DeliveryCheck.timecode(time, fps: fps)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .overlay {
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: selected == issue.id ? 2 : 0)
+        }
+        .contentShape(.rect)
+        .onTapGesture {
+            selected = issue.id
+            if let time = issue.time { seek(time) }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("\(label(issue.severity)): \(issue.title)"))
+        .accessibilityAddTraits(.isButton)
     }
 
     /// The text an issue is about, outlined on the picture.
@@ -254,6 +251,7 @@ struct DeliveryCheckView: View {
                 }
                 report = result
                 selected = result.issues.first?.id
+                if let time = result.issues.first?.time { seek(time) }
             } catch is CancellationError {
             } catch {
                 problem = error.localizedDescription

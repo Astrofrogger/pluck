@@ -14,6 +14,17 @@ enum DeliveryCheck {
         case online, social, broadcastEU, broadcastUS, other
         var id: String { rawValue }
 
+        /// A few words, for the bar.
+        var shortLabel: String {
+            switch self {
+            case .online: String(localized: "Online")
+            case .social: String(localized: "Social")
+            case .broadcastEU: String(localized: "Broadcast EU")
+            case .broadcastUS: String(localized: "Broadcast US")
+            case .other: String(localized: "Elsewhere")
+            }
+        }
+
         var label: String {
             switch self {
             case .online: String(localized: "Online: YouTube, Vimeo, a website (16:9)")

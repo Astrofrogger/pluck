@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "1.18.0", items: [
+                Item(symbol: "externaldrive", title: String(localized: "One file per version"),
+                     detail: String(localized: "Each release now comes as two disk images: Pluck.dmg and Pluck-Studio.dmg. Updates install from the same disk image, checked before they open.")),
+            ]),
             Release(version: "1.17.1", items: [
                 Item(symbol: "arrow.down.to.line.circle", title: String(localized: "Sturdier setup on slow connections"),
                      detail: String(localized: "Downloading yt-dlp, ffmpeg and Deno now shows how far along it is, carries on where it stopped instead of starting over, and can always be stopped and tried again. If something goes wrong, the main window says what.")),

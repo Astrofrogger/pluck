@@ -1,8 +1,10 @@
-### Install
-Pluck comes in two versions. Download one below, open it and drag Pluck into Applications.
+### Download
+Pick one of the two files below, open it and drag Pluck into Applications.
 
-- **Pluck.dmg**: downloading videos and music, the Library, sharing to your phone and converting files. Small and focused.
-- **Pluck-Studio.dmg**: everything in Pluck, plus local AI, the editing tools for DaVinci Resolve, the Logo Animator and Edit Anywhere.
+| File | What you get |
+|---|---|
+| **Pluck.dmg** | Pluck: downloading videos and music, the Library, sharing to your phone and converting files. Small and focused. |
+| **Pluck-Studio.dmg** | Pluck Studio: everything in Pluck, plus local AI, the editing tools for DaVinci Resolve, the Logo Animator and Edit Anywhere. |
 
 You can switch between them any time in Settings → General; your downloads, Library and settings stay.
 

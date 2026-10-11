@@ -164,6 +164,8 @@ enum ScreenshotMode {
                 }
             case "findshots":
                 openWindow(id: "findShots")
+            case "musicfit":
+                openWindow(id: "musicFit")
             case "resolvelog":
                 // Logs the open DaVinci Resolve project (with Find Shots open to show it).
                 openWindow(id: "findShots")
@@ -177,16 +179,24 @@ enum ScreenshotMode {
                 Task { @MainActor in await archiveSelfTest(defaults: defaults) }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
-                if let path = defaults.string(forKey: "PluckScreenshotFile") {
-                    BrandPackView.openFile = URL(fileURLWithPath: path)
-                }
+                let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                BrandPackView.openFile = logo
                 openWindow(id: "brandPack")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if BrandPackView.openFile != nil, let logo {
+                        NotificationCenter.default.post(name: BrandPackView.openNotification, object: logo)
+                    }
+                }
             case "delivery":
                 // -PluckScreenshotFile <video> is checked.
-                if let path = defaults.string(forKey: "PluckScreenshotFile") {
-                    DeliveryCheckView.openFile = URL(fileURLWithPath: path)
-                }
+                let video = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                DeliveryCheckView.openFile = video
                 openWindow(id: "deliveryCheck")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if DeliveryCheckView.openFile != nil, let video {
+                        NotificationCenter.default.post(name: DeliveryCheckView.openNotification, object: video)
+                    }
+                }
             case "tools":
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     NotificationCenter.default.post(name: ToolsPanel.showNotification, object: nil)

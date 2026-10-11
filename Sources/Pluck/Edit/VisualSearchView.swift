@@ -89,11 +89,9 @@ struct VisualSearchView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
-            Divider()
             results
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             logBar
-            Divider()
             footer
         }
         .frame(minWidth: 820, minHeight: 560)
@@ -102,30 +100,20 @@ struct VisualSearchView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SheetHeader(symbol: "sparkle.magnifyingglass", title: Text("Find Shots"),
-                        subtitle: Text("Search your videos and footage by what’s in the picture, the shot size and how the camera moves."),
-                        subtitleIsName: false)
-            HStack(spacing: Design.Spacing.controls) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
-                    TextField("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”", text: $query)
-                        .textFieldStyle(.plain)
-                }
-                .font(Design.Typography.control)
-                .barControl()
-                filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
-                    Button("Any Movement") { movement = nil }
-                    Divider()
-                    ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
-                }
-                filter(framing?.label ?? String(localized: "Any Framing"), symbol: "viewfinder", active: framing != nil) {
-                    Button("Any Framing") { framing = nil }
-                    Divider()
-                    ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
-                }
+        InputBar(symbol: "magnifyingglass", prompt: Text("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”"),
+                 text: $query) {
+            filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
+                Button("Any Movement") { movement = nil }
+                Divider()
+                ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
+            }
+            filter(framing?.label ?? String(localized: "Any Framing"), symbol: "viewfinder", active: framing != nil) {
+                Button("Any Framing") { framing = nil }
+                Divider()
+                ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
             }
         }
+        .help("Search your videos and footage by what’s in the picture, the shot size and how the camera moves.")
         .padding(Design.Spacing.window)
     }
 
@@ -151,18 +139,20 @@ struct VisualSearchView: View {
 
     @ViewBuilder private var results: some View {
         if indexer.indexes.isEmpty {
-            ContentUnavailableView {
-                Label("No Videos Indexed Yet", systemImage: "sparkle.magnifyingglass")
-            } description: {
-                Text("Pluck looks at every shot in your Library’s videos: what’s in it, the shot size and how the camera moves. Then you can search them in your own words.")
-            } actions: {
-                Button("Index My Library") { indexer.enqueue(indexer.unindexed) }
-                    .buttonStyle(.borderedProminent)
+            ToolPage(maxWidth: 680) {
+                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("No Videos Indexed Yet"),
+                            subtitle: Text("Pluck looks at every shot in your Library’s videos: what’s in it, the shot size and how the camera moves. Then you can search them in your own words."))
+                Button("Index My Library", systemImage: "sparkles") { indexer.enqueue(indexer.unindexed) }
+                    .buttonStyle(BarCapsuleButtonStyle())
                     .disabled(indexer.working != nil || indexer.unindexed.isEmpty)
+                    .frame(maxWidth: .infinity)
+                PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
             }
         } else if query.isEmpty && movement == nil && framing == nil {
-            ContentUnavailableView("Search Your Shots", systemImage: "sparkle.magnifyingglass",
-                                   description: Text("\(indexer.indexes.reduce(0) { $0 + $1.shots.count }) shots in \(indexer.indexes.count) videos."))
+            ToolPage(maxWidth: 680) {
+                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Search Your Shots"),
+                            subtitle: Text("\(indexer.indexes.reduce(0) { $0 + $1.shots.count }) shots in \(indexer.indexes.count) videos."))
+            }
         } else if hits.isEmpty {
             ContentUnavailableView.search(text: query)
         } else {
@@ -197,11 +187,14 @@ struct VisualSearchView: View {
                 Text(indexer.queued > 0 ? String(localized: "Looking at “\(working)” (\(indexer.queued) more)…")
                                         : String(localized: "Looking at “\(working)”…"))
                     .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
-                Button("Stop") { indexer.stop() }
+                RowButton(symbol: "stop.fill", label: "Stop") { indexer.stop() }
             } else {
                 Toggle("Index new downloads", isOn: $automatic)
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
                 if !indexer.unindexed.isEmpty, !indexer.indexes.isEmpty {
                     Button("Index \(indexer.unindexed.count) More") { indexer.enqueue(indexer.unindexed) }
+                        .buttonStyle(.link)
                 }
             }
             Spacer()
@@ -210,6 +203,7 @@ struct VisualSearchView: View {
                 Text("^[\(hits.count) shot](inflect: true)").foregroundStyle(.secondary).monospacedDigit()
             }
             Button("Log in Resolve…") { confirmLog = true }
+                .buttonStyle(GlassCapsuleButtonStyle())
                 .disabled(!Resolve.isInstalled || logger.isRunning)
                 .help("Write shot descriptions, keywords and a marker per shot into the open DaVinci Resolve project")
                 .confirmationDialog("Log the clips in DaVinci Resolve?", isPresented: $confirmLog) {
@@ -217,13 +211,15 @@ struct VisualSearchView: View {
                 } message: {
                     Text("Every video clip in the open project gets a description, keywords (shot size, camera move, what’s in it) and a marker per shot. Clips Pluck hasn’t looked at yet are analysed first, which can take a while. Your own descriptions are kept; running it again replaces only Pluck’s markers.")
                 }
-            Button("Build Timeline in Resolve", action: buildTimeline)
+            Button("Build Timeline in Resolve", systemImage: "film.stack", action: buildTimeline)
+                .buttonStyle(BarCapsuleButtonStyle())
                 .disabled(selected.isEmpty || !Resolve.isInstalled)
                 .help("Select shots with ⌘-click")
         }
         .padding(.horizontal, Design.Spacing.window)
         .padding(.vertical, 12)
         .font(.callout)
+        .background(.bar)
     }
 
     /// How logging in Resolve is going, above the footer while it runs and after it's done.
@@ -246,7 +242,7 @@ struct VisualSearchView: View {
                     Text("Reading the clips in DaVinci Resolve…")
                 }
                 Spacer()
-                Button("Stop") { logger.cancel() }
+                RowButton(symbol: "stop.fill", label: "Stop") { logger.cancel() }
             }
             .logBarStyle()
         case .finished(let clips, let markers, let project):
@@ -259,7 +255,7 @@ struct VisualSearchView: View {
             .logBarStyle()
         case .failed(let message):
             HStack(spacing: 12) {
-                Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                ProblemLabel(text: message)
                 Spacer()
                 Button("OK") { logger.cancel() }
             }

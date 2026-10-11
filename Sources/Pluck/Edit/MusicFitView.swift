@@ -15,52 +15,56 @@ struct MusicFitView: View {
     private var target: Double { Double(minutes * 60 + seconds) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "music.note.list", title: Text("Fit Music to Length"), subtitle: Text("Shortens or lengthens a song on its phrases, keeping the intro and the real ending."), subtitleIsName: false)
-            Form {
-                LabeledContent("Song") {
-                    HStack {
-                        Text(song?.lastPathComponent ?? String(localized: "None")).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Button(song == nil ? "Choose…" : "Change…", action: choose)
+        ToolPage(maxWidth: 680) {
+            ToolWelcome(symbol: "music.note.list", title: Text("Fit Music to Length"),
+                        subtitle: Text("Shortens or lengthens a song on its phrases, keeping the intro and the real ending."))
+            GlassGroup(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
+                    FileCapsule(file: song, symbol: "music.note", placeholder: Text("Choose a song"))
+                    Button(song == nil ? "Choose…" : "Change…", action: choose)
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                    HStack(spacing: 2) {
+                        Image(systemName: "timer").foregroundStyle(.secondary).accessibilityHidden(true)
+                            .padding(.trailing, 4)
+                        TextField("Minutes", value: $minutes, format: .number)
+                            .frame(width: 28).multilineTextAlignment(.trailing)
+                        Text(verbatim: ":")
+                        TextField("Seconds", value: $seconds, format: .number.precision(.integerLength(2)))
+                            .frame(width: 28)
                     }
-                }
-                LabeledContent("Length") {
-                    HStack(spacing: 4) {
-                        TextField("Minutes", value: $minutes, format: .number).frame(width: 44).multilineTextAlignment(.trailing)
-                        Text(":")
-                        TextField("Seconds", value: $seconds, format: .number.precision(.integerLength(2))).frame(width: 44)
-                    }
+                    .textFieldStyle(.plain)
+                    .font(Design.Typography.control.monospacedDigit())
                     .labelsHidden()
+                    .barControl()
+                    .fixedSize()
+                    .help("The new length, in minutes and seconds")
+                    Button("Fit", systemImage: "scissors", action: fit)
+                        .buttonStyle(BarCapsuleButtonStyle())
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(song == nil || target < 5 || task != nil)
                 }
             }
-            .formStyle(.grouped)
             .disabled(task != nil)
-
-            if let status {
-                HStack { ProgressView().controlSize(.small); Text(status).foregroundStyle(.secondary) }
-            }
-            if let problem {
-                Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-            }
-            if let done {
-                VStack(alignment: .leading, spacing: 4) {
-                    Label(done.file.lastPathComponent, systemImage: "checkmark.circle").foregroundStyle(.green)
-                    Text(describe(done.edit)).font(.callout).foregroundStyle(.secondary)
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([done.file]) }
+            if let status, let song {
+                ItemRow(symbol: "music.note", title: Text(song.lastPathComponent), subtitle: Text(status)) {
+                    ProgressView().progressViewStyle(.linear).padding(.top, 4)
+                } actions: {
+                    EmptyView()
                 }
             }
-            Spacer(minLength: 0)
-            HStack {
-                Label("Runs on this Mac.", systemImage: "lock.shield").noteStyle()
-                Spacer()
-                Button("Fit", action: fit)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(song == nil || target < 5 || task != nil)
+            if let problem { ProblemLabel(text: problem) }
+            if let done {
+                ItemRow(symbol: "checkmark", tint: .green, title: Text(done.file.lastPathComponent), subtitle: Text(describe(done.edit))) {
+                    EmptyView()
+                } actions: {
+                    RowButton(symbol: "magnifyingglass", label: "Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([done.file])
+                    }
+                }
             }
+            PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
         }
-        .padding(Design.Spacing.sheet)
-        .frame(minWidth: 520, minHeight: 380)
+        .frame(minWidth: 560, minHeight: 420)
     }
 
     private func describe(_ edit: MusicFit.Edit) -> String {

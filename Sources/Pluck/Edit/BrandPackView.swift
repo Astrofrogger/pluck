@@ -6,6 +6,7 @@ import UniformTypeIdentifiers
 struct BrandPackView: View {
     /// A logo to load as soon as the window opens (screenshots).
     @MainActor static var openFile: URL?
+    static let openNotification = Notification.Name("PluckBrandPackOpen")
     @Environment(DownloadManager.self) private var manager
     @State private var logo: LogoAnimation?
     @State private var logoFile: URL?
@@ -56,93 +57,42 @@ struct BrandPackView: View {
         .filter { !$0.hasPrefix(".") }.sorted()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "rectangle.3.group", title: Text("Brand Pack"),
-                        subtitle: Text("Lower thirds, a title card and an end card in your logo’s colours, animated and ready for the edit."),
-                        subtitleIsName: false)
-            HStack(alignment: .top, spacing: Design.Spacing.section) {
-                VStack(alignment: .leading, spacing: Design.Spacing.controls) {
-                    preview
-                        .aspectRatio(format.aspect, contentMode: .fit)
-                        .frame(maxWidth: .infinity, maxHeight: 360)
-                    Picker("", selection: $showing) {
-                        ForEach(Showing.allCases) { Text($0.label).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .onChange(of: showing) { started = .now }
-                    HStack {
-                        Button(logo == nil ? "Choose Logo…" : "Change Logo…") { chooseLogo() }
-                        if let logoFile { Text(logoFile.lastPathComponent).lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary) }
-                    }
-                    if let problem {
-                        Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-                .frame(minWidth: 380)
-                Form {
-                    Section("Lower thirds") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            TextEditor(text: $people)
-                                .font(.body)
-                                .frame(height: 90)
-                                .onChange(of: people) { started = .now }
-                            Text("One per line: name, role. Each becomes its own file.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Picker("Style", selection: $style) {
-                            ForEach(BrandPack.LowerThirdStyle.allCases) { Text($0.label).tag($0) }
-                        }
-                        .onChange(of: style) { started = .now; showing = .lowerThird }
-                    }
-                    Section("Title card") {
-                        TextField("Title", text: $title, prompt: Text(verbatim: "Curiosity Festival 2026"))
-                        TextField("Subtitle", text: $subtitle, prompt: Text(verbatim: "Aftermovie"))
-                    }
-                    Section("End card") {
-                        TextField("Line under the logo", text: $line, prompt: Text(verbatim: "wideopen.be"))
-                    }
-                    Section {
-                        Picker("Font", selection: $font) {
-                            ForEach(Self.fonts, id: \.self) { Text($0).tag($0) }
-                        }
-                        Picker("Background", selection: $background) {
-                            ForEach(Backdrop.allCases) { Text($0.label).tag($0) }
-                        }
-                        Picker("Format", selection: $format) {
-                            ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
-                        }
-                        Picker("Frame rate", selection: $frameRate) {
-                            ForEach([25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
-                        }
-                    } footer: {
-                        Text("The background is for the title and end cards; lower thirds are always transparent.")
-                    }
-                }
-                .formStyle(.grouped)
-                .frame(minWidth: 400)
+        ToolPage {
+            if logo == nil {
+                ToolWelcome(symbol: "rectangle.3.group", title: Text("Brand Pack"),
+                            subtitle: Text("Lower thirds, a title card and an end card in your logo’s colours, animated and ready for the edit."))
+                dropZone
+                if let problem { ProblemLabel(text: problem) }
+            } else {
+                preview
+                    .aspectRatio(format.aspect, contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                actionBar
+                if let problem { ProblemLabel(text: problem) }
+                cards
             }
-            HStack {
-                if let exporting {
-                    ProgressView(value: exporting).frame(width: 200)
-                    Text("Making the brand pack…").foregroundStyle(.secondary)
-                } else if let done {
-                    Label("Saved \(done.lastPathComponent)", systemImage: "checkmark.circle").foregroundStyle(.green)
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([done]) }
+            PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
+        }
+        .frame(minWidth: 620, minHeight: 600)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Picker("Show", selection: $showing) {
+                    ForEach(Showing.allCases) { Text($0.label).tag($0) }
                 }
-                Spacer()
-                Text("Runs on this Mac.").font(.caption).foregroundStyle(.secondary)
-                Button("Export…") { export() }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(logo == nil || exporting != nil)
+                .pickerStyle(.segmented)
+                .disabled(logo == nil)
+                .help("Which graphic the preview plays")
             }
         }
-        .padding(Design.Spacing.window)
-        .frame(minWidth: 920, minHeight: 680)
+        .onChange(of: showing) { started = .now }
         .onAppear {
             if let url = Self.openFile {
                 Self.openFile = nil
                 load(url)
             }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
+            if let url = note.object as? URL { Self.openFile = nil; load(url) }
         }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             Task { if let url = await providers.first?.load(URL.self) { load(url) } }
@@ -150,11 +100,106 @@ struct BrandPackView: View {
         }
     }
 
+    /// Before there's a logo: a place to drop one, and the button to choose one.
+    private var dropZone: some View {
+        VStack(spacing: Design.Spacing.section) {
+            DropZone(text: loading ? Text("Taking the logo apart…") : Text("Drop a logo here: PNG, SVG, PDF or JPG"),
+                     targeted: dropTargeted, busy: loading)
+            Button("Choose Logo…", systemImage: "photo") { chooseLogo() }
+                .buttonStyle(BarCapsuleButtonStyle())
+                .disabled(loading)
+        }
+    }
+
+    /// The logo in use, and the main action, like the main window's bar.
+    private var actionBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassGroup(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
+                    FileCapsule(file: logoFile, symbol: "photo")
+                    Button("Change…") { chooseLogo() }
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                    Button("Export…", systemImage: "square.and.arrow.up") { export() }
+                        .buttonStyle(BarCapsuleButtonStyle())
+                        .disabled(exporting != nil)
+                }
+            }
+            if let exporting {
+                HStack(spacing: Design.Spacing.controls) {
+                    ProgressView(value: exporting).frame(maxWidth: 240)
+                    Text("Making the brand pack…").font(.callout).foregroundStyle(.secondary)
+                }
+            } else if let done {
+                DoneLabel(text: Text("Saved \(done.lastPathComponent)"), file: done)
+            }
+        }
+    }
+
+    @ViewBuilder private var cards: some View {
+        Card {
+            CardHeader(symbol: "person.text.rectangle", title: Text("Lower thirds"),
+                       subtitle: Text("One per line: name, role. Each becomes its own file."))
+            TextEditor(text: $people)
+                .textBox(height: 96)
+                .onChange(of: people) { started = .now; showing = .lowerThird }
+            CardField(label: Text("Style")) {
+                Picker("Style", selection: $style) {
+                    ForEach(BrandPack.LowerThirdStyle.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            .onChange(of: style) { started = .now; showing = .lowerThird }
+        }
+        Card {
+            CardHeader(symbol: "textformat.size", title: Text("Title card"))
+            TextField("Title", text: $title, prompt: Text(verbatim: "Curiosity Festival 2026"))
+                .capsuleField()
+                .onChange(of: title) { showing = .title }
+            TextField("Subtitle", text: $subtitle, prompt: Text(verbatim: "Aftermovie"))
+                .capsuleField()
+                .onChange(of: subtitle) { showing = .title }
+        }
+        Card {
+            CardHeader(symbol: "flag.checkered", title: Text("End card"))
+            TextField("Line under the logo", text: $line, prompt: Text(verbatim: "wideopen.be"))
+                .capsuleField()
+                .onChange(of: line) { showing = .endCard }
+        }
+        Card {
+            CardHeader(symbol: "paintpalette", title: Text("Look"),
+                       subtitle: Text("The background is for the title and end cards; lower thirds are always transparent."))
+            CardField(label: Text("Font")) {
+                Picker("Font", selection: $font) {
+                    ForEach(Self.fonts, id: \.self) { Text($0).tag($0) }
+                }
+                .fixedSize()
+            }
+            CardField(label: Text("Background")) {
+                Picker("Background", selection: $background) {
+                    ForEach(Backdrop.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            CardField(label: Text("Format")) {
+                Picker("Format", selection: $format) {
+                    ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            CardField(label: Text("Frame rate")) {
+                Picker("Frame rate", selection: $frameRate) {
+                    ForEach([25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                }
+                .fixedSize()
+            }
+        }
+    }
+
     // MARK: - Preview
 
     @ViewBuilder private var preview: some View {
         ZStack {
-            Checkerboard().clipShape(.rect(cornerRadius: Design.Radius.box))
+            Checkerboard()
             if let pack {
                 let graphic = previewGraphic
                 let canvas = CGSize(width: Double(format.size.width) / 2, height: Double(format.size.height) / 2)
@@ -166,17 +211,9 @@ struct BrandPackView: View {
                         Image(decorative: frame, scale: 1).resizable().interpolation(.high)
                     }
                 }
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: loading ? "hourglass" : "square.and.arrow.down")
-                        .font(.system(size: 32)).foregroundStyle(dropTargeted ? .blue : .secondary)
-                        .accessibilityHidden(true)
-                    Text(loading ? "Taking the logo apart…" : "Drop a logo here: PNG, SVG, PDF or JPG")
-                        .foregroundStyle(.secondary)
-                }
             }
         }
-        .clipShape(.rect(cornerRadius: Design.Radius.box))
+        .clipShape(.rect(cornerRadius: Design.Radius.card, style: .continuous))
     }
 
     private static func frame(_ pack: BrandPack, _ graphic: BrandPack.Graphic, at t: Double, canvas: CGSize) -> CGImage? {

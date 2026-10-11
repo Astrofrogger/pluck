@@ -75,37 +75,43 @@ struct PluckApp: App {
             DerushView()
                 .environment(app.ai)
         }
+        .windowToolbarStyle(.unified)
         .defaultSize(width: 1040, height: 720)
 
         Window("Live Recorder", id: "liveRecorder") {
             LiveRecorderView()
                 .environment(app.ai)
         }
+        .windowToolbarStyle(.unified)
         .defaultSize(width: 980, height: 720)
 
         Window("Find Shots", id: "findShots") {
             VisualSearchView()
                 .environment(app.ai)
         }
+        .windowToolbarStyle(.unified)
         .defaultSize(width: 960, height: 720)
 
         Window("Logo Animator", id: "logoAnimator") {
             LogoAnimatorView()
                 .environment(app.ai)
         }
-        .defaultSize(width: 680, height: 760)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 760, height: 860)
 
         Window("Brand Pack", id: "brandPack") {
             BrandPackView()
                 .environment(manager)
         }
-        .defaultSize(width: 1000, height: 760)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 820, height: 860)
 
         Window("Delivery Check", id: "deliveryCheck") {
             DeliveryCheckView()
                 .environment(manager)
         }
-        .defaultSize(width: 1080, height: 720)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1080, height: 760)
 
         Window("Edit Anywhere", id: "officeRender") {
             OfficeRenderView()
@@ -117,7 +123,8 @@ struct PluckApp: App {
             MusicFitView()
                 .environment(app.ai)
         }
-        .defaultSize(width: 540, height: 400)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 680, height: 520)
 
         WindowGroup("Pluck Player", for: PlayerTarget.self) { $target in
             if let target {

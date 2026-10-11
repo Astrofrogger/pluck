@@ -213,40 +213,37 @@ struct DerushView: View {
     private var done: [DerushSession.Clip] { session.clips.filter { $0.state == .done } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
             VStack(alignment: .leading, spacing: 12) {
-                SheetHeader(symbol: "film.stack", title: Text("Derush Footage"),
-                            subtitle: Text("Pluck goes through your raw footage: every shot for focus, light, faces, action and its look, plus cheers, music and the most quotable lines. Then it looks at the whole shoot and picks selects for the kind of video you’re making."),
-                            subtitleIsName: false)
-                HStack(spacing: 12) {
-                    Button("Add Files…") { pick(folders: false) }
-                    Button("Add Folder…") { pick(folders: true) }
-                    if !session.clips.isEmpty, !session.running { Button("Clear") { session.clear(); selection = nil } }
-                    Spacer()
-                    if session.running {
-                        Button(action: session.stop) { Label("Stop", systemImage: "stop.fill") }
-                            .buttonStyle(BarCapsuleButtonStyle(tint: .red))
-                            .fixedSize()
-                    } else {
-                        Button { session.start(language: transcribe ? language : nil, lookAtPicture: lookAtPicture, kind: kind) } label: { Label("Analyse", systemImage: "waveform.badge.magnifyingglass") }
-                            .buttonStyle(BarCapsuleButtonStyle())
-                            .fixedSize()
-                            .disabled(!session.clips.contains { $0.state != .done })
+                GlassGroup(spacing: Design.Spacing.controls) {
+                    HStack(spacing: Design.Spacing.controls) {
+                        BarPicker(symbol: "film", label: Text("Video"), selection: $kind, current: Text(kind.label)) {
+                            ForEach(ShootPlan.Kind.allCases) { Text($0.label).tag($0) }
+                        }
+                        .help("The selects are picked for this kind of video. Changing it re-picks straight away, without analysing again.")
+                        Button("Add Files…") { pick(folders: false) }
+                            .buttonStyle(GlassCapsuleButtonStyle())
+                        Button("Add Folder…") { pick(folders: true) }
+                            .buttonStyle(GlassCapsuleButtonStyle())
+                        if !session.clips.isEmpty, !session.running {
+                            RowButton(symbol: "trash", label: "Clear") { session.clear(); selection = nil }
+                        }
+                        Spacer()
+                        if session.running {
+                            Button(action: session.stop) { Label("Stop", systemImage: "stop.fill") }
+                                .buttonStyle(BarCapsuleButtonStyle(tint: .red))
+                        } else {
+                            Button { session.start(language: transcribe ? language : nil, lookAtPicture: lookAtPicture, kind: kind) } label: { Label("Analyse", systemImage: "waveform.badge.magnifyingglass") }
+                                .buttonStyle(BarCapsuleButtonStyle())
+                                .disabled(!session.clips.contains { $0.state != .done })
+                        }
                     }
                 }
-                .font(.callout)
                 HStack(spacing: 16) {
-                    Picker("Video", selection: $kind) {
-                        ForEach(ShootPlan.Kind.allCases) { Text($0.label).tag($0) }
-                    }
-                    .fixedSize()
-                    .help("The selects are picked for this kind of video. Changing it re-picks straight away, without analysing again.")
                     Toggle("Look at the picture", isOn: $lookAtPicture)
                         .help("Judges every shot for focus, light, shake, faces, action and its look. Slower than listening only.")
-                        .disabled(session.running)
                     if LocalAI.canTranscribe {
                         Toggle("Transcribe", isOn: $transcribe)
-                            .disabled(session.running)
                         if transcribe {
                             Picker("Spoken language", selection: $language) {
                                 ForEach(languages, id: \.identifier) { locale in
@@ -254,23 +251,36 @@ struct DerushView: View {
                                 }
                             }
                             .labelsHidden()
-                            .frame(maxWidth: 200)
-                            .disabled(session.running)
+                            .fixedSize()
                         }
                     }
                     Spacer()
                 }
+                .toggleStyle(.switch)
+                .controlSize(.small)
                 .font(.callout)
+                .padding(.horizontal, 4)
+                .disabled(session.running)
             }
-            .padding(Design.Spacing.window)
-            Divider()
-            HSplitView {
-                clipList.frame(minWidth: 320)
-                detail.frame(minWidth: 380)
+            if session.clips.isEmpty {
+                ScrollView {
+                    VStack(spacing: Design.Spacing.section) {
+                        ToolWelcome(symbol: "film.stack", title: Text("Derush Footage"),
+                                    subtitle: Text("Pluck goes through your raw footage: every shot for focus, light, faces, action and its look, plus cheers, music and the most quotable lines. Then it looks at the whole shoot and picks selects for the kind of video you’re making."))
+                        DropZone(symbol: "film.stack", text: Text("Drop clips or a folder here, or use Add Folder…"), targeted: dropTargeted)
+                    }
+                    .frame(maxWidth: 680)
+                    .frame(maxWidth: .infinity)
+                }
+            } else {
+                HStack(alignment: .top, spacing: Design.Spacing.section) {
+                    Pane { clipList }.frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
+                    Pane { detail }.frame(minWidth: 380)
+                }
             }
-            Divider()
             footer
         }
+        .padding(Design.Spacing.window)
         .frame(minWidth: 900, minHeight: 620)
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             Task {
@@ -322,12 +332,10 @@ struct DerushView: View {
             }
         }
         .overlay {
-            if session.clips.isEmpty {
-                ContentUnavailableView("Add Your Footage", systemImage: "film.stack",
-                                       description: Text("Drop clips or a folder here, or use Add Folder…"))
+            if dropTargeted {
+                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
             }
         }
-        .overlay { if dropTargeted { RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(Color.accentColor, lineWidth: 3).padding(4) } }
     }
 
     private func summary(_ clip: DerushSession.Clip) -> String {
@@ -345,10 +353,8 @@ struct DerushView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        VStack(spacing: 8) {
-            TextField("Find what was said in all clips", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .padding([.horizontal, .top], 12)
+        VStack(spacing: 0) {
+            PaneSearchField(prompt: "Find what was said in all clips", text: $search)
             List {
                 if !search.isEmpty {
                     let found = session.find(search)
@@ -494,14 +500,14 @@ struct DerushView: View {
     private var footer: some View {
         HStack(spacing: 12) {
             if session.running {
-                let finished = done.count
-                ProgressView(value: Double(finished), total: Double(max(session.clips.count, 1))).frame(width: 140)
-                Text("\(finished) of \(session.clips.count) clips").monospacedDigit().foregroundStyle(.secondary)
+                StatusChip(text: Text("\(done.count) of \(session.clips.count) clips"), colour: .orange, busy: true)
+                    .monospacedDigit()
             } else {
-                Label("Runs on this Mac. Nothing is uploaded.", systemImage: "lock.shield").noteStyle()
+                PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
+                    .fixedSize()
             }
             Spacer()
-            if let status { Text(status).foregroundStyle(.secondary).lineLimit(1) }
+            if let status { Text(status).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
             if session.planning {
                 ProgressView().controlSize(.small)
                 Text("Looking at the whole shoot…").foregroundStyle(.secondary)
@@ -511,13 +517,13 @@ struct DerushView: View {
                 } label: {
                     Text("Shoot Overview (^[\(plan.picks.count) pick](inflect: true))")
                 }
+                .buttonStyle(GlassCapsuleButtonStyle())
             }
-            Button("Build Derush in Resolve", action: build)
+            Button("Build Derush in Resolve", systemImage: "film.stack", action: build)
+                .buttonStyle(BarCapsuleButtonStyle())
                 .disabled(done.isEmpty || session.running || !Resolve.isInstalled)
         }
         .font(.callout)
-        .padding(.horizontal, Design.Spacing.window)
-        .padding(.vertical, 12)
     }
 
     private func time(_ seconds: Double) -> String {

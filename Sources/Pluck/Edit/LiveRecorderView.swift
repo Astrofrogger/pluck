@@ -17,17 +17,15 @@ struct LiveRecorderView: View {
     @MainActor static let shared = LiveSession()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: Design.Spacing.section) {
             controls
-                .padding(Design.Spacing.window)
-            Divider()
-            HSplitView {
-                markerList.frame(minWidth: 300)
-                transcript.frame(minWidth: 340)
+            HStack(alignment: .top, spacing: Design.Spacing.section) {
+                Pane { markerList }.frame(minWidth: 300)
+                Pane { transcript }.frame(minWidth: 340)
             }
-            Divider()
             footer
         }
+        .padding(Design.Spacing.window)
         .frame(minWidth: 820, minHeight: 600)
         .task {
             guard LocalAI.canTranscribe, #available(macOS 26, *) else { return }
@@ -35,25 +33,16 @@ struct LiveRecorderView: View {
             language = language ?? languages.first { $0.language.languageCode == Locale.current.language.languageCode }
                 ?? languages.first { $0.language.languageCode?.identifier == "en" }
         }
+        // The recording time ticks along.
+        .background { if session.state == .recording { TimelineView(.periodic(from: .now, by: 1)) { _ in Color.clear } } }
     }
 
     // MARK: - Parts
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SheetHeader(symbol: "record.circle", title: Text("Live Recorder"),
-                        subtitle: Text("Records a live stream and marks cheers, music and silence as it goes, with a live transcript and highlights for the edit."),
-                        subtitleIsName: false)
-            HStack(spacing: Design.Spacing.controls) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Image(systemName: "dot.radiowaves.left.and.right").foregroundStyle(.secondary).accessibilityHidden(true)
-                    TextField("Paste a live stream link (YouTube, Twitch…)", text: $link)
-                        .textFieldStyle(.plain)
-                        .onSubmit(record)
-                }
-                .font(Design.Typography.control)
-                .barControl()
-                .disabled(session.isRunning)
+            InputBar(symbol: "dot.radiowaves.left.and.right", prompt: Text("Paste a live stream link (YouTube, Twitch…)"),
+                     text: $link, onSubmit: record) {
                 if session.isRunning {
                     Button(action: session.stop) { Label("Stop", systemImage: "stop.fill") }
                         .buttonStyle(BarCapsuleButtonStyle(tint: .red))
@@ -63,6 +52,7 @@ struct LiveRecorderView: View {
                         .disabled(Links.validated(link) == nil)
                 }
             }
+            .help("Records a live stream and marks cheers, music and silence as it goes, with a live transcript and highlights for the edit.")
             HStack(spacing: 16) {
                 Toggle("From the start of the stream", isOn: $fromStart)
                     .help("YouTube streams can be recorded from where they began, not just from now")
@@ -75,12 +65,15 @@ struct LiveRecorderView: View {
                             }
                         }
                         .labelsHidden()
-                        .frame(maxWidth: 200)
+                        .fixedSize()
                     }
                 }
                 Spacer()
             }
+            .toggleStyle(.switch)
+            .controlSize(.small)
             .font(.callout)
+            .padding(.horizontal, 4)
             .disabled(session.isRunning)
         }
     }
@@ -120,10 +113,8 @@ struct LiveRecorderView: View {
     }
 
     @ViewBuilder private var transcript: some View {
-        VStack(spacing: 8) {
-            TextField("Find what was said", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .padding([.horizontal, .top], 12)
+        VStack(spacing: 0) {
+            PaneSearchField(prompt: "Find what was said", text: $search)
             List {
                 if search.isEmpty {
                     ForEach(Array(session.lines.enumerated()), id: \.offset) { _, line in
@@ -143,6 +134,7 @@ struct LiveRecorderView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
             .overlay {
                 if session.words.isEmpty {
                     Text(transcribe && LocalAI.canTranscribe ? "The transcript appears here as it’s spoken." : "Transcription is off.")
@@ -156,39 +148,32 @@ struct LiveRecorderView: View {
         HStack(spacing: 12) {
             switch session.state {
             case .recording:
-                Image(systemName: "record.circle").foregroundStyle(.red).symbolEffect(.pulse).accessibilityHidden(true)
-                Text("Recording \(time(Date.now.timeIntervalSince(session.startedAt ?? .now))) · \(ByteCountFormatter.string(fromByteCount: session.bytes, countStyle: .file))")
+                StatusChip(text: Text("Recording \(time(Date.now.timeIntervalSince(session.startedAt ?? .now))) · \(ByteCountFormatter.string(fromByteCount: session.bytes, countStyle: .file))"),
+                           colour: .red)
                     .monospacedDigit()
             case .analysing:
-                ProgressView().controlSize(.small)
-                Text("Analysing… \(time(session.analysed))").monospacedDigit()
+                StatusChip(text: Text("Analysing… \(time(session.analysed))"), colour: .orange, busy: true)
+                    .monospacedDigit()
             case .finished:
-                Label {
-                    Text(String(AttributedString(localized: "^[\(session.events.count) marker](inflect: true), ^[\(session.highlights.count) highlight](inflect: true)").characters))
-                } icon: {
-                    Image(systemName: "checkmark.circle")
-                }
+                StatusChip(text: Text(String(AttributedString(localized: "^[\(session.events.count) marker](inflect: true), ^[\(session.highlights.count) highlight](inflect: true)").characters)))
             case .failed(let message):
-                Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red).lineLimit(2)
+                ProblemLabel(text: message).lineLimit(2)
             case .idle:
-                Label("Runs on this Mac. Nothing is uploaded.", systemImage: "lock.shield").noteStyle()
+                PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
+                    .fixedSize()
             }
             if let problem = session.transcriptionProblem {
-                Text(problem).foregroundStyle(.orange).lineLimit(1)
+                Text(problem).font(.callout).foregroundStyle(.orange).lineLimit(1)
             }
             Spacer()
-            if let status { Text(status).foregroundStyle(.secondary).lineLimit(1) }
+            if let status { Text(status).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
             if let file = session.file, !session.isRunning {
-                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                RowButton(symbol: "magnifyingglass", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
             }
-            Button("Build in Resolve", action: build)
+            Button("Build in Resolve", systemImage: "film.stack", action: build)
+                .buttonStyle(GlassCapsuleButtonStyle())
                 .disabled(session.state != .finished || !Resolve.isInstalled)
         }
-        .font(.callout)
-        .padding(.horizontal, Design.Spacing.window)
-        .padding(.vertical, 12)
-        // The recording time ticks along.
-        .background { if session.state == .recording { TimelineView(.periodic(from: .now, by: 1)) { _ in Color.clear } } }
     }
 
     private func time(_ seconds: Double) -> String {

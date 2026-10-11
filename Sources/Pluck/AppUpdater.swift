@@ -3,10 +3,10 @@ import CryptoKit
 import Foundation
 import Observation
 
-/// Updates Pluck itself from GitHub releases. Each release carries both editions (see Edition):
-/// Pluck-Basic.zip and Pluck-Studio.zip with their .sha256, plus Pluck.zip (Studio, for Pluck 1.15
-/// and older). The update is verified, unpacked, swapped in place of the running app, and
-/// relaunched. Switching edition is the same, with the other edition's download.
+/// Updates Pluck itself from GitHub releases. Each release is two disk images, one per edition (see
+/// Edition): Pluck.dmg and Pluck-Studio.dmg. The download is checked against the SHA-256 GitHub
+/// records for it, the app copied out of the image, swapped in place of the running app, and
+/// relaunched. Switching edition is the same, with the other edition's image.
 @MainActor
 @Observable
 final class AppUpdater {
@@ -15,9 +15,14 @@ final class AppUpdater {
     struct Release: Equatable {
         let version: String
         let notes: String
-        let zip: URL
-        let checksum: URL
+        /// The download: the edition's disk image (or, from releases before 1.17.3, a zip).
+        let file: URL
+        /// Its SHA-256, from GitHub's own record of the file (hex), or the address of a
+        /// published .sha256 file for the old zips.
+        let digest: String?
+        let checksum: URL?
         let page: URL
+        var isDiskImage: Bool { file.pathExtension.lowercased() == "dmg" }
     }
 
     enum Status: Equatable {
@@ -87,7 +92,7 @@ final class AppUpdater {
     }
 
     /// The latest release, with the download of the edition asked for (this one by default).
-    private func fetchLatest(studio: Bool = Edition.isStudio) async throws -> Release {
+    func fetchLatest(studio: Bool = Edition.isStudio) async throws -> Release {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -97,10 +102,23 @@ final class AppUpdater {
               let assets = json["assets"] as? [[String: Any]],
               let page = (json["html_url"] as? String).flatMap(URL.init)
         else { throw Failure.noRelease }
-        func asset(_ name: String) -> URL? {
-            (assets.first { $0["name"] as? String == name }?["browser_download_url"] as? String).flatMap(URL.init)
+        func entry(_ name: String) -> [String: Any]? { assets.first { $0["name"] as? String == name } }
+        func asset(_ name: String) -> URL? { (entry(name)?["browser_download_url"] as? String).flatMap(URL.init) }
+        let body = json["body"] as? String ?? ""
+        var version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+
+        // Releases are just the two disk images: Pluck.dmg and Pluck-Studio.dmg. GitHub records
+        // each file's SHA-256, which the download is checked against.
+        let image = studio ? "Pluck-Studio.dmg" : "Pluck.dmg"
+        if let url = asset(image), TrustedHosts.isAllowed(url, hosts: ["github.com"]),
+           let digest = (entry(image)?["digest"] as? String).flatMap(Self.sha256Hex) {
+            // A release can carry an edition unchanged (a Studio-only release keeps basic Pluck as
+            // it was); the release notes say, out of sight, which version of each it holds.
+            if let own = Self.editionVersion(in: body, studio: studio) { version = own }
+            return Release(version: version, notes: Self.visibleNotes(body), file: url, digest: digest, checksum: nil, page: page)
         }
-        // Studio also takes the older single download, from before there were two editions.
+
+        // Before 1.17.3: zips with .sha256 files, and editions.json.
         let names = studio ? ["Pluck-Studio.zip", "Pluck.zip"] : ["Pluck-Basic.zip"]
         guard let name = names.first(where: { asset($0) != nil && asset($0 + ".sha256") != nil }) else {
             throw studio ? Failure.noRelease : Failure.noEdition
@@ -108,10 +126,6 @@ final class AppUpdater {
         guard let zip = asset(name), let sum = asset(name + ".sha256"),
               TrustedHosts.isAllowed(zip, hosts: ["github.com"]), TrustedHosts.isAllowed(sum, hosts: ["github.com"])
         else { throw Failure.noRelease }
-        var version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
-        // A release can carry an edition unchanged (a Studio-only release keeps basic Pluck as
-        // it was): editions.json says which version of each it holds, so nobody is asked to
-        // update to what they already have.
         if let manifest = asset("editions.json"), TrustedHosts.isAllowed(manifest, hosts: ["github.com"]),
            let (data, response) = try? await URLSession.shared.data(from: manifest),
            (response as? HTTPURLResponse)?.statusCode == 200,
@@ -119,7 +133,31 @@ final class AppUpdater {
            let own = editions[studio ? "studio" : "basic"], !own.isEmpty {
             version = own
         }
-        return Release(version: version, notes: json["body"] as? String ?? "", zip: zip, checksum: sum, page: page)
+        return Release(version: version, notes: Self.visibleNotes(body), file: zip, digest: nil, checksum: sum, page: page)
+    }
+
+    /// "sha256:ab12…" → "ab12…".
+    private static func sha256Hex(_ digest: String) -> String? {
+        guard digest.hasPrefix("sha256:") else { return nil }
+        let hex = digest.dropFirst("sha256:".count).lowercased()
+        return hex.count == 64 ? String(hex) : nil
+    }
+
+    /// The edition's version from the release notes' hidden line
+    /// "<!-- pluck-editions studio=1.18.0 basic=1.17.3 -->".
+    static func editionVersion(in notes: String, studio: Bool) -> String? {
+        guard let range = notes.range(of: #"<!--\s*pluck-editions[^>]*-->"#, options: .regularExpression) else { return nil }
+        let line = notes[range]
+        let key = studio ? "studio=" : "basic="
+        guard let start = line.range(of: key) else { return nil }
+        let value = line[start.upperBound...].prefix { $0.isNumber || $0 == "." }
+        return value.isEmpty ? nil : String(value)
+    }
+
+    /// The notes without hidden lines, for showing.
+    private static func visibleNotes(_ notes: String) -> String {
+        notes.replacingOccurrences(of: #"<!--[\s\S]*?-->"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Installing
@@ -160,22 +198,43 @@ final class AppUpdater {
         }
     }
 
-    private func download(_ release: Release) async throws -> URL {
-        async let sumTask = URLSession.shared.data(from: release.checksum)
-        let (zipFile, _) = try await URLSession.shared.download(from: release.zip)
-        let (sumData, _) = try await sumTask
+    func download(_ release: Release) async throws -> URL {
+        let downloaded = try await ToolDownloads.download(release.file, limit: 2 * 3600) { _, _ in }
+        defer { try? FileManager.default.removeItem(at: downloaded) }
 
-        let expected = String(decoding: sumData, as: UTF8.self).split(separator: " ").first.map(String.init) ?? ""
-        let actual = SHA256.hash(data: try Data(contentsOf: zipFile, options: .mappedIfSafe))
+        let expected: String
+        if let digest = release.digest {
+            expected = digest
+        } else if let checksum = release.checksum {
+            let (sumData, _) = try await URLSession.shared.data(from: checksum)
+            expected = String(decoding: sumData, as: UTF8.self).split(separator: " ").first.map(String.init)?.lowercased() ?? ""
+        } else {
+            expected = ""
+        }
+        let actual = SHA256.hash(data: try Data(contentsOf: downloaded, options: .mappedIfSafe))
             .map { String(format: "%02x", $0) }.joined()
-        guard !expected.isEmpty, actual == expected.lowercased() else { throw Failure.checksumMismatch }
+        guard !expected.isEmpty, actual == expected else { throw Failure.checksumMismatch }
 
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("PluckUpdate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
-        try await Self.run("/usr/bin/ditto", ["-x", "-k", zipFile.path, staging.path])
+        if release.isDiskImage {
+            // Opened out of sight, the app copied out, and closed again.
+            let mount = staging.appendingPathComponent("image", isDirectory: true)
+            try FileManager.default.createDirectory(at: mount, withIntermediateDirectories: true)
+            try await Self.run("/usr/bin/hdiutil", ["attach", downloaded.path, "-nobrowse", "-readonly", "-noautoopen", "-mountpoint", mount.path])
+            do {
+                try await Self.run("/usr/bin/ditto", [mount.appendingPathComponent("Pluck.app").path, staging.appendingPathComponent("Pluck.app").path])
+            } catch {
+                try? await Self.run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
+                throw error
+            }
+            try? await Self.run("/usr/bin/hdiutil", ["detach", mount.path, "-force"])
+        } else {
+            try await Self.run("/usr/bin/ditto", ["-x", "-k", downloaded.path, staging.path])
+        }
 
         let app = staging.appendingPathComponent("Pluck.app")
-        guard Bundle(url: app)?.bundleIdentifier == Bundle.main.bundleIdentifier else { throw Failure.badBundle }
+        guard Bundle(url: app)?.bundleIdentifier == (Bundle.main.bundleIdentifier ?? "be.wideopen.pluck") else { throw Failure.badBundle }
         return app
     }
 
@@ -202,6 +261,8 @@ final class AppUpdater {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: tool)
             p.arguments = args
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
             try p.run()
             p.waitUntilExit()
             guard p.terminationStatus == 0 else { throw Failure.badBundle }

@@ -103,6 +103,23 @@ extension View {
             .frame(height: Design.Size.control)
             .glassBackground(in: .capsule, interactive: true)
     }
+
+    /// A text field as a capsule bar control: plain, the control font, glass.
+    func capsuleField() -> some View {
+        textFieldStyle(.plain)
+            .font(Design.Typography.control)
+            .barControl()
+    }
+
+    /// A box for longer text (a text editor, a list of names): glass with the box radius.
+    func textBox(height: CGFloat) -> some View {
+        font(Design.Typography.control)
+            .scrollContentBackground(.hidden)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(height: height)
+            .glassBackground(in: .rect(cornerRadius: Design.Radius.box, style: .continuous), interactive: true)
+    }
 }
 
 /// A round bar button with the shared size: plain glass, or filled with the accent colour for
@@ -138,6 +155,8 @@ struct BarCapsuleButtonStyle: ButtonStyle {
         configuration.label
             .font(Design.Typography.control.weight(.semibold))
             .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .fixedSize()
             .foregroundStyle(.white)
             .padding(.horizontal, Design.Spacing.inset + 4)
             .frame(height: Design.Size.control)
@@ -233,6 +252,8 @@ struct GlassCapsuleButtonStyle: ButtonStyle {
         configuration.label
             .font(Design.Typography.control.weight(.medium))
             .labelStyle(.titleAndIcon)
+            .lineLimit(1)
+            .fixedSize()
             .padding(.horizontal, Design.Spacing.inset)
             .frame(height: Design.Size.control)
             .glassBackground(in: .capsule, interactive: true)
@@ -240,5 +261,324 @@ struct GlassCapsuleButtonStyle: ButtonStyle {
             .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}
+
+/// A small round glass button for an action in a row or card (cancel, fetch, remove).
+struct RowButton: View {
+    let symbol: String
+    let label: LocalizedStringKey
+    var tint: Color = .primary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol).foregroundStyle(tint)
+        }
+        .buttonStyle(BarButtonStyle())
+        .scaleEffect(0.82)
+        .accessibilityLabel(Text(label))
+        .help(Text(label))
+    }
+}
+
+/// A tool window's page: scrolling, the window's margin, and a readable width for pages of
+/// cards (pass `maxWidth: nil` for full-width media, like grids and previews).
+struct ToolPage<Content: View>: View {
+    var maxWidth: CGFloat? = 760
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Design.Spacing.section) { content }
+                .padding(Design.Spacing.window)
+                .frame(maxWidth: maxWidth ?? .infinity)
+                .frame(maxWidth: .infinity)
+        }
+        .defaultScrollAnchor(.top)
+        .softTopScrollEdge()
+    }
+}
+
+/// The welcome at the top of a tool with nothing in it yet: a symbol in a tinted circle, a
+/// title and one line on what it does. The tool's main input bar goes under it.
+struct ToolWelcome: View {
+    let symbol: String
+    let title: Text
+    let subtitle: Text
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: symbol)
+                .font(.system(size: 40, weight: .regular))
+                .foregroundStyle(.tint)
+                .frame(width: 84, height: 84)
+                .background(Color.accentColor.opacity(0.12), in: .circle)
+                .accessibilityHidden(true)
+            title.font(.title2.weight(.semibold))
+            subtitle
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 440)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 28)
+    }
+}
+
+/// The one-line note at the bottom of a page ("Runs on this Mac."), with the details in its hint.
+struct PageNote: View {
+    let text: Text
+    var symbol = "lock.shield"
+    var detail: Text?
+
+    var body: some View {
+        Label { text } icon: { Image(systemName: symbol) }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity)
+            .help(detail ?? text)
+    }
+}
+
+/// A primary input bar like the main window's link field: a symbol, a text field, and whatever
+/// sits next to it (menus, the main action), all in glass at the shared height.
+struct InputBar<Trailing: View>: View {
+    let symbol: String
+    let prompt: Text
+    @Binding var text: String
+    var onSubmit: () -> Void = {}
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        GlassGroup(spacing: Design.Spacing.controls) {
+            HStack(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
+                    Image(systemName: symbol)
+                        .font(.system(size: Design.Size.icon - 2, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .accessibilityHidden(true)
+                    TextField(text: $text, prompt: prompt) { prompt }
+                        .textFieldStyle(.plain)
+                        .font(Design.Typography.control)
+                        .onSubmit(onSubmit)
+                }
+                .barControl()
+                trailing
+            }
+        }
+    }
+}
+
+/// A list row with the download rows' look: an icon tile, a title, a line under it, optional
+/// extra content (a progress bar), and actions on the right.
+struct ItemRow<Detail: View, Actions: View>: View {
+    let symbol: String
+    var tint: Color = .accentColor
+    let title: Text
+    var subtitle: Text?
+    @ViewBuilder var detail: Detail
+    @ViewBuilder var actions: Actions
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: Design.Size.icon, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+                .background(tint.opacity(0.14), in: .rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 3) {
+                title.fontWeight(.semibold).lineLimit(1)
+                if let subtitle { subtitle.font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                detail
+            }
+            Spacer(minLength: 8)
+            actions
+        }
+        .padding(12)
+        .background {
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                .fill(.fill.quaternary)
+                .opacity(0.6)
+        }
+    }
+}
+
+/// One setting inside a card: its name on the left, its control (a menu, a field, a switch) on
+/// the right, like a row of the main window's options.
+struct CardField<Control: View>: View {
+    let label: Text
+    @ViewBuilder var control: Control
+
+    var body: some View {
+        HStack(spacing: 12) {
+            label
+            Spacer(minLength: 12)
+            control.labelsHidden()
+        }
+    }
+}
+
+/// What went wrong, in one calm line: an orange triangle and a sentence.
+struct ProblemLabel: View {
+    let text: String
+
+    var body: some View {
+        Label(text, systemImage: "exclamationmark.triangle.fill")
+            .foregroundStyle(.orange)
+            .font(.callout)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+}
+
+/// A finished result: a green check, what was made, and a way to show it.
+struct DoneLabel: View {
+    let text: Text
+    var file: URL?
+
+    var body: some View {
+        HStack(spacing: Design.Spacing.controls) {
+            Label { text } icon: { Image(systemName: "checkmark.circle.fill") }
+                .foregroundStyle(.green)
+                .font(.callout)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            if let file {
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                    .buttonStyle(.link)
+            }
+        }
+    }
+}
+
+/// A choice as a capsule bar control, like the main window's format menu: a symbol, what's
+/// chosen and a small chevron; the options open as a menu.
+struct BarPicker<Value: Hashable, Options: View>: View {
+    let symbol: String
+    let label: Text
+    @Binding var selection: Value
+    let current: Text
+    @ViewBuilder var options: Options
+
+    var body: some View {
+        Menu {
+            Picker(selection: $selection) { options } label: { label }
+                .pickerStyle(.inline)
+                .labelsHidden()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: symbol)
+                    .font(.system(size: Design.Size.icon - 2, weight: .medium))
+                    .accessibilityHidden(true)
+                current.lineLimit(1)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+            }
+            .font(Design.Typography.control)
+            .foregroundStyle(.primary)
+            .barControl()
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .focusEffectDisabled()
+        .fixedSize()
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+/// The file a tool works on, as a capsule bar control (or what to do when there's none yet).
+struct FileCapsule: View {
+    let file: URL?
+    var symbol = "doc"
+    var placeholder: Text = Text("No file chosen")
+
+    var body: some View {
+        Label {
+            if let file { Text(file.lastPathComponent) } else { placeholder.foregroundStyle(.secondary) }
+        } icon: {
+            Image(systemName: symbol).foregroundStyle(.secondary)
+        }
+        .font(Design.Typography.control)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .barControl()
+        .help(file.map { Text($0.path) } ?? placeholder)
+    }
+}
+
+/// Where a tool takes a file before it has one: a dashed card that lights up while a file is
+/// dragged over it. The window itself takes the drop.
+struct DropZone: View {
+    var symbol = "square.and.arrow.down"
+    let text: Text
+    var targeted = false
+    var busy = false
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if busy {
+                ProgressView().controlSize(.small)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 28))
+                    .foregroundStyle(targeted ? Color.accentColor : .secondary)
+                    .accessibilityHidden(true)
+            }
+            text
+                .font(.callout)
+                .multilineTextAlignment(.center)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 480)
+        }
+        .padding(Design.Spacing.window)
+        .frame(maxWidth: .infinity, minHeight: 160)
+        .background {
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                .strokeBorder(targeted ? Color.accentColor : Color.secondary.opacity(0.35),
+                              style: StrokeStyle(lineWidth: 1.5, dash: [6, 5]))
+        }
+        .animation(.snappy(duration: 0.15), value: targeted)
+    }
+}
+
+/// A pane of a workspace window (a list of clips, a transcript): the card fill around it,
+/// edge to edge, so it scrolls inside its card.
+struct Pane<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content
+            .scrollContentBackground(.hidden)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background {
+                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                    .fill(.fill.quaternary)
+                    .opacity(0.6)
+            }
+            .clipShape(.rect(cornerRadius: Design.Radius.card, style: .continuous))
+    }
+}
+
+/// A search field at the top of a pane: a magnifying glass and a plain field, a line under it.
+struct PaneSearchField: View {
+    let prompt: LocalizedStringKey
+    @Binding var text: String
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                TextField(prompt, text: $text).textFieldStyle(.plain)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            Divider()
+        }
     }
 }

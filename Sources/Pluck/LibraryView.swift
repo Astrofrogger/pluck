@@ -212,10 +212,9 @@ struct LibraryView: View {
     private var detail: some View {
         let list = shown
         if list.isEmpty {
-            ContentUnavailableView {
-                Label(emptyTitle, systemImage: "books.vertical")
-            } description: {
-                Text(emptyDescription)
+            ToolPage(maxWidth: 560) {
+                ToolWelcome(symbol: search.isEmpty ? "books.vertical" : "magnifyingglass",
+                            title: Text(emptyTitle), subtitle: Text(emptyDescription))
             }
         } else {
             ScrollViewReader { scroller in
@@ -233,7 +232,7 @@ struct LibraryView: View {
                                 .contextMenu { menu(for: entry) }
                         }
                     }
-                    .padding(20)
+                    .padding(Design.Spacing.window)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                         // How many cards fit in a row, the way the adaptive grid lays them out.
                         columns = max(1, Int((width - 40 + 16) / (190 + 16)))

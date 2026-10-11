@@ -36,39 +36,6 @@ struct OfficeRenderView: View {
     }
 }
 
-/// The lock line at the bottom of both sides; the details are in its hint.
-private struct PrivacyNote: View {
-    let text: LocalizedStringKey
-    let detail: LocalizedStringKey
-
-    var body: some View {
-        Label(text, systemImage: "lock.shield")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
-            .help(Text(detail))
-    }
-}
-
-/// A small round glass button for an action in a row (cancel, fetch, remove).
-private struct RowButton: View {
-    let symbol: String
-    let label: LocalizedStringKey
-    var tint: Color = .primary
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: symbol).foregroundStyle(tint)
-        }
-        .buttonStyle(BarButtonStyle())
-        .controlSize(.small)
-        .scaleEffect(0.82)
-        .accessibilityLabel(Text(label))
-        .help(Text(label))
-    }
-}
-
 // MARK: - At home
 
 private struct HomeRenderView: View {
@@ -173,8 +140,8 @@ private struct HomeRenderView: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
 
-            PrivacyNote(text: "Private and encrypted. Invitations and codes work once.",
-                        detail: "Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet.")
+            PageNote(text: Text("Private and encrypted. Invitations and codes work once."),
+                     detail: Text("Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet."))
                 .padding(.top, 8)
         }
         .frame(maxWidth: .infinity)
@@ -500,8 +467,8 @@ private struct OfficeSideView: View {
                 devicesCard
             }
 
-            PrivacyNote(text: "Only Macs you pair get in. Never open to the internet.",
-                        detail: "Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews and search the footage folders.")
+            PageNote(text: Text("Only Macs you pair get in. Never open to the internet."),
+                     detail: Text("Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews and search the footage folders."))
                 .padding(.top, 4)
         }
         .sheet(item: $invitation) { link in InvitationSheet(link: link.url) }

@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "1.18.0", items: [
+                Item(symbol: "square.on.square.dashed", title: String(localized: "One look for every tool"),
+                     detail: String(localized: "Brand Pack, Logo Animator, Delivery Check, Fit Music, Derush, Live Recorder and Find Shots now look and work like the main window: a clear start, one bar with the main action, and settings in tidy cards. Everything still runs locally on your Mac.")),
+            ]),
             Release(version: "1.17.2", items: [
                 Item(symbol: "globe.europe.africa", title: String(localized: "A cleaner Edit Anywhere"),
                      detail: String(localized: "Edit Anywhere has a new look in line with the rest of Pluck, and plainer words: use another Mac, or share this one. Everything you need is on one screen, with the details a hover away.")),

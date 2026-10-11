@@ -52,95 +52,29 @@ struct LogoAnimatorView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "wand.and.stars", title: Text("Logo Animator"), subtitle: Text("Takes your logo apart into its shapes and animates them in, smooth and refined."), subtitleIsName: false)
-
-            preview
-                .frame(maxWidth: .infinity)
-                .aspectRatio(format.aspect, contentMode: .fit)
-                .frame(maxHeight: 340)
-                .frame(maxWidth: .infinity)
-
-            if let animation {
-                Text(summary(animation)).font(.callout).foregroundStyle(.secondary)
+        ToolPage {
+            if animation == nil {
+                ToolWelcome(symbol: "wand.and.stars", title: Text("Logo Animator"),
+                            subtitle: Text("Takes your logo apart into its shapes and animates them in, smooth and refined."))
+                DropZone(text: loading ? Text("Taking the logo apart…") : Text("Drop a logo here: PNG, SVG, PDF or JPG."),
+                         targeted: dropTargeted, busy: loading)
+                Button("Choose Logo…", systemImage: "photo", action: choose)
+                    .buttonStyle(BarCapsuleButtonStyle())
+                    .disabled(loading)
+                    .frame(maxWidth: .infinity)
+                if let problem { ProblemLabel(text: problem) }
+            } else {
+                preview
+                    .aspectRatio(format.aspect, contentMode: .fit)
+                    .frame(maxHeight: 420)
+                    .frame(maxWidth: .infinity)
+                actionBar
+                if let problem { ProblemLabel(text: problem) }
+                cards
             }
-            if let problem {
-                Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
-            }
-
-            Form {
-                Picker(selection: $style) {
-                    ForEach(LogoAnimation.Style.allCases) { Text($0.label).tag($0) }
-                } label: {
-                    Text("Animation")
-                    if style == .automatic, let animation {
-                        Text(advice?.reason ?? animation.suggestedStyle.detail)
-                    } else {
-                        Text(style.detail)
-                    }
-                }
-                .onChange(of: style) { restart() }
-                Picker("Format", selection: $format) {
-                    ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
-                }
-                HStack {
-                    Picker("Background", selection: $background) {
-                        ForEach(Background.allCases) { Text($0.label).tag($0) }
-                    }
-                    if background == .colour {
-                        ColorPicker("Colour", selection: $colour, supportsOpacity: false).labelsHidden()
-                    }
-                }
-                Picker("Outro", selection: $outro) {
-                    ForEach(LogoAnimation.Outro.allCases) { Text($0.label).tag($0) }
-                }
-                .onChange(of: outro) { restart() }
-                Picker(selection: $length) {
-                    Text(automaticLength).tag(0.0)
-                    Divider()
-                    ForEach([3.0, 4, 5, 6, 8, 10, 15, 20], id: \.self) { seconds in
-                        Text(Duration.seconds(seconds).formatted(.units(allowed: [.seconds], width: .abbreviated))).tag(seconds)
-                    }
-                } label: {
-                    Text("Length")
-                    if let plan, plan.speed > 1.01 {
-                        Text("The moves play a little faster to fit.")
-                    }
-                }
-                .onChange(of: length) { restart() }
-                Picker("Frame rate", selection: $frameRate) {
-                    ForEach([25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
-                }
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if let exporting {
-                ProgressView(value: exporting)
-            }
-            if let done {
-                HStack {
-                    Label(done.lastPathComponent, systemImage: "checkmark.circle").foregroundStyle(.green)
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([done]) }
-                }
-            }
-
-            HStack {
-                Label("Runs on this Mac.", systemImage: "lock.shield").noteStyle()
-                Spacer()
-                Button(file == nil ? "Choose Logo…" : "Change Logo…", action: choose)
-                Button("Save as SVG", action: saveVector)
-                    .help("The logo as a vector file: traced colour by colour into smooth curves")
-                    .disabled(animation == nil)
-                Button("Export", action: export)
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(animation == nil || exporting != nil)
-            }
+            PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
         }
-        .padding(Design.Spacing.sheet)
-        .frame(minWidth: 620, minHeight: 640)
+        .frame(minWidth: 620, minHeight: 600)
         .task {
             if let file = Self.openFile {
                 Self.openFile = nil
@@ -149,6 +83,108 @@ struct LogoAnimatorView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
             if let url = note.object as? URL { Self.openFile = nil; load(url) }
+        }
+        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+            // The file arrives off the main thread: loaded through the helper the main window uses.
+            guard let provider = providers.first else { return false }
+            Task {
+                if let url = await provider.load(URL.self), url.isFileURL { load(url) }
+            }
+            return true
+        }
+    }
+
+    /// The logo in use and what to do with it, like the main window's bar.
+    private var actionBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassGroup(spacing: Design.Spacing.controls) {
+                HStack(spacing: Design.Spacing.controls) {
+                    FileCapsule(file: file, symbol: "photo")
+                    Button("Change…", action: choose)
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                    Button("Save as SVG", action: saveVector)
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                        .help("The logo as a vector file: traced colour by colour into smooth curves")
+                    Button("Export", systemImage: "square.and.arrow.up", action: export)
+                        .buttonStyle(BarCapsuleButtonStyle())
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(exporting != nil)
+                }
+            }
+            if let exporting {
+                ProgressView(value: exporting)
+            } else if let done {
+                DoneLabel(text: Text(done.lastPathComponent), file: done)
+            }
+        }
+    }
+
+    @ViewBuilder private var cards: some View {
+        Card {
+            CardHeader(symbol: "sparkles", title: Text("Animation"), subtitle: animationDetail)
+            CardField(label: Text("Style")) {
+                Picker("Animation", selection: $style) {
+                    ForEach(LogoAnimation.Style.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            .onChange(of: style) { restart() }
+            CardField(label: Text("Outro")) {
+                Picker("Outro", selection: $outro) {
+                    ForEach(LogoAnimation.Outro.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            .onChange(of: outro) { restart() }
+            CardField(label: Text("Length")) {
+                Picker("Length", selection: $length) {
+                    Text(automaticLength).tag(0.0)
+                    Divider()
+                    ForEach([3.0, 4, 5, 6, 8, 10, 15, 20], id: \.self) { seconds in
+                        Text(Duration.seconds(seconds).formatted(.units(allowed: [.seconds], width: .abbreviated))).tag(seconds)
+                    }
+                }
+                .fixedSize()
+            }
+            .onChange(of: length) { restart() }
+            if let plan, plan.speed > 1.01 {
+                Text("The moves play a little faster to fit.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        Card {
+            CardHeader(symbol: "film", title: Text("Video"), subtitle: animation.map { Text(summary($0)) })
+            CardField(label: Text("Format")) {
+                Picker("Format", selection: $format) {
+                    ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+            }
+            CardField(label: Text("Background")) {
+                HStack {
+                    if background == .colour {
+                        ColorPicker("Colour", selection: $colour, supportsOpacity: false)
+                    }
+                    Picker("Background", selection: $background) {
+                        ForEach(Background.allCases) { Text($0.label).tag($0) }
+                    }
+                    .fixedSize()
+                }
+            }
+            CardField(label: Text("Frame rate")) {
+                Picker("Frame rate", selection: $frameRate) {
+                    ForEach([25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                }
+                .fixedSize()
+            }
+        }
+    }
+
+    /// What the chosen animation does (for Automatic: why it chose it).
+    private var animationDetail: Text {
+        if style == .automatic, let animation {
+            Text(advice?.reason ?? animation.suggestedStyle.detail)
+        } else {
+            Text(style.detail)
         }
     }
 
@@ -167,9 +203,9 @@ struct LogoAnimatorView: View {
         ZStack {
             // A checkerboard shows what's transparent.
             if background == .transparent {
-                Checkerboard().clipShape(RoundedRectangle(cornerRadius: Design.Radius.thumbnail))
+                Checkerboard().clipShape(.rect(cornerRadius: Design.Radius.card, style: .continuous))
             } else {
-                RoundedRectangle(cornerRadius: Design.Radius.thumbnail).fill(Color(cgColor: backgroundColour ?? CGColor(gray: 0, alpha: 1)))
+                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color(cgColor: backgroundColour ?? CGColor(gray: 0, alpha: 1)))
             }
             if let animation, let plan {
                 TimelineView(.animation) { context in
@@ -189,24 +225,13 @@ struct LogoAnimatorView: View {
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .background(.regularMaterial, in: Capsule())
-            } else {
-                VStack(spacing: 8) {
-                    Image(systemName: "square.and.arrow.down").font(.title).accessibilityHidden(true)
-                    Text("Drop a logo here: PNG, SVG, PDF or JPG.")
-                }
-                .foregroundStyle(.secondary)
             }
         }
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.thumbnail).strokeBorder(dropTargeted ? Color.accentColor : .secondary.opacity(0.3), lineWidth: dropTargeted ? 3 : 1))
-        .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-            // The file arrives off the main thread: loaded through the helper the main window uses.
-            guard let provider = providers.first else { return false }
-            Task {
-                if let url = await provider.load(URL.self), url.isFileURL { load(url) }
-            }
-            return true
+        .overlay {
+            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                .strokeBorder(Color.accentColor, lineWidth: dropTargeted ? 3 : 0)
         }
-        .accessibilityLabel(animation == nil ? String(localized: "Logo drop area") : String(localized: "Animation preview"))
+        .accessibilityLabel(String(localized: "Animation preview"))
     }
 
     private func summary(_ animation: LogoAnimation) -> String {
