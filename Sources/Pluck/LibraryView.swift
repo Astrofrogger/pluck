@@ -281,18 +281,22 @@ struct LibraryView: View {
     private func menu(for entry: LibraryStore.Entry) -> some View {
         let exists = !missing.contains(entry.path)
         Button("Open") { open(entry) }.disabled(!exists)
+        #if STUDIO
         if entry.kind == .video || entry.kind == .audio {
             Button("Open in Pluck Player") {
                 openWindow(value: PlayerTarget(filePath: entry.path, transcriptID: entry.transcriptID, start: nil, tab: nil))
             }
             .disabled(!exists)
         }
+        #endif
         Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) }.disabled(!exists)
         Button("Send to Phone…") { sending = entry }.disabled(!exists)
+        #if STUDIO
         if Resolve.isInstalled, entry.kind != .other {
             Button("Send to DaVinci Resolve") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
         }
+        #endif
         if let source = entry.source, let url = URL(string: source) {
             Button("Open Page in Browser") { NSWorkspace.shared.open(url) }
         }

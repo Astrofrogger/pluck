@@ -4,7 +4,9 @@ import SwiftUI
 /// Convert Files…): pick what to turn them into, optionally for just part of the file.
 struct ConvertSheet: View {
     @Environment(DownloadManager.self) private var manager
+    #if STUDIO
     @Environment(AIStudio.self) private var ai
+    #endif
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openWindow) private var openWindow
     @AppStorage(Prefs.audioFormat) private var audioFormat: AudioFormat = .m4a
@@ -36,10 +38,10 @@ struct ConvertSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
-                    if LocalAI.canTranscribe || Stems.isSupported || AudioCleanup.isSupported || Enhance.isSupported {
-                        aiSection
-                            .padding(.bottom, 6)
-                    }
+                    #if STUDIO
+                    aiSection
+                        .padding(.bottom, 6)
+                    #endif
                     partRow
                         .padding(.bottom, 6)
                     presetButton(.audio)
@@ -95,6 +97,7 @@ struct ConvertSheet: View {
 
     // MARK: - Local AI
 
+    #if STUDIO
     private enum AIAction {
         case shorts, deliverables, subtitles, summarize, chapters, stems, tighten, cleanup, enhance, background, blur
     }
@@ -104,18 +107,30 @@ struct ConvertSheet: View {
             Label("Local AI", systemImage: "sparkles")
                 .font(.headline)
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                aiButton(.shorts, "Make Shorts…", "rectangle.portrait.on.rectangle.portrait.angled",
-                         enabled: LocalAI.canTranscribe && files.count == 1 && hasVideo)
+                // Only what this Mac can run (see DownloadRow's AI menu).
+                if LocalAI.canTranscribe {
+                    aiButton(.shorts, "Make Shorts…", "rectangle.portrait.on.rectangle.portrait.angled", enabled: files.count == 1 && hasVideo)
+                }
                 aiButton(.deliverables, "Make Deliverables…", "square.stack.3d.down.right", enabled: files.count == 1 && hasVideo)
-                aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble", enabled: LocalAI.canTranscribe)
-                aiButton(.summarize, "Summarize", "text.badge.star", enabled: LocalAI.canSummarize)
-                aiButton(.chapters, "Add Chapters", "list.number", enabled: LocalAI.canSummarize)
+                if LocalAI.canTranscribe {
+                    aiButton(.subtitles, "Subtitles & Transcript…", "captions.bubble", enabled: true)
+                }
+                if LocalAI.summariesPossible {
+                    aiButton(.summarize, "Summarize", "text.badge.star", enabled: LocalAI.canSummarize)
+                    aiButton(.chapters, "Add Chapters", "list.number", enabled: LocalAI.canSummarize)
+                }
                 aiButton(.tighten, "Remove Silences & Fillers…", "scissors", enabled: true)
-                aiButton(.enhance, "Upscale & Smooth…", "sparkles.tv", enabled: Enhance.isSupported && files.count == 1 && hasVideo)
+                if Enhance.isSupported {
+                    aiButton(.enhance, "Upscale & Smooth…", "sparkles.tv", enabled: files.count == 1 && hasVideo)
+                }
                 aiButton(.background, "New Background…", "person.and.background.dotted", enabled: files.count == 1 && hasVideo)
                 aiButton(.blur, "Privacy Blur…", "eye.slash", enabled: files.count == 1 && hasVideo)
-                aiButton(.cleanup, "Clean Up Audio…", "waveform", enabled: AudioCleanup.isSupported)
-                aiButton(.stems, "Separate Stems", "slider.vertical.3", enabled: Stems.isSupported)
+                if AudioCleanup.isSupported {
+                    aiButton(.cleanup, "Clean Up Audio…", "waveform", enabled: true)
+                }
+                if Stems.isSupported {
+                    aiButton(.stems, "Separate Stems", "slider.vertical.3", enabled: true)
+                }
             }
             Text(files.count > 1
                  ? "Works on your files in place, on this Mac. Shorts, upscaling, backgrounds and blurring take one file at a time."
@@ -174,6 +189,7 @@ struct ConvertSheet: View {
             for item in items { ai.separateStems(item) }
         }
     }
+    #endif
 
     // MARK: - Part of the file
 

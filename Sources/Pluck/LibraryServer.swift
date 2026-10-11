@@ -577,7 +577,7 @@ final class LibraryServer {
     }
 
     /// Private, link-local and loopback addresses: the devices on this network.
-    static func isLocal(_ host: NWEndpoint.Host) -> Bool {
+    nonisolated static func isLocal(_ host: NWEndpoint.Host) -> Bool {
         switch host {
         case .ipv4(let address):
             let b = [UInt8](address.rawValue)
@@ -602,7 +602,7 @@ final class LibraryServer {
     }
 
     /// This Mac's address on the local network (Wi-Fi or Ethernet).
-    static func localIPAddress() -> String? {
+    nonisolated static func localIPAddress() -> String? {
         var pointer: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&pointer) == 0, let first = pointer else { return nil }
         defer { freeifaddrs(pointer) }

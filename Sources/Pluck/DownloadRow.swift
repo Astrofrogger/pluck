@@ -2,7 +2,9 @@ import SwiftUI
 
 struct DownloadRow: View {
     @Environment(DownloadManager.self) private var manager
+    #if STUDIO
     @Environment(AIStudio.self) private var ai
+    #endif
     @Environment(\.openWindow) private var openWindow
     let item: DownloadItem
     var isSelected = false
@@ -288,9 +290,11 @@ struct DownloadRow: View {
                     .accessibilityLabel("Download Again")
                     .help("Download Again")
             case .finished:
+                #if STUDIO
                 if isAIEligible {
                     aiMenu
                 }
+                #endif
                 Button { reveal() } label: { Image(systemName: "magnifyingglass") }
                     .accessibilityLabel("Show in Finder")
                     .help("Show in Finder")
@@ -317,18 +321,22 @@ struct DownloadRow: View {
             Button("Open", action: open)
             Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
+            #if STUDIO
             if Resolve.isInstalled {
                 Button(targets.count > 1 ? String(localized: "Send \(targets.count) Files to DaVinci Resolve")
                                          : String(localized: "Send to DaVinci Resolve")) {
                     Resolve.sendAndShow(targets.compactMap(\.existingFile))
                 }
             }
+            #endif
             Divider()
         }
+        #if STUDIO
         if isAIEligible {
             aiActions
             Divider()
         }
+        #endif
         if item.conversion == nil, item.state == .downloading || item.state == .queued {
             Button("Pause") { manager.pause(item) }
         } else if item.state == .paused {
@@ -378,64 +386,97 @@ struct DownloadRow: View {
         return Converting.isMedia(file)
     }
 
+    #if STUDIO
     private var aiMenu: some View {
         Menu {
             aiActions
         } label: {
             Image(systemName: "sparkles")
         }
+        // Drawn as a round button like its neighbours; without these, macOS 14 and 15 draw a
+        // pull-down menu that stretches across the row.
+        .menuStyle(.button)
         .menuIndicator(.hidden)
+        .fixedSize()
         .disabled(item.aiStatus != nil)
         .accessibilityLabel("Local AI")
         .help("Local AI: subtitles, summaries, shorts and more, made on this Mac")
     }
 
+    /// What this Mac can do, grouped by what it works on. What this Mac can never run (too old a
+    /// macOS, an Intel Mac) isn't shown at all; video tools only show for videos.
     @ViewBuilder
     private var aiActions: some View {
-        Section("Local AI") {
-            if targets.count > 1 {
-                Text("Subtitles, silences and audio clean-up: all \(targets.count) selected")
-            }
-            Button("Subtitles & Transcript…", systemImage: "captions.bubble") { ai.subtitleBatch = AIStudio.Batch(targets) }
-                .disabled(!LocalAI.canTranscribe || item.aiStatus != nil)
-            Button("Summarize", systemImage: "text.badge.star") {
-                ai.start(.summarize, item) { openWindow(value: $0) }
-            }
-            .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
-            Button("Add Chapters", systemImage: "list.number") {
-                ai.start(.chapters, item) { openWindow(value: $0) }
-            }
-            .disabled(!LocalAI.canSummarize || item.aiStatus != nil)
-            Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
-                .disabled(!LocalAI.canTranscribe || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
-            Button("Make Deliverables…", systemImage: "square.stack.3d.down.right") { ai.deliverablesItem = item }
-                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
-            Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
-                .disabled(item.aiStatus != nil)
-            Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceItem = item }
-                .disabled(!Enhance.isSupported || item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
-            Button("New Background…", systemImage: "person.and.background.dotted") { ai.backgroundItem = item }
-                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
-            Button("Privacy Blur…", systemImage: "eye.slash") { ai.blurItem = item }
-                .disabled(item.aiStatus != nil || !(item.existingFile.map(Converting.isVideo) ?? false))
-            Button("Clean Up Audio…", systemImage: "waveform") { ai.cleanupBatch = AIStudio.Batch(targets) }
-                .disabled(!AudioCleanup.isSupported || item.aiStatus != nil)
-            Button("Separate Stems", systemImage: "slider.vertical.3") { ai.separateStems(item) }
-                .disabled(!Stems.isSupported || item.aiStatus != nil)
-            Button("Open in Pluck Player", systemImage: "play.rectangle.on.rectangle") { openPlayer() }
+        let busy = item.aiStatus != nil
+        let isVideo = item.existingFile.map(Converting.isVideo) ?? false
+        if targets.count > 1 {
+            Text("Subtitles, silences and audio clean-up: all \(targets.count) selected")
         }
-        if LocalAI.canTranscribe, let reason = LocalAI.summarizeUnavailableReason {
-            Text(reason)
+        if LocalAI.canTranscribe || LocalAI.summariesPossible {
+            Section("Words") {
+                if LocalAI.canTranscribe {
+                    Button("Subtitles & Transcript…", systemImage: "captions.bubble") { ai.subtitleBatch = AIStudio.Batch(targets) }
+                        .disabled(busy)
+                }
+                if LocalAI.summariesPossible {
+                    Button("Summarize", systemImage: "text.badge.star") {
+                        ai.start(.summarize, item) { openWindow(value: $0) }
+                    }
+                    .disabled(!LocalAI.canSummarize || busy)
+                    Button("Add Chapters", systemImage: "list.number") {
+                        ai.start(.chapters, item) { openWindow(value: $0) }
+                    }
+                    .disabled(!LocalAI.canSummarize || busy)
+                    // Possible here, but Apple Intelligence is off or not ready yet: say what to do.
+                    if let reason = LocalAI.summarizeUnavailableReason {
+                        Text(reason)
+                    }
+                }
+            }
         }
-        if !LocalAI.canTranscribe {
-            Text("Local AI needs macOS 26 or later.")
+        if isVideo {
+            Section("Video") {
+                if LocalAI.canTranscribe {
+                    Button("Make Shorts…", systemImage: "rectangle.portrait.on.rectangle.portrait.angled") { ai.shortsItem = item }
+                        .disabled(busy)
+                }
+                Button("Make Deliverables…", systemImage: "square.stack.3d.down.right") { ai.deliverablesItem = item }
+                    .disabled(busy)
+                Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
+                    .disabled(busy)
+                if Enhance.isSupported {
+                    Button("Upscale & Smooth…", systemImage: "sparkles.tv") { ai.enhanceItem = item }
+                        .disabled(busy)
+                }
+                Button("New Background…", systemImage: "person.and.background.dotted") { ai.backgroundItem = item }
+                    .disabled(busy)
+                Button("Privacy Blur…", systemImage: "eye.slash") { ai.blurItem = item }
+                    .disabled(busy)
+            }
         }
+        Section("Sound") {
+            if !isVideo {
+                Button("Remove Silences & Fillers…", systemImage: "scissors") { ai.tightenBatch = AIStudio.Batch(targets) }
+                    .disabled(busy)
+            }
+            if AudioCleanup.isSupported {
+                Button("Clean Up Audio…", systemImage: "waveform") { ai.cleanupBatch = AIStudio.Batch(targets) }
+                    .disabled(busy)
+            }
+            if Stems.isSupported {
+                Button("Separate Stems", systemImage: "slider.vertical.3") { ai.separateStems(item) }
+                    .disabled(busy)
+            }
+        }
+        Divider()
+        Button("Open in Pluck Player", systemImage: "play.rectangle.on.rectangle") { openPlayer() }
     }
 
     private func openPlayer(at start: Double? = nil) {
         guard let file = item.existingFile else { return }
         openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: start))
     }
+    #endif
 
     private func aiProgress(_ task: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {

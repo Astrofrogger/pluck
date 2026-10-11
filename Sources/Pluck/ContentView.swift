@@ -3,8 +3,13 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(DownloadManager.self) private var manager
+    #if STUDIO
     @Environment(AIStudio.self) private var ai
+    #endif
     @Environment(\.openWindow) private var openWindow
+    #if STUDIO
+    @State private var toolsShown = false
+    #endif
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openPluckSettings) private var openSettings
     @Environment(AppUpdater.self) private var appUpdater
@@ -103,14 +108,18 @@ struct ContentView: View {
                                     set: { if !$0 { manager.filesToConvert = [] } })) {
             ConvertSheet(files: manager.filesToConvert)
                 .environment(manager)
+                #if STUDIO
                 .environment(ai)
+                #endif
         }
         .sheet(isPresented: Binding(get: { !manager.photosToCompress.isEmpty && manager.filesToConvert.isEmpty && manager.picks.isEmpty },
                                     set: { if !$0 { manager.photosToCompress = [] } })) {
             PhotoSheet(files: manager.photosToCompress)
                 .environment(manager)
         }
+        #if STUDIO
         .modifier(AISheets(ai: ai, manager: manager))
+        #endif
         .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
             // Closing the sheet cancels only the playlist that was on screen, never the next one.
             if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
@@ -125,6 +134,7 @@ struct ContentView: View {
 
     private func appeared() {
         AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+        AppDelegate.openWindowByID = { openWindow(id: $0); NSApp.activate() }
         if !AppDelegate.didHandleLaunchWindow {
             AppDelegate.didHandleLaunchWindow = true
             if AppDelegate.startsHidden, manager.pendingLink == nil {
@@ -134,7 +144,11 @@ struct ContentView: View {
         }
         if ScreenshotMode.scene != nil {
             // Nothing from the clipboard: screenshots show only demo content.
+            #if STUDIO
             ScreenshotMode.run(manager: manager, ai: ai, openWindow: openWindow, openSettings: { openSettings() })
+            #else
+            ScreenshotMode.run(manager: manager, openWindow: openWindow, openSettings: { openSettings() })
+            #endif
             return
         }
         if !takePendingLink() { autofillFromClipboard() }
@@ -496,7 +510,7 @@ struct ContentView: View {
         for provider in providers {
             let url = await provider.load(URL.self)
             if let url, url.isFileURL {
-                if Converting.isConvertible(url) || SubtitleFiles.isSubtitle(url) {
+                if Converting.isConvertible(url) || DownloadManager.isSubtitle(url) {
                     media.append(url)
                 } else if Converting.isText(url) {
                     links += Links.extract(fromFile: url)
@@ -526,6 +540,18 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            #if STUDIO
+            Button {
+                toolsShown.toggle()
+            } label: {
+                Label("Tools", systemImage: "square.grid.2x2")
+            }
+            .help("Derush, Find Shots, Logo Animator and Pluck’s other tools")
+            .popover(isPresented: $toolsShown, arrowEdge: .bottom) { ToolsPanel() }
+            .onReceive(NotificationCenter.default.publisher(for: ToolsPanel.showNotification)) { _ in toolsShown = true }
+
+            #endif
+
             Button {
                 NSWorkspace.shared.open(URL(fileURLWithPath: downloadPath))
             } label: {
@@ -540,12 +566,16 @@ struct ContentView: View {
             }
             .help("Everything Pluck has saved, with collections and tags (⇧⌘L)")
 
-            Button {
-                ai.searchShown = true
-            } label: {
-                Label("Search Inside Downloads", systemImage: "text.magnifyingglass")
+            #if STUDIO
+            if LocalAI.canTranscribe {
+                Button {
+                    ai.searchShown = true
+                } label: {
+                    Label("Search Inside Downloads", systemImage: "text.magnifyingglass")
+                }
+                .help("Search what was said in your downloads (⇧⌘F)")
             }
-            .help("Search what was said in your downloads (⇧⌘F)")
+            #endif
 
             Button {
                 withAnimation { manager.clearFinished() }
@@ -573,6 +603,7 @@ extension NSItemProvider {
     }
 }
 
+#if STUDIO
 /// The local-AI windows the main window can show: search, and subtitles for a download.
 private struct AISheets: ViewModifier {
     let ai: AIStudio
@@ -630,3 +661,4 @@ private struct AISheets: ViewModifier {
             }
     }
 }
+#endif

@@ -14,7 +14,7 @@ struct PluckApp: App {
         Window("Pluck", id: "main") {
             ContentView()
                 .environment(manager)
-                .environment(app.ai)
+                .studio(app)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }
@@ -34,19 +34,22 @@ struct PluckApp: App {
                 Button("Download Links from File…") { manager.chooseLinkFile() }
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
-                MusicFitCommand()
-                LogoAnimatorCommand()
-                FindShotsCommand()
-                LiveRecorderCommand()
-                DerushCommand()
             }
+            #if STUDIO
+            CommandMenu("Tools") {
+                ToolsMenuItems()
+            }
+            CommandGroup(after: .textEditing) {
+                if LocalAI.canTranscribe {
+                    Button("Search Inside Downloads…") { app.ai.searchShown = true; AppDelegate.openMainWindow?() }
+                        .keyboardShortcut("f", modifiers: [.command, .shift])
+                }
+            }
+            #else
             CommandGroup(before: .windowList) {
                 LibraryCommand()
             }
-            CommandGroup(after: .textEditing) {
-                Button("Search Inside Downloads…") { app.ai.searchShown = true; AppDelegate.openMainWindow?() }
-                    .keyboardShortcut("f", modifiers: [.command, .shift])
-            }
+            #endif
             CommandGroup(after: .pasteboard) {
                 Divider()
                 Button("Download Link from Clipboard") {
@@ -66,6 +69,7 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        #if STUDIO
         Window("Derush Footage", id: "derush") {
             DerushView()
                 .environment(app.ai)
@@ -90,17 +94,16 @@ struct PluckApp: App {
         }
         .defaultSize(width: 680, height: 760)
 
+        Window("Edit Anywhere", id: "officeRender") {
+            OfficeRenderView()
+        }
+        .defaultSize(width: 620, height: 720)
+
         Window("Fit Music to Length", id: "musicFit") {
             MusicFitView()
                 .environment(app.ai)
         }
         .defaultSize(width: 540, height: 400)
-
-        Window("Library", id: "library") {
-            LibraryView()
-                .environment(app.ai)
-        }
-        .defaultSize(width: 1100, height: 700)
 
         WindowGroup("Pluck Player", for: PlayerTarget.self) { $target in
             if let target {
@@ -109,11 +112,18 @@ struct PluckApp: App {
             }
         }
         .defaultSize(width: 1100, height: 640)
+        #endif
+
+        Window("Library", id: "library") {
+            LibraryView()
+                .studio(app)
+        }
+        .defaultSize(width: 1100, height: 700)
 
         Window("Settings", id: "settings") {
             SettingsView()
                 .environment(manager)
-                .environment(app.ai)
+                .studio(app)
                 .environment(updater)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
@@ -124,47 +134,7 @@ struct PluckApp: App {
     }
 }
 
-private struct DerushCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Derush Footage…") { openWindow(id: "derush") }
-    }
-}
-
-private struct LiveRecorderCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Live Recorder…") { openWindow(id: "liveRecorder") }
-    }
-}
-
-private struct FindShotsCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Find Shots…") { openWindow(id: "findShots") }
-            .keyboardShortcut("f", modifiers: [.command, .option])
-    }
-}
-
-private struct LogoAnimatorCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Logo Animator…") { openWindow(id: "logoAnimator") }
-    }
-}
-
-private struct MusicFitCommand: View {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some View {
-        Button("Fit Music to Length…") { openWindow(id: "musicFit") }
-    }
-}
-
+#if !STUDIO
 private struct LibraryCommand: View {
     @Environment(\.openWindow) private var openWindow
 
@@ -173,6 +143,7 @@ private struct LibraryCommand: View {
             .keyboardShortcut("l", modifiers: [.command, .shift])
     }
 }
+#endif
 
 private struct SettingsCommand: View {
     @Environment(\.openPluckSettings) private var openSettings

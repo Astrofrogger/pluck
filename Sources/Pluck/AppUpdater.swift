@@ -3,8 +3,10 @@ import CryptoKit
 import Foundation
 import Observation
 
-/// Updates Pluck itself from GitHub releases. Each release carries Pluck.zip and Pluck.zip.sha256;
-/// the update is verified, unpacked, swapped in place of the running app, and relaunched.
+/// Updates Pluck itself from GitHub releases. Each release carries both editions (see Edition):
+/// Pluck-Basic.zip and Pluck-Studio.zip with their .sha256, plus Pluck.zip (Studio, for Pluck 1.15
+/// and older). The update is verified, unpacked, swapped in place of the running app, and
+/// relaunched. Switching edition is the same, with the other edition's download.
 @MainActor
 @Observable
 final class AppUpdater {
@@ -71,7 +73,7 @@ final class AppUpdater {
     // MARK: - GitHub
 
     private enum Failure: LocalizedError {
-        case noRelease, checksumMismatch, badBundle, notWritable
+        case noRelease, checksumMismatch, badBundle, notWritable, noEdition
 
         var errorDescription: String? {
             switch self {
@@ -79,11 +81,13 @@ final class AppUpdater {
             case .checksumMismatch: String(localized: "The update didn’t match its published checksum, so it was discarded.")
             case .badBundle: String(localized: "The downloaded update isn’t a valid copy of Pluck.")
             case .notWritable: String(localized: "Pluck can’t replace itself here. Move it to the Applications folder and try again.")
+            case .noEdition: String(localized: "That version of Pluck isn’t available to download yet.")
             }
         }
     }
 
-    private func fetchLatest() async throws -> Release {
+    /// The latest release, with the download of the edition asked for (this one by default).
+    private func fetchLatest(studio: Bool = Edition.isStudio) async throws -> Release {
         var request = URLRequest(url: URL(string: "https://api.github.com/repos/\(Self.repo)/releases/latest")!)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -96,7 +100,12 @@ final class AppUpdater {
         func asset(_ name: String) -> URL? {
             (assets.first { $0["name"] as? String == name }?["browser_download_url"] as? String).flatMap(URL.init)
         }
-        guard let zip = asset("Pluck.zip"), let sum = asset("Pluck.zip.sha256"),
+        // Studio also takes the older single download, from before there were two editions.
+        let names = studio ? ["Pluck-Studio.zip", "Pluck.zip"] : ["Pluck-Basic.zip"]
+        guard let name = names.first(where: { asset($0) != nil && asset($0 + ".sha256") != nil }) else {
+            throw studio ? Failure.noRelease : Failure.noEdition
+        }
+        guard let zip = asset(name), let sum = asset(name + ".sha256"),
               TrustedHosts.isAllowed(zip, hosts: ["github.com"]), TrustedHosts.isAllowed(sum, hosts: ["github.com"])
         else { throw Failure.noRelease }
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
@@ -104,6 +113,25 @@ final class AppUpdater {
     }
 
     // MARK: - Installing
+
+    /// Replaces this edition with the other one (latest version) and relaunches. Downloads,
+    /// the Library and settings stay: both editions are the same app to macOS.
+    func switchEdition() async {
+        guard status != .installing else { return }
+        let target = Bundle.main.bundleURL
+        guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
+            status = .failed(Failure.notWritable.localizedDescription)
+            return
+        }
+        status = .installing
+        do {
+            let other = try await fetchLatest(studio: !Edition.isStudio)
+            let newApp = try await download(other)
+            relaunch(replacing: target, with: newApp)
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
 
     func installAndRelaunch() async {
         guard let release, status != .installing else { return }

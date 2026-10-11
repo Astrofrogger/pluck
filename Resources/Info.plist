@@ -51,11 +51,12 @@
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_pluck._tcp</string>
+		<string>_pluck-render._tcp</string>
 	</array>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Pluck shares your Library with phones and computers on this network when you turn on sharing.</string>
+	<string>Pluck shares your Library with phones and computers on this network when you turn on sharing, and finds the office Mac for Edit Anywhere.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>NSServices</key>

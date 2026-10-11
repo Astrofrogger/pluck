@@ -36,7 +36,9 @@ enum WhatsNew {
         let current = currentVersion
         let isFreshInstall = Bundle.main.bundleIdentifier
             .flatMap { defaults.persistentDomain(forName: $0) }?.isEmpty ?? true
-        guard let previous = defaults.string(forKey: lastVersionKey) ?? (isFreshInstall ? nil : oldestNotes) else {
+        let previous = defaults.string(forKey: lastVersionKey) ?? (isFreshInstall ? nil : oldestNotes)
+        EditionChoice.prepare(isUpdate: previous != nil)
+        guard let previous else {
             markSeen()
             return
         }
@@ -88,6 +90,18 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.16.0", items: [
+                Item(symbol: "square.split.2x1", title: String(localized: "Two versions of Pluck"),
+                     detail: String(localized: "Pluck is now small and focused on downloading, the Library, sharing and converting. Pluck Studio adds the local AI, the editing tools and Edit Anywhere. Switch any time in Settings → General.")),
+                Item(symbol: "square.grid.2x2", title: String(localized: "All tools in one place"),
+                     detail: String(localized: "Pluck Studio’s tools (Derush, Find Shots, Live Recorder, Logo Animator, Fit Music, Edit Anywhere) are under the new Tools button and Tools menu. Features your Mac can’t run are no longer shown.")),
+                Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere"),
+                     detail: String(localized: "Render DaVinci Resolve timelines on the office Mac from home, with the originals on the office storage, and get a preview back. Invite a Mac with a one-time link; everything stays on your team’s own private network.")),
+                Item(symbol: "tag", title: String(localized: "Log in Resolve"),
+                     detail: String(localized: "Find Shots writes what local AI on your Mac sees in every shot into your DaVinci Resolve project: a description, keywords and a marker per shot, ready to search or make smart bins from.")),
+                Item(symbol: "wand.and.stars", title: String(localized: "A calmer Assemble"),
+                     detail: String(localized: "In the Logo Animator, the dot or sparkle now grows in, glides to its place and settles, without bouncing around, and the name slides out cleanly.")),
+            ]),
             Release(version: "1.15.0", items: [
                 Item(symbol: "wand.and.stars", title: String(localized: "A new Logo Animator"),
                      detail: String(localized: "New styles that move like hand-made motion design: Assemble (in two acts, the symbol or the dot first, then the whole logo opens out of it), Bounce, Stretch, Liquid and Line Draw, with real springs, squash and stretch and motion blur. Automatic lets the local AI on your Mac pick the style that suits your logo, and says why.")),

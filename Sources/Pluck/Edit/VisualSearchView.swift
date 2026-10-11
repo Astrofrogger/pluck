@@ -78,6 +78,8 @@ struct VisualSearchView: View {
     @State private var selection: Set<VisualIndex.Hit.ID> = []
     @State private var playing: VisualIndex.Hit?
     @State private var status: String?
+    @State private var logger = ResolveLogger.shared
+    @State private var confirmLog = false
     @AppStorage(VisualIndexer.autoKey) private var automatic = true
 
     private var hits: [VisualIndex.Hit] {
@@ -90,6 +92,7 @@ struct VisualSearchView: View {
             Divider()
             results
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            logBar
             Divider()
             footer
         }
@@ -206,6 +209,14 @@ struct VisualSearchView: View {
             else if !(query.isEmpty && movement == nil && framing == nil) {
                 Text("^[\(hits.count) shot](inflect: true)").foregroundStyle(.secondary).monospacedDigit()
             }
+            Button("Log in Resolve…") { confirmLog = true }
+                .disabled(!Resolve.isInstalled || logger.isRunning)
+                .help("Write shot descriptions, keywords and a marker per shot into the open DaVinci Resolve project")
+                .confirmationDialog("Log the clips in DaVinci Resolve?", isPresented: $confirmLog) {
+                    Button("Log Clips") { logger.start() }
+                } message: {
+                    Text("Every video clip in the open project gets a description, keywords (shot size, camera move, what’s in it) and a marker per shot. Clips Pluck hasn’t looked at yet are analysed first, which can take a while. Your own descriptions are kept; running it again replaces only Pluck’s markers.")
+                }
             Button("Build Timeline in Resolve", action: buildTimeline)
                 .disabled(selected.isEmpty || !Resolve.isInstalled)
                 .help("Select shots with ⌘-click")
@@ -213,6 +224,47 @@ struct VisualSearchView: View {
         .padding(.horizontal, Design.Spacing.window)
         .padding(.vertical, 12)
         .font(.callout)
+    }
+
+    /// How logging in Resolve is going, above the footer while it runs and after it's done.
+    @ViewBuilder private var logBar: some View {
+        switch logger.state {
+        case .idle:
+            EmptyView()
+        case .reading, .writing, .analysing:
+            HStack(spacing: 12) {
+                switch logger.state {
+                case .analysing(let file, let done, let total, let progress):
+                    ProgressView(value: (Double(done) + progress) / Double(max(total, 1))).frame(width: 120)
+                    Text("Looking at “\(file)” (\(done + 1) of \(total)) before logging…")
+                        .lineLimit(1).truncationMode(.middle)
+                case .writing:
+                    ProgressView().controlSize(.small)
+                    Text("Writing the log into DaVinci Resolve…")
+                default:
+                    ProgressView().controlSize(.small)
+                    Text("Reading the clips in DaVinci Resolve…")
+                }
+                Spacer()
+                Button("Stop") { logger.cancel() }
+            }
+            .logBarStyle()
+        case .finished(let clips, let markers, let project):
+            HStack(spacing: 12) {
+                Label("Logged ^[\(clips) clip](inflect: true) with ^[\(markers) marker](inflect: true) in “\(project)”. In Resolve, search the media pool or make smart bins on Keywords.",
+                      systemImage: "checkmark.circle")
+                Spacer()
+                Button("Done") { logger.cancel() }
+            }
+            .logBarStyle()
+        case .failed(let message):
+            HStack(spacing: 12) {
+                Label(message, systemImage: "exclamationmark.triangle").foregroundStyle(.red)
+                Spacer()
+                Button("OK") { logger.cancel() }
+            }
+            .logBarStyle()
+        }
     }
 
     private var selected: [VisualIndex.Hit] { hits.filter { selection.contains($0.id) } }
@@ -330,5 +382,15 @@ private struct ShotPlayer: View {
             player.play()
         }
         .onDisappear { player.pause() }
+    }
+}
+
+private extension View {
+    func logBarStyle() -> some View {
+        font(.callout)
+            .padding(.horizontal, Design.Spacing.window)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary.opacity(0.4))
     }
 }

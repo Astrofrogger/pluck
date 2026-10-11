@@ -264,7 +264,7 @@ final class DownloadManager {
 
     func chooseFilesToConvert() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.audiovisualContent, .image] + SubtitleFiles.extensions.compactMap { UTType(filenameExtension: $0) }
+        panel.allowedContentTypes = [.audiovisualContent, .image] + Self.subtitleExtensions.compactMap { UTType(filenameExtension: $0) }
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Choose")
         panel.message = String(localized: "Choose videos, songs or photos to convert.")
@@ -279,7 +279,24 @@ final class DownloadManager {
     func openConverter(for files: [URL]) {
         filesToConvert = files.filter(Converting.isMedia)
         photosToCompress = files.filter(Photos.isPhoto)
-        subtitlesToTranslate = files.filter(SubtitleFiles.isSubtitle)
+        subtitlesToTranslate = files.filter(Self.isSubtitle)
+    }
+
+    /// Subtitle files, which Pluck Studio translates (basic Pluck leaves them alone).
+    static func isSubtitle(_ file: URL) -> Bool {
+        #if STUDIO
+        SubtitleFiles.isSubtitle(file)
+        #else
+        false
+        #endif
+    }
+
+    private static var subtitleExtensions: [String] {
+        #if STUDIO
+        Array(SubtitleFiles.extensions)
+        #else
+        []
+        #endif
     }
 
     /// Videos and songs from this Mac, listed so local AI can work on them in place (the

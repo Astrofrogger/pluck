@@ -72,6 +72,11 @@ struct MenuBarView: View {
             Spacer()
             Menu {
                 Button("Open Pluck", action: openMain)
+                #if STUDIO
+                Menu("Tools") { ToolsMenuItems() }
+                #else
+                Button("Library") { openWindow(id: "library"); NSApp.activate() }
+                #endif
                 Button("Settings…") { openSettings() }
                 Divider()
                 Button("Quit Pluck") { NSApp.terminate(nil) }
@@ -430,6 +435,7 @@ struct MenuBarIcon: View {
             .accessibilityLabel(running.isEmpty ? "Pluck" : String(localized: "Pluck, \(running.count) downloading"))
             .onAppear {
                 AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+                AppDelegate.openWindowByID = { openWindow(id: $0); NSApp.activate() }
             }
     }
 

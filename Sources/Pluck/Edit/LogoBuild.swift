@@ -61,8 +61,8 @@ extension LogoAnimation {
         /// A symbol beside a name: the symbol comes together in the middle, then slides home as
         /// the name unrolls from behind it.
         case symbol
-        /// A name with a hero (the dot on an i, a sparkle): the hero lands in the middle, then
-        /// slides home as the name opens from behind it to both sides.
+        /// A name with a hero (the dot on an i, a sparkle): the hero grows in, in the middle, then
+        /// glides home as the name opens from behind it to both sides.
         case hero(Int)
         /// Letters on a plate: the plate opens from a line in the middle, then the letters rise
         /// from their baseline, from the middle out.
@@ -91,35 +91,32 @@ extension LogoAnimation {
         }
     }
 
-    /// The hero's beats: it lands in the middle, winds up, hops onto its place and lands there.
-    static let heroDrop = 0.34, heroWindUp = 0.62, heroTakeOff = 0.74, heroLands = 1.2
+    /// The hero's beats: it grows in, in the middle, gathers itself, glides onto its place and
+    /// settles there. One deliberate move, no bouncing about (that reads as a gimmick).
+    static let heroGather = 0.42, heroTakeOff = 0.6, heroLands = 1.08
 
     /// Where the hero is at time `t` (its centre on the canvas) and how it's squashed or
     /// stretched (x and y scale, on top of its size).
     private func heroPose(_ t: Double, centre: CGPoint, home: CGRect, size: Double, rise: Double)
         -> (centre: CGPoint, sx: Double, sy: Double, lift: Double) {
         if t < Self.heroTakeOff {
-            // The drop into the middle, then a crouch to wind up for the hop.
-            let drop = Physics.drop(t, fall: Self.heroDrop)
-            let landed = drop.impact.map { Physics.squash(since: $0.since, strength: $0.strength) } ?? 0
-            let crouch = t > Self.heroWindUp ? sin(Double.pi * min((t - Self.heroWindUp) / (Self.heroTakeOff - Self.heroWindUp), 1) / 2) * 0.22 : 0
-            let squash = landed + crouch
-            let stretch = drop.impact == nil ? 1 + min(abs(drop.velocity) * Self.heroDrop / 2, 1) * 0.2 : 1
-            return (centre, (1 + squash * 0.8) / sqrt(stretch), (1 - squash) * stretch, drop.height * rise)
+            // Grows in with one soft overshoot, then sinks a touch into itself before it moves.
+            let grow = Physics.spring(t, frequency: 2.4, damping: 0.72)
+            let gather = t > Self.heroGather
+                ? sin(Double.pi * min((t - Self.heroGather) / (Self.heroTakeOff - Self.heroGather), 1) / 2) * 0.06 : 0
+            return (centre, grow * (1 + gather), grow * (1 - gather), 0)
         }
         if t < Self.heroLands {
-            // The hop: an arc onto its place, stretched along the flight.
-            let u = (t - Self.heroTakeOff) / (Self.heroLands - Self.heroTakeOff)
+            // The glide: eased, along a shallow curve, never a lob.
+            let u = Easing.inOutCubic((t - Self.heroTakeOff) / (Self.heroLands - Self.heroTakeOff))
+            let arc = abs(home.midY - centre.y) / 2 + rise * 0.05
             let x = centre.x + (home.midX - centre.x) * u
-            // Just over the higher of its two points, not a lob.
-            let arc = abs(home.midY - centre.y) / 2 + rise * 0.22
             let y = centre.y + (home.midY - centre.y) * u + 4 * u * (1 - u) * arc
-            let stretch = 1 + 0.25 * sin(Double.pi * u)
-            return (CGPoint(x: x, y: y), 1 / sqrt(stretch), stretch, 0)
+            return (CGPoint(x: x, y: y), 1, 1, 0)
         }
-        // Landed: a squash that wobbles out.
-        let squash = Physics.squash(since: t - Self.heroLands, strength: 0.9)
-        return (CGPoint(x: home.midX, y: home.midY), 1 + squash * 0.8, 1 - squash, 0)
+        // Arrived: a small settle, gone within a quarter of a second.
+        let squash = Physics.squash(since: t - Self.heroLands, strength: 0.3)
+        return (CGPoint(x: home.midX, y: home.midY), 1 + squash * 0.6, 1 - squash, 0)
     }
 
     /// How far a shape is from the middle of the logo (0 in the middle, 1 at the far edge).
@@ -224,9 +221,9 @@ extension LogoAnimation {
                 }
             case .hero(let lead):
                 if index == lead {
-                    // Drops into the middle of the frame (bigger than it will be), winds up, hops
-                    // onto its place, shrinking to its size on the way, and lands there.
-                    let boost = min(max(mainLetterHeight * fit * 0.35 / max(rect.height, 1), 1), 1.8)
+                    // Grows in, in the middle of the frame (a little bigger than it will be), then
+                    // glides onto its place, easing to its size on the way, and settles there.
+                    let boost = min(max(mainLetterHeight * fit * 0.3 / max(rect.height, 1), 1), 1.5)
                     let hop = min(max((local - Self.heroTakeOff) / (Self.heroLands - Self.heroTakeOff), 0), 1)
                     let size = 1 + (boost - 1) * (1 - Easing.inOutCubic(hop))
                     let rise = max(mainLetterHeight * fit * 0.9, rect.height * 4)
@@ -246,8 +243,11 @@ extension LogoAnimation {
                     let open = Easing.outQuint(min(max(t - act.start, 0) / (act.length * 0.9), 1)) * reach
                     guard open > 0.5 else { break }
                     context.clip(to: CGRect(x: heroCentre.x - open, y: whole.minY - whole.height, width: open * 2, height: whole.height * 3))
-                    let s = Physics.spring(local, frequency: 1.9, damping: 0.88)
-                    context.translateBy(x: (heroCentre.x - rect.midX) * (1 - s) * 0.45, y: 0)
+                    // They slide out a little way behind the opening edge, never so far that
+                    // they pile up on each other.
+                    let s = Physics.spring(local, frequency: 1.9, damping: 0.9)
+                    let gap = min(abs(heroCentre.x - rect.midX) * 0.12, rect.width * 0.6)
+                    context.translateBy(x: (heroCentre.x < rect.midX ? -gap : gap) * (1 - s), y: 0)
                     context.draw(element.image, in: rect)
                 }
             case .plate:

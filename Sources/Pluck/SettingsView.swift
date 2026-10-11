@@ -40,7 +40,11 @@ struct SettingsView: View {
             case .general: GeneralSettings()
             case .format: FormatSettingsView()
             case .downloads: DownloadSettings()
+            #if STUDIO
             case .ai: AISettings()
+            #else
+            case .ai: EmptyView()
+            #endif
             case .advanced: AdvancedSettings()
             case .support: SupportSettings()
             }
@@ -52,7 +56,7 @@ struct SettingsView: View {
         .toolbar {
             // One toolbar item per tab, so each is its own control for VoiceOver.
             ToolbarItemGroup(placement: .principal) {
-                ForEach(SettingsTab.allCases) { item in
+                ForEach(SettingsTab.allCases.filter { $0 != .ai || Edition.isStudio }) { item in
                     SettingsTabButton(tab: item, selection: $tab)
                 }
             }
@@ -128,6 +132,7 @@ private struct GeneralSettings: View {
     @AppStorage(Prefs.maxConcurrent) private var maxConcurrent = 3
     @AppStorage(Prefs.notify) private var notify = true
     @State private var notificationsAllowed = true
+    @State private var confirmSwitch = false
     @AppStorage(Prefs.askLocation) private var askLocation = false
     @AppStorage(Prefs.showMenuBarIcon) private var showMenuBarIcon = true
     @AppStorage(Prefs.startInMenuBar) private var startInMenuBar = false
@@ -260,6 +265,21 @@ private struct GeneralSettings: View {
                             .disabled(appUpdater.status == .checking)
                         }
                     }
+                }
+                LabeledContent {
+                    Button(Edition.isStudio ? "Switch to Pluck…" : "Switch to Pluck Studio…") { confirmSwitch = true }
+                        .disabled(appUpdater.status == .installing)
+                } label: {
+                    Text(Edition.name)
+                    Text(Edition.isStudio ? "With local AI, the editing tools and Edit Anywhere."
+                                          : "Downloads, the Library, sharing and converting.")
+                }
+                .confirmationDialog(Edition.isStudio ? "Switch to Pluck?" : "Switch to Pluck Studio?", isPresented: $confirmSwitch) {
+                    Button("Download and Relaunch") { Task { await appUpdater.switchEdition() } }
+                } message: {
+                    Text(Edition.isStudio
+                         ? "Pluck leaves out the AI and editing tools and Edit Anywhere. Your downloads, Library and settings stay; you can switch back any time."
+                         : "Pluck Studio adds local AI, the editing tools for DaVinci Resolve, the Logo Animator and Edit Anywhere. Your downloads, Library and settings stay.")
                 }
             }
         }

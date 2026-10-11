@@ -14,34 +14,49 @@ struct AISettings: View {
 
     var body: some View {
         Form {
+            // Only what this Mac can run: features that need a newer macOS or Apple silicon
+            // aren't listed at all.
+            if LocalAI.canTranscribe {
             Section {
                 Toggle(isOn: $autoTranscribe) {
                     Text("Transcribe new downloads automatically")
                     Text("So you can search inside them. Runs in the background after each download.")
                 }
-                .disabled(!LocalAI.canTranscribe)
                 let missing = studio.needsTranscript(manager.items).count
                 LabeledContent("Not transcribed yet") {
                     HStack {
                         Text("\(missing)").monospacedDigit().foregroundStyle(.secondary)
                         Button("Transcribe Now") { studio.transcribeInBackground(manager.items) }
-                            .disabled(missing == 0 || !LocalAI.canTranscribe)
+                            .disabled(missing == 0)
                     }
                 }
             } header: {
                 Text("Transcripts & search")
             }
+            }
 
             Section("On this Mac") {
-                status("Transcripts, subtitles & translation", available: LocalAI.canTranscribe,
-                       detail: LocalAI.canTranscribe ? nil : String(localized: "Needs macOS 26 or later."))
-                status("Search inside downloads", available: LocalAI.canTranscribe,
-                       detail: LocalAI.canSummarize ? nil : String(localized: "Works with keywords; Apple Intelligence makes it understand questions."))
-                status("Summaries & chapters", available: LocalAI.canSummarize, detail: LocalAI.summarizeUnavailableReason)
-                status("Shorts", available: LocalAI.canTranscribe,
-                       detail: LocalAI.canSummarize ? nil : String(localized: "Picks moments by sound; Apple Intelligence picks them by what’s said."))
-                status("Stems & karaoke", available: Stems.isSupported, detail: Stems.unavailableReason)
+                if LocalAI.canTranscribe {
+                    status("Transcripts, subtitles & translation", available: true, detail: nil)
+                    status("Search inside downloads", available: true,
+                           detail: LocalAI.canSummarize ? nil : String(localized: "Works with keywords; Apple Intelligence makes it understand questions."))
+                }
+                if LocalAI.summariesPossible {
+                    status("Summaries & chapters", available: LocalAI.canSummarize, detail: LocalAI.summarizeUnavailableReason)
+                }
+                if LocalAI.canTranscribe {
+                    status("Shorts", available: true,
+                           detail: LocalAI.canSummarize ? nil : String(localized: "Picks moments by sound; Apple Intelligence picks them by what’s said."))
+                }
+                status("Silences, backgrounds, privacy blur & deliverables", available: true, detail: nil)
+                if AudioCleanup.isSupported {
+                    status("Audio clean-up", available: true, detail: nil)
+                }
+                if Enhance.isSupported {
+                    status("Upscaling & smooth motion", available: true, detail: nil)
+                }
                 if Stems.isSupported {
+                    status("Stems & karaoke", available: true, detail: nil)
                     LabeledContent("Stem model") {
                         if Stems.isModelInstalled {
                             HStack {
@@ -53,8 +68,10 @@ struct AISettings: View {
                         }
                     }
                 }
-                status("Shot descriptions", available: VisionModel.best != nil,
-                       detail: VisionModel.unavailableReason ?? String(localized: "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
+                if VisionModel.best != nil {
+                    status("Shot descriptions", available: true,
+                           detail: String(localized: "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
+                }
                 if let model = VisionModel.selected {
                     let _ = visionRefresh
                     // Only the models this Mac has the memory for.

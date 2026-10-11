@@ -13,8 +13,18 @@ import SwiftUI
 enum ScreenshotMode {
     static var scene: String? { UserDefaults.standard.string(forKey: "PluckScreenshot") }
 
+    #if STUDIO
     @MainActor
     static func run(manager: DownloadManager, ai: AIStudio, openWindow: OpenWindowAction, openSettings: @escaping () -> Void) {
+        run(manager: manager, openWindow: openWindow, openSettings: openSettings, studio: { scene, item in
+            studioScene(scene, item: item, manager: manager, ai: ai, openWindow: openWindow)
+        })
+    }
+    #endif
+
+    @MainActor
+    static func run(manager: DownloadManager, openWindow: OpenWindowAction, openSettings: @escaping () -> Void,
+                    studio: @escaping (String, DownloadItem?) -> Void = { _, _ in }) {
         guard let scene else { return }
         let defaults = UserDefaults.standard
         // The light or dark look, whatever the Mac uses.
@@ -43,7 +53,6 @@ enum ScreenshotMode {
         let wanted = defaults.string(forKey: "PluckScreenshotItem")
         let finished = manager.items.filter { $0.state == .finished && $0.existingFile != nil }
         let item = finished.first { wanted == nil || $0.title.hasPrefix(wanted!) } ?? finished.first
-        let batch = item.map { AIStudio.Batch([$0]) }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             // In front and active, like a window someone is using.
@@ -66,6 +75,21 @@ enum ScreenshotMode {
             case let search where search.hasPrefix("search:"):
                 manager.startSearch(String(search.dropFirst("search:".count)), kind: .music)
             case "convert": if let file = item?.existingFile { manager.openConverter(for: [file]) }
+            case "library": openWindow(id: "library")
+            case "settings": openSettings()
+            default: studio(scene, item)
+            }
+        }
+    }
+
+    #if STUDIO
+    /// The scenes of Studio's windows and sheets.
+    @MainActor
+    private static func studioScene(_ scene: String, item: DownloadItem?, manager: DownloadManager, ai: AIStudio,
+                                    openWindow: OpenWindowAction) {
+        let defaults = UserDefaults.standard
+        let batch = item.map { AIStudio.Batch([$0]) }
+        switch scene {
             case "subtitles": ai.subtitleBatch = batch
             case "tighten": ai.tightenBatch = batch
             case "cleanup": ai.cleanupBatch = batch
@@ -74,7 +98,6 @@ enum ScreenshotMode {
             case "blur": ai.blurItem = item
             case "shorts": ai.shortsItem = item
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
-            case "library": openWindow(id: "library")
             case "live":
                 // -PluckScreenshotLink <stream> records it; -PluckScreenshotFile <path> analyses a file.
                 openWindow(id: "liveRecorder")
@@ -97,6 +120,16 @@ enum ScreenshotMode {
                 }
             case "findshots":
                 openWindow(id: "findShots")
+            case "resolvelog":
+                // Logs the open DaVinci Resolve project (with Find Shots open to show it).
+                openWindow(id: "findShots")
+                ResolveLogger.shared.start()
+            case "office":
+                openWindow(id: "officeRender")
+            case "tools":
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    NotificationCenter.default.post(name: ToolsPanel.showNotification, object: nil)
+                }
             case "derush":
                 // -PluckScreenshotFile <file or folder> is added and analysed.
                 openWindow(id: "derush")
@@ -113,9 +146,8 @@ enum ScreenshotMode {
                 if let item, let file = item.existingFile {
                     openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript"))
                 }
-            case "settings": openSettings()
             default: break
-            }
         }
     }
+    #endif
 }

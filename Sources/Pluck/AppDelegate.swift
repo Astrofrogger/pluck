@@ -10,14 +10,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     let updater = Updater()
     let appUpdater = AppUpdater()
     let toolsUpdater = HelperToolsUpdater()
+    #if STUDIO
     /// Local-AI jobs (transcripts, summaries, shorts, stems) on finished files.
     lazy var ai = AIStudio(manager: manager)
+    #endif
     private lazy var services = ServiceProvider(manager: manager)
     lazy var shortcut = GlobalShortcut { [weak self] in self?.downloadClipboardLink() }
     static weak var shared: AppDelegate?
 
     /// Set by a view that can open SwiftUI windows (the menu bar icon is always around).
     static var openMainWindow: (() -> Void)?
+    /// Opens one of Pluck's windows by id (set by the first view that appears).
+    static var openWindowByID: ((String) -> Void)?
     /// Whether the main window has already been through its first appearance this launch.
     static var didHandleLaunchWindow = false
 
@@ -37,14 +41,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         CookieBrowser.chooseOnFirstLaunch()
         LibraryServer.shared.manager = manager
         LibraryServer.shared.startIfEnabled()
+        #if STUDIO
+        OfficeRenderServer.shared.manager = manager
+        OfficeRenderServer.shared.startIfEnabled()
+        #endif
         if ScreenshotMode.scene == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { CookieBrowser.warnIfBlocked() }
         }
+        #if STUDIO
         manager.onFinished = { [weak self] item in
             self?.ai.downloadFinished(item)
             if let file = item.fileURL { VisualIndexer.shared.downloaded(file) }
         }
         VisualIndexer.shared.manager = manager
+        #endif
         UNUserNotificationCenter.current().delegate = self
         NSApp.servicesProvider = services
         NSUpdateDynamicServices()
@@ -59,7 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if Self.startsHidden { NSApp.setActivationPolicy(.accessory) }
         // After the main window, so the notes open on top of it.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { WhatsNew.showIfNeeded() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self else { return }
+            // Updating from before there were two editions: choose one first, then What's New.
+            EditionChoice.showIfNeeded(updater: self.appUpdater) { WhatsNew.showIfNeeded() }
+        }
 
         let center = NotificationCenter.default
         center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { [weak self] _ in

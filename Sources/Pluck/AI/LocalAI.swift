@@ -21,6 +21,14 @@ enum LocalAI {
         return false
     }
 
+    /// Whether summaries can work on this Mac at all: macOS 26 and a Mac Apple Intelligence
+    /// supports (it may still have to be turned on). False hides them instead of greying them out.
+    static var summariesPossible: Bool {
+        guard #available(macOS 26, *) else { return false }
+        if case .unavailable(.deviceNotEligible) = SystemLanguageModel.default.availability { return false }
+        return true
+    }
+
     /// Why summaries aren't available, in words people can act on.
     static var summarizeUnavailableReason: String? {
         guard #available(macOS 26, *) else { return String(localized: "Needs macOS 26 or later.") }

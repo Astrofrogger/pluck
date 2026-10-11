@@ -1,7 +1,9 @@
 #!/bin/zsh
 # Publishes a release: ./scripts/release.sh 1.1.0 ["What changed"]
-# Builds Pluck.app, packages Pluck.dmg (for people) and Pluck.zip + checksum (for the in-app
-# updater), commits the version bump, tags it, pushes, and creates the GitHub release.
+# Builds both editions (basic Pluck and Pluck Studio), packages a .dmg of each (for people) and a
+# .zip + checksum of each (for the in-app updater; Pluck.zip is Studio again, for Pluck 1.15 and
+# older, which look for that name), commits the version bump, tags it, pushes, and creates the
+# GitHub release.
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -16,18 +18,27 @@ PLIST=Resources/Info.plist
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(( $(git rev-list --count HEAD) + 1 ))" "$PLIST"
 
-./scripts/build-app.sh
+./scripts/build-app.sh --edition basic
+./scripts/build-app.sh --edition studio
 
 rm -rf dist && mkdir dist
-ditto -c -k --keepParent build/Pluck.app dist/Pluck.zip
-(cd dist && shasum -a 256 Pluck.zip > Pluck.zip.sha256)
+ditto -c -k --keepParent build/basic/Pluck.app dist/Pluck-Basic.zip
+ditto -c -k --keepParent build/Pluck.app dist/Pluck-Studio.zip
+cp dist/Pluck-Studio.zip dist/Pluck.zip
+(cd dist && for zip in Pluck-Basic.zip Pluck-Studio.zip Pluck.zip; do shasum -a 256 $zip > $zip.sha256; done)
 
-STAGE=build/dmg
-rm -rf "$STAGE" && mkdir -p "$STAGE"
-cp -R build/Pluck.app "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
-cp scripts/dmg-readme.txt "$STAGE/Read Me First.txt"
-hdiutil create -quiet -volname "Pluck $VERSION" -srcfolder "$STAGE" -ov -format UDZO dist/Pluck.dmg
+# A disk image per edition: Pluck.dmg (basic) and Pluck-Studio.dmg.
+dmg() {
+  local app="$1" name="$2" out="$3"
+  local stage=build/dmg
+  rm -rf "$stage" && mkdir -p "$stage"
+  cp -R "$app" "$stage/"
+  ln -s /Applications "$stage/Applications"
+  cp scripts/dmg-readme.txt "$stage/Read Me First.txt"
+  hdiutil create -quiet -volname "$name $VERSION" -srcfolder "$stage" -ov -format UDZO "$out"
+}
+dmg build/basic/Pluck.app "Pluck" dist/Pluck.dmg
+dmg build/Pluck.app "Pluck Studio" dist/Pluck-Studio.dmg
 
 NOTES=$(mktemp)
 {
@@ -39,7 +50,9 @@ git add "$PLIST"
 git commit -q -m "Release $VERSION"
 git tag "v$VERSION"
 git push -q origin HEAD --tags
-gh release create "v$VERSION" dist/Pluck.dmg dist/Pluck.zip dist/Pluck.zip.sha256 \
+gh release create "v$VERSION" dist/Pluck.dmg dist/Pluck-Studio.dmg \
+  dist/Pluck-Basic.zip dist/Pluck-Basic.zip.sha256 dist/Pluck-Studio.zip dist/Pluck-Studio.zip.sha256 \
+  dist/Pluck.zip dist/Pluck.zip.sha256 \
   --title "Pluck $VERSION" --notes-file "$NOTES"
 rm -f "$NOTES"
 echo "Released $VERSION"

@@ -26,6 +26,11 @@ enum ResolveBridge {
     }
 
     static func run(_ instruction: [String: Any]) async throws -> [String: Any] {
+        try await run(instruction, script: script)
+    }
+
+    /// Runs one instruction with another script (one that starts with `preamble`).
+    static func run(_ instruction: [String: Any], script: String) async throws -> [String: Any] {
         let json = String(decoding: try JSONSerialization.data(withJSONObject: instruction), as: UTF8.self)
         let output = await Task.detached { () -> String in
             let process = Process()
@@ -54,6 +59,24 @@ enum ResolveBridge {
     }
 
     // MARK: - The script
+
+    /// The common start of every script: Resolve, the instruction, and how to answer.
+    static let preamble = #"""
+import sys, json
+sys.path.append(sys.argv[1])
+import DaVinciResolveScript as dvr
+
+def out(value):
+    print("PLUCKJSON:" + json.dumps(value))
+    sys.exit(0)
+
+resolve = dvr.scriptapp("Resolve")
+if resolve is None:
+    out({"error": "notReachable"})
+cmd = json.loads(sys.argv[2])
+pm = resolve.GetProjectManager()
+action = cmd["action"]
+"""#
 
     private static let script = #"""
 import sys, json
@@ -273,6 +296,48 @@ if action == "cleanUp":
     if leftovers:
         pool.DeleteTimelines(leftovers)
     out({"removed": len(leftovers)})
+
+if action == "poolClips":
+    # The project's video clips: where their files are, their frame rate and length.
+    found = []
+    for clip in clips_in(pool.GetRootFolder()):
+        kind = clip.GetClipProperty("Type") or ""
+        path = clip.GetClipProperty("File Path") or ""
+        if path and "Video" in kind:
+            found.append({"path": path, "name": clip.GetName(), "fps": clip.GetClipProperty("FPS"),
+                          "frames": clip.GetClipProperty("Frames")})
+    out({"project": project.GetName(), "clips": found})
+
+if action == "logClips":
+    # Pluck's log on each clip: description and keywords (never over someone's own description),
+    # and a marker per shot. Markers from an earlier log are replaced, other markers stay.
+    by_path = {c.GetClipProperty("File Path"): c for c in clips_in(pool.GetRootFolder())}
+    logged = 0
+    markers = 0
+    for entry in cmd["clips"]:
+        clip = by_path.get(entry["path"])
+        if clip is None:
+            continue
+        meta = clip.GetMetadata() or {}
+        ours = (clip.GetThirdPartyMetadata() or {}).get("Pluck Log") == "1"
+        if entry.get("description") and (ours or not meta.get("Description")):
+            clip.SetMetadata({"Description": entry["description"]})
+        if entry.get("keywords"):
+            have = [k.strip() for k in (meta.get("Keywords") or "").split(",") if k.strip()]
+            merged = have + [k for k in entry["keywords"] if k not in have]
+            clip.SetMetadata({"Keywords": ", ".join(merged)})
+        if entry.get("shotType") and (ours or not meta.get("Shot Type")):
+            clip.SetMetadata({"Shot Type": entry["shotType"]})
+        clip.SetThirdPartyMetadata({"Pluck Log": "1"})
+        # (Each call removes one.)
+        for _ in range(5000):
+            if not clip.DeleteMarkerByCustomData("pluck"):
+                break
+        for m in entry.get("markers", []):
+            if clip.AddMarker(m["frame"], m["color"], m["name"], m["note"], m["duration"], "pluck"):
+                markers += 1
+        logged += 1
+    out({"logged": logged, "markers": markers})
 
 if action == "readTimeline":
     timeline = project.GetCurrentTimeline()

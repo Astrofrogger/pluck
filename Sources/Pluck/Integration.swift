@@ -26,6 +26,16 @@ final class ServiceProvider: NSObject {
 /// brings the window forward, and the user presses Return to start.
 enum URLScheme {
     @MainActor static func handle(_ url: URL, manager: DownloadManager) {
+        #if STUDIO
+        // An Edit Anywhere invitation: Edit Anywhere opens and asks before joining.
+        if url.scheme?.lowercased() == "pluck", url.host == "edit-anywhere" {
+            guard let invitation = PrivateNetwork.Invitation(link: url.absoluteString) else { return }
+            OfficeRenderClient.shared.pendingInvitation = invitation
+            UserDefaults.standard.set("home", forKey: "officeRenderSide")
+            if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.openMainWindow?() }
+            return
+        }
+        #endif
         guard url.scheme?.lowercased() == "pluck",
               let value = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first(where: { $0.name == "url" })?.value,
