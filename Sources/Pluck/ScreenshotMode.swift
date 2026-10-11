@@ -6,7 +6,7 @@ import SwiftUI
 /// use (nothing sets that argument).
 ///
 /// Scenes: main, search:<words>, convert, subtitles, tighten, cleanup, enhance, background, blur,
-/// shorts, summarize, library, player, settings, live, derush. Options: `-PluckScreenshotItem <title start>`
+/// shorts, summarize, library, player, settings, live, derush, findshots. Options: `-PluckScreenshotItem <title start>`
 /// picks the item, `-PluckScreenshotDownloading <n>` shows the first n paused items as
 /// downloading, `-PluckScreenshotSize <w>x<h>` sizes the main window and
 /// `-PluckScreenshotAppearance light|dark` picks the look.
@@ -84,6 +84,8 @@ enum ScreenshotMode {
                 if let link = defaults.string(forKey: "PluckScreenshotLink") {
                     session.record(link, fromStart: false, language: language)
                 }
+            case "findshots":
+                openWindow(id: "findShots")
             case "derush":
                 // -PluckScreenshotFile <file or folder> is added and analysed.
                 openWindow(id: "derush")

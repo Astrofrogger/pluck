@@ -39,6 +39,8 @@ enum Prefs {
     static let musicImportTypes = "musicImportTypes"
     static let musicImportAll = "musicImportAll"
     static let aiAutoTranscribe = "aiAutoTranscribe"
+    static let visionModelEnabled = "visionModelEnabled"
+    static let visionModel = "visionModel"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [

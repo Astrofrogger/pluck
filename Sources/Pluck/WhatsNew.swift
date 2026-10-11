@@ -88,6 +88,14 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.14.0", items: [
+                Item(symbol: "eye", title: String(localized: "Sharper shot descriptions"),
+                     detail: String(localized: "Download an open vision model in Settings → AI, such as Qwen3.8 or Gemma 4, and Find Shots and Derush Footage describe every shot like an editor would: what the crew is doing, the gear, the setting. It runs locally on your Mac’s GPU. Choose between sharper and quicker models.")),
+                Item(symbol: "arrow.up.and.down.and.arrow.left.and.right", title: String(localized: "Camera moves and speed ramps"),
+                     detail: String(localized: "Each push-in, pull-out, pan or tilt is now a shot of its own, from start to end. Smooth gimbal and slider moves are marked “Speed ramp” and kept whole in your selects.")),
+                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Tidier Find Shots"),
+                     detail: String(localized: "The search field and filters line up at the top of the window.")),
+            ]),
             Release(version: "1.13.0", items: [
                 Item(symbol: "film.stack", title: String(localized: "Derush Footage"),
                      detail: String(localized: "Drop a folder of raw footage and local AI on your Mac judges every shot for focus, light, faces, action and its look, and marks cheers, music and the best quotes. It then looks at the whole shoot, picks selects for a corporate, commercial, aftermovie, music or brand video, and says which shots are missing. Build it as a marked-up timeline in DaVinci Resolve. Find it in the File menu.")),

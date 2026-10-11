@@ -5,6 +5,12 @@ struct AISettings: View {
     @Environment(AIStudio.self) private var studio
     @Environment(DownloadManager.self) private var manager
     @AppStorage(Prefs.aiAutoTranscribe) private var autoTranscribe = false
+    @AppStorage(Prefs.visionModelEnabled) private var visionModelEnabled = true
+    @State private var visionProgress: Double?
+    @State private var visionError: String?
+    @AppStorage(Prefs.visionModel) private var pickedModel = ""
+    /// Bumped after a download or removal, so the rows show what's on disk.
+    @State private var visionRefresh = 0
 
     var body: some View {
         Form {
@@ -47,14 +53,82 @@ struct AISettings: View {
                         }
                     }
                 }
+                status("Shot descriptions", available: VisionModel.best != nil,
+                       detail: VisionModel.unavailableReason ?? String(localized: "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
+                if let model = VisionModel.selected {
+                    let _ = visionRefresh
+                    Picker(selection: Binding(get: { model.repository }, set: { pickedModel = $0; visionError = nil })) {
+                        ForEach(VisionModel.choices) { choice in
+                            Text(verbatim: choice.name + " · " + Format.bytes(choice.size)
+                                 + (VisionModel.isInstalled(choice) ? " ✓" : ""))
+                                .tag(choice.repository)
+                                .selectionDisabled(!VisionModel.fits(choice))
+                        }
+                    } label: {
+                        Text("Model")
+                        Text(VisionModel.detail(model))
+                    }
+                    .disabled(visionProgress != nil)
+                    LabeledContent {
+                        if let visionProgress {
+                            HStack {
+                                ProgressView(value: visionProgress).frame(width: 120)
+                                Text(visionProgress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit().foregroundStyle(.secondary)
+                            }
+                        } else if VisionModel.isInstalled(model) {
+                            HStack {
+                                Toggle("Use", isOn: $visionModelEnabled).labelsHidden()
+                                Button("Remove") { remove(model) }
+                            }
+                        } else {
+                            Button("Download") { download(model) }
+                        }
+                    } label: {
+                        Text(verbatim: model.name)
+                        if !VisionModel.isInstalled(model), visionProgress == nil {
+                            Text("Downloads \(Format.bytes(model.size)) once")
+                        }
+                    }
+                    if let visionError { Text(visionError).foregroundStyle(.red).font(.callout) }
+                    // Models downloaded earlier and no longer picked take space: they can go.
+                    ForEach(VisionModel.choices.filter { $0 != model && VisionModel.isInstalled($0) }) { other in
+                        LabeledContent {
+                            Button("Remove") { remove(other) }
+                        } label: {
+                            Text(verbatim: other.name)
+                            Text("Also downloaded (\(Format.bytes(other.size)))")
+                        }
+                    }
+                }
             }
         }
         .formStyle(.grouped)
-        Label("Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus an open-source stem separation model. Nothing you download, say or search is uploaded.",
+
+        Label("Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus open-source models for stems and shot descriptions. Nothing you download, say or search is uploaded.",
               systemImage: "lock.shield")
             .noteStyle()
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
+    }
+
+    private func download(_ model: VisionModel.Choice) {
+        visionError = nil
+        visionProgress = 0
+        Task {
+            do {
+                try await VisionModel.install(model) { value in Task { @MainActor in visionProgress = value } }
+            } catch {
+                visionError = error.localizedDescription
+            }
+            visionProgress = nil
+            visionRefresh += 1
+        }
+    }
+
+    private func remove(_ model: VisionModel.Choice) {
+        Task { await VisionRunner.shared.stop() }
+        VisionModel.remove(model)
+        visionRefresh += 1
     }
 
     private func status(_ title: LocalizedStringKey, available: Bool, detail: String?) -> some View {

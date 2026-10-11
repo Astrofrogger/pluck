@@ -22,6 +22,16 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/Pluck" "$APP/Contents/MacOS/Pluck"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
+
+# The vision helper (Qwen on the GPU with MLX): Apple silicon only, so it's built on its own and
+# Intel Macs simply don't have it. Its Metal kernels sit next to it in the Cmlx bundle.
+(cd Helpers/PluckVision && swift build -c release --arch arm64 >/dev/null)
+VBIN="$(cd Helpers/PluckVision && swift build -c release --arch arm64 --show-bin-path)"
+mkdir -p "$APP/Contents/Helpers"
+cp "$VBIN/pluck-vision" "$APP/Contents/Helpers/pluck-vision"
+cp -R "$VBIN/mlx-swift_Cmlx.bundle" "$APP/Contents/Helpers/"
+codesign --force --sign - "$APP/Contents/Helpers/mlx-swift_Cmlx.bundle"
+codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-vision"
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null
 mkdir -p "$APP/Contents/Resources/en.lproj"   # English is the source language; marks it as available

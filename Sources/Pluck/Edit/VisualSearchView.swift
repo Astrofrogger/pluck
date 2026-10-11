@@ -89,6 +89,7 @@ struct VisualSearchView: View {
             header
             Divider()
             results
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             Divider()
             footer
         }
@@ -99,38 +100,50 @@ struct VisualSearchView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
+            SheetHeader(symbol: "sparkle.magnifyingglass", title: Text("Find Shots"),
+                        subtitle: Text("Search your videos and footage by what’s in the picture, the shot size and how the camera moves."),
+                        subtitleIsName: false)
             HStack(spacing: Design.Spacing.controls) {
                 HStack(spacing: Design.Spacing.controls) {
-                    Image(systemName: "sparkle.magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary).accessibilityHidden(true)
                     TextField("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”", text: $query)
                         .textFieldStyle(.plain)
                 }
                 .font(Design.Typography.control)
                 .barControl()
-            }
-            HStack(spacing: 8) {
-                Menu {
+                filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
                     Button("Any Movement") { movement = nil }
                     Divider()
                     ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
-                } label: {
-                    Label(movement?.label ?? String(localized: "Any Movement"), systemImage: "video.badge.waveform")
                 }
-                .fixedSize()
-                Menu {
+                filter(framing?.label ?? String(localized: "Any Framing"), symbol: "viewfinder", active: framing != nil) {
                     Button("Any Framing") { framing = nil }
                     Divider()
                     ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
-                } label: {
-                    Label(framing?.label ?? String(localized: "Any Framing"), systemImage: "viewfinder")
                 }
-                .fixedSize()
-                Spacer()
-                Text(query.isEmpty && movement == nil && framing == nil ? "" : String(localized: "\(hits.count) shots"))
-                    .foregroundStyle(.secondary)
             }
         }
         .padding(Design.Spacing.window)
+    }
+
+    /// A filter menu with the search field's height and look.
+    private func filter<Items: View>(_ title: String, symbol: String, active: Bool, @ViewBuilder items: () -> Items) -> some View {
+        Menu {
+            items()
+        } label: {
+            HStack(spacing: 6) {
+                Label(title, systemImage: symbol)
+                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            }
+            .font(Design.Typography.control)
+            .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .focusEffectDisabled()
+        .fixedSize()
+        .barControl()
     }
 
     @ViewBuilder private var results: some View {
@@ -190,6 +203,9 @@ struct VisualSearchView: View {
             }
             Spacer()
             if let status { Text(status).foregroundStyle(.secondary).lineLimit(1) }
+            else if !(query.isEmpty && movement == nil && framing == nil) {
+                Text("^[\(hits.count) shot](inflect: true)").foregroundStyle(.secondary).monospacedDigit()
+            }
             Button("Build Timeline in Resolve", action: buildTimeline)
                 .disabled(selected.isEmpty || !Resolve.isInstalled)
                 .help("Select shots with ⌘-click")
@@ -273,6 +289,10 @@ private struct ShotCard: View {
             Text(hit.shot.description).font(.callout).lineLimit(2)
             HStack(spacing: 6) {
                 Text(hit.shot.movement.label)
+                if hit.shot.smooth == true {
+                    Text("·")
+                    Text("Speed ramp").foregroundStyle(.teal)
+                }
                 Text("·")
                 Text(hit.shot.framing.label)
                 Text("·")

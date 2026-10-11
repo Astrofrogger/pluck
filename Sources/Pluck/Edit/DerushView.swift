@@ -121,7 +121,8 @@ final class DerushSession {
         for index in clips.indices {
             var highlights = clips[index].soundHighlights
             for pick in plan.picks where pick.path == clips[index].file.path {
-                let end = min(pick.shot.end, pick.shot.start + 10)
+                // A smooth camera move is kept whole (for a speed ramp), other shots up to ten seconds.
+                let end = min(pick.shot.end, pick.shot.start + (pick.shot.smooth == true ? 20 : 10))
                 if highlights.contains(where: { pick.shot.start < $0.end && end > $0.start }) { continue }
                 highlights.append(SoundTagger.Highlight(start: pick.shot.start, end: end, reason: pick.shot.description,
                                                         score: pick.shot.quality?.score ?? 0.5))
@@ -388,6 +389,10 @@ struct DerushView: View {
                         .help("How usable and interesting the shot is for this kind of video")
                     Chip(text: Text(shot.framing.label))
                     if shot.movement != .still { Chip(text: Text(shot.movement.label)) }
+                    if shot.smooth == true {
+                        Chip(text: Text("Speed ramp"), tint: .teal)
+                            .help("A smooth, even camera move: good for a speed ramp")
+                    }
                     if let look = shot.quality?.look, !look.isEmpty { Chip(text: Text(verbatim: look), tint: .purple) }
                     if let emotion = shot.quality?.emotion, !emotion.isEmpty { Chip(text: Text(verbatim: emotion), tint: .blue) }
                     ForEach(judged.problems, id: \.self) { Chip(text: Text($0.label), tint: .orange) }
@@ -487,6 +492,7 @@ struct DerushView: View {
         let judged = session.score(file, shot, kind: kind)
         var parts = [shot.description, shot.framing.label]
         if shot.movement != .still { parts.append(shot.movement.label) }
+        if shot.smooth == true { parts.append(String(localized: "Speed ramp")) }
         if let look = shot.quality?.look, !look.isEmpty { parts.append(look) }
         if let emotion = shot.quality?.emotion, !emotion.isEmpty { parts.append(emotion) }
         parts += judged.problems.map(\.label)

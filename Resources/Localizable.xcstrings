@@ -3321,6 +3321,64 @@
       },
       "extractionState": "stale"
     },
+    "A downloaded model file didn’t match its published checksum, so it was discarded.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine geladene Modelldatei stimmte nicht mit ihrer veröffentlichten Prüfsumme überein und wurde verworfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un archivo del modelo descargado no coincidía con su suma de verificación publicada, así que se descartó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un fichier du modèle téléchargé ne correspondait pas à sa somme de contrôle publiée ; il a été supprimé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un file del modello scaricato non corrispondeva al checksum pubblicato ed è stato scartato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードしたモデルファイルが公開されているチェックサムと一致しなかったため、破棄しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 모델 파일이 공개된 체크섬과 일치하지 않아 삭제했습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een gedownload modelbestand kwam niet overeen met de gepubliceerde checksum en is verwijderd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um arquivo do modelo baixado não correspondia ao checksum publicado e foi descartado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载的模型文件与公布的校验和不符，已丢弃。"
+          }
+        }
+      }
+    },
     "A fresh look": {
       "localizations": {
         "de": {
@@ -3607,6 +3665,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在人物身后放纯色。"
+          }
+        }
+      }
+    },
+    "A smooth, even camera move: good for a speed ramp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine ruhige, gleichmäßige Kamerabewegung: gut für eine Geschwindigkeitsrampe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un movimiento de cámara suave y uniforme: ideal para una rampa de velocidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un mouvement de caméra fluide et régulier : idéal pour une rampe de vitesse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un movimento di camera fluido e regolare: ottimo per una rampa di velocità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "なめらかで一定のカメラワーク：スピードランプに最適"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부드럽고 일정한 카메라 무빙: 스피드 램프에 좋습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een vloeiende, gelijkmatige camerabeweging: goed voor een speed ramp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um movimento de câmera suave e constante: bom para uma rampa de velocidade"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "平稳均匀的运镜：适合做变速"
           }
         }
       }
@@ -5701,6 +5817,64 @@
         }
       }
     },
+    "Also downloaded (%@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ebenfalls geladen (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "También descargado (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Également téléchargé (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Già scaricato (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロード済み（%@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드됨 (%@)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ook gedownload (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Também baixado (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "也已下载（%@）"
+          }
+        }
+      }
+    },
     "Also in": {
       "localizations": {
         "de": {
@@ -6045,6 +6219,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "包含相同剪切点的 EDL，可导入 DaVinci Resolve 或 Premiere Pro。"
+          }
+        }
+      }
+    },
+    "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein offenes Bildmodell beschreibt jede Einstellung für „Einstellungen finden“ und „Material sichten“, mit dem Blick eines Cutters. Genauer als Apple Intelligence."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un modelo de visión abierto describe cada plano para Buscar planos y Derush del material, con ojo de editor. Más preciso que Apple Intelligence."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un modèle de vision ouvert décrit chaque plan pour Trouver des plans et Dérusher les rushes, avec l’œil d’un monteur. Plus précis qu’Apple Intelligence."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un modello di visione aperto descrive ogni inquadratura per Trova inquadrature e Derush del girato, con l’occhio di un montatore. Più preciso di Apple Intelligence."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オープンな画像モデルが、ショット検索と素材の下見のために各ショットを編集者の目線で説明します。Apple Intelligenceより的確です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공개 비전 모델이 샷 찾기와 영상 디러시를 위해 편집자의 눈으로 모든 샷을 설명합니다. Apple Intelligence보다 정확합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een open beeldmodel beschrijft elke shot voor Shots zoeken en Beeldmateriaal derushen, met het oog van een editor. Scherper dan Apple Intelligence."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um modelo de visão aberto descreve cada plano para Encontrar planos e Decupar material, com olhar de editor. Mais preciso que o Apple Intelligence."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开放视觉模型以剪辑师的眼光描述每个镜头，用于“查找镜头”和“素材粗选”。比 Apple 智能更准确。"
           }
         }
       }
@@ -9483,6 +9715,64 @@
         }
       },
       "extractionState": "stale"
+    },
+    "Camera moves and speed ramps": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kamerabewegungen und Geschwindigkeitsrampen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimientos de cámara y rampas de velocidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouvements de caméra et rampes de vitesse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimenti di camera e rampe di velocità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラワークとスピードランプ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 무빙과 스피드 램프"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camerabewegingen en speed ramps"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimentos de câmera e rampas de velocidade"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运镜与变速"
+          }
+        }
+      }
     },
     "Cameras (%lld)": {
       "localizations": {
@@ -17280,6 +17570,64 @@
         }
       }
     },
+    "Download an open vision model in Settings → AI, such as Qwen3.8 or Gemma 4, and Find Shots and Derush Footage describe every shot like an editor would: what the crew is doing, the gear, the setting. It runs locally on your Mac’s GPU. Choose between sharper and quicker models.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lade in Einstellungen → KI ein offenes Bildmodell wie Qwen3.8 oder Gemma 4, und „Einstellungen finden“ und „Material sichten“ beschreiben jede Einstellung wie ein Cutter: was die Crew macht, das Equipment, der Ort. Es läuft lokal auf der GPU deines Mac. Wähle zwischen genaueren und schnelleren Modellen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga un modelo de visión abierto en Ajustes → IA, como Qwen3.8 o Gemma 4, y Buscar planos y Derush del material describirán cada plano como lo haría un editor: qué hace el equipo, el material, el lugar. Funciona localmente en la GPU de tu Mac. Elige entre modelos más precisos o más rápidos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Téléchargez un modèle de vision ouvert dans Réglages → IA, comme Qwen3.8 ou Gemma 4, et Trouver des plans et Dérusher les rushes décrivent chaque plan comme un monteur : ce que fait l’équipe, le matériel, le lieu. Il fonctionne localement sur le GPU de votre Mac. Choisissez entre des modèles plus précis ou plus rapides."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica un modello di visione aperto in Impostazioni → IA, come Qwen3.8 o Gemma 4, e Trova inquadrature e Derush del girato descrivono ogni inquadratura come farebbe un montatore: cosa fa la troupe, l’attrezzatura, il luogo. Funziona in locale sulla GPU del tuo Mac. Scegli tra modelli più precisi o più veloci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → AIでQwen3.8やGemma 4などのオープンな画像モデルをダウンロードすると、ショット検索と素材の下見が各ショットを編集者のように説明します。クルーの作業、機材、場所まで。MacのGPU上でローカルに動作します。精度重視と速度重視のモデルから選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설정 → AI에서 Qwen3.8이나 Gemma 4 같은 공개 비전 모델을 다운로드하면, 샷 찾기와 영상 디러시가 편집자처럼 모든 샷을 설명합니다. 크루가 하는 일, 장비, 장소까지. Mac의 GPU에서 로컬로 실행됩니다. 더 정확한 모델과 더 빠른 모델 중에서 고르세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download een open beeldmodel in Instellingen → AI, zoals Qwen3.8 of Gemma 4, en Shots zoeken en Beeldmateriaal derushen beschrijven elke shot zoals een editor dat zou doen: wat de crew doet, de apparatuur, de plek. Het draait lokaal op de GPU van je Mac. Kies tussen scherpere en snellere modellen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixe um modelo de visão aberto em Ajustes → IA, como Qwen3.8 ou Gemma 4, e Encontrar planos e Decupar material descrevem cada plano como um editor: o que a equipe está fazendo, o equipamento, o local. Roda localmente na GPU do seu Mac. Escolha entre modelos mais precisos ou mais rápidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“设置 → AI”中下载开放视觉模型（如 Qwen3.8 或 Gemma 4），“查找镜头”和“素材粗选”就会像剪辑师一样描述每个镜头：剧组在做什么、设备、场景。在 Mac 的 GPU 上本地运行。可在更准确和更快的模型之间选择。"
+          }
+        }
+      }
+    },
     "Download as audio": {
       "localizations": {
         "de": {
@@ -18440,6 +18788,64 @@
         }
       }
     },
+    "Downloads %@ once": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt einmalig %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descarga %@ una vez"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Télécharge %@ une seule fois"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica %@ una sola volta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@を一度だけダウンロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@를 한 번 다운로드합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloadt eenmalig %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa %@ uma vez"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需下载一次（%@）"
+          }
+        }
+      }
+    },
     "Downloads %@ the first time": {
       "localizations": {
         "de": {
@@ -19368,6 +19774,64 @@
         }
       },
       "extractionState": "stale"
+    },
+    "Each push-in, pull-out, pan or tilt is now a shot of its own, from start to end. Smooth gimbal and slider moves are marked “Speed ramp” and kept whole in your selects.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Ranfahrt, Rückfahrt, jeder Schwenk und jede Neigung ist jetzt eine eigene Einstellung, von Anfang bis Ende. Ruhige Gimbal- und Slider-Bewegungen werden als „Geschwindigkeitsrampe“ markiert und in der Auswahl vollständig behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada acercamiento, alejamiento, paneo o inclinación es ahora un plano propio, de principio a fin. Los movimientos suaves de gimbal y slider se marcan como «Rampa de velocidad» y se conservan enteros en tu selección."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque travelling avant, arrière, panoramique ou tilt est désormais un plan à part entière, du début à la fin. Les mouvements fluides au gimbal ou au slider sont marqués « Rampe de vitesse » et gardés entiers dans votre sélection."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni carrellata in avanti, indietro, panoramica o tilt è ora un’inquadratura a sé, dall’inizio alla fine. I movimenti fluidi con gimbal e slider sono segnati come «Rampa di velocità» e restano interi nella selezione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュイン、プルアウト、パン、ティルトはそれぞれ最初から最後まで1つのショットになりました。ジンバルやスライダーのなめらかな動きは「スピードランプ」と表示され、セレクトにまるごと残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "푸시인, 풀아웃, 팬, 틸트가 이제 처음부터 끝까지 각각 하나의 샷이 됩니다. 짐벌과 슬라이더의 부드러운 움직임은 ‘스피드 램프’로 표시되고 셀렉트에 통째로 남습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elke push-in, pull-out, pan of tilt is nu een eigen shot, van begin tot eind. Vloeiende gimbal- en sliderbewegingen krijgen het label ‘Speed ramp’ en blijven heel in je selectie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada aproximação, afastamento, pan ou tilt agora é um plano próprio, do início ao fim. Movimentos suaves de gimbal e slider são marcados como “Rampa de velocidade” e ficam inteiros na sua seleção."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每次推、拉、摇、俯仰现在都是一个从头到尾完整的镜头。稳定器和滑轨的平稳运镜会标为“变速”，并在精选中完整保留。"
+          }
+        }
+      }
     },
     "Each shape fades up out of a soft focus, one after another. Calm and refined.": {
       "localizations": {
@@ -23798,6 +24262,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "通用"
+          }
+        }
+      }
+    },
+    "Google’s model: nearly as sharp and about four times quicker.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Googles Modell: fast so genau und etwa viermal schneller."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modelo de Google: casi igual de preciso y unas cuatro veces más rápido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le modèle de Google : presque aussi précis et environ quatre fois plus rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il modello di Google: quasi altrettanto preciso e circa quattro volte più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Googleのモデル：ほぼ同等の精度で約4倍速い。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 모델: 거의 같은 정확도에 약 4배 빠릅니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het model van Google: bijna net zo scherp en ongeveer vier keer sneller."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modelo do Google: quase tão preciso e cerca de quatro vezes mais rápido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Google 的模型：准确度相近，速度快约四倍。"
           }
         }
       }
@@ -31829,6 +32351,64 @@
       },
       "extractionState": "stale"
     },
+    "Model": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模型"
+          }
+        }
+      }
+    },
     "Money is never expected. A star on GitHub helps more people discover Pluck and makes a real difference too.": {
       "localizations": {
         "de": {
@@ -32873,6 +33453,64 @@
         }
       }
     },
+    "Nearly as sharp and about four times quicker.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fast so genau und etwa viermal schneller."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Casi igual de preciso y unas cuatro veces más rápido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presque aussi précis et environ quatre fois plus rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quasi altrettanto preciso e circa quattro volte più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ほぼ同等の精度で約4倍速い。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거의 같은 정확도에 약 4배 빠릅니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijna net zo scherp en ongeveer vier keer sneller."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quase tão preciso e cerca de quatro vezes mais rápido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准确度相近，速度快约四倍。"
+          }
+        }
+      }
+    },
     "Nederlands": {
       "localizations": {
         "de": {
@@ -32927,6 +33565,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nederlands"
+          }
+        }
+      }
+    },
+    "Needs a Mac with 8 GB of memory or more.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benötigt einen Mac mit mindestens 8 GB Arbeitsspeicher."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita un Mac con 8 GB de memoria o más."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite un Mac avec au moins 8 Go de mémoire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede un Mac con almeno 8 GB di memoria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "8 GB以上のメモリを搭載したMacが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "8GB 이상의 메모리가 있는 Mac이 필요합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vereist een Mac met 8 GB geheugen of meer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer um Mac com 8 GB de memória ou mais."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要内存为 8 GB 或以上的 Mac。"
           }
         }
       }
@@ -35018,6 +35714,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚未安装"
+          }
+        }
+      }
+    },
+    "Not part of this build of Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht in diesem Build von Pluck enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No incluido en esta versión de Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Absent de cette version de Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non incluso in questa build di Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドのPluckには含まれていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Pluck 빌드에는 포함되어 있지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niet aanwezig in deze build van Pluck."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não incluído nesta versão do Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本的 Pluck 不包含该功能。"
           }
         }
       }
@@ -42225,6 +42979,64 @@
         }
       }
     },
+    "Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus open-source models for stems and shot descriptions. Nothing you download, say or search is uploaded.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die KI von Pluck läuft lokal auf diesem Mac: Apples Spracherkennung, Übersetzung und Apple Intelligence auf dem Gerät sowie Open-Source-Modelle für Stems und Einstellungsbeschreibungen. Nichts, was du lädst, sagst oder suchst, wird hochgeladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La IA de Pluck funciona en este Mac: el reconocimiento de voz, la traducción y Apple Intelligence de Apple en el dispositivo, además de modelos de código abierto para pistas y descripciones de planos. Nada de lo que descargas, dices o buscas se sube."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’IA de Pluck fonctionne localement sur ce Mac : reconnaissance vocale, traduction et Apple Intelligence sur l’appareil, plus des modèles open source pour les pistes séparées et la description des plans. Rien de ce que vous téléchargez, dites ou cherchez n’est envoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’IA di Pluck funziona in locale su questo Mac: riconoscimento vocale, traduzione e Apple Intelligence sul dispositivo, più modelli open source per le tracce separate e le descrizioni delle inquadrature. Nulla di ciò che scarichi, dici o cerchi viene caricato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PluckのAIはこのMac上で動作します。Appleのオンデバイス音声認識、翻訳、Apple Intelligenceに加え、ステム分離とショット説明のためのオープンソースモデルを使います。ダウンロード、発言、検索した内容がアップロードされることはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck의 AI는 이 Mac에서 로컬로 실행됩니다. Apple의 온디바이스 음성 인식, 번역, Apple Intelligence와 함께 스템 분리 및 샷 설명용 오픈 소스 모델을 사용합니다. 다운로드하거나 말하거나 검색한 내용은 업로드되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De AI van Pluck draait lokaal op deze Mac: Apples spraakherkenning, vertaling en Apple Intelligence op het apparaat, plus opensourcemodellen voor stems en shotbeschrijvingen. Niets wat je downloadt, zegt of zoekt wordt geüpload."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A IA do Pluck roda localmente neste Mac: reconhecimento de fala, tradução e Apple Intelligence no dispositivo, além de modelos de código aberto para stems e descrições de planos. Nada do que você baixa, fala ou pesquisa é enviado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 的 AI 在这台 Mac 上本地运行：Apple 的设备端语音识别、翻译和 Apple 智能，以及用于分轨和镜头描述的开源模型。你下载、说出或搜索的任何内容都不会上传。"
+          }
+        }
+      }
+    },
     "Pluck’s new AI features run entirely on your Mac with local AI: Apple’s on-device speech recognition, translation and Apple Intelligence. Nothing you download, say or search is uploaded.": {
       "localizations": {
         "de": {
@@ -48744,6 +49556,64 @@
         }
       }
     },
+    "Search your videos and footage by what’s in the picture, the shot size and how the camera moves.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchsuche deine Videos und dein Material nach Bildinhalt, Einstellungsgröße und Kamerabewegung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Busca en tus vídeos y tu material por lo que sale en la imagen, el tamaño del plano y el movimiento de cámara."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cherchez dans vos vidéos et vos rushes selon ce qui est à l’image, la valeur de plan et le mouvement de caméra."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca nei tuoi video e nel girato in base a ciò che si vede, al tipo di inquadratura e al movimento di camera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映っている内容、画角、カメラの動きで動画や素材を検索できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 속 내용, 샷 크기, 카메라 움직임으로 영상과 원본을 검색하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek in je video’s en beelden op wat er in beeld is, de shotgrootte en hoe de camera beweegt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pesquise seus vídeos e material pelo que aparece na imagem, o tamanho do plano e o movimento da câmera."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按画面内容、景别和运镜搜索你的视频和素材。"
+          }
+        }
+      }
+    },
     "Searching runs on this Mac. Nothing is uploaded.": {
       "localizations": {
         "de": {
@@ -50543,6 +51413,64 @@
         }
       }
     },
+    "Sharper shot descriptions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genauere Einstellungsbeschreibungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descripciones de planos más precisas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des descriptions de plans plus précises"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descrizioni delle inquadrature più precise"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より的確なショットの説明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 정확한 샷 설명"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scherpere shotbeschrijvingen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descrições de planos mais precisas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更准确的镜头描述"
+          }
+        }
+      }
+    },
     "Shoot Overview": {
       "localizations": {
         "de": {
@@ -50945,6 +51873,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "无法从“%@”制作短视频"
+          }
+        }
+      }
+    },
+    "Shot descriptions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungsbeschreibungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descripciones de planos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Description des plans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descrizioni delle inquadrature"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ショットの説明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샷 설명"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shotbeschrijvingen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descrições de planos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "镜头描述"
           }
         }
       }
@@ -51884,6 +52870,122 @@
         }
       }
     },
+    "Smaller, for Macs with 16 GB of memory.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kleiner, für Macs mit 16 GB Arbeitsspeicher."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más pequeño, para Mac con 16 GB de memoria."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus petit, pour les Mac avec 16 Go de mémoire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più piccolo, per Mac con 16 GB di memoria."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "小型。16 GBメモリのMac向け。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 작은 모델, 16GB 메모리 Mac용."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kleiner, voor Macs met 16 GB geheugen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menor, para Macs com 16 GB de memória."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "较小，适合 16 GB 内存的 Mac。"
+          }
+        }
+      }
+    },
+    "Smallest, for Macs with 8 GB of memory. Less precise.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Am kleinsten, für Macs mit 8 GB Arbeitsspeicher. Weniger genau."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El más pequeño, para Mac con 8 GB de memoria. Menos preciso."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le plus petit, pour les Mac avec 8 Go de mémoire. Moins précis."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il più piccolo, per Mac con 8 GB di memoria. Meno preciso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小。8 GBメモリのMac向け。精度は低め。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 작은 모델, 8GB 메모리 Mac용. 정확도는 낮습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kleinste, voor Macs met 8 GB geheugen. Minder precies."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O menor, para Macs com 8 GB de memória. Menos preciso."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最小，适合 8 GB 内存的 Mac。准确度较低。"
+          }
+        }
+      }
+    },
     "So you can search inside them. Runs in the background after each download.": {
       "localizations": {
         "de": {
@@ -52578,6 +53680,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "说你的语言"
+          }
+        }
+      }
+    },
+    "Speed ramp": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geschwindigkeitsrampe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rampa de velocidad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rampe de vitesse"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rampa di velocità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スピードランプ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스피드 램프"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speed ramp"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rampa de velocidade"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "变速"
           }
         }
       }
@@ -56713,6 +57873,64 @@
         }
       }
     },
+    "The model couldn’t be downloaded. Check your internet connection and try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Modell konnte nicht geladen werden. Prüfe deine Internetverbindung und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar el modelo. Revisa tu conexión a internet e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le modèle n’a pas pu être téléchargé. Vérifiez votre connexion Internet et réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scaricare il modello. Controlla la connessione a Internet e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルをダウンロードできませんでした。インターネット接続を確認して、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모델을 다운로드할 수 없습니다. 인터넷 연결을 확인하고 다시 시도하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het model kon niet worden gedownload. Controleer je internetverbinding en probeer het opnieuw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar o modelo. Verifique sua conexão com a internet e tente de novo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载模型。请检查网络连接后重试。"
+          }
+        }
+      }
+    },
     "The moves play a little faster to fit.": {
       "localizations": {
         "de": {
@@ -57004,6 +58222,64 @@
         }
       }
     },
+    "The search field and filters line up at the top of the window.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchfeld und Filter stehen oben im Fenster in einer Reihe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El campo de búsqueda y los filtros se alinean en la parte superior de la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le champ de recherche et les filtres s’alignent en haut de la fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il campo di ricerca e i filtri sono allineati in cima alla finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索フィールドとフィルタがウインドウ上部に並びました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 필드와 필터가 창 위쪽에 나란히 놓입니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het zoekveld en de filters staan netjes bovenaan het venster."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O campo de busca e os filtros ficam alinhados no topo da janela."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索栏和筛选器整齐排列在窗口顶部。"
+          }
+        }
+      }
+    },
     "The selects are picked for this kind of video. Changing it re-picks straight away, without analysing again.": {
       "localizations": {
         "de": {
@@ -57058,6 +58334,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "精选会按此视频类型挑选。更改后会立即重新挑选，无需重新分析。"
+          }
+        }
+      }
+    },
+    "The sharpest descriptions, the slowest (about 5 seconds a shot).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die genauesten Beschreibungen, am langsamsten (etwa 5 Sekunden pro Einstellung)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las descripciones más precisas, el más lento (unos 5 segundos por plano)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les descriptions les plus précises, le plus lent (environ 5 secondes par plan)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le descrizioni più precise, il più lento (circa 5 secondi per inquadratura)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最も的確な説明。最も遅い（1ショット約5秒）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장 정확한 설명, 가장 느림 (샷당 약 5초)."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De scherpste beschrijvingen, het traagst (ongeveer 5 seconden per shot)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As descrições mais precisas, o mais lento (cerca de 5 segundos por plano)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "描述最准确，速度最慢（每个镜头约 5 秒）。"
           }
         }
       }
@@ -57522,6 +58856,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新与已发布的校验和不符，已被丢弃。"
+          }
+        }
+      }
+    },
+    "The vision model couldn’t run: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Bildmodell konnte nicht laufen: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El modelo de visión no pudo ejecutarse: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le modèle de vision n’a pas pu fonctionner : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile eseguire il modello di visione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像モデルを実行できませんでした：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비전 모델을 실행할 수 없습니다: %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het beeldmodel kon niet draaien: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O modelo de visão não pôde ser executado: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视觉模型无法运行：%@"
           }
         }
       }
@@ -58625,6 +60017,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "将缩略图用作封面"
+          }
+        }
+      }
+    },
+    "Tidier Find Shots": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgeräumtes „Einstellungen finden“"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar planos más ordenado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trouver des plans, plus net"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trova inquadrature più ordinato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すっきりしたショット検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 깔끔해진 샷 찾기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opgeruimd Shots zoeken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrar planos mais organizado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更整洁的“查找镜头”"
           }
         }
       }
@@ -62578,6 +64028,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在放大…"
+          }
+        }
+      }
+    },
+    "Use": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gebruiken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用"
           }
         }
       }

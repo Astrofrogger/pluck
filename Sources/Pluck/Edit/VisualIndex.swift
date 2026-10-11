@@ -73,6 +73,8 @@ enum VisualIndex {
         var embedding: [Float]?
         /// How good and how interesting the shot is, for picking selects (nil in older indexes).
         var quality: Quality?
+        /// A steady, even camera move (gimbal, slider, drone): one that can be speed-ramped.
+        var smooth: Bool?
         var id: Double { start }
     }
 
@@ -173,7 +175,14 @@ enum VisualIndex {
     static func isIndexed(_ file: URL) -> Bool {
         guard let index = load(file.path),
               let modified = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return false }
-        return abs(index.modified.timeIntervalSince(modified)) < 1
+        return abs(index.modified.timeIntervalSince(modified)) < 1 && index.describer == describer
+    }
+
+    /// Who describes the pictures here: the open model (Qwen) when it's installed, else Apple's
+    /// on-device model, else Vision's labels. An index made by a lesser one is redone.
+    static var describer: String {
+        if let model = VisionModel.ready { return model.repository }
+        return canDescribe ? "model" : "labels"
     }
 
     /// Whether the on-device model can describe pictures here.
@@ -199,10 +208,14 @@ enum VisualIndex {
             if cut - kept[kept.count - 1] >= 0.8 { kept.append(cut) }
         }
         var bounds = kept + [duration]
+        // Within a shot, a camera move (a push-in, a pan…) is a shot of its own, start to end, so
+        // two push-ins are two shots. The rest is cut in pieces of about eight seconds.
         var split: [Double] = [bounds[0]]
         for (a, b) in zip(bounds, bounds.dropFirst()) {
-            let pieces = max(1, Int(((b - a) / 8).rounded()))
-            for n in 1...pieces { split.append(a + (b - a) * Double(n) / Double(pieces)) }
+            for part in await Self.moves(in: asset, from: a, to: b) {
+                let pieces = part.isMove ? 1 : max(1, Int(((part.end - part.start) / 8).rounded()))
+                for n in 1...pieces { split.append(part.start + (part.end - part.start) * Double(n) / Double(pieces)) }
+            }
         }
         bounds = split
 
@@ -214,7 +227,11 @@ enum VisualIndex {
         generator.requestedTimeToleranceAfter = tolerance
         try? FileManager.default.createDirectory(at: thumbnails, withIntermediateDirectories: true)
 
-        let describe = canDescribe
+        let describer = Self.describer
+        let qwen = VisionModel.ready != nil
+        let describe = qwen || canDescribe
+        let frameFile = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-shot-\(UUID().uuidString).jpg")
+        defer { try? FileManager.default.removeItem(at: frameFile) }
         let embedding = NLEmbedding.sentenceEmbedding(for: .english)
         var shots: [Shot] = []
         let total = bounds.count - 1
@@ -229,7 +246,13 @@ enum VisualIndex {
             let movement = motion.movement
             var description = "", keywords: [String] = []
             var seen = Seen()
-            if describe, #available(macOS 27, *), let found = try? await Self.describe(frame) {
+            var found: Seen?
+            if qwen {
+                Self.saveThumbnail(frame, to: frameFile, width: 640)
+                found = try? await Self.describeWithQwen(frameFile)
+            }
+            if found == nil, canDescribe, #available(macOS 27, *) { found = try? await Self.describe(frame) }
+            if let found {
                 seen = found
                 description = found.description
                 keywords = found.keywords
@@ -266,13 +289,14 @@ enum VisualIndex {
                                   aesthetics: aesthetics,
                                   score: 0, problems: [])
             shots.append(Shot(start: start, end: end, description: description, keywords: keywords,
-                              framing: shotFraming, movement: movement, embedding: vector, quality: quality))
+                              framing: shotFraming, movement: movement, embedding: vector, quality: quality,
+                              smooth: motion.smooth))
             Self.saveThumbnail(frame, to: thumbnailURL(path: file.path, start: start))
         }
         progress(1)
         Self.score(&shots)
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .now
-        let index = FileIndex(path: file.path, modified: modified, describer: describe ? "model" : "labels", shots: shots)
+        let index = FileIndex(path: file.path, modified: modified, describer: describe ? describer : "labels", shots: shots)
         save(index)
         return index
     }
@@ -286,9 +310,8 @@ enum VisualIndex {
         var description = "", keywords: [String] = [], smiling = false, activity = "", look = "", emotion = ""
     }
 
-    @available(macOS 27, *)
-    private static func describe(_ image: CGImage) async throws -> Seen {
-        let session = LanguageModelSession(instructions: """
+    /// The six-line question both models answer about a frame.
+    private static let describeInstructions = """
             You catalogue video footage for a video editor, with a videographer's eye. Answer in exactly six lines, in English:
             1. One short line: the subject, the setting, the shot size (close-up, medium, wide or aerial) and \
             anything notable (light, weather).
@@ -298,13 +321,30 @@ enum VisualIndex {
             5. The look, only if something clearly stands out as a videographer would name it (for example a \
             silhouette, lens flare, shallow depth of field, symmetry, golden light, motion blur); otherwise plain.
             6. The feeling the shot gives, in one or two words (for example pride, energy, calm, focus, scale, joy).
-            """)
+            """
+
+    @available(macOS 27, *)
+    private static func describe(_ image: CGImage) async throws -> Seen {
+        let session = LanguageModelSession(instructions: describeInstructions)
         let response = try await session.respond {
             "Describe this frame."
             Attachment(image)
         }
+        return parse(response.content)
+    }
+
+    /// The open model, in Pluck's helper: sharper descriptions, looks and feelings.
+    private static func describeWithQwen(_ frame: URL) async throws -> Seen {
+        let text = try await VisionRunner.shared.describe(frame, instructions: describeInstructions,
+                                                          prompt: "Describe this frame. Answer with the six lines only.")
+        let seen = parse(text)
+        guard !seen.description.isEmpty else { throw VisionModel.Failure.helper("empty answer") }
+        return seen
+    }
+
+    private static func parse(_ text: String) -> Seen {
         // By position: the model sometimes adds labels ("MOOD:") or numbers, sometimes not.
-        let lines = response.content.split(whereSeparator: \.isNewline).map { raw -> String in
+        let lines = text.split(whereSeparator: \.isNewline).map { raw -> String in
             var line = raw.trimmingCharacters(in: .whitespaces)
             if let dot = line.firstIndex(of: "."), !line[..<dot].isEmpty, line[..<dot].allSatisfy(\.isNumber) {
                 line = line[line.index(after: dot)...].trimmingCharacters(in: .whitespaces)
@@ -465,7 +505,8 @@ enum VisualIndex {
             else { usable *= min(1, 0.55 + q.sharpnessShare * 0.5) }
             if q.blown > 0.25 { problems.append(.blown); usable *= meantBright || beautiful ? 0.9 : (strict ? 0.35 : 0.5) }
             if q.crushed > 0.5 || q.brightness < 0.08 { problems.append(.dark); usable *= meantDark || beautiful ? 0.9 : (strict ? 0.3 : 0.4) }
-            if q.shake > 0.15 { problems.append(.shaky); usable *= strict ? 0.45 : 0.6 }
+            // A smooth move's flow isn't shake.
+            if q.shake > 0.15, shot.smooth != true { problems.append(.shaky); usable *= strict ? 0.45 : 0.6 }
             var interest = 0.35
             if q.faces > 0 { interest += weights.faces * (1 + 0.6 * q.faceQuality) }
             if q.smiling { interest += weights.smiling }
@@ -478,12 +519,14 @@ enum VisualIndex {
             case .pan, .tilt, .zoomIn, .zoomOut, .moving: interest += weights.cameraMove
             case .handheld, .whipPan, .still: break
             }
+            // A clean gimbal or slider move is worth more: it can be speed-ramped in the edit.
+            if shot.smooth == true { interest += weights.cameraMove }
             if shot.framing == .aerial { interest += weights.aerial }
             if shot.framing == .closeUp { interest += weights.closeUp }
             // Interest compared with the most a shot could have for this kind of video, so scores
             // spread out and the best stand out.
             let most = 0.35 + weights.faces * 1.6 + weights.smiling + weights.action + weights.activity + weights.look
-                + weights.aesthetics + weights.cameraMove + max(weights.aerial, weights.closeUp)
+                + weights.aesthetics + weights.cameraMove * 2 + max(weights.aerial, weights.closeUp)
             let share = min(1, interest / most)
             return (usable * (0.15 + 0.85 * share), problems)
         }
@@ -541,46 +584,129 @@ enum VisualIndex {
     /// pan or tilt, flow away from (or towards) the middle is a push in (or pull out), flow that
     /// keeps changing direction is handheld. Speeds are in frame widths per second.
     private static func movement(generator: AVAssetImageGenerator, from start: Double, to end: Double) async
-        -> (movement: Movement, shake: Double, action: Double) {
-        let found = await measureMotion(generator: generator, from: start, to: end)
-        return found
-    }
-
-    private static func measureMotion(generator: AVAssetImageGenerator, from start: Double, to end: Double) async
-        -> (movement: Movement, shake: Double, action: Double) {
+        -> (movement: Movement, shake: Double, action: Double, smooth: Bool) {
         let length = end - start
-        let step = 0.16
-        var times: [Double] = []
-        var t = start + 0.05
-        while t < end - 0.05, times.count < 16 { times.append(t); t += step }
-        guard times.count >= 3 else { return (.still, 0, 0) }
-        let small = AVAssetImageGenerator(asset: generator.asset)
-        small.appliesPreferredTrackTransform = true
-        small.maximumSize = CGSize(width: 256, height: 256)
-        small.requestedTimeToleranceBefore = .zero
-        small.requestedTimeToleranceAfter = .zero
-        var frames: [CGImage] = []
+        // Pairs of frames 0.12 s apart, spread over the whole shot (a long move is judged whole).
+        let gap = 0.12
+        let count = min(12, max(3, Int(length / 0.3)))
+        let span = max(0, length - 0.1 - gap - 0.05)
+        let times = (0..<count).map { start + 0.05 + span * Double($0) / Double(max(count - 1, 1)) }
+        guard length > 0.4 else { return (.still, 0, 0, false) }
+        let small = smallGenerator(generator.asset, exact: true)
+        var flows: [(dx: Double, dy: Double, zoom: Double, local: Double)] = []
         for time in times {
-            if let image = try? await small.image(at: CMTime(seconds: time, preferredTimescale: 600)).image { frames.append(image) }
+            guard let a = try? await small.image(at: CMTime(seconds: time, preferredTimescale: 600)).image,
+                  let b = try? await small.image(at: CMTime(seconds: time + gap, preferredTimescale: 600)).image,
+                  let found = flow(from: a, to: b) else { continue }
+            flows.append(found)
         }
-        let flows = zip(frames, frames.dropFirst()).compactMap { flow(from: $0, to: $1) }
-        guard flows.count >= 2 else { return (.still, 0, 0) }
-        let dx = flows.map { $0.dx / step }, dy = flows.map { $0.dy / step }, zoom = flows.map { $0.zoom / step }
-        let action = flows.map(\.local).sorted()[flows.count / 2] / step
+        guard flows.count >= 2 else { return (.still, 0, 0, false) }
+        let dx = flows.map { $0.dx / gap }, dy = flows.map { $0.dy / gap }, zoom = flows.map { $0.zoom / gap }
+        let action = flows.map(\.local).sorted()[flows.count / 2] / gap
         func mean(_ v: [Double]) -> Double { v.reduce(0, +) / Double(v.count) }
         func spread(_ v: [Double]) -> Double { let m = mean(v); return sqrt(v.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Double(v.count)) }
         let mx = mean(dx), my = mean(dy), mz = mean(zoom)
         let peak = zip(dx, dy).map { max(abs($0), abs($1)) }.max() ?? 0
         let jitter = spread(dx) + spread(dy)
         let movement: Movement
+        var main: [Double] = []
         if peak > 0.5, length < 3 { movement = .whipPan }
-        else if abs(mz) > 0.04, abs(mz) > (abs(mx) + abs(my)) * 0.5 { movement = mz > 0 ? .zoomIn : .zoomOut }
-        else if abs(mx) > 0.03, abs(mx) > abs(my) * 1.5, jitter < abs(mx) * 1.2 { movement = .pan }
-        else if abs(my) > 0.03, abs(my) > abs(mx) * 1.5, jitter < abs(my) * 1.2 { movement = .tilt }
+        else if abs(mz) > 0.04, abs(mz) > (abs(mx) + abs(my)) * 0.5 { movement = mz > 0 ? .zoomIn : .zoomOut; main = zoom }
+        else if abs(mx) > 0.03, abs(mx) > abs(my) * 1.5, jitter < abs(mx) * 1.2 { movement = .pan; main = dx }
+        else if abs(my) > 0.03, abs(my) > abs(mx) * 1.5, jitter < abs(my) * 1.2 { movement = .tilt; main = dy }
         else if jitter > 0.08 { movement = .handheld }
         else if abs(mx) + abs(my) + abs(mz) > 0.03 { movement = .moving }
         else { movement = .still }
-        return (movement, jitter, action)
+        // Moving forward or back (low, on a gimbal) also slides the picture up or down as it goes:
+        // that's the move, not shake. Only the sideways wobble counts then.
+        let isPush = movement == .zoomIn || movement == .zoomOut
+        let shake = isPush ? spread(dx) * 2 : jitter
+        // Smooth: the move goes one way all along at an even speed, without shake on top.
+        var smooth = false
+        if !main.isEmpty, length >= 1.5 {
+            let m = mean(main)
+            let sameWay = main.filter { $0 * m > 0 }.count >= main.count - 2
+            let even = spread(main) < abs(m) * 0.8
+            let steady = isPush ? shake < 0.12 : spread(movement == .pan ? dy : dx) < 0.04
+            smooth = sameWay && even && steady
+        }
+        return (movement, shake, action, smooth)
+    }
+
+    private static func smallGenerator(_ asset: AVAsset, exact: Bool) -> AVAssetImageGenerator {
+        let small = AVAssetImageGenerator(asset: asset)
+        small.appliesPreferredTrackTransform = true
+        small.maximumSize = CGSize(width: 256, height: 256)
+        let tolerance = exact ? CMTime.zero : CMTime(seconds: 0.04, preferredTimescale: 600)
+        small.requestedTimeToleranceBefore = tolerance
+        small.requestedTimeToleranceAfter = tolerance
+        return small
+    }
+
+    /// The camera moves within a shot (push-in, pull-out, pan, tilt): where each starts and ends,
+    /// from the camera's motion four times a second. The parts between are holds or other motion.
+    static func moves(in asset: AVAsset, from start: Double, to end: Double) async -> [(start: Double, end: Double, isMove: Bool)] {
+        let whole = [(start: start, end: end, isMove: false)]
+        guard end - start >= 2.5 else { return whole }
+        let step = 0.25, gap = 0.12
+        let small = smallGenerator(asset, exact: false)
+        var samples: [(time: Double, dx: Double, dy: Double, zoom: Double)] = []
+        var t = start + 0.05
+        while t + gap < end - 0.05 {
+            if let a = try? await small.image(at: CMTime(seconds: t, preferredTimescale: 600)).image,
+               let b = try? await small.image(at: CMTime(seconds: t + gap, preferredTimescale: 600)).image,
+               let found = flow(from: a, to: b) {
+                samples.append((t, found.dx / gap, found.dy / gap, found.zoom / gap))
+            }
+            t += step
+        }
+        guard samples.count >= 6 else { return whole }
+        // Averaged over about a second, so shake and single odd frames don't count as moves.
+        func smoothed(_ value: (Int) -> Double) -> [Double] {
+            samples.indices.map { i in
+                let range = max(0, i - 2)...min(samples.count - 1, i + 2)
+                return range.map(value).reduce(0, +) / Double(range.count)
+            }
+        }
+        let x = smoothed { samples[$0].dx }, y = smoothed { samples[$0].dy }, z = smoothed { samples[$0].zoom }
+        var taken = [Bool](repeating: false, count: samples.count)
+        var found: [(from: Int, to: Int)] = []
+        // Runs where a value stays clearly one way; a move needs a real peak and some length
+        // (a gimbal drifting a little isn't a move).
+        func runs(_ values: [Double], above: Double, peak: Double, length: Double, dominant: (Int) -> Bool) {
+            var i = 0
+            while i < values.count {
+                guard !taken[i], abs(values[i]) > above, dominant(i) else { i += 1; continue }
+                let sign = values[i] > 0
+                var j = i
+                while j + 1 < values.count, !taken[j + 1], abs(values[j + 1]) > above, (values[j + 1] > 0) == sign { j += 1 }
+                let top = values[i...j].map(abs).max() ?? 0
+                if top >= peak, Double(j - i + 1) * step >= length {
+                    found.append((i, j))
+                    for k in i...j { taken[k] = true }
+                }
+                i = j + 1
+            }
+        }
+        // Push-ins and pull-outs first: moving forward low also tilts the picture, which isn't a tilt.
+        runs(z, above: 0.05, peak: 0.15, length: 1.0) { _ in true }
+        runs(x, above: 0.05, peak: 0.1, length: 1.5) { abs(x[$0]) > abs(y[$0]) }
+        runs(y, above: 0.05, peak: 0.1, length: 1.5) { abs(y[$0]) > abs(x[$0]) }
+        guard !found.isEmpty else { return whole }
+        var parts: [(start: Double, end: Double, isMove: Bool)] = []
+        var cursor = start
+        for move in found.sorted(by: { $0.from < $1.from }) {
+            var from = max(cursor, move.from == 0 ? start : samples[move.from].time - step / 2)
+            let to = move.to == samples.count - 1 ? end : min(end, samples[move.to].time + step / 2 + gap)
+            // A sliver of under a second between moves (or before the first) joins them.
+            if from - cursor >= 1 { parts.append((cursor, from, false)) }
+            else if parts.isEmpty { from = cursor }
+            else { parts[parts.count - 1].end = from }
+            parts.append((from, to, true))
+            cursor = to
+        }
+        if end - cursor >= 1 { parts.append((cursor, end, false)) } else { parts[parts.count - 1].end = end }
+        return parts
     }
 
     /// The average flow (share of the frame per frame pair) and the zoom (outward flow per pixel
@@ -616,9 +742,9 @@ enum VisualIndex {
         return (mx / Double(w), my / Double(h), radial / max(rn, 1), max(0, spread - zoomSpread))
     }
 
-    private static func saveThumbnail(_ image: CGImage, to url: URL) {
+    private static func saveThumbnail(_ image: CGImage, to url: URL, width: Double = 320) {
         let ci = CIImage(cgImage: image)
-        let scale = 320 / max(ci.extent.width, 1)
+        let scale = min(1, width / max(ci.extent.width, 1))
         let small = ci.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         try? CIContext().writeJPEGRepresentation(of: small, to: url, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
                                                  options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.75])
@@ -642,7 +768,8 @@ enum VisualIndex {
                     hits.append(Hit(path: index.path, shot: shot, score: 0))
                     continue
                 }
-                let text = (shot.description + " " + shot.keywords.joined(separator: " ") + " " + shot.framing.words + " " + shot.movement.words).lowercased()
+                let text = (shot.description + " " + shot.keywords.joined(separator: " ") + " " + shot.framing.words + " " + shot.movement.words
+                            + (shot.smooth == true ? " smooth gimbal slider speed ramp" : "")).lowercased()
                 let matched = words.filter { word in text.contains(word) }.count
                 var score = Double(matched) / Double(words.count)
                 if let queryVector, let vector = shot.embedding, vector.count == queryVector.count {
