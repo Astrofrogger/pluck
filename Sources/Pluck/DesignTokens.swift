@@ -149,3 +149,96 @@ struct BarCapsuleButtonStyle: ButtonStyle {
             .animation(.snappy(duration: 0.15), value: configuration.isPressed)
     }
 }
+
+/// A card: one block of a tool window, with the download rows' rounded fill, so tool windows
+/// read like the main window.
+struct Card<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) { content }
+            .padding(Design.Spacing.inset)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
+                    .fill(.fill.quaternary)
+                    .opacity(0.6)
+            }
+    }
+}
+
+/// A card's top line: its symbol in a tinted tile, title, an optional line under it, and
+/// whatever goes on the right (a status chip, a switch, a button).
+struct CardHeader<Accessory: View>: View {
+    let symbol: String
+    let title: Text
+    var subtitle: Text?
+    var tint: Color = .accentColor
+    @ViewBuilder var accessory: Accessory
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: symbol)
+                .font(.system(size: Design.Size.icon, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(tint.opacity(0.14), in: .rect(cornerRadius: Design.Radius.control, style: .continuous))
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                title.font(.headline)
+                if let subtitle {
+                    subtitle.font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            accessory
+        }
+    }
+}
+
+extension CardHeader where Accessory == EmptyView {
+    init(symbol: String, title: Text, subtitle: Text? = nil, tint: Color = .accentColor) {
+        self.init(symbol: symbol, title: title, subtitle: subtitle, tint: tint) { EmptyView() }
+    }
+}
+
+/// A small status in a capsule with a coloured dot: Ready, Connecting…, Off.
+struct StatusChip: View {
+    let text: Text
+    var colour: Color = .green
+    var busy = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            if busy {
+                ProgressView().controlSize(.mini)
+            } else {
+                Circle().fill(colour).frame(width: 7, height: 7)
+            }
+            text.font(.caption.weight(.medium))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .background(colour.opacity(0.12), in: .capsule)
+        .foregroundStyle(.primary)
+    }
+}
+
+/// A capsule bar button for secondary actions (Choose…, Add Folder…): the shared height and
+/// glass, without the accent fill of the main action.
+struct GlassCapsuleButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(Design.Typography.control.weight(.medium))
+            .labelStyle(.titleAndIcon)
+            .padding(.horizontal, Design.Spacing.inset)
+            .frame(height: Design.Size.control)
+            .glassBackground(in: .capsule, interactive: true)
+            .contentShape(.capsule)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.75 : 1) : 0.4)
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.snappy(duration: 0.15), value: configuration.isPressed)
+    }
+}

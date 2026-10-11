@@ -133,7 +133,7 @@ final class OfficeRenderServer {
             problem = String(localized: "Pluck couldn’t open port \(OfficeLink.port) on this Mac.")
             return
         }
-        listener.service = NWListener.Service(name: Host.current().localizedName ?? "Office Mac", type: OfficeLink.service)
+        listener.service = NWListener.Service(name: Host.current().localizedName ?? "Mac", type: OfficeLink.service)
         listener.newConnectionHandler = { [weak self] connection in
             Task { @MainActor in self?.accept(connection) }
         }
@@ -146,7 +146,7 @@ final class OfficeRenderServer {
         startNetwork()
         OfficeArchive.shared.manager = manager
         OfficeArchive.shared.tidyClips()
-        OfficeArchive.shared.scan()
+        if ScreenshotMode.scene == nil { OfficeArchive.shared.scan() }
     }
 
     func stop() {
@@ -162,7 +162,12 @@ final class OfficeRenderServer {
         switch state {
         case .ready: isRunning = true
         case .failed(let error):
-            problem = error.localizedDescription
+            // The port taken: another Pluck (another copy, or a second user) is the office Mac already.
+            if case .posix(let code) = error, code == .EADDRINUSE {
+                problem = String(localized: "Another Pluck on this Mac is already sharing it.")
+            } else {
+                problem = error.localizedDescription
+            }
             stop()
         case .cancelled: isRunning = false
         default: break
@@ -200,6 +205,9 @@ final class OfficeRenderServer {
     /// Puts this Mac on the private network (joining it the first time with a key from the
     /// Tailscale account), so Macs at home reach it.
     func startNetwork() {
+        // Never from a test or screenshot run: it would share this Mac's network identity with
+        // the Pluck that's really running.
+        guard ScreenshotMode.scene == nil || UserDefaults.standard.bool(forKey: "PluckScreenshotNetwork") else { return }
         guard PrivateNetwork.helper != nil, network.hasJoined || PrivateNetwork.Account.token != nil else { return }
         networkProblem = nil
         Task {
@@ -231,7 +239,7 @@ final class OfficeRenderServer {
         let code = OfficeLink.newPairingCode()
         invitations[code] = Date.now.addingTimeInterval(86_400)
         pairingTriesLeft = max(pairingTriesLeft, OfficeLink.pairingTries * 2)
-        let invitation = PrivateNetwork.Invitation(key: key, office: address, name: Host.current().localizedName ?? "Office Mac", code: code)
+        let invitation = PrivateNetwork.Invitation(key: key, office: address, name: Host.current().localizedName ?? "Mac", code: code)
         guard let link = invitation.link else { throw OfficeLink.Failure.office(String(localized: "The invitation couldn’t be made.")) }
         return link
     }
@@ -342,7 +350,7 @@ final class OfficeRenderServer {
         let device = Device(id: UUID(), name: name, secret: OfficeLink.randomBytes(32), added: .now)
         // Its addresses on the office network (at home it goes over the private network).
         let answer: [String: Any] = ["device": device.id.uuidString, "secret": device.secret.base64EncodedString(),
-                                     "office": Host.current().localizedName ?? "Office Mac", "addresses": Self.addresses()]
+                                     "office": Host.current().localizedName ?? "Mac", "addresses": Self.addresses()]
         guard let body = try? JSONSerialization.data(withJSONObject: answer),
               let sealed = try? ChaChaPoly.seal(body, using: answerKey, authenticating: Data("pluck-pair-answer".utf8)) else {
             return drop(connection, strike: nil)
@@ -406,7 +414,7 @@ final class OfficeRenderServer {
     }
 
     private var busyMessage: String {
-        String(localized: "The office Mac is rendering. Try again when it’s done.")
+        String(localized: "The host Mac is rendering. Try again when it’s done.")
     }
 
     private var rendering: Job? { jobs.last { $0.state == .rendering } }
@@ -414,7 +422,7 @@ final class OfficeRenderServer {
     private func perform(_ action: String, _ arguments: [String: Any], from device: Device) async throws -> [String: Any] {
         switch action {
         case "hello":
-            var answer: [String: Any] = ["office": Host.current().localizedName ?? "Office Mac", "hasFolder": renderFolder != nil]
+            var answer: [String: Any] = ["office": Host.current().localizedName ?? "Mac", "hasFolder": renderFolder != nil]
             if let hello = try? await OfficeResolve.run(["action": "hello"]) { answer["resolve"] = hello }
             return answer
         case "projects":
@@ -431,7 +439,7 @@ final class OfficeRenderServer {
             return ["jobs": jobs.suffix(30).reversed().map(\.summary)]
         case "cancel":
             let id = try text(arguments["id"])
-            guard let index = jobs.firstIndex(where: { $0.id.uuidString == id }) else { throw OfficeLink.Failure.office(String(localized: "That render isn’t on the office Mac any more.")) }
+            guard let index = jobs.firstIndex(where: { $0.id.uuidString == id }) else { throw OfficeLink.Failure.office(String(localized: "That render isn’t on the host Mac any more.")) }
             if jobs[index].state == .rendering {
                 _ = try? await OfficeResolve.run(["action": "stop", "name": jobs[index].project, "job": jobs[index].resolveJob])
                 jobs[index].state = .cancelled
@@ -466,7 +474,7 @@ final class OfficeRenderServer {
             let piece = try OfficeArchive.shared.clipData(try text(arguments["token"], 40), offset: arguments["offset"] as? Int ?? 0)
             return ["data": piece.data.base64EncodedString(), "size": piece.size]
         default:
-            throw OfficeLink.Failure.office(String(localized: "The office Mac doesn’t know how to do that."))
+            throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t know how to do that."))
         }
     }
 
@@ -483,7 +491,7 @@ final class OfficeRenderServer {
         let name = try text(arguments["name"]), folder = try folder(arguments["folder"])
         let timeline = try text(arguments["timeline"]), preset = try text(arguments["preset"])
         guard let root = renderFolder else {
-            throw OfficeLink.Failure.office(String(localized: "No render folder is set on the office Mac yet. Choose one there in Edit Anywhere."))
+            throw OfficeLink.Failure.office(String(localized: "No render folder is set on the host Mac yet. Choose one there in Edit Anywhere."))
         }
         if rendering != nil { throw OfficeLink.Failure.office(busyMessage) }
         // Always inside the render folder: a folder per project, a name from the timeline and the time.
@@ -537,7 +545,7 @@ final class OfficeRenderServer {
             // Resolve on another project, or the job gone from its queue: no way to follow it any more.
             guard answer["elsewhere"] == nil, let status = statuses[jobs[index].resolveJob], status["exists"] as? Bool == true else {
                 jobs[index].state = .failed
-                jobs[index].problem = String(localized: "The render was removed from DaVinci Resolve on the office Mac.")
+                jobs[index].problem = String(localized: "The render was removed from DaVinci Resolve on the host Mac.")
                 continue
             }
             jobs[index].progress = Double(status["CompletionPercentage"] as? Int ?? 0) / 100

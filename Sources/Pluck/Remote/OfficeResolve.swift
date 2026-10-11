@@ -55,10 +55,10 @@ def open_project(folder, name):
     pm.GotoRootFolder()
     for part in folder:
         if not pm.OpenFolder(part):
-            out({"error": "The folder " + part + " isn't in the project library on the office Mac."})
+            out({"error": "The folder " + part + " isn't in the project library on the host Mac."})
     project = pm.LoadProject(name)
     if project is None:
-        out({"error": "DaVinci Resolve on the office Mac couldn't open the project " + name + "."})
+        out({"error": "DaVinci Resolve on the host Mac couldn't open the project " + name + "."})
     return project
 
 if action == "hello":
@@ -102,7 +102,7 @@ if action == "render":
         out({"error": "The timeline " + cmd["timeline"] + " isn't in this project any more."})
     project.SetCurrentTimeline(timeline)
     if not project.LoadRenderPreset(cmd["preset"]):
-        out({"error": "The render preset " + cmd["preset"] + " couldn't be loaded on the office Mac."})
+        out({"error": "The render preset " + cmd["preset"] + " couldn't be loaded on the host Mac."})
     os.makedirs(cmd["target"], exist_ok=True)
     project.SetRenderSettings({"SelectAllFrames": True, "TargetDir": cmd["target"], "CustomName": cmd["output"]})
     job = project.AddRenderJob()

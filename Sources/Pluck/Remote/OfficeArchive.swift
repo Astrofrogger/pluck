@@ -161,7 +161,7 @@ final class OfficeArchive {
     /// for a while. Returns its id for fetching and its size.
     func clip(_ id: String) async throws -> (token: String, size: Int64, name: String) {
         guard let (path, shot) = shotFor(id) else {
-            throw OfficeLink.Failure.office(String(localized: "That shot isn’t in the office archive any more."))
+            throw OfficeLink.Failure.office(String(localized: "That shot isn’t in the host Mac’s footage any more."))
         }
         guard let ffmpeg = manager?.tool("ffmpeg") else { throw Converting.Failure.noFFmpeg }
         try FileManager.default.createDirectory(at: Self.clipFolder, withIntermediateDirectories: true)
@@ -183,7 +183,7 @@ final class OfficeArchive {
             }.value
             guard ok else {
                 try? FileManager.default.removeItem(at: target)
-                throw OfficeLink.Failure.office(String(localized: "The office Mac couldn’t make that clip."))
+                throw OfficeLink.Failure.office(String(localized: "The host Mac couldn’t make that clip."))
             }
         }
         let token = OfficeLink.randomBytes(12).map { String(format: "%02x", $0) }.joined()
@@ -197,7 +197,7 @@ final class OfficeArchive {
     /// A piece of a clip made above (for fetching in pieces).
     func clipData(_ token: String, offset: Int) throws -> (data: Data, size: Int64) {
         guard let url = clips[token], let handle = FileHandle(forReadingAtPath: url.path) else {
-            throw OfficeLink.Failure.office(String(localized: "That clip isn’t ready on the office Mac."))
+            throw OfficeLink.Failure.office(String(localized: "That clip isn’t ready on the host Mac."))
         }
         defer { try? handle.close() }
         try handle.seek(toOffset: UInt64(max(offset, 0)))

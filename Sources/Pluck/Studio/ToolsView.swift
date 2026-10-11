@@ -52,7 +52,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .brandPack: "Lower thirds, a title card and an end card in the logo’s colours."
         case .musicFit: "Make a song exactly as long as your edit."
         case .library: "Everything Pluck saved, with collections and tags."
-        case .officeRender: "Work from home: the office Mac renders your Resolve timelines."
+        case .officeRender: "Render and search footage on another Mac, from anywhere."
         }
     }
 

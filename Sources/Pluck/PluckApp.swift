@@ -110,7 +110,8 @@ struct PluckApp: App {
         Window("Edit Anywhere", id: "officeRender") {
             OfficeRenderView()
         }
-        .defaultSize(width: 620, height: 720)
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 720, height: 760)
 
         Window("Fit Music to Length", id: "musicFit") {
             MusicFitView()

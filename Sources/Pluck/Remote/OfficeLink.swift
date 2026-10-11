@@ -38,11 +38,11 @@ enum OfficeLink {
         case unreachable, refused, badCode, expired, garbled, office(String)
         var errorDescription: String? {
             switch self {
-            case .unreachable: String(localized: "The office Mac didn’t answer. Check that it’s on, with Pluck open and Edit Anywhere turned on, and that the address is right.")
-            case .refused: String(localized: "The office Mac refused this Mac. It may have been removed there (pair it again), or the two Macs’ clocks are more than two minutes apart.")
-            case .badCode: String(localized: "That pairing code isn’t right, or it has expired. Make a new one on the office Mac.")
-            case .expired: String(localized: "The pairing code has expired. Make a new one on the office Mac.")
-            case .garbled: String(localized: "The answer from the office Mac couldn’t be verified, so it was ignored.")
+            case .unreachable: String(localized: "The host Mac didn’t answer. Check that it’s on, with Pluck open and sharing turned on in Edit Anywhere, and that the address is right.")
+            case .refused: String(localized: "The host Mac refused this Mac. It may have been removed there (pair it again), or the two Macs’ clocks are more than two minutes apart.")
+            case .badCode: String(localized: "That pairing code isn’t right, or it has expired. Make a new one on the host Mac.")
+            case .expired: String(localized: "The pairing code has expired. Make a new one on the host Mac.")
+            case .garbled: String(localized: "The answer from the host Mac couldn’t be verified, so it was ignored.")
             case .office(let message): message
             }
         }

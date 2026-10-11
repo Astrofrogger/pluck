@@ -30,11 +30,11 @@ enum PrivateNetwork {
         var errorDescription: String? {
             switch self {
             case .noHelper: String(localized: "This build of Pluck doesn’t have the private network part.")
-            case .token: String(localized: "Connect the office Mac to your Tailscale account first.")
-            case .tokenExpired: String(localized: "The Tailscale access token has expired or was revoked. Paste a new one on the office Mac.")
+            case .token: String(localized: "Connect the host Mac to your Tailscale account first.")
+            case .tokenExpired: String(localized: "The Tailscale access token has expired or was revoked. Paste a new one on the host Mac.")
             case .account(let detail): String(localized: "Tailscale said: \(detail)")
             case .helper(let detail): String(localized: "The private network couldn’t start: \(detail)")
-            case .needsInvite: String(localized: "This Mac isn’t on the office’s private network any more. Ask for a new invitation.")
+            case .needsInvite: String(localized: "This Mac isn’t on the host Mac’s private network any more. Ask for a new invitation.")
             case .timeout: String(localized: "The private network didn’t answer in time. Check the internet connection.")
             }
         }

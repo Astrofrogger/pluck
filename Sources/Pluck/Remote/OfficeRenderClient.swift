@@ -146,7 +146,7 @@ final class OfficeRenderClient {
             if !addresses.contains(typed) { addresses.append(typed) }
         }
         guard let first = network ?? addresses.first else { throw OfficeLink.Failure.garbled }
-        let office = Office(address: first, addresses: addresses, network: network, name: answer["office"] as? String ?? "Office",
+        let office = Office(address: first, addresses: addresses, network: network, name: answer["office"] as? String ?? "Mac",
                             device: device, secret: secret)
         save(office)
     }
@@ -379,13 +379,13 @@ final class OfficeRenderClient {
         switch job.state {
         case "done" where job.makingPreview: return
         case "done":
-            content.title = String(localized: "Rendered at the office")
+            content.title = String(localized: "Rendered on the host Mac")
             content.body = job.previewSize != nil ? String(localized: "\(job.timeline) is ready. The preview can be downloaded in Pluck.") : job.timeline
         case "failed":
-            content.title = String(localized: "The render at the office failed")
+            content.title = String(localized: "The render on the host Mac failed")
             content.body = job.problem ?? job.timeline
         case "cancelled":
-            content.title = String(localized: "The render at the office was cancelled")
+            content.title = String(localized: "The render on the host Mac was cancelled")
             content.body = job.timeline
         default: return
         }
