@@ -278,6 +278,72 @@ final class OfficeRenderClient {
         follow()
     }
 
+    // MARK: - The office archive
+
+    struct ArchiveHit: Identifiable, Hashable {
+        var id: String
+        var place: String
+        var start: Double
+        var end: Double
+        var description: String
+        var framing: String
+        var movement: String
+        var thumbnail: Data?
+    }
+
+    /// How far the office Mac is with looking at its footage.
+    func archiveStatus() async throws -> (folders: Int, files: Int, indexed: Int, working: Bool) {
+        let status = (try await ask("archive"))["archive"] as? [String: Any] ?? [:]
+        return (status["folders"] as? Int ?? 0, status["files"] as? Int ?? 0, status["indexed"] as? Int ?? 0, status["working"] as? Bool ?? false)
+    }
+
+    func searchArchive(_ query: String, movement: VisualIndex.Movement?, framing: VisualIndex.Framing?) async throws -> [ArchiveHit] {
+        var arguments: [String: Any] = ["query": query]
+        if let movement { arguments["movement"] = movement.rawValue }
+        if let framing { arguments["framing"] = framing.rawValue }
+        let answer = try await ask("archiveSearch", arguments, timeout: 60)
+        return (answer["hits"] as? [[String: Any]] ?? []).compactMap { item in
+            guard let id = item["id"] as? String else { return nil }
+            return ArchiveHit(id: id, place: item["place"] as? String ?? "", start: item["start"] as? Double ?? 0,
+                              end: item["end"] as? Double ?? 0, description: item["description"] as? String ?? "",
+                              framing: item["framing"] as? String ?? "", movement: item["movement"] as? String ?? "",
+                              thumbnail: (item["thumb"] as? String).flatMap { Data(base64Encoded: $0) })
+        }
+    }
+
+    /// Has the office Mac make a light copy of the shot (with handles) and fetches it into the
+    /// Downloads folder; `progress` gets 0…1 (making it counts as the first tenth).
+    func fetchClip(_ hit: ArchiveHit, progress: @escaping (Double) -> Void) async throws -> URL {
+        progress(0.02)
+        let made = try await ask("archiveClip", ["id": hit.id], timeout: 600)
+        guard let token = made["token"] as? String else { throw OfficeLink.Failure.garbled }
+        let name = Folders.sanitize(made["name"] as? String ?? "Clip")
+        let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
+        let target = Converting.outputURL(folder: folder, name: name, fileExtension: "mp4")
+        let partial = target.appendingPathExtension("part")
+        FileManager.default.createFile(atPath: partial.path, contents: nil)
+        guard let handle = FileHandle(forWritingAtPath: partial.path) else { throw OfficeLink.Failure.office(String(localized: "The clip couldn’t be saved.")) }
+        var offset = 0
+        do {
+            while true {
+                let answer = try await ask("archiveClipData", ["token": token, "offset": offset])
+                guard let chunk = (answer["data"] as? String).flatMap({ Data(base64Encoded: $0) }) else { throw OfficeLink.Failure.garbled }
+                let size = (answer["size"] as? NSNumber)?.intValue ?? 0
+                try handle.write(contentsOf: chunk)
+                offset += chunk.count
+                progress(0.1 + 0.9 * (size > 0 ? Double(offset) / Double(size) : 1))
+                if chunk.isEmpty || offset >= size { break }
+            }
+            try handle.close()
+            try FileManager.default.moveItem(at: partial, to: target)
+            return target
+        } catch {
+            try? handle.close()
+            try? FileManager.default.removeItem(at: partial)
+            throw error
+        }
+    }
+
     func cancel(_ job: Job) async throws {
         _ = try await ask("cancel", ["id": job.id])
         try await refresh()

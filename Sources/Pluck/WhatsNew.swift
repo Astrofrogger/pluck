@@ -9,6 +9,8 @@ enum WhatsNew {
         let symbol: String
         let title: String
         let detail: String
+        /// Only in Pluck Studio: basic Pluck doesn't mention it.
+        var studio = false
         var id: String { title }
     }
 
@@ -43,6 +45,8 @@ enum WhatsNew {
             return
         }
         pending = releases
+            .map { Release(version: $0.version, items: $0.items.filter { Edition.isStudio || !$0.studio }) }
+            .filter { !$0.items.isEmpty }
             .filter { isNewer($0.version, than: previous) && !isNewer($0.version, than: current) }
             .sorted { isNewer($0.version, than: $1.version) }
         if pending.isEmpty { markSeen() }
@@ -90,6 +94,17 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.17.0", items: [
+                Item(symbol: "checkmark.seal", title: String(localized: "Delivery Check"),
+                     detail: String(localized: "Drop a finished export and Pluck looks it over before it goes out: flash frames, black, a frozen picture, sound dropping out, loudness for where it’s going, typos in titles, text too close to the edge. Each finding opens at its moment. It runs locally on your Mac."),
+                     studio: true),
+                Item(symbol: "rectangle.3.group", title: String(localized: "Brand Pack"),
+                     detail: String(localized: "From a logo: lower thirds, a title card and an end card in its colours, animated and transparent, ready for the edit. One lower third per name, all at once."),
+                     studio: true),
+                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Search the office archive"),
+                     detail: String(localized: "In Edit Anywhere, search the office footage from home by what’s in the picture, and fetch just the shots you need. The office Mac looks at the footage with local AI; nothing leaves your team’s network."),
+                     studio: true),
+            ]),
             Release(version: "1.16.0", items: [
                 Item(symbol: "square.split.2x1", title: String(localized: "Two versions of Pluck"),
                      detail: String(localized: "Pluck is now small and focused on downloading, the Library, sharing and converting. Pluck Studio adds the local AI, the editing tools and Edit Anywhere. Switch any time in Settings → General.")),

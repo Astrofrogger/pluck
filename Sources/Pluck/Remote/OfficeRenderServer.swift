@@ -144,9 +144,13 @@ final class OfficeRenderServer {
         self.listener = listener
         watch()
         startNetwork()
+        OfficeArchive.shared.manager = manager
+        OfficeArchive.shared.tidyClips()
+        OfficeArchive.shared.scan()
     }
 
     func stop() {
+        OfficeArchive.shared.stop()
         listener?.cancel()
         listener = nil
         isRunning = false
@@ -446,6 +450,21 @@ final class OfficeRenderServer {
             try handle.seek(toOffset: UInt64(offset))
             let chunk = try handle.read(upToCount: OfficeLink.previewChunk) ?? Data()
             return ["data": chunk.base64EncodedString(), "size": job.previewSize ?? 0]
+        case "archive":
+            return ["archive": OfficeArchive.shared.status]
+        case "archiveSearch":
+            let query = (arguments["query"] as? String ?? "").prefix(200)
+            let movement = (arguments["movement"] as? String).map { String($0.prefix(20)) }
+            let framing = (arguments["framing"] as? String).map { String($0.prefix(20)) }
+            // New footage becomes searchable by itself (a fresh look every few hours).
+            OfficeArchive.shared.scanIfDue()
+            return ["hits": OfficeArchive.shared.search(String(query), movement: movement, framing: framing)]
+        case "archiveClip":
+            let clip = try await OfficeArchive.shared.clip(try text(arguments["id"], 40))
+            return ["token": clip.token, "size": clip.size, "name": clip.name]
+        case "archiveClipData":
+            let piece = try OfficeArchive.shared.clipData(try text(arguments["token"], 40), offset: arguments["offset"] as? Int ?? 0)
+            return ["data": piece.data.base64EncodedString(), "size": piece.size]
         default:
             throw OfficeLink.Failure.office(String(localized: "The office Mac doesn’t know how to do that."))
         }

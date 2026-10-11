@@ -48,6 +48,7 @@ private struct HomeRenderView: View {
     @State private var picked: OfficeFinder.Found?
     @State private var inviteText = ""
     @State private var joining = false
+    @AppStorage("editAnywherePane") private var pane = Pane.render
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.section) {
@@ -159,6 +160,23 @@ private struct HomeRenderView: View {
             Button("Unpair") { client.forget(); projects = []; project = nil }
                 .help("Forget the office Mac on this Mac. Remove this Mac on the office Mac too.")
         }
+        Picker("", selection: $pane) {
+            Text("Render").tag(Pane.render)
+            Text("Search the Archive").tag(Pane.archive)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        if pane == .archive {
+            ArchiveSearchPane()
+        } else {
+            renderPane
+        }
+    }
+
+    enum Pane: String { case render, archive }
+
+    @ViewBuilder
+    private var renderPane: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: Design.Spacing.controls) {
                 HStack {
@@ -306,6 +324,7 @@ private struct OfficeSideView: View {
     @State private var inviting = false
     @State private var invitation: InvitationLink?
     @State private var inviteProblem: String?
+    @State private var archive = OfficeArchive.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.section) {
@@ -332,6 +351,7 @@ private struct OfficeSideView: View {
                 if let inviteProblem {
                     Label(inviteProblem, systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
                 }
+                archiveBox
                 pairingBox
                 devicesBox
                 if !server.jobs.isEmpty {
@@ -409,6 +429,50 @@ private struct OfficeSideView: View {
             Text(OfficeRenderServer.addresses().joined(separator: ", "))
                 .textSelection(.enabled).font(.callout.monospaced())
         }
+    }
+
+    /// The footage paired Macs can search from home.
+    private var archiveBox: some View {
+        GroupBox {
+            VStack(alignment: .leading, spacing: 8) {
+                Label("Footage to search from home", systemImage: "sparkle.magnifyingglass").font(.headline)
+                if archive.folders.isEmpty {
+                    Text("Add the folders with your footage (on the office storage). This Mac looks at every shot, like Find Shots, so paired Macs can search it by what’s in the picture and fetch just the shots they need.")
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                ForEach(archive.folders, id: \.self) { folder in
+                    HStack {
+                        Image(systemName: "folder").foregroundStyle(.secondary)
+                        Text(folder.path).lineLimit(1).truncationMode(.middle)
+                        Spacer()
+                        Button("Remove") { archive.remove(folder) }.controlSize(.small)
+                    }
+                }
+                HStack {
+                    Button("Add Folder…") { addArchiveFolder() }
+                    if let working = archive.working {
+                        ProgressView(value: archive.progress).frame(width: 100)
+                        Text("Looking at “\(working)” (\(archive.queued) more)").font(.caption).foregroundStyle(.secondary)
+                            .lineLimit(1).truncationMode(.middle)
+                    } else if !archive.folders.isEmpty {
+                        Text("\(archive.indexes.count) of \(archive.fileCount) files searchable").font(.caption).foregroundStyle(.secondary)
+                        Button("Look Again") { archive.scan() }.controlSize(.small)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(6)
+        }
+    }
+
+    private func addArchiveFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Add")
+        panel.message = String(localized: "Folders with footage that paired Macs can search. Nothing in them is changed.")
+        if panel.runModal() == .OK { for url in panel.urls { archive.add(url) } }
     }
 
     private func makeInvitation() {
@@ -549,5 +613,119 @@ private struct InvitationSheet: View {
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 460)
+    }
+}
+
+/// Searching the office footage from here: what's in the picture, the shot size, the camera
+/// move; each shot can be fetched as a light copy with a second of handles.
+private struct ArchiveSearchPane: View {
+    @State private var client = OfficeRenderClient.shared
+    @State private var query = ""
+    @State private var movement: VisualIndex.Movement?
+    @State private var framing: VisualIndex.Framing?
+    @State private var hits: [OfficeRenderClient.ArchiveHit] = []
+    @State private var searching = false
+    @State private var searched = false
+    @State private var problem: String?
+    @State private var status: (folders: Int, files: Int, indexed: Int, working: Bool)?
+    @State private var fetching: [String: Double] = [:]
+    @State private var fetched: [String: URL] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Design.Spacing.controls) {
+            HStack {
+                TextField("Search", text: $query, prompt: Text("Describe a shot: “crowd with confetti”, “drone over the stage”"))
+                    .onSubmit { search() }
+                Picker("Move", selection: $movement) {
+                    Text("Any Movement").tag(VisualIndex.Movement?.none)
+                    ForEach(VisualIndex.Movement.allCases, id: \.self) { Text($0.label).tag(Optional($0)) }
+                }
+                .labelsHidden().fixedSize()
+                Picker("Framing", selection: $framing) {
+                    Text("Any Framing").tag(VisualIndex.Framing?.none)
+                    ForEach(VisualIndex.Framing.allCases, id: \.self) { Text($0.label).tag(Optional($0)) }
+                }
+                .labelsHidden().fixedSize()
+                Button("Search") { search() }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(searching)
+            }
+            if let status {
+                Text(status.folders == 0 ? String(localized: "The office Mac has no footage folders to search yet. Add them there, under Edit Anywhere.")
+                     : status.working ? String(localized: "\(status.indexed) of \(status.files) files searchable; the office Mac is still looking at the rest.")
+                     : String(localized: "\(status.indexed) files searchable."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if let problem {
+                Label(problem, systemImage: "exclamationmark.triangle").foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+            }
+            if searching {
+                HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Searching the office archive…").foregroundStyle(.secondary) }
+            } else if searched && hits.isEmpty {
+                Text("Nothing found. Try other words.").foregroundStyle(.secondary)
+            }
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
+                    ForEach(hits) { hit in card(hit) }
+                }
+            }
+        }
+        .task { status = try? await client.archiveStatus() }
+    }
+
+    private func card(_ hit: OfficeRenderClient.ArchiveHit) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Group {
+                if let data = hit.thumbnail, let image = NSImage(data: data) {
+                    Image(nsImage: image).resizable().aspectRatio(16 / 9, contentMode: .fill)
+                } else {
+                    Rectangle().fill(.quaternary)
+                }
+            }
+            .frame(height: 96)
+            .clipShape(.rect(cornerRadius: Design.Radius.small))
+            Text(hit.description).font(.caption).lineLimit(2).help(hit.description)
+            Text(hit.place).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(hit.place)
+            if let url = fetched[hit.id] {
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }.controlSize(.small)
+            } else if let progress = fetching[hit.id] {
+                ProgressView(value: progress).controlSize(.small)
+            } else {
+                Button("Get Clip") { fetch(hit) }
+                    .controlSize(.small)
+                    .help("A light 1080p copy of this shot with a second either side")
+            }
+        }
+        .padding(6)
+        .background(.quaternary.opacity(0.4), in: .rect(cornerRadius: Design.Radius.control))
+    }
+
+    private func search() {
+        searching = true
+        problem = nil
+        Task {
+            do {
+                hits = try await client.searchArchive(query, movement: movement, framing: framing)
+                searched = true
+            } catch {
+                problem = error.localizedDescription
+            }
+            searching = false
+        }
+    }
+
+    private func fetch(_ hit: OfficeRenderClient.ArchiveHit) {
+        fetching[hit.id] = 0
+        Task {
+            do {
+                let url = try await client.fetchClip(hit) { value in
+                    Task { @MainActor in fetching[hit.id] = value }
+                }
+                fetched[hit.id] = url
+            } catch {
+                problem = error.localizedDescription
+            }
+            fetching[hit.id] = nil
+        }
     }
 }

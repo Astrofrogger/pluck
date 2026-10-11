@@ -1282,17 +1282,35 @@ struct LogoAnimation: @unchecked Sendable {
 
     func export(to output: URL, plan: Plan, size canvas: CGSize, frameRate: Int, background: CGColor?, ffmpeg: String,
                 progress: @escaping @Sendable (Double) -> Void) async throws {
+        let animation = self
+        // Motion blur where shapes fly (the expressive styles and Assemble).
+        let samples = Self.expressive.contains(plan.style) || plan.style == .assemble ? 5 : 1
+        try await Self.writeVideo(to: output, size: canvas, frameRate: frameRate, length: plan.total, transparent: background == nil,
+                                  motionBlur: samples, ffmpeg: ffmpeg, progress: progress) { t, context in
+            if let background {
+                context.setFillColor(background)
+                context.fill(CGRect(origin: .zero, size: canvas))
+            }
+            animation.draw(at: t, plan: plan, in: context, canvas: canvas)
+        }
+    }
+
+    /// Renders `length` seconds of frames with `draw` and encodes them: ProRes 4444 with alpha when
+    /// `transparent`, otherwise H.264. `motionBlur` moments are averaged per frame where
+    /// something moves, as a camera with a half-open shutter sees it.
+    static func writeVideo(to output: URL, size canvas: CGSize, frameRate: Int, length: Double, transparent: Bool,
+                           motionBlur samples: Int = 1, ffmpeg: String, progress: @escaping @Sendable (Double) -> Void,
+                           draw: @escaping @Sendable (Double, CGContext) -> Void) async throws {
         let width = Int(canvas.width), height = Int(canvas.height)
-        let frames = Int((plan.total * Double(frameRate)).rounded())
+        let frames = Int((length * Double(frameRate)).rounded())
         var args = ["-nostdin", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "\(width)x\(height)",
                     "-r", String(frameRate), "-i", "-"]
-        if background == nil {
+        if transparent {
             args += ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-vendor", "apl0"]
         } else {
             args += ["-c:v", "libx264", "-preset", "slow", "-crf", "14", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
         }
         args.append(output.path)
-        let animation = self
         // If ffmpeg stops early, writing to it must fail, not end the app.
         signal(SIGPIPE, SIG_IGN)
         try await Task.detached {
@@ -1310,9 +1328,6 @@ struct LogoAnimation: @unchecked Sendable {
                   let base = context.data else { throw Failure() }
             context.interpolationQuality = .high
             var straight = [UInt8](repeating: 0, count: width * height * 4)
-            // Motion blur, as a camera with a half-open shutter sees it: a few moments across the
-            // shutter, averaged (only where something moves; a still frame is drawn once).
-            let samples = Self.expressive.contains(plan.style) || plan.style == .assemble ? 5 : 1
             var sum = [Float](repeating: 0, count: samples > 1 ? width * height * 4 : 0)
             var previous: [UInt8]?
             for frame in 0..<frames {
@@ -1320,11 +1335,9 @@ struct LogoAnimation: @unchecked Sendable {
                 let time = Double(frame) / Double(frameRate)
                 func render(_ t: Double) {
                     context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-                    if let background {
-                        context.setFillColor(background)
-                        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-                    }
-                    animation.draw(at: t, plan: plan, in: context, canvas: canvas)
+                    context.saveGState()
+                    draw(t, context)
+                    context.restoreGState()
                 }
                 render(time)
                 if samples > 1 {
@@ -1354,7 +1367,7 @@ struct LogoAnimation: @unchecked Sendable {
                     _ = vImageUnpremultiplyData_RGBA8888(&source, &destination, vImage_Flags(kvImageNoFlags))
                 }
                 try input.fileHandleForWriting.write(contentsOf: straight)
-                if frame % 10 == 0 { progress(Double(frame) / Double(frames)) }
+                if frame % 10 == 0 { progress(Double(frame) / Double(max(frames, 1))) }
             }
             try input.fileHandleForWriting.close()
             process.waitUntilExit()

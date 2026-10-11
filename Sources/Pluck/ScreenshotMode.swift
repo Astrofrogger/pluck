@@ -83,6 +83,50 @@ enum ScreenshotMode {
     }
 
     #if STUDIO
+    @MainActor
+    private static func archiveSelfTest(defaults: UserDefaults) async {
+        guard let folder = defaults.string(forKey: "PluckScreenshotFile"), let logPath = defaults.string(forKey: "PluckScreenshotLog") else { return }
+        var lines: [String] = []
+        func note(_ text: String) {
+            lines.append(text)
+            try? lines.joined(separator: "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+        }
+        let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared
+        server.setEnabled(true)
+        archive.add(URL(fileURLWithPath: folder, isDirectory: true))
+        let start = Date.now
+        while Date.now.timeIntervalSince(start) < 900 {
+            try? await Task.sleep(for: .seconds(1))
+            if archive.working == nil, archive.fileCount > 0, archive.indexes.count == archive.fileCount { break }
+        }
+        note("indexed \(archive.indexes.count) of \(archive.fileCount) in \(Int(Date.now.timeIntervalSince(start))) s")
+        server.startPairing()
+        guard let code = server.pairing?.code else { return note("no pairing code") }
+        do {
+            try await client.pair(.address("127.0.0.1"), code: code)
+            note("paired")
+            let status = try await client.archiveStatus()
+            note("status: \(status)")
+            let hits = try await client.searchArchive("text", movement: nil, framing: nil)
+            note("search: \(hits.count) hits")
+            for hit in hits.prefix(5) { note("  \(hit.place) \(hit.start)-\(hit.end) thumb=\(hit.thumbnail?.count ?? 0)B: \(hit.description)") }
+            if let first = hits.first {
+                let url = try await client.fetchClip(first) { _ in }
+                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
+                note("clip: \(url.lastPathComponent) \(size) bytes")
+                try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            }
+        } catch {
+            note("error: \(error.localizedDescription)")
+        }
+        // Back as it was: unpaired, nothing shared.
+        client.forget()
+        for device in server.devices { server.remove(device) }
+        archive.remove(URL(fileURLWithPath: folder, isDirectory: true))
+        server.setEnabled(false)
+        note("done")
+    }
+
     /// The scenes of Studio's windows and sheets.
     @MainActor
     private static func studioScene(_ scene: String, item: DownloadItem?, manager: DownloadManager, ai: AIStudio,
@@ -126,6 +170,23 @@ enum ScreenshotMode {
                 ResolveLogger.shared.start()
             case "office":
                 openWindow(id: "officeRender")
+            case "archivetest":
+                // Edit Anywhere's archive, end to end in one Pluck: -PluckScreenshotFile <footage
+                // folder> is indexed, a pairing over this Mac's own network, a search and a clip
+                // fetched; what happens goes to -PluckScreenshotLog <file>.
+                Task { @MainActor in await archiveSelfTest(defaults: defaults) }
+            case "brandpack":
+                // -PluckScreenshotFile <logo> is loaded.
+                if let path = defaults.string(forKey: "PluckScreenshotFile") {
+                    BrandPackView.openFile = URL(fileURLWithPath: path)
+                }
+                openWindow(id: "brandPack")
+            case "delivery":
+                // -PluckScreenshotFile <video> is checked.
+                if let path = defaults.string(forKey: "PluckScreenshotFile") {
+                    DeliveryCheckView.openFile = URL(fileURLWithPath: path)
+                }
+                openWindow(id: "deliveryCheck")
             case "tools":
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     NotificationCenter.default.post(name: ToolsPanel.showNotification, object: nil)

@@ -94,6 +94,18 @@ struct PluckApp: App {
         }
         .defaultSize(width: 680, height: 760)
 
+        Window("Brand Pack", id: "brandPack") {
+            BrandPackView()
+                .environment(manager)
+        }
+        .defaultSize(width: 1000, height: 760)
+
+        Window("Delivery Check", id: "deliveryCheck") {
+            DeliveryCheckView()
+                .environment(manager)
+        }
+        .defaultSize(width: 1080, height: 720)
+
         Window("Edit Anywhere", id: "officeRender") {
             OfficeRenderView()
         }
