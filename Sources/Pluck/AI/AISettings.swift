@@ -57,12 +57,12 @@ struct AISettings: View {
                        detail: VisionModel.unavailableReason ?? String(localized: "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
                 if let model = VisionModel.selected {
                     let _ = visionRefresh
-                    Picker(selection: Binding(get: { model.repository }, set: { pickedModel = $0; visionError = nil })) {
-                        ForEach(VisionModel.choices) { choice in
+                    // Only the models this Mac has the memory for.
+                    Picker(selection: $pickedModel) {
+                        ForEach(VisionModel.choices.filter(VisionModel.fits)) { choice in
                             Text(verbatim: choice.name + " · " + Format.bytes(choice.size)
                                  + (VisionModel.isInstalled(choice) ? " ✓" : ""))
                                 .tag(choice.repository)
-                                .selectionDisabled(!VisionModel.fits(choice))
                         }
                     } label: {
                         Text("Model")
@@ -103,6 +103,11 @@ struct AISettings: View {
             }
         }
         .formStyle(.grouped)
+        .onAppear {
+            // The picker shows the model in use, also before one was ever picked.
+            if let selected = VisionModel.selected, pickedModel != selected.repository { pickedModel = selected.repository }
+        }
+        .onChange(of: pickedModel) { visionError = nil }
 
         Label("Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus open-source models for stems and shot descriptions. Nothing you download, say or search is uploaded.",
               systemImage: "lock.shield")

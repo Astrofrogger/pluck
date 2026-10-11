@@ -88,6 +88,10 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.14.1", items: [
+                Item(symbol: "checkmark.circle", title: String(localized: "Pick your vision model"),
+                     detail: String(localized: "Choosing a different model in Settings → AI works now. The menu lists the models your Mac has the memory for.")),
+            ]),
             Release(version: "1.14.0", items: [
                 Item(symbol: "eye", title: String(localized: "Sharper shot descriptions"),
                      detail: String(localized: "Download an open vision model in Settings → AI, such as Qwen3.8 or Gemma 4, and Find Shots and Derush Footage describe every shot like an editor would: what the crew is doing, the gear, the setting. It runs locally on your Mac’s GPU. Choose between sharper and quicker models.")),

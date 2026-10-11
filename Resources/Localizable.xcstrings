@@ -11633,6 +11633,64 @@
         }
       }
     },
+    "Choosing a different model in Settings → AI works now. The menu lists the models your Mac has the memory for.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes Modell in Einstellungen → KI zu wählen, funktioniert jetzt. Das Menü zeigt die Modelle, für die dein Mac genug Arbeitsspeicher hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ahora se puede elegir otro modelo en Ajustes → IA. El menú muestra los modelos para los que tu Mac tiene memoria suficiente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir un autre modèle dans Réglages → IA fonctionne désormais. Le menu liste les modèles pour lesquels votre Mac a assez de mémoire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ora puoi scegliere un altro modello in Impostazioni → IA. Il menu elenca i modelli per cui il tuo Mac ha memoria sufficiente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "設定 → AIで別のモデルを選べるようになりました。メニューにはMacのメモリで動かせるモデルが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 설정 → AI에서 다른 모델을 고를 수 있습니다. 메뉴에는 Mac 메모리로 실행할 수 있는 모델이 표시됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een ander model kiezen in Instellingen → AI werkt nu. Het menu toont de modellen waarvoor je Mac genoeg geheugen heeft."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agora dá para escolher outro modelo em Ajustes → IA. O menu mostra os modelos para os quais seu Mac tem memória suficiente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在可以在“设置 → AI”中选择其他模型了。菜单会列出你的 Mac 内存足以运行的模型。"
+          }
+        }
+      }
+    },
     "Choosing the best moments…": {
       "localizations": {
         "de": {
@@ -40064,6 +40122,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "从播放列表中选择"
+          }
+        }
+      }
+    },
+    "Pick your vision model": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bildmodell wählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige tu modelo de visión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez votre modèle de vision"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli il modello di visione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画像モデルを選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "비전 모델 선택"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies je beeldmodel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha seu modelo de visão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择视觉模型"
           }
         }
       }
