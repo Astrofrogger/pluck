@@ -19,6 +19,14 @@ struct LogoAnimatorView: View {
     @State private var exporting: Double?
     @State private var done: URL?
     @State private var dropTargeted = false
+    /// Why Automatic plays what it plays (the director's reason).
+    @State private var advice: LogoDirector.Advice?
+    /// A logo to open when the window appears, or (already open) when this is posted
+    /// (screenshot mode).
+    @MainActor static var openFile: URL?
+    static let openNotification = Notification.Name("PluckOpenLogo")
+    /// Taking a logo apart can take a few seconds (a badge with a lot of text): in the background.
+    @State private var loading = false
 
     enum Background: String, CaseIterable, Identifiable {
         case transparent, black, white, colour
@@ -65,7 +73,11 @@ struct LogoAnimatorView: View {
                     ForEach(LogoAnimation.Style.allCases) { Text($0.label).tag($0) }
                 } label: {
                     Text("Animation")
-                    Text(style == .automatic && animation != nil ? animation!.suggestedStyle.detail : style.detail)
+                    if style == .automatic, let animation {
+                        Text(advice?.reason ?? animation.suggestedStyle.detail)
+                    } else {
+                        Text(style.detail)
+                    }
                 }
                 .onChange(of: style) { restart() }
                 Picker("Format", selection: $format) {
@@ -118,6 +130,9 @@ struct LogoAnimatorView: View {
                 Label("Runs on this Mac.", systemImage: "lock.shield").noteStyle()
                 Spacer()
                 Button(file == nil ? "Choose Logo…" : "Change Logo…", action: choose)
+                Button("Save as SVG", action: saveVector)
+                    .help("The logo as a vector file: traced colour by colour into smooth curves")
+                    .disabled(animation == nil)
                 Button("Export", action: export)
                     .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
@@ -126,6 +141,15 @@ struct LogoAnimatorView: View {
         }
         .padding(Design.Spacing.sheet)
         .frame(minWidth: 620, minHeight: 640)
+        .task {
+            if let file = Self.openFile {
+                Self.openFile = nil
+                load(file)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
+            if let url = note.object as? URL { Self.openFile = nil; load(url) }
+        }
     }
 
     /// Intro, hold and outro for the chosen settings.
@@ -157,6 +181,14 @@ struct LogoAnimatorView: View {
                         Image(decorative: frame, scale: 1).resizable().interpolation(.high)
                     }
                 }
+            } else if loading {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Taking the logo apart…")
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule())
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "square.and.arrow.down").font(.title).accessibilityHidden(true)
@@ -178,10 +210,14 @@ struct LogoAnimatorView: View {
     }
 
     private func summary(_ animation: LogoAnimation) -> String {
-        switch (animation.symbolCount, animation.letterCount) {
-        case (0, let letters): String(localized: "Found a wordmark of \(letters) letters.")
-        case (let shapes, 0): String(localized: "Found a symbol of \(shapes) shapes.")
-        case (let shapes, let letters): String(localized: "Found a symbol of \(shapes) shapes and \(letters) letters.")
+        if animation.plateCount > 0, animation.letterCount > 0 {
+            return String(AttributedString(localized: "Found ^[\(animation.letterCount) letter](inflect: true) in ^[\(animation.plateCount) box](inflect: true).").characters)
+        }
+        return switch (animation.symbolCount + animation.plateCount, animation.letterCount) {
+        case (0, let letters): String(AttributedString(localized: "Found a wordmark of ^[\(letters) letter](inflect: true).").characters)
+        case (let shapes, 0): String(AttributedString(localized: "Found a symbol of ^[\(shapes) shape](inflect: true).").characters)
+        case (let shapes, let letters):
+            String(AttributedString(localized: "Found a symbol of ^[\(shapes) shape](inflect: true) and ^[\(letters) letter](inflect: true).").characters)
         }
     }
 
@@ -197,12 +233,47 @@ struct LogoAnimatorView: View {
     private func load(_ url: URL) {
         problem = nil
         done = nil
-        do {
-            animation = try LogoAnimation(contentsOf: url)
-            file = url
-            restart()
-        } catch {
-            problem = error.localizedDescription
+        advice = nil
+        animation = nil
+        file = url
+        loading = true
+        Task {
+            do {
+                let loaded = try await Task.detached(priority: .userInitiated) { try LogoAnimation(contentsOf: url) }.value
+                guard file == url else { return }
+                animation = loaded
+                loading = false
+                restart()
+                // The director looks at the logo and picks Automatic's style.
+                let advice = await LogoDirector.advise(loaded)
+                guard file == url else { return }
+                self.advice = advice
+                animation?.directed = advice.style
+                if style == .automatic { restart() }
+            } catch {
+                guard file == url else { return }
+                loading = false
+                file = nil
+                problem = error.localizedDescription
+            }
+        }
+    }
+
+    /// The logo traced into a vector file, next to the logo.
+    private func saveVector() {
+        guard let animation, let file else { return }
+        let name = file.deletingPathExtension().lastPathComponent + " " + String(localized: "vector")
+        let output = Converting.outputURL(folder: file.deletingLastPathComponent().path, name: name, fileExtension: "svg")
+        problem = nil
+        done = nil
+        Task {
+            let svg = await Task.detached(priority: .userInitiated) { animation.svg() }.value
+            do {
+                try svg.write(to: output, atomically: true, encoding: .utf8)
+                done = output
+            } catch {
+                problem = error.localizedDescription
+            }
         }
     }
 

@@ -17,10 +17,12 @@ enum ResolveBridge {
     /// Runs one instruction and returns Resolve's answer.
     /// Makes the empty timeline an edit goes into and returns its real frame rate (Resolve keeps
     /// the project's rate when the asked one can't be set), which the edit is then placed in.
-    static func createTimeline(_ name: String, frameRate: Double) async throws -> Double {
+    /// Makes an empty timeline: its frame rate, and its name as Resolve has it (build the edit in
+    /// that one; a name in use gets a number).
+    static func createTimeline(_ name: String, frameRate: Double) async throws -> (rate: Double, name: String) {
         let answer = try await run(["action": "createTimeline", "name": name, "frameRate": frameRate])
         let rate = (answer["rate"] as? Double) ?? frameRate
-        return rate > 0 ? rate : frameRate
+        return (rate > 0 ? rate : frameRate, (answer["timeline"] as? String) ?? name)
     }
 
     static func run(_ instruction: [String: Any]) async throws -> [String: Any] {
@@ -133,12 +135,23 @@ def timeline_named(name):
             return found
     return None
 
+def timeline_name(name):
+    # Resolve turns a colon in a timeline name into a full stop: ask for that name straight away,
+    # so the timeline can be found by it afterwards.
+    return name.replace(":", ".")
+
 if action == "createTimeline":
     # An empty timeline at the asked frame rate if Resolve allows it (whole rates only, through
-    # scripting); the rate it really has is what the edit is placed in.
-    timeline = pool.CreateEmptyTimeline(cmd["name"])
+    # scripting); the rate it really has is what the edit is placed in. A name already in use
+    # gets a number (an empty timeline of that name, left by an earlier try, is used again).
+    base = timeline_name(cmd["name"])
+    name, number = base, 2
+    while timeline_named(name) is not None and timeline_named(name).GetItemListInTrack("video", 1):
+        name = "%s %d" % (base, number)
+        number += 1
+    timeline = timeline_named(name) or pool.CreateEmptyTimeline(name)
     if timeline is None:
-        out({"error": "Couldn't create the timeline " + cmd["name"]})
+        out({"error": "Couldn't create the timeline " + name})
     rate = cmd.get("frameRate")
     if rate:
         timeline.SetSetting("useCustomSettings", "1")
@@ -150,10 +163,11 @@ if action == "createTimeline":
 if action == "buildTimeline":
     root = pool.GetRootFolder()
     known = {c.GetClipProperty("File Path"): c for c in clips_in(root)}
-    existing = timeline_named(cmd["name"])
-    timeline = existing if existing and not existing.GetItemListInTrack("video", 1) else pool.CreateEmptyTimeline(cmd["name"])
+    name = timeline_name(cmd["name"])
+    existing = timeline_named(name)
+    timeline = existing if existing and not existing.GetItemListInTrack("video", 1) else pool.CreateEmptyTimeline(name)
     if timeline is None:
-        out({"error": "Couldn't create the timeline " + cmd["name"]})
+        out({"error": "Couldn't create the timeline " + name})
     project.SetCurrentTimeline(timeline)
     while timeline.GetTrackCount("video") < cmd.get("videoTracks", 1):
         timeline.AddTrack("video")
@@ -173,6 +187,8 @@ if action == "buildTimeline":
     groups = {g.GetName(): g for g in (project.GetColorGroupsList() or [])}
     zoomed = graded = grouped = 0
     for timelineItem, item in zip(placed, wanted):
+        if timelineItem is None:
+            continue
         zoom = item.get("zoom")
         if zoom and timelineItem.SetProperties({"DynamicZoomEnabled": True, "DynamicZoomEase": eases.get(zoom, resolve.DYNAMIC_ZOOM_EASE_IN_AND_OUT)}):
             zoomed += 1
@@ -184,6 +200,8 @@ if action == "buildTimeline":
                     grouped += 1
         if item.get("cdl") and timelineItem.SetCDL(item["cdl"]):
             graded += 1
+        if item.get("clipColor"):
+            timelineItem.SetClipColor(item["clipColor"])
     for marker in cmd.get("markers", []):
         timeline.AddMarker(marker["frame"], marker.get("color", "Blue"), marker["name"], marker.get("note", ""), marker.get("duration", 1))
     out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start})

@@ -6,7 +6,7 @@ import SwiftUI
 /// use (nothing sets that argument).
 ///
 /// Scenes: main, search:<words>, convert, subtitles, tighten, cleanup, enhance, background, blur,
-/// shorts, summarize, library, player, settings, live, derush, findshots. Options: `-PluckScreenshotItem <title start>`
+/// shorts, summarize, library, player, settings, live, derush, findshots, logo. Options: `-PluckScreenshotItem <title start>`
 /// picks the item, `-PluckScreenshotDownloading <n>` shows the first n paused items as
 /// downloading, `-PluckScreenshotSize <w>x<h>` sizes the main window and
 /// `-PluckScreenshotAppearance light|dark` picks the look.
@@ -84,6 +84,17 @@ enum ScreenshotMode {
                 if let link = defaults.string(forKey: "PluckScreenshotLink") {
                     session.record(link, fromStart: false, language: language)
                 }
+            case "logo":
+                // -PluckScreenshotFile <logo> is opened in the Logo Animator.
+                let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                LogoAnimatorView.openFile = logo
+                openWindow(id: "logoAnimator")
+                // A window left open from before has already looked for a logo: hand it over.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    if LogoAnimatorView.openFile != nil, let logo {
+                        NotificationCenter.default.post(name: LogoAnimatorView.openNotification, object: logo)
+                    }
+                }
             case "findshots":
                 openWindow(id: "findShots")
             case "derush":
@@ -94,6 +105,7 @@ enum ScreenshotMode {
                 if let path = defaults.string(forKey: "PluckScreenshotFile") {
                     derush.add([URL(fileURLWithPath: path)])
                     derush.showOverview = defaults.bool(forKey: "PluckScreenshotOverview")
+                    derush.buildWhenReady = defaults.bool(forKey: "PluckScreenshotBuild")
                     derush.start(language: Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US"),
                                  lookAtPicture: true, kind: ShootPlan.Kind(rawValue: defaults.string(forKey: "derushKind") ?? "") ?? .corporate)
                 }

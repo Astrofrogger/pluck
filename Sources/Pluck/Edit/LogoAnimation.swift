@@ -12,7 +12,9 @@ import Vision
 struct LogoAnimation: @unchecked Sendable {
     /// One shape of the logo, cut out on its own.
     struct Element {
-        enum Kind { case symbol, letter }
+        /// A plate is a shape other shapes sit on (a badge, a box with letters on it); an accent
+        /// is a letter's dot or mark (the dot on an i), which can move on its own.
+        enum Kind { case symbol, letter, plate, accent }
         var kind: Kind
         /// The shape's pixels (premultiplied RGBA), cropped to its box.
         var image: CGImage
@@ -24,10 +26,21 @@ struct LogoAnimation: @unchecked Sendable {
         /// Softened copies for focus pulls, lightly to strongly blurred, each with the room the
         /// blur spreads into around the shape (logo pixels).
         var blurred: [(image: CGImage, pad: CGFloat)] = []
+        /// The plate this shape sits on (an index into `elements`), drawn before it.
+        var plate: Int?
+        /// For an accent: the letter it belongs to.
+        var base: Int?
+        /// A small round or star-like shape that can lead the animation (a dot, a full stop, a
+        /// sparkle).
+        var hero = false
+        /// How much ink (logo pixels).
+        var area: Double = 0
+        /// While analysing: its id, its plate's and its base letter's.
+        fileprivate var id = 0, plateID: Int?, baseID: Int?
     }
 
     enum Style: String, CaseIterable, Identifiable, Sendable {
-        case automatic, elegant, rise, wipe, build, pop, cascade, reveal
+        case automatic, assemble, bounce, stretch, liquid, lineDraw, elegant, rise, wipe, build, pop, cascade, reveal
         var id: String { rawValue }
 
         var label: String {
@@ -40,6 +53,11 @@ struct LogoAnimation: @unchecked Sendable {
             case .pop: String(localized: "Pop")
             case .cascade: String(localized: "Cascade")
             case .reveal: String(localized: "Reveal")
+            case .bounce: String(localized: "Bounce")
+            case .lineDraw: String(localized: "Line Draw")
+            case .stretch: String(localized: "Stretch")
+            case .assemble: String(localized: "Assemble")
+            case .liquid: String(localized: "Liquid")
             }
         }
 
@@ -53,6 +71,11 @@ struct LogoAnimation: @unchecked Sendable {
             case .pop: String(localized: "Every shape springs in, from the middle out.")
             case .cascade: String(localized: "Shapes slide in one after another, left to right.")
             case .reveal: String(localized: "A soft wipe reveals the logo, the letters settle into place.")
+            case .bounce: String(localized: "The letters bounce in, stretching and squashing as they land; the dot or sparkle lands last.")
+            case .lineDraw: String(localized: "A line in the logo’s accent colour runs round every shape, and each fills in behind it.")
+            case .stretch: String(localized: "The letters grow out of a line, stretching tall like rubber and springing back, in a wave.")
+            case .assemble: String(localized: "In two acts: the symbol, the dot or a line arrives in the middle first, then the whole logo opens out of it.")
+            case .liquid: String(localized: "A blob of colour splits into droplets that flow into the letters and become the logo.")
             }
         }
     }
@@ -62,21 +85,78 @@ struct LogoAnimation: @unchecked Sendable {
     let elements: [Element]
 
     var symbolCount: Int { elements.filter { $0.kind == .symbol }.count }
+    /// Boxes and badges other shapes sit on.
+    var plateCount: Int { elements.filter { $0.kind == .plate }.count }
     var letterCount: Int { elements.filter { $0.kind == .letter }.count }
+    var heroes: [Int] { elements.indices.filter { elements[$0].hero } }
 
-    /// What the analysis chose for `.automatic`.
-    var suggestedStyle: Style {
-        // The refined styles: letters rising for a wordmark, a focus pull for a symbol alone.
-        letterCount >= 2 ? .rise : .elegant
+    /// The colour for lines: the hero's, else the logo's second colour, else its main one.
+    var accentColour: CGColor {
+        func rgb(_ c: CGColor) -> SIMD3<Double> {
+            let v = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
+            return SIMD3(v[0], v[min(1, v.count - 1)], v[min(2, v.count - 1)])
+        }
+        // The hero's, when it's a colour (a white dot's lines would vanish on white).
+        if let hero = heroes.first {
+            let c = rgb(elements[hero].colour)
+            if c.max() - c.min() > 0.15 { return elements[hero].colour }
+        }
+        // Ink per colour, the main one first.
+        var totals: [(colour: CGColor, rgb: SIMD3<Double>, area: Double)] = []
+        for element in elements {
+            let c = rgb(element.colour)
+            if let n = totals.firstIndex(where: { (($0.rgb - c) * ($0.rgb - c)).sum() < 0.04 }) { totals[n].area += element.area }
+            else { totals.append((element.colour, c, element.area)) }
+        }
+        totals.sort { $0.area > $1.area }
+        guard let main = totals.first else { return CGColor(gray: 0, alpha: 1) }
+        // A second colour with some presence, preferably a colourful one (white or black lines
+        // vanish on a white or black background).
+        func chroma(_ c: SIMD3<Double>) -> Double { (c.max() - c.min()) }
+        let others = totals.dropFirst().filter { $0.area > main.area * 0.03 }
+        if let pick = others.max(by: { $0.area * (0.2 + chroma($0.rgb)) < $1.area * (0.2 + chroma($1.rgb)) }),
+           chroma(pick.rgb) > 0.15 || chroma(main.rgb) < 0.15 {
+            return pick.colour
+        }
+        return main.colour
+    }
+
+    /// What the director chose for `.automatic` (see LogoDirector), when it has looked.
+    var directed: Style?
+
+    /// What `.automatic` plays: the director's choice, else one from the logo's layout.
+    var suggestedStyle: Style { directed ?? layoutStyle }
+
+    /// A style from the logo's layout alone: anything Assemble can stage (a symbol beside a name, a
+    /// hero, a plate) assembles; a plain name bounces; a symbol alone comes into focus.
+    var layoutStyle: Style {
+        if case .tracking = assembleMode { return letterCount >= 2 ? .bounce : .elegant }
+        return .assemble
     }
 
     struct Failure: LocalizedError {
-        var errorDescription: String? { String(localized: "Pluck couldn’t find a logo in this picture. Try a PNG or SVG with a transparent or plain background.") }
+        var busyBackground = false
+        var errorDescription: String? {
+            busyBackground
+                ? String(localized: "This logo sits on a photo or a pattern: Pluck can’t lift it off cleanly. A version on a plain background (or a PNG, SVG or PDF without one) works best.")
+                : String(localized: "Pluck couldn’t find a logo in this picture. Try a PNG or SVG with a transparent or plain background.")
+        }
     }
 
     // MARK: - Analysis
 
     init(contentsOf url: URL) throws {
+        // Pictures are read straight at the working size (a print-size PNG of 10,000 pixels is
+        // slow to decode whole); SVG and PDF are drawn sharp at any size.
+        let vector = ["svg", "pdf"].contains(url.pathExtension.lowercased())
+        if !vector, let source = CGImageSourceCreateWithURL(url as CFURL, nil),
+           let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+               kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
+               kCGImageSourceThumbnailMaxPixelSize: 1400, kCGImageSourceShouldCacheImmediately: true,
+           ] as CFDictionary) {
+            try self.init(image: NSImage(cgImage: picture, size: NSSize(width: picture.width, height: picture.height)))
+            return
+        }
         guard let image = NSImage(contentsOf: url) else { throw Failure() }
         try self.init(image: image)
     }
@@ -96,7 +176,9 @@ struct LogoAnimation: @unchecked Sendable {
         image.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
         NSGraphicsContext.restoreGraphicsState()
         // Row 0 of the context's memory is the top of the picture; the analysis works that way round.
-        Self.keyOutBackground(&pixels, width: width, height: height)
+        // A logo on a photo or a pattern can't be lifted off: said so, rather than animating
+        // the whole picture as if it were the logo.
+        guard Self.keyOutBackground(&pixels, width: width, height: height) else { throw Failure(busyBackground: true) }
 
         // Trim to the ink, with a small margin.
         var minX = width, minY = height, maxX = -1, maxY = -1
@@ -124,38 +206,125 @@ struct LogoAnimation: @unchecked Sendable {
 
     /// Logos without transparency (a JPG on white): the background colour, taken from the
     /// border, becomes transparent.
-    private static func keyOutBackground(_ pixels: inout [UInt8], width: Int, height: Int) {
+    /// Logos without transparency (a JPG on a colour): the background becomes transparent.
+    /// It's worked out as a smooth surface from the picture's edges, so a plain colour, a
+    /// gradient or a vignette all come off cleanly (also where the logo touches an edge). Returns
+    /// false when the background isn't smooth (a photo, a pattern): that can't be lifted off.
+    @discardableResult
+    private static func keyOutBackground(_ pixels: inout [UInt8], width: Int, height: Int) -> Bool {
         let count = width * height
         var transparent = 0
         for index in 0..<count where pixels[index * 4 + 3] < 250 { transparent += 1 }
-        guard transparent < count / 50 else { return }
-        var border: [(Int, Int, Int)] = []
-        for x in stride(from: 0, to: width, by: 4) {
-            for y in [0, height - 1] { let i = (y * width + x) * 4; border.append((Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))) }
+        guard transparent < count / 50 else { return true }
+        // The edges of the picture, a few pixels deep.
+        var samples: [(x: Double, y: Double, c: SIMD3<Double>)] = []
+        let depth = max(2, min(width, height) / 100)
+        func sample(_ x: Int, _ y: Int) {
+            let i = (y * width + x) * 4
+            samples.append((Double(x) / Double(width) * 2 - 1, Double(y) / Double(height) * 2 - 1,
+                            SIMD3(Double(pixels[i]), Double(pixels[i + 1]), Double(pixels[i + 2]))))
         }
-        for y in stride(from: 0, to: height, by: 4) {
-            for x in [0, width - 1] { let i = (y * width + x) * 4; border.append((Int(pixels[i]), Int(pixels[i + 1]), Int(pixels[i + 2]))) }
+        for d in stride(from: 0, to: depth, by: 2) {
+            for x in stride(from: 0, to: width, by: 3) { sample(x, d); sample(x, height - 1 - d) }
+            for y in stride(from: 0, to: height, by: 3) { sample(d, y); sample(width - 1 - d, y) }
         }
-        func median(_ v: [Int]) -> Int { v.sorted()[v.count / 2] }
-        let bg = (median(border.map(\.0)), median(border.map(\.1)), median(border.map(\.2)))
-        for index in 0..<count {
-            let i = index * 4
-            let d = abs(Int(pixels[i]) - bg.0) + abs(Int(pixels[i + 1]) - bg.1) + abs(Int(pixels[i + 2]) - bg.2)
-            // A soft edge: anti-aliased pixels become partly transparent.
-            let a = min(1, max(0, Double(d - 24) / 90))
-            if a >= 1 { continue }
-            if a <= 0 {
-                pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0
-                continue
+        // A smooth surface through them (colour as a quadratic in x and y), fitted twice: the
+        // second time without edge pixels that belong to the logo.
+        func terms(_ x: Double, _ y: Double) -> [Double] { [1, x, y, x * y, x * x, y * y] }
+        func fit(_ points: [(x: Double, y: Double, c: SIMD3<Double>)]) -> [SIMD3<Double>]? {
+            var a = [[Double]](repeating: [Double](repeating: 0, count: 6), count: 6)
+            var b = [SIMD3<Double>](repeating: .zero, count: 6)
+            for p in points {
+                let t = terms(p.x, p.y)
+                for i in 0..<6 {
+                    b[i] += p.c * t[i]
+                    for j in 0..<6 { a[i][j] += t[i] * t[j] }
+                }
             }
-            // Take the background out of the mixed colour, then premultiply.
-            for c in 0..<3 {
-                let bgc = Double([bg.0, bg.1, bg.2][c])
-                let straight = min(255, max(0, (Double(pixels[i + c]) - bgc * (1 - a)) / a))
-                pixels[i + c] = UInt8(straight * a)
+            for i in 0..<6 { a[i][i] += 1e-6 }
+            // Gaussian elimination.
+            for col in 0..<6 {
+                guard let pivot = (col..<6).max(by: { abs(a[$0][col]) < abs(a[$1][col]) }), abs(a[pivot][col]) > 1e-12 else { return nil }
+                a.swapAt(col, pivot); b.swapAt(col, pivot)
+                for row in 0..<6 where row != col {
+                    let f = a[row][col] / a[col][col]
+                    for k in col..<6 { a[row][k] -= f * a[col][k] }
+                    b[row] -= b[col] * f
+                }
             }
-            pixels[i + 3] = UInt8(a * 255)
+            return (0..<6).map { b[$0] / a[$0][$0] }
         }
+        func value(_ w: [SIMD3<Double>], _ x: Double, _ y: Double) -> SIMD3<Double> {
+            zip(w, terms(x, y)).reduce(SIMD3<Double>.zero) { $0 + $1.0 * $1.1 }
+        }
+        func miss(_ w: [SIMD3<Double>], _ p: (x: Double, y: Double, c: SIMD3<Double>)) -> Double {
+            let d = value(w, p.x, p.y) - p.c
+            return abs(d.x) + abs(d.y) + abs(d.z)
+        }
+        guard var surface = fit(samples) else { return false }
+        for _ in 0..<2 {
+            let misses = samples.map { miss(surface, $0) }.sorted()
+            let limit = max(30, misses[misses.count / 2] * 3)
+            let kept = samples.filter { miss(surface, $0) < limit }
+            guard kept.count > samples.count / 2, let refit = fit(kept) else { break }
+            surface = refit
+        }
+        // Smooth enough to be a background (not a photo or a pattern)?
+        let misses = samples.map { miss(surface, $0) }.sorted()
+        guard misses[misses.count * 3 / 4] < 30 else { return false }
+        // How far each pixel is from the background there.
+        var distance = [Float](repeating: 0, count: count)
+        var background = [SIMD3<Double>](repeating: .zero, count: count)
+        for y in 0..<height {
+            let ny = Double(y) / Double(height) * 2 - 1
+            for x in 0..<width {
+                let index = y * width + x, i = index * 4
+                let bg = value(surface, Double(x) / Double(width) * 2 - 1, ny)
+                background[index] = bg
+                distance[index] = Float(abs(Double(pixels[i]) - bg.x) + abs(Double(pixels[i + 1]) - bg.y) + abs(Double(pixels[i + 2]) - bg.z))
+            }
+        }
+        // The solid logo colour nearby is the farthest from the background within a few pixels:
+        // an edge pixel halfway to it is half transparent (anti-aliasing, not a colour of its own).
+        let reach = 3
+        var rows = distance
+        for y in 0..<height {
+            for x in 0..<width {
+                var m: Float = 0
+                for dx in max(0, x - reach)...min(width - 1, x + reach) { m = max(m, distance[y * width + dx]) }
+                rows[y * width + x] = m
+            }
+        }
+        var solid = rows
+        for y in 0..<height {
+            for x in 0..<width {
+                var m: Float = 0
+                for dy in max(0, y - reach)...min(height - 1, y + reach) { m = max(m, rows[dy * width + x]) }
+                solid[y * width + x] = m
+            }
+        }
+        for y in 0..<height {
+            for x in 0..<width {
+                let index = y * width + x, i = index * 4
+                let bg = background[index]
+                let d = Double(distance[index])
+                let full = max(Double(solid[index]), 114)
+                // A soft edge: anti-aliased pixels become partly transparent.
+                let a = min(1, max(0, (d - 24) / (full - 24)))
+                if a >= 1 { continue }
+                if a <= 0 {
+                    pixels[i] = 0; pixels[i + 1] = 0; pixels[i + 2] = 0; pixels[i + 3] = 0
+                    continue
+                }
+                // Take the background out of the mixed colour, then premultiply.
+                for c in 0..<3 {
+                    let straight = min(255, max(0, (Double(pixels[i + c]) - bg[c] * (1 - a)) / a))
+                    pixels[i + c] = UInt8(straight * a)
+                }
+                pixels[i + 3] = UInt8(a * 255)
+            }
+        }
+        return true
     }
 
     /// The logo's separate shapes: connected areas of ink. Specks (the dot on an i) join the
@@ -201,7 +370,10 @@ struct LogoAnimation: @unchecked Sendable {
 
         // Specks join the nearest bigger shape.
         var owner: [Int32: Int32] = [:]
-        let big = boxes.filter { Double($0.value.area) >= Double(totalInk) * 0.004 }
+        // (Relative to the logo's size, not its ink: a big box mustn't turn a line of small text
+        // into specks.)
+        let speck = max(6.0, Double(width * height) * 0.00012)
+        let big = boxes.filter { Double($0.value.area) >= speck }
         for (root, box) in boxes {
             if big[root] != nil || big.isEmpty { owner[root] = root; continue }
             let cx = Double(box.minX + box.maxX) / 2, cy = Double(box.minY + box.maxY) / 2
@@ -223,23 +395,22 @@ struct LogoAnimation: @unchecked Sendable {
                 groups[target] = box
             }
         }
-        // Dots and accents (the dot on an i, an umlaut) belong to the letter under or over them.
+        // Dots and accents (the dot on an i, an umlaut) belong to the letter under or over them,
+        // but stay shapes of their own: they can lead the animation.
         let areas = groups.values.map(\.area).sorted()
         let typicalArea = areas[areas.count / 2]
+        var accentOf: [Int32: Int32] = [:]
         for (key, box) in groups where box.area < typicalArea * 3 / 10 {
             let centre = (box.minX + box.maxX) / 2, height = box.maxY - box.minY + 1
             let base = groups.filter { other in
                 other.key != key && other.value.area > box.area && centre >= other.value.minX && centre <= other.value.maxX
                     && min(abs(other.value.minY - box.maxY), abs(box.minY - other.value.maxY)) < height * 3 / 2
             }.min { $0.value.area < $1.value.area }
-            guard let base, let target = groups[base.key] else { continue }
-            groups[base.key] = (min(target.minX, box.minX), min(target.minY, box.minY), max(target.maxX, box.maxX),
-                                max(target.maxY, box.maxY), target.area + box.area)
-            groups[key] = nil
-            for (root, value) in owner where value == key { owner[root] = base.key }
+            if let base { accentOf[key] = base.key }
         }
         // Too many pieces (a detailed illustration): animate it as one.
-        if groups.count > 60 {
+        let illustration = groups.count > 60
+        if illustration {
             let all = groups.values
             groups = [0: (all.map(\.minX).min()!, all.map(\.minY).min()!, all.map(\.maxX).max()!, all.map(\.maxY).max()!, totalInk)]
             for (root, _) in owner { owner[root] = 0 }
@@ -256,7 +427,9 @@ struct LogoAnimation: @unchecked Sendable {
         }
 
         var result: [Element] = []
-        for (key, box) in groups {
+        var nextID = 0
+        var idOfGroup: [Int32: Int] = [:]
+        for (key, box) in groups.sorted(by: { $0.key < $1.key }) {
             let rect = CGRect(x: box.minX, y: box.minY, width: box.maxX - box.minX + 1, height: box.maxY - box.minY + 1)
             let w = Int(rect.width), h = Int(rect.height)
             var cut = [UInt8](repeating: 0, count: w * h * 4)
@@ -273,26 +446,61 @@ struct LogoAnimation: @unchecked Sendable {
                     shape[y * w + x] = alpha[i]
                 }
             }
-            let inText = textBoxes.contains { $0.insetBy(dx: -4, dy: -4).contains(CGPoint(x: rect.midX, y: rect.midY)) }
-            // A symbol in several colours is several shapes (a sun over a mountain): each moves
-            // on its own.
-            let parts = inText ? nil : Self.colourParts(cut, shape: shape, width: w, height: h)
-            for part in parts ?? [(cut, shape)] {
-                if let element = Self.element(part.0, shape: part.1, width: w, height: h, origin: rect.origin, kind: inText ? .letter : .symbol) {
-                    result.append(element)
-                }
+            func inText(_ r: CGRect) -> Bool {
+                textBoxes.contains { $0.insetBy(dx: -4, dy: -4).contains(CGPoint(x: r.midX, y: r.midY)) }
+            }
+            // A shape in several colours is taken apart: a box with letters on it becomes the
+            // box (a plate) and its letters; a symbol in several colours (a sun over a mountain)
+            // becomes its parts, each moving on its own.
+            let pieces = illustration ? [(cut: cut, shape: shape, box: CGRect(x: 0, y: 0, width: w, height: h), isPlate: false, container: Int?.none)]
+                : Self.layers(cut, shape: shape, width: w, height: h)
+            let firstID = nextID
+            for piece in pieces {
+                let id = nextID
+                nextID += 1
+                let pieceBox = piece.box.offsetBy(dx: rect.minX, dy: rect.minY)
+                let kind: Element.Kind = piece.isPlate ? .plate : (inText(pieceBox) ? .letter : .symbol)
+                guard var element = Self.element(piece.cut, shape: piece.shape, width: w, height: h, origin: rect.origin, kind: kind)
+                else { continue }
+                element.id = id
+                element.plateID = piece.container.map { firstID + $0 }
+                result.append(element)
+            }
+            if pieces.count == 1 { idOfGroup[key] = firstID }
+        }
+        // Accents point at their letter.
+        for (accent, base) in accentOf {
+            guard let id = idOfGroup[accent], let baseID = idOfGroup[base],
+                  let n = result.firstIndex(where: { $0.id == id }), let b = result.firstIndex(where: { $0.id == baseID }) else { continue }
+            if result[b].kind == .letter || result[b].kind == .symbol {
+                result[n].kind = .accent
+                result[n].baseID = baseID
             }
         }
         // No text found but many similar shapes in a row: probably a wordmark the recogniser
         // couldn't read (a custom font); treat them as letters.
-        if textBoxes.isEmpty, result.count >= 3 {
-            let heights = result.map(\.box.height).sorted()
+        if textBoxes.isEmpty, result.filter({ $0.kind == .symbol }).count >= 3 {
+            let heights = result.filter { $0.kind == .symbol }.map(\.box.height).sorted()
             let typical = heights[heights.count / 2]
             // Shapes about letter height are letters; much taller ones stay the symbol.
-            for i in result.indices where result[i].box.height < typical * 1.6 { result[i].kind = .letter }
+            for i in result.indices where result[i].kind == .symbol && result[i].box.height < typical * 1.6 && result[i].box.height > typical * 0.5 {
+                result[i].kind = .letter
+            }
         }
-        // Order: the symbol's shapes biggest first, then the letters line by line, left to right.
-        let symbols = result.filter { $0.kind == .symbol }.sorted { $0.box.width * $0.box.height > $1.box.width * $1.box.height }
+        // A shape the twin of a symbol (one of three sparkles, near the text) is a symbol too.
+        let symbolSizes = result.filter { $0.kind == .symbol }.map { ($0.box.size, $0.area) }
+        for i in result.indices where result[i].kind == .letter {
+            if symbolSizes.contains(where: { abs($0.0.width - result[i].box.width) <= 2 && abs($0.0.height - result[i].box.height) <= 2
+                                            && abs($0.1 - result[i].area) < $0.1 * 0.05 }) {
+                result[i].kind = .symbol
+            }
+        }
+        // Order: plates (biggest first), the symbol's shapes (biggest first), then the letters
+        // line by line, left to right, each followed by its dot.
+        func bySize(_ a: Element, _ b: Element) -> Bool { a.box.width * a.box.height > b.box.width * b.box.height }
+        let plates = result.filter { $0.kind == .plate }.sorted(by: bySize)
+        let symbols = result.filter { $0.kind == .symbol }.sorted(by: bySize)
+        let accents = result.filter { $0.kind == .accent }
         var letters = result.filter { $0.kind == .letter }.sorted { $0.box.midY < $1.box.midY }
         if !letters.isEmpty {
             let typical = letters.map(\.box.height).sorted()[letters.count / 2]
@@ -306,20 +514,254 @@ struct LogoAnimation: @unchecked Sendable {
             }
             letters = lines.flatMap { $0.sorted { $0.box.minX < $1.box.minX } }
         }
-        return symbols + letters
+        var ordered = plates + symbols
+        for letter in letters {
+            ordered.append(letter)
+            ordered += accents.filter { $0.baseID == letter.id }
+        }
+        ordered += accents.filter { accent in !ordered.contains { $0.id == accent.id } }
+        // Links by position.
+        let position = Dictionary(uniqueKeysWithValues: ordered.enumerated().map { ($1.id, $0) })
+        for i in ordered.indices {
+            ordered[i].plate = ordered[i].plateID.flatMap { position[$0] }
+            ordered[i].base = ordered[i].baseID.flatMap { position[$0] }
+        }
+        markHeroes(&ordered)
+        return ordered
+    }
+
+    /// Heroes: dots and marks (the dot on an i, a full stop, a sparkle), small next to the
+    /// letters and compact (round or star-like). At most three.
+    private static func markHeroes(_ elements: inout [Element]) {
+        // Compared with the main letters (the tagline's small letters don't count).
+        let letters = elements.filter { $0.kind == .letter }
+        let tallest = letters.map(\.box.height).max() ?? 0
+        let main = letters.filter { $0.box.height > tallest * 0.6 }.map(\.area).sorted()
+        let typical = main.isEmpty ? (elements.map(\.area).max() ?? 1) : main[main.count / 2]
+        let candidates = elements.indices.filter { i in
+            let e = elements[i]
+            switch e.kind {
+            case .plate: return false
+            case .letter:
+                // A full stop: small next to the letters of its own line.
+                let line = letters.filter { $0.box.minY < e.box.maxY && $0.box.maxY > e.box.minY && $0.box != e.box }.map(\.area).sorted()
+                guard !line.isEmpty, e.area < line[line.count / 2] * 0.3 else { return false }
+            case .accent, .symbol: guard e.area < typical * 0.9 else { return false }
+            }
+            let aspect = e.box.width / max(e.box.height, 1)
+            let fill = e.area / max(e.box.width * e.box.height, 1)
+            return aspect > 0.6 && aspect < 1.65 && fill > 0.2 && e.box.width > 3
+        }
+        // Dots on letters first, then the rest, smallest last.
+        let ranked = candidates.sorted { a, b in
+            let accentA = elements[a].kind == .accent, accentB = elements[b].kind == .accent
+            return accentA != accentB ? accentA : elements[a].area > elements[b].area
+        }
+        // Many small dots (a row of i's, a dotted pattern) aren't heroes.
+        guard !ranked.isEmpty, ranked.count <= 4 else { return }
+        for i in ranked.prefix(3) { elements[i].hero = true }
+    }
+
+    /// A shape split into the shapes it's built from: by colour, then into connected pieces.
+    /// A piece that encloses others is a plate (its holes filled with its colour, so whatever
+    /// sits on it can move away); `container` is the index of the plate a piece sits on.
+    private static func layers(_ cut: [UInt8], shape: [UInt8], width w: Int, height h: Int)
+        -> [(cut: [UInt8], shape: [UInt8], box: CGRect, isPlate: Bool, container: Int?)] {
+        let whole = [(cut: cut, shape: shape, box: CGRect(x: 0, y: 0, width: w, height: h), isPlate: false, container: Int?.none)]
+        guard let parts = colourParts(cut, shape: shape, width: w, height: h) else { return whole }
+        let total = shape.reduce(0) { $0 + ($1 > 100 ? 1 : 0) }
+        // Connected pieces of each colour.
+        var pieces: [(cut: [UInt8], shape: [UInt8], mask: [Bool], area: Int, box: (Int, Int, Int, Int))] = []
+        for part in parts {
+            var label = [Int32](repeating: -1, count: w * h)
+            var count: Int32 = 0
+            for start in 0..<(w * h) where part.1[start] > 100 && label[start] < 0 {
+                var stack = [start]
+                label[start] = count
+                while let i = stack.popLast() {
+                    let x = i % w, y = i / w
+                    for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                        let nx = x + dx, ny = y + dy
+                        guard nx >= 0, ny >= 0, nx < w, ny < h else { continue }
+                        let j = ny * w + nx
+                        if label[j] < 0, part.1[j] > 100 { label[j] = count; stack.append(j) }
+                    }
+                }
+                count += 1
+            }
+            guard count > 0 else { continue }
+            var made = (0..<Int(count)).map { _ in ([UInt8](repeating: 0, count: w * h * 4), [UInt8](repeating: 0, count: w * h),
+                                                    [Bool](repeating: false, count: w * h), 0, (w, h, -1, -1)) }
+            for i in 0..<(w * h) where part.1[i] > 0 {
+                // Soft edge pixels go to the piece next to them.
+                var l = label[i]
+                if l < 0 {
+                    let x = i % w, y = i / w
+                    search: for r in 1...2 {
+                        for dy in -r...r { for dx in -r...r {
+                            let nx = x + dx, ny = y + dy
+                            if nx >= 0, ny >= 0, nx < w, ny < h, label[ny * w + nx] >= 0 { l = label[ny * w + nx]; break search }
+                        } }
+                    }
+                }
+                guard l >= 0 else { continue }
+                let n = Int(l)
+                for c in 0..<4 { made[n].0[i * 4 + c] = part.0[i * 4 + c] }
+                made[n].1[i] = part.1[i]
+                if label[i] >= 0 {
+                    made[n].2[i] = true
+                    made[n].3 += 1
+                    let x = i % w, y = i / w
+                    made[n].4 = (min(made[n].4.0, x), min(made[n].4.1, y), max(made[n].4.2, x), max(made[n].4.3, y))
+                }
+            }
+            pieces += made.map { (cut: $0.0, shape: $0.1, mask: $0.2, area: $0.3, box: $0.4) }
+        }
+        // Slivers (left over where two colours meet) join the piece around or next to them.
+        let minimum = max(12, w * h / 8000)
+        var kept = pieces.filter { $0.area >= minimum }
+        guard kept.count >= 2 else { return whole }
+        for sliver in pieces where sliver.area < minimum {
+            let cx = (sliver.box.0 + sliver.box.2) / 2, cy = (sliver.box.1 + sliver.box.3) / 2
+            guard let n = kept.indices.min(by: { a, b in
+                func d(_ p: (Int, Int, Int, Int)) -> Int { max(p.0 - cx, 0, cx - p.2) + max(p.1 - cy, 0, cy - p.3) }
+                return d(kept[a].box) < d(kept[b].box)
+            }) else { continue }
+            // (Taken out, changed and put back: changing it in place copies it every pixel.)
+            // Only around the sliver (with its soft edge), not the whole shape.
+            var target = kept[n]
+            for y in max(sliver.box.1 - 2, 0)...min(sliver.box.3 + 2, h - 1) {
+                for x in max(sliver.box.0 - 2, 0)...min(sliver.box.2 + 2, w - 1) {
+                    let i = y * w + x
+                    guard sliver.shape[i] > 0, target.shape[i] == 0 else { continue }
+                    for c in 0..<4 { target.cut[i * 4 + c] = sliver.cut[i * 4 + c] }
+                    target.shape[i] = sliver.shape[i]
+                }
+            }
+            kept[n] = target
+        }
+        // Each big piece's filled shape: everything inside its outer edge.
+        func filled(_ piece: (cut: [UInt8], shape: [UInt8], mask: [Bool], area: Int, box: (Int, Int, Int, Int))) -> [Bool] {
+            let (x0, y0, x1, y1) = piece.box
+            var outside = [Bool](repeating: false, count: w * h)
+            var stack: [Int] = []
+            for x in x0...x1 { stack.append(y0 * w + x); stack.append(y1 * w + x) }
+            for y in y0...y1 { stack.append(y * w + x0); stack.append(y * w + x1) }
+            stack = stack.filter { !piece.mask[$0] }
+            for i in stack { outside[i] = true }
+            while let i = stack.popLast() {
+                let x = i % w, y = i / w
+                for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+                    let nx = x + dx, ny = y + dy
+                    guard nx >= x0, ny >= y0, nx <= x1, ny <= y1 else { continue }
+                    let j = ny * w + nx
+                    if !outside[j], !piece.mask[j] { outside[j] = true; stack.append(j) }
+                }
+            }
+            var inside = [Bool](repeating: false, count: w * h)
+            for y in y0...y1 { for x in x0...x1 { let i = y * w + x; inside[i] = !outside[i] } }
+            return inside
+        }
+        let insides = kept.map { $0.area >= total / 20 ? filled($0) : [] }
+        let filledArea = insides.map { $0.reduce(0) { $0 + ($1 ? 1 : 0) } }
+        var container = [Int?](repeating: nil, count: kept.count)
+        for (c, piece) in kept.enumerated() {
+            let cx = (piece.box.0 + piece.box.2) / 2, cy = (piece.box.1 + piece.box.3) / 2
+            container[c] = kept.indices.filter { b in
+                b != c && !insides[b].isEmpty && insides[b][cy * w + cx] && filledArea[b] > piece.area * 2
+            }.min { filledArea[$0] < filledArea[$1] }
+        }
+        var isPlate = kept.indices.map { b in container.contains(b) }
+        // Pieces inside one letter belong to it (the hole of an R in the plate's colour, a
+        // figure cut into an A): pieces on the same plate whose boxes overlap become one.
+        func overlap(_ a: (Int, Int, Int, Int), _ b: (Int, Int, Int, Int)) -> Double {
+            let ix = max(0, min(a.2, b.2) - max(a.0, b.0) + 1), iy = max(0, min(a.3, b.3) - max(a.1, b.1) + 1)
+            let smaller = min((a.2 - a.0 + 1) * (a.3 - a.1 + 1), (b.2 - b.0 + 1) * (b.3 - b.1 + 1))
+            return Double(ix * iy) / Double(max(smaller, 1))
+        }
+        // (The boxes on their own: comparing whole pieces would copy their pixels every time.)
+        var boxes = kept.map(\.box)
+        var merged = true
+        while merged {
+            merged = false
+            outer: for a in kept.indices where !isPlate[a] {
+                for b in kept.indices where b != a && !isPlate[b] && container[a] == container[b] && overlap(boxes[a], boxes[b]) > 0.3 {
+                    // b into a (taken out, changed and put back).
+                    var into = kept[a]
+                    let from = kept[b]
+                    for i in 0..<(w * h) where from.shape[i] > 0 {
+                        for c in 0..<4 { into.cut[i * 4 + c] = from.cut[i * 4 + c] }
+                        into.shape[i] = max(into.shape[i], from.shape[i])
+                        if from.mask[i] { into.mask[i] = true }
+                    }
+                    into.area += from.area
+                    into.box = (min(into.box.0, from.box.0), min(into.box.1, from.box.1),
+                                max(into.box.2, from.box.2), max(into.box.3, from.box.3))
+                    kept[a] = into
+                    boxes[a] = kept[a].box
+                    kept.remove(at: b)
+                    boxes.remove(at: b)
+                    container.remove(at: b)
+                    isPlate.remove(at: b)
+                    container = container.map { $0.map { $0 > b ? $0 - 1 : $0 } }
+                    merged = true
+                    break outer
+                }
+            }
+        }
+        let insidesAfter = kept.indices.map { isPlate[$0] ? filled(kept[$0]) : [] }
+        // Nothing sits on anything: a symbol in several colours, each part on its own.
+        guard isPlate.contains(true) else {
+            return kept.map { piece in
+                (cut: piece.cut, shape: piece.shape,
+                 box: CGRect(x: piece.box.0, y: piece.box.1, width: piece.box.2 - piece.box.0 + 1, height: piece.box.3 - piece.box.1 + 1),
+                 isPlate: false, container: nil)
+            }
+        }
+        return kept.indices.map { n in
+            var piece = kept[n]
+            if isPlate[n] {
+                // The plate whole: its holes filled with its own colour.
+                var colour = SIMD4<Double>.zero
+                for i in 0..<(w * h) where piece.mask[i] && piece.shape[i] > 200 {
+                    colour += SIMD4(Double(piece.cut[i * 4]), Double(piece.cut[i * 4 + 1]), Double(piece.cut[i * 4 + 2]), 1)
+                }
+                let mean = colour.w > 0 ? colour / colour.w : SIMD4(0, 0, 0, 1)
+                // Solid inside; only the outer edge keeps its soft (anti-aliased) pixels.
+                let inside = insidesAfter[n]
+                for i in 0..<(w * h) where inside[i] {
+                    let x = i % w, y = i / w
+                    let edge = x == 0 || y == 0 || x == w - 1 || y == h - 1 || !inside[i - 1] || !inside[i + 1] || !inside[i - w] || !inside[i + w]
+                    let a = edge ? Double(piece.shape[i]) / 255 : 1
+                    piece.cut[i * 4] = UInt8(mean.x * a); piece.cut[i * 4 + 1] = UInt8(mean.y * a); piece.cut[i * 4 + 2] = UInt8(mean.z * a)
+                    piece.cut[i * 4 + 3] = UInt8(a * 255)
+                    piece.shape[i] = UInt8(a * 255)
+                }
+            }
+            let box = CGRect(x: piece.box.0, y: piece.box.1, width: piece.box.2 - piece.box.0 + 1, height: piece.box.3 - piece.box.1 + 1)
+            return (cut: piece.cut, shape: piece.shape, box: box, isPlate: isPlate[n], container: container[n])
+        }
     }
 
     /// One element from a cut-out (logo-sized box at `origin`), cropped to its own pixels.
     private static func element(_ cut: [UInt8], shape: [UInt8], width w: Int, height h: Int, origin: CGPoint, kind: Element.Kind) -> Element? {
         var minX = w, minY = h, maxX = -1, maxY = -1
-        var colour = SIMD4<Double>.zero
+        // Its colour: the most common one (an average would mix in a second colour).
+        var bins: [SIMD3<Int>: (count: Int, sum: SIMD3<Double>)] = [:]
         for y in 0..<h {
             for x in 0..<w where shape[y * w + x] > 0 {
                 minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
                 let i = (y * w + x) * 4
-                if shape[y * w + x] > 200 { colour += SIMD4(Double(cut[i]), Double(cut[i + 1]), Double(cut[i + 2]), 1) }
+                if shape[y * w + x] > 200 {
+                    let c = SIMD3(Double(cut[i]), Double(cut[i + 1]), Double(cut[i + 2]))
+                    let key = SIMD3(Int(c.x) / 20, Int(c.y) / 20, Int(c.z) / 20)
+                    let bin = bins[key] ?? (0, .zero)
+                    bins[key] = (bin.count + 1, bin.sum + c)
+                }
             }
         }
+        let common = bins.values.max { $0.count < $1.count }
+        let colour = common.map { SIMD4($0.sum.x, $0.sum.y, $0.sum.z, Double($0.count)) } ?? .zero
         guard maxX >= minX, maxY >= minY else { return nil }
         let cw = maxX - minX + 1, ch = maxY - minY + 1
         var pixels = [UInt8](repeating: 0, count: cw * ch * 4)
@@ -334,9 +776,11 @@ struct LogoAnimation: @unchecked Sendable {
         guard let image = image(pixels, width: cw, height: ch) else { return nil }
         let mean = colour.w > 0 ? colour / colour.w : SIMD4(128, 128, 128, 1)
         let box = CGRect(x: origin.x + Double(minX), y: origin.y + Double(minY), width: Double(cw), height: Double(ch))
-        return Element(kind: kind, image: image, box: box, outlines: outlines(alpha, width: cw, height: ch, offset: box.origin),
-                       colour: CGColor(srgbRed: mean.x / 255, green: mean.y / 255, blue: mean.z / 255, alpha: 1),
-                       blurred: softened(image))
+        var element = Element(kind: kind, image: image, box: box, outlines: outlines(alpha, width: cw, height: ch, offset: box.origin),
+                              colour: CGColor(srgbRed: mean.x / 255, green: mean.y / 255, blue: mean.z / 255, alpha: 1),
+                              blurred: softened(image))
+        element.area = Double(alpha.reduce(0) { $0 + Int($1) }) / 255
+        return element
     }
 
     private static let imageContext = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
@@ -356,10 +800,16 @@ struct LogoAnimation: @unchecked Sendable {
     /// Splits a shape by colour when it's clearly made of several (each at least a twentieth of
     /// it and well apart in colour). Nil when it's one colour.
     private static func colourParts(_ cut: [UInt8], shape: [UInt8], width w: Int, height h: Int) -> [([UInt8], [UInt8])]? {
+        // The colours inside the shape only: edge pixels are blends (anti-aliasing, a JPG's
+        // compression), not colours of their own; they go to the nearest real one below.
         var colours: [SIMD3<Double>] = []
-        for i in 0..<(w * h) where shape[i] > 200 {
-            let a = Double(cut[i * 4 + 3]) / 255
-            colours.append(SIMD3(Double(cut[i * 4]), Double(cut[i * 4 + 1]), Double(cut[i * 4 + 2])) / max(a, 0.01))
+        func solid(_ x: Int, _ y: Int) -> Bool { x >= 0 && y >= 0 && x < w && y < h && shape[y * w + x] > 200 }
+        for y in 0..<h {
+            for x in 0..<w where solid(x, y) && solid(x - 2, y) && solid(x + 2, y) && solid(x, y - 2) && solid(x, y + 2) {
+                let i = y * w + x
+                let a = Double(cut[i * 4 + 3]) / 255
+                colours.append(SIMD3(Double(cut[i * 4]), Double(cut[i * 4 + 1]), Double(cut[i * 4 + 2])) / max(a, 0.01))
+            }
         }
         guard colours.count > 400 else { return nil }
         func distance(_ a: SIMD3<Double>, _ b: SIMD3<Double>) -> Double { ((a - b) * (a - b)).sum().squareRoot() }
@@ -372,10 +822,10 @@ struct LogoAnimation: @unchecked Sendable {
             bins[key] = (bin.count + 1, bin.sum + c)
         }
         var centres: [SIMD3<Double>] = []
-        for bin in bins.values.sorted(by: { $0.count > $1.count }) where bin.count >= colours.count / 25 {
+        for bin in bins.values.sorted(by: { $0.count > $1.count }) where bin.count >= max(colours.count / 120, 60) {
             let mean = bin.sum / Double(bin.count)
             if centres.allSatisfy({ distance($0, mean) > 70 }) { centres.append(mean) }
-            if centres.count == 4 { break }
+            if centres.count == 6 { break }
         }
         guard centres.count >= 2 else { return nil }
         var parts = centres.map { _ in ([UInt8](repeating: 0, count: w * h * 4), [UInt8](repeating: 0, count: w * h)) }
@@ -444,7 +894,9 @@ struct LogoAnimation: @unchecked Sendable {
     /// When each element starts and how long its entrance takes (seconds).
     func timing(_ style: Style) -> [(start: Double, length: Double)] {
         let style = style == .automatic ? suggestedStyle : style
-        let symbols = elements.indices.filter { elements[$0].kind == .symbol }
+        if style == .assemble || style == .liquid { return buildTiming(style) }
+        if Self.expressive.contains(style) { return expressiveTiming(style) }
+        let symbols = elements.indices.filter { elements[$0].kind == .symbol || elements[$0].kind == .plate }
         let letters = elements.indices.filter { elements[$0].kind == .letter }
         var result = [(start: Double, length: Double)](repeating: (0, 0.7), count: elements.count)
         // Letters together take about half a second to start, however many there are.
@@ -479,7 +931,11 @@ struct LogoAnimation: @unchecked Sendable {
             for (n, i) in order.enumerated() { result[i] = (Double(n) * step, 0.8) }
         case .reveal:
             for i in elements.indices { result[i] = (elements[i].box.minX / size.width * 0.6, 0.9) }
+        case .lineDraw, .bounce, .stretch, .assemble, .liquid:
+            break
         }
+        // A dot moves with its letter.
+        for i in elements.indices { if let base = elements[i].base { result[i] = result[base] } }
         return result
     }
 
@@ -565,16 +1021,29 @@ struct LogoAnimation: @unchecked Sendable {
             moment = settledAt
         }
         guard alpha > 0.001 else { return }
+        // Settled: the logo itself, exactly as in the file (shapes drawn one by one round their
+        // soft edges very slightly differently).
+        func frame(_ moment: Double) {
+            if moment >= settledAt { context.draw(logo, in: logoRect(canvas: canvas)) }
+            else { draw(at: moment, style: plan.style, in: context, canvas: canvas) }
+        }
         if alpha < 1 {
             context.saveGState()
             context.setAlpha(alpha)
             context.beginTransparencyLayer(auxiliaryInfo: nil)
-            draw(at: moment, style: plan.style, in: context, canvas: canvas)
+            frame(moment)
             context.endTransparencyLayer()
             context.restoreGState()
         } else {
-            draw(at: moment, style: plan.style, in: context, canvas: canvas)
+            frame(moment)
         }
+    }
+
+    /// Where the finished logo sits on a canvas (as `draw` places it).
+    func logoRect(canvas: CGSize, logoScale: Double = 0.62) -> CGRect {
+        let fit = min(canvas.width * logoScale / size.width, canvas.height * 0.5 / size.height)
+        let drawn = CGSize(width: size.width * fit, height: size.height * fit)
+        return CGRect(x: (canvas.width - drawn.width) / 2, y: (canvas.height - drawn.height) / 2, width: drawn.width, height: drawn.height)
     }
 
     /// How long the soft wipe takes to cross the logo.
@@ -596,6 +1065,28 @@ struct LogoAnimation: @unchecked Sendable {
         func point(_ p: CGPoint) -> CGPoint { CGPoint(x: origin.x + p.x * fit, y: origin.y + (size.height - p.y) * fit) }
 
         let timing = timing(style)
+        if style == .assemble {
+            drawAssemble(at: t, timing: timing, fit: fit, place: place, in: context)
+            return
+        }
+        if style == .liquid {
+            drawLiquid(at: t, timing: timing, fit: fit, place: place, canvas: canvas, in: context)
+            return
+        }
+        if Self.expressive.contains(style) {
+            for (index, element) in elements.enumerated() {
+                let local = t - timing[index].start
+                guard local > 0 else { continue }
+                // Its time is up: exactly in place (no leftover wobble frozen into the hold).
+                if local >= timing[index].length {
+                    context.draw(element.image, in: place(element.box))
+                    continue
+                }
+                drawExpressive(index, local: local, length: timing[index].length, style: style, rect: place(element.box), fit: fit,
+                               point: point, in: context)
+            }
+            return
+        }
         let whole = place(CGRect(origin: .zero, size: size))
         if style == .wipe { context.beginTransparencyLayer(auxiliaryInfo: nil) }
         for (index, element) in elements.enumerated() {
@@ -617,7 +1108,7 @@ struct LogoAnimation: @unchecked Sendable {
                          scale: fit, context: context)
             case .rise:
                 let e = Easing.outQuint(p)
-                if element.kind == .letter {
+                if element.kind == .letter || element.kind == .accent {
                     // From behind the line the letter stands on.
                     context.clip(to: CGRect(x: rect.minX - rect.width, y: rect.minY - 0.5, width: rect.width * 3, height: canvas.height))
                     context.translateBy(x: 0, y: -(1 - e) * rect.height * 1.05)
@@ -636,7 +1127,7 @@ struct LogoAnimation: @unchecked Sendable {
                 context.translateBy(x: -(1 - e) * drawn.width * 0.025, y: 0)
                 drawSoft(element, in: rect, focus: (1 - e) * 0.6, alpha: 1, scale: fit, context: context)
             case .build, .automatic:
-                if element.kind == .symbol {
+                if element.kind == .symbol || element.kind == .plate {
                     // The outline draws itself, then the shape fills in and the line fades.
                     let line = Easing.inOutCubic(min(p / 0.7, 1))
                     let fill = Easing.outCubic(min(max((p - 0.55) / 0.45, 0), 1))
@@ -683,6 +1174,8 @@ struct LogoAnimation: @unchecked Sendable {
                 context.scaleBy(x: 1 / squash, y: squash)
                 context.translateBy(x: -rect.midX, y: -rect.midY)
                 context.draw(element.image, in: rect)
+            case .lineDraw, .bounce, .stretch, .assemble, .liquid:
+                break
             case .reveal:
                 let e = Easing.outCubic(p)
                 context.setAlpha(e)
@@ -817,14 +1310,43 @@ struct LogoAnimation: @unchecked Sendable {
                   let base = context.data else { throw Failure() }
             context.interpolationQuality = .high
             var straight = [UInt8](repeating: 0, count: width * height * 4)
+            // Motion blur, as a camera with a half-open shutter sees it: a few moments across the
+            // shutter, averaged (only where something moves; a still frame is drawn once).
+            let samples = Self.expressive.contains(plan.style) || plan.style == .assemble ? 5 : 1
+            var sum = [Float](repeating: 0, count: samples > 1 ? width * height * 4 : 0)
+            var previous: [UInt8]?
             for frame in 0..<frames {
                 try Task.checkCancellation()
-                context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-                if let background {
-                    context.setFillColor(background)
-                    context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                let time = Double(frame) / Double(frameRate)
+                func render(_ t: Double) {
+                    context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+                    if let background {
+                        context.setFillColor(background)
+                        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+                    }
+                    animation.draw(at: t, plan: plan, in: context, canvas: canvas)
                 }
-                animation.draw(at: Double(frame) / Double(frameRate), plan: plan, in: context, canvas: canvas)
+                render(time)
+                if samples > 1 {
+                    let bytes = base.assumingMemoryBound(to: UInt8.self)
+                    let current = Array(UnsafeBufferPointer(start: bytes, count: width * height * 4))
+                    // Nothing moved since the last frame's moment: no blur to add.
+                    let moving = previous.map { $0 != current } ?? true
+                    previous = current
+                    if moving {
+                        vDSP.convertElements(of: current, to: &sum)
+                        var layer = [Float](repeating: 0, count: width * height * 4)
+                        for k in 1..<samples {
+                            render(time + 0.5 / Double(frameRate) * (Double(k) / Double(samples - 1) - 0.5))
+                            vDSP.convertElements(of: UnsafeBufferPointer(start: bytes, count: width * height * 4), to: &layer)
+                            vDSP.add(sum, layer, result: &sum)
+                        }
+                        vDSP.multiply(1 / Float(samples), sum, result: &sum)
+                        sum.withUnsafeBufferPointer { values in
+                            for i in 0..<(width * height * 4) { bytes[i] = UInt8(min(max(values[i].rounded(), 0), 255)) }
+                        }
+                    }
+                }
                 // ffmpeg wants straight (not premultiplied) alpha.
                 var source = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * 4)
                 straight.withUnsafeMutableBytes { bytes in

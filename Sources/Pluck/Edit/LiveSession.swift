@@ -271,7 +271,9 @@ final class LiveSession {
     }
 
     /// The transcript as subtitle lines, for reading along.
-    var lines: [(time: Double, text: String)] {
+    var lines: [(time: Double, text: String)] { Self.lines(from: words) }
+
+    static func lines(from words: [Transcript.Word]) -> [(time: Double, text: String)] {
         var result: [(Double, String)] = []
         var current = "", start = 0.0, last = 0.0
         for word in words {
@@ -290,40 +292,47 @@ final class LiveSession {
         return result
     }
 
-    /// Markers, highlights and transcript next to the recording, as JSON (for later and for other tools).
+    /// What was found in a recording or a clip, as saved.
+    struct Sidecar: Codable {
+        var events: [SoundTagger.Event]
+        var highlights: [SoundTagger.Highlight]
+        var words: [Transcript.Word]
+    }
+
+    /// Where footage's results are kept: in Pluck's data, not next to it (footage is often on a
+    /// client's drive or a camera card).
+    static func sidecarURL(forFootage file: URL) -> URL {
+        let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pluck/Derush", isDirectory: true)
+        // A hash of the path that stays the same between launches (unlike hashValue).
+        var hash: UInt64 = 1469598103934665603
+        for byte in file.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
+        return folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + "-" + String(hash, radix: 16) + ".json")
+    }
+
+    /// The results saved for a clip by an earlier derush, if there are any.
+    static func saved(forFootage file: URL) -> Sidecar? {
+        guard let data = try? Data(contentsOf: sidecarURL(forFootage: file)) else { return nil }
+        return try? JSONDecoder().decode(Sidecar.self, from: data)
+    }
+
+    /// Markers, highlights and transcript, as JSON (for later and for other tools): next to a
+    /// live recording (Pluck's own file), in Pluck's data for footage.
     private func saveSidecar() {
         guard let file else { return }
-        // A live recording is Pluck's own file: its markers go next to it. Footage (often on a
-        // client's drive or a camera card) is left alone: its markers go into Pluck's data.
-        let sidecar: URL
-        if isLive {
-            sidecar = file.deletingPathExtension().appendingPathExtension("pluck-markers.json")
-        } else {
-            let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-                .appendingPathComponent("Pluck/Derush", isDirectory: true)
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            // A hash of the path that stays the same between launches (unlike hashValue).
-            var hash: UInt64 = 1469598103934665603
-            for byte in file.path.utf8 { hash = (hash ^ UInt64(byte)) &* 1099511628211 }
-            sidecar = folder.appendingPathComponent(file.deletingPathExtension().lastPathComponent + "-" + String(hash, radix: 16) + ".json")
-        }
+        let sidecar = isLive ? file.deletingPathExtension().appendingPathExtension("pluck-markers.json") : Self.sidecarURL(forFootage: file)
+        try? FileManager.default.createDirectory(at: sidecar.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        struct Sidecar: Encodable {
-            var events: [SoundTagger.Event]
-            var highlights: [SoundTagger.Highlight]
-            var words: [Transcript.Word]
-        }
         try? encoder.encode(Sidecar(events: events, highlights: highlights, words: words)).write(to: sidecar, options: .atomic)
     }
 
     /// The recording as a Resolve timeline with every marker, and a second timeline of the highlights.
     func buildInResolve() async throws -> String {
         guard let file else { throw ResolveBridge.Failure(message: String(localized: "Nothing recorded yet.")) }
-        try await MarkedTimeline.build(name: title, bin: String(localized: "Live recordings"),
-                                       clips: [MarkedTimeline.Clip(file: file, length: analysed, events: events,
-                                                                   highlights: highlights, lines: lines)])
-        return title
+        return try await MarkedTimeline.build(name: title, bin: String(localized: "Live recordings"),
+                                              clips: [MarkedTimeline.Clip(file: file, length: analysed, events: events,
+                                                                          highlights: highlights, lines: lines)])
     }
 }
 
@@ -340,8 +349,64 @@ enum MarkedTimeline {
         var shots: [(time: Double, text: String)] = []
     }
 
-    static func build(name: String, bin: String, clips: [Clip]) async throws {
-        guard !clips.isEmpty else { return }
+    /// A piece of a clip on a timeline of cuts, with markers at times within the clip.
+    struct Cut {
+        var file: URL
+        var start: Double
+        var end: Double
+        /// Resolve's clip colour (Green, Orange…), or none.
+        var colour: String?
+        var markers: [(time: Double, colour: String, name: String, note: String)] = []
+    }
+
+    /// A timeline of cuts: the pieces back to back, with a marker naming each section where it
+    /// starts. Returns the timeline's name in Resolve.
+    @discardableResult
+    static func buildCuts(name: String, bin: String, cuts: [Cut], sections: [(cut: Int, title: String)] = []) async throws -> String {
+        guard !cuts.isEmpty else { return name }
+        let files = Array(Set(cuts.map(\.file)))
+        _ = try await ResolveBridge.run(["action": "import", "paths": files.map(\.path), "bin": bin])
+        var rates: [URL: Double] = [:]
+        for file in files {
+            let track = try? await AVURLAsset(url: file).loadTracks(withMediaType: .video).first
+            let rate = Double((try? await track?.load(.nominalFrameRate)) ?? 0)
+            rates[file] = rate > 0 ? rate : 25
+        }
+        let (rate, name) = try await ResolveBridge.createTimeline(name, frameRate: rates[cuts[0].file] ?? 25)
+        var items: [[String: Any]] = [], markers: [[String: Any]] = []
+        var record = 0, starts: [Int] = []
+        for cut in cuts {
+            starts.append(record)
+            let clipRate = rates[cut.file] ?? 25
+            // Whole timeline frames first, the source length from those: rounding both on their own
+            // (50 fps footage on a 25 fps timeline) leaves one-frame gaps and overlaps.
+            let frames = Int(((cut.end - cut.start) * rate).rounded())
+            let sourceIn = Int((cut.start * clipRate).rounded())
+            let sourceOut = sourceIn + Int((Double(frames) * clipRate / rate).rounded())
+            guard frames > 0, sourceOut > sourceIn else { continue }
+            for mediaType in [1, 2] {
+                var item: [String: Any] = ["path": cut.file.path, "track": 1, "recordIn": record, "sourceIn": sourceIn,
+                                           "sourceOut": sourceOut, "mediaType": mediaType]
+                if let colour = cut.colour { item["clipColor"] = colour }
+                items.append(item)
+            }
+            for marker in cut.markers where marker.time >= cut.start && marker.time < cut.end {
+                markers.append(["frame": record + Int(((marker.time - cut.start) * rate).rounded()), "color": marker.colour,
+                                "name": String(marker.name.prefix(40)), "note": marker.note])
+            }
+            record += frames
+        }
+        for section in sections where section.cut < starts.count {
+            markers.append(["frame": starts[section.cut], "color": "Blue", "name": String(section.title.prefix(40)), "note": section.title])
+        }
+        _ = try await ResolveBridge.run(["action": "buildTimeline", "name": name, "videoTracks": 1, "items": items, "markers": markers])
+        return name
+    }
+
+    /// Builds the timelines; returns the name the main one has in Resolve.
+    @discardableResult
+    static func build(name: String, bin: String, clips: [Clip]) async throws -> String {
+        guard !clips.isEmpty else { return name }
         _ = try await ResolveBridge.run(["action": "import", "paths": clips.map(\.file.path), "bin": bin])
         var rates: [URL: Double] = [:]
         for clip in clips {
@@ -349,7 +414,7 @@ enum MarkedTimeline {
             let rate = Double((try? await track?.load(.nominalFrameRate)) ?? 0)
             rates[clip.file] = rate > 0 ? rate : 25
         }
-        let rate = try await ResolveBridge.createTimeline(name, frameRate: rates[clips[0].file] ?? 25)
+        let (rate, name) = try await ResolveBridge.createTimeline(name, frameRate: rates[clips[0].file] ?? 25)
         var items: [[String: Any]] = [], markers: [[String: Any]] = []
         var record = 0
         for clip in clips {
@@ -373,9 +438,9 @@ enum MarkedTimeline {
         _ = try await ResolveBridge.run(["action": "buildTimeline", "name": name, "videoTracks": 1, "items": items, "markers": markers])
 
         let highlights = clips.flatMap { clip in clip.highlights.map { (clip.file, $0) } }
-        guard !highlights.isEmpty else { return }
-        let selectsName = name + " – " + String(localized: "selects")
-        let selectsRate = try await ResolveBridge.createTimeline(selectsName, frameRate: rates[clips[0].file] ?? 25)
+        guard !highlights.isEmpty else { return name }
+        let (selectsRate, selectsName) = try await ResolveBridge.createTimeline(name + " – " + String(localized: "selects"),
+                                                                                frameRate: rates[clips[0].file] ?? 25)
         var pieces: [[String: Any]] = [], notes: [[String: Any]] = []
         record = 0
         for (file, highlight) in highlights {
@@ -389,6 +454,7 @@ enum MarkedTimeline {
             record += Int(((highlight.end - highlight.start) * selectsRate).rounded())
         }
         _ = try await ResolveBridge.run(["action": "buildTimeline", "name": selectsName, "videoTracks": 1, "items": pieces, "markers": notes])
+        return name
     }
 }
 

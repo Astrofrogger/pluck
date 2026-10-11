@@ -88,6 +88,14 @@ enum WhatsNew {
     /// notes here before releasing it.
     static var releases: [Release] {
         [
+            Release(version: "1.15.0", items: [
+                Item(symbol: "wand.and.stars", title: String(localized: "A new Logo Animator"),
+                     detail: String(localized: "New styles that move like hand-made motion design: Assemble (in two acts, the symbol or the dot first, then the whole logo opens out of it), Bounce, Stretch, Liquid and Line Draw, with real springs, squash and stretch and motion blur. Automatic lets the local AI on your Mac pick the style that suits your logo, and says why.")),
+                Item(symbol: "photo.badge.checkmark", title: String(localized: "Logos on a background, and SVG"),
+                     detail: String(localized: "Drop a JPG on a plain colour or a gradient and Pluck lifts the logo off it. Save as SVG turns your logo into a vector file, colour by colour.")),
+                Item(symbol: "film.stack", title: String(localized: "A cut derush timeline"),
+                     detail: String(localized: "Build Derush in Resolve now makes a timeline of cuts: every usable shot as its own clip, grouped by subject, the picks in green, speech kept whole. Earlier derush results come back when you add the folder again, and timelines build reliably.")),
+            ]),
             Release(version: "1.14.1", items: [
                 Item(symbol: "checkmark.circle", title: String(localized: "Pick your vision model"),
                      detail: String(localized: "Choosing a different model in Settings → AI works now. The menu lists the models your Mac has the memory for.")),

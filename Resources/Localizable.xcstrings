@@ -3262,6 +3262,64 @@
       },
       "extractionState": "stale"
     },
+    "A blob of colour splits into droplets that flow into the letters and become the logo.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Farbklecks teilt sich in Tropfen, die in die Buchstaben fließen und zum Logo werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una mancha de color se divide en gotas que fluyen hacia las letras y forman el logo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une tache de couleur se divise en gouttes qui coulent dans les lettres et forment le logo."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una macchia di colore si divide in gocce che scorrono nelle lettere e diventano il logo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色のしずくが分かれて文字へ流れ込み、ロゴになります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색 덩어리가 방울로 나뉘어 글자로 흘러 들어가 로고가 됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een klodder kleur splitst in druppels die in de letters vloeien en het logo vormen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma gota de cor se divide em gotículas que fluem para as letras e viram o logo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一团颜色分成水滴，流入字母并变成标志。"
+          }
+        }
+      }
+    },
     "A close-up per person and a wide shot work best. Each camera needs its own sound to be synced.": {
       "localizations": {
         "de": {
@@ -3320,6 +3378,122 @@
         }
       },
       "extractionState": "stale"
+    },
+    "A cut derush timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine geschnittene Sichtungs-Timeline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una línea de tiempo de derush cortada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une timeline de dérushage montée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una timeline di derush già tagliata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カット済みの下見タイムライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집된 디러시 타임라인"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een geknipte derush-tijdlijn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma linha do tempo de decupagem cortada"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已剪切的粗选时间线"
+          }
+        }
+      }
+    },
+    "A dot travels along the logo, the letters springing up as it passes, and lands in its place.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Punkt wandert über das Logo, die Buchstaben springen auf, wenn er vorbeikommt, und er landet an seinem Platz."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un punto recorre el logo, las letras saltan a su paso y él aterriza en su sitio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un point parcourt le logo, les lettres jaillissent à son passage, puis il se pose à sa place."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un punto percorre il logo, le lettere scattano su al suo passaggio e lui atterra al suo posto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "点がロゴの上を進み、通過した文字が跳ね上がり、最後に点が自分の位置に着地します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "점이 로고를 따라 이동하며 지나가는 글자가 튀어 오르고, 마지막에 제자리에 착지합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een stip reist over het logo, de letters springen op als hij voorbijkomt, en landt op zijn plek."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um ponto percorre o logo, as letras saltam quando ele passa, e ele pousa no seu lugar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一个圆点沿着标志移动，经过时字母依次弹起，最后落到自己的位置。"
+          }
+        }
+      }
     },
     "A downloaded model file didn’t match its published checksum, so it was discarded.": {
       "localizations": {
@@ -3437,6 +3611,64 @@
         }
       }
     },
+    "A line in the logo’s accent colour runs round every shape, and each fills in behind it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Linie in der Akzentfarbe des Logos läuft um jede Form, die sich dahinter füllt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una línea en el color de acento del logo recorre cada forma, que se rellena tras ella."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une ligne dans la couleur d’accent du logo fait le tour de chaque forme, qui se remplit derrière elle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una linea nel colore d’accento del logo percorre ogni forma, che si riempie dietro di lei."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴのアクセントカラーの線が各形をなぞり、その後ろで形が塗りつぶされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고의 강조 색 선이 모든 도형을 따라 그려지고, 그 뒤로 도형이 채워집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een lijn in de accentkleur van het logo loopt rond elke vorm, die zich erachter vult."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma linha na cor de destaque do logo contorna cada forma, que se preenche atrás dela."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一条标志强调色的线条描过每个形状，随后形状被填满。"
+          }
+        }
+      }
+    },
     "A link sent from a phone or another Pluck downloads on this Mac.": {
       "localizations": {
         "de": {
@@ -3491,6 +3723,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "从手机或其他 Pluck 发送的链接会在这台 Mac 上下载。"
+          }
+        }
+      }
+    },
+    "A new Logo Animator": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein neuer Logo-Animator"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nuevo animador de logos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nouvel animateur de logo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nuovo animatore di logo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいロゴアニメーター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새로운 로고 애니메이터"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een nieuwe logo-animator"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um novo animador de logos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全新的标志动画工具"
           }
         }
       }
@@ -6983,6 +7273,64 @@
         }
       }
     },
+    "Assemble": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zusammensetzen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ensamblar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assemblage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assembla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アセンブル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "조립"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Samenvoegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "组合"
+          }
+        }
+      }
+    },
     "At this size the quality drops noticeably": {
       "localizations": {
         "de": {
@@ -8375,6 +8723,64 @@
         }
       }
     },
+    "Bounce": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hüpfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebote"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebond"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimbalzo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バウンス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "바운스"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stuiter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quique"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "弹跳"
+          }
+        }
+      }
+    },
     "Box": {
       "localizations": {
         "nl": {
@@ -8894,6 +9300,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Resolve 中生成粗选"
+          }
+        }
+      }
+    },
+    "Build Derush in Resolve now makes a timeline of cuts: every usable shot as its own clip, grouped by subject, the picks in green, speech kept whole. Earlier derush results come back when you add the folder again, and timelines build reliably.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„Derush in Resolve erstellen“ macht jetzt eine geschnittene Timeline: jede brauchbare Einstellung als eigener Clip, nach Motiv gruppiert, die Auswahl in Grün, Sprache am Stück. Frühere Ergebnisse kommen zurück, wenn du den Ordner erneut hinzufügst, und Timelines werden zuverlässig erstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear derush en Resolve ahora genera una línea de tiempo cortada: cada plano útil como clip propio, agrupado por tema, la selección en verde y las voces enteras. Los resultados anteriores vuelven al añadir de nuevo la carpeta, y las líneas de tiempo se crean de forma fiable."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "« Créer le dérushage dans Resolve » produit désormais une timeline montée : chaque plan utilisable en clip séparé, regroupé par sujet, la sélection en vert, la parole conservée en entier. Les résultats précédents reviennent quand vous ajoutez à nouveau le dossier, et les timelines se créent de façon fiable."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea il derush in Resolve ora produce una timeline tagliata: ogni inquadratura utile come clip a sé, raggruppata per soggetto, le scelte in verde, il parlato intero. I risultati precedenti tornano quando aggiungi di nuovo la cartella, e le timeline si creano in modo affidabile."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「Resolveで下見タイムラインを作成」が、カット済みのタイムラインを作るようになりました。使えるショットごとに1クリップ、題材ごとにまとめ、セレクトは緑、発言は途切れずそのまま。フォルダを再度追加すると以前の結果が戻り、タイムラインも確実に作成されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve에서 디러시 만들기가 이제 편집된 타임라인을 만듭니다. 쓸 수 있는 샷마다 개별 클립으로, 주제별로 묶고, 선택한 샷은 초록색, 말소리는 끊지 않고 그대로 둡니다. 폴더를 다시 추가하면 이전 결과가 돌아오고, 타임라인도 안정적으로 만들어집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derush maken in Resolve maakt nu een geknipte tijdlijn: elke bruikbare shot als eigen clip, per onderwerp gegroepeerd, de keuzes in groen, spraak in zijn geheel. Eerdere resultaten komen terug als je de map opnieuw toevoegt, en tijdlijnen worden betrouwbaar gemaakt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar decupagem no Resolve agora gera uma linha do tempo cortada: cada plano aproveitável como clipe próprio, agrupado por assunto, as escolhas em verde e as falas inteiras. Os resultados anteriores voltam quando você adiciona a pasta de novo, e as linhas do tempo são criadas de forma confiável."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“在 Resolve 中生成粗选”现在会生成已剪切的时间线：每个可用镜头都是独立片段，按主题分组，精选标为绿色，讲话完整保留。再次添加文件夹时会恢复之前的结果，时间线也能可靠生成。"
           }
         }
       }
@@ -11803,6 +12267,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "根据标志的形状选择。"
+          }
+        }
+      }
+    },
+    "Chosen from the logo’s shapes: %@. %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus den Formen des Logos gewählt: %1$@. %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegido según las formas del logo: %1$@. %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisi d’après les formes du logo : %1$@. %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scelto in base alle forme del logo: %1$@. %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴの形から選択：%1$@。%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고의 형태에서 선택: %1$@. %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekozen op basis van de vormen van het logo: %1$@. %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolhido pelas formas do logo: %1$@. %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "根据标志的形状选择：%1$@。%2$@"
           }
         }
       }
@@ -19310,6 +19832,64 @@
         }
       }
     },
+    "Drop a JPG on a plain colour or a gradient and Pluck lifts the logo off it. Save as SVG turns your logo into a vector file, colour by colour.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zieh ein JPG auf einfarbigem oder verlaufendem Hintergrund hinein, und Pluck löst das Logo heraus. „Als SVG sichern“ macht aus deinem Logo eine Vektordatei, Farbe für Farbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta un JPG sobre un color liso o un degradado y Pluck separa el logo. Guardar como SVG convierte tu logo en un archivo vectorial, color a color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déposez un JPG sur une couleur unie ou un dégradé, et Pluck en détache le logo. « Enregistrer en SVG » transforme votre logo en fichier vectoriel, couleur par couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina un JPG su un colore pieno o una sfumatura e Pluck ne stacca il logo. Salva come SVG trasforma il logo in un file vettoriale, colore per colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無地やグラデーションの上のJPGをドロップすると、Pluckがロゴを切り抜きます。「SVGとして保存」でロゴを色ごとのベクターファイルにできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "단색이나 그라데이션 위의 JPG를 놓으면 Pluck이 로고를 분리합니다. SVG로 저장하면 로고를 색상별 벡터 파일로 만듭니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep een JPG op een effen kleur of een kleurverloop erin en Pluck haalt het logo eruit. Bewaar als SVG maakt van je logo een vectorbestand, kleur voor kleur."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte um JPG sobre uma cor lisa ou um degradê e o Pluck separa o logo. Salvar como SVG transforma seu logo em um arquivo vetorial, cor por cor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖入纯色或渐变背景上的 JPG，Pluck 会把标志分离出来。“存储为 SVG”会把标志逐个颜色转为矢量文件。"
+          }
+        }
+      }
+    },
     "Drop a folder of raw footage and local AI on your Mac judges every shot for focus, light, faces, action and its look, and marks cheers, music and the best quotes. It then looks at the whole shoot, picks selects for a corporate, commercial, aftermovie, music or brand video, and says which shots are missing. Build it as a marked-up timeline in DaVinci Resolve. Find it in the File menu.": {
       "localizations": {
         "de": {
@@ -23616,6 +24196,64 @@
         }
       }
     },
+    "Found ^[%lld letter](inflect: true) in ^[%lld box](inflect: true).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%1$lld Buchstabe](inflect: true) in ^[%2$lld Kasten](inflect: true) gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se encontraron ^[%1$lld letra](inflect: true) en ^[%2$lld recuadro](inflect: true)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%1$lld lettre](inflect: true) trouvées dans ^[%2$lld cadre](inflect: true)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trovate ^[%1$lld lettera](inflect: true) in ^[%2$lld riquadro](inflect: true)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%2$lld個のボックスに%1$lld文字が見つかりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "상자 %2$lld개에서 글자 %1$lld개를 찾았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld letters gevonden in %2$lld vakken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontradas ^[%1$lld letra](inflect: true) em ^[%2$lld caixa](inflect: true)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 %2$lld 个框中找到 %1$lld 个字母。"
+          }
+        }
+      }
+    },
     "Found a symbol of %lld shapes and %lld letters.": {
       "localizations": {
         "en": {
@@ -23738,6 +24376,122 @@
         }
       }
     },
+    "Found a symbol of ^[%lld shape](inflect: true) and ^[%lld letter](inflect: true).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol aus ^[%1$lld Form](inflect: true) und ^[%2$lld Buchstabe](inflect: true) gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se encontró un símbolo de ^[%1$lld forma](inflect: true) y ^[%2$lld letra](inflect: true)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbole de ^[%1$lld forme](inflect: true) et ^[%2$lld lettre](inflect: true) trouvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trovato un simbolo di ^[%1$lld forma](inflect: true) e ^[%2$lld lettera](inflect: true)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld個の形と%2$lld文字が見つかりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도형 %1$lld개와 글자 %2$lld개를 찾았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbool van %1$lld vormen en %2$lld letters gevonden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrado um símbolo de ^[%1$lld forma](inflect: true) e ^[%2$lld letra](inflect: true)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到由 %1$lld 个形状和 %2$lld 个字母组成的标志。"
+          }
+        }
+      }
+    },
+    "Found a symbol of ^[%lld shape](inflect: true).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbol aus ^[%lld Form](inflect: true) gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se encontró un símbolo de ^[%lld forma](inflect: true)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbole de ^[%lld forme](inflect: true) trouvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trovato un simbolo di ^[%lld forma](inflect: true)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld個の形からなるシンボルが見つかりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "도형 %lld개로 된 심볼을 찾았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Symbool van %lld vormen gevonden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrado um símbolo de ^[%lld forma](inflect: true)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到一个由 %lld 个形状组成的图形。"
+          }
+        }
+      }
+    },
     "Found a wordmark of %lld letters.": {
       "localizations": {
         "de": {
@@ -23792,6 +24546,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "找到由 %lld 个字母组成的文字标志。"
+          }
+        }
+      }
+    },
+    "Found a wordmark of ^[%lld letter](inflect: true).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wortmarke mit ^[%lld Buchstabe](inflect: true) gefunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se encontró un logotipo de ^[%lld letra](inflect: true)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logotype de ^[%lld lettre](inflect: true) trouvé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trovato un logotipo di ^[%lld lettera](inflect: true)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld文字のロゴタイプが見つかりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글자 %lld개로 된 워드마크를 찾았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Woordmerk van %lld letters gevonden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Encontrado um logotipo de ^[%lld letra](inflect: true)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找到一个由 %lld 个字母组成的文字标志。"
           }
         }
       }
@@ -24672,6 +25484,64 @@
         }
       }
     },
+    "Hero Trail": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heldenspur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estela"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traînée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒーロートレイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "히어로 트레일"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spoor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rastro"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主角轨迹"
+          }
+        }
+      }
+    },
     "Highlight": {
       "localizations": {
         "nl": {
@@ -25017,6 +25887,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "画面内"
+          }
+        }
+      }
+    },
+    "In two acts: the symbol, the dot or a line arrives in the middle first, then the whole logo opens out of it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In zwei Akten: Erst kommt das Symbol, der Punkt oder eine Linie in der Mitte an, dann öffnet sich daraus das ganze Logo."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En dos actos: primero llega al centro el símbolo, el punto o una línea, y luego todo el logo se abre a partir de él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En deux actes : le symbole, le point ou une ligne arrive d’abord au centre, puis tout le logo s’ouvre à partir de lui."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In due atti: prima arriva al centro il simbolo, il punto o una linea, poi l’intero logo si apre da lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2幕構成：まずシンボル、点、または線が中央に現れ、そこからロゴ全体が開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 막으로: 먼저 심볼, 점 또는 선이 가운데에 나타나고, 거기서 로고 전체가 펼쳐집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In twee bedrijven: eerst komt het symbool, de stip of een lijn in het midden aan, daarna opent het hele logo zich daaruit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em dois atos: primeiro o símbolo, o ponto ou uma linha chega ao centro, depois o logo inteiro se abre a partir dele."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分两幕：先是标志图形、圆点或一条线出现在中央，随后整个标志从中展开。"
           }
         }
       }
@@ -27458,6 +28386,122 @@
         }
       }
     },
+    "Line Draw": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linienzeichnung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trazo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tracé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tratto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライン描画"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라인 드로잉"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lijntekening"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traçado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "线条描绘"
+          }
+        }
+      }
+    },
+    "Liquid": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flüssig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Líquido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liquido"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リキッド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "리퀴드"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vloeibaar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Líquido"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "液态"
+          }
+        }
+      }
+    },
     "Liquid Glass on macOS 26 and a redesigned Settings window.": {
       "localizations": {
         "de": {
@@ -29080,6 +30124,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "标志拖放区域"
+          }
+        }
+      }
+    },
+    "Logos on a background, and SVG": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos auf Hintergrund und SVG"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos sobre fondo y SVG"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos sur fond, et SVG"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loghi su sfondo e SVG"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "背景付きのロゴとSVG"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "배경 위 로고와 SVG"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo’s op een achtergrond, en SVG"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logos sobre fundo e SVG"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带背景的标志与 SVG"
           }
         }
       }
@@ -34207,6 +35309,64 @@
         }
       }
     },
+    "New styles that move like hand-made motion design: Assemble (in two acts, the symbol or the dot first, then the whole logo opens out of it), Bounce, Stretch, Liquid and Line Draw, with real springs, squash and stretch and motion blur. Automatic lets the local AI on your Mac pick the style that suits your logo, and says why.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Stile, die sich wie handgemachtes Motion Design bewegen: Zusammensetzen (in zwei Akten: erst das Symbol oder der Punkt, dann öffnet sich das ganze Logo daraus), Hüpfen, Dehnen, Flüssig und Linienzeichnung, mit echten Federn, Stauchen und Dehnen sowie Bewegungsunschärfe. Bei „Automatisch“ wählt die lokale KI auf deinem Mac den passenden Stil und sagt, warum."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estilos nuevos que se mueven como motion design hecho a mano: Ensamblar (en dos actos: primero el símbolo o el punto, luego todo el logo se abre a partir de él), Rebote, Estirar, Líquido y Trazo, con muelles reales, aplastar y estirar y desenfoque de movimiento. En Automático, la IA local de tu Mac elige el estilo que va con tu logo y explica por qué."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De nouveaux styles qui bougent comme du motion design fait main : Assemblage (en deux actes : d’abord le symbole ou le point, puis tout le logo s’ouvre à partir de lui), Rebond, Étirement, Liquide et Tracé, avec de vrais ressorts, de l’écrasement-étirement et du flou de mouvement. En mode Automatique, l’IA locale de votre Mac choisit le style qui convient à votre logo et explique pourquoi."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovi stili che si muovono come motion design fatto a mano: Assembla (in due atti: prima il simbolo o il punto, poi l’intero logo si apre da lì), Rimbalzo, Allunga, Liquido e Tratto, con molle vere, schiacciamento e allungamento e motion blur. Con Automatico l’IA locale sul tuo Mac sceglie lo stile adatto al logo e spiega perché."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手作りのモーションデザインのように動く新スタイル：アセンブル（2幕構成：まずシンボルや点、そこからロゴ全体が開く）、バウンス、ストレッチ、リキッド、ライン描画。本物のバネの動き、つぶしと伸ばし、モーションブラー付き。自動では、MacのローカルAIがロゴに合うスタイルを選び、理由も示します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "손으로 만든 모션 디자인처럼 움직이는 새 스타일: 조립(두 막으로: 먼저 심볼이나 점, 그다음 로고 전체가 펼쳐짐), 바운스, 스트레치, 리퀴드, 라인 드로잉. 실제 스프링, 찌그러짐과 늘어남, 모션 블러까지. 자동에서는 Mac의 로컬 AI가 로고에 맞는 스타일을 고르고 이유를 알려 줍니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieuwe stijlen die bewegen als handgemaakt motion design: Samenvoegen (in twee bedrijven: eerst het symbool of de stip, daarna opent het hele logo zich daaruit), Stuiter, Rekken, Vloeibaar en Lijntekening, met echte veren, indeuken en uitrekken en bewegingsonscherpte. Bij Automatisch kiest de lokale AI op je Mac de stijl die bij je logo past, en zegt waarom."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novos estilos que se movem como motion design feito à mão: Montar (em dois atos: primeiro o símbolo ou o ponto, depois o logo inteiro se abre a partir dele), Quique, Esticar, Líquido e Traçado, com molas de verdade, achatar e esticar e desfoque de movimento. No Automático, a IA local do seu Mac escolhe o estilo que combina com o logo e diz por quê."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "动起来像手工动态设计的新风格：组合（分两幕：先是图形或圆点，再由此展开整个标志）、弹跳、拉伸、液态和线条描绘，带有真实的弹簧、挤压拉伸和运动模糊。选择“自动”时，Mac 上的本地 AI 会挑选适合你标志的风格并说明原因。"
+          }
+        }
+      }
+    },
     "Newest First": {
       "localizations": {
         "nl": {
@@ -35772,6 +36932,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚未安装"
+          }
+        }
+      }
+    },
+    "Not looked at": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bild nicht analysiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagen sin analizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Image non analysée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Immagine non analizzata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "映像は未解析"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화면 분석 안 됨"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beeld niet geanalyseerd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagem não analisada"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "画面未分析"
           }
         }
       }
@@ -47809,6 +49027,64 @@
         }
       }
     },
+    "Save as SVG": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als SVG sichern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como SVG"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer en SVG"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva come SVG"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVGとして保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVG로 저장"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaar als SVG"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar como SVG"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储为 SVG"
+          }
+        }
+      }
+    },
     "Save the frame on screen as a full-size picture": {
       "localizations": {
         "nl": {
@@ -53800,6 +55076,64 @@
         }
       }
     },
+    "Speech": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprache"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paroles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parlato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "말소리"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spraak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fala"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讲话"
+          }
+        }
+      }
+    },
     "Speed ramp": {
       "localizations": {
         "de": {
@@ -54840,6 +56174,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止"
+          }
+        }
+      }
+    },
+    "Stretch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dehnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estirar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étirement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allunga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストレッチ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트레치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rekken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esticar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉伸"
           }
         }
       }
@@ -56413,6 +57805,64 @@
       },
       "extractionState": "stale"
     },
+    "Taking the logo apart…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo wird zerlegt …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separando el logo…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Décomposition du logo…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scomposizione del logo…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴを分解しています…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고를 분해하는 중…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logo wordt uit elkaar gehaald…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Separando o logo…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在拆分标志…"
+          }
+        }
+      }
+    },
     "Target size": {
       "localizations": {
         "de": {
@@ -57815,6 +59265,180 @@
         }
       }
     },
+    "The letters bounce in, stretching and squashing as they land; the dot or sparkle lands last.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Buchstaben hüpfen herein, gedehnt und gestaucht beim Landen; der Punkt oder Stern landet zuletzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las letras entran rebotando, estirándose y aplastándose al aterrizar; el punto o destello aterriza el último."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lettres arrivent en rebondissant, s’étirent et s’écrasent à l’atterrissage ; le point ou l’étincelle se pose en dernier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lettere entrano rimbalzando, allungandosi e schiacciandosi all’atterraggio; il punto o la stella atterra per ultimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字が弾みながら現れ、着地で伸び縮みします。点やきらめきは最後に着地します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글자가 튀어 들어오며 착지할 때 늘어나고 찌그러지고, 점이나 반짝이는 마지막에 착지합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De letters stuiteren binnen en rekken en deuken in bij het landen; de stip of fonkeling landt als laatste."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As letras entram quicando, esticando e achatando ao pousar; o ponto ou brilho pousa por último."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母弹跳着进入，落地时拉伸和压扁；圆点或闪光最后落下。"
+          }
+        }
+      }
+    },
+    "The letters drop in and bounce, squashing as they land; the dot or sparkle lands last.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Buchstaben fallen herein und hüpfen, beim Landen gestaucht; der Punkt oder Stern landet zuletzt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las letras caen y rebotan, aplastándose al aterrizar; el punto o destello aterriza el último."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lettres tombent et rebondissent en s’écrasant à l’atterrissage ; le point ou l’étincelle se pose en dernier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lettere cadono e rimbalzano, schiacciandosi all’atterraggio; il punto o la stella atterra per ultimo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字が落ちてきて弾み、着地でつぶれます。点やきらめきは最後に着地します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글자가 떨어져 튀어 오르며 착지할 때 찌그러지고, 점이나 반짝이는 마지막에 착지합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De letters vallen in en stuiteren, platgedrukt als ze landen; de stip of fonkeling landt als laatste."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As letras caem e quicam, achatando ao pousar; o ponto ou brilho pousa por último."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母落下弹跳，落地时被压扁；圆点或闪光最后落下。"
+          }
+        }
+      }
+    },
+    "The letters grow out of a line, stretching tall like rubber and springing back, in a wave.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Buchstaben wachsen aus einer Linie, dehnen sich wie Gummi in die Höhe und federn zurück, in einer Welle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las letras crecen desde una línea, se estiran como goma y vuelven a su sitio, en una ola."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les lettres naissent d’une ligne, s’étirent comme du caoutchouc puis reviennent en place, en vague."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le lettere crescono da una linea, si allungano come gomma e tornano indietro, in un’onda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字が線から伸び上がり、ゴムのように伸びて戻ります。波のように順番に。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글자가 선에서 자라나 고무처럼 길게 늘어났다가 돌아옵니다. 물결처럼 차례로."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De letters groeien uit een lijn, rekken als elastiek omhoog en veren terug, in een golf."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As letras crescem a partir de uma linha, esticam como borracha e voltam, em onda."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字母从一条线中长出，像橡皮筋一样拉高再弹回，依次如波浪。"
+          }
+        }
+      }
+    },
     "The letters rise from behind an invisible line; the symbol grows into focus.": {
       "localizations": {
         "de": {
@@ -57927,6 +59551,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "退出后列表仍会保留。按空格键快速查看，或将下载拖到“访达”或“邮件”中。"
+          }
+        }
+      }
+    },
+    "The logo as a vector file: traced colour by colour into smooth curves": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Logo als Vektordatei: Farbe für Farbe in glatte Kurven nachgezeichnet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El logo como archivo vectorial: calcado color a color en curvas suaves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le logo en fichier vectoriel : vectorisé couleur par couleur en courbes lisses"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il logo come file vettoriale: ricalcato colore per colore in curve morbide"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴをベクターファイルに：色ごとになめらかな曲線でトレース"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고를 벡터 파일로: 색상별로 부드러운 곡선으로 변환"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het logo als vectorbestand: kleur voor kleur overgetrokken in vloeiende curves"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O logo como arquivo vetorial: traçado cor por cor em curvas suaves"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将标志存为矢量文件：逐个颜色描摹为平滑曲线"
+          }
+        }
+      }
+    },
+    "The logo looks %@, so: %@. %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Logo wirkt %1$@, daher: %2$@. %3$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El logo parece %1$@, así que: %2$@. %3$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le logo paraît %1$@, donc : %2$@. %3$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il logo sembra %1$@, quindi: %2$@. %3$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴは%1$@な印象なので：%2$@。%3$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고가 %1$@ 느낌이라: %2$@. %3$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het logo oogt %1$@, dus: %2$@. %3$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O logo parece %1$@, então: %2$@. %3$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个标志看起来%1$@，所以：%2$@。%3$@"
           }
         }
       }
@@ -59785,6 +61525,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "此链接已过期。"
+          }
+        }
+      }
+    },
+    "This logo sits on a photo or a pattern: Pluck can’t lift it off cleanly. A version on a plain background (or a PNG, SVG or PDF without one) works best.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Logo liegt auf einem Foto oder Muster: Pluck kann es nicht sauber herauslösen. Am besten eignet sich eine Version auf schlichtem Hintergrund (oder ein PNG, SVG oder PDF ohne Hintergrund)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este logo está sobre una foto o un patrón: Pluck no puede separarlo limpiamente. Funciona mejor una versión sobre un fondo liso (o un PNG, SVG o PDF sin fondo)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce logo est posé sur une photo ou un motif : Pluck ne peut pas l’en détacher proprement. Une version sur un fond uni (ou un PNG, SVG ou PDF sans fond) convient mieux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo logo è su una foto o un motivo: Pluck non riesce a staccarlo in modo pulito. Funziona meglio una versione su sfondo semplice (o un PNG, SVG o PDF senza sfondo)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このロゴは写真や模様の上にあるため、Pluckではきれいに切り抜けません。無地の背景のバージョン（または背景のないPNG、SVG、PDF）が最適です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 로고는 사진이나 패턴 위에 있어 Pluck이 깔끔하게 분리할 수 없습니다. 단색 배경 버전(또는 배경 없는 PNG, SVG, PDF)이 가장 좋습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit logo staat op een foto of een patroon: Pluck kan het er niet netjes uithalen. Een versie op een effen achtergrond (of een PNG, SVG of PDF zonder achtergrond) werkt het best."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este logo está sobre uma foto ou um padrão: o Pluck não consegue separá-lo de forma limpa. Uma versão em fundo liso (ou um PNG, SVG ou PDF sem fundo) funciona melhor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这个标志位于照片或图案上，Pluck 无法干净地将其分离。使用纯色背景的版本（或无背景的 PNG、SVG、PDF）效果最好。"
           }
         }
       }
@@ -67760,6 +69558,64 @@
         }
       }
     },
+    "bold": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kraftvoll"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "contundente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "affirmé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "deciso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "力強い"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "강렬한"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "krachtig"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "marcante"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大胆"
+          }
+        }
+      }
+    },
     "breaks off": {
       "localizations": {
         "de": {
@@ -67995,6 +69851,64 @@
       },
       "extractionState": "stale"
     },
+    "elegant": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elegant"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elegante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "élégant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elegante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エレガント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우아한"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elegant"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "elegante"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优雅"
+          }
+        }
+      }
+    },
     "end": {
       "localizations": {
         "de": {
@@ -68168,6 +70082,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "未安装 ffmpeg，因此无法转换此文件。"
+          }
+        }
+      }
+    },
+    "friendly": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "freundlich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cercano"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "chaleureux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "amichevole"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "親しみやすい"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "친근한"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vriendelijk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "amigável"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "亲切"
           }
         }
       }
@@ -68697,6 +70669,122 @@
         }
       }
     },
+    "organic": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "organisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "orgánico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "organique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "organico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有機的"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유기적인"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "organisch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "orgânico"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自然"
+          }
+        }
+      }
+    },
+    "playful": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "verspielt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "divertido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ludique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "giocoso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "遊び心のある"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "장난스러운"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "speels"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "divertido"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "活泼"
+          }
+        }
+      }
+    },
     "selects": {
       "localizations": {
         "de": {
@@ -68932,6 +71020,64 @@
       },
       "extractionState": "stale"
     },
+    "technical": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "technisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "técnico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "technique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tecnico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テクニカル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기술적인"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "technisch"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "técnico"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "科技感"
+          }
+        }
+      }
+    },
     "to": {
       "localizations": {
         "de": {
@@ -68986,6 +71132,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "至"
+          }
+        }
+      }
+    },
+    "vector": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vektor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vectorial"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vectoriel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vettoriale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ベクター"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "벡터"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vector"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "vetorial"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "矢量"
           }
         }
       }

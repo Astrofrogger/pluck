@@ -223,7 +223,7 @@ struct VisualSearchView: View {
         status = String(localized: "Building the timeline in DaVinci Resolve…")
         Task {
             do {
-                let name = String(localized: "Pluck shots") + " " + Date.now.formatted(date: .abbreviated, time: .shortened)
+                var name = String(localized: "Pluck shots") + " " + Date.now.formatted(date: .abbreviated, time: .shortened)
                 let paths = Array(Set(shots.map(\.path)))
                 _ = try await ResolveBridge.run(["action": "import", "paths": paths, "bin": String(localized: "Pluck shots")])
                 var rates: [String: Double] = [:]
@@ -231,7 +231,9 @@ struct VisualSearchView: View {
                     let track = try? await AVURLAsset(url: URL(fileURLWithPath: path)).loadTracks(withMediaType: .video).first
                     rates[path] = Double((try? await track?.load(.nominalFrameRate)) ?? 25)
                 }
-                let timelineRate = try await ResolveBridge.createTimeline(name, frameRate: rates[shots[0].path] ?? 25)
+                let created = try await ResolveBridge.createTimeline(name, frameRate: rates[shots[0].path] ?? 25)
+                let timelineRate = created.rate
+                name = created.name
                 var items: [[String: Any]] = [], markers: [[String: Any]] = []
                 var record = 0
                 for hit in shots {

@@ -29,15 +29,18 @@ final class DerushSession {
     private(set) var pictureProgress: Double?
     private(set) var plan: ShootPlan.Plan?
     private(set) var planning = false
-    /// Screenshot mode: open the shoot overview once the plan is ready.
+    /// Screenshot mode: open the shoot overview once the plan is ready, and build the timelines
+    /// in Resolve once everything is in.
     var showOverview = false
+    var buildWhenReady = false
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored weak var manager: DownloadManager?
 
     static let extensions: Set<String> = ["mov", "mp4", "m4v", "mxf", "mts", "m2ts", "avi", "mkv", "webm", "ts",
                                           "wav", "aif", "aiff", "mp3", "m4a", "flac"]
 
-    func add(_ urls: [URL]) {
+    /// Adds clips (folders are searched); clips derushed before come back with their results.
+    func add(_ urls: [URL], kind: ShootPlan.Kind = .corporate) {
         var found: [URL] = []
         for url in urls {
             var isFolder: ObjCBool = false
@@ -56,6 +59,35 @@ final class DerushSession {
         where !clips.contains(where: { $0.file == file }) {
             clips.append(Clip(file: file))
         }
+        restoreSaved(kind: kind)
+    }
+
+    @ObservationIgnored private var restoring: Task<Void, Never>?
+
+    /// Results saved by an earlier derush (sound, transcript and shots, kept in Pluck's data):
+    /// those clips are done at once, without analysing them again.
+    private func restoreSaved(kind: ShootPlan.Kind) {
+        let previous = restoring
+        restoring = Task {
+            await previous?.value
+            var restored = 0
+            for file in clips.filter({ $0.state == .waiting }).map(\.file) {
+                guard let saved = LiveSession.saved(forFootage: file) else { continue }
+                let duration = (try? await AVURLAsset(url: file).load(.duration).seconds) ?? 0
+                let index = VisualIndex.load(file.path).flatMap { $0.shots.first?.quality != nil ? $0 : nil }
+                // The list may have changed meanwhile.
+                guard let n = clips.firstIndex(where: { $0.file == file }), clips[n].state == .waiting else { continue }
+                clips[n].length = duration.isFinite ? duration : 0
+                clips[n].events = saved.events
+                clips[n].soundHighlights = saved.highlights
+                clips[n].highlights = saved.highlights
+                clips[n].lines = LiveSession.lines(from: saved.words)
+                clips[n].index = index
+                clips[n].state = .done
+                restored += 1
+            }
+            if restored > 0 { await replan(kind: kind) }
+        }
     }
 
     func remove(_ file: URL) {
@@ -72,6 +104,8 @@ final class DerushSession {
         guard !running else { return }
         running = true
         task = Task {
+            // Saved results first, so nothing is analysed twice.
+            await restoring?.value
             for index in clips.indices where clips[index].state != .done {
                 if Task.isCancelled { break }
                 clips[index].state = .working
@@ -242,7 +276,7 @@ struct DerushView: View {
             Task {
                 var urls: [URL] = []
                 for provider in providers { if let url = await provider.load(URL.self), url.isFileURL { urls.append(url) } }
-                session.add(urls)
+                session.add(urls, kind: kind)
             }
             return true
         }
@@ -252,6 +286,9 @@ struct DerushView: View {
         }
         .onChange(of: session.plan != nil && session.showOverview) { _, ready in
             if ready { session.showOverview = false; showingOverview = true }
+        }
+        .onChange(of: session.buildWhenReady && session.plan != nil && !session.planning && !session.running) { _, ready in
+            if ready { session.buildWhenReady = false; build() }
         }
         .sheet(isPresented: $showingOverview) { overviewSheet }
         .task {
@@ -506,20 +543,76 @@ struct DerushView: View {
         panel.canChooseFiles = !folders
         if !folders { panel.allowedContentTypes = [.audiovisualContent] }
         panel.prompt = String(localized: "Add")
-        if panel.runModal() == .OK { session.add(panel.urls) }
+        if panel.runModal() == .OK { session.add(panel.urls, kind: kind) }
     }
 
+    /// The derush in Resolve, cut: a stringout of every usable shot (soft, shaky, dark or blown
+    /// ones left out unless their look is meant), grouped by subject, the picks coloured green;
+    /// speech kept whole and in order. And a timeline of the selects alone.
     private func build() {
-        let clips = done.map { clip in
-            MarkedTimeline.Clip(file: clip.file, length: clip.length, events: clip.events, highlights: clip.highlights,
-                                lines: clip.lines, shots: (clip.index?.shots ?? []).map { (time: $0.start, text: note($0, in: clip.file)) })
+        let clips = done
+        let byPath = Dictionary(clips.map { ($0.file.path, $0) }, uniquingKeysWith: { a, _ in a })
+        let kind = self.kind
+        func markers(_ clip: DerushSession.Clip) -> [(time: Double, colour: String, name: String, note: String)] {
+            clip.events.map { (time: $0.time, colour: $0.kind.colour, name: $0.kind.label, note: "") }
+                + clip.lines.map { (time: $0.time, colour: "Sky", name: $0.text, note: $0.text) }
+                + clip.highlights.map { (time: $0.start, colour: "Red", name: String(localized: "Highlight"), note: $0.reason) }
+        }
+        var cuts: [MarkedTimeline.Cut] = [], sections: [(cut: Int, title: String)] = []
+        // Speech whole and in order: cutting it by subject would chop sentences apart.
+        let speech = clips.filter { !$0.lines.isEmpty }
+        if !speech.isEmpty {
+            sections.append((cuts.count, String(localized: "Speech")))
+            cuts += speech.map { MarkedTimeline.Cut(file: $0.file, start: 0, end: $0.length, markers: markers($0)) }
+        }
+        let speaking = Set(speech.map(\.file.path))
+        // Every usable shot, by subject (shots of their own together at the end).
+        if let plan = session.plan {
+            var groups = plan.topics.filter { $0.shots.count > 1 }.map { (title: $0.name, shots: $0.shots) }
+            let loose = plan.topics.filter { $0.shots.count == 1 }.flatMap(\.shots)
+            if !loose.isEmpty { groups.append((String(localized: "Other shots"), loose)) }
+            for group in groups {
+                let usable = group.shots.filter { item in
+                    guard !speaking.contains(item.path) else { return false }
+                    let judged = VisualIndex.score(item.shot, weights: kind.weights)
+                    return judged.problems.isEmpty || judged.score >= 0.3
+                }.sorted { ($0.path, $0.shot.start) < ($1.path, $1.shot.start) }
+                guard !usable.isEmpty else { continue }
+                sections.append((cuts.count, group.title))
+                for item in usable {
+                    let file = URL(fileURLWithPath: item.path)
+                    let pick = session.isPick(file, item.shot)
+                    // The next piece of the same shot joins it: no cut where nothing changes.
+                    if let last = cuts.last, last.file == file, abs(last.end - item.shot.start) < 0.05, (last.colour != nil) == pick {
+                        cuts[cuts.count - 1].end = item.shot.end
+                        continue
+                    }
+                    cuts.append(MarkedTimeline.Cut(file: file, start: item.shot.start, end: item.shot.end, colour: pick ? "Green" : nil,
+                                                   markers: byPath[item.path].map(markers) ?? []))
+                }
+            }
+        }
+        // Clips the picture wasn't looked at (sound only, or analysed without it): whole.
+        let unseen = clips.filter { $0.index == nil && $0.lines.isEmpty }
+        if !unseen.isEmpty {
+            sections.append((cuts.count, String(localized: "Not looked at")))
+            cuts += unseen.map { MarkedTimeline.Cut(file: $0.file, start: 0, end: $0.length, markers: markers($0)) }
+        }
+        // The selects: the highlights alone, in the order they were filmed.
+        let selects = clips.flatMap { clip in
+            clip.highlights.map { MarkedTimeline.Cut(file: clip.file, start: $0.start, end: $0.end, colour: "Green",
+                                                     markers: [(time: $0.start, colour: "Red", name: $0.reason, note: $0.reason)]) }
         }
         let name = String(localized: "Derush") + " " + Date.now.formatted(date: .abbreviated, time: .shortened)
+        let bin = String(localized: "Derush")
         status = String(localized: "Building the timeline in DaVinci Resolve…")
         Task {
             do {
-                try await MarkedTimeline.build(name: name, bin: String(localized: "Derush"), clips: clips)
-                status = String(localized: "Timeline “\(name)” is in Resolve.")
+                let made = try await MarkedTimeline.buildCuts(name: name, bin: bin, cuts: cuts, sections: sections)
+                if !selects.isEmpty {
+                    try await MarkedTimeline.buildCuts(name: made + " – " + String(localized: "selects"), bin: bin, cuts: selects)
+                }
+                status = String(localized: "Timeline “\(made)” is in Resolve.")
             } catch {
                 status = error.localizedDescription
             }
