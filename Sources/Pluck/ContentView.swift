@@ -14,6 +14,7 @@ struct ContentView: View {
     @Environment(\.openPluckSettings) private var openSettings
     @Environment(AppUpdater.self) private var appUpdater
     @Environment(HelperToolsUpdater.self) private var toolsUpdater
+    @Environment(Updater.self) private var updater
     @State private var confirmUpdate = false
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @State private var urlText = ""
@@ -50,11 +51,12 @@ struct ContentView: View {
             if appUpdater.showsBanner, let release = appUpdater.release {
                 updateBanner(release)
             }
-            if manager.ffmpegMissing {
-                if toolsUpdater.isBusy || manager.toolsInstalling {
+            // First launch (or a tool gone): what's being set up, as it goes, or what went wrong.
+            if manager.ffmpegMissing || manager.executableURL == nil {
+                if updater.isBusy || toolsUpdater.isBusy || manager.toolsInstalling {
                     setupBanner
                 } else {
-                    ffmpegBanner
+                    toolsBanner
                 }
             }
             inputBar
@@ -208,11 +210,23 @@ struct ContentView: View {
         Task { await appUpdater.installAndRelaunch() }
     }
 
+    /// What's downloading right now, e.g. "yt-dlp: 34% (12 of 37 MB)".
+    private var setupProgress: String? {
+        if let progress = updater.progress { return Updater.progressText("yt-dlp", done: progress.done, total: progress.total) }
+        if let progress = toolsUpdater.progress { return Updater.progressText(progress.tool, done: progress.done, total: progress.total) }
+        return nil
+    }
+
     private var setupBanner: some View {
         HStack(spacing: 10) {
             ProgressView().controlSize(.small)
-            Text("Setting up yt-dlp and ffmpeg… Downloads will start as soon as they’re ready.")
-                .font(.callout)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Setting up yt-dlp and ffmpeg… Downloads will start as soon as they’re ready.")
+                    .font(.callout)
+                if let setupProgress {
+                    Text(setupProgress).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+            }
             Spacer()
         }
         .padding(12)
@@ -221,26 +235,38 @@ struct ContentView: View {
         .padding(.top, 12)
     }
 
-    private var ffmpegBanner: some View {
-        HStack(spacing: 10) {
+    /// A tool Pluck needs is missing and setting it up failed (or automatic setup is off).
+    private var toolsBanner: some View {
+        let automatic = UserDefaults.standard.bool(forKey: Prefs.autoUpdate)
+        let ytdlpMissing = manager.executableURL == nil
+        let problem = [updater.failureMessage, toolsUpdater.failureMessage].compactMap { $0 }.first
+        return HStack(alignment: .top, spacing: 10) {
             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 .accessibilityLabel("Warning")
-            Text(UserDefaults.standard.bool(forKey: Prefs.autoUpdate)
-                 ? "Couldn’t download ffmpeg, so merging video and converting audio will fail."
-                 : "ffmpeg isn’t installed, so merging video and converting audio will fail.")
-                .font(.callout)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ytdlpMissing
+                     ? (automatic ? "Couldn’t download yt-dlp, so nothing can be downloaded yet." : "yt-dlp isn’t installed, so nothing can be downloaded.")
+                     : (automatic ? "Couldn’t download ffmpeg, so merging video and converting audio will fail."
+                                  : "ffmpeg isn’t installed, so merging video and converting audio will fail."))
+                    .font(.callout)
+                if automatic, let problem {
+                    Text(problem).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
             Spacer()
-            if UserDefaults.standard.bool(forKey: Prefs.autoUpdate) {
-                Button("Try Again") { Task { await toolsUpdater.check(force: true) } }
-                    .glassButtonStyle()
-                    .help(toolsUpdater.failureMessage ?? "")
+            if automatic {
+                Button("Try Again") {
+                    Task { await updater.check(force: ytdlpMissing) }
+                    Task { await toolsUpdater.check(force: manager.ffmpegMissing) }
+                }
+                .glassButtonStyle()
             } else {
                 Button("Copy Install Command") {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString("brew install ffmpeg", forType: .string)
+                    NSPasteboard.general.setString(ytdlpMissing ? "brew install yt-dlp ffmpeg" : "brew install ffmpeg", forType: .string)
                 }
                 .glassButtonStyle()
-                .help("brew install ffmpeg (needs Homebrew from brew.sh)")
+                .help("Needs Homebrew from brew.sh")
             }
         }
         .padding(12)

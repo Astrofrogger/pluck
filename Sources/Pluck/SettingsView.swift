@@ -535,6 +535,10 @@ private struct AdvancedSettings: View {
                     .onChange(of: nightly) { Task { await updater.check(force: true) } }
                 LabeledContent("yt-dlp") {
                     HStack(spacing: 8) {
+                        if let progress = updater.progress {
+                            Text(Updater.progressText(String(localized: "Downloading"), done: progress.done, total: progress.total))
+                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        }
                         statusIcon(updater.status)
                         if let version = manager.ytdlpVersion {
                             Text(version).monospacedDigit()
@@ -545,6 +549,10 @@ private struct AdvancedSettings: View {
                 }
                 LabeledContent("ffmpeg") {
                     HStack(spacing: 8) {
+                        if let progress = toolsUpdater.progress {
+                            Text(Updater.progressText(progress.tool, done: progress.done, total: progress.total))
+                                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        }
                         statusIcon(toolsUpdater.status)
                         if autoUpdate, HelperToolsUpdater.ffmpegInstalled, let version = toolsUpdater.ffmpegVersion {
                             Text(version).monospacedDigit()
@@ -568,11 +576,19 @@ private struct AdvancedSettings: View {
                         HStack {
                             Text(updater.lastChecked.map { $0.formatted(.relative(presentation: .named)) } ?? String(localized: "Never"))
                                 .foregroundStyle(.secondary)
-                            Button("Check Now") {
-                                Task { await updater.check() }
-                                Task { await toolsUpdater.check() }
+                            if updater.isBusy || toolsUpdater.isBusy {
+                                // A slow or stuck download can always be stopped (and carries
+                                // on where it stopped next time).
+                                Button("Stop") {
+                                    updater.stop()
+                                    toolsUpdater.stop()
+                                }
+                            } else {
+                                Button("Check Now") {
+                                    Task { await updater.check() }
+                                    Task { await toolsUpdater.check() }
+                                }
                             }
-                            .disabled(updater.isBusy || toolsUpdater.isBusy)
                         }
                     }
                 }

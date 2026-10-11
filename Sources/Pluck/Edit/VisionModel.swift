@@ -132,9 +132,24 @@ enum VisionModel {
             }
             guard let url = URL(string: "https://huggingface.co/\(choice.repository)/resolve/\(choice.revision)/\(file.path)") else { throw Failure.download }
             let base = done
-            let delegate = DownloadProgress { written in progress(min((base + Double(written)) / max(total, 1), 1)) }
-            let (temp, response) = try await URLSession.shared.download(from: url, delegate: delegate)
-            guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.download }
+            // Progress as it goes, and a file interrupted halfway carries on next time.
+            let temp: URL
+            do {
+                temp = try await ToolDownloads.download(url, limit: 24 * 3600) { written, _ in
+                    progress(min((base + Double(written)) / max(total, 1), 1))
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                throw Failure.download
+            }
+            // A wrong answer from the server (an error page) is caught by the size and checksum.
+            if let expected = file.size,
+               let got = (try? FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)?.int64Value,
+               got != expected {
+                try? FileManager.default.removeItem(at: temp)
+                throw Failure.download
+            }
             if let expected = file.lfs?.oid, try sha256(of: temp) != expected {
                 try? FileManager.default.removeItem(at: temp)
                 throw Failure.checksum
@@ -155,16 +170,6 @@ enum VisionModel {
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 8 << 20), !chunk.isEmpty { hasher.update(data: chunk) }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
-    }
-
-    private final class DownloadProgress: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-        let report: @Sendable (Int64) -> Void
-        init(report: @escaping @Sendable (Int64) -> Void) { self.report = report }
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
-                        totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
-            report(totalBytesWritten)
-        }
-        func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     }
 }
 

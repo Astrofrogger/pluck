@@ -9,8 +9,6 @@ enum WhatsNew {
         let symbol: String
         let title: String
         let detail: String
-        /// Only in Pluck Studio: basic Pluck doesn't mention it.
-        var studio = false
         var id: String { title }
     }
 
@@ -45,8 +43,6 @@ enum WhatsNew {
             return
         }
         pending = releases
-            .map { Release(version: $0.version, items: $0.items.filter { Edition.isStudio || !$0.studio }) }
-            .filter { !$0.items.isEmpty }
             .filter { isNewer($0.version, than: previous) && !isNewer($0.version, than: current) }
             .sorted { isNewer($0.version, than: $1.version) }
         if pending.isEmpty { markSeen() }
@@ -90,32 +86,35 @@ enum WhatsNew {
         return false
     }
 
-    /// Every release since 1.1.0, written for people rather than developers. Add the new version's
-    /// notes here before releasing it.
+    /// Every release since 1.1.0, written for people rather than developers, with Pluck Studio's
+    /// own notes (in Studio/WhatsNewStudio.swift, so basic Pluck isn't built with them) added in.
+    /// Add the new version's notes before releasing it.
     static var releases: [Release] {
+        var all = shared
+        #if STUDIO
+        for extra in studioReleases {
+            if let n = all.firstIndex(where: { $0.version == extra.version }) {
+                all[n] = Release(version: extra.version, items: all[n].items + extra.items)
+            } else {
+                all.append(extra)
+            }
+        }
+        #endif
+        return all.sorted { isNewer($0.version, than: $1.version) }
+    }
+
+    /// Notes for everyone (both editions).
+    private static var shared: [Release] {
         [
-            Release(version: "1.17.0", items: [
-                Item(symbol: "checkmark.seal", title: String(localized: "Delivery Check"),
-                     detail: String(localized: "Drop a finished export and Pluck looks it over before it goes out: flash frames, black, a frozen picture, sound dropping out, loudness for where it’s going, typos in titles, text too close to the edge. Each finding opens at its moment. It runs locally on your Mac."),
-                     studio: true),
-                Item(symbol: "rectangle.3.group", title: String(localized: "Brand Pack"),
-                     detail: String(localized: "From a logo: lower thirds, a title card and an end card in its colours, animated and transparent, ready for the edit. One lower third per name, all at once."),
-                     studio: true),
-                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Search the office archive"),
-                     detail: String(localized: "In Edit Anywhere, search the office footage from home by what’s in the picture, and fetch just the shots you need. The office Mac looks at the footage with local AI; nothing leaves your team’s network."),
-                     studio: true),
+            Release(version: "1.17.1", items: [
+                Item(symbol: "arrow.down.to.line.circle", title: String(localized: "Sturdier setup on slow connections"),
+                     detail: String(localized: "Downloading yt-dlp, ffmpeg and Deno now shows how far along it is, carries on where it stopped instead of starting over, and can always be stopped and tried again. If something goes wrong, the main window says what.")),
+                Item(symbol: "arrow.down.circle", title: String(localized: "Only updates that matter to you"),
+                     detail: String(localized: "Pluck now only asks to update when there’s something new in your version. Updates that only add to Pluck Studio no longer come to Pluck.")),
             ]),
             Release(version: "1.16.0", items: [
                 Item(symbol: "square.split.2x1", title: String(localized: "Two versions of Pluck"),
                      detail: String(localized: "Pluck is now small and focused on downloading, the Library, sharing and converting. Pluck Studio adds the local AI, the editing tools and Edit Anywhere. Switch any time in Settings → General.")),
-                Item(symbol: "square.grid.2x2", title: String(localized: "All tools in one place"),
-                     detail: String(localized: "Pluck Studio’s tools (Derush, Find Shots, Live Recorder, Logo Animator, Fit Music, Edit Anywhere) are under the new Tools button and Tools menu. Features your Mac can’t run are no longer shown.")),
-                Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere"),
-                     detail: String(localized: "Render DaVinci Resolve timelines on the office Mac from home, with the originals on the office storage, and get a preview back. Invite a Mac with a one-time link; everything stays on your team’s own private network.")),
-                Item(symbol: "tag", title: String(localized: "Log in Resolve"),
-                     detail: String(localized: "Find Shots writes what local AI on your Mac sees in every shot into your DaVinci Resolve project: a description, keywords and a marker per shot, ready to search or make smart bins from.")),
-                Item(symbol: "wand.and.stars", title: String(localized: "A calmer Assemble"),
-                     detail: String(localized: "In the Logo Animator, the dot or sparkle now grows in, glides to its place and settles, without bouncing around, and the name slides out cleanly.")),
             ]),
             Release(version: "1.15.0", items: [
                 Item(symbol: "wand.and.stars", title: String(localized: "A new Logo Animator"),

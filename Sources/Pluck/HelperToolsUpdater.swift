@@ -22,6 +22,9 @@ final class HelperToolsUpdater {
     }
 
     @ObservationIgnored private var timer: Timer?
+    @ObservationIgnored private var work: Task<Void, Never>?
+    /// While downloading: which tool, bytes so far and the total (0 if unknown).
+    var progress: (tool: String, done: Int64, total: Int64)?
 
     static func path(_ tool: String) -> URL { Updater.directory.appendingPathComponent(tool) }
     static func isInstalled(_ tool: String) -> Bool { FileManager.default.isExecutableFile(atPath: path(tool).path) }
@@ -58,19 +61,39 @@ final class HelperToolsUpdater {
         }
     }
 
+    /// Stops a check or download (a half-done download carries on next time).
+    func stop() {
+        work?.cancel()
+    }
+
     func check(force: Bool = false) async {
         guard !isBusy else { return }
+        let task = Task { await run(force: force) }
+        work = task
+        await task.value
+        work = nil
+    }
+
+    private func run(force: Bool) async {
         status = .checking
+        progress = nil
+        defer { progress = nil }
         var updated: [String] = []
         var errors: [String] = []
 
         do {
             if try await updateFFmpeg(force: force) { updated.append("ffmpeg \(ffmpegVersion ?? "")") }
+        } catch is CancellationError {
+            status = .idle
+            return
         } catch {
             errors.append("ffmpeg: \(error.localizedDescription)")
         }
         do {
             if try await updateDeno(force: force) { updated.append("Deno \(denoVersion ?? "")") }
+        } catch is CancellationError {
+            status = .idle
+            return
         } catch {
             errors.append("Deno: \(error.localizedDescription)")
         }
@@ -110,7 +133,7 @@ final class HelperToolsUpdater {
         status = .downloading
         for tool in ["ffmpeg", "ffprobe"] {
             let zip = folder.appendingPathComponent("\(tool).zip")
-            try await Self.install(tool, zip: zip, checksum: zip.appendingPathExtension("sha256"))
+            try await install(tool, zip: zip, checksum: zip.appendingPathExtension("sha256"))
         }
         ffmpegVersion = version
         return true
@@ -136,7 +159,7 @@ final class HelperToolsUpdater {
 
         if !force, Self.isInstalled("deno"), denoVersion == version { return false }
         status = .downloading
-        try await Self.install("deno", zip: zip, checksum: sum)
+        try await install("deno", zip: zip, checksum: sum)
         denoVersion = version
         return true
     }
@@ -158,10 +181,12 @@ final class HelperToolsUpdater {
 
     /// Downloads a zip containing `tool`, verifies it against a "<sha256>  <name>" checksum file,
     /// checks the binary runs, and swaps it into Pluck's tools folder.
-    private static func install(_ tool: String, zip zipURL: URL, checksum: URL) async throws {
-        async let sumTask = URLSession.shared.data(from: checksum)
-        let (zipFile, _) = try await URLSession.shared.download(from: zipURL)
-        let (sumData, _) = try await sumTask
+    private func install(_ tool: String, zip zipURL: URL, checksum: URL) async throws {
+        let (sumData, _) = try await URLSession.shared.data(from: checksum)
+        progress = (tool, 0, 0)
+        let zipFile = try await ToolDownloads.download(zipURL) { done, total in
+            Task { @MainActor [weak self] in self?.progress = (tool, done, total) }
+        }
 
         let expected = String(decoding: sumData, as: UTF8.self)
             .split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""
@@ -173,31 +198,18 @@ final class HelperToolsUpdater {
         let staging = fm.temporaryDirectory.appendingPathComponent("PluckTool-\(UUID().uuidString)")
         try fm.createDirectory(at: staging, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: staging) }
-        guard await run("/usr/bin/ditto", ["-x", "-k", zipFile.path, staging.path]) else { throw Failure.badBinary }
+        guard try await ToolDownloads.runs("/usr/bin/ditto", ["-x", "-k", zipFile.path, staging.path], name: "unzip") else { throw Failure.badBinary }
 
         let binary = staging.appendingPathComponent(tool)
-        guard let team = signingTeams[tool], CodeSignature.isSigned(binary, byTeam: team) else { throw Failure.badSignature }
-        guard await run(binary.path, [tool == "deno" ? "--version" : "-version"]) else { throw Failure.badBinary }
+        guard let team = Self.signingTeams[tool], CodeSignature.isSigned(binary, byTeam: team) else { throw Failure.badSignature }
+        guard try await ToolDownloads.runs(binary.path, [tool == "deno" ? "--version" : "-version"], name: tool) else { throw Failure.badBinary }
 
         try fm.createDirectory(at: Updater.directory, withIntermediateDirectories: true)
-        let destination = path(tool)
+        let destination = Self.path(tool)
         if fm.fileExists(atPath: destination.path) {
             _ = try fm.replaceItemAt(destination, withItemAt: binary)
         } else {
             try fm.moveItem(at: binary, to: destination)
         }
-    }
-
-    private static func run(_ tool: String, _ args: [String]) async -> Bool {
-        await Task.detached {
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: tool)
-            p.arguments = args
-            p.standardOutput = FileHandle.nullDevice
-            p.standardError = FileHandle.nullDevice
-            guard (try? p.run()) != nil else { return false }
-            p.waitUntilExit()
-            return p.terminationStatus == 0
-        }.value
     }
 }

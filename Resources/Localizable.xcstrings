@@ -1806,6 +1806,122 @@
         }
       }
     },
+    "%@: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$@"
+          }
+        }
+      }
+    },
+    "%@: %lld%% (%@ of %@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld %% (%3$@ von %4$@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld %% (%3$@ de %4$@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ : %2$lld %% (%3$@ sur %4$@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld%% (%3$@ di %4$@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$lld%%（%4$@ 中 %3$@）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld%% (%4$@ 중 %3$@)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld%% (%3$@ van %4$@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$lld%% (%3$@ de %4$@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$lld%%（%3$@ / %4$@）"
+          }
+        }
+      }
+    },
     "%lld": {
       "shouldTranslate": false
     },
@@ -18722,6 +18838,64 @@
         }
       }
     },
+    "Couldn’t download yt-dlp, so nothing can be downloaded yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp konnte nicht geladen werden, daher kann noch nichts heruntergeladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo descargar yt-dlp, así que todavía no se puede descargar nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de télécharger yt-dlp, rien ne peut donc encore être téléchargé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scaricare yt-dlp, quindi non si può ancora scaricare nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp をダウンロードできなかったため、まだ何もダウンロードできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp를 다운로드하지 못해 아직 아무것도 다운로드할 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp kon niet worden gedownload, dus er kan nog niets worden gedownload."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível baixar o yt-dlp, então ainda não dá para baixar nada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法下载 yt-dlp，因此暂时无法下载任何内容。"
+          }
+        }
+      }
+    },
     "Couldn’t find a steady beat in this song, or the length is too far from the original to cut on its phrases.": {
       "localizations": {
         "de": {
@@ -23076,6 +23250,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载视频和音乐、资料库、分享到手机和转换文件。小巧专注。"
+          }
+        }
+      }
+    },
+    "Downloading yt-dlp, ffmpeg and Deno now shows how far along it is, carries on where it stopped instead of starting over, and can always be stopped and tried again. If something goes wrong, the main window says what.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Laden von yt-dlp, ffmpeg und Deno zeigt jetzt den Fortschritt, macht dort weiter, wo es aufgehört hat, statt neu zu beginnen, und lässt sich jederzeit stoppen und erneut versuchen. Wenn etwas schiefgeht, sagt das Hauptfenster, was."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descarga de yt-dlp, ffmpeg y Deno ahora muestra cuánto falta, sigue donde se quedó en lugar de empezar de nuevo y siempre se puede detener y reintentar. Si algo falla, la ventana principal dice qué."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le téléchargement de yt-dlp, ffmpeg et Deno montre désormais son avancement, reprend là où il s’est arrêté au lieu de recommencer, et peut toujours être arrêté et relancé. En cas de problème, la fenêtre principale indique lequel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il download di yt-dlp, ffmpeg e Deno ora mostra a che punto è, riprende da dove si era fermato invece di ricominciare e si può sempre fermare e riprovare. Se qualcosa va storto, la finestra principale dice cosa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp、ffmpeg、Deno のダウンロードは進み具合を表示し、最初からやり直さずに止まったところから再開し、いつでも停止して再試行できるようになりました。問題が起きた場合はメインウインドウに内容が表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 yt-dlp, ffmpeg, Deno 다운로드가 진행 상황을 보여 주고, 처음부터 다시 받지 않고 멈춘 곳부터 이어 받으며, 언제든 중지하고 다시 시도할 수 있습니다. 문제가 생기면 메인 창에서 무엇인지 알려 줍니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het downloaden van yt-dlp, ffmpeg en Deno toont nu hoe ver het is, gaat verder waar het stopte in plaats van opnieuw te beginnen, en kan altijd worden gestopt en opnieuw geprobeerd. Als er iets misgaat, zegt het hoofdvenster wat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O download do yt-dlp, ffmpeg e Deno agora mostra o andamento, continua de onde parou em vez de recomeçar e sempre pode ser interrompido e tentado de novo. Se algo der errado, a janela principal diz o quê."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在下载 yt-dlp、ffmpeg 和 Deno 时会显示进度，从停止处继续而不是重新开始，并且随时可以停止和重试。如果出了问题，主窗口会说明原因。"
           }
         }
       }
@@ -42559,6 +42791,64 @@
         }
       }
     },
+    "Needs Homebrew from brew.sh": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Braucht Homebrew von brew.sh"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita Homebrew de brew.sh"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite Homebrew (brew.sh)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede Homebrew da brew.sh"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "brew.sh の Homebrew が必要です"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "brew.sh의 Homebrew가 필요합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vereist Homebrew van brew.sh"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Precisa do Homebrew de brew.sh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要 brew.sh 上的 Homebrew"
+          }
+        }
+      }
+    },
     "Needs a Mac with 8 GB of memory or more.": {
       "localizations": {
         "de": {
@@ -47314,6 +47604,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅此文件，仅在你自己的网络上。手机需要连接到同一 Wi-Fi。"
+          }
+        }
+      }
+    },
+    "Only updates that matter to you": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Updates, die dich betreffen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo las actualizaciones que te importan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seulement les mises à jour qui vous concernent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo gli aggiornamenti che ti riguardano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "必要なアップデートだけ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나에게 필요한 업데이트만"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen updates die voor jou tellen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só as atualizações que importam para você"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只推送与你相关的更新"
           }
         }
       }
@@ -53879,6 +54227,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 现在有两个版本"
+          }
+        }
+      }
+    },
+    "Pluck now only asks to update when there’s something new in your version. Updates that only add to Pluck Studio no longer come to Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck fragt jetzt nur noch nach einem Update, wenn es in deiner Version etwas Neues gibt. Updates, die nur Pluck Studio erweitern, kommen nicht mehr zu Pluck."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ahora solo pide actualizar cuando hay algo nuevo en tu versión. Las actualizaciones que solo amplían Pluck Studio ya no llegan a Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ne propose désormais une mise à jour que s’il y a du nouveau dans votre version. Les mises à jour qui n’enrichissent que Pluck Studio n’arrivent plus dans Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ora chiede di aggiornare solo quando c’è qualcosa di nuovo nella tua versione. Gli aggiornamenti che arricchiscono solo Pluck Studio non arrivano più a Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck は、お使いのバージョンに新しい内容があるときだけアップデートを案内するようになりました。Pluck Studio だけに関するアップデートは Pluck には届きません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 Pluck은 사용 중인 버전에 새로운 내용이 있을 때만 업데이트를 요청합니다. Pluck Studio에만 해당하는 업데이트는 더 이상 Pluck에 오지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck vraagt nu alleen om bij te werken als er iets nieuws is in jouw versie. Updates die alleen Pluck Studio uitbreiden, komen niet meer naar Pluck."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck agora só pede para atualizar quando há algo novo na sua versão. Atualizações que só ampliam o Pluck Studio não chegam mais ao Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在只有当你的版本有新内容时，Pluck 才会提示更新。仅针对 Pluck Studio 的更新不再推送给 Pluck。"
           }
         }
       }
@@ -68706,6 +69112,64 @@
         }
       }
     },
+    "Sturdier setup on slow connections": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stabilere Einrichtung bei langsamer Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuración más fiable con conexiones lentas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installation plus fiable sur les connexions lentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurazione più solida con connessioni lente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低速回線でも安定したセットアップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "느린 연결에서도 더 안정적인 설정"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stevigere installatie op trage verbindingen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuração mais estável em conexões lentas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "慢速网络下更稳定的安装"
+          }
+        }
+      }
+    },
     "Style": {
       "localizations": {
         "nl": {
@@ -72311,6 +72775,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载内容未经开发者签名，已被丢弃。"
+          }
+        }
+      }
+    },
+    "The download stopped (no data for 30 seconds). Check the internet connection and try again; it carries on where it stopped.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Download ist stehen geblieben (30 Sekunden lang keine Daten). Prüfe die Internetverbindung und versuche es erneut; er macht dort weiter, wo er aufgehört hat."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descarga se detuvo (30 segundos sin datos). Comprueba la conexión a internet y vuelve a intentarlo; seguirá donde se quedó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le téléchargement s’est arrêté (aucune donnée pendant 30 secondes). Vérifiez la connexion Internet et réessayez ; il reprendra là où il s’est arrêté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il download si è fermato (nessun dato per 30 secondi). Controlla la connessione a internet e riprova; riprenderà da dove si era fermato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードが止まりました（30 秒間データなし）。インターネット接続を確認してもう一度お試しください。止まったところから再開します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 멈췄습니다(30초 동안 데이터 없음). 인터넷 연결을 확인하고 다시 시도하세요. 멈춘 곳부터 이어서 받습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De download is gestopt (30 seconden geen gegevens). Controleer de internetverbinding en probeer het opnieuw; hij gaat verder waar hij stopte."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O download parou (30 segundos sem dados). Verifique a conexão com a internet e tente de novo; ele continua de onde parou."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载已停止（30 秒没有数据）。请检查互联网连接后重试；会从停止处继续。"
+          }
+        }
+      }
+    },
+    "The download took over half an hour. Try again to carry on where it stopped, or try on a faster connection.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Download hat über eine halbe Stunde gedauert. Versuche es erneut, um dort weiterzumachen, wo er aufgehört hat, oder nutze eine schnellere Verbindung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La descarga tardó más de media hora. Vuelve a intentarlo para seguir donde se quedó, o prueba con una conexión más rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le téléchargement a pris plus d’une demi-heure. Réessayez pour reprendre là où il s’est arrêté, ou essayez avec une connexion plus rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il download ha richiesto più di mezz’ora. Riprova per riprendere da dove si era fermato, oppure usa una connessione più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードに 30 分以上かかりました。もう一度試すと止まったところから再開します。より速い接続で試すこともできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드가 30분 넘게 걸렸습니다. 다시 시도하면 멈춘 곳부터 이어서 받으며, 더 빠른 연결로 시도해도 됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De download duurde meer dan een half uur. Probeer opnieuw om verder te gaan waar hij stopte, of probeer een snellere verbinding."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O download levou mais de meia hora. Tente de novo para continuar de onde parou, ou use uma conexão mais rápida."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载耗时超过半小时。重试即可从停止处继续，或换用更快的网络。"
+          }
+        }
+      }
+    },
+    "The downloaded %@ didn’t start within a minute. Security software may be holding it back.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das geladene %@ ist nicht innerhalb einer Minute gestartet. Möglicherweise hält Sicherheitssoftware es zurück."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El %@ descargado no se inició en un minuto. Puede que un software de seguridad lo esté bloqueando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le %@ téléchargé n’a pas démarré en une minute. Un logiciel de sécurité le bloque peut-être."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il %@ scaricato non si è avviato entro un minuto. Forse un software di sicurezza lo sta bloccando."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードした %@ が 1 分以内に起動しませんでした。セキュリティソフトが止めている可能性があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다운로드한 %@이(가) 1분 안에 시작되지 않았습니다. 보안 소프트웨어가 막고 있을 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gedownloade %@ startte niet binnen een minuut. Mogelijk houdt beveiligingssoftware hem tegen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O %@ baixado não iniciou em um minuto. Algum software de segurança pode estar bloqueando."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下载的 %@ 在一分钟内没有启动。可能被安全软件拦截了。"
           }
         }
       }
@@ -87956,6 +88594,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "yt-dlp 已退出，代码 %d。"
+          }
+        }
+      }
+    },
+    "yt-dlp isn’t installed, so nothing can be downloaded.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp ist nicht installiert, daher kann nichts heruntergeladen werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp no está instalado, así que no se puede descargar nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp n’est pas installé, rien ne peut donc être téléchargé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp non è installato, quindi non si può scaricare nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp がインストールされていないため、何もダウンロードできません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp가 설치되어 있지 않아 아무것도 다운로드할 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "yt-dlp is niet geïnstalleerd, dus er kan niets worden gedownload."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O yt-dlp não está instalado, então não dá para baixar nada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装 yt-dlp，因此无法下载任何内容。"
           }
         }
       }

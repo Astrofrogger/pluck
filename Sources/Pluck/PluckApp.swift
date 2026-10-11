@@ -15,6 +15,7 @@ struct PluckApp: App {
             ContentView()
                 .environment(manager)
                 .studio(app)
+                .environment(updater)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }

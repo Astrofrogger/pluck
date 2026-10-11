@@ -108,7 +108,17 @@ final class AppUpdater {
         guard let zip = asset(name), let sum = asset(name + ".sha256"),
               TrustedHosts.isAllowed(zip, hosts: ["github.com"]), TrustedHosts.isAllowed(sum, hosts: ["github.com"])
         else { throw Failure.noRelease }
-        let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        var version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+        // A release can carry an edition unchanged (a Studio-only release keeps basic Pluck as
+        // it was): editions.json says which version of each it holds, so nobody is asked to
+        // update to what they already have.
+        if let manifest = asset("editions.json"), TrustedHosts.isAllowed(manifest, hosts: ["github.com"]),
+           let (data, response) = try? await URLSession.shared.data(from: manifest),
+           (response as? HTTPURLResponse)?.statusCode == 200,
+           let editions = try? JSONSerialization.jsonObject(with: data) as? [String: String],
+           let own = editions[studio ? "studio" : "basic"], !own.isEmpty {
+            version = own
+        }
         return Release(version: version, notes: json["body"] as? String ?? "", zip: zip, checksum: sum, page: page)
     }
 
