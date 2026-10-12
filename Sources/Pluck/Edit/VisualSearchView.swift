@@ -20,14 +20,17 @@ final class VisualIndexer {
 
     /// Videos in the Library that still need an index.
     var unindexed: [URL] {
-        LibraryStore.shared.entries.filter { $0.kind == .video && FileManager.default.fileExists(atPath: $0.path) }
-            .map(\.file).filter { !VisualIndex.isIndexed($0) }
+        let library = LibraryStore.shared.entries.filter { $0.kind == .video && FileManager.default.fileExists(atPath: $0.path) }.map(\.path)
+        var seen: Set<String> = []
+        return (library + FootageFolders.shared.allVideos).filter { seen.insert($0).inserted }
+            .map { URL(fileURLWithPath: $0) }.filter { !VisualIndex.isIndexed($0) }
     }
 
     var videoCount: Int { LibraryStore.shared.entries.filter { $0.kind == .video }.count }
 
     func reload() {
-        let paths = Set(LibraryStore.shared.entries.map(\.path))
+        // The Library's videos and those in the watched folders.
+        let paths = Set(LibraryStore.shared.entries.map(\.path)).union(FootageFolders.shared.allVideos)
         indexes = paths.compactMap(VisualIndex.load)
     }
 
@@ -74,13 +77,15 @@ final class VisualIndexer {
 struct VisualSearchView: View {
     /// Where to look: both, what was said, or what's in the picture.
     enum Look: String, CaseIterable, Identifiable {
-        case everything, said, seen
+        case everything, said, seen, files, photos
         var id: String { rawValue }
         var label: String {
             switch self {
-            case .everything: String(localized: "Said and Seen")
+            case .everything: String(localized: "Everything")
             case .said: String(localized: "What’s Said")
             case .seen: String(localized: "What’s Seen")
+            case .files: String(localized: "File Names")
+            case .photos: String(localized: "Photos")
             }
         }
         var symbol: String {
@@ -88,6 +93,8 @@ struct VisualSearchView: View {
             case .everything: "sparkle.magnifyingglass"
             case .said: "waveform"
             case .seen: "eye"
+            case .files: "doc.text.magnifyingglass"
+            case .photos: "photo.on.rectangle"
             }
         }
     }
@@ -112,30 +119,82 @@ struct VisualSearchView: View {
     @State private var logger = ResolveLogger.shared
     @State private var confirmLog = false
     @AppStorage(VisualIndexer.autoKey) private var automatic = true
+    /// Where to look: "all", "library" or a watched folder's id.
+    @AppStorage("searchScope") private var scopeID = "all"
+    /// The last searches, newest first, one per line.
+    @AppStorage("recentSearches") private var recentText = ""
+    @State private var folders = FootageFolders.shared
+    @State private var photoIndex = PhotoIndex.shared
+    @State private var files: [FileSearch.Hit] = []
+    @State private var photoHits: [PhotoIndex.Hit] = []
+    /// The question in English, for what's seen (nil until translated, or when it's English).
+    @State private var englishQuery: String?
 
-    private var hits: [VisualIndex.Hit] {
-        guard look != .said else { return [] }
-        return VisualIndex.search(query, in: indexer.indexes, movement: movement, framing: framing)
+    private var trimmed: String { query.trimmingCharacters(in: .whitespaces) }
+
+    /// The files in the chosen scope (nil: everywhere).
+    private var scopePaths: Set<String>? {
+        switch scopeID {
+        case "all": return nil
+        case "library": return Set(LibraryStore.shared.entries.map(\.path))
+        default:
+            guard let folder = folders.folders.first(where: { $0.id.uuidString == scopeID }) else { return nil }
+            return Set((folders.videos[folder.id] ?? []) + (folders.photos[folder.id] ?? []))
+        }
     }
 
-    private var asking: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty || (look != .said && (movement != nil || framing != nil)) }
+    private var hits: [VisualIndex.Hit] {
+        guard look == .everything || look == .seen else { return [] }
+        // Shots are described in English: a question in another language is searched translated.
+        let question = englishQuery.flatMap { $0.isEmpty ? nil : $0 } ?? query
+        let found = VisualIndex.search(question, in: indexer.indexes, movement: movement, framing: framing)
+        guard let scope = scopePaths else { return found }
+        return found.filter { scope.contains($0.path) }
+    }
+
+    private var asking: Bool { !trimmed.isEmpty || ((look == .everything || look == .seen) && (movement != nil || framing != nil)) }
+
+    private var recent: [String] { recentText.split(separator: "\n").map(String.init) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            header
-            results
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            logBar
-            footer
+        HStack(spacing: 0) {
+            scopeList
+                .frame(width: 220)
+            Divider()
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                results
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                logBar
+                footer
+            }
         }
         .frame(minWidth: 860, idealWidth: 960, minHeight: 600, idealHeight: 680)
-        .onAppear { indexer.reload() }
+        .onAppear {
+            folders.start()
+            indexer.reload()
+            findFilesAndPhotos()
+            // Looked at in the background: every photo Pluck knows, and (when on) the videos.
+            PhotoIndex.shared.enqueue(PhotoCatalog.shared.allPhotos)
+            if automatic, indexer.working == nil { indexer.enqueue(indexer.unindexed) }
+        }
+        .task(id: query) {
+            try? await Task.sleep(for: .milliseconds(350))
+            guard !Task.isCancelled else { return }
+            let english = await studio.search.english(query)
+            englishQuery = english == query.trimmingCharacters(in: .whitespacesAndNewlines) ? nil : english
+            findFilesAndPhotos()
+        }
         .task {
             await studio.search.refresh()
             transcriptCount = studio.search.count
         }
+        // Names and photos as you type, from what's already known.
+        .onChange(of: query) { findFilesAndPhotos() }
+        .onChange(of: scopeID) { findFilesAndPhotos(); Task { await searchSaid(now: true) } }
+        .onChange(of: look) { findFilesAndPhotos() }
         // What was said, a moment after typing stops (the picture is searched as you type).
-        .task(id: look == .seen ? "" : query) { await searchSaid() }
+        .task(id: look == .seen || look == .files || look == .photos ? "" : query) { await searchSaid() }
         .sheet(item: $playing) { hit in ShotPlayer(hit: hit) }
     }
 
@@ -144,7 +203,7 @@ struct VisualSearchView: View {
             BarPicker(symbol: look.symbol, label: Text("Look in"), selection: $look, current: Text(look.label)) {
                 ForEach(Look.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
             }
-            if look != .said { shotFilters }
+            if look == .everything || look == .seen { shotFilters }
         }
         .help("Find a moment by what was said or what’s in the picture.")
         .padding(Design.Spacing.window)
@@ -155,6 +214,8 @@ struct VisualSearchView: View {
         case .everything: Text("What was said or seen: “the part about lighting”, “drone over a forest”")
         case .said: Text("What was said: “the part about lighting”")
         case .seen: Text("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”")
+        case .files: Text("A file’s name or title")
+        case .photos: Text("What’s in the photo: “beach at sunset”, “a menu”")
         }
     }
 
@@ -173,19 +234,42 @@ struct VisualSearchView: View {
 
     private func searchSaid(now: Bool = false) async {
         let question = query.trimmingCharacters(in: .whitespaces)
-        guard look != .seen, !question.isEmpty else { said = []; return }
+        guard look == .everything || look == .said, !question.isEmpty else { said = []; return }
         if !now {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled else { return }
         }
         searchingSaid = true
-        let found = await studio.search.search(question)
+        let folder = folders.folders.first { $0.id.uuidString == scopeID }
+        var found = await studio.search.search(question, within: folder.map { [$0.path] } ?? [])
+        if scopeID == "library" {
+            let library = Set(LibraryStore.shared.entries.map(\.path))
+            found = found.filter { library.contains($0.filePath) }
+        }
         // Only if it's still the question asked.
         if question == query.trimmingCharacters(in: .whitespaces) {
             said = found
             allSaid = false
+            if !found.isEmpty || !files.isEmpty || !hits.isEmpty { remember(question) }
         }
         searchingSaid = false
+    }
+
+    private func findFilesAndPhotos() {
+        let question = trimmed
+        files = question.isEmpty || !(look == .everything || look == .files) ? [] : FileSearch.find(question, within: scopePaths)
+        if question.isEmpty || !(look == .everything || look == .photos) {
+            photoHits = []
+        } else {
+            let words = question.split(separator: " ").map(String.init)
+            photoHits = photoIndex.search(words, english: englishQuery, within: scopePaths)
+        }
+    }
+
+    /// Keeps a search among the recent ones.
+    private func remember(_ question: String) {
+        let list = [question] + recent.filter { $0.caseInsensitiveCompare(question) != .orderedSame }
+        recentText = list.prefix(8).joined(separator: "\n")
     }
 
     /// A filter menu with the search field's height and look.
@@ -226,11 +310,8 @@ struct VisualSearchView: View {
                 PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
             }
         } else if !asking {
-            ToolPage(maxWidth: 680) {
-                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Search Your Videos"),
-                            subtitle: Text(summary))
-            }
-        } else if said.isEmpty && hits.isEmpty {
+            dashboard
+        } else if said.isEmpty && hits.isEmpty && files.isEmpty && photoHits.isEmpty {
             if searchingSaid {
                 ProgressView()
             } else {
@@ -238,11 +319,226 @@ struct VisualSearchView: View {
             }
         } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                VStack(alignment: .leading, spacing: 28) {
                     if !said.isEmpty { saidSection }
                     if !hits.isEmpty { seenSection }
+                    if !files.isEmpty { filesSection }
+                    if !photoHits.isEmpty { photosSection }
                 }
                 .padding(Design.Spacing.window)
+            }
+        }
+    }
+
+    // MARK: - Where to look
+
+    private var scopeList: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    SidebarSection(title: Text("Look In")) {
+                        scopeRow(id: "all", symbol: "square.stack.3d.up", title: Text("Everything"), detail: nil)
+                        scopeRow(id: "library", symbol: "books.vertical", title: Text("Library"),
+                                 detail: Text(verbatim: "\(LibraryStore.shared.entries.count)"))
+                    }
+                    SidebarSection(title: Text("Folders")) {
+                        ForEach(folders.folders) { folder in
+                            let count = (folders.videos[folder.id]?.count ?? 0) + (folders.photos[folder.id]?.count ?? 0)
+                            scopeRow(id: folder.id.uuidString, symbol: folder.isThere ? "folder" : "externaldrive.badge.xmark",
+                                     title: Text(folder.name), detail: folders.scanning.contains(folder.id) ? nil : Text(verbatim: "\(count)"),
+                                     busy: folders.scanning.contains(folder.id))
+                                .help(folder.path)
+                                .contextMenu {
+                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
+                                    Button("Look Through Again") { folders.scan(folder) }
+                                    Divider()
+                                    Button("Stop Watching", role: .destructive) {
+                                        if scopeID == folder.id.uuidString { scopeID = "all" }
+                                        folders.remove(folder.id)
+                                    }
+                                }
+                        }
+                        Button(action: addFolder) {
+                            Label("Add Folder…", systemImage: "plus")
+                                .font(.callout)
+                                .padding(.horizontal, 8)
+                                .frame(minHeight: 26)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Pluck indexes every video and photo in it, and keeps watching it for new ones")
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 12)
+            }
+            indexingStatus
+        }
+        .background(.background.secondary)
+    }
+
+    private func scopeRow(id: String, symbol: String, title: Text, detail: Text?, busy: Bool = false) -> some View {
+        SidebarRow(symbol: symbol, title: title, detail: detail, selected: scopeID == id) {
+            if busy { ProgressView().controlSize(.mini) }
+        }
+        .onTapGesture { scopeID = id }
+    }
+
+    /// What's being indexed right now, at the foot of the list.
+    @ViewBuilder private var indexingStatus: some View {
+        if indexer.working != nil || photoIndex.working != nil {
+            VStack(alignment: .leading, spacing: 4) {
+                if let working = indexer.working {
+                    Text("Shots: \(working)").lineLimit(1).truncationMode(.middle)
+                    ProgressView(value: indexer.progress).controlSize(.small)
+                }
+                if let working = photoIndex.working {
+                    Text("Photos: \(working) (\(photoIndex.queued) more)").lineLimit(1).truncationMode(.middle)
+                }
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .padding(12)
+        }
+    }
+
+    private func addFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Watch")
+        panel.message = String(localized: "Pluck indexes every video and photo in the folders you choose, and keeps watching them for new ones.")
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { folders.add(url) }
+        if let last = panel.urls.last, let folder = folders.folders.first(where: { $0.path == last.standardizedFileURL.path }) {
+            scopeID = folder.id.uuidString
+        }
+    }
+
+    // MARK: - Before searching
+
+    private var dashboard: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 28) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
+                    stat(Text("Videos looked at"), value: indexer.indexes.count, symbol: "eye", tint: .blue)
+                    stat(Text("Shots"), value: indexer.indexes.reduce(0) { $0 + $1.shots.count }, symbol: "film.stack", tint: .purple)
+                    stat(Text("Transcripts"), value: transcriptCount, symbol: "waveform", tint: Design.Brand.pink)
+                    stat(Text("Photos"), value: photoIndex.count, symbol: "photo.on.rectangle", tint: .orange)
+                }
+                if !recent.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Recent").font(.headline)
+                        FlowLayout(spacing: 8) {
+                            ForEach(recent, id: \.self) { search in suggestion(search, symbol: "clock.arrow.circlepath") }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Try").font(.headline)
+                    FlowLayout(spacing: 8) {
+                        ForEach([String(localized: "someone laughing"), String(localized: "drone shot over water"),
+                                 String(localized: "the part about the budget"), String(localized: "close-up of hands"),
+                                 String(localized: "people outside at night")], id: \.self) { suggestion($0, symbol: "sparkles") }
+                    }
+                }
+                if folders.folders.isEmpty {
+                    HStack(spacing: 12) {
+                        Image(systemName: "folder.badge.plus").font(.title2).foregroundStyle(Design.Brand.gradient)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Search a whole drive or project").font(.callout.weight(.semibold))
+                            Text("Add a folder and Pluck indexes all its footage and photos.").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("Add Folder…", action: addFolder).buttonStyle(BrandButtonStyle(large: false))
+                    }
+                    .padding(14)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
+                }
+            }
+            .padding(Design.Spacing.window)
+            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stat(_ title: Text, value: Int, symbol: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: symbol)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(tint.gradient, in: .rect(cornerRadius: 9))
+            Text(value, format: .number).font(.title2.weight(.semibold)).monospacedDigit()
+            title.font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(tint.opacity(0.08)))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(tint.opacity(0.18)))
+    }
+
+    private func suggestion(_ text: String, symbol: String) -> some View {
+        Button {
+            query = text
+            Task { await searchSaid(now: true) }
+        } label: {
+            Label(text, systemImage: symbol)
+                .font(.callout)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
+                .contentShape(.capsule)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Files and photos
+
+    private var filesSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(Text("Files"), symbol: "doc.text.magnifyingglass", count: files.count)
+            ForEach(files.prefix(12)) { hit in
+                Button { open(hit) } label: {
+                    ItemRow(symbol: hit.isVideo ? "film" : "doc", title: Text(hit.title),
+                            subtitle: Text(verbatim: (hit.path as NSString).abbreviatingWithTildeInPath)) {
+                        if hit.transcribed { StatusChip(text: Text("Transcribed"), colour: .green) }
+                        if !hit.available { StatusChip(text: Text("Drive not connected"), colour: .orange) }
+                    } actions: {
+                        EmptyView()
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(!hit.available)
+                .contextMenu {
+                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: hit.path)]) }
+                }
+            }
+        }
+    }
+
+    private func open(_ hit: FileSearch.Hit) {
+        let url = URL(fileURLWithPath: hit.path)
+        if EditorTarget.canOpen(url) { EditorTarget(path: hit.path).open(openWindow) } else { NSWorkspace.shared.open(url) }
+    }
+
+    private var photosSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(Text("Photos"), symbol: "photo.on.rectangle", count: photoHits.count)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 12)], spacing: 12) {
+                ForEach(photoHits) { hit in
+                    Color.clear
+                        .aspectRatio(1, contentMode: .fit)
+                        .overlay { FileThumbnail(file: URL(fileURLWithPath: hit.path)) }
+                        .clipShape(RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous))
+                        .help(hit.labels.prefix(5).joined(separator: ", "))
+                        .onTapGesture(count: 2) { NSWorkspace.shared.open(URL(fileURLWithPath: hit.path)) }
+                        .contextMenu {
+                            Button("Open") { NSWorkspace.shared.open(URL(fileURLWithPath: hit.path)) }
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: hit.path)]) }
+                        }
+                }
             }
         }
     }
@@ -274,7 +570,9 @@ struct VisualSearchView: View {
             ForEach(allSaid ? said : Array(said.prefix(5))) { hit in
                 Button { PlayerTarget(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start).open(openWindow) } label: {
                     ItemRow(symbol: "waveform", title: Text(hit.title), subtitle: Text(highlighted(hit))) {
-                        EmptyView()
+                        if !hit.available {
+                            StatusChip(text: Text("Drive not connected"), colour: .orange)
+                        }
                     } actions: {
                         Label(Format.duration(hit.start), systemImage: "play.fill")
                             .font(.callout.monospacedDigit())

@@ -68,6 +68,10 @@ struct EditorSubtitlePanel: View {
                 .buttonStyle(BrandButtonStyle(large: false))
                 .help("A new line at the playhead (or split the line that's there)")
             Menu {
+                Button("Export Subtitles…") {
+                    SubtitleSaver.save(model.subtitles, name: model.file.deletingPathExtension().lastPathComponent)
+                }
+                Divider()
                 Button("Fix Names in Every Line") { fixNames() }
                     .disabled(Glossary.shared.terms.isEmpty)
                 if let remake {
@@ -291,6 +295,7 @@ private struct SubtitleLine: View {
 
 /// The glossary: names local AI should spell right, added by typing and removed with ×.
 struct GlossaryEditor: View {
+    var fixTitle: LocalizedStringKey = "Fix Names in Every Line"
     /// Applies the names to what's there already.
     var fix: (() -> Void)?
     @State private var glossary = Glossary.shared
@@ -322,7 +327,7 @@ struct GlossaryEditor: View {
                     }
                 }
                 if let fix {
-                    Button("Fix Names in Every Line", action: fix)
+                    Button(fixTitle, action: fix)
                         .buttonStyle(.link)
                         .font(.caption)
                 }

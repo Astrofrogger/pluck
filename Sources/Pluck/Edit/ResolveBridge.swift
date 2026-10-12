@@ -225,9 +225,25 @@ if action == "buildTimeline":
             graded += 1
         if item.get("clipColor"):
             timelineItem.SetClipColor(item["clipColor"])
+        # The Inspector's settings (zoom, position, rotation, flips, cropping, opacity).
+        for key, value in (item.get("properties") or {}).items():
+            timelineItem.SetProperty(key, value)
     for marker in cmd.get("markers", []):
         timeline.AddMarker(marker["frame"], marker.get("color", "Blue"), marker["name"], marker.get("note", ""), marker.get("duration", 1))
-    out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start})
+    # Subtitles: the .srt into the media pool, then onto a subtitle track from the start.
+    subtitles = "none"
+    if cmd.get("subtitles"):
+        subtitles = "failed"
+        try:
+            imported = pool.ImportMedia([cmd["subtitles"]]) or []
+            if imported:
+                if timeline.GetTrackCount("subtitle") < 1:
+                    timeline.AddTrack("subtitle")
+                added = pool.AppendToTimeline([{"mediaPoolItem": imported[0], "recordFrame": start, "trackIndex": 1}])
+                subtitles = "added" if added else "imported"
+        except Exception:
+            pass
+    out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
 
 if action == "renderAnalysis":
     # Small H.264 copies with sound of clips Pluck can't read itself (RED, BRAW), rendered from a

@@ -432,6 +432,31 @@ enum ScreenshotMode {
                     derush.start(language: Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US"),
                                  lookAtPicture: true, kind: ShootPlan.Kind(rawValue: defaults.string(forKey: "derushKind") ?? "") ?? .corporate)
                 }
+            case "photo":
+                // -PluckScreenshotPhotos <folder>: an album of its photos on the Photo page.
+                if let folder = defaults.string(forKey: "PluckScreenshotPhotos") {
+                    let catalog = PhotoCatalog.shared
+                    if catalog.albums.isEmpty {
+                        catalog.newAlbum(named: URL(fileURLWithPath: folder).lastPathComponent,
+                                         with: PhotoCatalog.photos(in: [URL(fileURLWithPath: folder)]))
+                    }
+                }
+                StudioNavigator.shared.show(.photo)
+            case "project":
+                // -PluckScreenshotFiles <a|b|c>: a project with these files.
+                // -PluckScreenshotProject <file.json>: this project, opened.
+                if let file = defaults.string(forKey: "PluckScreenshotProject"), let data = try? Data(contentsOf: URL(fileURLWithPath: file)) {
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+                    if let project = try? decoder.decode(Project.self, from: data) {
+                        ProjectStore.save(project)
+                        StudioNavigator.shared.open(project)
+                    }
+                }
+                if let list = defaults.string(forKey: "PluckScreenshotFiles") {
+                    StudioNavigator.shared.newProject(with: list.split(separator: "|").map { URL(fileURLWithPath: String($0)) },
+                                                      named: defaults.string(forKey: "PluckScreenshotName"))
+                }
             case "player":
                 if let item, let file = item.existingFile {
                     PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript").open(openWindow)

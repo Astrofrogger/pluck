@@ -45,6 +45,11 @@ struct PluckApp: App {
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
                 OpenInEditorCommand()
+                #if STUDIO
+                Divider()
+                ExportSubtitlesCommand()
+                SendToResolveCommand()
+                #endif
             }
             #if STUDIO
             CommandMenu("Tools") {

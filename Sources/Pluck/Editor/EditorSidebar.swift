@@ -8,7 +8,7 @@ struct EditorSidebar: View {
     @AppStorage("editorSidebarTab") private var tab = Tab.ai
 
     enum Tab: String, CaseIterable, Identifiable {
-        case ai, subtitles, transcript, marks, export
+        case ai, transcript, subtitles, marks, export
         var id: String { rawValue }
 
         var symbol: String {
@@ -62,13 +62,11 @@ struct EditorSidebar: View {
                 Divider()
             }
             Text(shown.title)
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.secondary)
+                .font(.headline)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
+                .padding(.horizontal, 14)
+                .padding(.top, 12)
+                .padding(.bottom, 8)
             Group {
                 switch shown {
                 #if STUDIO

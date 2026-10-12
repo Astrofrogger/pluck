@@ -95,7 +95,7 @@ enum StoryFinder {
     }
 
     /// The story beats, in time order. `focus` steers the choice ("the new building", "pricing").
-    static func find(in transcript: Transcript, focus: String? = nil, titlesIn titleLanguage: String? = nil,
+    static func find(in transcript: Transcript, focus: String? = nil, titlesIn titleLanguage: String? = nil, length: Double = 0,
                      progress: @escaping @Sendable (Double) -> Void = { _ in }) async throws -> [StoryBeat] {
         guard #available(macOS 26, *), LocalAI.canSummarize else { throw Failure.needsAppleIntelligence }
         let cues = transcript.cues(maxCharacters: 160, maxDuration: 12)
@@ -135,9 +135,43 @@ enum StoryFinder {
             }
             progress(Double(index + 1) / Double(parts.count))
         }
-        let chosen = choose(found, cues: cues, count: wanted(for: transcript))
+        // With a length asked for, enough to choose from (then cut down to it).
+        let count = length > 0 ? max(wanted(for: transcript), Int(length / 12) + 2) : wanted(for: transcript)
+        var chosen = choose(found, cues: cues, count: min(count, 30))
+        if length > 0 { chosen = fit(chosen, to: length) }
         guard !chosen.isEmpty else { throw Failure.nothingFound }
         return chosen
+    }
+
+    /// The lengths people pick from (seconds; 0: as long as the story needs).
+    static let lengths: [Double] = [0, 30, 60, 90, 120, 180, 300]
+
+    static func lengthTitle(_ seconds: Double) -> String {
+        seconds == 0 ? String(localized: "Any Length") : Format.duration(seconds)
+    }
+
+    /// Cut down to about this many seconds: the hook and the ending stay; context goes first,
+    /// then the longest points, then the rest.
+    static func fit(_ beats: [StoryBeat], to seconds: Double) -> [StoryBeat] {
+        guard seconds > 0 else { return beats }
+        var beats = beats
+        func length(_ index: Int) -> Double { beats[index].end - beats[index].start }
+        func total() -> Double { beats.reduce(0) { $0 + $1.end - $1.start } }
+        let order: [StoryBeat.Role] = [.context, .point, .emotion, .hook, .ending]
+        while total() > seconds * 1.1, beats.count > 1 {
+            // The hook and the ending go only when nothing else is left.
+            let middle = beats.contains { $0.role != .hook && $0.role != .ending }
+            guard let role = order.first(where: { role in
+                (middle ? role != .hook && role != .ending : true) && beats.contains { $0.role == role }
+            }) else { break }
+            let candidates = beats.indices.filter { beats[$0].role == role }
+            let over = total() - seconds
+            // The one that lands closest to the length; the longest when none is long enough.
+            let closest = candidates.min { abs(length($0) - over) < abs(length($1) - over) } ?? candidates[0]
+            let longest = candidates.max { length($0) < length($1) } ?? candidates[0]
+            beats.remove(at: length(closest) >= over * 0.5 ? closest : longest)
+        }
+        return beats
     }
 
     /// The strongest passages, on whole lines, not overlapping, back in time order.

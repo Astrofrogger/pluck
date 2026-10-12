@@ -49,8 +49,8 @@ struct EditorExportPanel: View {
                 }
 
                 switch resolvedFormat {
-                case .video: videoSettings
-                case .audio: audioOnlySettings
+                case .video: RenderSettingsForm(audioOnly: false)
+                case .audio: RenderSettingsForm(audioOnly: true)
                 default: EmptyView()
                 }
 
@@ -84,7 +84,89 @@ struct EditorExportPanel: View {
         }
     }
 
-    // MARK: - Settings
+    // MARK: - Export
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(summary).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            Button {
+                exports.run(EditorExportChoice(format: resolvedFormat, each: each && model.isEdited,
+                                               burn: burn && !model.subtitles.isEmpty && model.showSubtitles,
+                                               srt: srt && !model.subtitles.isEmpty, settings: settings),
+                            model: model, manager: manager)
+            } label: {
+                Label("Export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(BrandButtonStyle())
+            .disabled(model.duration == 0 || exports.isRunning || (model.isEdited && model.keptParts.isEmpty))
+            status
+        }
+        .padding(.horizontal, 8)
+    }
+
+    @ViewBuilder private var status: some View {
+        if let progress = exports.progress {
+            ProgressView(value: progress).controlSize(.small)
+        } else if let problem = exports.problem {
+            Text(problem).font(.caption).foregroundStyle(.orange)
+        } else if exports.handedOver {
+            Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
+        }
+    }
+
+    /// Formats a song can't be (video, GIF) are left out.
+    private func isAvailable(_ item: EditorExportChoice.Format) -> Bool {
+        model.hasVideo || item == .audio || item == .original
+    }
+
+    private var resolvedFormat: EditorExportChoice.Format { isAvailable(format) ? format : .audio }
+
+    /// What's exported, how long, and (for a render) its size: "Edit 0:01:12 · 1920×1080 · ≈ 84 MB".
+    private var summary: String {
+        let length = model.isEdited ? model.editLength : model.rangeEnd - model.rangeStart
+        var parts = [model.isEdited ? (each ? String(localized: "Each part") : String(localized: "The edit"))
+                     : model.hasRange ? String(localized: "The range") : String(localized: "The whole file"),
+                     model.timecode(length)]
+        if resolvedFormat == .video {
+            let size = settings.outputSize(source: model.pixelSize)
+            parts.append("\(Int(size.width))×\(Int(size.height))")
+            let bytes = settings.estimatedBytes(source: model.pixelSize, sourceFPS: model.frameRate, length: length)
+            parts.append("≈ " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func choice(symbol: String, title: Text, detail: Text?, on: Bool, action: @escaping () -> Void) -> some View {
+        SidebarRow(symbol: symbol, title: title, detail: detail, selected: on) {
+            if on { Image(systemName: "checkmark").font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor) }
+        }
+        .onTapGesture(perform: action)
+    }
+}
+
+/// The render settings, shared by every export (the Editor's and a project's): a preset, or
+/// the file, codec, size, frame rate, quality and sound by hand. Kept between exports.
+struct RenderSettingsForm: View {
+    /// Only the sound (an audio file's settings).
+    let audioOnly: Bool
+    @AppStorage("editorRenderSettings") private var stored = ""
+
+    private var settings: EditorRenderSettings {
+        get { EditorRenderSettings(saved: stored) }
+        nonmutating set {
+            var tidied = newValue
+            tidied.tidy()
+            stored = tidied.saved
+        }
+    }
+
+    private func bind<Value>(_ path: WritableKeyPath<EditorRenderSettings, Value>) -> Binding<Value> {
+        Binding(get: { settings[keyPath: path] }, set: { value in var changed = settings; changed[keyPath: path] = value; settings = changed })
+    }
+
+    var body: some View {
+        if audioOnly { audioOnlySettings } else { videoSettings }
+    }
 
     private var videoSettings: some View {
         Group {
@@ -194,64 +276,6 @@ struct EditorExportPanel: View {
         .frame(minHeight: 26)
     }
 
-    // MARK: - Export
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(summary).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            Button {
-                exports.run(EditorExportChoice(format: resolvedFormat, each: each && model.isEdited,
-                                               burn: burn && !model.subtitles.isEmpty && model.showSubtitles,
-                                               srt: srt && !model.subtitles.isEmpty, settings: settings),
-                            model: model, manager: manager)
-            } label: {
-                Label("Export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(BrandButtonStyle())
-            .disabled(model.duration == 0 || exports.isRunning || (model.isEdited && model.keptParts.isEmpty))
-            status
-        }
-        .padding(.horizontal, 8)
-    }
-
-    @ViewBuilder private var status: some View {
-        if let progress = exports.progress {
-            ProgressView(value: progress).controlSize(.small)
-        } else if let problem = exports.problem {
-            Text(problem).font(.caption).foregroundStyle(.orange)
-        } else if exports.handedOver {
-            Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
-        }
-    }
-
-    /// Formats a song can't be (video, GIF) are left out.
-    private func isAvailable(_ item: EditorExportChoice.Format) -> Bool {
-        model.hasVideo || item == .audio || item == .original
-    }
-
-    private var resolvedFormat: EditorExportChoice.Format { isAvailable(format) ? format : .audio }
-
-    /// What's exported, how long, and (for a render) its size: "Edit 0:01:12 · 1920×1080 · ≈ 84 MB".
-    private var summary: String {
-        let length = model.isEdited ? model.editLength : model.rangeEnd - model.rangeStart
-        var parts = [model.isEdited ? (each ? String(localized: "Each part") : String(localized: "The edit"))
-                     : model.hasRange ? String(localized: "The range") : String(localized: "The whole file"),
-                     model.timecode(length)]
-        if resolvedFormat == .video {
-            let size = settings.outputSize(source: model.pixelSize)
-            parts.append("\(Int(size.width))×\(Int(size.height))")
-            let bytes = settings.estimatedBytes(source: model.pixelSize, sourceFPS: model.frameRate, length: length)
-            parts.append("≈ " + ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file))
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func choice(symbol: String, title: Text, detail: Text?, on: Bool, action: @escaping () -> Void) -> some View {
-        SidebarRow(symbol: symbol, title: title, detail: detail, selected: on) {
-            if on { Image(systemName: "checkmark").font(.caption.weight(.semibold)).foregroundStyle(Color.accentColor) }
-        }
-        .onTapGesture(perform: action)
-    }
 }
 
 /// One of the export formats, as a small tile with a symbol.

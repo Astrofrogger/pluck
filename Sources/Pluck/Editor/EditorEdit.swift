@@ -159,7 +159,7 @@ enum EditorExport {
         return await run(ffmpeg, arguments(hardware: false), total: total, progress: progress)
     }
 
-    private static func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+    static func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)

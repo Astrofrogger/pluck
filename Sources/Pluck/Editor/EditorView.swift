@@ -13,6 +13,7 @@ struct EditorView: View {
     @State private var zoom = 1.0
     @AppStorage("editorSidebarTab") private var sidebarTab = EditorSidebar.Tab.ai
     @AppStorage("editorSidebar") private var sidebarShown = true
+    @AppStorage("editorSidebarWidth") private var sidebarWidth = 300.0
     @FocusState private var focused: Bool
 
     init(target: EditorTarget, model: EditorModel? = nil) {
@@ -41,14 +42,14 @@ struct EditorView: View {
                 .padding(Design.Spacing.window)
             }
             if sidebarShown {
-                Divider()
+                ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
                 EditorSidebar(model: model)
-                    .frame(width: 300)
+                    .frame(width: sidebarWidth)
                     .clipped()
                     .transition(.move(edge: .trailing))
             }
         }
-        .frame(minWidth: ownsModel ? (sidebarShown ? 1040 : 760) : (sidebarShown ? 850 : 550), minHeight: 520)
+        .frame(minWidth: (ownsModel ? 760 : 550) + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
         .toolbar {
             ToolbarItem {
                 Button {

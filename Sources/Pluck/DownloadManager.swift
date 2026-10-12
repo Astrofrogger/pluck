@@ -326,8 +326,11 @@ final class DownloadManager {
     /// translate sheet (one after the other, when there are several kinds).
     func openConverter(for files: [URL]) {
         #if STUDIO
-        // Pluck Studio has no convert window: videos and songs open in the Editor, in tabs.
-        for file in files.filter(Converting.isMedia) where EditorTarget.canOpen(file) {
+        // Pluck Studio has no convert window: a video or song opens in the Editor; several make a project.
+        let editable = files.filter { Converting.isMedia($0) && EditorTarget.canOpen($0) }
+        if editable.count > 1 {
+            StudioNavigator.shared.newProject(with: editable)
+        } else if let file = editable.first {
             StudioNavigator.shared.open(EditorTarget(path: file.path))
         }
         filesToConvert = files.filter { Converting.isMedia($0) && !EditorTarget.canOpen($0) }

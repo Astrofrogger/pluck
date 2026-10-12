@@ -33,6 +33,21 @@ extension EditorTarget {
 @MainActor
 @Observable
 final class EditorModel {
+    /// Local AI work running for this file, and what went wrong.
+    @Observable
+    final class Jobs {
+        var finding = false
+        var problem: String?
+        var findingSpeakers = false
+        var speakerProblem: String?
+        var findingStory = false
+        var storyProgress = 0.0
+        var storyProblem: String?
+        var translating = false
+        var translateProblem: String?
+    }
+
+    let jobs = Jobs()
     let file: URL
     let player = AVPlayer()
     /// What this file exported, and the export running now.
@@ -245,7 +260,7 @@ final class EditorModel {
 
     /// The file's real length, and whether it has a picture (a song's cover isn't one), as
     /// ffprobe reads it.
-    nonisolated private static func probe(_ file: URL, ffprobe: String) async -> (duration: Double, video: Bool)? {
+    nonisolated static func probe(_ file: URL, ffprobe: String) async -> (duration: Double, video: Bool)? {
         await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffprobe)
@@ -268,7 +283,7 @@ final class EditorModel {
 
     /// A copy macOS plays, in Pluck's cache (made once per file and version): AAC sound, and
     /// H.264 up to 1080p for video, same timing. Copies not opened for two weeks go.
-    nonisolated private static func playableCopy(of file: URL, video: Bool, ffmpeg: String) async -> URL? {
+    nonisolated static func playableCopy(of file: URL, video: Bool, ffmpeg: String) async -> URL? {
         let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Editor", isDirectory: true)
         let stamp = (try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])).map {
             "\($0.fileSize ?? 0)-\(Int($0.contentModificationDate?.timeIntervalSince1970 ?? 0))"

@@ -1,0 +1,656 @@
+import SwiftUI
+import UniformTypeIdentifiers
+
+/// The Photo page: albums and folders on the left, the photos in a grid to cull (rate, pick,
+/// reject with the keyboard) or one at a time with a filmstrip, and the inspector with the
+/// adjustments, the film (spektrafilm) and the export. Edits apply to every selected photo.
+struct PhotoPage: View {
+    @State private var catalog = PhotoCatalog.shared
+    @State private var folders = FootageFolders.shared
+    @AppStorage("photoSidebarWidth") private var inspectorWidth = 310.0
+    @AppStorage("photoInspectorTab") private var tab = PhotoInspector.Tab.adjust
+    @AppStorage("photoGridSize") private var gridSize = 180.0
+    @AppStorage("photoAutoAdvance") private var autoAdvance = true
+    @AppStorage("photoSource") private var sourceKey = "all"
+    @State private var selection: Set<String> = []
+    @State private var focus: String?
+    @State private var loupe = false
+    @State private var flagFilter: PhotoRecord.Flag?
+    @State private var minRating = 0
+    @State private var renamingAlbum: UUID?
+    @State private var albumName = ""
+    @State private var dropTargeted = false
+    @State private var renamingFolder: UUID?
+    @State private var folderName = ""
+    @State private var closedFolders: Set<UUID> = []
+
+    /// The album or list open on the left (remembered, so a drop goes into the album you see).
+    private var source: PhotoCatalog.Source {
+        get { PhotoCatalog.Source(key: sourceKey) }
+        nonmutating set { sourceKey = newValue.key }
+    }
+    @FocusState private var focused: Bool
+    @State private var editing = PhotoEditing.shared
+
+    @State private var search = ""
+    @State private var photoIndex = PhotoIndex.shared
+
+    private var photos: [String] {
+        var list = catalog.photos(in: source).filter { path in
+            let record = catalog.record(path)
+            return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter)
+        }
+        // What's in the picture (or its text, or its name).
+        let words = search.split(separator: " ").map(String.init)
+        if !words.isEmpty {
+            let found = photoIndex.search(words, within: Set(list)).map(\.path)
+            let byName = list.filter { path in words.allSatisfy { URL(fileURLWithPath: path).lastPathComponent.localizedCaseInsensitiveContains($0) } }
+            var seen: Set<String> = []
+            list = (found + byName).filter { seen.insert($0).inserted }
+        }
+        return list
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            sidebar.frame(width: 220)
+            Divider()
+            VStack(spacing: 0) {
+                toolbar
+                Divider()
+                Group {
+                    if photos.isEmpty {
+                        empty
+                    } else if loupe, let focus {
+                        VStack(spacing: 0) {
+                            PhotoLoupe(path: focus, record: catalog.record(focus))
+                            filmstrip
+                        }
+                    } else {
+                        grid
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+                Task { @MainActor in
+                    var urls: [URL] = []
+                    for provider in providers { if let url = await provider.load(URL.self) { urls.append(url) } }
+                    importPhotos(urls)
+                }
+                return true
+            }
+            ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
+            PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
+                .frame(width: inspectorWidth)
+                .clipped()
+        }
+        .frame(minWidth: 1000, minHeight: 600)
+        .navigationTitle("Photo")
+        .focusable()
+        .focused($focused)
+        .focusEffectDisabled()
+        .onKeyPress(phases: .down, action: key)
+        .onKeyPress("\\", phases: [.down, .up]) { press in
+            editing.asShot = press.phase == .down
+            return .handled
+        }
+        .onAppear {
+            focused = true
+            FootageFolders.shared.start()
+            PhotoIndex.shared.enqueue(catalog.allPhotos)
+            PhotoRender.trimCaches()
+            // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
+                focus = photos.first
+                loupe = true
+            }
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotPhotoExport") {
+                selection = Set(photos)
+            }
+        }
+        .task { await FilmEngine.shared.loadProfiles() }
+        .onChange(of: editing.cropping) { _, cropping in
+            guard cropping else { return }
+            if focus == nil { focus = photos.first }
+            loupe = focus != nil
+            if focus == nil { editing.cropping = false }
+        }
+        .onChange(of: loupe) { _, shown in if !shown { editing.cropping = false } }
+        .onDisappear { editing.cropping = false }
+    }
+
+    // MARK: - Sidebar
+
+    private var sidebar: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                SidebarSection(title: Text("Library")) {
+                    row(.all, symbol: "photo.on.rectangle", title: Text("All Photos"))
+                    row(.picks, symbol: "flag.fill", title: Text("Picks"))
+                    row(.fiveStars, symbol: "star.fill", title: Text("5 Stars"))
+                    row(.edited, symbol: "slider.horizontal.3", title: Text("Edited"))
+                    row(.rejects, symbol: "xmark.circle", title: Text("Rejected"))
+                }
+                SidebarSection(title: Text("Albums")) {
+                    ForEach(catalog.folders) { folder in
+                        let open = !closedFolders.contains(folder.id)
+                        SidebarRow(symbol: open ? "folder" : "folder.fill", title: Text(folder.name), detail: Text(verbatim: ""), selected: false) {
+                            EmptyView()
+                        }
+                        .onTapGesture { if open { closedFolders.insert(folder.id) } else { closedFolders.remove(folder.id) } }
+                        .contextMenu {
+                            Button("Rename…") { folderName = folder.name; renamingFolder = folder.id }
+                            Button("New Album") { newAlbum(in: folder.id) }
+                            Divider()
+                            Button("Delete Folder", role: .destructive) { catalog.deleteFolder(folder.id) }
+                        }
+                        .dropDestination(for: String.self) { ids, _ in
+                            for id in ids.compactMap(UUID.init(uuidString:)) { catalog.move(album: id, to: folder.id) }
+                            return true
+                        }
+                        if open {
+                            ForEach(catalog.albums.filter { $0.folder == folder.id }) { album in
+                                albumRow(album).padding(.leading, 14)
+                            }
+                        }
+                    }
+                    ForEach(catalog.albums.filter { album in album.folder == nil || !catalog.folders.contains { $0.id == album.folder } }) { album in
+                        albumRow(album)
+                    }
+                    HStack(spacing: 12) {
+                        Button { importPhotos() } label: {
+                            Label("New Album…", systemImage: "plus")
+                        }
+                        Button { renamingFolder = catalog.newFolder(named: String(localized: "New Folder")).id; folderName = String(localized: "New Folder") } label: {
+                            Label("Folder", systemImage: "folder.badge.plus")
+                        }
+                        .help("New folder for albums")
+                    }
+                    .font(.callout)
+                    .padding(.horizontal, 8)
+                    .frame(minHeight: 26)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                }
+                let photoFolders = folders.folders.filter { !(folders.photos[$0.id] ?? []).isEmpty }
+                if !photoFolders.isEmpty {
+                    SidebarSection(title: Text("Folders")) {
+                        ForEach(photoFolders) { folder in
+                            row(.folder(folder.id), symbol: "folder", title: Text(folder.name))
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .padding(.vertical, 12)
+        }
+        .background(.background.secondary)
+        .alert("Rename Album", isPresented: Binding(get: { renamingAlbum != nil }, set: { if !$0 { renamingAlbum = nil } })) {
+            TextField("Name", text: $albumName)
+            Button("Rename") { if let id = renamingAlbum { catalog.rename(id, to: albumName) }; renamingAlbum = nil }
+            Button("Cancel", role: .cancel) { renamingAlbum = nil }
+        }
+        .alert("Rename Folder", isPresented: Binding(get: { renamingFolder != nil }, set: { if !$0 { renamingFolder = nil } })) {
+            TextField("Name", text: $folderName)
+            Button("Rename") { if let id = renamingFolder { catalog.renameFolder(id, to: folderName) }; renamingFolder = nil }
+            Button("Cancel", role: .cancel) { renamingFolder = nil }
+        }
+    }
+
+    private func albumRow(_ album: PhotoAlbum) -> some View {
+        row(.album(album.id), symbol: "rectangle.stack", title: Text(album.name))
+            .contextMenu {
+                Button("Rename…") { albumName = album.name; renamingAlbum = album.id }
+                Button("Add Photos…") { importPhotos(into: album.id) }
+                if !catalog.folders.isEmpty {
+                    Menu("Move to Folder") {
+                        ForEach(catalog.folders) { folder in Button(folder.name) { catalog.move(album: album.id, to: folder.id) } }
+                        if album.folder != nil {
+                            Divider()
+                            Button("None") { catalog.move(album: album.id, to: nil) }
+                        }
+                    }
+                }
+                Divider()
+                Button("Delete Album", role: .destructive) {
+                    if source == .album(album.id) { source = .all }
+                    catalog.deleteAlbum(album.id)
+                }
+            }
+            .draggable(album.id.uuidString)
+            .dropDestination(for: URL.self) { urls, _ in
+                catalog.add(PhotoCatalog.photos(in: urls), to: album.id)
+                return true
+            }
+    }
+
+    private func newAlbum(in folder: UUID?) {
+        let album = catalog.newAlbum(named: String(localized: "Album \(catalog.albums.count + 1)"))
+        catalog.move(album: album.id, to: folder)
+        source = .album(album.id)
+        albumName = album.name
+        renamingAlbum = album.id
+    }
+
+    private func row(_ item: PhotoCatalog.Source, symbol: String, title: Text) -> some View {
+        SidebarRow(symbol: symbol, title: title, detail: Text(verbatim: "\(catalog.photos(in: item).count)"), selected: source == item) {
+            EmptyView()
+        }
+        .onTapGesture {
+            source = item
+            selection = []
+            focus = catalog.photos(in: item).first
+        }
+    }
+
+    // MARK: - Toolbar
+
+    private var toolbar: some View {
+        HStack(spacing: 10) {
+            Picker("View", selection: $loupe) {
+                Image(systemName: "square.grid.3x3").tag(false).help("Grid")
+                Image(systemName: "rectangle").tag(true).help("One at a time")
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 90)
+            Menu {
+                Button("All") { flagFilter = nil }
+                Button("Picks") { flagFilter = .pick }
+                Button("Not Flagged") { flagFilter = PhotoRecord.Flag.none }
+                Button("Rejected") { flagFilter = .reject }
+            } label: {
+                Label(flagTitle, systemImage: "flag")
+            }
+            .fixedSize()
+            Menu {
+                ForEach(0...5, id: \.self) { stars in
+                    Button(stars == 0 ? String(localized: "Any Rating") : String(repeating: "★", count: stars) + "+") { minRating = stars }
+                }
+            } label: {
+                Label(minRating == 0 ? String(localized: "Any Rating") : String(repeating: "★", count: minRating) + "+", systemImage: "star")
+            }
+            .fixedSize()
+            Toggle("Auto-advance", isOn: $autoAdvance)
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .help("After rating or flagging, go to the next photo")
+            Spacer()
+            TextField("Find: beach, a menu…", text: $search)
+                .textFieldStyle(.roundedBorder)
+                .frame(maxWidth: 180)
+                .help("Find photos by what’s in them, the text in them or their name")
+            Text("^[\(photos.count) photo](inflect: true)").font(.callout).foregroundStyle(.secondary)
+            if !loupe {
+                Slider(value: $gridSize, in: 110...320).frame(width: 90).controlSize(.mini).help("Size")
+            }
+            Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
+                .buttonStyle(BrandButtonStyle(large: false))
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+    }
+
+    private var flagTitle: String {
+        switch flagFilter {
+        case .pick: String(localized: "Picks")
+        case .reject: String(localized: "Rejected")
+        case .some(.none): String(localized: "Not Flagged")
+        case nil: String(localized: "All")
+        }
+    }
+
+    // MARK: - Photos
+
+    private var empty: some View {
+        VStack(spacing: Design.Spacing.section) {
+            DropZone(symbol: "photo.on.rectangle.angled", text: Text("Drop photos or a folder of photos"), targeted: dropTargeted)
+            Button("Import Photos…", systemImage: "square.and.arrow.down") { importPhotos() }
+                .buttonStyle(BrandButtonStyle())
+        }
+        .padding(Design.Spacing.window)
+        .frame(maxWidth: 520)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var grid: some View {
+        ScrollViewReader { scroller in
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: gridSize, maximum: gridSize * 1.4), spacing: 10)], spacing: 10) {
+                    ForEach(photos, id: \.self) { path in
+                        PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || (selection.isEmpty && focus == path))
+                            .id(path)
+                            .onTapGesture(count: 2) { focus = path; selection = [path]; loupe = true }
+                            .onTapGesture { click(path) }
+                            .contextMenu { menu(for: path) }
+                            .onDrag { NSItemProvider(object: URL(fileURLWithPath: path) as NSURL) }
+                    }
+                }
+                .padding(14)
+            }
+            .onChange(of: focus) { _, path in if let path { withAnimation { scroller.scrollTo(path, anchor: .center) } } }
+        }
+    }
+
+    private var filmstrip: some View {
+        ScrollViewReader { scroller in
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 6) {
+                    ForEach(photos, id: \.self) { path in
+                        PhotoCell(path: path, record: catalog.record(path), selected: focus == path, compact: true)
+                            .frame(width: 96, height: 72)
+                            .id(path)
+                            .onTapGesture { focus = path; selection = [path] }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            }
+            .frame(height: 88)
+            .background(.background.secondary)
+            .onChange(of: focus) { _, path in if let path { withAnimation { scroller.scrollTo(path, anchor: .center) } } }
+        }
+    }
+
+    private func click(_ path: String) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        if flags.contains(.command) {
+            if selection.contains(path) { selection.remove(path) } else { selection.insert(path) }
+        } else if flags.contains(.shift), let focus, let from = photos.firstIndex(of: focus), let to = photos.firstIndex(of: path) {
+            selection = Set(photos[min(from, to)...max(from, to)])
+        } else {
+            selection = [path]
+        }
+        focus = path
+        focused = true
+    }
+
+    @ViewBuilder private func menu(for path: String) -> some View {
+        let targets = selection.contains(path) ? Array(selection) : [path]
+        Menu("Add to Album") {
+            ForEach(catalog.albums) { album in Button(album.name) { catalog.add(targets, to: album.id) } }
+            Divider()
+            Button("New Album…") {
+                let album = catalog.newAlbum(named: String(localized: "Album \(catalog.albums.count + 1)"), with: targets)
+                source = .album(album.id)
+            }
+        }
+        if case .album(let id) = source {
+            Button("Remove from Album") { catalog.remove(targets, from: id) }
+        }
+        Divider()
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: $0) }) }
+    }
+
+    // MARK: - Importing
+
+    /// Photos chosen (files or folders) go into a new album, or into the given one.
+    private func importPhotos(into album: UUID? = nil) {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image]
+        panel.prompt = String(localized: "Import")
+        guard panel.runModal() == .OK else { return }
+        importPhotos(panel.urls, into: album)
+    }
+
+    private func importPhotos(_ urls: [URL], into album: UUID? = nil) {
+        let found = PhotoCatalog.photos(in: urls)
+        guard !found.isEmpty else { NSSound.beep(); return }
+        if let album {
+            catalog.add(found, to: album)
+        } else if case .album(let current) = source {
+            catalog.add(found, to: current)
+        } else {
+            let name = urls.count == 1 ? urls[0].deletingPathExtension().lastPathComponent : String(localized: "Imported \(Date.now.formatted(date: .abbreviated, time: .omitted))")
+            let created = catalog.newAlbum(named: name, with: found)
+            source = .album(created.id)
+        }
+        focus = found.first
+        selection = []
+    }
+
+    // MARK: - Keys (culling)
+
+    private func key(_ press: KeyPress) -> KeyPress.Result {
+        if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
+        let targets = selection.isEmpty ? (focus.map { [$0] } ?? []) : Array(selection)
+        switch press.key {
+        case .leftArrow where !editing.cropping: move(-1)
+        case .rightArrow where !editing.cropping: move(1)
+        case .upArrow where !loupe: move(-columns)
+        case .downArrow where !loupe: move(columns)
+        case .space, .return: if editing.cropping { editing.cropping = false } else if focus != nil { loupe.toggle() }
+        case .escape: if editing.cropping { editing.cropping = false } else { loupe = false }
+        default:
+            let character = press.characters.lowercased()
+            if let stars = Int(character), (0...5).contains(stars) {
+                catalog.update(targets) { $0.rating = stars }
+                advance(targets)
+            } else if character == "p" {
+                catalog.update(targets) { $0.flag = .pick }
+                advance(targets)
+            } else if character == "x" {
+                catalog.update(targets) { $0.flag = .reject }
+                advance(targets)
+            } else if character == "c", press.modifiers.isEmpty {
+                editing.cropping.toggle()
+            } else if character == "u" {
+                catalog.update(targets) { $0.flag = .none }
+            } else if character == "a", press.modifiers.contains(.command) {
+                selection = Set(photos)
+            } else {
+                return .ignored
+            }
+        }
+        return .handled
+    }
+
+    private var columns: Int { 4 }
+
+    private func move(_ step: Int) {
+        guard !photos.isEmpty else { return }
+        let index = focus.flatMap { photos.firstIndex(of: $0) } ?? -1
+        let next = photos[min(max(index + step, 0), photos.count - 1)]
+        focus = next
+        selection = [next]
+    }
+
+    private func advance(_ targets: [String]) {
+        if autoAdvance, targets.count == 1 { move(1) }
+    }
+}
+
+// MARK: - A photo in the grid
+
+private struct PhotoCell: View {
+    let path: String
+    let record: PhotoRecord
+    let selected: Bool
+    var compact = false
+    @State private var image: NSImage?
+    @State private var hovering = false
+
+    var body: some View {
+        Color.black.opacity(0.35)
+            .aspectRatio(compact ? 4 / 3 : 1, contentMode: .fit)
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFit()
+                } else {
+                    ProgressView().controlSize(.small)
+                }
+            }
+            .overlay(alignment: .bottomLeading) {
+                if !compact, record.rating > 0 {
+                    Text(String(repeating: "★", count: record.rating))
+                        .font(.caption2).foregroundStyle(.yellow)
+                        .padding(.horizontal, 5).padding(.vertical, 2)
+                        .background(.black.opacity(0.55), in: .capsule)
+                        .padding(6)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                HStack(spacing: 4) {
+                    if record.isEdited { Image(systemName: record.filmOn ? "film" : "slider.horizontal.3").font(.caption2) }
+                    if record.flag == .pick { Image(systemName: "flag.fill").foregroundStyle(.white) }
+                    if record.flag == .reject { Image(systemName: "xmark").foregroundStyle(.red) }
+                    if let label = record.label { Circle().fill(PhotoInspector.labelColor(label)).frame(width: 8, height: 8) }
+                }
+                .font(.caption)
+                .padding(5)
+                .background(record.flag == .none && !record.isEdited && record.label == nil ? AnyShapeStyle(.clear) : AnyShapeStyle(.black.opacity(0.55)),
+                            in: .capsule)
+                .padding(6)
+            }
+            .opacity(record.flag == .reject ? 0.45 : 1)
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 4 : 8, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: compact ? 4 : 8, style: .continuous)
+                    .strokeBorder(selected ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.3 : 0.08)),
+                                  lineWidth: selected ? 3 : 1)
+            }
+            .contentShape(.rect)
+            .onHover { hovering = $0 }
+            .help(URL(fileURLWithPath: path).lastPathComponent)
+            .task(id: record) { await load() }
+    }
+
+    /// The developed preview when there is one; otherwise the photo as shot.
+    private func load() async {
+        let cached = PhotoRender.cachedPreview(path, record: record)
+        if record.isEdited, let saved = NSImage(contentsOf: cached) { image = saved; return }
+        // While a slider moves (often for many selected photos at once), wait for it to rest:
+        // the large picture follows the slider, the small ones catch up after.
+        if image != nil {
+            try? await Task.sleep(for: .milliseconds(600))
+            guard !Task.isCancelled else { return }
+        }
+        let path = self.path
+        let thumbnail = image != nil ? nil : await Task.detached(priority: .utility) { () -> CGImage? in
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: 480,
+                                            kCGImageSourceCreateThumbnailWithTransform: true]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }.value
+        if let thumbnail { image = NSImage(cgImage: thumbnail, size: .zero) }
+        // Edited without a saved preview yet (only the adjustments: film previews are made on view).
+        if record.isEdited, !record.filmOn, let developed = try? await PhotoRender.develop(path, record: record, maxSize: 480) {
+            guard !Task.isCancelled else { return }
+            image = NSImage(cgImage: developed, size: .zero)
+            PhotoRender.savePreview(developed, to: cached)
+        }
+    }
+}
+
+// MARK: - One photo, large
+
+/// The developed photo, re-developed a moment after a setting changes. With film on, a quick
+/// look first (the adjustments) and the film render when it's ready. Hold \ to see it as shot.
+struct PhotoLoupe: View {
+    let path: String
+    let record: PhotoRecord
+    @State private var image: NSImage?
+    @State private var developing = false
+    @State private var problem: String?
+    @State private var editing = PhotoEditing.shared
+    @State private var catalog = PhotoCatalog.shared
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image {
+                Image(nsImage: image).resizable().scaledToFit().padding(14)
+                if editing.cropping, !original {
+                    GeometryReader { geo in
+                        let area = geo.size, inset = 14.0
+                        let ratio = image.size.width / max(image.size.height, 1)
+                        let width = min(area.width - inset * 2, (area.height - inset * 2) * ratio), height = width / ratio
+                        let frame = CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
+                        CropOverlay(frame: frame, pictureRatio: ratio,
+                                    rect: record.adjust.cropRect ?? CropOverlay.centered(ratio: record.adjust.crop.ratio, pictureRatio: ratio),
+                                    ratio: record.adjust.crop.ratio) { rect in
+                            catalog.update([path]) { $0.adjust.cropRect = rect; $0.edited = .now }
+                        }
+                    }
+                }
+            }
+            VStack {
+                HStack {
+                    if original { Text("As Shot").font(.caption.weight(.semibold)).padding(6).background(.black.opacity(0.6), in: .capsule) }
+                    Spacer()
+                    if developing {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text(record.filmOn ? "Developing the film…" : "Developing…")
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(.ultraThinMaterial, in: .capsule)
+                    }
+                }
+                Spacer()
+                if let problem { ProblemLabel(text: problem).padding(8).background(.ultraThinMaterial, in: .rect(cornerRadius: 8)) }
+            }
+            .padding(14)
+        }
+        .task(id: TaskKey(path: path, record: shownRecord, original: original)) { await develop() }
+    }
+
+    private struct TaskKey: Hashable {
+        let path: String
+        let record: PhotoRecord
+        let original: Bool
+    }
+
+    private var original: Bool { editing.asShot }
+
+    /// While cropping, the whole picture shows (the frame marks the crop).
+    private var shownRecord: PhotoRecord {
+        var shown = record
+        if editing.cropping {
+            shown.adjust.cropRect = nil
+            shown.adjust.crop = .original
+            shown.filmOn = false
+        }
+        return shown
+    }
+
+    /// The adjustments follow at once; the film (seconds) waits until the slider rests.
+    private func develop() async {
+        problem = nil
+        let shown = original ? PhotoRecord() : shownRecord
+        let cached = PhotoRender.cachedPreview(path, record: shown)
+        if shown.filmOn, let saved = NSImage(contentsOf: cached) {
+            image = saved
+            developing = false
+            return
+        }
+        if let fast = await PhotoRender.quick(path, record: shown, maxSize: 1600) {
+            guard !Task.isCancelled else { return }
+            image = NSImage(cgImage: fast, size: .zero)
+            if !shown.filmOn {
+                developing = false
+                try? await Task.sleep(for: .milliseconds(700))
+                if !Task.isCancelled, shown.isEdited { PhotoRender.savePreview(fast, to: cached) }
+                return
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        guard !Task.isCancelled else { return }
+        developing = true
+        do {
+            if let developed = try await PhotoRender.develop(path, record: shown, maxSize: 1600) {
+                guard !Task.isCancelled else { return }
+                image = NSImage(cgImage: developed, size: .zero)
+                PhotoRender.savePreview(developed, to: cached)
+            }
+        } catch {
+            if !Task.isCancelled { problem = error.localizedDescription }
+        }
+        if !Task.isCancelled { developing = false }
+    }
+}

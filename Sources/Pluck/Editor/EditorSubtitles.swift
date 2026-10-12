@@ -1,6 +1,7 @@
 import CryptoKit
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// One subtitle in the Editor: when it shows and what it says (editable).
 struct SubtitleCue: Codable, Identifiable, Hashable {
@@ -303,5 +304,30 @@ enum EditorSubtitleFiles {
     /// A path written for an ffmpeg filter (colons and quotes escaped).
     static func filterPath(_ url: URL) -> String {
         url.path.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: ":", with: "\\:").replacingOccurrences(of: "'", with: "\\'")
+    }
+}
+
+/// Saves subtitles on their own, as an .srt file (or WebVTT, when the name ends in .vtt).
+@MainActor
+enum SubtitleSaver {
+    static func save(_ cues: [SubtitleCue], name: String) {
+        guard !cues.isEmpty else { NSSound.beep(); return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name + ".srt"
+        panel.allowedContentTypes = [UTType(filenameExtension: "srt"), UTType(filenameExtension: "vtt")].compactMap { $0 }
+        panel.allowsOtherFileTypes = true
+        panel.canCreateDirectories = true
+        panel.message = String(localized: "Subtitles as SRT, or WebVTT when the name ends in .vtt.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let text = url.pathExtension.lowercased() == "vtt" ? vtt(cues) : EditorSubtitleFiles.srt(cues)
+        try? text.write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    static func vtt(_ cues: [SubtitleCue]) -> String {
+        func time(_ t: Double) -> String {
+            let ms = Int((max(t, 0) * 1000).rounded())
+            return String(format: "%02d:%02d:%02d.%03d", ms / 3_600_000, ms / 60_000 % 60, ms / 1000 % 60, ms % 1000)
+        }
+        return "WEBVTT\n\n" + cues.map { "\(time($0.start)) --> \(time($0.end))\n\($0.text)\n" }.joined(separator: "\n")
     }
 }

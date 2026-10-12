@@ -1,0 +1,10 @@
+Pluck Studio's film simulation runs spektrafilm by Andrea Volpato:
+https://github.com/andreavolpato/spektrafilm
+
+spektrafilm is free software under the GNU General Public License, version 3
+(https://www.gnu.org/licenses/gpl-3.0.html). Its film and paper profiles are licensed under
+CC BY-SA 4.0. Pluck doesn't include spektrafilm: it downloads spektrafilm and its Python
+libraries only when you choose to, into its own folder, and runs it as a separate program.
+
+pluck_film.py, the small script Pluck uses to talk to spektrafilm, is licensed under the
+GNU GPL version 3 as well.

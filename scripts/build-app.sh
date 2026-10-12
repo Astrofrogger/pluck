@@ -45,6 +45,9 @@ if [[ "$EDITION" == studio ]]; then
 fi
 
 if [[ "$EDITION" == studio ]]; then
+# The bridge to spektrafilm (film simulation), which Pluck downloads separately when asked.
+mkdir -p "$APP/Contents/Resources/FilmEngine"
+cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/NOTICE.txt "$APP/Contents/Resources/FilmEngine/"
 # The vision helper (Qwen on the GPU with MLX): Apple silicon only, so it's built on its own and
 # Intel Macs simply don't have it. Its Metal kernels sit next to it in the Cmlx bundle.
 (cd Helpers/PluckVision && swift build -c release --arch arm64 >/dev/null)

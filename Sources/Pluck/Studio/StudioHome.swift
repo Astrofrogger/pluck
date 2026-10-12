@@ -70,21 +70,33 @@ struct HomeShortcuts: View {
 struct ContinueEditing: View {
     @State private var nav = StudioNavigator.shared
 
-    private var files: [URL] {
-        nav.recent.map { URL(fileURLWithPath: $0) }.filter { FileManager.default.fileExists(atPath: $0.path) }
+    /// Files that are there, and projects.
+    private var items: [String] {
+        nav.recent.filter { key in
+            if let id = StudioNavigator.projectID(in: key) { return FileManager.default.fileExists(atPath: ProjectStore.url(for: id).path) }
+            return FileManager.default.fileExists(atPath: key)
+        }
     }
 
     var body: some View {
-        if !files.isEmpty {
+        if !items.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 HomeHeading(title: "Continue Editing")
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), alignment: .leading, spacing: 16) {
-                    ForEach(files.prefix(4), id: \.self) { file in
-                        EditCard(file: file, edited: nav.recentDates[file.path]) { nav.open(EditorTarget(path: file.path)) }
-                            .contextMenu {
-                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-                                Button("Remove from Continue Editing") { nav.forget(file.path) }
-                            }
+                    ForEach(items.prefix(4), id: \.self) { key in
+                        if let id = StudioNavigator.projectID(in: key), let project = ProjectStore.load(id) {
+                            EditCard(file: project.clips.first?.file, project: project, edited: nav.recentDates[key]) { nav.open(project) }
+                                .contextMenu {
+                                    Button("Remove from Continue Editing") { nav.forget(key) }
+                                }
+                        } else {
+                            let file = URL(fileURLWithPath: key)
+                            EditCard(file: file, edited: nav.recentDates[key]) { nav.open(EditorTarget(path: key)) }
+                                .contextMenu {
+                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                                    Button("Remove from Continue Editing") { nav.forget(key) }
+                                }
+                        }
                     }
                 }
             }
@@ -93,7 +105,8 @@ struct ContinueEditing: View {
 }
 
 private struct EditCard: View {
-    let file: URL
+    let file: URL?
+    var project: Project?
     let edited: Date?
     let open: () -> Void
     @State private var length: Double?
@@ -104,7 +117,19 @@ private struct EditCard: View {
             VStack(alignment: .leading, spacing: 6) {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay { FileThumbnail(file: file, audio: !Converting.isVideo(file)) }
+                    .overlay {
+                        if let file { FileThumbnail(file: file, audio: !Converting.isVideo(file)) } else { Color.primary.opacity(0.08) }
+                    }
+                    .overlay(alignment: .topLeading) {
+                        if project != nil {
+                            Label("Project", systemImage: "rectangle.stack")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6).padding(.vertical, 3)
+                                .background(Capsule().fill(Design.Brand.gradient))
+                                .foregroundStyle(.white)
+                                .padding(6)
+                        }
+                    }
                     .overlay(alignment: .bottomTrailing) {
                         if let length {
                             Text(Format.duration(length))
@@ -138,7 +163,7 @@ private struct EditCard: View {
                     .shadow(color: .black.opacity(hovering ? 0.35 : 0.15), radius: hovering ? 14 : 6, y: hovering ? 8 : 3)
                     .scaleEffect(hovering ? 1.03 : 1)
                     .animation(.snappy(duration: 0.18), value: hovering)
-                Text(file.deletingPathExtension().lastPathComponent)
+                Text(project?.name ?? file?.deletingPathExtension().lastPathComponent ?? "")
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
                 if let edited {
@@ -152,9 +177,10 @@ private struct EditCard: View {
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help(file.lastPathComponent)
+        .help(project?.name ?? file?.lastPathComponent ?? "")
         .task(id: file) {
-            if let seconds = try? await AVURLAsset(url: file).load(.duration).seconds, seconds.isFinite, seconds > 0 {
+            if let project { length = project.duration; return }
+            if let file, let seconds = try? await AVURLAsset(url: file).load(.duration).seconds, seconds.isFinite, seconds > 0 {
                 length = seconds
             }
         }

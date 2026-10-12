@@ -1,13 +1,17 @@
 import Foundation
 import FoundationModels
 import NaturalLanguage
+import Translation
 
-/// Search inside downloads: finds the moments in transcripts that match a question.
+/// Search inside videos: finds the moments in transcripts that match a question, in any of the
+/// languages they were spoken in.
 ///
 /// Keyword ranking (BM25 over word roots, so "editing" finds "editor") does the fast first pass
-/// over every transcript. With Apple Intelligence, local AI first widens the question into the
-/// words people would actually say, then reads the best candidates and keeps the ones that
-/// answer it. Everything runs on this Mac.
+/// over every transcript and the translations made of them. The question is also translated on
+/// this Mac into each language the transcripts are in, so an English or Dutch question finds a
+/// French interview. With Apple Intelligence, local AI widens the question into the words people
+/// would actually say (in those languages too), then reads the best candidates and keeps the
+/// ones that answer it. Everything runs on this Mac.
 @MainActor
 final class TranscriptSearch {
     struct Hit: Identifiable, Sendable {
@@ -18,6 +22,8 @@ final class TranscriptSearch {
         let text: String
         /// Words to highlight in the snippet.
         let terms: [String]
+        /// The file is there (not on a drive that's unplugged).
+        let available: Bool
         var id: String { "\(transcriptID)@\(start)" }
     }
 
@@ -33,6 +39,10 @@ final class TranscriptSearch {
     private var indexedFiles: [String: Date] = [:]
     private var documentFrequency: [String: Int] = [:]
     private var averageLength = 1.0
+    /// The languages spoken in the transcripts ("fr", "nl"…).
+    private var languages: Set<String> = []
+    /// Questions already translated: "nl→fr:vieze toiletten".
+    private var translatedQuestions: [String: String] = [:]
 
     /// How many transcripts there are to search.
     var count: Int { transcripts.count }
@@ -47,48 +57,76 @@ final class TranscriptSearch {
         }
         guard stamps != indexedFiles else { return }
         let built = await Task.detached(priority: .userInitiated) { () -> ([Transcript], [Passage]) in
-            let all = TranscriptStore.all().filter { FileManager.default.fileExists(atPath: $0.filePath) }
+            // Also transcripts of files that aren't there right now (a drive that's unplugged):
+            // they're found, and marked.
+            let all = TranscriptStore.all()
             var passages: [Passage] = []
             for (index, transcript) in all.enumerated() {
                 let language = NLLanguage(Locale(identifier: transcript.language).language.languageCode?.identifier ?? "en")
                 // About 20 seconds of speech per passage: enough context, still a precise jump.
-                var text = "", start = 0.0
-                for cue in transcript.cues() {
-                    if text.isEmpty { start = cue.start }
-                    text += (text.isEmpty ? "" : " ") + cue.text
-                    if cue.end - start >= 20 {
-                        passages.append(Passage(transcript: index, start: start, text: text, roots: Self.roots(text, language: language)))
-                        text = ""
+                // The translations made of it are searched along, with the same timing.
+                let versions: [(NLLanguage, [(Double, Double, String)])] =
+                    [(language, transcript.cues().map { ($0.start, $0.end, $0.text) })]
+                    + (transcript.translations ?? [:]).map { code, translation in (NLLanguage(code), translation.lines.map { ($0.s, $0.e, $0.t) }) }
+                for (lang, lines) in versions {
+                    var text = "", start = 0.0
+                    for line in lines {
+                        if text.isEmpty { start = line.0 }
+                        text += (text.isEmpty ? "" : " ") + line.2
+                        if line.1 - start >= 20 {
+                            passages.append(Passage(transcript: index, start: start, text: text, roots: Self.roots(text, language: lang)))
+                            text = ""
+                        }
                     }
+                    if !text.isEmpty { passages.append(Passage(transcript: index, start: start, text: text, roots: Self.roots(text, language: lang))) }
                 }
-                if !text.isEmpty { passages.append(Passage(transcript: index, start: start, text: text, roots: Self.roots(text, language: language))) }
             }
             return (all, passages)
         }.value
         transcripts = built.0
         passages = built.1
+        languages = Set(transcripts.map { Locale(identifier: $0.language).language.languageCode?.identifier ?? $0.language })
         documentFrequency = [:]
         for passage in passages { for root in Set(passage.roots) { documentFrequency[root, default: 0] += 1 } }
         averageLength = max(Double(passages.map(\.roots.count).reduce(0, +)) / Double(max(passages.count, 1)), 1)
         indexedFiles = stamps
     }
 
-    func search(_ query: String) async -> [Hit] {
+    /// The moments that answer a question. `within`: only files in these folders (a scope).
+    func search(_ query: String, within folders: [String] = []) async -> [Hit] {
         await refresh()
         let question = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !passages.isEmpty else { return [] }
         let language = Self.language(of: question)
         var terms = Self.roots(question, language: language)
+        var highlightWords = question.split(separator: " ").map(String.init)
 
-        var aiWords: [String] = []
+        // The question in the other languages spoken in the transcripts, translated on this Mac.
+        let asked = language.rawValue
+        for target in languages where target != asked {
+            if let translated = await translate(question, from: asked, to: target) {
+                terms += Self.roots(translated, language: NLLanguage(target))
+                highlightWords += translated.split(separator: " ").map(String.init)
+            }
+        }
+
         if #available(macOS 26, *), LocalAI.canSummarize {
-            aiWords = (try? await Self.expand(question)) ?? []
-            terms += aiWords.flatMap { Self.roots($0, language: language) }
+            let aiWords = (try? await Self.expand(question, languages: Array(languages))) ?? []
+            terms += aiWords.flatMap { word in
+                // Roots in whichever language the word is in.
+                Self.roots(word, language: Self.language(of: word))
+            }
+            highlightWords += aiWords
         }
         terms = Array(Set(terms.filter { !Self.stopWords.contains($0) }))
         guard !terms.isEmpty else { return [] }
 
+        let scope = folders.map { $0.hasSuffix("/") ? $0 : $0 + "/" }
         let ranked = passages.indices
+            .filter { index in
+                let path = transcripts[passages[index].transcript].filePath
+                return scope.isEmpty || scope.contains { path.hasPrefix($0) }
+            }
             .map { ($0, bm25(passages[$0], terms)) }
             .filter { $0.1 > 0 }
             .sorted { $0.1 > $1.1 }
@@ -102,13 +140,21 @@ final class TranscriptSearch {
                 order = chosen + order.filter { !chosen.contains($0) }
             }
         }
-        let highlight = (question.split(separator: " ").map(String.init) + aiWords).filter { $0.count > 2 }
-        return order.prefix(20).map { index in
+        let highlight = highlightWords.filter { $0.count > 2 }
+        // One hit per moment: a passage and its translation land on the same spot.
+        var seen: Set<String> = []
+        var hits: [Hit] = []
+        for index in order {
             let passage = passages[index]
             let transcript = transcripts[passage.transcript]
-            return Hit(transcriptID: transcript.id, title: transcript.title, filePath: transcript.filePath,
-                       start: passage.start, text: passage.text, terms: highlight)
+            let key = "\(transcript.id)@\(Int(passage.start))"
+            guard seen.insert(key).inserted else { continue }
+            hits.append(Hit(transcriptID: transcript.id, title: transcript.title, filePath: transcript.filePath,
+                            start: passage.start, text: passage.text, terms: highlight,
+                            available: FileManager.default.fileExists(atPath: transcript.filePath)))
+            if hits.count == 30 { break }
         }
+        return hits
     }
 
     private func bm25(_ passage: Passage, _ terms: [String]) -> Double {
@@ -140,9 +186,34 @@ final class TranscriptSearch {
     }
 
     @available(macOS 26, *)
-    private static func expand(_ question: String) async throws -> [String] {
-        let session = LanguageModelSession(instructions: "You turn a question about a video into search words that would appear in what's said in it. Use the language of the question.")
-        return try await session.respond(to: "Question: \(question)", generating: Expansion.self).content.terms
+    private static func expand(_ question: String, languages: [String]) async throws -> [String] {
+        let names = languages.compactMap { Locale(identifier: "en").localizedString(forLanguageCode: $0) }
+        let also = names.isEmpty ? "" : " Give them in the language of the question and also in \(names.joined(separator: ", "))."
+        let session = LanguageModelSession(instructions: "You turn a question about a video into search words that would appear in what's said in it.\(also)")
+        return try await session.respond(to: "Question: \(question)", generating: Expansion.self,
+                                         options: GenerationOptions(sampling: .greedy)).content.terms
+    }
+
+    /// The question in English (what's seen in videos and photos is written in English), when it
+    /// was asked in another language this Mac can translate from; otherwise as asked.
+    func english(_ question: String) async -> String {
+        let question = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        let language = Self.language(of: question).rawValue
+        guard question.count > 2, !language.hasPrefix("en") else { return question }
+        return await translate(question, from: language, to: "en") ?? question
+    }
+
+    /// The question in another language, when this Mac has that language pair (macOS 26).
+    private func translate(_ question: String, from source: String, to target: String) async -> String? {
+        let key = "\(source)→\(target):\(question)"
+        if let done = translatedQuestions[key] { return done }
+        guard #available(macOS 26, *) else { return nil }
+        let from = Locale.Language(identifier: source), to = Locale.Language(identifier: target)
+        guard await LanguageAvailability().status(from: from, to: to) == .installed else { return nil }
+        let session = TranslationSession(installedSource: from, target: to)
+        guard let response = try? await session.translate(question) else { return nil }
+        translatedQuestions[key] = response.targetText
+        return response.targetText
     }
 
     @available(macOS 26, *)

@@ -17,6 +17,11 @@ struct StudioWindow: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             PageBar(nav: nav)
         }
+        // Home's glow runs under the whole window: title bar, page and page bar.
+        .background {
+            if nav.page == .home { BrandGlow().ignoresSafeArea() }
+        }
+        .modifier(ClearToolbarOnHome(home: nav.page == .home))
         .frame(minWidth: 1120, minHeight: 680)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -31,6 +36,8 @@ struct StudioWindow: View {
                let page = StudioNavigator.Page(rawValue: name) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { nav.show(page) }
             }
+            // Watched folders: new footage is indexed while Pluck is open.
+            FootageFolders.shared.start()
             AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
             AppDelegate.openWindowByID = { nav.open(windowID: $0); openWindow(id: "main"); NSApp.activate() }
         }
@@ -46,8 +53,22 @@ struct StudioWindow: View {
         case .home: ContentView()
         case .library: LibraryView()
         case .edit: EditPage(nav: nav)
+        case .photo: PhotoPage()
         case .search: VisualSearchView()
         case .tools: ToolsPage(nav: nav)
+        }
+    }
+}
+
+/// On Home the title bar lets the glow through.
+private struct ClearToolbarOnHome: ViewModifier {
+    let home: Bool
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.toolbarBackgroundVisibility(home ? .hidden : .automatic, for: .windowToolbar)
+        } else {
+            content
         }
     }
 }
@@ -70,8 +91,8 @@ private struct PageBar: View {
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .background(.bar)
-        .overlay(alignment: .top) { Divider() }
+        .background(nav.page == .home ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
+        .overlay(alignment: .top) { if nav.page != .home { Divider() } }
     }
 
     private func item(_ page: StudioNavigator.Page) -> some View {
@@ -110,29 +131,37 @@ private struct PageBar: View {
 private struct EditPage: View {
     @Bindable var nav: StudioNavigator
     @AppStorage("studioMediaShown") private var mediaShown = true
+    @AppStorage("studioMediaWidth") private var mediaWidth = 250.0
     @State private var dropTargeted = false
 
     var body: some View {
         HStack(spacing: 0) {
             if mediaShown {
                 MediaPanel(nav: nav)
-                    .frame(width: 250)
+                    .frame(width: mediaWidth)
                     .transition(.move(edge: .leading))
-                Divider()
+                ResizeHandle(width: $mediaWidth, range: 200...420, edge: .leading)
             }
             VStack(spacing: 0) {
                 if !nav.tabs.isEmpty {
                     TabStrip(nav: nav)
                     Divider()
                 }
-                if let tab = nav.current {
-                    EditorView(target: tab.target, model: tab.model)
+                if let tab = nav.current, let project = tab.project {
+                    ProjectView(model: project)
+                        .id(tab.id)
+                } else if let tab = nav.current, let target = tab.target, let model = tab.model {
+                    EditorView(target: target, model: model)
                         .id(tab.id)
                 } else {
                     VStack(spacing: Design.Spacing.section) {
-                        DropZone(symbol: "film", text: Text("Drop a video or song"), targeted: dropTargeted)
-                        Button("Open…", action: openPanel)
-                            .buttonStyle(BrandButtonStyle())
+                        DropZone(symbol: "film", text: Text("Drop a video to edit it, or several to start a project"), targeted: dropTargeted)
+                        HStack(spacing: Design.Spacing.controls) {
+                            Button("Open…", systemImage: "doc", action: openPanel)
+                                .buttonStyle(GlassCapsuleButtonStyle())
+                            Button("New Project", systemImage: "rectangle.stack.badge.plus") { nav.newProject() }
+                                .buttonStyle(BrandButtonStyle())
+                        }
                     }
                     .padding(Design.Spacing.window)
                         .frame(maxWidth: 560, maxHeight: 320)
@@ -151,14 +180,15 @@ private struct EditPage: View {
                 .keyboardShortcut("l", modifiers: [.command, .option])
             }
         }
-        .navigationTitle(nav.current?.target.file.lastPathComponent ?? String(localized: "Edit"))
+        .navigationTitle(nav.current?.title ?? String(localized: "Edit"))
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             Task { @MainActor in
+                var files: [URL] = []
                 for provider in providers {
-                    if let url = await provider.load(URL.self), url.isFileURL, EditorTarget.canOpen(url) {
-                        nav.open(EditorTarget(path: url.path))
-                    }
+                    if let url = await provider.load(URL.self), url.isFileURL, EditorTarget.canOpen(url) { files.append(url) }
                 }
+                // Several files make a project; one opens in its own tab.
+                if files.count > 1 { nav.newProject(with: files) } else if let file = files.first { nav.open(EditorTarget(path: file.path)) }
             }
             return true
         }
@@ -182,11 +212,28 @@ private struct TabStrip: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
                 ForEach(nav.tabs) { tab in
-                    TabChip(title: tab.target.file.deletingPathExtension().lastPathComponent,
+                    TabChip(title: tab.title, project: tab.project != nil,
                             on: tab.id == nav.current?.id,
                             select: { nav.currentID = tab.id },
-                            close: { nav.close(tab.id) })
+                            close: { nav.close(tab.id) },
+                            rename: tab.project.map { model in { name in nav.renameProject(model.project.id, to: name) } })
                 }
+                Menu {
+                    Button("New Project", systemImage: "rectangle.stack.badge.plus") { nav.newProject() }
+                    Button("Open File…", systemImage: "doc") {
+                        let panel = NSOpenPanel()
+                        panel.allowedContentTypes = [.movie, .audio]
+                        panel.allowsMultipleSelection = true
+                        guard panel.runModal() == .OK else { return }
+                        for url in panel.urls { nav.open(EditorTarget(path: url.path)) }
+                    }
+                } label: {
+                    Image(systemName: "plus").font(.system(size: 11, weight: .semibold))
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("New project or open a file")
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -197,10 +244,17 @@ private struct TabStrip: View {
 
 private struct TabChip: View {
     let title: String
+    var project = false
     let on: Bool
     let select: () -> Void
     let close: () -> Void
+    /// Projects can be renamed (double-click the tab).
+    var rename: ((String) -> Void)?
     @State private var hovering = false
+    @State private var editing = false
+    @State private var name = ""
+    @FocusState private var nameFocused: Bool
+    @State private var middleClick: Any?
 
     var body: some View {
         HStack(spacing: 6) {
@@ -211,7 +265,18 @@ private struct TabChip: View {
             .opacity(hovering || on ? 1 : 0)
             .accessibilityLabel("Close")
             .help("Close")
-            Text(title).lineLimit(1).truncationMode(.middle)
+            if project { Image(systemName: "rectangle.stack").font(.caption).foregroundStyle(Design.Brand.gradient) }
+            if editing {
+                TextField("Name", text: $name)
+                    .textFieldStyle(.plain)
+                    .focused($nameFocused)
+                    .frame(minWidth: 80, maxWidth: 180)
+                    .onSubmit { rename?(name); editing = false }
+                    .onExitCommand { editing = false }
+                    .onChange(of: nameFocused) { _, focused in if !focused, editing { rename?(name); editing = false } }
+            } else {
+                Text(title).lineLimit(1).truncationMode(.middle)
+            }
         }
         .font(.callout)
         .foregroundStyle(on ? .primary : .secondary)
@@ -224,8 +289,32 @@ private struct TabChip: View {
             if on { Capsule().fill(Design.Brand.gradient).frame(height: 2).padding(.horizontal, 8) }
         }
         .contentShape(.rect)
+        .onTapGesture(count: 2) { startRenaming() }
         .onTapGesture(perform: select)
         .onHover { hovering = $0 }
+        .contextMenu {
+            if rename != nil { Button("Rename…") { startRenaming() } }
+            Button("Close Tab", action: close)
+        }
+        // The middle mouse button closes a tab, as in a browser.
+        .onAppear {
+            middleClick = NSEvent.addLocalMonitorForEvents(matching: .otherMouseUp) { event in
+                if event.buttonNumber == 2, hovering { close() }
+                return event
+            }
+        }
+        .onDisappear {
+            if let middleClick { NSEvent.removeMonitor(middleClick) }
+            middleClick = nil
+        }
+    }
+
+    private func startRenaming() {
+        guard rename != nil else { return }
+        select()
+        name = title
+        editing = true
+        nameFocused = true
     }
 }
 
@@ -235,6 +324,11 @@ private struct MediaPanel: View {
     @Environment(DownloadManager.self) private var manager
     @State private var library = LibraryStore.shared
     @State private var search = ""
+    @State private var projects: [Project] = []
+    @State private var folders: [ProjectStore.Folder] = []
+    @State private var closedFolders: Set<UUID> = []
+    @State private var renaming: Rename?
+    @State private var newName = ""
     /// Files that aren't there (deleted, or on a drive that isn't plugged in): left out.
     @State private var missing: Set<String> = []
 
@@ -265,10 +359,50 @@ private struct MediaPanel: View {
                         }
                         .padding(.bottom, 8)
                     }
+                    if !projects.isEmpty || !folders.isEmpty {
+                        SidebarSection(title: Text("Projects")) {
+                            ForEach(folders) { folder in
+                                let open = !closedFolders.contains(folder.id)
+                                SidebarRow(symbol: open ? "folder" : "folder.fill", title: Text(folder.name),
+                                           detail: Text(verbatim: "\(projects.filter { $0.folder == folder.id }.count)"), selected: false) {
+                                    EmptyView()
+                                }
+                                .onTapGesture { if open { closedFolders.insert(folder.id) } else { closedFolders.remove(folder.id) } }
+                                .contextMenu {
+                                    Button("Rename…") { newName = folder.name; renaming = .folder(folder.id) }
+                                    Button("New Project") { let p = nav.newProject(); nav.fileProject(p.id, in: folder.id) }
+                                    Divider()
+                                    Button("Delete Folder", role: .destructive) {
+                                        for project in projects where project.folder == folder.id { nav.fileProject(project.id, in: nil) }
+                                        folders.removeAll { $0.id == folder.id }
+                                        ProjectStore.saveFolders(folders)
+                                    }
+                                }
+                                .dropDestination(for: String.self) { ids, _ in
+                                    for id in ids.compactMap(UUID.init(uuidString:)) { nav.fileProject(id, in: folder.id) }
+                                    return true
+                                }
+                                if open {
+                                    ForEach(projects.filter { $0.folder == folder.id }) { projectRow($0).padding(.leading, 14) }
+                                }
+                            }
+                            ForEach(projects.filter { project in project.folder == nil || !folders.contains { $0.id == project.folder } }) { projectRow($0) }
+                        }
+                        .padding(.bottom, 8)
+                    }
                     SidebarSection(title: Text("Media")) {
                         ForEach(media) { entry in
-                            MediaRow(entry: entry, on: nav.current?.target.path == entry.path)
-                                .onTapGesture { nav.open(EditorTarget(path: entry.path)) }
+                            MediaRow(entry: entry, on: nav.current?.target?.path == entry.path)
+                                .onTapGesture {
+                                    // In a project, a click adds the file at the end; elsewhere it opens it.
+                                    if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+                                        Task { await project.add([entry.file]) }
+                                    } else {
+                                        nav.open(EditorTarget(path: entry.path))
+                                    }
+                                }
+                                .onDrag { NSItemProvider(object: entry.file as NSURL) }
+                                .help("Click to open; drag onto a project’s timeline to add it (⌥-click adds it at the end)")
                         }
                     }
                 }
@@ -276,10 +410,72 @@ private struct MediaPanel: View {
             }
         }
         .background(.background.secondary)
+        .task(id: "\(nav.tabs.count) \(nav.projectsChanged)") {
+            projects = ProjectStore.all()
+            folders = ProjectStore.folders()
+        }
+        .contextMenu {
+            Button("New Project") { nav.newProject() }
+            Button("New Folder") { addFolder() }
+        }
+        .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") {
+                switch renaming {
+                case .project(let id): nav.renameProject(id, to: newName)
+                case .folder(let id):
+                    if let index = folders.firstIndex(where: { $0.id == id }), !newName.trimmingCharacters(in: .whitespaces).isEmpty {
+                        folders[index].name = newName
+                        ProjectStore.saveFolders(folders)
+                    }
+                case nil: break
+                }
+                renaming = nil
+            }
+            Button("Cancel", role: .cancel) { renaming = nil }
+        }
         .task(id: library.entries.count) {
             let paths = library.entries.map(\.path)
             missing = await Task.detached { Set(paths.filter { !FileManager.default.fileExists(atPath: $0) }) }.value
         }
+    }
+}
+
+extension MediaPanel {
+    enum Rename: Equatable { case project(UUID), folder(UUID) }
+
+    func projectRow(_ project: Project) -> some View {
+        // An open project's name and length as they are now.
+        let live = nav.tabs.first { $0.project?.project.id == project.id }?.project?.project ?? project
+        return SidebarRow(symbol: "rectangle.stack", title: Text(live.name), detail: Text(Format.duration(live.duration)),
+                          selected: nav.current?.project?.project.id == project.id) {
+            EmptyView()
+        }
+        .onTapGesture { nav.open(project) }
+        .draggable(project.id.uuidString)
+        .contextMenu {
+            Button("Rename…") { newName = live.name; renaming = .project(project.id) }
+            if !folders.isEmpty {
+                Menu("Move to Folder") {
+                    ForEach(folders) { folder in Button(folder.name) { nav.fileProject(project.id, in: folder.id) } }
+                    if live.folder != nil {
+                        Divider()
+                        Button("None") { nav.fileProject(project.id, in: nil) }
+                    }
+                }
+            }
+            Button("New Folder") { addFolder() }
+            Divider()
+            Button("Move to Trash", role: .destructive) { nav.trashProject(project.id) }
+        }
+    }
+
+    func addFolder() {
+        let folder = ProjectStore.Folder(name: String(localized: "New Folder"))
+        folders.append(folder)
+        ProjectStore.saveFolders(folders)
+        newName = folder.name
+        renaming = .folder(folder.id)
     }
 }
 

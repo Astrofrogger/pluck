@@ -12,17 +12,23 @@ Sizes, spacing, radii and type come from `Design` (`Design.Size.control`, `Desig
 ## Pluck Studio is one window
 
 Pluck Studio has a single window; only Settings opens on its own. Pages run along a bar at the
-bottom (`StudioWindow`, `StudioNavigator`): **Home**, **Library**, **Edit**, **Search** and
-**Tools**, ⌘1 to ⌘5. A new feature becomes part of a page, never a new window or a sheet of its
+bottom (`StudioWindow`, `StudioNavigator`): **Home**, **Library**, **Edit**, **Photo**, **Search**
+and **Tools**, ⌘1 to ⌘6. A new feature becomes part of a page, never a new window or a sheet of its
 own: something done to a file goes in the Editor's inspector; a standalone tool goes on the
 Tools page. Opening a file anywhere opens it in a tab on Edit (`EditorTarget.open`,
 `PlayerTarget.open`, `StudioNavigator.open`). Basic Pluck keeps its own windows.
 
 - **Home:** the start page. The title, one large field for a link or a dropped file, a few quick
   links, then Continue Editing (big cards), new from subscriptions and the downloads.
-- **Edit:** the media on the left, the open files as tabs, the Editor, and the inspector on the
-  right with its tabs (Local AI, Subtitles, Transcript, Timeline, Export). Export lives in the
-  inspector, not a sheet.
+- **Edit:** the media on the left, the open files and projects as tabs, the Editor (one file) or
+  a project (`ProjectView`: clips, music and titles on a timeline), and the inspector on the right
+  with its tabs. Export lives in the inspector, not a sheet. Side panels can be resized
+  (`ResizeHandle`).
+- **Photo:** albums and folders on the left, a culling grid or one photo with a filmstrip, and the
+  inspector (Info, Adjust, Film, Export). Keys cull: 0–5, P, X, U, arrows. Film is spektrafilm,
+  a separate program downloaded only when asked (`FilmEngine`), always credited.
+- **Search:** where to look on the left (everything, the Library, a watched folder), results
+  grouped as Said, Seen, Files and Photos.
 - **Pluck's colours:** `Design.Brand` (pink into violet, from the icon) marks what's chosen and
   the main action only: the selected page and tab, picked items, `BrandButtonStyle` for the one
   main button of a panel, prominent `BarButtonStyle` buttons. Everything else stays neutral.

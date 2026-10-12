@@ -17,8 +17,6 @@ struct EditorAIPanel: View {
     @State private var search = ""
     @State private var anchor: Transcript.Cue?
     @State private var item: DownloadItem?
-    @State private var finding = false
-    @State private var problem: String?
     /// The sentence the transcript list is scrolled to.
     @State private var scrolledCue: Double?
     /// A tool's window open over the Editor.
@@ -29,19 +27,17 @@ struct EditorAIPanel: View {
     @AppStorage("editorTranscriptView") private var transcriptView = "words"
     @State private var renaming: Int?
     @State private var newName = ""
-    @State private var findingSpeakers = false
-    @State private var speakerProblem: String?
-    @State private var findingStory = false
-    @State private var storyProgress = 0.0
-    @State private var storyProblem: String?
     /// What the story is about, to steer the choice (optional).
     @AppStorage("storyFocus") private var storyFocus = ""
+    @AppStorage("storyLength") private var storyLength = 0.0
     /// The language the transcript is read in ("" for as spoken): translated on this Mac.
     @AppStorage("transcriptLanguage") private var shownLanguage = ""
-    @State private var translating = false
-    @State private var translateProblem: String?
+    @State private var namesShown = false
     /// Set to start a translation (macOS asks to download the language first if needed).
     @State private var translationRequest: TranslationRequest?
+
+    /// Running jobs live in the model, so leaving and coming back shows them still going.
+    private var jobs: EditorModel.Jobs { model.jobs }
 
     var body: some View {
         Group {
@@ -165,19 +161,19 @@ struct EditorAIPanel: View {
 
     /// Translates the transcript (and its summary) into the chosen language, when it isn't yet.
     private func translateIfNeeded() {
-        guard #available(macOS 26, *), let transcript, !shownLanguage.isEmpty, shownLanguage != spokenLanguage, !translating else { return }
+        guard #available(macOS 26, *), let transcript, !shownLanguage.isEmpty, shownLanguage != spokenLanguage, !jobs.translating else { return }
         let existing = transcript.translations?[shownLanguage]
         let summaryMissing = transcript.summary != nil && existing?.summary == nil
         guard existing == nil || summaryMissing else { return }
-        translateProblem = nil
+        jobs.translateProblem = nil
         translationRequest = TranslationRequest(source: transcript.language, target: shownLanguage)
     }
 
     @available(macOS 26, *)
     private func translate(with session: TranslationSession) async {
         guard let transcript, let target = translationRequest?.target else { return }
-        translating = true
-        defer { translating = false; translationRequest = nil }
+        jobs.translating = true
+        defer { jobs.translating = false; translationRequest = nil }
         var requests = cues.enumerated().map { TranslationSession.Request(sourceText: $0.element.text, clientIdentifier: "c\($0.offset)") }
         if let summary = transcript.summary { requests.append(.init(sourceText: summary, clientIdentifier: "s")) }
         for (index, point) in (transcript.keyPoints ?? []).enumerated() { requests.append(.init(sourceText: point, clientIdentifier: "k\(index)")) }
@@ -200,7 +196,7 @@ struct EditorAIPanel: View {
             TranscriptStore.save(updated)
             self.transcript = updated
         } catch {
-            translateProblem = error.localizedDescription
+            jobs.translateProblem = error.localizedDescription
         }
     }
 
@@ -253,8 +249,8 @@ struct EditorAIPanel: View {
                     .help("Save the transcript, summary and chapters as a document, next to the file")
                 }
                 .padding(.horizontal, 8)
-                .padding(.bottom, translating || translateProblem != nil ? 4 : 8)
-                if translating {
+                .padding(.bottom, jobs.translating || jobs.translateProblem != nil ? 4 : 8)
+                if jobs.translating {
                     HStack(spacing: 6) {
                         ProgressView().controlSize(.mini)
                         Text("Translating into \(name(of: shownLanguage))…")
@@ -262,7 +258,7 @@ struct EditorAIPanel: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 6)
-                } else if let translateProblem {
+                } else if let translateProblem = jobs.translateProblem {
                     Text(translateProblem).font(.caption).foregroundStyle(.orange).padding(.horizontal, 12).padding(.bottom, 6)
                 }
                 switch transcriptView {
@@ -347,31 +343,52 @@ struct EditorAIPanel: View {
     }
 
     /// Find Speakers, or how it's going.
-    @ViewBuilder private var speakerBar: some View {
-        if Speakers.isSupported, LocalAI.canTranscribe, let transcript, !transcript.hasSpeakers {
-            HStack(spacing: 6) {
-                if findingSpeakers {
+    /// Under the words: who's speaking, and the names to spell right.
+    private var speakerBar: some View {
+        HStack(spacing: 12) {
+            if Speakers.isSupported, LocalAI.canTranscribe, let transcript, !transcript.hasSpeakers {
+                if jobs.findingSpeakers {
                     ProgressView().controlSize(.small)
                     Text("Telling speakers apart…").foregroundStyle(.secondary)
-                } else if let speakerProblem {
+                } else if let speakerProblem = jobs.speakerProblem {
                     Label(speakerProblem, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).lineLimit(2)
                 } else {
                     Button("Find Speakers", systemImage: "person.2.wave.2", action: findSpeakers)
                         .buttonStyle(.link)
                         .help("Label who says what, with local AI on this Mac (up to four speakers)")
                 }
-                Spacer()
             }
-            .font(.caption)
-            .padding(.horizontal, 12)
-            .padding(.top, 6)
+            Button("Names", systemImage: "character.book.closed") { namesShown = true }
+                .buttonStyle(.link)
+                .help("Names of people and companies to spell right: in this transcript and every one after it")
+                .popover(isPresented: $namesShown, arrowEdge: .top) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Names").font(.headline).padding(.horizontal, 8)
+                        GlossaryEditor(fixTitle: "Fix Names in This Transcript") { fixTranscriptNames() }
+                    }
+                    .padding(.vertical, 12)
+                    .frame(width: 300)
+                }
+            Spacer()
         }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.top, 6)
+    }
+
+    /// Rewrites the transcript with the glossary's names (their timing stays), and saves it.
+    private func fixTranscriptNames() {
+        guard var current = transcript else { return }
+        current.words = Glossary.correct(current.words, terms: Glossary.shared.terms)
+        TranscriptStore.save(current)
+        transcript = current
+        load()
     }
 
     private func findSpeakers() {
         guard #available(macOS 26, *), var current = transcript else { return }
-        findingSpeakers = true
-        speakerProblem = nil
+        jobs.findingSpeakers = true
+        jobs.speakerProblem = nil
         let file = model.file
         Task {
             do {
@@ -379,9 +396,9 @@ struct EditorAIPanel: View {
                 transcript = current
                 load()
             } catch {
-                speakerProblem = error.localizedDescription
+                jobs.speakerProblem = error.localizedDescription
             }
-            findingSpeakers = false
+            jobs.findingSpeakers = false
         }
     }
 
@@ -410,16 +427,21 @@ struct EditorAIPanel: View {
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.small)
                         .help("What the story is about: those passages are preferred")
-                    if findingStory {
+                    Picker("Length", selection: $storyLength) {
+                        ForEach(StoryFinder.lengths, id: \.self) { Text(StoryFinder.lengthTitle($0)).tag($0) }
+                    }
+                    .controlSize(.small)
+                    .fixedSize()
+                    if jobs.findingStory {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Reading the interview…").font(.caption).foregroundStyle(.secondary)
-                            ProgressView(value: storyProgress).controlSize(.small)
+                            ProgressView(value: jobs.storyProgress).controlSize(.small)
                         }
                     } else {
                         Button("Find the Story", systemImage: "text.book.closed", action: findStory)
                             .buttonStyle(BrandButtonStyle(large: false))
                     }
-                    if let storyProblem {
+                    if let storyProblem = jobs.storyProblem {
                         Text(storyProblem).font(.caption).foregroundStyle(.orange)
                     }
                 }
@@ -436,6 +458,9 @@ struct EditorAIPanel: View {
                     Spacer()
                     Menu {
                         Button("Find Again", action: findStory)
+                        Picker("Length", selection: $storyLength) {
+                            ForEach(StoryFinder.lengths, id: \.self) { Text(StoryFinder.lengthTitle($0)).tag($0) }
+                        }
                         Button("Clear", role: .destructive) { saveStory([]) }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -443,12 +468,12 @@ struct EditorAIPanel: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .disabled(findingStory)
+                    .disabled(jobs.findingStory)
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 6)
-                if findingStory {
-                    ProgressView(value: storyProgress).controlSize(.small).padding(.horizontal, 12).padding(.bottom, 6)
+                if jobs.findingStory {
+                    ProgressView(value: jobs.storyProgress).controlSize(.small).padding(.horizontal, 12).padding(.bottom, 6)
                 }
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 4) {
@@ -456,14 +481,17 @@ struct EditorAIPanel: View {
                     }
                     .padding(.horizontal, 6)
                 }
-                Button {
-                    keepOnlyStory()
-                } label: {
-                    Label("Keep Only These", systemImage: "scissors").frame(maxWidth: .infinity)
+                VStack(spacing: 8) {
+                    Button(action: makeStoryProject) {
+                        Label("Make a Project", systemImage: "rectangle.stack.badge.plus").frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(BrandButtonStyle())
+                    .help("The ticked passages as clips on a project’s timeline, in story order: drag them to rearrange")
+                    Button("Keep Only These", systemImage: "scissors", action: keepOnlyStory)
+                        .buttonStyle(.link)
+                        .help("Cut everything else out of this file’s edit, in the order they were filmed (⌘Z undoes it)")
                 }
-                .buttonStyle(BrandButtonStyle())
                 .disabled(!storyBeats.contains(where: \.kept))
-                .help("Cut everything else out of the edit, so the ticked passages play one after another (⌘Z undoes it)")
                 .padding(12)
             }
         }
@@ -510,21 +538,25 @@ struct EditorAIPanel: View {
 
     private func findStory() {
         guard let transcript else { return }
-        findingStory = true
-        storyProblem = nil
-        storyProgress = 0
-        let focus = storyFocus
+        jobs.findingStory = true
+        jobs.storyProblem = nil
+        jobs.storyProgress = 0
+        let focus = storyFocus, length = storyLength, jobs = jobs, path = model.file.path
         Task {
             do {
-                let beats = try await StoryFinder.find(in: transcript, focus: focus,
-                                                       titlesIn: shownLanguage.isEmpty ? nil : shownLanguage) { value in
-                    Task { @MainActor in storyProgress = value }
+                let beats = try await StoryFinder.find(in: transcript, focus: focus, titlesIn: shownLanguage.isEmpty ? nil : shownLanguage,
+                                                       length: length) { value in
+                    Task { @MainActor in jobs.storyProgress = value }
                 }
-                saveStory(beats)
+                // Read again: this panel may have been closed and opened since.
+                if var current = TranscriptStore.find(forFile: path) {
+                    current.storyBeats = beats.isEmpty ? nil : beats
+                    TranscriptStore.save(current)
+                }
             } catch {
-                storyProblem = error.localizedDescription
+                jobs.storyProblem = error.localizedDescription
             }
-            findingStory = false
+            jobs.findingStory = false
         }
     }
 
@@ -548,6 +580,19 @@ struct EditorAIPanel: View {
         model.replaceMarkers(.story, with: storyBeats.filter(\.kept).map {
             EditorMarker(kind: .story, start: $0.start, end: $0.end, title: $0.title)
         })
+    }
+
+    /// The ticked passages as a project, put in story order by local AI.
+    private func makeStoryProject() {
+        let path = model.file.path
+        let passages = storyBeats.filter(\.kept).map { ProjectStory.Passage(beat: $0, path: path) }
+        guard !passages.isEmpty else { return }
+        let focus = storyFocus
+        let name = String(localized: "\(model.file.deletingPathExtension().lastPathComponent) Story")
+        Task {
+            let ordered = await ProjectStory.order(passages, focus: focus)
+            StudioNavigator.shared.newProject(named: name, clips: ProjectStory.clips(ordered))
+        }
     }
 
     /// Cuts everything but the ticked passages out of the edit, with a breath around each.
@@ -675,10 +720,10 @@ struct EditorAIPanel: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Make them from the transcript, or write them line by line.")
                         .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 8) {
                         if transcript != nil {
                             Button("From the Transcript", systemImage: "captions.bubble") { makeSubtitles() }
-                                .buttonStyle(BrandButtonStyle(large: false))
+                                .buttonStyle(BrandButtonStyle())
                         }
                         Button("Add a Line", systemImage: "plus") { model.addSubtitle(at: model.time); model.showSubtitles = true }
                             .buttonStyle(GlassCapsuleButtonStyle())
@@ -739,7 +784,7 @@ struct EditorAIPanel: View {
                                 .help("Cut every filler word out of the edit (⌘Z undoes it)")
                         }
                     }
-                    if finding {
+                    if jobs.finding {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.mini)
                             Text("Finding the best moments…")
@@ -749,7 +794,7 @@ struct EditorAIPanel: View {
                     if transcript == nil {
                         Text("Needs the transcript first.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
                     }
-                    if let problem {
+                    if let problem = jobs.problem {
                         Text(problem).font(.caption).foregroundStyle(.orange).padding(.horizontal, 8)
                     }
                     ForEach(moments) { moment in
@@ -759,7 +804,7 @@ struct EditorAIPanel: View {
                             .padding(.leading, 14)
                     }
                 }
-                .disabled(transcript == nil || finding)
+                .disabled(transcript == nil || jobs.finding)
 
                 if let status = item?.aiStatus {
                     SidebarSection(title: Text("Working")) {
@@ -795,15 +840,15 @@ struct EditorAIPanel: View {
 
     private func findMoments() {
         guard let transcript else { return }
-        finding = true
-        problem = nil
+        jobs.finding = true
+        jobs.problem = nil
         Task {
             var options = Shorts.Options()
             options.count = 6
             let moments = await Shorts.moments(in: transcript, options: options)
             model.replaceMarkers(.moment, with: moments.map { EditorMarker(kind: .moment, start: $0.start, end: $0.end, title: $0.title) })
-            if moments.isEmpty { problem = String(localized: "No moments found: there’s too little speech in this file.") }
-            finding = false
+            if moments.isEmpty { jobs.problem = String(localized: "No moments found: there’s too little speech in this file.") }
+            jobs.finding = false
         }
     }
 
@@ -811,7 +856,7 @@ struct EditorAIPanel: View {
         guard let transcript else { return }
         let cuts = Tighten.fillerCuts(transcript.words, language: Locale(identifier: transcript.language))
         model.replaceMarkers(.filler, with: cuts.map { EditorMarker(kind: .filler, start: $0.lowerBound, end: $0.upperBound, title: String(localized: "Filler")) })
-        problem = cuts.isEmpty ? String(localized: "No filler words found.") : nil
+        jobs.problem = cuts.isEmpty ? String(localized: "No filler words found.") : nil
     }
 
     // MARK: - Tools
@@ -879,7 +924,7 @@ struct EditorAIPanel: View {
                 spans += Tighten.fillerCuts(transcript.words, language: Locale(identifier: transcript.language))
             }
             if spans.isEmpty {
-                problem = String(localized: "No pauses or filler words to take out.")
+                jobs.problem = String(localized: "No pauses or filler words to take out.")
             } else {
                 model.cutOut(spans.sorted { $0.lowerBound < $1.lowerBound })
             }

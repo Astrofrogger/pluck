@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "2.1.0", items: [
+                Item(symbol: "camera.aperture", title: String(localized: "Photo"),
+                     detail: String(localized: "A new page to cull and edit photos: ratings, picks, albums in folders, live adjustments, curves, colour wheels, crop, presets and denoise. Add real film looks with spektrafilm, an optional download.")),
+                Item(symbol: "rectangle.stack", title: String(localized: "Projects"),
+                     detail: String(localized: "Drop several videos to start a project. Local AI lays out a story across all of them, at the length you choose. Add subtitles, titles and music, and move, zoom, crop or speed up each clip.")),
+                Item(symbol: "arrow.up.forward.app", title: String(localized: "Send to DaVinci Resolve"),
+                     detail: String(localized: "A project becomes a new timeline in the open Resolve project, with its subtitles. Files already there aren’t imported again.")),
+                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Search more"),
+                     detail: String(localized: "Point Pluck at your footage folders and find videos and photos by what’s in them, in your own language. It all runs locally on your Mac.")),
+            ]),
             Release(version: "2.0.0", items: [
                 Item(symbol: "macwindow", title: String(localized: "One window for everything"),
                      detail: String(localized: "Pluck Studio is now one window with pages along the bottom: Home, Library, Edit, Search and Tools. Every tool opens in it instead of a window of its own; only Settings stays separate.")),

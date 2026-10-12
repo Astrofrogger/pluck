@@ -8,7 +8,7 @@ final class StudioNavigator {
     static let shared = StudioNavigator()
 
     enum Page: String, CaseIterable, Identifiable {
-        case home, library, edit, search, tools
+        case home, library, edit, photo, search, tools
         var id: String { rawValue }
 
         var title: LocalizedStringKey {
@@ -16,6 +16,7 @@ final class StudioNavigator {
             case .home: "Home"
             case .library: "Library"
             case .edit: "Edit"
+            case .photo: "Photo"
             case .search: "Search"
             case .tools: "Tools"
             }
@@ -26,6 +27,7 @@ final class StudioNavigator {
             case .home: "house"
             case .library: "books.vertical"
             case .edit: "film"
+            case .photo: "camera.aperture"
             case .search: "sparkle.magnifyingglass"
             case .tools: "square.grid.2x2"
             }
@@ -34,17 +36,27 @@ final class StudioNavigator {
         var shortcut: KeyEquivalent { KeyEquivalent(Character("\((Page.allCases.firstIndex(of: self) ?? 0) + 1)")) }
     }
 
-    /// A file open on the Edit page, with everything done to it so far.
+    /// A file open on the Edit page (with everything done to it so far), or a project.
     @MainActor
     final class Tab: Identifiable {
         let id = UUID()
-        let target: EditorTarget
-        let model: EditorModel
+        let target: EditorTarget?
+        let model: EditorModel?
+        let project: ProjectModel?
 
         init(target: EditorTarget) {
             self.target = target
             model = EditorModel(file: target.file)
+            project = nil
         }
+
+        init(project: Project) {
+            target = nil
+            model = nil
+            self.project = ProjectModel(project: project)
+        }
+
+        var title: String { project?.project.name ?? target?.file.deletingPathExtension().lastPathComponent ?? "" }
     }
 
     var page: Page = .home
@@ -70,14 +82,15 @@ final class StudioNavigator {
     /// Opens the file in a tab on the Edit page (or goes to its tab when it's open), at a
     /// moment if given.
     func open(_ target: EditorTarget, at start: Double? = nil) {
-        if let tab = tabs.first(where: { $0.target.path == target.path }) {
+        if let tab = tabs.first(where: { $0.target?.path == target.path }) {
             currentID = tab.id
-            if let start { tab.model.seek(to: start) }
+            if let start { tab.model?.seek(to: start) }
         } else {
             let tab = Tab(target: target)
-            tab.model.startAt = start
+            tab.model?.startAt = start
             tabs.append(tab)
             currentID = tab.id
+            AppDelegate.shared?.ai.imported([target.file])
         }
         remember(target.path)
         page = .edit
@@ -85,9 +98,70 @@ final class StudioNavigator {
 
     func close(_ id: Tab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        tabs[index].model.close()
+        tabs[index].model?.close()
+        tabs[index].project?.close()
         tabs.remove(at: index)
         if currentID == id { currentID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id }
+    }
+
+    // MARK: - Projects
+
+    /// Renames a project, open or not.
+    func renameProject(_ id: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        if let model = tabs.first(where: { $0.project?.project.id == id })?.project { model.rename(name) } else { ProjectStore.update(id) { $0.name = name } }
+        projectsChanged += 1
+    }
+
+    func fileProject(_ id: UUID, in folder: UUID?) {
+        if let model = tabs.first(where: { $0.project?.project.id == id })?.project { model.file(in: folder) } else { ProjectStore.update(id) { $0.folder = folder } }
+        projectsChanged += 1
+    }
+
+    /// Closes it if open and moves it to the Trash.
+    func trashProject(_ id: UUID) {
+        if let tab = tabs.first(where: { $0.project?.project.id == id }) { close(tab.id) }
+        ProjectStore.trash(id)
+        projectsChanged += 1
+    }
+
+    /// Counts changes to the list of projects, so lists of them reload.
+    var projectsChanged = 0
+
+    /// Opens a project in a tab on the Edit page.
+    func open(_ project: Project) {
+        if let tab = tabs.first(where: { $0.project?.project.id == project.id }) {
+            currentID = tab.id
+        } else {
+            let tab = Tab(project: project)
+            tabs.append(tab)
+            currentID = tab.id
+        }
+        remember(Self.projectKey(project.id))
+        page = .edit
+    }
+
+    /// A new project, with these files on its timeline (in this order).
+    @discardableResult
+    func newProject(with files: [URL] = [], named name: String? = nil, clips: [ProjectClip]? = nil) -> Project {
+        let count = ProjectStore.all().count + 1
+        var project = Project(name: name ?? String(localized: "Project \(count)"))
+        if let clips { project.clips = clips }
+        ProjectStore.save(project)
+        open(project)
+        if !files.isEmpty, let model = tabs.first(where: { $0.project?.project.id == project.id })?.project {
+            Task { await model.add(files) }
+            AppDelegate.shared?.ai.imported(files)
+        }
+        return project
+    }
+
+    /// How a project is kept among the files edited lately.
+    static func projectKey(_ id: UUID) -> String { "project:" + id.uuidString }
+
+    static func projectID(in key: String) -> UUID? {
+        key.hasPrefix("project:") ? UUID(uuidString: String(key.dropFirst("project:".count))) : nil
     }
 
     func open(_ tool: PluckTool) {

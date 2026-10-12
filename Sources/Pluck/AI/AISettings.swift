@@ -19,8 +19,8 @@ struct AISettings: View {
             if LocalAI.canTranscribe {
             Section {
                 Toggle(isOn: $autoTranscribe) {
-                    Text("Transcribe new downloads automatically")
-                    Text("So you can search inside them. Runs in the background after each download.")
+                    Text("Transcribe new videos automatically")
+                    Text("Downloads and videos you open or import, so Search finds what’s said in them. Runs in the background, on this Mac.")
                 }
                 let missing = studio.needsTranscript(manager.items).count
                 LabeledContent("Not transcribed yet") {
@@ -33,6 +33,28 @@ struct AISettings: View {
             } header: {
                 Text("Transcripts & search")
             }
+            }
+            Section {
+                LabeledContent("Watched folders") {
+                    Text(verbatim: "\(FootageFolders.shared.folders.count)").monospacedDigit().foregroundStyle(.secondary)
+                }
+                LabeledContent("Film engine (spektrafilm)") {
+                    HStack {
+                        switch FilmEngine.shared.state {
+                        case .ready:
+                            Text("Installed").foregroundStyle(.secondary)
+                            Button("Remove", role: .destructive) { FilmEngine.shared.uninstall() }
+                        case .installing:
+                            ProgressView(value: FilmEngine.shared.progress).frame(width: 100)
+                        default:
+                            Text("Not installed").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            } header: {
+                Text("Search & photos")
+            } footer: {
+                Text("Add watched folders on the Search page. The film engine is downloaded from the Photo page when you ask for it.")
             }
 
             Section("On this Mac") {

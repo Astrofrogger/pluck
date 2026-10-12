@@ -98,6 +98,15 @@ final class AIStudio {
         transcribeInBackground([item])
     }
 
+    /// Videos opened in the Editor (or found in a watched folder): transcribed too, when
+    /// automatic transcripts are on, so search finds them.
+    func imported(_ files: [URL]) {
+        guard UserDefaults.standard.bool(forKey: Prefs.aiAutoTranscribe), let manager = AppDelegate.shared?.manager else { return }
+        let media = files.filter { Converting.isMedia($0) && FileManager.default.fileExists(atPath: $0.path) }
+        guard !media.isEmpty else { return }
+        transcribeInBackground(manager.addLocalFiles(media))
+    }
+
     /// Videos and songs among these that have no transcript yet.
     func needsTranscript(_ items: [DownloadItem]) -> [DownloadItem] {
         items.filter { item in

@@ -611,9 +611,11 @@ struct BrandButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .font(large ? .body.weight(.semibold) : .callout.weight(.semibold))
+                .labelStyle(BrandLabelStyle())
+                .lineLimit(1)
                 .foregroundStyle(.white)
-                .padding(.horizontal, large ? 18 : 12)
-                .frame(minHeight: large ? 36 : 28)
+                .padding(.horizontal, large ? 22 : 14)
+                .frame(minHeight: large ? 38 : 30)
                 .background(Capsule().fill(Edition.isStudio ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.accentColor)))
                 .overlay(Capsule().fill(.white.opacity(configuration.isPressed ? 0.15 : hovering ? 0.08 : 0)))
                 .shadow(color: (Edition.isStudio ? Design.Brand.violet : Color.accentColor).opacity(isEnabled && hovering ? 0.45 : 0.2), radius: hovering ? 10 : 5, y: 3)
@@ -625,6 +627,45 @@ struct BrandButtonStyle: ButtonStyle {
     }
 }
 
+/// A divider to drag, to make a side panel wider or narrower.
+struct ResizeHandle: View {
+    @Binding var width: Double
+    let range: ClosedRange<Double>
+    /// Which side of the window the panel is on (dragging right widens a leading panel).
+    let edge: HorizontalEdge
+    @State private var start: Double?
+
+    var body: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(width: 8)
+                    .contentShape(.rect)
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if start == nil { start = width }
+                            let delta = Double(value.translation.width) * (edge == .leading ? 1 : -1)
+                            width = min(max((start ?? width) + delta, range.lowerBound), range.upperBound)
+                        }
+                        .onEnded { _ in start = nil })
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// The symbol and words of a main button, with room between them.
+struct BrandLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 7) {
+            configuration.icon
+            configuration.title
+        }
+    }
+}
+
 /// A soft glow in Pluck's colours behind a page's top. Still on purpose: a moving blur this
 /// size kept the Mac busy the whole time the page was open.
 struct BrandGlow: View {
@@ -632,23 +673,24 @@ struct BrandGlow: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = geometry.size.width
+            let size = geometry.size
+            // Warm at the top, fading through the page: pink and violet from the icon.
             ZStack {
-                Circle()
-                    .fill(Design.Brand.pink)
-                    .frame(width: width * 0.55)
-                    .offset(x: -width * 0.16, y: -110)
-                Circle()
-                    .fill(Design.Brand.violet)
-                    .frame(width: width * 0.6)
-                    .offset(x: width * 0.2, y: -150)
+                glow(Design.Brand.pink, size.width * 0.6, x: size.width * 0.22, y: size.height * 0.05)
+                glow(Design.Brand.violet, size.width * 0.65, x: size.width * 0.8, y: size.height * 0.02)
+                glow(Design.Brand.violet, size.width * 0.55, x: size.width * 0.15, y: size.height * 0.85, strength: 0.45)
+                glow(Design.Brand.pink, size.width * 0.5, x: size.width * 0.85, y: size.height * 0.95, strength: 0.4)
             }
-            .frame(width: width, height: 420)
-            .blur(radius: 110)
-            .opacity(colorScheme == .dark ? 0.32 : 0.2)
+            .frame(width: size.width, height: size.height)
+            .blur(radius: 120)
+            .opacity(colorScheme == .dark ? 0.34 : 0.2)
             .drawingGroup()
         }
         .allowsHitTesting(false)
         .accessibilityHidden(true)
+    }
+
+    private func glow(_ color: Color, _ diameter: CGFloat, x: CGFloat, y: CGFloat, strength: Double = 1) -> some View {
+        Circle().fill(color.opacity(strength)).frame(width: diameter, height: diameter).position(x: x, y: y)
     }
 }

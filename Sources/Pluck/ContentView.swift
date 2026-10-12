@@ -247,6 +247,7 @@ struct ContentView: View {
     /// Pluck Studio's start page: one field for a link or a file, the files being edited, new
     /// from subscriptions, and the downloads.
     private var studioHome: some View {
+        GeometryReader { geometry in
         ScrollView {
             VStack(alignment: .leading, spacing: 32) {
                 VStack(spacing: 14) {
@@ -265,7 +266,7 @@ struct ContentView: View {
                 }
                 .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity)
-                .padding(.top, 40)
+                .padding(.top, homeIsEmpty ? 0 : 40)
 
                 ContinueEditing()
                 HomeActivity(allDownloads: $allDownloads)
@@ -287,9 +288,16 @@ struct ContentView: View {
             .padding(.bottom, 32)
             .frame(maxWidth: 1080)
             .frame(maxWidth: .infinity)
+            // Nothing yet (a fresh Pluck): the start sits in the middle of the page.
+            .frame(minHeight: geometry.size.height - (homeIsEmpty ? 60 : 0), alignment: homeIsEmpty ? .center : .top)
         }
-        .background(alignment: .top) { BrandGlow() }
-        .softTopScrollEdge()
+        .scrollContentBackground(.hidden)
+        }
+    }
+
+    /// Nothing to show under the field yet: no files edited, no downloads, no subscriptions.
+    private var homeIsEmpty: Bool {
+        StudioNavigator.shared.recent.isEmpty && manager.items.isEmpty && Subscriptions.shared.list.isEmpty
     }
     #endif
 
