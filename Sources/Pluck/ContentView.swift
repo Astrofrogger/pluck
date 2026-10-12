@@ -26,6 +26,10 @@ struct ContentView: View {
     @State private var clipping = false
     @State private var clipStart = ""
     @State private var clipEnd = ""
+    /// The link's chapters, to clip one, and the link they're for.
+    @State private var chapters: [VideoChapter] = []
+    @State private var chaptersLink = ""
+    @State private var chaptersLoading = false
     @State private var previewURL: URL?
     @FocusState private var listFocused: Bool
     @State private var lastAutofilled: String?
@@ -363,6 +367,7 @@ struct ContentView: View {
             TextField("end", text: $clipEnd)
                 .frame(width: 72)
                 .accessibilityLabel("Clip end")
+            chapterMenu
             Group {
                 if clipIsInvalid {
                     Label("Use times like 1:30, with the end after the start", systemImage: "exclamationmark.circle")
@@ -384,6 +389,47 @@ struct ContentView: View {
         .frame(height: Design.Size.control)
         .glassBackground(in: .capsule)
         .onSubmit(submit)
+        .task(id: isValid && !isMultiple ? trimmed : "") { await loadChapters() }
+    }
+
+    /// Picks a chapter instead of typing times; there while the link's chapters load or when it has some.
+    @ViewBuilder private var chapterMenu: some View {
+        if chaptersLoading {
+            ProgressView().controlSize(.small)
+                .help("Looking for chapters…")
+        } else if !chapters.isEmpty {
+            Menu {
+                ForEach(chapters) { chapter in
+                    Button {
+                        clipStart = Format.duration(chapter.start)
+                        clipEnd = chapter.end.map(Format.duration) ?? ""
+                    } label: {
+                        Text(verbatim: "\(chapter.title)  \(chapter.range.label)")
+                    }
+                }
+            } label: {
+                Label("Chapter", systemImage: "list.number")
+            }
+            .menuStyle(.button)
+            .fixedSize()
+            .help("Clip one chapter")
+        }
+    }
+
+    /// The chapters of the link in the field, and its start time (…?t=80) as the clip's start.
+    private func loadChapters() async {
+        let link = isValid && !isMultiple ? trimmed : ""
+        guard link != chaptersLink else { return }
+        chaptersLink = link
+        chapters = []
+        guard !link.isEmpty else { return }
+        if clipStart.isEmpty, let start = ClipRange.startTime(in: link) { clipStart = Format.duration(start) }
+        guard clipping else { chaptersLink = ""; return }
+        chaptersLoading = true
+        let found = await manager.chapters(of: link)
+        guard link == chaptersLink else { return }
+        chapters = found
+        chaptersLoading = false
     }
 
     private func submit() {
@@ -414,6 +460,7 @@ struct ContentView: View {
         urlText = link
         lastAutofilled = link
         fieldFocused = true
+        if ScreenshotMode.scene == "clip" { clipping = true }
         return true
     }
 
@@ -572,7 +619,7 @@ struct ContentView: View {
             } label: {
                 Label("Tools", systemImage: "square.grid.2x2")
             }
-            .help("Derush, Find Shots, Logo Animator and Pluck’s other tools")
+            .help("Search, Derush, Logo Animator and Pluck’s other tools")
             .popover(isPresented: $toolsShown, arrowEdge: .bottom) { ToolsPanel() }
             .onReceive(NotificationCenter.default.publisher(for: ToolsPanel.showNotification)) { _ in toolsShown = true }
 
@@ -593,14 +640,12 @@ struct ContentView: View {
             .help("Everything Pluck has saved, with collections and tags (⇧⌘L)")
 
             #if STUDIO
-            if LocalAI.canTranscribe {
-                Button {
-                    ai.searchShown = true
-                } label: {
-                    Label("Search Inside Downloads", systemImage: "text.magnifyingglass")
-                }
-                .help("Search what was said in your downloads (⇧⌘F)")
+            Button {
+                ai.searchShown = true
+            } label: {
+                Label("Search", systemImage: "sparkle.magnifyingglass")
             }
+            .help("Find a moment by what was said or what’s in the picture (⇧⌘F)")
             #endif
 
             Button {
@@ -638,7 +683,7 @@ private struct AISheets: ViewModifier {
     func body(content: Content) -> some View {
         content
             .sheet(isPresented: Binding(get: { ai.searchShown }, set: { ai.searchShown = $0 })) {
-                SearchInsideView()
+                VisualSearchView()
                     .environment(ai)
                     .environment(manager)
             }

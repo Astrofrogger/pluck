@@ -49,4 +49,48 @@ struct ClipRange: Codable, Equatable {
         if parsedStart == nil, parsedEnd == nil { return nil }
         return ClipRange(start: s, end: parsedEnd)
     }
+
+    /// The start time in a link that opens a video part-way: YouTube's t=80, t=1m20s or
+    /// #t=1:20, Vimeo's #t=80s. Nil when the link has none.
+    static func startTime(in link: String) -> Double? {
+        guard let components = URLComponents(string: link) else { return nil }
+        let fromQuery = components.queryItems?.first { $0.name == "t" || $0.name == "start" }?.value
+        let fromFragment = components.fragment.flatMap { fragment -> String? in
+            fragment.hasPrefix("t=") ? String(fragment.dropFirst(2)) : nil
+        }
+        guard let value = (fromQuery ?? fromFragment)?.lowercased(), !value.isEmpty else { return nil }
+        if value.contains(":"), let parsed = parseTime(value), let seconds = parsed { return seconds > 0 ? seconds : nil }
+        // 80, 80s, 1m20s, 1h2m3s
+        var total = 0.0, number = ""
+        for character in value {
+            if character.isNumber || character == "." {
+                number.append(character)
+            } else {
+                guard let amount = Double(number) else { return nil }
+                switch character {
+                case "h": total += amount * 3600
+                case "m": total += amount * 60
+                case "s": total += amount
+                default: return nil
+                }
+                number = ""
+            }
+        }
+        if !number.isEmpty {
+            guard let amount = Double(number) else { return nil }
+            total += amount
+        }
+        return total > 0 ? total : nil
+    }
+}
+
+/// A chapter of a video, from the site, to clip by.
+struct VideoChapter: Identifiable, Equatable {
+    var id: Int
+    var title: String
+    var start: Double
+    var end: Double?
+
+    /// The chapter as a clip: to the end of the video for the last one.
+    var range: ClipRange { ClipRange(start: start, end: end) }
 }

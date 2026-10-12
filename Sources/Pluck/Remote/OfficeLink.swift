@@ -19,6 +19,12 @@ import Security
 /// - Paired Macs are listed on the office Mac and can be removed there at any time.
 enum OfficeLink {
     static let port: UInt16 = 47_801
+    /// The port this Pluck listens on and asks: a test copy can use its own
+    /// (-PluckScreenshotPort), so it runs next to a Pluck that's sharing this Mac.
+    static var listenPort: UInt16 {
+        let test = UserDefaults.standard.integer(forKey: "PluckScreenshotPort")
+        return ScreenshotMode.scene != nil && test > 1024 && test < 65_536 ? UInt16(test) : port
+    }
     /// How the office Mac shows up on its own network (Bonjour), for pairing without typing an
     /// address. It only tells that it's there; getting in still takes the pairing code.
     static let service = "_pluck-render._tcp"
@@ -26,10 +32,16 @@ enum OfficeLink {
     static let clockWindow: TimeInterval = 120
     static let pairingLifetime: TimeInterval = 10 * 60
     static let pairingTries = 5
-    static let maxRequest = 256 * 1024
+    /// Room for a piece of a file sent to the host (still a hard cap: a frame is read whole
+    /// before its keys are checked, and only from private addresses).
+    static let maxRequest = 4 << 20
     static let maxAnswer = 8 << 20
     /// A preview travels in pieces this big.
     static let previewChunk = 1_500_000
+    /// Proxies come in bigger pieces (still well inside an answer once encoded).
+    static let proxyChunk = 5_000_000
+    /// Files sent to the host go in pieces that fit a request once encoded.
+    static let uploadChunk = 2_000_000
 
     enum Kind: UInt8 { case pair = 1, request = 2 }
     static let magic = Data("PLKR".utf8)
@@ -158,7 +170,10 @@ enum OfficeLink {
     // MARK: - The keychain
 
     enum Keychain {
-        private static let service = "Pluck Edit Anywhere"
+        /// Test copies (screenshot mode) keep their own keys, so a test never touches real pairings.
+        private static var service: String {
+            ScreenshotMode.scene == nil ? "Pluck Edit Anywhere" : "Pluck Edit Anywhere (test)"
+        }
 
         private static func query(_ account: String) -> [String: Any] {
             [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]

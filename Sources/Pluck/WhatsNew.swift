@@ -106,6 +106,16 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "1.19.0", items: [
+                Item(symbol: "timeline.selection", title: String(localized: "The Editor"),
+                     detail: String(localized: "Open any video or song on a timeline, like in an editing program: cut with the blade, take parts out, mark in and out, and export the edit or each part. Right-click a download and choose Open in Editor.")),
+                Item(symbol: "dot.radiowaves.up.forward", title: String(localized: "Subscriptions"),
+                     detail: String(localized: "Follow a YouTube channel, a playlist or a podcast and Pluck downloads what’s new while it’s open. Manage them in the Library.")),
+                Item(symbol: "list.number", title: String(localized: "Clip a chapter"),
+                     detail: String(localized: "When clipping a download, pick one of the video’s chapters instead of typing times. Links with a start time fill it in.")),
+                Item(symbol: "desktopcomputer", title: String(localized: "Other Macs’ Libraries open again"),
+                     detail: String(localized: "Macs with more than one network connection couldn’t open each other’s shared Library. Fixed.")),
+            ]),
             Release(version: "1.18.0", items: [
                 Item(symbol: "externaldrive", title: String(localized: "One file per version"),
                      detail: String(localized: "Each release now comes as two disk images: Pluck.dmg and Pluck-Studio.dmg. Updates install from the same disk image, checked before they open.")),

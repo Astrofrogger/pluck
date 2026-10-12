@@ -83,7 +83,10 @@ final class OfficeRenderClient {
         jobs = []
         // Off the private network too: joining again takes a new invitation.
         Tunnel.home.stop()
-        try? FileManager.default.removeItem(at: PrivateNetwork.folder.appendingPathComponent("home", isDirectory: true))
+        // (Never from a test copy: the folder belongs to the Pluck that's really running.)
+        if ScreenshotMode.scene == nil {
+            try? FileManager.default.removeItem(at: PrivateNetwork.folder.appendingPathComponent("home", isDirectory: true))
+        }
     }
 
     // MARK: - Pairing
@@ -213,7 +216,7 @@ final class OfficeRenderClient {
 
     private static func endpoint(_ address: String) -> NWEndpoint? {
         let address = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        var host = address, port = OfficeLink.port
+        var host = address, port = OfficeLink.listenPort
         // "name:port" or "[v6]:port"; a bare IPv6 address has several colons and no port.
         if let colon = address.lastIndex(of: ":"), address.filter({ $0 == ":" }).count == 1 || address.hasPrefix("["),
            let typed = UInt16(address[address.index(after: colon)...]) {

@@ -6,7 +6,9 @@ import SwiftUI
 struct LibraryView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var library = LibraryStore.shared
-    @State private var collection: Collection? = .all
+    @State private var collection: Collection? = LibraryView.startCollection ?? .all
+    /// The collection to open on (screenshots).
+    @MainActor static var startCollection: Collection?
     @State private var search = ""
     @AppStorage("librarySort") private var sort: Sort = .newest
     @State private var tagging: LibraryStore.Entry?
@@ -23,10 +25,14 @@ struct LibraryView: View {
     @FocusState private var gridFocused: Bool
     /// Checked when the window opens and on refresh, not on every redraw.
     @State private var missing: Set<String> = []
+    @State private var subscriptions = Subscriptions.shared
+    @State private var addingSubscription = false
 
     enum Collection: Hashable {
         case all, videos, audio, photos, recent, duplicates, missing, largest
         case site(String), tag(String)
+        /// What a subscription downloaded (its id and name).
+        case subscription(UUID, String)
         /// Another Mac's shared Library, by its name.
         case network(String)
 
@@ -42,6 +48,7 @@ struct LibraryView: View {
             case .largest: String(localized: "Largest")
             case .site(let name): name
             case .tag(let name): name
+            case .subscription(_, let name): name
             case .network(let name): name
             }
         }
@@ -74,6 +81,25 @@ struct LibraryView: View {
                     Section("Sites") {
                         ForEach(library.sites, id: \.self) { row(.site($0), "globe") }
                     }
+                }
+                Section("Subscriptions") {
+                    ForEach(subscriptions.list) { subscription in
+                        Label {
+                            Text(subscription.title)
+                        } icon: {
+                            Image(systemName: subscription.paused ? "pause.circle" : "dot.radiowaves.up.forward")
+                        }
+                        .badge(count(.subscription(subscription.id, subscription.title)))
+                        .tag(Collection.subscription(subscription.id, subscription.title))
+                    }
+                    Button {
+                        addingSubscription = true
+                    } label: {
+                        Label("Subscribe…", systemImage: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Follow a channel, playlist or podcast: Pluck downloads what’s new")
                 }
                 if !library.allTags.isEmpty {
                     Section("Tags") {
@@ -130,6 +156,7 @@ struct LibraryView: View {
         }
         .onDisappear { network.stop() }
         .quickLookPreview($preview)
+        .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
         .sheet(item: $sending) { entry in
             SendToPhoneView(entry: entry)
                 .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { sending = nil } } }
@@ -170,13 +197,20 @@ struct LibraryView: View {
         case .largest: Array(library.entries.filter { ($0.size ?? 0) > 0 }.sorted { ($0.size ?? 0) > ($1.size ?? 0) }.prefix(100))
         case .site(let name): library.entries.filter { $0.site == name }
         case .tag(let name): library.entries.filter { $0.tags.contains(name) }
+        case .subscription(let id, _): subscriptionEntries(id)
         case .network: []
         }
     }
 
+    private func subscriptionEntries(_ id: UUID) -> [LibraryStore.Entry] {
+        guard let subscription = subscriptions.list.first(where: { $0.id == id }) else { return [] }
+        let downloaded = Set(subscription.downloaded)
+        return library.entries.filter { $0.source.map { downloaded.contains(Links.identity($0)) } ?? false }
+    }
+
     private func count(_ collection: Collection) -> Int {
         switch collection {
-        case .duplicates, .missing, .largest, .all, .videos, .audio, .photos, .recent, .site, .tag: entries(in: collection).count
+        case .duplicates, .missing, .largest, .all, .videos, .audio, .photos, .recent, .site, .tag, .subscription: entries(in: collection).count
         case .network: 0
         }
     }
@@ -212,13 +246,18 @@ struct LibraryView: View {
     private var detail: some View {
         let list = shown
         if list.isEmpty {
-            ToolPage(maxWidth: 560) {
+            ToolPage(maxWidth: subscriptionHeader == nil ? 560 : 760) {
+                if let subscriptionHeader { subscriptionHeader }
                 ToolWelcome(symbol: search.isEmpty ? "books.vertical" : "magnifyingglass",
                             title: Text(emptyTitle), subtitle: Text(emptyDescription))
             }
         } else {
             ScrollViewReader { scroller in
                 ScrollView {
+                    if let subscriptionHeader {
+                        subscriptionHeader
+                            .padding([.horizontal, .top], Design.Spacing.window)
+                    }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)], spacing: 18) {
                         ForEach(list) { entry in
                             LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selected == entry.id)
@@ -256,9 +295,16 @@ struct LibraryView: View {
         }
     }
 
+    /// A subscription's card, at the top of its page.
+    private var subscriptionHeader: SubscriptionCard? {
+        guard case .subscription(let id, _) = collection, let subscription = subscriptions.list.first(where: { $0.id == id }) else { return nil }
+        return SubscriptionCard(subscription: subscription) { collection = .all }
+    }
+
     private var emptyTitle: String {
         if !search.isEmpty { return String(localized: "Nothing Found") }
         return switch collection ?? .all {
+        case .subscription: String(localized: "Nothing New Yet")
         case .duplicates: String(localized: "No Duplicates")
         case .missing: String(localized: "No Missing Files")
         default: String(localized: "Nothing Here Yet")
@@ -268,6 +314,7 @@ struct LibraryView: View {
     private var emptyDescription: String {
         if !search.isEmpty { return String(localized: "Try other words.") }
         return switch collection ?? .all {
+        case .subscription: String(localized: "New uploads appear here as Pluck downloads them.")
         case .duplicates: String(localized: "Nothing has been saved twice.")
         case .missing: String(localized: "Every file is where Pluck saved it.")
         default: String(localized: "Everything you download or make with Pluck appears here.")
@@ -288,6 +335,9 @@ struct LibraryView: View {
             .disabled(!exists)
         }
         #endif
+        if entry.kind == .video || entry.kind == .audio {
+            Button("Open in Editor") { openWindow(value: EditorTarget(path: entry.path)) }.disabled(!exists)
+        }
         Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) }.disabled(!exists)
         Button("Send to Phone…") { sending = entry }.disabled(!exists)

@@ -106,6 +106,14 @@ struct DownloadOptions: Equatable, Codable {
 
     var isAudio: Bool { kind == .audio }
 
+    /// Podcast episodes: the audio as the feed has it, no conversion.
+    static var podcast: DownloadOptions {
+        var options = DownloadOptions()
+        options.kind = .audio
+        options.audioFormat = .original
+        return options
+    }
+
     var symbol: String { isAudio ? "waveform" : (resolution == .best ? "sparkles" : "film") }
 
     var label: String {
@@ -210,6 +218,10 @@ final class DownloadItem: Identifiable {
     var finishedAt: Date?
     /// Only this part of the video is downloaded.
     var clip: ClipRange?
+    /// The title and show a podcast feed gave the episode, for its name and tags (the episode's
+    /// own link only knows "default.mp3").
+    var listedTitle: String?
+    var listedShow: String?
     /// The audio Pluck actually downloaded, e.g. "Opus 272 kbps", before any conversion.
     var sourceAudio: String?
     /// Artist and song title when the site knows them (YouTube Music…), for the lyrics lookup.

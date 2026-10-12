@@ -97,7 +97,7 @@ final class OfficeArchive {
 
     private func videoFiles() -> [URL] { Self.videoFiles(in: folders) }
 
-    nonisolated private static func videoFiles(in folders: [URL]) -> [URL] {
+    nonisolated static func videoFiles(in folders: [URL]) -> [URL] {
         var found: [URL] = []
         for folder in folders {
             let items = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey],

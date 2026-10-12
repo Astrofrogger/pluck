@@ -68,11 +68,43 @@ final class VisualIndexer {
     }
 }
 
-/// Find Shots: search the Library's videos by what's in them, the shot size and the camera
-/// movement, play from the moment, or lay the shots out in DaVinci Resolve.
+/// Search: find a moment in your videos by what was said (the transcripts) or what's in the
+/// picture (each shot, its size and how the camera moves); play from it, or lay shots out in
+/// DaVinci Resolve.
 struct VisualSearchView: View {
+    /// Where to look: both, what was said, or what's in the picture.
+    enum Look: String, CaseIterable, Identifiable {
+        case everything, said, seen
+        var id: String { rawValue }
+        var label: String {
+            switch self {
+            case .everything: String(localized: "Said and Seen")
+            case .said: String(localized: "What’s Said")
+            case .seen: String(localized: "What’s Seen")
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .everything: "sparkle.magnifyingglass"
+            case .said: "waveform"
+            case .seen: "eye"
+            }
+        }
+    }
+
+    @Environment(AIStudio.self) private var studio
+    @Environment(DownloadManager.self) private var manager
+    @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismiss) private var dismiss
+    @AppStorage("searchLook") private var look = Look.everything
+    /// A search to start with (screenshots).
+    @MainActor static var startQuery = ""
+    @State private var said: [TranscriptSearch.Hit] = []
+    @State private var searchingSaid = false
+    @State private var transcriptCount = 0
+    @State private var allSaid = false
     @State private var indexer = VisualIndexer.shared
-    @State private var query = ""
+    @State private var query = VisualSearchView.startQuery
     @State private var movement: VisualIndex.Movement?
     @State private var framing: VisualIndex.Framing?
     @State private var selection: Set<VisualIndex.Hit.ID> = []
@@ -83,8 +115,11 @@ struct VisualSearchView: View {
     @AppStorage(VisualIndexer.autoKey) private var automatic = true
 
     private var hits: [VisualIndex.Hit] {
-        VisualIndex.search(query, in: indexer.indexes, movement: movement, framing: framing)
+        guard look != .said else { return [] }
+        return VisualIndex.search(query, in: indexer.indexes, movement: movement, framing: framing)
     }
+
+    private var asking: Bool { !query.trimmingCharacters(in: .whitespaces).isEmpty || (look != .said && (movement != nil || framing != nil)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -94,14 +129,37 @@ struct VisualSearchView: View {
             logBar
             footer
         }
-        .frame(minWidth: 820, minHeight: 560)
+        .frame(minWidth: 860, idealWidth: 960, minHeight: 600, idealHeight: 680)
         .onAppear { indexer.reload() }
+        .task {
+            await studio.search.refresh()
+            transcriptCount = studio.search.count
+        }
+        // What was said, a moment after typing stops (the picture is searched as you type).
+        .task(id: look == .seen ? "" : query) { await searchSaid() }
         .sheet(item: $playing) { hit in ShotPlayer(hit: hit) }
     }
 
     private var header: some View {
-        InputBar(symbol: "magnifyingglass", prompt: Text("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”"),
-                 text: $query) {
+        InputBar(symbol: "magnifyingglass", prompt: prompt, text: $query, onSubmit: { Task { await searchSaid(now: true) } }) {
+            BarPicker(symbol: look.symbol, label: Text("Look in"), selection: $look, current: Text(look.label)) {
+                ForEach(Look.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
+            }
+            if look != .said { shotFilters }
+        }
+        .help("Find a moment by what was said or what’s in the picture.")
+        .padding(Design.Spacing.window)
+    }
+
+    private var prompt: Text {
+        switch look {
+        case .everything: Text("What was said or seen: “the part about lighting”, “drone over a forest”")
+        case .said: Text("What was said: “the part about lighting”")
+        case .seen: Text("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”")
+        }
+    }
+
+    @ViewBuilder private var shotFilters: some View {
             filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
                 Button("Any Movement") { movement = nil }
                 Divider()
@@ -112,9 +170,23 @@ struct VisualSearchView: View {
                 Divider()
                 ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
             }
+    }
+
+    private func searchSaid(now: Bool = false) async {
+        let question = query.trimmingCharacters(in: .whitespaces)
+        guard look != .seen, !question.isEmpty else { said = []; return }
+        if !now {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
         }
-        .help("Search your videos and footage by what’s in the picture, the shot size and how the camera moves.")
-        .padding(Design.Spacing.window)
+        searchingSaid = true
+        let found = await studio.search.search(question)
+        // Only if it's still the question asked.
+        if question == query.trimmingCharacters(in: .whitespaces) {
+            said = found
+            allSaid = false
+        }
+        searchingSaid = false
     }
 
     /// A filter menu with the search field's height and look.
@@ -138,46 +210,124 @@ struct VisualSearchView: View {
     }
 
     @ViewBuilder private var results: some View {
-        if indexer.indexes.isEmpty {
+        if indexer.indexes.isEmpty && transcriptCount == 0 {
             ToolPage(maxWidth: 680) {
-                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("No Videos Indexed Yet"),
-                            subtitle: Text("Pluck looks at every shot in your Library’s videos: what’s in it, the shot size and how the camera moves. Then you can search them in your own words."))
-                Button("Index My Library", systemImage: "sparkles") { indexer.enqueue(indexer.unindexed) }
-                    .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled(indexer.working != nil || indexer.unindexed.isEmpty)
-                    .frame(maxWidth: .infinity)
-                PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
+                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Nothing to Search Yet"),
+                            subtitle: Text("Pluck looks at every shot in your videos and writes down what’s said in them. Then you can find any moment in your own words."))
+                HStack(spacing: Design.Spacing.controls) {
+                    Button("Look at My Videos", systemImage: "eye") { indexer.enqueue(indexer.unindexed) }
+                        .buttonStyle(BarCapsuleButtonStyle())
+                        .disabled(indexer.working != nil || indexer.unindexed.isEmpty)
+                    if LocalAI.canTranscribe {
+                        Button("Transcribe My Downloads", systemImage: "waveform") { studio.transcribeInBackground(manager.items) }
+                            .buttonStyle(GlassCapsuleButtonStyle())
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
             }
-        } else if query.isEmpty && movement == nil && framing == nil {
+        } else if !asking {
             ToolPage(maxWidth: 680) {
-                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Search Your Shots"),
-                            subtitle: Text("\(indexer.indexes.reduce(0) { $0 + $1.shots.count }) shots in \(indexer.indexes.count) videos."))
+                ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Search Your Videos"),
+                            subtitle: Text(summary))
             }
-        } else if hits.isEmpty {
-            ContentUnavailableView.search(text: query)
+        } else if said.isEmpty && hits.isEmpty {
+            if searchingSaid {
+                ProgressView()
+            } else {
+                ContentUnavailableView.search(text: query)
+            }
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], spacing: 18) {
-                    ForEach(hits) { hit in
-                        ShotCard(hit: hit, selected: selection.contains(hit.id))
-                            .onTapGesture {
-                                if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
-                                    if selection.contains(hit.id) { selection.remove(hit.id) } else { selection.insert(hit.id) }
-                                } else if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                                    playing = hit
-                                } else {
-                                    selection = [hit.id]
-                                }
-                            }
-                            .contextMenu {
-                                Button("Play from Here") { playing = hit }
-                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: hit.path)]) }
-                            }
-                    }
+                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                    if !said.isEmpty { saidSection }
+                    if !hits.isEmpty { seenSection }
                 }
                 .padding(Design.Spacing.window)
             }
         }
+    }
+
+    /// "1,204 shots in 38 videos · 52 transcripts".
+    private var summary: String {
+        var parts: [String] = []
+        if !indexer.indexes.isEmpty {
+            parts.append(String(AttributedString(localized: "^[\(indexer.indexes.reduce(0) { $0 + $1.shots.count }) shot](inflect: true) in ^[\(indexer.indexes.count) video](inflect: true)").characters))
+        }
+        if transcriptCount > 0 {
+            parts.append(String(AttributedString(localized: "^[\(transcriptCount) transcript](inflect: true)").characters))
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func sectionTitle(_ title: Text, symbol: String, count: Int) -> some View {
+        HStack(spacing: 8) {
+            Label { title } icon: { Image(systemName: symbol) }
+                .font(.headline)
+            Text(verbatim: "\(count)").font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+            if searchingSaid, symbol == "waveform" { ProgressView().controlSize(.small) }
+        }
+    }
+
+    private var saidSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(Text("Said"), symbol: "waveform", count: said.count)
+            ForEach(allSaid ? said : Array(said.prefix(5))) { hit in
+                Button { openWindow(value: PlayerTarget(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start)) } label: {
+                    ItemRow(symbol: "waveform", title: Text(hit.title), subtitle: Text(highlighted(hit))) {
+                        EmptyView()
+                    } actions: {
+                        Label(Format.duration(hit.start), systemImage: "play.fill")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.tint)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("Play from here")
+            }
+            if said.count > 5 {
+                Button(allSaid ? "Show Fewer" : "Show All \(said.count)") { allSaid.toggle() }
+                    .buttonStyle(.link)
+            }
+        }
+    }
+
+    private var seenSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sectionTitle(Text("Seen"), symbol: "eye", count: hits.count)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], spacing: 18) {
+                ForEach(hits) { hit in
+                    ShotCard(hit: hit, selected: selection.contains(hit.id))
+                        .onTapGesture {
+                            if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
+                                if selection.contains(hit.id) { selection.remove(hit.id) } else { selection.insert(hit.id) }
+                            } else if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
+                                playing = hit
+                            } else {
+                                selection = [hit.id]
+                            }
+                        }
+                        .contextMenu {
+                            Button("Play from Here") { playing = hit }
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: hit.path)]) }
+                        }
+                }
+            }
+        }
+    }
+
+    /// The words searched for, picked out in the passage.
+    private func highlighted(_ hit: TranscriptSearch.Hit) -> AttributedString {
+        var text = AttributedString(hit.text)
+        for term in hit.terms {
+            var range = text.startIndex..<text.endIndex
+            while let found = text[range].range(of: term, options: [.caseInsensitive, .diacriticInsensitive]) {
+                text[found].foregroundColor = .primary
+                text[found].inlinePresentationIntent = .stronglyEmphasized
+                range = found.upperBound..<text.endIndex
+            }
+        }
+        return text
     }
 
     private var footer: some View {
@@ -199,9 +349,7 @@ struct VisualSearchView: View {
             }
             Spacer()
             if let status { Text(status).foregroundStyle(.secondary).lineLimit(1) }
-            else if !(query.isEmpty && movement == nil && framing == nil) {
-                Text("^[\(hits.count) shot](inflect: true)").foregroundStyle(.secondary).monospacedDigit()
-            }
+
             Button("Log in Resolve…") { confirmLog = true }
                 .buttonStyle(GlassCapsuleButtonStyle())
                 .disabled(!Resolve.isInstalled || logger.isRunning)
@@ -215,6 +363,9 @@ struct VisualSearchView: View {
                 .buttonStyle(BarCapsuleButtonStyle())
                 .disabled(selected.isEmpty || !Resolve.isInstalled)
                 .help("Select shots with ⌘-click")
+            Button("Done") { dismiss() }
+                .buttonStyle(GlassCapsuleButtonStyle())
+                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, Design.Spacing.window)
         .padding(.vertical, 12)

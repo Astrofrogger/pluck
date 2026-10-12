@@ -92,6 +92,15 @@ struct ConvertSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            if files.count == 1, let file = files.first, EditorTarget.canOpen(file) {
+                Spacer(minLength: 8)
+                Button("Open in Editor", systemImage: "timeline.selection") {
+                    openWindow(value: EditorTarget(path: file.path))
+                    dismiss()
+                }
+                .buttonStyle(GlassCapsuleButtonStyle())
+                .help("Play it on a timeline and choose the part with in and out points")
+            }
         }
     }
 

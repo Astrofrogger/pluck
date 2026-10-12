@@ -35,16 +35,11 @@ struct PluckApp: App {
                 Button("Download Links from File…") { manager.chooseLinkFile() }
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
+                OpenInEditorCommand()
             }
             #if STUDIO
             CommandMenu("Tools") {
                 ToolsMenuItems()
-            }
-            CommandGroup(after: .textEditing) {
-                if LocalAI.canTranscribe {
-                    Button("Search Inside Downloads…") { app.ai.searchShown = true; AppDelegate.openMainWindow?() }
-                        .keyboardShortcut("f", modifiers: [.command, .shift])
-                }
             }
             #else
             CommandGroup(before: .windowList) {
@@ -84,13 +79,6 @@ struct PluckApp: App {
         }
         .windowToolbarStyle(.unified)
         .defaultSize(width: 980, height: 720)
-
-        Window("Find Shots", id: "findShots") {
-            VisualSearchView()
-                .environment(app.ai)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 960, height: 720)
 
         Window("Logo Animator", id: "logoAnimator") {
             LogoAnimatorView()
@@ -135,6 +123,16 @@ struct PluckApp: App {
         .defaultSize(width: 1100, height: 640)
         #endif
 
+        WindowGroup("Editor", for: EditorTarget.self) { $target in
+            if let target {
+                EditorView(target: target)
+                    .environment(manager)
+                    .studio(app)
+            }
+        }
+        .windowToolbarStyle(.unified)
+        .defaultSize(width: 1100, height: 780)
+
         Window("Library", id: "library") {
             LibraryView()
                 .studio(app)
@@ -165,6 +163,21 @@ private struct LibraryCommand: View {
     }
 }
 #endif
+
+/// File → Open in Editor…: a video or song in the Editor.
+private struct OpenInEditorCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Open in Editor…") {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.movie, .audio]
+            panel.prompt = String(localized: "Open")
+            if panel.runModal() == .OK, let url = panel.url { openWindow(value: EditorTarget(path: url.path)) }
+        }
+        .keyboardShortcut("e", modifiers: [.command, .shift])
+    }
+}
 
 private struct SettingsCommand: View {
     @Environment(\.openPluckSettings) private var openSettings

@@ -113,8 +113,32 @@ struct PlaylistPickerView: View {
     // MARK: - Footer
 
     private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if pick.isFollowable, pick.phase == .ready, pick.alreadySubscribed {
+                Label("Subscribed: new uploads download automatically", systemImage: "checkmark.circle.fill")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("Manage subscriptions in the Library")
+            } else if pick.isFollowable, pick.phase == .ready {
+                Toggle(isOn: $pick.subscribe) {
+                    Text("Download new uploads automatically")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .help("Pluck looks for new videos every hour while it’s open and downloads them in this format. Manage subscriptions in the Library.")
+            }
+            buttons
+        }
+    }
+
+    private var buttons: some View {
         HStack(spacing: 10) {
-            if pick.entries.first?.spotify != nil {
+            if Subscriptions.isFeed(pick.sourceURL) {
+                // Podcast episodes are kept as the feed has them.
+                Label("Saves the episodes as they are", systemImage: "waveform")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            } else if pick.entries.first?.spotify != nil {
                 // Spotify always downloads audio, in the audio format from Settings.
                 Label("Saves as \(DownloadOptions.current.audioFormat.shortLabel)", systemImage: "waveform")
                     .font(.callout)
@@ -134,12 +158,13 @@ struct PlaylistPickerView: View {
                 .controlSize(.large)
                 .glassProminentButtonStyle()
                 .keyboardShortcut(.defaultAction)
-                .disabled(pick.phase != .ready || pick.selected.isEmpty)
+                .disabled(pick.phase != .ready || (pick.selected.isEmpty && !pick.subscribe))
         }
     }
 
     private var downloadTitle: String {
-        switch pick.selected.count {
+        if pick.subscribe, pick.selected.isEmpty { return String(localized: "Subscribe") }
+        return switch pick.selected.count {
         case 0: String(localized: "Download")
         case 1: String(localized: "Download 1 Item")
         case pick.entries.count where pick.entries.count > 1: String(localized: "Download All \(pick.entries.count)")

@@ -19,6 +19,11 @@ Sizes, spacing, radii and type come from `Design` (`Design.Size.control`, `Desig
   make way for a `ToolWelcome` and a `DropZone`.
 - **Browsers** (Library): a macOS sidebar (`NavigationSplitView`), search and sort in the toolbar,
   a grid of cards.
+- **The Editor** (one video or song): the picture on black at the top, the transport (round
+  `BarButtonStyle` buttons, the play button prominent, a frame-accurate timecode), the timeline
+  (`EditorTimeline`: ruler, filmstrip, waveform, the range in yellow with the rest dimmed, a red
+  playhead) and an export bar at the bottom. Keys work like an editing program: Space, J K L,
+  ← →, I and O. Tools that work on part of a file belong in it, not in a sheet.
 
 ## A tool page
 

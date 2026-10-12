@@ -8,6 +8,7 @@ struct BackgroundSheet: View {
     let item: DownloadItem
     @AppStorage("backgroundKind") private var kind: Background.Kind = .blur
     @AppStorage("backgroundColor") private var color = "1C1C1E"
+    @AppStorage("backgroundKeep") private var keep: Background.Keep = .automatic
     @State private var picture: URL?
 
     var body: some View {
@@ -15,6 +16,12 @@ struct BackgroundSheet: View {
             SheetHeader(symbol: "person.and.background.dotted", title: Text("New Background"), subtitle: Text(item.title))
 
             Form {
+                Picker(selection: $keep) {
+                    ForEach(Background.Keep.allCases) { Text($0.label).tag($0) }
+                } label: {
+                    Text("Keep")
+                    Text(keep.detail)
+                }
                 Picker(selection: $kind) {
                     ForEach(Background.Kind.allCases) { Text($0.label).tag($0) }
                 } label: {
@@ -57,7 +64,7 @@ struct BackgroundSheet: View {
             .scrollDisabled(true)
             .fixedSize(horizontal: false, vertical: true)
 
-            Label("Works best when people stand free in the picture: things in front of them, like a railing or a table edge, can be cut away too. Runs entirely on this Mac with local AI; the original isn’t changed.",
+            Label("Runs entirely on this Mac with local AI; the original isn’t changed.",
                   systemImage: "lock.shield")
                 .noteStyle()
 
@@ -66,7 +73,7 @@ struct BackgroundSheet: View {
                 Button("Cancel", role: .cancel) { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Replace") {
-                    studio.replaceBackground(item, options: Background.Options(kind: kind, color: color, image: picture))
+                    studio.replaceBackground(item, options: Background.Options(kind: kind, keep: keep, color: color, image: picture))
                     dismiss()
                 }
                 .buttonStyle(.borderedProminent)

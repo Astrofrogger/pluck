@@ -24,22 +24,26 @@ enum MusicFit {
     static let maximumTempoChange = 0.03
 
     static func plan(map: MusicMap, features: AudioFeatures, duration: Double, target: Double) -> Edit? {
-        guard map.bars.count >= 8, target > 2 else { return nil }
+        guard map.bars.count >= 4, target > 2 else { return nil }
         let beat = 60 / map.tempo
         let crossfade = beat
-        // Phrase starts: every 4 bars from the first, plus the start and end of the song.
-        let phraseStarts = stride(from: 0, to: map.bars.count, by: 4).map { map.bars[$0].start }
         let bars = map.bars
+        let starts = bars.map(\.start)
         let profiles = bars.map { profile(features, from: $0.start, to: $0.end) }
-        func barIndex(at time: Double) -> Int? { bars.firstIndex { abs($0.start - time) < 0.05 } }
-        /// How alike the music is around two cut points: the bar before each, and the bar after.
-        func seamCost(_ a: Double, _ b: Double) -> Double {
-            guard let i = barIndex(at: a), let j = barIndex(at: b) else { return 10 }
+        /// How alike the music is around two cut points (bar indexes): the bar before each, and the bar after.
+        func seamCost(_ i: Int, _ j: Int) -> Double {
             var cost = distance(profiles[i], profiles[j])
             if i > 0, j > 0 { cost += distance(profiles[i - 1], profiles[j - 1]) }
             return cost / 2
         }
-        let minimumEdge = min(bars[min(7, bars.count - 1)].end, duration / 4)   // keep at least ~8 bars of intro and ending
+        /// Cutting on a phrase line (every 4 bars) sounds natural; on 2 bars it's fine; any bar costs a little.
+        func alignment(_ i: Int) -> Double { i % 4 == 0 ? 0 : (i % 2 == 0 ? 0.08 : 0.18) }
+        /// A short intro or ending sounds rushed: about 8 bars is ideal, 2 the least.
+        func edgeCost(_ seconds: Double) -> Double {
+            let wanted = min(bars[min(7, bars.count - 1)].end, duration / 4)
+            return seconds >= wanted ? 0 : (wanted - seconds) / max(wanted, 1) * 0.6
+        }
+        let shortestEdge = bars[min(1, bars.count - 1)].end   // two bars
 
         var best: Edit?
         var bestCost = Double.infinity
@@ -48,7 +52,7 @@ enum MusicFit {
             let tempo = length / target
             guard abs(tempo - 1) <= maximumTempoChange else { return }
             // Exactness first, then a smooth seam; fading out instead of the real ending costs extra.
-            let cost = abs(tempo - 1) * 20 + seam + (fadeOut == nil ? 0 : 3)
+            let cost = abs(tempo - 1) * 40 + seam + (fadeOut == nil ? 0 : 0.5)
             if cost < bestCost {
                 bestCost = cost
                 best = Edit(pieces: pieces, crossfade: crossfade, tempo: tempo, fadeOut: fadeOut, length: length, seam: seam)
@@ -59,25 +63,60 @@ enum MusicFit {
             consider([0...duration], seam: 0)
         }
         if target < duration {
-            // Take out the middle: play up to A, carry on from B.
-            for a in phraseStarts where a >= minimumEdge {
-                for b in phraseStarts where b > a && duration - b >= minimumEdge {
-                    consider([0...a, b...duration], seam: seamCost(a, b))
+            // Take out the middle: play up to bar i, carry on from bar j.
+            for i in bars.indices where starts[i] >= shortestEdge {
+                for j in bars.indices where j > i && duration - starts[j] >= shortestEdge {
+                    let kept = starts[i] + duration - starts[j]
+                    guard abs(kept / target - 1) <= maximumTempoChange else { continue }
+                    consider([0...starts[i], starts[j]...duration],
+                             seam: seamCost(i, j) + alignment(i) + alignment(j) + edgeCost(starts[i]) + edgeCost(duration - starts[j]))
                 }
             }
-            // Too short for intro and ending both: end on a phrase and fade out.
-            for c in phraseStarts where c > 4 * beat {
-                consider([0...c], seam: 0, fadeOut: min(4 * beat, c / 4))
+            // Too short for an intro and an ending: play from the start and fade out on a bar,
+            // or (for a few seconds of music) from the start of a later phrase.
+            for i in bars.indices where i > 0 {
+                consider([0...starts[i]], seam: alignment(i), fadeOut: min(4 * beat, starts[i] / 4))
             }
+            for k in bars.indices where k > 0 && k % 4 == 0 {
+                for i in bars.indices where i > k {
+                    consider([starts[k]...starts[i]], seam: alignment(i) + 0.4, fadeOut: min(4 * beat, (starts[i] - starts[k]) / 4))
+                }
+            }
+            // A fade can end anywhere: exactly the length asked, at the song's own tempo.
+            consider([0...target], seam: 0.3, fadeOut: min(4 * beat, target / 4))
         } else {
-            // Longer: after B, go back to A and play on (a phrase or more is repeated).
-            for b in phraseStarts where b >= minimumEdge {
-                for a in phraseStarts where a < b && a >= minimumEdge / 2 {
-                    consider([0...b, a...duration], seam: seamCost(b, a))
+            // Longer: after bar j, go back to bar i and play on; a long target repeats that
+            // stretch more than once.
+            for j in bars.indices where starts[j] >= shortestEdge {
+                for i in bars.indices where i < j && starts[i] >= shortestEdge / 2 {
+                    let loop = starts[j] - starts[i]
+                    guard loop >= 4 * beat else { continue }
+                    let times = max(1, Int(((target - duration) / loop).rounded()))
+                    guard times <= 20 else { continue }
+                    let pieces = [0...starts[j]] + Array(repeating: starts[i]...starts[j], count: times - 1) + [starts[i]...duration]
+                    // Shorter loops repeated many times get noticeable.
+                    consider(pieces, seam: seamCost(j, i) + alignment(i) + alignment(j) + Double(times - 1) * 0.05)
                 }
             }
         }
         return best
+    }
+
+    enum Problem: LocalizedError {
+        case noBeat, tooShort(Double)
+        var errorDescription: String? {
+            switch self {
+            case .noBeat: String(localized: "Couldn’t find a steady beat in this song, so it can’t be cut on the music.")
+            case .tooShort(let shortest):
+                String(localized: "That’s too short to cut on the music. Choose at least \(Duration.seconds(shortest.rounded(.up)).formatted(.time(pattern: .minuteSecond))).")
+            }
+        }
+    }
+
+    /// Why there's no plan, in words.
+    static func problem(map: MusicMap, target: Double) -> Problem {
+        guard map.bars.count >= 4 else { return .noBeat }
+        return .tooShort(map.bars[min(1, map.bars.count - 1)].end)
     }
 
     /// What a bar sounds like: its loudness, low end and top end, and how busy each band is.
@@ -111,6 +150,8 @@ enum MusicFit {
             last = "m\(index)"
         }
         var tail = String(format: "[%@]atempo=%.5f", last, edit.tempo)
+        // Starting part-way into the song: a few milliseconds of fade so it doesn't click.
+        if let first = edit.pieces.first, first.lowerBound > 0 { tail += ",afade=t=in:d=0.02" }
         if let fade = edit.fadeOut {
             tail += String(format: ",afade=t=out:st=%.4f:d=%.4f", edit.length / edit.tempo - fade, fade)
         }

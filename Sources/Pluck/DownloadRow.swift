@@ -317,8 +317,11 @@ struct DownloadRow: View {
 
     @ViewBuilder
     private var menu: some View {
-        if item.existingFile != nil {
+        if let file = item.existingFile {
             Button("Open", action: open)
+            if EditorTarget.canOpen(file) {
+                Button("Open in Editor") { openWindow(value: EditorTarget(path: file.path)) }
+            }
             Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
             #if STUDIO

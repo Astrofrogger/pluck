@@ -128,9 +128,9 @@ final class OfficeRenderServer {
         problem = nil
         let parameters = NWParameters.tcp
         parameters.allowLocalEndpointReuse = true
-        guard let port = NWEndpoint.Port(rawValue: OfficeLink.port),
+        guard let port = NWEndpoint.Port(rawValue: OfficeLink.listenPort),
               let listener = try? NWListener(using: parameters, on: port) else {
-            problem = String(localized: "Pluck couldn’t open port \(OfficeLink.port) on this Mac.")
+            problem = String(localized: "Pluck couldn’t open port \(OfficeLink.listenPort) on this Mac.")
             return
         }
         listener.service = NWListener.Service(name: Host.current().localizedName ?? "Mac", type: OfficeLink.service)
@@ -146,11 +146,16 @@ final class OfficeRenderServer {
         startNetwork()
         OfficeArchive.shared.manager = manager
         OfficeArchive.shared.tidyClips()
-        if ScreenshotMode.scene == nil { OfficeArchive.shared.scan() }
+        OfficeProxies.shared.manager = manager
+        if ScreenshotMode.scene == nil {
+            OfficeArchive.shared.scan()
+            OfficeProxies.shared.run()
+        }
     }
 
     func stop() {
         OfficeArchive.shared.stop()
+        OfficeProxies.shared.stop()
         listener?.cancel()
         listener = nil
         isRunning = false
@@ -215,12 +220,28 @@ final class OfficeRenderServer {
                 do {
                     try await network.start()
                 } catch PrivateNetwork.Failure.needsInvite {
-                    try await network.start(key: PrivateNetwork.Account.joinKey(expiry: 3600))
+                    let key = try await PrivateNetwork.Account.joinKey(expiry: 3600)
+                    // Disconnected while waiting for Tailscale: stay off.
+                    guard PrivateNetwork.Account.token != nil else { return }
+                    try await network.start(key: key)
                 }
                 await PrivateNetwork.Account.keepPluckMacsConnected()
             } catch {
                 networkProblem = error.localizedDescription
             }
+        }
+    }
+
+    /// Takes this Mac off the private network, without needing the Tailscale account (a token
+    /// that stopped working, or no internet): stops the connection and forgets the token and this
+    /// Mac's identity there. Paired Macs on this network still work; ones from anywhere need a
+    /// new invitation after connecting again. (The old entry can be removed in Tailscale's admin.)
+    func disconnectNetwork() {
+        network.stop()
+        PrivateNetwork.Account.forget()
+        networkProblem = nil
+        if ScreenshotMode.scene == nil {
+            try? FileManager.default.removeItem(at: PrivateNetwork.folder.appendingPathComponent("office", isDirectory: true))
         }
     }
 
@@ -288,7 +309,7 @@ final class OfficeRenderServer {
         }
         open += 1
         connection.start(queue: queue)
-        FrameReader.read(from: connection, limit: OfficeLink.maxRequest) { [weak self] frame in
+        FrameReader.read(from: connection, limit: OfficeLink.maxRequest, timeout: 90) { [weak self] frame in
             Task { @MainActor in
                 guard let self else { connection.cancel(); return }
                 guard let frame else { return self.drop(connection, strike: client) }
@@ -413,6 +434,20 @@ final class OfficeRenderServer {
         return parts
     }
 
+    private func number(_ value: Any?) throws -> Int64 {
+        guard let number = (value as? NSNumber)?.int64Value, number >= 0 else {
+            throw OfficeLink.Failure.office(String(localized: "The request wasn’t complete."))
+        }
+        return number
+    }
+
+    private func proxyFormat(_ value: Any?) throws -> OfficeProxies.Format {
+        guard let raw = value as? String, let format = OfficeProxies.Format(rawValue: raw) else {
+            throw OfficeLink.Failure.office(String(localized: "The request wasn’t complete."))
+        }
+        return format
+    }
+
     private var busyMessage: String {
         String(localized: "The host Mac is rendering. Try again when it’s done.")
     }
@@ -472,6 +507,29 @@ final class OfficeRenderServer {
             return ["token": clip.token, "size": clip.size, "name": clip.name]
         case "archiveClipData":
             let piece = try OfficeArchive.shared.clipData(try text(arguments["token"], 40), offset: arguments["offset"] as? Int ?? 0)
+            return ["data": piece.data.base64EncodedString(), "size": piece.size]
+        case "sendState":
+            let have = try OfficeInbox.shared.have(try text(arguments["path"], 1000), size: try number(arguments["size"]),
+                                                   modified: arguments["modified"] as? Double ?? 0, from: device.name)
+            return ["have": have]
+        case "send":
+            guard let data = (arguments["data"] as? String).flatMap({ Data(base64Encoded: $0) }), data.count <= OfficeLink.uploadChunk else {
+                throw OfficeLink.Failure.office(String(localized: "The request wasn’t complete."))
+            }
+            let have = try OfficeInbox.shared.receive(try text(arguments["path"], 1000), size: try number(arguments["size"]),
+                                                      modified: arguments["modified"] as? Double ?? 0,
+                                                      offset: try number(arguments["offset"]), data: data, from: device.name)
+            return ["have": have]
+        case "proxyFolders":
+            return ["folders": await OfficeProxies.shared.sharedFolders()]
+        case "proxyMake":
+            try OfficeProxies.shared.make(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]))
+            return ["started": true]
+        case "proxyStatus":
+            return try await OfficeProxies.shared.status(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]))
+        case "proxyData":
+            let piece = try await OfficeProxies.shared.data(try text(arguments["folder"], 40), format: try proxyFormat(arguments["format"]),
+                                                            path: try text(arguments["path"], 1000), offset: arguments["offset"] as? Int ?? 0)
             return ["data": piece.data.base64EncodedString(), "size": piece.size]
         default:
             throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t know how to do that."))

@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "1.19.0", items: [
+                Item(symbol: "sparkles", title: String(localized: "Local AI in the Editor"),
+                     detail: String(localized: "The Editor’s sidebar finds the best moments and filler words and cuts them out, and makes subtitles you can edit, resize and drag into place before they’re burned into the export. It all runs locally on your Mac.")),
+                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "One search"),
+                     detail: String(localized: "Search finds a moment by what was said and by what’s in the picture, in one place (⇧⌘F).")),
+                Item(symbol: "arrow.up.arrow.down", title: String(localized: "Proxies and files with Edit Anywhere"),
+                     detail: String(localized: "Fetch proxies or the originals of the host Mac’s footage, choose where the host keeps them, and keep folders in step with the host Mac. Everything stays on your own private network.")),
+                Item(symbol: "person.and.background.dotted", title: String(localized: "Better New Background and Fit Music"),
+                     detail: String(localized: "New Background keeps logos and graphics instead of only people. Fit Music to Length works from a few seconds to many minutes and lands exactly on time.")),
+            ]),
             Release(version: "1.18.0", items: [
                 Item(symbol: "square.on.square.dashed", title: String(localized: "One look for every tool"),
                      detail: String(localized: "Brand Pack, Logo Animator, Delivery Check, Fit Music, Derush, Live Recorder and Find Shots now look and work like the main window: a clear start, one bar with the main action, and settings in tidy cards. Everything still runs locally on your Mac.")),

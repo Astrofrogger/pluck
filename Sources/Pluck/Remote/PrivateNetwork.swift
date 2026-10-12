@@ -187,6 +187,15 @@ final class Tunnel {
     }
 
     private func launch(key: String?, office: String?) async throws {
+        // Never from a test copy (screenshot mode): it would share this Mac's identity on the
+        // private network with the Pluck that's really running. Every start comes through here.
+        if ScreenshotMode.scene != nil, !UserDefaults.standard.bool(forKey: "PluckScreenshotNetwork") {
+            if let log = UserDefaults.standard.string(forKey: "PluckScreenshotTunnelLog") {
+                let trace = "\(mode.rawValue) start refused\n" + Thread.callStackSymbols.joined(separator: "\n")
+                try? trace.write(toFile: log, atomically: true, encoding: .utf8)
+            }
+            throw PrivateNetwork.Failure.noHelper
+        }
         stop()
         guard let helper = PrivateNetwork.helper else { throw PrivateNetwork.Failure.noHelper }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,

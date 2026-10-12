@@ -37,6 +37,14 @@ final class PlaylistPick: Identifiable {
     var downloaded: Set<PlaylistEntry.ID> = []
     /// Subfolder for 2+ items: "Artist/Album" for albums, the playlist's name otherwise.
     var folderPath: String?
+    /// Also download what's added later (Subscriptions).
+    var subscribe = false
+
+    /// A channel, playlist or feed that can be followed (not Spotify or Apple Music lists).
+    var isFollowable: Bool { MusicLinks.parse(sourceURL) == nil }
+    var alreadySubscribed: Bool {
+        Subscriptions.shared.list.contains { Links.identity($0.url) == Links.identity(sourceURL) && !$0.paused }
+    }
 
     init(sourceURL: String, folder: String, options: DownloadOptions) {
         self.sourceURL = sourceURL
@@ -63,6 +71,7 @@ enum Playlists {
         guard let url = URL(string: link), let host = url.host?.lowercased() else { return false }
         let path = url.path.lowercased()
         let items = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
+        if Subscriptions.isChannel(link) || Subscriptions.isFeed(link) { return true }
         if host.hasSuffix("youtube.com") || host == "youtu.be" {
             return path.hasPrefix("/playlist") || items.contains { $0.name == "list" && !($0.value ?? "").isEmpty }
         }
@@ -95,7 +104,7 @@ enum Playlists {
             }
             let thumb = ((e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String).flatMap(URL.init)
             entries.append(PlaylistEntry(
-                id: (e["id"] as? String) ?? url, url: url, title: title,
+                id: (e["id"] as? String) ?? Subscriptions.episodeID(url) ?? url, url: url, title: title,
                 subtitle: (e["channel"] as? String) ?? (e["uploader"] as? String),
                 duration: e["duration"] as? Double, thumbnail: thumb))
         }

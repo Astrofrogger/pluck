@@ -20,6 +20,16 @@ enum PluckTool: String, CaseIterable, Identifiable {
     /// The window it opens.
     var window: String { rawValue }
 
+    /// Opens the tool: its window, or for Search the pop-up over the main window.
+    @MainActor func open(_ openWindow: OpenWindowAction) {
+        if self == .findShots {
+            AppDelegate.openMainWindow?()
+            AppDelegate.shared?.ai.searchShown = true
+        } else {
+            openWindow(id: window)
+        }
+    }
+
     var group: Group {
         switch self {
         case .derush, .findShots, .liveRecorder, .deliveryCheck: .editing
@@ -31,7 +41,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var name: LocalizedStringKey {
         switch self {
         case .derush: "Derush Footage"
-        case .findShots: "Find Shots"
+        case .findShots: "Search"
         case .liveRecorder: "Live Recorder"
         case .deliveryCheck: "Delivery Check"
         case .logoAnimator: "Logo Animator"
@@ -45,7 +55,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var detail: LocalizedStringKey {
         switch self {
         case .derush: "Sort a shoot into a timeline of usable takes, for DaVinci Resolve."
-        case .findShots: "Search your videos for a shot by describing it."
+        case .findShots: "Find a moment by what was said or what’s in the picture."
         case .liveRecorder: "Record a stream and mark the moments as it plays."
         case .deliveryCheck: "Look over a finished export before it goes to the client."
         case .logoAnimator: "Turn a logo into an animated intro, or a vector file."
@@ -59,7 +69,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .derush: "film.stack"
-        case .findShots: "photo.on.rectangle.angled"
+        case .findShots: "sparkle.magnifyingglass"
         case .liveRecorder: "record.circle"
         case .deliveryCheck: "checkmark.seal"
         case .logoAnimator: "wand.and.stars"
@@ -94,7 +104,7 @@ struct ToolsMenuItems: View {
     }
 
     private func open(_ tool: PluckTool) {
-        openWindow(id: tool.window)
+        tool.open(openWindow)
         NSApp.activate()
     }
 }
@@ -104,7 +114,7 @@ private struct ToolShortcut: ViewModifier {
 
     func body(content: Content) -> some View {
         switch tool {
-        case .findShots: content.keyboardShortcut("f", modifiers: [.command, .option])
+        case .findShots: content.keyboardShortcut("f", modifiers: [.command, .shift])
         case .library: content.keyboardShortcut("l", modifiers: [.command, .shift])
         default: content
         }
@@ -128,7 +138,7 @@ struct ToolsPanel: View {
                     ForEach(PluckTool.allCases.filter { $0.group == group }) { tool in
                         Button {
                             dismiss()
-                            openWindow(id: tool.window)
+                            tool.open(openWindow)
                         } label: {
                             row(tool)
                         }

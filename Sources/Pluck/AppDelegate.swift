@@ -40,10 +40,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationDidFinishLaunching(_ notification: Notification) {
         CookieBrowser.chooseOnFirstLaunch()
         LibraryServer.shared.manager = manager
+        Subscriptions.shared.start(manager: manager)
         LibraryServer.shared.startIfEnabled()
         #if STUDIO
         OfficeRenderServer.shared.manager = manager
         OfficeRenderServer.shared.startIfEnabled()
+        // Proxies still to fetch from the host Mac carry on in the background.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            ProxySync.shared.resume()
+            SendSync.shared.resume()
+        }
         #endif
         if ScreenshotMode.scene == nil {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { CookieBrowser.warnIfBlocked() }

@@ -206,6 +206,54 @@ final class DownloadManager {
         }.value
     }
 
+    /// A flat listing of a channel, playlist or feed: the newest `limit` entries, nothing downloaded.
+    func listing(_ url: String, limit: Int) async -> Data? {
+        await capture(["--flat-playlist", "--dump-single-json", "--no-warnings", "--yes-playlist",
+                       "--playlist-end", "\(limit)"] + cookieArguments() + ["--", url])
+    }
+
+    /// Queues one upload a subscription found, with the title its listing gave (podcast feeds).
+    func addListed(_ url: String, title: String?, show: String?, options: DownloadOptions, folder: String) {
+        let item = DownloadItem(url: url, options: options, folder: folder)
+        if let title {
+            item.title = title
+            item.listedTitle = title
+            item.listedShow = show
+        }
+        items.insert(item, at: 0)
+        pump()
+    }
+
+    /// In the download list already: waiting, downloading, or done with the file still there.
+    func isQueuedOrDownloaded(_ url: String, isAudio: Bool) -> Bool {
+        let key = Links.identity(url)
+        return items.contains { item in
+            item.clip == nil && item.options.isAudio == isAudio && Links.identity(item.url) == key
+                && (item.existingFile != nil || item.isActive || item.state == .queued || item.state == .paused)
+        }
+    }
+
+    /// A video's chapters, for clipping one (empty when it has none or can't be read).
+    @ObservationIgnored private var chapterCache: [String: [VideoChapter]] = [:]
+
+    func chapters(of url: String) async -> [VideoChapter] {
+        if let cached = chapterCache[url] { return cached }
+        let args = ["--dump-single-json", "--skip-download", "--no-playlist", "--no-warnings"] + cookieArguments() + ["--", url]
+        guard let data = await capture(args),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [] }
+        let raw = json["chapters"] as? [[String: Any]] ?? []
+        let duration = json["duration"] as? Double
+        let found = raw.enumerated().compactMap { index, chapter -> VideoChapter? in
+            guard let start = chapter["start_time"] as? Double else { return nil }
+            var end = chapter["end_time"] as? Double
+            if let e = end, let duration, e >= duration - 0.5 { end = nil }
+            let title = (chapter["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "Chapter \(index + 1)")
+            return VideoChapter(id: index, title: title, start: start, end: end)
+        }
+        chapterCache[url] = found
+        return found
+    }
+
     // MARK: - Queue
 
     /// Adds downloads for one or more links. When "Ask where to save" is on, asks once for the batch.
@@ -666,7 +714,7 @@ final class DownloadManager {
             }
         } else {
             let args = ["--flat-playlist", "--dump-single-json", "--no-warnings", "--yes-playlist",
-                        "--playlist-end", "\(Playlists.limit)"] + cookieArguments() + ["--", pick.sourceURL]
+                        "--playlist-end", "\(Playlists.limit)"] + cookieArguments() + ["--", Subscriptions.listingURL(pick.sourceURL)]
             guard let data = await capture(args), let playlist = Playlists.parse(data) else {
                 // Not a playlist after all, or unreadable: download the link as a single video.
                 cancelPick(pick)
@@ -674,7 +722,7 @@ final class DownloadManager {
                 pump()
                 return
             }
-            pick.title = playlist.title ?? String(localized: "Playlist")
+            pick.title = Subscriptions.cleanTitle(playlist.title ?? String(localized: "Playlist"))
             pick.folderPath = Folders.sanitize(pick.title)
             pick.owner = playlist.owner
             pick.entries = playlist.entries
@@ -688,6 +736,10 @@ final class DownloadManager {
         // A video link inside a playlist starts with just that video; a playlist link with everything new.
         if let focus = Playlists.focusedVideoID(in: pick.sourceURL), pick.entries.contains(where: { $0.id == focus }) {
             pick.selected = [focus]
+        } else if pick.isFollowable {
+            // A whole channel or podcast is rarely wanted at once: start with nothing, subscribed.
+            pick.selected = []
+            pick.subscribe = !pick.alreadySubscribed
         } else {
             pick.selected = Set(pick.entries.map(\.id)).subtracting(pick.downloaded)
             if pick.selected.isEmpty { pick.selectAll() }
@@ -705,6 +757,7 @@ final class DownloadManager {
         var options = DownloadOptions.current
         let spotifyItems = pick.selectedEntries.contains { $0.spotify != nil }
         if spotifyItems { options.kind = .audio }
+        if Subscriptions.isFeed(pick.sourceURL) { options = .podcast }
         // Two or more items from an album or playlist go into their own folder.
         var folder = pick.folder
         if pick.selected.count > 1, defaults.bool(forKey: Prefs.playlistFolders), let sub = pick.folderPath {
@@ -717,6 +770,10 @@ final class DownloadManager {
             } else {
                 item = DownloadItem(url: entry.url, options: options, folder: folder)
                 item.title = entry.title
+                if Subscriptions.isFeed(pick.sourceURL) {
+                    item.listedTitle = entry.title
+                    item.listedShow = pick.title
+                }
                 item.uploader = entry.subtitle
                 item.duration = entry.duration
                 item.thumbnail = entry.thumbnail
@@ -725,6 +782,15 @@ final class DownloadManager {
         }
         // Newest first in the list, so the playlist's first video ends up at the top of the batch.
         items.insert(contentsOf: newItems, at: 0)
+        if pick.subscribe {
+            var subscriptionFolder = pick.folder
+            if defaults.bool(forKey: Prefs.playlistFolders), let sub = pick.folderPath {
+                subscriptionFolder = (pick.folder as NSString).appendingPathComponent(sub)
+            }
+            Subscriptions.shared.subscribe(url: pick.sourceURL, title: pick.title, owner: pick.owner, options: options,
+                                           folder: subscriptionFolder, known: pick.entries.map(\.id),
+                                           downloadingNow: pick.selectedEntries.map(\.url))
+        }
         cancelPick(pick)
         pump()
     }
@@ -901,6 +967,14 @@ final class DownloadManager {
             }
             if defaults.bool(forKey: Prefs.embedThumbnail), options.canEmbedThumbnail { args.append("--embed-thumbnail") }
             if defaults.bool(forKey: Prefs.embedMetadata) { args.append("--embed-metadata") }
+        } else if let title = item.listedTitle {
+            // A podcast episode: named and tagged after the feed, the file kept as it is.
+            args += ["--parse-metadata", "\(Spotify.metadataLiteral(title)):%(title)s"]
+            if let show = item.listedShow {
+                args += ["--parse-metadata", "\(Spotify.metadataLiteral(show)):%(artist)s",
+                         "--parse-metadata", "\(Spotify.metadataLiteral(show)):%(album)s"]
+            }
+            args += ["-o", outputName, "--no-playlist", "--embed-metadata"]
         } else if let track = item.spotify {
             // Tag the file with Spotify's metadata rather than YouTube's.
             let artist = track.artists.joined(separator: ", ")

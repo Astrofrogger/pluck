@@ -70,7 +70,7 @@ struct AISettings: View {
                 }
                 if VisionModel.best != nil {
                     status("Shot descriptions", available: true,
-                           detail: String(localized: "An open vision model describes every shot for Find Shots and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
+                           detail: String(localized: "An open vision model describes every shot for Search and Derush Footage, with an editor’s eye. Sharper than Apple Intelligence."))
                 }
                 if let model = VisionModel.selected {
                     let _ = visionRefresh

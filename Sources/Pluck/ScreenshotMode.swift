@@ -77,6 +77,35 @@ enum ScreenshotMode {
             case "convert": if let file = item?.existingFile { manager.openConverter(for: [file]) }
             case "library": openWindow(id: "library")
             case "settings": openSettings()
+            case "subscriptiontest":
+                // -PluckScreenshotLink <channel or feed>, -PluckScreenshotFile <folder>, -PluckScreenshotLog <file>.
+                Subscriptions.shared.manager = manager
+                if let link = defaults.string(forKey: "PluckScreenshotLink"), let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                   let log = defaults.string(forKey: "PluckScreenshotLog") {
+                    Task { await Subscriptions.shared.selfTest(link: link, folder: folder, log: URL(fileURLWithPath: log)) }
+                }
+            case "picker":
+                // -PluckScreenshotLink <channel, playlist or feed>: the picker, nothing downloaded.
+                if let link = defaults.string(forKey: "PluckScreenshotLink") { manager.add([link]) }
+            case "subscriptions":
+                // The Library on the first subscription of the test list (subscriptions-test.json).
+                LibraryView.startCollection = Subscriptions.shared.list.first.map { .subscription($0.id, $0.title) }
+                openWindow(id: "library")
+            case "remotelibrary":
+                // The Library on another Mac's shared Library: -PluckScreenshotLink <its name>.
+                LibraryView.startCollection = defaults.string(forKey: "PluckScreenshotLink").map { .network($0) }
+                openWindow(id: "library")
+            case "editor":
+                // -PluckScreenshotFile <video or song> in the Editor; -PluckScreenshotRange <in>-<out>
+                // in seconds marks a range.
+                if let path = defaults.string(forKey: "PluckScreenshotFile") {
+                    let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap { Double($0) }
+                    if let range, range.count == 2 { EditorModel.startRange = (range[0], range[1]) }
+                    openWindow(value: EditorTarget(path: path))
+                }
+            case "clip":
+                // -PluckScreenshotLink <video> in the field, with the clip row open.
+                manager.pendingLink = defaults.string(forKey: "PluckScreenshotLink")
             default: studio(scene, item)
             }
         }
@@ -127,6 +156,170 @@ enum ScreenshotMode {
         note("done")
     }
 
+    /// Proxies end to end in one Pluck (a test copy, on its own port and keys): shares
+    /// -PluckScreenshotFile <footage folder>, pairs over this Mac, asks for proxies in both formats
+    /// and fetches them into -PluckScreenshotOutput <folder>; what happens goes to -PluckScreenshotLog.
+    @MainActor private static func proxySelfTest(defaults: UserDefaults) async {
+        guard let folder = defaults.string(forKey: "PluckScreenshotFile"), let output = defaults.string(forKey: "PluckScreenshotOutput"),
+              let logPath = defaults.string(forKey: "PluckScreenshotLog") else { return }
+        var lines: [String] = []
+        func note(_ text: String) {
+            lines.append(text)
+            try? lines.joined(separator: "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+        }
+        let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, sync = ProxySync.shared
+        let footage = URL(fileURLWithPath: folder, isDirectory: true)
+        server.setEnabled(true)
+        OfficeArchive.shared.add(footage)
+        OfficeArchive.shared.stop()
+        // -PluckScreenshotProxyFolder <folder>: proxies made there on the host (one inside the
+        // footage is refused first).
+        if let chosen = defaults.string(forKey: "PluckScreenshotProxyFolder") {
+            do {
+                try OfficeProxies.shared.choose(footage.appendingPathComponent("Day 1"))
+                note("NOT refused: a proxy folder inside the footage")
+            } catch {
+                note("refused inside footage: \(error.localizedDescription)")
+            }
+            try? OfficeProxies.shared.choose(URL(fileURLWithPath: chosen, isDirectory: true))
+            note("proxy folder: \(OfficeProxies.shared.chosenFolder?.path ?? "none")")
+        }
+        server.startPairing()
+        guard let code = server.pairing?.code else { return note("no pairing code: \(server.problem ?? "")") }
+        do {
+            try await client.pair(.address("127.0.0.1"), code: code)
+            note("paired")
+            try await sync.loadFolders()
+            note("folders: \(sync.folders.map { "\($0.name) (\($0.files))" })")
+            guard let shared = sync.folders.first else { throw OfficeLink.Failure.garbled }
+            for format in OfficeProxies.Format.allCases {
+                let start = Date.now
+                try await sync.start(shared, format: format, parent: URL(fileURLWithPath: output).appendingPathComponent(format.rawValue))
+                while Date.now.timeIntervalSince(start) < 600 {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard let job = sync.jobs.first(where: { $0.folder == shared.id && $0.format == format }),
+                          let state = sync.progress[job.id] else { continue }
+                    if let problem = state.problem { note("  problem: \(problem)") }
+                    if state.total > 0, state.here >= state.total { break }
+                }
+                let state = sync.jobs.first { $0.folder == shared.id && $0.format == format }.flatMap { sync.progress[$0.id] }
+                note("\(format.rawValue): \(state?.here ?? 0) of \(state?.total ?? 0) here in \(Int(Date.now.timeIntervalSince(start))) s")
+            }
+            // A video that isn't in the folder, and one outside it, are refused.
+            for path in ["nothing.mov", "../secret.mov"] {
+                do {
+                    _ = try await client.ask("proxyData", ["folder": shared.id, "format": "light", "path": path, "offset": 0])
+                    note("NOT refused: \(path)")
+                } catch {
+                    note("refused \(path): \(error.localizedDescription)")
+                }
+            }
+            // -PluckScreenshotKeep YES: stays paired with the window open on Proxies (for a screenshot).
+            if defaults.bool(forKey: "PluckScreenshotKeep") {
+                note("kept")
+                return
+            }
+            for job in sync.jobs { sync.remove(job) }
+        } catch {
+            note("error: \(error.localizedDescription)")
+        }
+        // Back as it was: unpaired, nothing shared, the host's proxies gone.
+        client.forget()
+        for device in server.devices { server.remove(device) }
+        OfficeArchive.shared.remove(footage)
+        try? OfficeProxies.shared.choose(nil)
+        for format in OfficeProxies.Format.allCases {
+            try? FileManager.default.removeItem(at: OfficeProxies.root.appendingPathComponent("\(OfficeProxies.id(footage))-\(format.rawValue)"))
+        }
+        server.setEnabled(false)
+        note("done")
+    }
+
+    /// Sending files end to end in one Pluck (a test copy on its own port and keys): the inbox is
+    /// -PluckScreenshotOutput <folder>; -PluckScreenshotFile <folder> is kept in step, then one
+    /// file in it changes and only that one goes again; -PluckScreenshotLink <file> is sent once.
+    /// Also fetches the footage's originals. What happens goes to -PluckScreenshotLog.
+    @MainActor private static func sendSelfTest(defaults: UserDefaults) async {
+        guard let folder = defaults.string(forKey: "PluckScreenshotFile"), let output = defaults.string(forKey: "PluckScreenshotOutput"),
+              let single = defaults.string(forKey: "PluckScreenshotLink"), let logPath = defaults.string(forKey: "PluckScreenshotLog") else { return }
+        var lines: [String] = []
+        func note(_ text: String) {
+            lines.append(text)
+            try? lines.joined(separator: "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
+        }
+        let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, send = SendSync.shared
+        let source = URL(fileURLWithPath: folder, isDirectory: true)
+        do {
+            try OfficeInbox.shared.choose(URL(fileURLWithPath: output, isDirectory: true).appendingPathComponent("inbox"))
+        } catch {
+            return note("inbox not set, stopped: \(error.localizedDescription)")
+        }
+        server.setEnabled(true)
+        server.startPairing()
+        guard let code = server.pairing?.code else { return note("no pairing code: \(server.problem ?? "")") }
+        do {
+            try await client.pair(.address("127.0.0.1"), code: code)
+            note("paired: \(client.office?.address ?? "-") \(client.office?.addresses ?? []) network \(client.office?.network ?? "none")")
+            send.trace = { note("  " + $0) }
+            send.add(folder: source)
+            send.send([URL(fileURLWithPath: single)])
+            var start = Date.now
+            await send.pass()
+            while send.sending != nil || send.files.count > 0 { try? await Task.sleep(for: .milliseconds(200)) }
+            note("first pass in \(Int(Date.now.timeIntervalSince(start))) s, problem \(send.problem ?? "none"), \(send.folders.first?.sent.count ?? 0) folder files sent")
+            // One file changes: only it goes again.
+            let changed = try FileManager.default.contentsOfDirectory(at: source, includingPropertiesForKeys: nil).first { $0.pathExtension == "txt" }
+            if let changed {
+                try "changed at \(Date.now)".write(to: changed, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.modificationDate: Date.now.addingTimeInterval(-60)], ofItemAtPath: changed.path)
+            }
+            start = .now
+            var sentNames: [String] = []
+            let watcher = Task { @MainActor in
+                while !Task.isCancelled {
+                    if let name = send.sending, sentNames.last != name { sentNames.append(name) }
+                    try? await Task.sleep(for: .milliseconds(20))
+                }
+            }
+            await send.pass()
+            watcher.cancel()
+            note("second pass sent \(sentNames) in \(Int(Date.now.timeIntervalSince(start))) s")
+            for path in ["../escape.txt", "/etc/x", ".hidden", "a/../../b"] {
+                do {
+                    _ = try await client.ask("send", ["path": path, "size": 1, "modified": 0, "offset": 0, "data": Data("x".utf8).base64EncodedString()])
+                    note("NOT refused: \(path)")
+                } catch {
+                    note("refused \(path): \(error.localizedDescription)")
+                }
+            }
+            // The other way: the footage's originals.
+            OfficeArchive.shared.add(source)
+            OfficeArchive.shared.stop()
+            let sync = ProxySync.shared
+            try await sync.loadFolders()
+            if let shared = sync.folders.first {
+                start = .now
+                try await sync.start(shared, format: .original, parent: URL(fileURLWithPath: output).appendingPathComponent("originals"))
+                while Date.now.timeIntervalSince(start) < 300 {
+                    try? await Task.sleep(for: .seconds(1))
+                    if let job = sync.jobs.first, let state = sync.progress[job.id], state.total > 0, state.here >= state.total { break }
+                }
+                let state = sync.jobs.first.flatMap { sync.progress[$0.id] }
+                note("originals: \(state?.here ?? 0) of \(state?.total ?? 0) here")
+                for job in sync.jobs { sync.remove(job) }
+            }
+            OfficeArchive.shared.remove(source)
+        } catch {
+            note("error: \(error.localizedDescription)")
+        }
+        for folder in send.folders { send.remove(folder) }
+        client.forget()
+        for device in server.devices { server.remove(device) }
+        try? OfficeInbox.shared.choose(nil)
+        server.setEnabled(false)
+        note("done")
+    }
+
     /// The scenes of Studio's windows and sheets.
     @MainActor
     private static func studioScene(_ scene: String, item: DownloadItem?, manager: DownloadManager, ai: AIStudio,
@@ -163,12 +356,14 @@ enum ScreenshotMode {
                     }
                 }
             case "findshots":
-                openWindow(id: "findShots")
+                // -PluckScreenshotLink <words> is searched for.
+                VisualSearchView.startQuery = defaults.string(forKey: "PluckScreenshotLink") ?? ""
+                ai.searchShown = true
             case "musicfit":
                 openWindow(id: "musicFit")
             case "resolvelog":
-                // Logs the open DaVinci Resolve project (with Find Shots open to show it).
-                openWindow(id: "findShots")
+                // Logs the open DaVinci Resolve project (with Search open to show it).
+                ai.searchShown = true
                 ResolveLogger.shared.start()
             case "office":
                 openWindow(id: "officeRender")
@@ -177,6 +372,17 @@ enum ScreenshotMode {
                 // folder> is indexed, a pairing over this Mac's own network, a search and a clip
                 // fetched; what happens goes to -PluckScreenshotLog <file>.
                 Task { @MainActor in await archiveSelfTest(defaults: defaults) }
+            case "sendtest":
+                Task { @MainActor in await sendSelfTest(defaults: defaults) }
+            case "proxytest":
+                Task { @MainActor in
+                    await proxySelfTest(defaults: defaults)
+                    if defaults.bool(forKey: "PluckScreenshotKeep") {
+                        UserDefaults.standard.set("home", forKey: "officeRenderSide")
+                        UserDefaults.standard.set("proxies", forKey: "editAnywherePane")
+                        openWindow(id: "officeRender")
+                    }
+                }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }

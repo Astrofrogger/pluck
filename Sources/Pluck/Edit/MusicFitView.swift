@@ -70,10 +70,16 @@ struct MusicFitView: View {
     private func describe(_ edit: MusicFit.Edit) -> String {
         func time(_ t: Double) -> String { Duration.seconds(t).formatted(.time(pattern: .minuteSecond)) }
         var parts: [String] = []
+        if let first = edit.pieces.first, first.lowerBound > 0 {
+            parts.append(String(localized: "Starts at \(time(first.lowerBound))."))
+        }
         if edit.pieces.count > 1, let first = edit.pieces.first, let second = edit.pieces.last {
-            parts.append(second.lowerBound > first.upperBound
-                ? String(localized: "Skips \(time(first.upperBound))–\(time(second.lowerBound)).")
-                : String(localized: "Repeats \(time(second.lowerBound))–\(time(first.upperBound))."))
+            if second.lowerBound > first.upperBound {
+                parts.append(String(localized: "Skips \(time(first.upperBound))–\(time(second.lowerBound))."))
+            } else {
+                let times = edit.pieces.count - 1
+                parts.append(String(AttributedString(localized: "Repeats \(time(second.lowerBound))–\(time(first.upperBound)) ^[\(times) time](inflect: true).").characters))
+            }
         }
         if edit.fadeOut != nil { parts.append(String(localized: "Too short for the real ending, so it fades out.")) }
         let change = (edit.tempo - 1) * 100
@@ -103,7 +109,7 @@ struct MusicFitView: View {
                 let features = AudioFeatures(samples: try await AudioFeatures.samples(of: song, ffmpeg: ffmpeg))
                 let map = MusicMap(features: features)
                 guard let edit = MusicFit.plan(map: map, features: features, duration: features.duration, target: target) else {
-                    throw FitFailure()
+                    throw MusicFit.problem(map: map, target: target)
                 }
                 status = String(localized: "Writing the new version…")
                 let label = Duration.seconds(target).formatted(.time(pattern: .minuteSecond)).replacingOccurrences(of: ":", with: "m") + "s"
@@ -118,12 +124,6 @@ struct MusicFitView: View {
             }
             status = nil
             task = nil
-        }
-    }
-
-    private struct FitFailure: LocalizedError {
-        var errorDescription: String? {
-            String(localized: "Couldn’t find a steady beat in this song, or the length is too far from the original to cut on its phrases.")
         }
     }
 }

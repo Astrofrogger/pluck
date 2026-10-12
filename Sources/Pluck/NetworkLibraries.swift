@@ -92,8 +92,11 @@ final class NetworkLibraries {
                 switch state {
                 case .ready:
                     guard once.claim() else { return }
+                    // The address as plain numbers: macOS adds the network it's on ("10.0.0.5%en0") on
+                    // a Mac with several connections, which isn't allowed in a web address.
                     if case .hostPort(let host, let port)? = connection.currentPath?.remoteEndpoint,
-                       case .ipv4(let ip) = host, let url = URL(string: "http://\(ip):\(port.rawValue)") {
+                       case .ipv4(let ip) = host,
+                       let url = URL(string: "http://\(ip.rawValue.map(String.init).joined(separator: ".")):\(port.rawValue)") {
                         continuation.resume(returning: url)
                     } else {
                         continuation.resume(throwing: Failure.unreachable)
@@ -119,6 +122,17 @@ final class NetworkLibraries {
 
     /// The Library, logging in with the saved code when needed.
     func library(of peer: Peer, code typed: String? = nil) async throws -> (url: URL, library: Library) {
+        do {
+            return try await open(peer, code: typed)
+        } catch let error as URLError {
+            // The Mac moved to another address since (a new network, Wi-Fi instead of cable):
+            // look it up again once.
+            guard addresses.removeValue(forKey: peer.name) != nil else { throw error }
+            return try await open(peer, code: typed)
+        }
+    }
+
+    private func open(_ peer: Peer, code typed: String?) async throws -> (url: URL, library: Library) {
         let base = try await baseURL(for: peer)
         if let typed {
             try await login(base, code: typed)
@@ -187,8 +201,11 @@ final class NetworkLibraries {
 
 /// Access codes for other Macs' Libraries, in the login keychain.
 private enum Keychain {
+    /// Test copies (screenshot mode) keep their own codes, so they never read the real ones.
+    private static var service: String { ScreenshotMode.scene == nil ? "Pluck Library" : "Pluck Library (test)" }
+
     private static func query(_ name: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "Pluck Library", kSecAttrAccount as String: name]
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: name]
     }
 
     static func save(_ code: String, for name: String) {

@@ -66,6 +66,7 @@ final class AIStudio {
     var backgroundItem: DownloadItem?
     /// A video waiting for Privacy Blur options.
     var blurItem: DownloadItem?
+    /// Search, as a pop-up over the main window.
     var searchShown = false
     @ObservationIgnored let search = TranscriptSearch()
 
