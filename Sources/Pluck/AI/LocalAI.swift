@@ -117,6 +117,13 @@ enum OnDeviceSpeech {
         let file = try AVAudioFile(forReading: audio)
         let total = duration ?? Double(file.length) / file.fileFormat.sampleRate
         let analyzer = SpeechAnalyzer(modules: [transcriber])
+        // The names to expect (the glossary), so they're heard right in the first place.
+        let names = Glossary.current
+        if !names.isEmpty {
+            let context = AnalysisContext()
+            context.contextualStrings[.general] = names
+            try? await analyzer.setContext(context)
+        }
         let collector = Task { () -> [Transcript.Word] in
             var words: [Transcript.Word] = []
             for try await result in transcriber.results {
@@ -142,8 +149,8 @@ enum OnDeviceSpeech {
         }
         let words = try await collector.value
         guard !words.isEmpty else { throw LocalAI.Failure.noSpeech }
-        // Words arrive per result; keep them in time order and make sure the first has no lead space.
-        return words.sorted { $0.s < $1.s }
+        // Words arrive per result; keep them in time order, with the glossary's names written right.
+        return Glossary.correct(words.sorted { $0.s < $1.s }, terms: names)
     }
 }
 

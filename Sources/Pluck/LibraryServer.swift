@@ -48,7 +48,7 @@ final class LibraryServer {
         if saved == nil { UserDefaults.standard.set(code, forKey: Self.codeKey) }
     }
 
-    /// The address to type in a browser, e.g. "http://lowies-macbook.local:47800".
+    /// The address to type in a browser, e.g. "http://annas-macbook.local:47800".
     var address: String? {
         guard isRunning, let port else { return nil }
         let host = (ProcessInfo.processInfo.hostName as NSString).deletingPathExtension

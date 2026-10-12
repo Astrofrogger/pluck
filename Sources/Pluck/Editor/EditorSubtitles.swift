@@ -10,7 +10,8 @@ struct SubtitleCue: Codable, Identifiable, Hashable {
     var text: String
 }
 
-/// How the Editor's subtitles look and where they sit on the picture.
+/// How the Editor's subtitles look and where they sit on the picture: the font and its weight,
+/// size, colour, an outline, a shadow, a box behind them, italics and capitals.
 struct SubtitleStyle: Codable, Equatable {
     /// Size against the default (5% of the picture's height).
     var scale = 1.0
@@ -19,24 +20,95 @@ struct SubtitleStyle: Codable, Equatable {
     var y = 0.88
     /// RGB hex without "#".
     var color = "FFFFFF"
-    /// On a dark box, rather than with an outline.
+    /// On a box, rather than with an outline.
     var box = true
+    var font = "Helvetica Neue"
+    /// 400 regular, 500 medium, 700 bold, 900 heavy.
+    var weight = 700
+    /// The outline's width and the shadow's distance, in pixels of a 1080-line picture.
+    var outline = 2.0
+    var outlineColor = "000000"
+    var shadow = 1.5
+    var boxColor = "000000"
+    /// How solid the box is (0…1).
+    var boxOpacity = 0.68
+    var italic = false
+    var uppercase = false
 
     static let swatches = ["FFFFFF", "FFD60A", "FF5C6B", "30D158", "0A84FF"]
 
-    var swiftUIColor: Color {
-        let value = UInt32(color, radix: 16) ?? 0xFFFFFF
+    /// Fonts that read well as subtitles, those this Mac has.
+    static var fonts: [String] {
+        let installed = Set(NSFontManager.shared.availableFontFamilies)
+        return ["Helvetica Neue", "SF Pro", "Avenir Next", "Futura", "Gill Sans", "Arial", "Arial Rounded MT Bold",
+                "Verdana", "Georgia", "Didot", "Menlo", "Impact", "Marker Felt"].filter(installed.contains)
+    }
+
+    static let weights: [(value: Int, title: LocalizedStringKey)] = [(400, "Regular"), (500, "Medium"), (700, "Bold"), (900, "Heavy")]
+
+    init() {}
+
+    init(color: String) { self.color = color }
+
+    // Older saved subtitles don't have every setting: those keep their defaults.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = SubtitleStyle()
+        scale = try c.decodeIfPresent(Double.self, forKey: .scale) ?? d.scale
+        x = try c.decodeIfPresent(Double.self, forKey: .x) ?? d.x
+        y = try c.decodeIfPresent(Double.self, forKey: .y) ?? d.y
+        color = try c.decodeIfPresent(String.self, forKey: .color) ?? d.color
+        box = try c.decodeIfPresent(Bool.self, forKey: .box) ?? d.box
+        font = try c.decodeIfPresent(String.self, forKey: .font) ?? d.font
+        weight = try c.decodeIfPresent(Int.self, forKey: .weight) ?? d.weight
+        outline = try c.decodeIfPresent(Double.self, forKey: .outline) ?? d.outline
+        outlineColor = try c.decodeIfPresent(String.self, forKey: .outlineColor) ?? d.outlineColor
+        shadow = try c.decodeIfPresent(Double.self, forKey: .shadow) ?? d.shadow
+        boxColor = try c.decodeIfPresent(String.self, forKey: .boxColor) ?? d.boxColor
+        boxOpacity = try c.decodeIfPresent(Double.self, forKey: .boxOpacity) ?? d.boxOpacity
+        italic = try c.decodeIfPresent(Bool.self, forKey: .italic) ?? d.italic
+        uppercase = try c.decodeIfPresent(Bool.self, forKey: .uppercase) ?? d.uppercase
+    }
+
+    var swiftUIColor: Color { Self.color(color) }
+    var swiftUIOutline: Color { Self.color(outlineColor) }
+    var swiftUIBox: Color { Self.color(boxColor) }
+
+    static func color(_ hex: String) -> Color {
+        let value = UInt32(hex, radix: 16) ?? 0xFFFFFF
         return Color(red: Double((value >> 16) & 0xFF) / 255, green: Double((value >> 8) & 0xFF) / 255, blue: Double(value & 0xFF) / 255)
     }
 
-    /// The colour as subtitles files write it: &HAABBGGRR.
-    var assColor: String {
-        let value = UInt32(color, radix: 16) ?? 0xFFFFFF
-        return String(format: "&H00%02X%02X%02X", value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF)
+    /// A colour as RGB hex, from a colour picker.
+    static func hex(_ color: Color) -> String {
+        let ns = NSColor(color).usingColorSpace(.sRGB) ?? .white
+        return String(format: "%02X%02X%02X", Int((ns.redComponent * 255).rounded()), Int((ns.greenComponent * 255).rounded()),
+                      Int((ns.blueComponent * 255).rounded()))
     }
+
+    /// A colour as subtitles files write it: &HAABBGGRR (alpha 00 is solid).
+    static func assColor(_ hex: String, opacity: Double = 1) -> String {
+        let value = UInt32(hex, radix: 16) ?? 0xFFFFFF
+        let alpha = Int(((1 - min(max(opacity, 0), 1)) * 255).rounded())
+        return String(format: "&H%02X%02X%02X%02X", alpha, value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF)
+    }
+
+    var assColor: String { Self.assColor(color) }
 
     /// The font size for a picture this tall.
     func fontSize(height: Double) -> Double { height * 0.05 * scale }
+
+    var swiftUIWeight: Font.Weight {
+        switch weight {
+        case ..<450: .regular
+        case ..<600: .medium
+        case ..<800: .bold
+        default: .heavy
+        }
+    }
+
+    /// The words as shown: in capitals when asked for.
+    func shown(_ text: String) -> String { uppercase ? text.uppercased() : text }
 }
 
 /// What the Editor keeps per file for its subtitles: the lines and their look.
@@ -72,6 +144,89 @@ extension EditorModel {
         subtitles.first { $0.start <= seconds && seconds < $0.end }
     }
 
+    // MARK: Editing lines
+
+    /// The shortest a line can last.
+    static var shortestSubtitle: Double { 0.2 }
+
+    private func neighbours(of id: UUID) -> (previous: SubtitleCue?, next: SubtitleCue?, index: Int)? {
+        let sorted = subtitles.sorted { $0.start < $1.start }
+        guard let index = sorted.firstIndex(where: { $0.id == id }) else { return nil }
+        return (index > 0 ? sorted[index - 1] : nil, index + 1 < sorted.count ? sorted[index + 1] : nil,
+                subtitles.firstIndex { $0.id == id } ?? 0)
+    }
+
+    /// Moves a line's start, never past the line before it or closer than a moment to its end.
+    func setSubtitleStart(_ id: UUID, to seconds: Double) {
+        guard let (previous, _, index) = neighbours(of: id) else { return }
+        let low = previous?.end ?? 0
+        subtitles[index].start = min(max(seconds, low), subtitles[index].end - Self.shortestSubtitle)
+    }
+
+    func setSubtitleEnd(_ id: UUID, to seconds: Double) {
+        guard let (_, next, index) = neighbours(of: id) else { return }
+        let high = next?.start ?? duration
+        subtitles[index].end = max(min(seconds, high), subtitles[index].start + Self.shortestSubtitle)
+    }
+
+    /// Moves a whole line, keeping its length, between its neighbours.
+    func moveSubtitle(_ id: UUID, toStart seconds: Double) {
+        guard let (previous, next, index) = neighbours(of: id) else { return }
+        let length = subtitles[index].end - subtitles[index].start
+        let start = min(max(seconds, previous?.end ?? 0), (next?.start ?? duration) - length)
+        subtitles[index].start = max(start, previous?.end ?? 0)
+        subtitles[index].end = subtitles[index].start + length
+    }
+
+    /// A new line at the playhead, in the gap there (two seconds, or what fits).
+    @discardableResult
+    func addSubtitle(at seconds: Double) -> UUID? {
+        let sorted = subtitles.sorted { $0.start < $1.start }
+        if let current = sorted.first(where: { $0.start <= seconds && seconds < $0.end }) { return splitSubtitle(current.id, at: seconds) }
+        let next = sorted.first { $0.start >= seconds }?.start ?? duration
+        guard next - seconds >= Self.shortestSubtitle else { return nil }
+        let cue = SubtitleCue(start: seconds, end: min(seconds + 2, next), text: String(localized: "New line"))
+        subtitles.append(cue)
+        subtitles.sort { $0.start < $1.start }
+        selectedSubtitle = cue.id
+        saveSubtitles()
+        return cue.id
+    }
+
+    /// Splits a line at a time: the words are shared out by where the time falls.
+    @discardableResult
+    func splitSubtitle(_ id: UUID, at seconds: Double) -> UUID? {
+        guard let index = subtitles.firstIndex(where: { $0.id == id }) else { return nil }
+        let cue = subtitles[index]
+        guard seconds - cue.start >= Self.shortestSubtitle, cue.end - seconds >= Self.shortestSubtitle else { return nil }
+        let words = cue.text.replacingOccurrences(of: "\n", with: " ").split(separator: " ")
+        let share = (seconds - cue.start) / (cue.end - cue.start)
+        let cut = min(max(Int((Double(words.count) * share).rounded()), words.count > 1 ? 1 : 0), max(words.count - 1, 0))
+        subtitles[index].end = seconds
+        subtitles[index].text = words.count > 1 ? words[..<cut].joined(separator: " ") : cue.text
+        let second = SubtitleCue(start: seconds, end: cue.end, text: words.count > 1 ? words[cut...].joined(separator: " ") : cue.text)
+        subtitles.insert(second, at: index + 1)
+        selectedSubtitle = second.id
+        saveSubtitles()
+        return second.id
+    }
+
+    /// Joins a line with the one after it.
+    func mergeSubtitleWithNext(_ id: UUID) {
+        guard let (_, next, index) = neighbours(of: id), let next, let nextIndex = subtitles.firstIndex(where: { $0.id == next.id }) else { return }
+        subtitles[index].end = next.end
+        subtitles[index].text += " " + next.text
+        subtitles.remove(at: nextIndex)
+        selectedSubtitle = id
+        saveSubtitles()
+    }
+
+    func deleteSubtitle(_ id: UUID) {
+        subtitles.removeAll { $0.id == id }
+        if selectedSubtitle == id { selectedSubtitle = nil }
+        saveSubtitles()
+    }
+
     /// The subtitles for the exported edit: only what's in the kept parts, moved to where those
     /// parts land in the new file.
     func subtitlesForEdit(_ parts: [ClosedRange<Double>]) -> [SubtitleCue] {
@@ -93,18 +248,22 @@ extension EditorModel {
 enum EditorSubtitleFiles {
     static func ass(_ cues: [SubtitleCue], style: SubtitleStyle, width: Int, height: Int) -> String {
         let size = style.fontSize(height: Double(height))
+        // Outline and shadow are set for a 1080-line picture.
+        let factor = Double(height) / 1080
+        let italic = style.italic ? -1 : 0
+        let font = style.font.replacingOccurrences(of: ",", with: " ")
         let line: String
         if style.box {
-            // An opaque box behind each line (BorderStyle 3), dark and slightly see-through.
-            line = "Style: Sub,Helvetica Neue,\(Int(size)),\(style.assColor),\(style.assColor),&H50000000,&H50000000,-1,0,0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),0,5,0,0,0,1"
+            // A box behind each line (BorderStyle 3): its colour is the outline's, its padding the outline's width.
+            line = "Style: Sub,\(font),\(Int(size)),\(style.assColor),\(style.assColor),\(SubtitleStyle.assColor(style.boxColor, opacity: style.boxOpacity)),&H80000000,0,\(italic),0,0,100,100,0,0,3,\(String(format: "%.1f", size * 0.22)),\(String(format: "%.1f", style.shadow * factor)),5,0,0,0,1"
         } else {
-            line = "Style: Sub,Helvetica Neue,\(Int(size)),\(style.assColor),\(style.assColor),&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,\(String(format: "%.1f", size / 18)),\(String(format: "%.1f", size / 24)),5,0,0,0,1"
+            line = "Style: Sub,\(font),\(Int(size)),\(style.assColor),\(style.assColor),\(SubtitleStyle.assColor(style.outlineColor)),&H80000000,0,\(italic),0,0,100,100,0,0,1,\(String(format: "%.1f", style.outline * factor)),\(String(format: "%.1f", style.shadow * factor)),5,0,0,0,1"
         }
         let x = Int(style.x * Double(width)), y = Int(style.y * Double(height))
         let events = cues.map { cue in
-            let text = cue.text.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "{", with: "(").replacingOccurrences(of: "}", with: ")")
+            let text = style.shown(cue.text).replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "{", with: "(").replacingOccurrences(of: "}", with: ")")
                 .replacingOccurrences(of: "\n", with: "\\N")
-            return "Dialogue: 0,\(assTime(cue.start)),\(assTime(cue.end)),Sub,,0,0,0,,{\\an5\\pos(\(x),\(y))}\(text)"
+            return "Dialogue: 0,\(assTime(cue.start)),\(assTime(cue.end)),Sub,,0,0,0,,{\\an5\\pos(\(x),\(y))\\b\(style.weight)}\(text)"
         }
         return """
         [Script Info]

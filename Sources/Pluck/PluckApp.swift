@@ -12,15 +12,24 @@ struct PluckApp: App {
 
     var body: some Scene {
         Window("Pluck", id: "main") {
+            #if STUDIO
+            StudioWindow()
+                .environment(manager)
+                .studio(app)
+                .environment(updater)
+                .environment(appUpdater)
+                .environment(toolsUpdater)
+            #else
             ContentView()
                 .environment(manager)
                 .studio(app)
                 .environment(updater)
                 .environment(appUpdater)
                 .environment(toolsUpdater)
+            #endif
         }
         .windowToolbarStyle(.unified)
-        .defaultSize(width: 680, height: 520)
+        .defaultSize(width: Edition.isStudio ? 1280 : 680, height: Edition.isStudio ? 820 : 520)
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Check for Updates…") {
@@ -65,64 +74,8 @@ struct PluckApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        #if STUDIO
-        Window("Derush Footage", id: "derush") {
-            DerushView()
-                .environment(app.ai)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 1040, height: 720)
-
-        Window("Live Recorder", id: "liveRecorder") {
-            LiveRecorderView()
-                .environment(app.ai)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 980, height: 720)
-
-        Window("Logo Animator", id: "logoAnimator") {
-            LogoAnimatorView()
-                .environment(app.ai)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 760, height: 860)
-
-        Window("Brand Pack", id: "brandPack") {
-            BrandPackView()
-                .environment(manager)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 820, height: 860)
-
-        Window("Delivery Check", id: "deliveryCheck") {
-            DeliveryCheckView()
-                .environment(manager)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 1080, height: 760)
-
-        Window("Edit Anywhere", id: "officeRender") {
-            OfficeRenderView()
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 720, height: 760)
-
-        Window("Fit Music to Length", id: "musicFit") {
-            MusicFitView()
-                .environment(app.ai)
-        }
-        .windowToolbarStyle(.unified)
-        .defaultSize(width: 680, height: 520)
-
-        WindowGroup("Pluck Player", for: PlayerTarget.self) { $target in
-            if let target {
-                PlayerView(target: target)
-                    .environment(app.ai)
-            }
-        }
-        .defaultSize(width: 1100, height: 640)
-        #endif
-
+        // Basic Pluck's Editor and Library windows: Pluck Studio has everything in its main window.
+        #if !STUDIO
         WindowGroup("Editor", for: EditorTarget.self) { $target in
             if let target {
                 EditorView(target: target)
@@ -138,6 +91,7 @@ struct PluckApp: App {
                 .studio(app)
         }
         .defaultSize(width: 1100, height: 700)
+        #endif
 
         Window("Settings", id: "settings") {
             SettingsView()
@@ -173,7 +127,7 @@ private struct OpenInEditorCommand: View {
             let panel = NSOpenPanel()
             panel.allowedContentTypes = [.movie, .audio]
             panel.prompt = String(localized: "Open")
-            if panel.runModal() == .OK, let url = panel.url { openWindow(value: EditorTarget(path: url.path)) }
+            if panel.runModal() == .OK, let url = panel.url { EditorTarget(path: url.path).open(openWindow) }
         }
         .keyboardShortcut("e", modifiers: [.command, .shift])
     }

@@ -95,7 +95,7 @@ struct ConvertSheet: View {
             if files.count == 1, let file = files.first, EditorTarget.canOpen(file) {
                 Spacer(minLength: 8)
                 Button("Open in Editor", systemImage: "timeline.selection") {
-                    openWindow(value: EditorTarget(path: file.path))
+                    EditorTarget(path: file.path).open(openWindow)
                     dismiss()
                 }
                 .buttonStyle(GlassCapsuleButtonStyle())
@@ -166,7 +166,7 @@ struct ConvertSheet: View {
     /// Lists the files (as local files, not copies) and starts the AI action on them.
     private func run(_ action: AIAction) {
         let items = manager.addLocalFiles(files.filter(Converting.isMedia))
-        let open: (PlayerTarget) -> Void = { openWindow(value: $0) }
+        let open: (PlayerTarget) -> Void = { $0.open(openWindow) }
         dismiss()
         switch action {
         case .shorts, .deliverables, .subtitles, .tighten, .cleanup, .enhance, .background, .blur:

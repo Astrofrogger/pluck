@@ -14,10 +14,12 @@ struct EditorTimeline: View {
     private var wave: CGFloat { model.hasVideo ? 44 : 110 }
     /// A lane for moments and filler words, when there are any.
     private var lane: CGFloat {
-        model.visibleMarkers.contains { $0.kind == .moment || $0.kind == .filler } ? 10 : 0
+        model.visibleMarkers.contains { $0.kind == .moment || $0.kind == .filler || $0.kind == .story } ? 10 : 0
     }
     /// The subtitle track, when there are subtitles.
-    private var captions: CGFloat { model.subtitles.isEmpty ? 0 : 18 }
+    private var captions: CGFloat { model.subtitles.isEmpty ? 0 : 24 }
+    /// Where the subtitle track starts, from the top.
+    private var captionsTop: CGFloat { ruler + 2 + (model.hasVideo ? filmstrip + 2 : 0) + wave + 2 + (lane > 0 ? lane + 2 : 0) }
     private var height: CGFloat { ruler + filmstrip + wave + lane + captions + 6 }
 
     @State private var dragging: Handle?
@@ -28,7 +30,11 @@ struct EditorTimeline: View {
     @State private var inside = false
     @State private var scrollMonitor: Any?
 
-    private enum Handle { case playhead, inPoint, outPoint, click }
+    private enum Handle: Equatable {
+        case playhead, inPoint, outPoint, click
+        /// A subtitle line: its start, its end, or all of it (grabbed this far into it).
+        case cueStart(UUID), cueEnd(UUID), cueMove(UUID, Double), cueClick(UUID)
+    }
 
     var body: some View {
         GeometryReader { outer in
@@ -39,16 +45,21 @@ struct EditorTimeline: View {
                         track(width: width)
                         // Points to scroll to, so the playhead stays in sight while zoomed in.
                         HStack(spacing: 0) {
-                            ForEach(0..<20, id: \.self) { index in
-                                Color.clear.frame(width: width / 20, height: 1).id(index)
+                            ForEach(0..<Self.slots, id: \.self) { index in
+                                Color.clear.frame(width: width / CGFloat(Self.slots), height: 1).id(index)
                             }
                         }
                     }
                     .frame(width: width, height: height)
                 }
                 .scrollIndicators(zoom > 1 ? .visible : .hidden)
-                .onChange(of: Int(model.time / max(model.duration, 0.001) * 20)) { _, slot in
-                    if zoom > 1, model.isPlaying || dragging == nil { withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo(slot, anchor: .center) } }
+                .onChange(of: playheadSlot / 10) { _, _ in
+                    // Following the playhead while it plays (a page at a time).
+                    if zoom > 1, model.isPlaying || dragging == nil { withAnimation(.easeOut(duration: 0.2)) { scroller.scrollTo(playheadSlot, anchor: .center) } }
+                }
+                .onChange(of: zoom) { _, _ in
+                    // Zooming keeps the playhead in the middle.
+                    scroller.scrollTo(playheadSlot, anchor: .center)
                 }
             }
         }
@@ -76,6 +87,10 @@ struct EditorTimeline: View {
     }
 
     private var maxZoom: Double { max(1, min(model.duration / 2, 200)) }
+
+    /// Spots along the timeline to scroll to, fine enough to centre on the playhead.
+    private static let slots = 400
+    private var playheadSlot: Int { min(Int(model.time / max(model.duration, 0.001) * Double(Self.slots)), Self.slots - 1) }
 
     // MARK: - The track
 
@@ -153,7 +168,15 @@ struct EditorTimeline: View {
                     // On the ruler: the playhead. Near a range edge: that edge. Otherwise wait and
                     // see whether it's a click (select or cut) or a drag (move the playhead).
                     let grab: CGFloat = 8
-                    if value.startLocation.y <= ruler {
+                    if captions > 0, value.startLocation.y >= captionsTop, value.startLocation.y <= captionsTop + captions,
+                       let cue = model.subtitles.first(where: { x($0.start) - 4 <= value.startLocation.x && value.startLocation.x <= x($0.end) + 4 }) {
+                        // On a subtitle: its edges change when it shows, the middle moves it.
+                        let edge = min(6, (x(cue.end) - x(cue.start)) / 3)
+                        if abs(value.startLocation.x - x(cue.start)) <= edge { dragging = .cueStart(cue.id) }
+                        else if abs(value.startLocation.x - x(cue.end)) <= edge { dragging = .cueEnd(cue.id) }
+                        else { dragging = .cueClick(cue.id) }
+                        model.selectedSubtitle = cue.id
+                    } else if value.startLocation.y <= ruler {
                         dragging = .playhead
                     } else if model.hasRange, abs(value.startLocation.x - x(model.rangeStart)) < grab {
                         dragging = .inPoint
@@ -166,6 +189,10 @@ struct EditorTimeline: View {
                 if dragging == .click, abs(value.translation.width) > 3, model.tool == .select {
                     dragging = .playhead
                 }
+                if case .cueClick(let id) = dragging, abs(value.translation.width) > 3,
+                   let cue = model.subtitles.first(where: { $0.id == id }) {
+                    dragging = .cueMove(id, t(value.startLocation.x) - cue.start)
+                }
                 switch dragging {
                 case .inPoint:
                     let point = model.snapped(t(value.location.x), tolerance: tolerance, excluding: model.inPoint)
@@ -177,6 +204,12 @@ struct EditorTimeline: View {
                     model.scrub(to: model.rangeEnd)
                 case .playhead:
                     model.scrub(to: model.snapped(t(value.location.x), tolerance: tolerance, excluding: model.time))
+                case .cueStart(let id):
+                    model.setSubtitleStart(id, to: model.snapped(t(value.location.x), tolerance: tolerance))
+                case .cueEnd(let id):
+                    model.setSubtitleEnd(id, to: model.snapped(t(value.location.x), tolerance: tolerance))
+                case .cueMove(let id, let grabbed):
+                    model.moveSubtitle(id, toStart: model.snapped(t(value.location.x) - grabbed, tolerance: tolerance))
                 default:
                     break
                 }
@@ -187,6 +220,11 @@ struct EditorTimeline: View {
                 switch dragging {
                 case .inPoint: model.endScrub(at: model.rangeStart)
                 case .outPoint: model.endScrub(at: model.rangeEnd)
+                case .cueStart, .cueEnd, .cueMove:
+                    model.saveSubtitles()
+                case .cueClick(let id):
+                    // A click on a line: there, and picked in the sidebar.
+                    if let cue = model.subtitles.first(where: { $0.id == id }) { model.seek(to: cue.start + 0.01) }
                 case .click:
                     if model.tool == .blade {
                         model.cut(at: model.snapped(at, tolerance: tolerance))
@@ -341,20 +379,34 @@ struct EditorTimeline: View {
         .allowsHitTesting(false)
     }
 
-    /// The subtitles as blocks with their words, like a subtitle track.
+    /// The subtitles as blocks with their words, like a subtitle track. The picked one is lit,
+    /// with grips at its edges to drag.
     private func captionsView(width: CGFloat) -> some View {
         let seconds = max(model.duration, 0.001)
-        let cues = model.subtitles, shown = model.showSubtitles
+        let cues = model.subtitles, shown = model.showSubtitles, picked = model.selectedSubtitle
+        let brand = Gradient(colors: [Design.Brand.pink, Design.Brand.violet])
         return Canvas { context, size in
             for cue in cues {
                 let x = CGFloat(cue.start / seconds) * width, w = max(CGFloat((cue.end - cue.start) / seconds) * width - 1, 2)
-                let rect = CGRect(x: x, y: 0, width: w, height: size.height)
-                context.fill(Path(roundedRect: rect, cornerRadius: 3), with: .color(.purple.opacity(shown ? 0.55 : 0.2)))
+                let rect = CGRect(x: x, y: 1, width: w, height: size.height - 2)
+                let shape = Path(roundedRect: rect, cornerRadius: 4)
+                if cue.id == picked {
+                    context.fill(shape, with: .linearGradient(brand, startPoint: rect.origin, endPoint: CGPoint(x: rect.maxX, y: rect.maxY)))
+                    context.stroke(shape, with: .color(.white.opacity(0.9)), lineWidth: 1)
+                    if w > 14 {
+                        for gx in [rect.minX + 3, rect.maxX - 5] {
+                            context.fill(Path(roundedRect: CGRect(x: gx, y: rect.midY - 5, width: 2, height: 10), cornerRadius: 1), with: .color(.white.opacity(0.9)))
+                        }
+                    }
+                } else {
+                    context.fill(shape, with: .color(Design.Brand.violet.opacity(shown ? 0.5 : 0.2)))
+                    context.stroke(shape, with: .color(.white.opacity(0.12)), lineWidth: 1)
+                }
                 if w > 24 {
-                    let label = context.resolve(Text(cue.text.replacingOccurrences(of: "\n", with: " ")).font(.system(size: 9)).foregroundStyle(.white))
+                    let label = context.resolve(Text(cue.text.replacingOccurrences(of: "\n", with: " ")).font(.system(size: 10, weight: .medium)).foregroundStyle(.white))
                     var inner = context
-                    inner.clip(to: Path(rect.insetBy(dx: 3, dy: 0)))
-                    inner.draw(label, at: CGPoint(x: x + 4, y: size.height / 2), anchor: .leading)
+                    inner.clip(to: Path(rect.insetBy(dx: 7, dy: 0)))
+                    inner.draw(label, at: CGPoint(x: x + 8, y: size.height / 2), anchor: .leading)
                 }
             }
         }
@@ -362,17 +414,18 @@ struct EditorTimeline: View {
         .allowsHitTesting(false)
     }
 
-    /// Moments (green) and filler words (red).
+    /// Moments (green), story passages (pink) and filler words (red).
     private func laneView(width: CGFloat) -> some View {
         let seconds = max(model.duration, 0.001)
-        let markers = model.visibleMarkers.filter { $0.kind == .moment || $0.kind == .filler }
+        let markers = model.visibleMarkers.filter { $0.kind == .moment || $0.kind == .filler || $0.kind == .story }
         return Canvas { context, size in
             func band(_ start: Double, _ end: Double, _ color: Color) {
                 let x = CGFloat(start / seconds) * width, w = max(CGFloat((end - start) / seconds) * width, 2)
                 context.fill(Path(roundedRect: CGRect(x: x, y: 2, width: w, height: 6), cornerRadius: 3), with: .color(color))
             }
             for marker in markers {
-                band(marker.start, marker.end ?? marker.start + 0.3, marker.kind == .moment ? .green.opacity(0.85) : .red.opacity(0.85))
+                band(marker.start, marker.end ?? marker.start + 0.3,
+                     marker.kind == .story ? Design.Brand.pink.opacity(0.9) : marker.kind == .moment ? .green.opacity(0.85) : .red.opacity(0.85))
             }
         }
         .frame(width: width, height: lane)

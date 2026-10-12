@@ -29,11 +29,15 @@ struct EditorToolbar: View {
             divider
             ToolButton(symbol: "point.forward.to.point.capsulepath", label: "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
             ToolButton(symbol: "repeat", label: "Loop the Range", on: model.loop) { model.loop.toggle() }
-            Spacer(minLength: 12)
+            if model.hasVideo {
+                divider
+                ToolButton(symbol: "camera", label: "Save the Frame at the Playhead as a Picture") { model.saveFrame() }
+            }
+            Spacer(minLength: 4)
             Image(systemName: "minus.magnifyingglass").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
             Slider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), in: 0...log(maxZoom))
                 .controlSize(.mini)
-                .frame(width: 110)
+                .frame(minWidth: 50, maxWidth: 110)
                 .help("Zoom the timeline (⌥ and scroll, or ⌘+ and ⌘−)")
                 .accessibilityLabel(Text("Zoom"))
             Image(systemName: "plus.magnifyingglass").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)

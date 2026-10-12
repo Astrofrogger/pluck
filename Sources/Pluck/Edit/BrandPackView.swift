@@ -12,7 +12,7 @@ struct BrandPackView: View {
     @State private var logoFile: URL?
     @State private var loading = false
     @State private var problem: String?
-    @AppStorage("brandPackPeople") private var people = "Lowie Sobry, Director"
+    @AppStorage("brandPackPeople") private var people = "Alex Morgan, Director"
     @AppStorage("brandPackTitle") private var title = ""
     @AppStorage("brandPackSubtitle") private var subtitle = ""
     @AppStorage("brandPackLine") private var line = ""
@@ -161,7 +161,7 @@ struct BrandPackView: View {
         }
         Card {
             CardHeader(symbol: "flag.checkered", title: Text("End card"))
-            TextField("Line under the logo", text: $line, prompt: Text(verbatim: "wideopen.be"))
+            TextField("Line under the logo", text: $line, prompt: Text(verbatim: "example.com"))
                 .capsuleField()
                 .onChange(of: line) { showing = .endCard }
         }

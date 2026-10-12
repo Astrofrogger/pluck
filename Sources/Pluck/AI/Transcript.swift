@@ -32,8 +32,24 @@ struct Transcript: Codable, Identifiable, Sendable {
     var chapters: [Chapter]?
     /// Who spoke when (local AI), if speakers were looked for.
     var speakerTurns: [SpeakerTurn]?
-    /// Names the user gave the speakers, by number ("1": "Lowie").
+    /// Names the user gave the speakers, by number ("1": "Sam").
     var speakerNames: [String: String]?
+    /// The passages local AI marked for building a story with.
+    var storyBeats: [StoryBeat]?
+    /// The transcript (and its summary) translated on this Mac, by language ("en", "nl").
+    var translations: [String: Translation]?
+
+    struct Translation: Codable, Sendable {
+        struct Line: Codable, Sendable {
+            var s: Double
+            var e: Double
+            var t: String
+        }
+
+        var lines: [Line]
+        var summary: String?
+        var keyPoints: [String]?
+    }
 
     struct SpeakerTurn: Codable, Sendable, Hashable {
         var s: Double

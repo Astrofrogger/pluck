@@ -111,14 +111,13 @@ extension EditorModel {
 
 /// Writes the edit: the kept parts joined into one file, re-encoded so every cut is exact.
 enum EditorExport {
-    /// How the edit is written: full quality, a smaller file, or only the sound.
-    enum Quality: Sendable { case high, small, audioOnly }
-
+    /// The kept parts joined into one file, written with the render settings (or only the sound,
+    /// as the settings' audio file). The Mac's own encoder is tried first when chosen, then x264/x265.
     static func joined(_ parts: [ClosedRange<Double>], of file: URL, video wantsVideo: Bool, audio: Bool, to output: URL, ffmpeg: String,
-                       quality: Quality = .high, subtitles: URL? = nil,
-                       progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        let video = wantsVideo && quality != .audioOnly
-        guard !parts.isEmpty else { return false }
+                       settings: EditorRenderSettings, audioOnly: Bool = false, source: CGSize, sourceFPS: Double,
+                       subtitles: URL? = nil, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+        let video = wantsVideo && !audioOnly
+        guard !parts.isEmpty, video || audio else { return false }
         var graph: [String] = []
         var inputs = ""
         for (index, part) in parts.enumerated() {
@@ -136,18 +135,32 @@ enum EditorExport {
         }
         graph.append("\(inputs)concat=n=\(parts.count):v=\(video ? 1 : 0):a=\(audio ? 1 : 0)\(video ? "[joined]" : "")\(audio ? "[a]" : "")")
         if video {
-            // Subtitles drawn in, then (for a smaller file) at most 1080 lines.
+            // Subtitles drawn in at the source's size, then scaled and retimed.
             var chain: [String] = []
             if let subtitles { chain.append("ass=\(EditorSubtitleFiles.filterPath(subtitles))") }
-            if quality == .small { chain.append("scale=-2:'min(1080,ih)'") }
+            chain += settings.filters
             graph.append("[joined]" + (chain.isEmpty ? "null" : chain.joined(separator: ",")) + "[v]")
         }
-        var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-i", file.path, "-filter_complex", graph.joined(separator: ";")]
-        if video { arguments += ["-map", "[v]", "-c:v", "libx264", "-preset", quality == .small ? "medium" : "fast", "-crf", quality == .small ? "26" : "18", "-pix_fmt", "yuv420p"] }
-        if audio { arguments += ["-map", "[a]", "-c:a", "aac", "-b:a", quality == .small ? "160k" : "256k"] }
-        arguments += ["-movflags", "+faststart", output.path]
         let total = parts.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
-        return await Task.detached {
+        func arguments(hardware: Bool) -> [String] {
+            var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-i", file.path, "-filter_complex", graph.joined(separator: ";")]
+            if video {
+                arguments += ["-map", "[v]"] + settings.videoArguments(source: source, sourceFPS: sourceFPS, length: total, hardware: hardware)
+            }
+            if audio { arguments += ["-map", "[a]"] + (audioOnly ? settings.audioOnlyArguments : settings.audioArguments) }
+            if ["mp4", "mov", "m4a"].contains(output.pathExtension.lowercased()) { arguments += ["-movflags", "+faststart"] }
+            return arguments + [output.path]
+        }
+        let hardware = video && settings.hardware && !settings.codec.isProRes
+        if await run(ffmpeg, arguments(hardware: hardware), total: total, progress: progress) { return true }
+        // This Mac's encoder couldn't (an old Mac, an odd size): the same with x264 or x265.
+        guard hardware else { return false }
+        progress(0)
+        return await run(ffmpeg, arguments(hardware: false), total: total, progress: progress)
+    }
+
+    private static func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+        await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = arguments

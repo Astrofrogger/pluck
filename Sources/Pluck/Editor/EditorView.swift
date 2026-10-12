@@ -8,19 +8,20 @@ struct EditorView: View {
     let target: EditorTarget
     @Environment(DownloadManager.self) private var manager
     @State private var model: EditorModel
+    /// Made here (its own window), or kept by a tab of the Studio window, which closes it.
+    private let ownsModel: Bool
     @State private var zoom = 1.0
-    @State private var exported = false
-    @State private var exportShown = false
-    @State private var exporting: Double?
-    @State private var joined: URL?
-    @State private var exportProblem: String?
+    @AppStorage("editorSidebarTab") private var sidebarTab = EditorSidebar.Tab.ai
     @AppStorage("editorSidebar") private var sidebarShown = true
     @FocusState private var focused: Bool
 
-    init(target: EditorTarget) {
+    init(target: EditorTarget, model: EditorModel? = nil) {
         self.target = target
-        _model = State(initialValue: EditorModel(file: target.file))
+        ownsModel = model == nil
+        _model = State(initialValue: model ?? EditorModel(file: target.file))
     }
+
+    private var exports: EditorExports { model.exports }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -33,6 +34,8 @@ struct EditorView: View {
                         EditorToolbar(model: model, zoom: $zoom)
                         EditorTimeline(model: model, zoom: $zoom)
                     }
+                    // Working on the timeline: the keys are the Editor's again.
+                    .simultaneousGesture(TapGesture().onEnded { focused = true })
                     exportBar
                 }
                 .padding(Design.Spacing.window)
@@ -45,7 +48,7 @@ struct EditorView: View {
                     .transition(.move(edge: .trailing))
             }
         }
-        .frame(minWidth: sidebarShown ? 1040 : 760, minHeight: 580)
+        .frame(minWidth: ownsModel ? (sidebarShown ? 1040 : 760) : (sidebarShown ? 850 : 550), minHeight: 520)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -66,7 +69,7 @@ struct EditorView: View {
             focused = true
             await model.load(ffmpeg: manager.tool("ffmpeg"), ffprobe: manager.tool("ffprobe"))
         }
-        .onDisappear { model.close() }
+        .onDisappear { if ownsModel { model.close() } else { model.player.pause() } }
     }
 
     // MARK: - Picture
@@ -81,6 +84,12 @@ struct EditorView: View {
                 }
             } else if let problem = model.problem {
                 ProblemLabel(text: problem).padding()
+            } else if model.duration == 0 {
+                // Still reading the file (a busy or slow drive can take a while).
+                VStack(spacing: 10) {
+                    ProgressView()
+                    Text("Opening…").foregroundStyle(.secondary)
+                }
             } else if model.hasVideo {
                 ZStack {
                     PlayerSurface(player: model.player)
@@ -140,6 +149,8 @@ struct EditorView: View {
             VStack(alignment: .leading, spacing: 1) {
                 title.font(.caption).foregroundStyle(.secondary)
                 Text(value.map(model.timecode) ?? "––:––:––").font(.callout.monospacedDigit())
+                    .lineLimit(1)
+                    .fixedSize()
             }
         }
         .buttonStyle(.plain)
@@ -155,26 +166,31 @@ struct EditorView: View {
                 Text(summary)
                     .font(.callout.monospacedDigit())
                     .lineLimit(1)
-                if let exporting {
-                    ProgressView(value: exporting).frame(width: 180)
-                } else if let joined {
-                    DoneLabel(text: Text(joined.lastPathComponent), file: joined)
-                } else if let exportProblem {
-                    Text(exportProblem).font(.caption).foregroundStyle(.orange).lineLimit(1)
-                } else if exported {
+                if let progress = exports.progress {
+                    ProgressView(value: progress).frame(width: 180)
+                } else if let output = exports.output {
+                    DoneLabel(text: Text(output.lastPathComponent), file: output)
+                } else if let problem = exports.problem {
+                    Text(problem).font(.caption).foregroundStyle(.orange).lineLimit(1)
+                } else if exports.handedOver {
                     Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
                 }
             }
             .layoutPriority(-1)
             Spacer(minLength: 8)
-            Button("Export…", systemImage: "square.and.arrow.up") { exportShown = true }
-                .buttonStyle(BarCapsuleButtonStyle())
-                .disabled(model.duration == 0 || exporting != nil || (model.isEdited && model.keptParts.isEmpty))
+            // While the Export tab is open, its own button does it.
+            if !(sidebarShown && sidebarTab == .export) {
+                Button("Export…", systemImage: "square.and.arrow.up") {
+                    withAnimation(.snappy) {
+                        sidebarTab = .export
+                        sidebarShown = true
+                    }
+                }
+                .buttonStyle(BrandButtonStyle())
+                .disabled(model.duration == 0 || exports.isRunning || (model.isEdited && model.keptParts.isEmpty))
                 .keyboardShortcut("e", modifiers: .command)
-                .help("Choose what to export and how (⌘E)")
-        }
-        .sheet(isPresented: $exportShown) {
-            EditorExportSheet(model: model) { run($0) }
+                .help("Choose what to export and how, in the sidebar (⌘E)")
+            }
         }
     }
 
@@ -189,82 +205,12 @@ struct EditorView: View {
             : String(localized: "Whole file \(model.timecode(model.duration))")
     }
 
-    private func run(_ choice: EditorExportChoice) {
-        joined = nil
-        exportProblem = nil
-        let gifOrOriginal = choice.format == .gif || choice.format == .original
-        // Joined into one file, or with subtitles drawn in: the Editor writes it itself.
-        if (model.isEdited && !choice.each || choice.burn) && !gifOrOriginal {
-            exportJoined(choice)
-            return
-        }
-        // Each part (or the range, or the whole file) through Pluck's conversions.
-        let clips: [ClipRange?] = model.isEdited
-            ? model.keptParts.map { ClipRange(start: $0.lowerBound, end: $0.upperBound) }
-            : [model.clip]
-        for clip in clips {
-            let preset: Conversion.Preset = choice.format.preset == .trim && clip == nil ? .mp4 : choice.format.preset
-            manager.convert([target.file], preset: preset, percent: preset == .compress ? 50 : nil, clip: clip)
-        }
-        if choice.srt { writeSRT(for: model.isEdited ? model.keptParts : [model.rangeStart...model.rangeEnd], next: nil) }
-        withAnimation { exported = true }
-        Task {
-            try? await Task.sleep(for: .seconds(4))
-            withAnimation { exported = false }
-        }
-    }
-
-    /// The kept parts (or the range) as one file, with the subtitles drawn in if chosen, next to
-    /// the downloads, and added to the list.
-    private func exportJoined(_ choice: EditorExportChoice) {
-        guard let ffmpeg = manager.tool("ffmpeg") else { exportProblem = Converting.Failure.noFFmpeg.localizedDescription; return }
-        let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let audioOnly = choice.format == .audio || !model.hasVideo
-        let suffix = model.isEdited ? String(localized: " (edit)") : (choice.burn ? String(localized: " (subtitled)") : String(localized: " (part)"))
-        let output = Converting.outputURL(folder: folder, name: target.file.deletingPathExtension().lastPathComponent + suffix,
-                                          fileExtension: audioOnly ? "m4a" : "mp4")
-        let parts = model.isEdited ? model.keptParts : [model.rangeStart...model.rangeEnd]
-        var assFile: URL?
-        if choice.burn, !audioOnly {
-            let ass = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-editor-\(UUID().uuidString).ass")
-            let text = EditorSubtitleFiles.ass(model.subtitlesForEdit(parts), style: model.subtitleStyle,
-                                               width: Int(model.pixelSize.width), height: Int(model.pixelSize.height))
-            if (try? text.write(to: ass, atomically: true, encoding: .utf8)) != nil { assFile = ass }
-        }
-        let video = model.hasVideo, audio = model.hasAudio, file = target.file
-        exporting = 0
-        Task {
-            let done = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: output, ffmpeg: ffmpeg,
-                                                 quality: choice.format.quality, subtitles: assFile) { value in
-                Task { @MainActor in exporting = value }
-            }
-            if let assFile { try? FileManager.default.removeItem(at: assFile) }
-            exporting = nil
-            if done {
-                joined = output
-                if choice.srt { writeSRT(for: parts, next: output) }
-                _ = manager.addLocalFiles([output])
-                manager.saveHistory()
-            } else {
-                try? FileManager.default.removeItem(at: output)
-                exportProblem = String(localized: "The edit couldn’t be written.")
-            }
-        }
-    }
-
-    /// The subtitles for what's exported as an .srt file: next to the exported file, or in the
-    /// downloads folder.
-    private func writeSRT(for parts: [ClosedRange<Double>], next output: URL?) {
-        let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let url = output?.deletingPathExtension().appendingPathExtension("srt")
-            ?? Converting.outputURL(folder: folder, name: target.file.deletingPathExtension().lastPathComponent, fileExtension: "srt")
-        try? EditorSubtitleFiles.srt(model.subtitlesForEdit(parts)).write(to: url, atomically: true, encoding: .utf8)
-    }
-
     // MARK: - Keys
 
     /// The keys editors know: Space, J K L, ← → for frames (⇧ for seconds), I and O, ⌥X, ↑ ↓, ⌘+ ⌘−.
     private func key(_ press: KeyPress) -> KeyPress.Result {
+        // While typing (a subtitle, a search), the keys are the text's, not the Editor's.
+        if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
         let shift = press.modifiers.contains(.shift), option = press.modifiers.contains(.option), command = press.modifiers.contains(.command)
         switch press.key {
         case .space: model.togglePlay()

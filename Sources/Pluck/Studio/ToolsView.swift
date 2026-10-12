@@ -20,14 +20,10 @@ enum PluckTool: String, CaseIterable, Identifiable {
     /// The window it opens.
     var window: String { rawValue }
 
-    /// Opens the tool: its window, or for Search the pop-up over the main window.
+    /// Opens the tool on its page of Pluck Studio's window.
     @MainActor func open(_ openWindow: OpenWindowAction) {
-        if self == .findShots {
-            AppDelegate.openMainWindow?()
-            AppDelegate.shared?.ai.searchShown = true
-        } else {
-            openWindow(id: window)
-        }
+        StudioNavigator.shared.open(self)
+        AppDelegate.openMainWindow?()
     }
 
     var group: Group {

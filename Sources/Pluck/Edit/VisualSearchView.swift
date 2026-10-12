@@ -95,7 +95,6 @@ struct VisualSearchView: View {
     @Environment(AIStudio.self) private var studio
     @Environment(DownloadManager.self) private var manager
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismiss) private var dismiss
     @AppStorage("searchLook") private var look = Look.everything
     /// A search to start with (screenshots).
     @MainActor static var startQuery = ""
@@ -273,7 +272,7 @@ struct VisualSearchView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(Text("Said"), symbol: "waveform", count: said.count)
             ForEach(allSaid ? said : Array(said.prefix(5))) { hit in
-                Button { openWindow(value: PlayerTarget(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start)) } label: {
+                Button { PlayerTarget(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start).open(openWindow) } label: {
                     ItemRow(symbol: "waveform", title: Text(hit.title), subtitle: Text(highlighted(hit))) {
                         EmptyView()
                     } actions: {
@@ -363,9 +362,6 @@ struct VisualSearchView: View {
                 .buttonStyle(BarCapsuleButtonStyle())
                 .disabled(selected.isEmpty || !Resolve.isInstalled)
                 .help("Select shots with ⌘-click")
-            Button("Done") { dismiss() }
-                .buttonStyle(GlassCapsuleButtonStyle())
-                .keyboardShortcut(.cancelAction)
         }
         .padding(.horizontal, Design.Spacing.window)
         .padding(.vertical, 12)

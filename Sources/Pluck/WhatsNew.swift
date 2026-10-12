@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "2.0.0", items: [
+                Item(symbol: "square.and.arrow.up", title: String(localized: "Export like an editing program"),
+                     detail: String(localized: "The Editor’s export is now in its sidebar, with presets (Web, YouTube 4K, Email, ProRes master) and every setting by hand: MP4 or QuickTime, H.264, HEVC or ProRes, resolution, frame rate, quality or a file size to fit, and the sound. It shows how big the file will be before you start.")),
+            ]),
             Release(version: "1.19.0", items: [
                 Item(symbol: "timeline.selection", title: String(localized: "The Editor"),
                      detail: String(localized: "Open any video or song on a timeline, like in an editing program: cut with the blade, take parts out, mark in and out, and export the edit or each part. Right-click a download and choose Open in Editor.")),

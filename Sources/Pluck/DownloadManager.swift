@@ -325,7 +325,15 @@ final class DownloadManager {
     /// Videos and songs open the convert sheet, photos the photo sheet and subtitle files the
     /// translate sheet (one after the other, when there are several kinds).
     func openConverter(for files: [URL]) {
+        #if STUDIO
+        // Pluck Studio has no convert window: videos and songs open in the Editor, in tabs.
+        for file in files.filter(Converting.isMedia) where EditorTarget.canOpen(file) {
+            StudioNavigator.shared.open(EditorTarget(path: file.path))
+        }
+        filesToConvert = files.filter { Converting.isMedia($0) && !EditorTarget.canOpen($0) }
+        #else
         filesToConvert = files.filter(Converting.isMedia)
+        #endif
         photosToCompress = files.filter(Photos.isPhoto)
         subtitlesToTranslate = files.filter(Self.isSubtitle)
     }

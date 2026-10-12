@@ -11,6 +11,17 @@ import SwiftUI
 /// downloading, `-PluckScreenshotSize <w>x<h>` sizes the main window and
 /// `-PluckScreenshotAppearance light|dark` picks the look.
 enum ScreenshotMode {
+    @MainActor private static var didRun = false
+    @MainActor
+    /// The Library: a page of Pluck Studio's window, or basic Pluck's Library window.
+    private static func openLibrary(_ openWindow: OpenWindowAction) {
+        #if STUDIO
+        StudioNavigator.shared.show(.library)
+        #else
+        openWindow(id: "library")
+        #endif
+    }
+
     static var scene: String? { UserDefaults.standard.string(forKey: "PluckScreenshot") }
 
     #if STUDIO
@@ -25,7 +36,9 @@ enum ScreenshotMode {
     @MainActor
     static func run(manager: DownloadManager, openWindow: OpenWindowAction, openSettings: @escaping () -> Void,
                     studio: @escaping (String, DownloadItem?) -> Void = { _, _ in }) {
-        guard let scene else { return }
+        // Once per launch: Pluck Studio's Home can appear again when its page is shown.
+        guard let scene, !didRun else { return }
+        didRun = true
         let defaults = UserDefaults.standard
         // The light or dark look, whatever the Mac uses.
         switch defaults.string(forKey: "PluckScreenshotAppearance") {
@@ -75,7 +88,7 @@ enum ScreenshotMode {
             case let search where search.hasPrefix("search:"):
                 manager.startSearch(String(search.dropFirst("search:".count)), kind: .music)
             case "convert": if let file = item?.existingFile { manager.openConverter(for: [file]) }
-            case "library": openWindow(id: "library")
+            case "library": openLibrary(openWindow)
             case "settings": openSettings()
             case "subscriptiontest":
                 // -PluckScreenshotLink <channel or feed>, -PluckScreenshotFile <folder>, -PluckScreenshotLog <file>.
@@ -90,18 +103,18 @@ enum ScreenshotMode {
             case "subscriptions":
                 // The Library on the first subscription of the test list (subscriptions-test.json).
                 LibraryView.startCollection = Subscriptions.shared.list.first.map { .subscription($0.id, $0.title) }
-                openWindow(id: "library")
+                openLibrary(openWindow)
             case "remotelibrary":
                 // The Library on another Mac's shared Library: -PluckScreenshotLink <its name>.
                 LibraryView.startCollection = defaults.string(forKey: "PluckScreenshotLink").map { .network($0) }
-                openWindow(id: "library")
+                openLibrary(openWindow)
             case "editor":
                 // -PluckScreenshotFile <video or song> in the Editor; -PluckScreenshotRange <in>-<out>
                 // in seconds marks a range.
                 if let path = defaults.string(forKey: "PluckScreenshotFile") {
                     let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap { Double($0) }
                     if let range, range.count == 2 { EditorModel.startRange = (range[0], range[1]) }
-                    openWindow(value: EditorTarget(path: path))
+                    EditorTarget(path: path).open(openWindow)
                 }
             case "clip":
                 // -PluckScreenshotLink <video> in the field, with the clip row open.
@@ -337,7 +350,7 @@ enum ScreenshotMode {
             case "summarize": if let item { ai.languageAsk = AIStudio.LanguageAsk(item: item, action: .summarize) { _ in } }
             case "live":
                 // -PluckScreenshotLink <stream> records it; -PluckScreenshotFile <path> analyses a file.
-                openWindow(id: "liveRecorder")
+                StudioNavigator.shared.open(windowID: "liveRecorder")
                 let session = LiveRecorderView.shared
                 session.manager = manager
                 let language = Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US")
@@ -348,7 +361,7 @@ enum ScreenshotMode {
                 // -PluckScreenshotFile <logo> is opened in the Logo Animator.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
                 LogoAnimatorView.openFile = logo
-                openWindow(id: "logoAnimator")
+                StudioNavigator.shared.open(windowID: "logoAnimator")
                 // A window left open from before has already looked for a logo: hand it over.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if LogoAnimatorView.openFile != nil, let logo {
@@ -360,13 +373,13 @@ enum ScreenshotMode {
                 VisualSearchView.startQuery = defaults.string(forKey: "PluckScreenshotLink") ?? ""
                 ai.searchShown = true
             case "musicfit":
-                openWindow(id: "musicFit")
+                StudioNavigator.shared.open(windowID: "musicFit")
             case "resolvelog":
                 // Logs the open DaVinci Resolve project (with Search open to show it).
                 ai.searchShown = true
                 ResolveLogger.shared.start()
             case "office":
-                openWindow(id: "officeRender")
+                StudioNavigator.shared.open(windowID: "officeRender")
             case "archivetest":
                 // Edit Anywhere's archive, end to end in one Pluck: -PluckScreenshotFile <footage
                 // folder> is indexed, a pairing over this Mac's own network, a search and a clip
@@ -380,14 +393,14 @@ enum ScreenshotMode {
                     if defaults.bool(forKey: "PluckScreenshotKeep") {
                         UserDefaults.standard.set("home", forKey: "officeRenderSide")
                         UserDefaults.standard.set("proxies", forKey: "editAnywherePane")
-                        openWindow(id: "officeRender")
+                        StudioNavigator.shared.open(windowID: "officeRender")
                     }
                 }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
                 BrandPackView.openFile = logo
-                openWindow(id: "brandPack")
+                StudioNavigator.shared.open(windowID: "brandPack")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if BrandPackView.openFile != nil, let logo {
                         NotificationCenter.default.post(name: BrandPackView.openNotification, object: logo)
@@ -397,7 +410,7 @@ enum ScreenshotMode {
                 // -PluckScreenshotFile <video> is checked.
                 let video = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
                 DeliveryCheckView.openFile = video
-                openWindow(id: "deliveryCheck")
+                StudioNavigator.shared.open(windowID: "deliveryCheck")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     if DeliveryCheckView.openFile != nil, let video {
                         NotificationCenter.default.post(name: DeliveryCheckView.openNotification, object: video)
@@ -409,7 +422,7 @@ enum ScreenshotMode {
                 }
             case "derush":
                 // -PluckScreenshotFile <file or folder> is added and analysed.
-                openWindow(id: "derush")
+                StudioNavigator.shared.open(windowID: "derush")
                 let derush = DerushView.shared
                 derush.manager = manager
                 if let path = defaults.string(forKey: "PluckScreenshotFile") {
@@ -421,7 +434,7 @@ enum ScreenshotMode {
                 }
             case "player":
                 if let item, let file = item.existingFile {
-                    openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript"))
+                    PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript").open(openWindow)
                 }
             default: break
         }

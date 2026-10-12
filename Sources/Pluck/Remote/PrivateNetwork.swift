@@ -17,7 +17,7 @@ enum PrivateNetwork {
             .appendingPathComponent("Pluck/Edit Anywhere", isDirectory: true)
     }
 
-    /// This Mac's name on the private network ("pluck-lowies-macbook-pro").
+    /// This Mac's name on the private network ("pluck-annas-macbook-pro").
     static var hostname: String {
         let name = (Host.current().localizedName ?? "mac").lowercased()
             .map { $0.isLetter || $0.isNumber ? String($0) : "-" }.joined()

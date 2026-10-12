@@ -320,7 +320,7 @@ struct DownloadRow: View {
         if let file = item.existingFile {
             Button("Open", action: open)
             if EditorTarget.canOpen(file) {
-                Button("Open in Editor") { openWindow(value: EditorTarget(path: file.path)) }
+                Button("Open in Editor") { EditorTarget(path: file.path).open(openWindow) }
             }
             Button("Quick Look", action: onQuickLook)
             Button("Show in Finder", action: reveal)
@@ -423,11 +423,11 @@ struct DownloadRow: View {
                 }
                 if LocalAI.summariesPossible {
                     Button("Summarize", systemImage: "text.badge.star") {
-                        ai.start(.summarize, item) { openWindow(value: $0) }
+                        ai.start(.summarize, item) { $0.open(openWindow) }
                     }
                     .disabled(!LocalAI.canSummarize || busy)
                     Button("Add Chapters", systemImage: "list.number") {
-                        ai.start(.chapters, item) { openWindow(value: $0) }
+                        ai.start(.chapters, item) { $0.open(openWindow) }
                     }
                     .disabled(!LocalAI.canSummarize || busy)
                     // Possible here, but Apple Intelligence is off or not ready yet: say what to do.
@@ -472,12 +472,12 @@ struct DownloadRow: View {
             }
         }
         Divider()
-        Button("Open in Pluck Player", systemImage: "play.rectangle.on.rectangle") { openPlayer() }
+        Button("Transcript in the Editor", systemImage: "text.quote") { openPlayer(tab: "transcript") }
     }
 
-    private func openPlayer(at start: Double? = nil) {
+    private func openPlayer(at start: Double? = nil, tab: String? = nil) {
         guard let file = item.existingFile else { return }
-        openWindow(value: PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: start))
+        PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: start, tab: tab).open(openWindow)
     }
     #endif
 

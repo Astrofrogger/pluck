@@ -8,7 +8,7 @@ struct EditorSidebar: View {
     @AppStorage("editorSidebarTab") private var tab = Tab.ai
 
     enum Tab: String, CaseIterable, Identifiable {
-        case ai, subtitles, transcript, marks
+        case ai, subtitles, transcript, marks, export
         var id: String { rawValue }
 
         var symbol: String {
@@ -17,6 +17,7 @@ struct EditorSidebar: View {
             case .ai: "sparkles"
             case .subtitles: "captions.bubble"
             case .marks: "bookmark"
+            case .export: "square.and.arrow.up"
             }
         }
 
@@ -26,6 +27,7 @@ struct EditorSidebar: View {
             case .ai: "Local AI"
             case .subtitles: "Subtitles"
             case .marks: "Timeline"
+            case .export: "Export"
             }
         }
     }
@@ -34,7 +36,7 @@ struct EditorSidebar: View {
         #if STUDIO
         Tab.allCases
         #else
-        [.marks]
+        [.marks, .export]
         #endif
     }
 
@@ -74,6 +76,7 @@ struct EditorSidebar: View {
                 case .ai: EditorAIPanel(model: model, part: .ai)
                 case .subtitles: EditorAIPanel(model: model, part: .subtitles)
                 #endif
+                case .export: EditorExportPanel(model: model)
                 default: marks
                 }
             }

@@ -9,11 +9,33 @@ The pieces live in `Sources/Pluck/DesignTokens.swift`; use them instead of build
 Sizes, spacing, radii and type come from `Design` (`Design.Size.control`, `Design.Spacing.window`,
 `Design.Radius.card`, `Design.Typography.control`…). No loose numbers in views.
 
-## Three kinds of window
+## Pluck Studio is one window
+
+Pluck Studio has a single window; only Settings opens on its own. Pages run along a bar at the
+bottom (`StudioWindow`, `StudioNavigator`): **Home**, **Library**, **Edit**, **Search** and
+**Tools**, ⌘1 to ⌘5. A new feature becomes part of a page, never a new window or a sheet of its
+own: something done to a file goes in the Editor's inspector; a standalone tool goes on the
+Tools page. Opening a file anywhere opens it in a tab on Edit (`EditorTarget.open`,
+`PlayerTarget.open`, `StudioNavigator.open`). Basic Pluck keeps its own windows.
+
+- **Home:** the start page. The title, one large field for a link or a dropped file, a few quick
+  links, then Continue Editing (big cards), new from subscriptions and the downloads.
+- **Edit:** the media on the left, the open files as tabs, the Editor, and the inspector on the
+  right with its tabs (Local AI, Subtitles, Transcript, Timeline, Export). Export lives in the
+  inspector, not a sheet.
+- **Pluck's colours:** `Design.Brand` (pink into violet, from the icon) marks what's chosen and
+  the main action only: the selected page and tab, picked items, `BrandButtonStyle` for the one
+  main button of a panel, prominent `BarButtonStyle` buttons. Everything else stays neutral.
+  `BrandGlow` sits behind Home's top and stays still (a moving blur keeps the Mac busy).
+- **Few words:** no paragraphs on a page. A title, short labels, a hint where something isn't
+  obvious; longer explanations go in `.help`.
+- **No real names** in placeholders, defaults or examples: Pluck is public. Use made-up ones.
+
+## Kinds of page
 
 - **Tool pages** (Brand Pack, Logo Animator, Delivery Check, Fit Music, Edit Anywhere): one
   thing in, one thing out. A scrolling page of cards, described below.
-- **Workspaces** (Live Recorder, Derush, Find Shots): a bar on top, panes side by side, a footer
+- **Workspaces** (Live Recorder, Derush, Search): a bar on top, panes side by side, a footer
   with the status on the left and the actions on the right. Panes are `Pane { List … }`, with a
   `PaneSearchField` on top when they can be searched. Before there's anything to show, the panes
   make way for a `ToolWelcome` and a `DropZone`.

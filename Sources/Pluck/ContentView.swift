@@ -7,9 +7,6 @@ struct ContentView: View {
     @Environment(AIStudio.self) private var ai
     #endif
     @Environment(\.openWindow) private var openWindow
-    #if STUDIO
-    @State private var toolsShown = false
-    #endif
     @Environment(\.dismissWindow) private var dismissWindow
     @Environment(\.openPluckSettings) private var openSettings
     @Environment(AppUpdater.self) private var appUpdater
@@ -18,11 +15,12 @@ struct ContentView: View {
     @State private var confirmUpdate = false
     @AppStorage(Prefs.downloadPath) private var downloadPath = ""
     @State private var urlText = ""
+    /// Home shows every download as a full row instead of the short list.
+    @State private var allDownloads = false
     /// Selected rows: click selects one, ⌘-click adds or removes, ⇧-click selects a range.
     @State private var selection: Set<DownloadItem.ID> = []
     /// The row clicked last, where ⇧-click ranges and the arrow keys start from.
     @State private var anchor: DownloadItem.ID?
-    @State private var shownPickID: PlaylistPick.ID?
     @State private var clipping = false
     @State private var clipStart = ""
     @State private var clipEnd = ""
@@ -63,6 +61,9 @@ struct ContentView: View {
                     toolsBanner
                 }
             }
+            #if STUDIO
+            studioHome
+            #else
             inputBar
                 .padding(.horizontal, 20)
                 .padding(.top, 12)
@@ -80,6 +81,7 @@ struct ContentView: View {
             } else {
                 downloadList
             }
+            #endif
         }
         .frame(minWidth: 560, minHeight: 400)
         .navigationTitle("Pluck")
@@ -95,52 +97,17 @@ struct ContentView: View {
         }
         .onAppear(perform: appeared)
         .onChange(of: manager.pendingLink) { _ = takePendingLink() }
-        .alert(duplicateTitle, isPresented: Binding(
-            get: { manager.picks.isEmpty && !manager.duplicates.isEmpty },
-            set: { shown in if !shown, let prompt = manager.duplicates.first { manager.resolve(prompt, with: .cancel) } }
-        ), presenting: manager.duplicates.first) { prompt in
-            Button("Show in Finder") { manager.resolve(prompt, with: .showInFinder) }
-            Button("Download Again") { manager.resolve(prompt, with: .downloadAgain) }
-            Button("Cancel", role: .cancel) { manager.resolve(prompt, with: .cancel) }
-        } message: { prompt in
-            Text("It’s saved as “\(prompt.existing.existingFile?.lastPathComponent ?? prompt.existing.title)”.")
-        }
-        .sheet(item: Binding(get: { manager.picks.isEmpty ? manager.search : nil },
-                             set: { if $0 == nil { manager.search = nil } })) { session in
-            SearchResultsView(session: session)
-                .environment(manager)
-        }
-        .sheet(isPresented: Binding(get: { !manager.filesToConvert.isEmpty && manager.picks.isEmpty },
-                                    set: { if !$0 { manager.filesToConvert = [] } })) {
-            ConvertSheet(files: manager.filesToConvert)
-                .environment(manager)
-                #if STUDIO
-                .environment(ai)
-                #endif
-        }
-        .sheet(isPresented: Binding(get: { !manager.photosToCompress.isEmpty && manager.filesToConvert.isEmpty && manager.picks.isEmpty },
-                                    set: { if !$0 { manager.photosToCompress = [] } })) {
-            PhotoSheet(files: manager.photosToCompress)
-                .environment(manager)
-        }
-        #if STUDIO
-        .modifier(AISheets(ai: ai, manager: manager))
+        #if !STUDIO
+        // Pluck Studio shows these over its whole window, whatever page is open.
+        .modifier(DownloadSheets())
         #endif
-        .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
-            // Closing the sheet cancels only the playlist that was on screen, never the next one.
-            if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
-                manager.cancelPick(shown)
-            }
-        })) { pick in
-            PlaylistPickerView(pick: pick)
-                .environment(manager)
-                .onAppear { shownPickID = pick.id }
-        }
     }
 
     private func appeared() {
+        #if !STUDIO
         AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
         AppDelegate.openWindowByID = { openWindow(id: $0); NSApp.activate() }
+        #endif
         if !AppDelegate.didHandleLaunchWindow {
             AppDelegate.didHandleLaunchWindow = true
             if AppDelegate.startsHidden, manager.pendingLink == nil {
@@ -164,11 +131,6 @@ struct ContentView: View {
     private var subtitle: String {
         let active = manager.activeCount
         return active == 0 ? "" : String(localized: "\(active) downloading")
-    }
-
-    private var duplicateTitle: String {
-        guard let prompt = manager.duplicates.first else { return "" }
-        return String(localized: "“\(prompt.existing.title)” is already downloaded")
     }
 
     // MARK: - Banners
@@ -279,6 +241,58 @@ struct ContentView: View {
         .padding(.top, 12)
     }
 
+    #if STUDIO
+    // MARK: - Studio Home
+
+    /// Pluck Studio's start page: one field for a link or a file, the files being edited, new
+    /// from subscriptions, and the downloads.
+    private var studioHome: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 32) {
+                VStack(spacing: 14) {
+                    Text("What are we working on?")
+                        .font(.system(size: 30, weight: .bold))
+                        .foregroundStyle(LinearGradient(colors: [.primary, .primary.opacity(0.75)], startPoint: .top, endPoint: .bottom))
+                        .overlay(alignment: .bottom) {
+                            Capsule().fill(Design.Brand.gradient).frame(width: 56, height: 4).offset(y: 12)
+                        }
+                        .padding(.bottom, 10)
+                    inputBar
+                    if clipping {
+                        clipBar.transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                    HomeShortcuts()
+                }
+                .frame(maxWidth: 680)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 40)
+
+                ContinueEditing()
+                HomeActivity(allDownloads: $allDownloads)
+
+                if allDownloads, !manager.items.isEmpty {
+                    LazyVStack(spacing: 10) {
+                        ForEach(manager.items) { item in
+                            DownloadRow(item: item,
+                                        isSelected: selection.contains(item.id),
+                                        batch: selection.count > 1 ? manager.items.filter { selection.contains($0.id) } : [],
+                                        onSelect: { select(item.id) },
+                                        onQuickLook: { quickLook(item) })
+                        }
+                    }
+                    .quickLookPreview($previewURL)
+                }
+            }
+            .padding(.horizontal, 32)
+            .padding(.bottom, 32)
+            .frame(maxWidth: 1080)
+            .frame(maxWidth: .infinity)
+        }
+        .background(alignment: .top) { BrandGlow() }
+        .softTopScrollEdge()
+    }
+    #endif
+
     // MARK: - Input
 
     private var inputBar: some View {
@@ -289,7 +303,7 @@ struct ContentView: View {
                         .font(.system(size: Design.Size.icon - 2, weight: .medium))
                         .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
-                    TextField("Paste a link, or type to search YouTube", text: $urlText)
+                    TextField(Edition.isStudio ? "Paste a link, or drop a file to edit" : "Paste a link, or type to search YouTube", text: $urlText)
                         .textFieldStyle(.plain)
                         .font(Design.Typography.control)
                         .focused($fieldFocused)
@@ -613,18 +627,6 @@ struct ContentView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            #if STUDIO
-            Button {
-                toolsShown.toggle()
-            } label: {
-                Label("Tools", systemImage: "square.grid.2x2")
-            }
-            .help("Search, Derush, Logo Animator and Pluck’s other tools")
-            .popover(isPresented: $toolsShown, arrowEdge: .bottom) { ToolsPanel() }
-            .onReceive(NotificationCenter.default.publisher(for: ToolsPanel.showNotification)) { _ in toolsShown = true }
-
-            #endif
-
             Button {
                 NSWorkspace.shared.open(URL(fileURLWithPath: downloadPath))
             } label: {
@@ -632,20 +634,13 @@ struct ContentView: View {
             }
             .help("Open \((downloadPath as NSString).abbreviatingWithTildeInPath)")
 
+            #if !STUDIO
             Button {
                 openWindow(id: "library")
             } label: {
                 Label("Library", systemImage: "books.vertical")
             }
             .help("Everything Pluck has saved, with collections and tags (⇧⌘L)")
-
-            #if STUDIO
-            Button {
-                ai.searchShown = true
-            } label: {
-                Label("Search", systemImage: "sparkle.magnifyingglass")
-            }
-            .help("Find a moment by what was said or what’s in the picture (⇧⌘F)")
             #endif
 
             Button {
@@ -656,11 +651,73 @@ struct ContentView: View {
             .disabled(!manager.hasFinished)
             .help("Clear finished downloads")
 
+            #if !STUDIO
             Button { openSettings() } label: {
                 Label("Settings", systemImage: "gearshape")
             }
             .help("Settings (⌘,)")
+            #endif
         }
+    }
+}
+
+/// What the download list asks about, over the main window: a link that's already downloaded,
+/// search results, a playlist to pick from, and the convert, photo and local-AI sheets.
+struct DownloadSheets: ViewModifier {
+    @Environment(DownloadManager.self) private var manager
+    #if STUDIO
+    @Environment(AIStudio.self) private var ai
+    #endif
+    @State private var shownPickID: PlaylistPick.ID?
+
+    func body(content: Content) -> some View {
+        content
+            .alert(duplicateTitle, isPresented: Binding(
+                get: { manager.picks.isEmpty && !manager.duplicates.isEmpty },
+                set: { shown in if !shown, let prompt = manager.duplicates.first { manager.resolve(prompt, with: .cancel) } }
+            ), presenting: manager.duplicates.first) { prompt in
+                Button("Show in Finder") { manager.resolve(prompt, with: .showInFinder) }
+                Button("Download Again") { manager.resolve(prompt, with: .downloadAgain) }
+                Button("Cancel", role: .cancel) { manager.resolve(prompt, with: .cancel) }
+            } message: { prompt in
+                Text("It’s saved as “\(prompt.existing.existingFile?.lastPathComponent ?? prompt.existing.title)”.")
+            }
+            .sheet(item: Binding(get: { manager.picks.isEmpty ? manager.search : nil },
+                                 set: { if $0 == nil { manager.search = nil } })) { session in
+                SearchResultsView(session: session)
+                    .environment(manager)
+            }
+            .sheet(isPresented: Binding(get: { !manager.filesToConvert.isEmpty && manager.picks.isEmpty },
+                                        set: { if !$0 { manager.filesToConvert = [] } })) {
+                ConvertSheet(files: manager.filesToConvert)
+                    .environment(manager)
+                    #if STUDIO
+                    .environment(ai)
+                    #endif
+            }
+            .sheet(isPresented: Binding(get: { !manager.photosToCompress.isEmpty && manager.filesToConvert.isEmpty && manager.picks.isEmpty },
+                                        set: { if !$0 { manager.photosToCompress = [] } })) {
+                PhotoSheet(files: manager.photosToCompress)
+                    .environment(manager)
+            }
+            #if STUDIO
+            .modifier(AISheets(ai: ai, manager: manager))
+            #endif
+            .sheet(item: Binding(get: { manager.picks.first }, set: { newValue in
+                // Closing the sheet cancels only the playlist that was on screen, never the next one.
+                if newValue == nil, let shown = manager.picks.first(where: { $0.id == shownPickID }) {
+                    manager.cancelPick(shown)
+                }
+            })) { pick in
+                PlaylistPickerView(pick: pick)
+                    .environment(manager)
+                    .onAppear { shownPickID = pick.id }
+            }
+    }
+
+    private var duplicateTitle: String {
+        guard let prompt = manager.duplicates.first else { return "" }
+        return String(localized: "“\(prompt.existing.title)” is already downloaded")
     }
 }
 
@@ -682,11 +739,6 @@ private struct AISheets: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .sheet(isPresented: Binding(get: { ai.searchShown }, set: { ai.searchShown = $0 })) {
-                VisualSearchView()
-                    .environment(ai)
-                    .environment(manager)
-            }
             .sheet(isPresented: Binding(get: { !manager.subtitlesToTranslate.isEmpty && manager.filesToConvert.isEmpty
                                                     && manager.photosToCompress.isEmpty && manager.picks.isEmpty },
                                         set: { if !$0 { manager.subtitlesToTranslate = [] } })) {

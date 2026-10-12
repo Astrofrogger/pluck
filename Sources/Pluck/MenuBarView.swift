@@ -435,7 +435,11 @@ struct MenuBarIcon: View {
             .accessibilityLabel(running.isEmpty ? "Pluck" : String(localized: "Pluck, \(running.count) downloading"))
             .onAppear {
                 AppDelegate.openMainWindow = { openWindow(id: "main"); NSApp.activate() }
+                #if STUDIO
+                AppDelegate.openWindowByID = { StudioNavigator.shared.open(windowID: $0); openWindow(id: "main"); NSApp.activate() }
+                #else
                 AppDelegate.openWindowByID = { openWindow(id: $0); NSApp.activate() }
+                #endif
             }
     }
 

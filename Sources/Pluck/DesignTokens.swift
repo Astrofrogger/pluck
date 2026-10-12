@@ -3,6 +3,14 @@ import SwiftUI
 /// Pluck's design tokens: the sizes, spacing and shapes controls share, so a text field, a menu
 /// and buttons that sit side by side line up exactly. Use these instead of numbers in views.
 enum Design {
+    /// Pluck's own colours, from the app icon: a warm pink running into violet. Used sparingly,
+    /// for what's chosen and the main action, so it keeps meaning something.
+    enum Brand {
+        static let pink = Color(red: 0.99, green: 0.37, blue: 0.48)
+        static let violet = Color(red: 0.56, green: 0.33, blue: 0.96)
+        static let gradient = LinearGradient(colors: [pink, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+
     enum Size {
         /// Every control in a bar: the link field, the format menu, the round buttons.
         static let control: CGFloat = 44
@@ -135,7 +143,8 @@ struct BarButtonStyle: ButtonStyle {
             .foregroundStyle(prominent ? AnyShapeStyle(.white) : AnyShapeStyle(.primary))
             .frame(width: Design.Size.control, height: Design.Size.control)
             .background {
-                if prominent { Circle().fill(Color.accentColor) }
+                // Pluck Studio's main buttons wear its own colours.
+                if prominent { Circle().fill(Edition.isStudio ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.accentColor)) }
             }
             .glassBackground(in: .circle, interactive: true)
             .contentShape(.circle)
@@ -580,5 +589,66 @@ struct PaneSearchField: View {
             .padding(.vertical, 12)
             Divider()
         }
+    }
+}
+
+
+/// The main action in Pluck Studio's colours: a gradient capsule that lifts a little under the
+/// pointer.
+struct BrandButtonStyle: ButtonStyle {
+    var large = true
+
+    func makeBody(configuration: Configuration) -> some View {
+        BrandButton(configuration: configuration, large: large)
+    }
+
+    private struct BrandButton: View {
+        let configuration: ButtonStyleConfiguration
+        let large: Bool
+        @Environment(\.isEnabled) private var isEnabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(large ? .body.weight(.semibold) : .callout.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, large ? 18 : 12)
+                .frame(minHeight: large ? 36 : 28)
+                .background(Capsule().fill(Edition.isStudio ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.accentColor)))
+                .overlay(Capsule().fill(.white.opacity(configuration.isPressed ? 0.15 : hovering ? 0.08 : 0)))
+                .shadow(color: (Edition.isStudio ? Design.Brand.violet : Color.accentColor).opacity(isEnabled && hovering ? 0.45 : 0.2), radius: hovering ? 10 : 5, y: 3)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .opacity(isEnabled ? 1 : 0.4)
+                .animation(.snappy(duration: 0.15), value: hovering)
+                .onHover { hovering = $0 }
+        }
+    }
+}
+
+/// A soft glow in Pluck's colours behind a page's top. Still on purpose: a moving blur this
+/// size kept the Mac busy the whole time the page was open.
+struct BrandGlow: View {
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = geometry.size.width
+            ZStack {
+                Circle()
+                    .fill(Design.Brand.pink)
+                    .frame(width: width * 0.55)
+                    .offset(x: -width * 0.16, y: -110)
+                Circle()
+                    .fill(Design.Brand.violet)
+                    .frame(width: width * 0.6)
+                    .offset(x: width * 0.2, y: -150)
+            }
+            .frame(width: width, height: 420)
+            .blur(radius: 110)
+            .opacity(colorScheme == .dark ? 0.32 : 0.2)
+            .drawingGroup()
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

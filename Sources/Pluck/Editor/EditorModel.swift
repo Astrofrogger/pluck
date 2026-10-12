@@ -1,6 +1,7 @@
 import AVFoundation
 import AppKit
 import CryptoKit
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// A file opened in the Editor window.
@@ -15,6 +16,18 @@ struct EditorTarget: Codable, Hashable {
     }
 }
 
+extension EditorTarget {
+    /// Opens the file in the Editor: a tab of Pluck Studio's window, or the Editor window.
+    @MainActor func open(_ openWindow: OpenWindowAction) {
+        #if STUDIO
+        StudioNavigator.shared.open(self)
+        AppDelegate.openMainWindow?()
+        #else
+        openWindow(value: self)
+        #endif
+    }
+}
+
 /// What the Editor works with: the player, where the playhead is, the in and out points, and the
 /// pictures and sound shown on the timeline.
 @MainActor
@@ -22,6 +35,12 @@ struct EditorTarget: Codable, Hashable {
 final class EditorModel {
     let file: URL
     let player = AVPlayer()
+    /// What this file exported, and the export running now.
+    let exports = EditorExports()
+    /// The subtitle line picked on the timeline or in the sidebar.
+    var selectedSubtitle: UUID?
+    /// Loaded once: the view can come and go (tabs, pages) without reading the file again.
+    @ObservationIgnored private var loaded = false
 
     private(set) var duration: Double = 0
     private(set) var frameRate: Double = 25
@@ -43,7 +62,7 @@ final class EditorModel {
     /// Chapters, cuts, pauses, and what local AI found.
     var markers: [EditorMarker] = []
     /// Which kinds are shown (and snapped to).
-    var shownKinds: Set<EditorMarker.Kind> = [.chapter, .cut, .silence, .moment, .filler]
+    var shownKinds: Set<EditorMarker.Kind> = [.chapter, .cut, .silence, .moment, .filler, .story]
     /// The playhead and range edges jump to cuts, pauses and markers nearby (N).
     var snapping = true
     /// What's being looked for now ("Finding cuts…").
@@ -74,6 +93,8 @@ final class EditorModel {
     static let thumbnailCount = 60
     /// A range to start with (screenshots).
     static var startRange: (Double, Double)?
+    /// Where to start once loaded (opened at a moment: a search hit, a transcript line).
+    var startAt: Double?
     nonisolated static let peakCount = 3000
 
     init(file: URL) {
@@ -93,6 +114,8 @@ final class EditorModel {
     private(set) var preparing: String?
 
     func load(ffmpeg: String?, ffprobe: String? = nil) async {
+        guard !loaded else { return }
+        loaded = true
         var asset = AVURLAsset(url: file)
         let readable = await read(asset)
         // macOS can't play some files (WebM, MKV), or misreads their length (Opus): then the
@@ -122,6 +145,10 @@ final class EditorModel {
                 else if let time = Double(item) { cuts.append(time) }
             }
             cuts.sort()
+        }
+        if let startAt {
+            self.startAt = nil
+            seek(to: startAt)
         }
         if let (start, end) = Self.startRange {
             Self.startRange = nil
@@ -329,6 +356,32 @@ final class EditorModel {
             return peaks.map { min($0 / top, 1) }
         }.value
         self.peaks = peaks
+    }
+
+    /// The frame at the playhead as a full-size picture, saved where the person chooses.
+    func saveFrame() {
+        player.pause()
+        let time = CMTime(seconds: self.time, preferredTimescale: 600)
+        let file = self.file
+        Task {
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file))
+            generator.appliesPreferredTrackTransform = true
+            generator.requestedTimeToleranceBefore = .zero
+            generator.requestedTimeToleranceAfter = .zero
+            do {
+                let image = try await generator.image(at: time).image
+                guard let png = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { return }
+                let panel = NSSavePanel()
+                panel.allowedContentTypes = [.png]
+                panel.directoryURL = file.deletingLastPathComponent()
+                let stamp = Format.duration(time.seconds).replacingOccurrences(of: ":", with: ".")
+                panel.nameFieldStringValue = "\(file.deletingPathExtension().lastPathComponent) (\(stamp)).png"
+                guard panel.runModal() == .OK, let url = panel.url else { return }
+                try png.write(to: url, options: .atomic)
+            } catch {
+                NSAlert(error: error).runModal()
+            }
+        }
     }
 
     func close() {

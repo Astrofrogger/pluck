@@ -4,7 +4,7 @@ import Foundation
 /// (with local AI) a strong moment or a filler word.
 struct EditorMarker: Identifiable, Hashable {
     enum Kind: String, CaseIterable {
-        case chapter, cut, silence, moment, filler
+        case chapter, cut, silence, moment, filler, story
 
         var label: String {
             switch self {
@@ -13,6 +13,7 @@ struct EditorMarker: Identifiable, Hashable {
             case .silence: String(localized: "Pauses")
             case .moment: String(localized: "Best Moments")
             case .filler: String(localized: "Filler Words")
+            case .story: String(localized: "Story")
             }
         }
 
@@ -23,6 +24,7 @@ struct EditorMarker: Identifiable, Hashable {
             case .silence: "pause"
             case .moment: "star"
             case .filler: "text.badge.minus"
+            case .story: "text.book.closed"
             }
         }
     }

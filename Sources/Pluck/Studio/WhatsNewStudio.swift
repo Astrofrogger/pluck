@@ -5,6 +5,20 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "2.0.0", items: [
+                Item(symbol: "macwindow", title: String(localized: "One window for everything"),
+                     detail: String(localized: "Pluck Studio is now one window with pages along the bottom: Home, Library, Edit, Search and Tools. Every tool opens in it instead of a window of its own; only Settings stays separate.")),
+                Item(symbol: "house", title: String(localized: "A new Home"),
+                     detail: String(localized: "Paste a link or drop a file, pick up the files you were editing, and see what’s new from your subscriptions and what’s downloading, all at a glance.")),
+                Item(symbol: "film", title: String(localized: "Edit with tabs and media"),
+                     detail: String(localized: "Open several files in tabs, with your media beside them. The Convert window and Pluck Player are part of the Editor now, with the transcript, summary, speakers and Save Frame.")),
+                Item(symbol: "text.book.closed", title: String(localized: "Find the story in an interview"),
+                     detail: String(localized: "Local AI marks the passages worth building a story with (the hook, context, key points, emotion and an ending) in the transcript and on the timeline. Keep only those in one click. It runs locally on your Mac.")),
+                Item(symbol: "captions.bubble", title: String(localized: "Subtitles your way"),
+                     detail: String(localized: "Choose the font, weight, size, colour, outline or box, shadow, italics and capitals. Drag lines on the timeline to change when they show, and add, split or join them.")),
+                Item(symbol: "character.book.closed", title: String(localized: "Names spelled right"),
+                     detail: String(localized: "Tell Pluck the names of people and companies, and every transcript and subtitle writes them correctly. Read the transcript, summary and story in English, Dutch or another language, translated on your Mac.")),
+            ]),
             Release(version: "1.19.0", items: [
                 Item(symbol: "sparkles", title: String(localized: "Local AI in the Editor"),
                      detail: String(localized: "The Editor’s sidebar finds the best moments and filler words and cuts them out, and makes subtitles you can edit, resize and drag into place before they’re burned into the export. It all runs locally on your Mac.")),

@@ -3,7 +3,8 @@
 A macOS app (SwiftUI) for downloading videos and music, in two editions built from one codebase:
 Pluck (basic) and Pluck Studio (everything; `PLUCK_EDITION`, see Package.swift and Edition.swift).
 
-- **Design:** every window follows `DESIGN.md`. Use the shared pieces in
+- **Design:** every page follows `DESIGN.md`. Pluck Studio is one window with pages; new features go
+  into a page (usually the Editor's inspector), not a new window. Use the shared pieces in
   `Sources/Pluck/DesignTokens.swift` (ToolPage, Card, CardHeader, StatusChip, InputBar, ItemRow,
   RowButton, the button styles) for every page, including new features.
 - **Studio-only code** lives in `Sources/Pluck/{AI,Edit,Remote,Studio}` and is left out of basic

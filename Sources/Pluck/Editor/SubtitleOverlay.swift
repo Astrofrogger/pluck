@@ -14,16 +14,9 @@ struct SubtitleOverlay: View {
             let text = model.subtitle(at: model.time)?.text ?? (dragStart != nil || hovering ? String(localized: "Subtitle") : nil)
             if let text {
                 let fontSize = style.fontSize(height: size.height)
-                Text(text)
-                    .font(.system(size: fontSize, weight: .bold))
-                    .foregroundStyle(style.swiftUIColor)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, style.box ? fontSize * 0.3 : 0)
-                    .padding(.vertical, style.box ? fontSize * 0.12 : 0)
-                    .background {
-                        if style.box { RoundedRectangle(cornerRadius: fontSize * 0.12).fill(.black.opacity(0.68)) }
-                    }
-                    .shadow(color: style.box ? .clear : .black.opacity(0.8), radius: fontSize / 20, y: fontSize / 30)
+                // Outline and shadow are set for a 1080-line picture, like the export.
+                let factor = size.height / 1080
+                SubtitleText(text: style.shown(text), style: style, fontSize: fontSize, factor: factor)
                     .frame(maxWidth: size.width * 0.9)
                     .overlay {
                         if dragStart != nil || hovering {
@@ -47,5 +40,45 @@ struct SubtitleOverlay: View {
                     .help("Drag to place the subtitles")
             }
         }
+    }
+}
+
+/// One subtitle drawn as it's burned in: the font, weight and colour, with an outline (the text
+/// drawn around itself in the outline's colour) or a box, and a shadow.
+struct SubtitleText: View {
+    let text: String
+    let style: SubtitleStyle
+    let fontSize: Double
+    let factor: Double
+
+    var body: some View {
+        let outline = style.box ? 0 : style.outline * factor
+        let shadow = style.shadow * factor
+        label(style.swiftUIColor)
+            .background {
+                if outline > 0.2 {
+                    ZStack {
+                        ForEach(0..<12, id: \.self) { step in
+                            let angle = Double(step) / 12 * 2 * .pi
+                            label(style.swiftUIOutline).offset(x: cos(angle) * outline, y: sin(angle) * outline)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, style.box ? fontSize * 0.3 : 0)
+            .padding(.vertical, style.box ? fontSize * 0.12 : 0)
+            .background {
+                if style.box { RoundedRectangle(cornerRadius: fontSize * 0.08).fill(style.swiftUIBox.opacity(style.boxOpacity)) }
+            }
+            .shadow(color: .black.opacity(shadow > 0 ? 0.55 : 0), radius: shadow * 0.6, x: shadow, y: shadow)
+    }
+
+    private func label(_ color: Color) -> some View {
+        Text(text)
+            .font(.custom(style.font, size: fontSize))
+            .fontWeight(style.swiftUIWeight)
+            .italic(style.italic)
+            .foregroundStyle(color)
+            .multilineTextAlignment(.center)
     }
 }
