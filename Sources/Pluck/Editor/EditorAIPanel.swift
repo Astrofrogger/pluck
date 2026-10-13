@@ -616,19 +616,33 @@ struct EditorAIPanel: View {
 
     @ViewBuilder private var summaryView: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 18) {
                 if let summary = translation?.summary ?? transcript?.summary {
-                    Text(summary)
-                        .font(.callout)
-                        .textSelection(.enabled)
+                    SidebarSection(title: Text("Summary")) {
+                        Text(summary)
+                            .font(.body)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 8)
+                            .padding(.top, 4)
+                    }
                     if let points = translation?.keyPoints ?? transcript?.keyPoints, !points.isEmpty {
-                        VStack(alignment: .leading, spacing: 6) {
-                            ForEach(points, id: \.self) { point in
-                                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                    Circle().fill(Design.Brand.gradient).frame(width: 5, height: 5)
-                                    Text(point).font(.callout).textSelection(.enabled)
+                        SidebarSection(title: Text("Key Points")) {
+                            VStack(alignment: .leading, spacing: 12) {
+                                ForEach(points, id: \.self) { point in
+                                    HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                        Circle().fill(Design.Brand.gradient).frame(width: 6, height: 6)
+                                        Text(point)
+                                            .font(.callout)
+                                            .lineSpacing(3)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                            .textSelection(.enabled)
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 8)
+                            .padding(.top, 4)
                         }
                     }
                 } else if item?.aiStatus != nil {
@@ -651,7 +665,8 @@ struct EditorAIPanel: View {
                         .help("Chapters on the timeline, from what's said")
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

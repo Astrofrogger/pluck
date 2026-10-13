@@ -54,7 +54,7 @@ final class VisualIndexer {
 
     private func run() {
         guard task == nil, let ffmpeg = manager?.tool("ffmpeg") else { return }
-        task = Task {
+        task = Task(priority: .utility) {
             while !queue.isEmpty, !Task.isCancelled {
                 let file = queue.removeFirst()
                 queued = queue.count
@@ -127,6 +127,8 @@ struct VisualSearchView: View {
     @State private var photoIndex = PhotoIndex.shared
     @State private var files: [FileSearch.Hit] = []
     @State private var photoHits: [PhotoIndex.Hit] = []
+    /// Files whose every matching shot is shown (otherwise only the best).
+    @State private var expandedFiles: Set<String> = []
     /// The question in English, for what's seen (nil until translated, or when it's English).
     @State private var englishQuery: String?
 
@@ -589,12 +591,44 @@ struct VisualSearchView: View {
         }
     }
 
+    /// One shot per file (its best), unless the file is opened up to show all its shots.
+    private var shownHits: [(hit: VisualIndex.Hit, more: Int)] {
+        var byFile: [String: [VisualIndex.Hit]] = [:], order: [String] = []
+        for hit in hits {
+            if byFile[hit.path] == nil { order.append(hit.path) }
+            byFile[hit.path, default: []].append(hit)
+        }
+        return order.flatMap { path -> [(hit: VisualIndex.Hit, more: Int)] in
+            let list = byFile[path] ?? []
+            guard let best = list.first else { return [] }
+            if expandedFiles.contains(path) { return [(best, -(list.count - 1))] + list.dropFirst().map { ($0, 0) } }
+            return [(best, list.count - 1)]
+        }
+    }
+
     private var seenSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            sectionTitle(Text("Seen"), symbol: "eye", count: hits.count)
+            sectionTitle(Text("Seen"), symbol: "eye", count: Set(hits.map(\.path)).count)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 300), spacing: 16)], spacing: 18) {
-                ForEach(hits) { hit in
+                ForEach(shownHits, id: \.hit.id) { item in
+                    let hit = item.hit
                     ShotCard(hit: hit, selected: selection.contains(hit.id))
+                        .overlay(alignment: .topTrailing) {
+                            if item.more != 0 {
+                                Button {
+                                    if expandedFiles.contains(hit.path) { expandedFiles.remove(hit.path) } else { expandedFiles.insert(hit.path) }
+                                } label: {
+                                    Text(item.more > 0 ? "+\(item.more)" : String(localized: "Fewer"))
+                                        .font(.caption.weight(.semibold))
+                                        .padding(.horizontal, 8).padding(.vertical, 3)
+                                        .background(.black.opacity(0.6), in: .capsule)
+                                        .foregroundStyle(.white)
+                                }
+                                .buttonStyle(.plain)
+                                .padding(8)
+                                .help(item.more > 0 ? "More shots from this file" : "Show only the best shot")
+                            }
+                        }
                         .onTapGesture {
                             if NSApp.currentEvent?.modifierFlags.contains(.command) == true {
                                 if selection.contains(hit.id) { selection.remove(hit.id) } else { selection.insert(hit.id) }

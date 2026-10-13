@@ -26,100 +26,6 @@ struct ProjectClip: Codable, Identifiable, Hashable {
     var name: String { title ?? file.deletingPathExtension().lastPathComponent }
 }
 
-/// How a clip's picture sits in the frame, as in DaVinci Resolve's Video inspector.
-struct ClipLook: Codable, Hashable {
-    enum Scaling: String, Codable, CaseIterable, Identifiable {
-        case fit, fill, stretch
-        var id: String { rawValue }
-        var title: LocalizedStringKey {
-            switch self {
-            case .fit: "Fit"
-            case .fill: "Fill"
-            case .stretch: "Stretch"
-            }
-        }
-    }
-
-    var scaling = Scaling.fit
-    var zoom = 1.0
-    /// Where it sits: shares of the frame's width and height from the middle (up is positive).
-    var x = 0.0
-    var y = 0.0
-    /// Degrees, anticlockwise.
-    var rotation = 0.0
-    var flipH = false
-    var flipV = false
-    /// Cut from each side, as shares of the picture.
-    var cropLeft = 0.0
-    var cropRight = 0.0
-    var cropTop = 0.0
-    var cropBottom = 0.0
-    /// Dynamic zoom: from `zoom` at the start to this at the end (nil: none).
-    var zoomEnd: Double?
-    var opacity = 1.0
-    var speed = 1.0
-    /// Smooths shaky footage (on export).
-    var stabilize = false
-
-    var isDefault: Bool { self == ClipLook() }
-    var hasCrop: Bool { cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0 }
-
-    /// The zoom this far (0…1) through the clip, eased in and out.
-    func zoom(at progress: Double) -> Double {
-        guard let zoomEnd else { return zoom }
-        let t = min(max(progress, 0), 1), eased = t * t * (3 - 2 * t)
-        return max(zoom, 1) + (max(zoomEnd, 1) - max(zoom, 1)) * eased
-    }
-
-    init() {}
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback }
-        scaling = value(.scaling, Scaling.fit); zoom = value(.zoom, 1); x = value(.x, 0); y = value(.y, 0); rotation = value(.rotation, 0)
-        flipH = value(.flipH, false); flipV = value(.flipV, false)
-        cropLeft = value(.cropLeft, 0); cropRight = value(.cropRight, 0); cropTop = value(.cropTop, 0); cropBottom = value(.cropBottom, 0)
-        zoomEnd = value(.zoomEnd, nil as Double?); opacity = value(.opacity, 1); speed = value(.speed, 1); stabilize = value(.stabilize, false)
-    }
-}
-
-extension ClipLook {
-    /// The picture placed in a frame of this size, `progress` (0…1) through the clip: fitted,
-    /// cropped, flipped, zoomed, turned and moved, on black.
-    static func place(_ image: CIImage, look: ClipLook?, progress: Double, in size: CGSize) -> CIImage {
-        let look = look ?? ClipLook()
-        let extent = image.extent
-        let width = max(extent.width, 1), height = max(extent.height, 1)
-        var sx = min(size.width / width, size.height / height), sy = sx
-        switch look.scaling {
-        case .fit: break
-        case .fill: sx = max(size.width / width, size.height / height); sy = sx
-        case .stretch: sx = size.width / width; sy = size.height / height
-        }
-        var picture = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY).concatenating(CGAffineTransform(scaleX: sx, y: sy)))
-        let w = width * sx, h = height * sy
-        if look.hasCrop {
-            picture = picture.cropped(to: CGRect(x: w * look.cropLeft, y: h * look.cropBottom,
-                                                 width: max(w * (1 - look.cropLeft - look.cropRight), 1),
-                                                 height: max(h * (1 - look.cropTop - look.cropBottom), 1)))
-        }
-        let zoom = look.zoom(at: progress)
-        let transform = CGAffineTransform(translationX: -w / 2, y: -h / 2)
-            .concatenating(CGAffineTransform(scaleX: (look.flipH ? -1 : 1) * zoom, y: (look.flipV ? -1 : 1) * zoom))
-            .concatenating(CGAffineTransform(rotationAngle: look.rotation * .pi / 180))
-            .concatenating(CGAffineTransform(translationX: size.width / 2 + look.x * size.width, y: size.height / 2 + look.y * size.height))
-        picture = picture.transformed(by: transform)
-        if look.opacity < 1 {
-            let o = CGFloat(max(look.opacity, 0))
-            picture = picture.applyingFilter("CIColorMatrix", parameters: ["inputRVector": CIVector(x: o, y: 0, z: 0, w: 0),
-                                                               "inputGVector": CIVector(x: 0, y: o, z: 0, w: 0),
-                                                               "inputBVector": CIVector(x: 0, y: 0, z: o, w: 0)])
-        }
-        let frame = CGRect(origin: .zero, size: size)
-        return picture.composited(over: CIImage(color: .black).cropped(to: frame)).cropped(to: frame)
-    }
-}
-
 /// Music under the clips: a song (or any sound), from a point in the timeline.
 struct ProjectMusic: Codable, Identifiable, Hashable {
     var id = UUID()
@@ -302,6 +208,8 @@ final class ProjectModel {
     var storyProblem: String?
     var storyPassages: [ProjectStory.Passage] = []
     var sendingToResolve = false
+    /// Each file's picture size (turned upright), for the viewer's on-screen controls.
+    var pictureSizes: [String: CGSize] = [:]
 
     private(set) var project: Project
     let player = AVPlayer()
@@ -675,6 +583,9 @@ final class ProjectModel {
         }
     }
 
+    /// Builds the picture again (a steadied copy is ready, transcripts changed…).
+    func refresh() { rebuild() }
+
     private func rebuild() {
         rebuildTask?.cancel()
         rebuildTask = Task { await build() }
@@ -692,12 +603,18 @@ final class ProjectModel {
         var looks: [(start: Double, end: Double, look: ClipLook?)] = []
         for clip in clips {
             let asset = AVURLAsset(url: await playableURL(for: clip.file))
+            // Stabilized: the picture from the steadied copy (same times), the sound as it was.
+            let pictures = clip.look?.stabilize == true ? Stabilizer.copy(for: clip.path).map { AVURLAsset(url: $0) } ?? asset : asset
             let source = CMTimeRange(start: CMTime(seconds: clip.start, preferredTimescale: 600),
                                      duration: CMTime(seconds: max(clip.end - clip.start, 0), preferredTimescale: 600))
             let range = CMTimeRange(start: source.start, duration: CMTime(seconds: clip.length, preferredTimescale: 600))
             looks.append((cursor.seconds, cursor.seconds + clip.length, clip.look))
-            if let track = try? await asset.loadTracks(withMediaType: .video).first {
+            if let track = try? await pictures.loadTracks(withMediaType: .video).first {
                 try? video.insertTimeRange(source, of: track, at: cursor)
+                if let natural = try? await track.load(.naturalSize), let turn = try? await track.load(.preferredTransform) {
+                    let turned = natural.applying(turn)
+                    pictureSizes[clip.path] = CGSize(width: abs(turned.width), height: abs(turned.height))
+                }
                 if clip.speed != 1 { video.scaleTimeRange(CMTimeRange(start: cursor, duration: source.duration), toDuration: range.duration) }
                 if firstSize == nil, let size = try? await track.load(.naturalSize), let transform = try? await track.load(.preferredTransform) {
                     let turned = size.applying(transform)

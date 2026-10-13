@@ -9,6 +9,22 @@ final class PhotoEditing {
     var cropping = false
     /// The photo is shown as shot while \ is held.
     var asShot = false
+    /// How far in the photo is shown: nil fits it in the view; 1 is 100% (one photo pixel per
+    /// screen pixel). Z toggles fit and 100%, ⌘+ and ⌘− step, pinching goes anywhere between.
+    var zoom: Double?
+    var zoomed: Bool {
+        get { zoom != nil }
+        set { zoom = newValue ? (zoom ?? 1) : nil }
+    }
+    static let zoomSteps: [Double] = [0.25, 0.5, 1, 2, 4]
+
+    func zoomIn() { zoom = Self.zoomSteps.first { $0 > (zoom ?? 0.2) + 0.001 } ?? Self.zoomSteps.last }
+    func zoomOut() {
+        guard let current = zoom else { return }
+        zoom = Self.zoomSteps.last { $0 < current - 0.001 }
+    }
+    /// The big picture's histogram (red, green, blue in 64 steps).
+    var histogram: [[Float]] = []
     /// Photos having their noise taken out (kept here, so it goes on when you look elsewhere).
     private(set) var denoising: Set<String> = []
     private(set) var denoiseProblem: String?
@@ -20,7 +36,7 @@ final class PhotoEditing {
     var exportFolder: URL?
 
     /// Denoises these photos one after the other, then uses the clean ones to develop them.
-    func denoise(_ paths: [String], strength: Int) {
+    func denoise(_ paths: [String], strength: Int, ai: Bool = false) {
         let waiting = paths.filter { !denoising.contains($0) }
         guard !waiting.isEmpty else { return }
         denoising.formUnion(waiting)
@@ -28,8 +44,8 @@ final class PhotoEditing {
         Task {
             for path in waiting {
                 do {
-                    try await PhotoRender.denoise(path, strength: strength, worker: 5)
-                    PhotoCatalog.shared.update([path]) { $0.denoise = strength; $0.edited = .now }
+                    try await PhotoRender.denoise(path, strength: ai ? 1000 + strength : strength, worker: 5)
+                    PhotoCatalog.shared.update([path]) { $0.denoise = strength; $0.denoiseAI = ai; $0.edited = .now }
                 } catch {
                     denoiseProblem = error.localizedDescription
                 }
@@ -288,13 +304,32 @@ struct CropOverlay: View {
     let pictureRatio: Double
     let rect: CropRect
     let ratio: Double?
+    var angle: Double = 0
     let change: (CropRect) -> Void
+    /// Straightening by dragging outside the frame (degrees).
+    var rotate: ((Double) -> Void)?
     @State private var start: CropRect?
+    @State private var angleStart: Double?
 
     var body: some View {
         let box = CGRect(x: frame.minX + rect.x * frame.width, y: frame.minY + rect.y * frame.height,
                          width: rect.width * frame.width, height: rect.height * frame.height)
         ZStack {
+            // Outside the frame: drag round it to turn the photo.
+            Color.clear
+                .contentShape(.rect)
+                .gesture(DragGesture(minimumDistance: 2)
+                    .onChanged { value in
+                        guard let rotate else { return }
+                        if angleStart == nil { angleStart = angle }
+                        let c = CGPoint(x: box.midX, y: box.midY)
+                        let a0 = atan2(value.startLocation.y - c.y, value.startLocation.x - c.x)
+                        let a1 = atan2(value.location.y - c.y, value.location.x - c.x)
+                        var delta = (a1 - a0) * 180 / .pi
+                        if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
+                        rotate(min(max((angleStart ?? 0) - delta, -45), 45))
+                    }
+                    .onEnded { _ in angleStart = nil })
             // Dim what's cut away.
             Path { p in
                 p.addRect(frame)
@@ -363,7 +398,10 @@ struct CropOverlay: View {
                 if top { minY = min(max(from.y + dy, 0), maxY - 0.05) }
                 if bottom { maxY = max(min(from.y + from.height + dy, 1), minY + 0.05) }
                 r = CropRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
-                if let ratio { r = keep(r, ratio: ratio, left: left, top: top, sizingWidth: left || right) }
+                // Shift keeps the shape it had (in free crops too).
+                let shift = NSEvent.modifierFlags.contains(.shift)
+                let locked = ratio ?? (shift ? from.width * pictureRatio / max(from.height, 0.0001) : nil)
+                if let locked { r = keep(r, ratio: locked, left: left, top: top, sizingWidth: left || right) }
                 change(r)
             }
             .onEnded { _ in start = nil }
@@ -398,5 +436,286 @@ struct CropOverlay: View {
         }
         let width = ratio / pictureRatio
         return CropRect(x: (1 - width) / 2, y: 0, width: width, height: 1)
+    }
+}
+
+// MARK: - Sections that fold
+
+/// A sidebar section you can fold away by its title; remembers whether it's open.
+struct FoldSection<Content: View>: View {
+    let title: LocalizedStringKey
+    let key: String
+    var open = true
+    @ViewBuilder var content: Content
+    @AppStorage private var isOpen: Bool
+
+    init(title: LocalizedStringKey, key: String, open: Bool = true, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.key = key
+        self.open = open
+        self.content = content()
+        _isOpen = AppStorage(wrappedValue: open, "fold-" + key)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Button {
+                withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(title).font(.caption2.weight(.semibold)).textCase(.uppercase)
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                }
+                .foregroundStyle(.tertiary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            if isOpen { content }
+        }
+    }
+}
+
+// MARK: - Colour mixer
+
+/// Hue, saturation and luminance for eight bands of colour.
+struct ColorMixerEditor: View {
+    let mixer: ColorMixer
+    let change: (ColorMixer) -> Void
+    @AppStorage("mixerAspect") private var aspect = 1
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Picker("", selection: $aspect) {
+                Text("Hue").tag(0)
+                Text("Saturation").tag(1)
+                Text("Luminance").tag(2)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
+            ForEach(ColorMixer.Band.allCases) { band in
+                let value = values[band.rawValue]
+                HStack(spacing: 8) {
+                    Circle().fill(Color(hue: swatchHue(band), saturation: 0.75, brightness: 0.9)).frame(width: 10, height: 10)
+                    Text(band.title).foregroundStyle(.secondary).lineLimit(1).frame(width: 66, alignment: .leading)
+                    Slider(value: Binding(get: { value }, set: { set(band, $0) }), in: -100...100)
+                    Text(String(format: "%+.0f", value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
+                        .frame(width: 34, alignment: .trailing)
+                        .onTapGesture(count: 2) { set(band, 0) }
+                }
+                .font(.callout)
+                .controlSize(.small)
+                .padding(.horizontal, 8)
+                .frame(minHeight: 24)
+            }
+        }
+    }
+
+    private var values: [Double] {
+        switch aspect {
+        case 0: mixer.hue
+        case 2: mixer.luminance
+        default: mixer.saturation
+        }
+    }
+
+    private func set(_ band: ColorMixer.Band, _ value: Double) {
+        var new = mixer
+        switch aspect {
+        case 0: new.hue[band.rawValue] = value
+        case 2: new.luminance[band.rawValue] = value
+        default: new.saturation[band.rawValue] = value
+        }
+        change(new)
+    }
+
+    private func swatchHue(_ band: ColorMixer.Band) -> Double {
+        [0.0, 0.08, 0.15, 0.33, 0.5, 0.62, 0.75, 0.88][band.rawValue]
+    }
+}
+
+// MARK: - spektrafilm's settings as dials
+
+/// spektrafilm's own settings, named for people and given a sensible range from their defaults.
+enum FilmDial {
+    /// Plumbing Pluck sets itself (colour spaces, lookup tables, preview sizes): not shown.
+    static func isHidden(_ key: String) -> Bool {
+        key.hasPrefix("io.") || key.hasPrefix("settings.")
+    }
+
+    static func group(of key: String) -> String {
+        let parts = key.split(separator: ".")
+        return parts.dropLast().joined(separator: ".")
+    }
+
+    static func groups(_ keys: some Collection<String>) -> [String] {
+        Array(Set(keys.filter { !isHidden($0) }.map(group))).sorted()
+    }
+
+    static func title(group: String) -> String {
+        let parts = group.split(separator: ".").map(String.init)
+        let stage: String = switch parts.first {
+        case "camera": String(localized: "Camera")
+        case "enlarger": String(localized: "Enlarger")
+        case "film_render": String(localized: "Film")
+        case "print_render": String(localized: "Paper")
+        case "scanner": String(localized: "Scanner")
+        default: words(parts.first ?? "")
+        }
+        return ([stage] + parts.dropFirst().map(words)).joined(separator: " · ")
+    }
+
+    static func words(_ name: String) -> String {
+        let replaced = name.split(separator: "_").map { word -> String in
+            switch word {
+            case "um": "µm"
+            case "um2": "µm²"
+            case "ev": "EV"
+            case "agx": "AgX"
+            case "rgb": "RGB"
+            case "ir": "IR"
+            case "uv": "UV"
+            case "dir": "DIR"
+            default: String(word)
+            }
+        }.joined(separator: " ")
+        return replaced.prefix(1).uppercased() + replaced.dropFirst()
+    }
+
+    /// A range around the default that makes sense for the kind of setting.
+    static func range(_ key: String, _ value: Double) -> ClosedRange<Double> {
+        let name = key.lowercased()
+        if name.hasSuffix("_ev") || name.contains("_ev_") { return -4...4 }
+        if name.contains("shift") { return -40...40 }
+        if name.contains("warmth") { return -1...1 }
+        if name.contains("percent") { return 0...max(0.2, value * 3) }
+        if name.contains("neutral") { return 0...200 }
+        if value == 0 { return 0...1 }
+        if value < 0 { return value * 3...0 }
+        return 0...max(value * 2.5, value + 1)
+    }
+
+    static func isWhole(_ key: String) -> Bool {
+        key.contains("n_bounces") || key.contains("n_sub_layers") || key.contains("neutral")
+    }
+}
+
+/// One group of spektrafilm's settings (the halation, the grain, the enlarger…), folded away.
+struct FilmDialGroup: View {
+    let group: String
+    let keys: [String]
+    let value: (String) -> SettingValue?
+    let isChanged: (String) -> Bool
+    let set: (String, SettingValue) -> Void
+    let reset: (String) -> Void
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button { withAnimation(.snappy(duration: 0.2)) { open.toggle() } } label: {
+                HStack {
+                    Text(FilmDial.title(group: group)).font(.callout.weight(.medium))
+                    if keys.contains(where: isChanged) { Circle().fill(Color.accentColor).frame(width: 6, height: 6) }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            if open {
+                ForEach(keys.filter { !FilmDial.isHidden($0) }, id: \.self) { key in row(key) }
+            }
+        }
+    }
+
+    @ViewBuilder private func row(_ key: String) -> some View {
+        let name = FilmDial.words(String(key.split(separator: ".").last ?? ""))
+        switch value(key) {
+        case .flag(let on):
+            line(name, key: key) {
+                Toggle(name, isOn: Binding(get: { on }, set: { set(key, .flag($0)) })).toggleStyle(.switch).controlSize(.mini).labelsHidden()
+                Spacer()
+            }
+        case .number(let number):
+            dial(name, key: key, value: number, range: FilmDial.range(key, number)) { set(key, .number($0)) }
+        case .numbers(let numbers):
+            let labels = numbers.count == 3 ? ["R", "G", "B"] : numbers.indices.map { "\($0 + 1)" }
+            ForEach(numbers.indices, id: \.self) { i in
+                dial(name + " " + labels[i], key: key, value: numbers[i], range: FilmDial.range(key, numbers[i])) { new in
+                    var list = numbers
+                    list[i] = new
+                    set(key, .numbers(list))
+                }
+            }
+        case .text(let text):
+            line(name, key: key) {
+                TextField(name, text: Binding(get: { text }, set: { set(key, .text($0)) }))
+                    .textFieldStyle(.roundedBorder).controlSize(.mini).labelsHidden()
+            }
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private func line<Content: View>(_ name: String, key: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: 8) {
+            Text(name).font(.caption).foregroundStyle(isChanged(key) ? .primary : .secondary).lineLimit(1)
+                .frame(width: 112, alignment: .leading)
+                .help(key)
+            content()
+        }
+        .padding(.leading, 16).padding(.trailing, 8)
+        .frame(minHeight: 22)
+    }
+
+    private func dial(_ name: String, key: String, value: Double, range: ClosedRange<Double>, set: @escaping (Double) -> Void) -> some View {
+        let whole = FilmDial.isWhole(key)
+        let low = min(range.lowerBound, value), high = max(range.upperBound, value)
+        return line(name, key: key) {
+            Slider(value: Binding(get: { value }, set: { set(whole ? $0.rounded() : $0) }), in: low...high)
+                .controlSize(.mini)
+            Text(whole ? String(format: "%.0f", value) : String(format: abs(value) < 10 ? "%.3g" : "%.0f", value))
+                .font(.caption2.monospacedDigit())
+                .frame(width: 38, alignment: .trailing)
+                .onTapGesture(count: 2) { reset(key) }
+                .help("Double-click to reset")
+        }
+    }
+}
+
+// MARK: - Histogram
+
+/// The photo's red, green and blue, as in Lightroom, over the Adjust panel.
+struct HistogramView: View {
+    let bins: [[Float]]
+
+    var body: some View {
+        Canvas { context, size in
+            guard bins.count == 3 else { return }
+            let colours: [Color] = [.red, .green, .blue]
+            for (channel, values) in bins.enumerated() {
+                var path = Path()
+                path.move(to: CGPoint(x: 0, y: size.height))
+                for (i, v) in values.enumerated() {
+                    path.addLine(to: CGPoint(x: size.width * CGFloat(i) / CGFloat(values.count - 1), y: size.height * (1 - CGFloat(v))))
+                }
+                path.addLine(to: CGPoint(x: size.width, y: size.height))
+                path.closeSubpath()
+                context.fill(path, with: .color(colours[channel].opacity(0.45)))
+            }
+        }
+        .blendMode(.plusLighter)
+        .frame(height: 64)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(.black.opacity(0.35)))
+        .clipShape(RoundedRectangle(cornerRadius: Design.Radius.small))
+        .padding(.horizontal, 8)
     }
 }

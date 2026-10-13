@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "2.2.0", items: [
+                Item(symbol: "camera.aperture", title: String(localized: "A real RAW developer"),
+                     detail: String(localized: "Every camera starts from the same neutral point, with profiles, Kelvin white balance and highlights and shadows that recover without halos. Masks, colour mixer, Auto, live histogram and zoom up to 400%. Your originals are never changed.")),
+                Item(symbol: "film", title: String(localized: "Film, fast"),
+                     detail: String(localized: "spektrafilm now runs in darktable’s native version: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.")),
+                Item(symbol: "rectangle.stack", title: String(localized: "Cull, then edit"),
+                     detail: String(localized: "Grid, Cull and Edit views, crop with rotation and locked ratios, and keys you can change in Settings. AI denoise is an optional download that runs locally on your Mac.")),
+                Item(symbol: "film.stack", title: String(localized: "Editing like an NLE"),
+                     detail: String(localized: "A full-width timeline, drag to transform and zoom on the picture, dynamic zoom with start and end frames, stabilization you can preview, and clip colour with LUTs, for projects and single files alike.")),
+            ]),
             Release(version: "2.1.0", items: [
                 Item(symbol: "camera.aperture", title: String(localized: "Photo"),
                      detail: String(localized: "A new page to cull and edit photos: ratings, picks, albums in folders, live adjustments, curves, colour wheels, crop, presets and denoise. Add real film looks with spektrafilm, an optional download.")),

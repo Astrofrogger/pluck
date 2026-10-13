@@ -47,12 +47,21 @@ fi
 if [[ "$EDITION" == studio ]]; then
 # The bridge to spektrafilm (film simulation), which Pluck downloads separately when asked.
 mkdir -p "$APP/Contents/Resources/FilmEngine"
-cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/NOTICE.txt "$APP/Contents/Resources/FilmEngine/"
+cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/NOTICE.txt Resources/FilmEngine/COPYING "$APP/Contents/Resources/FilmEngine/"
 # The vision helper (Qwen on the GPU with MLX): Apple silicon only, so it's built on its own and
 # Intel Macs simply don't have it. Its Metal kernels sit next to it in the Cmlx bundle.
 (cd Helpers/PluckVision && swift build -c release --arch arm64 >/dev/null)
 VBIN="$(cd Helpers/PluckVision && swift build -c release --arch arm64 --show-bin-path)"
 mkdir -p "$APP/Contents/Helpers"
+# The film engine: darktable's native spektrafilm port with Pluck's driver (GPL-3, its own program).
+if [[ "$EDITION" != "basic" ]]; then
+  SPK=Helpers/PluckSpektra
+  clang -O3 -std=gnu11 -ffp-contract=off -fblocks -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 \
+    -I$SPK/shim -I$SPK/darktable -I$SPK/shim/common -w \
+    $SPK/main.c $SPK/darktable/spektra_sim.c $SPK/darktable/spektra_core.c $SPK/shim/shim.c \
+    -o "$APP/Contents/Helpers/pluck-spektra"
+  codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-spektra"
+fi
 cp "$VBIN/pluck-vision" "$APP/Contents/Helpers/pluck-vision"
 cp -R "$VBIN/mlx-swift_Cmlx.bundle" "$APP/Contents/Helpers/"
 codesign --force --sign - "$APP/Contents/Helpers/mlx-swift_Cmlx.bundle"

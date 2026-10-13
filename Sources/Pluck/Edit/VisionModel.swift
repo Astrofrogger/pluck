@@ -224,6 +224,8 @@ actor VisionRunner {
         let process = Process()
         process.executableURL = helper
         process.arguments = [choice.folder.path]
+        // In the background: describing footage shouldn't slow down what you're doing.
+        process.qualityOfService = .utility
         let stdin = Pipe(), stdout = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout

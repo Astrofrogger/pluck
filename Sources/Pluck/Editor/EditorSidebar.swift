@@ -8,11 +8,12 @@ struct EditorSidebar: View {
     @AppStorage("editorSidebarTab") private var tab = Tab.ai
 
     enum Tab: String, CaseIterable, Identifiable {
-        case ai, transcript, subtitles, marks, export
+        case ai, transcript, subtitles, picture, marks, export
         var id: String { rawValue }
 
         var symbol: String {
             switch self {
+            case .picture: "crop.rotate"
             case .transcript: "text.quote"
             case .ai: "sparkles"
             case .subtitles: "captions.bubble"
@@ -26,6 +27,7 @@ struct EditorSidebar: View {
             case .transcript: "Transcript"
             case .ai: "Local AI"
             case .subtitles: "Subtitles"
+            case .picture: "Picture"
             case .marks: "Timeline"
             case .export: "Export"
             }
@@ -75,6 +77,19 @@ struct EditorSidebar: View {
                 case .subtitles: EditorAIPanel(model: model, part: .subtitles)
                 #endif
                 case .export: EditorExportPanel(model: model)
+                case .picture:
+                    #if STUDIO
+                    ScrollView {
+                        ClipLookEditor(look: model.look ?? ClipLook(), path: model.file.path, showsSpeed: false) { record, body in
+                            model.changeLook(record: record, body)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 12)
+                    }
+                    .onChange(of: Stabilizer.shared.finished) { _, _ in Task { await model.applyLook() } }
+                    #else
+                    EmptyView()
+                    #endif
                 default: marks
                 }
             }

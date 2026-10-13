@@ -177,38 +177,67 @@ struct PhotoInspector: View {
     // MARK: - Adjust
 
     private var adjust: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            presets
-            SidebarSection(title: Text("Light")) {
-                slider("Exposure", \.exposure, -4...4, format: "%+.2f")
+        let raw = shown.map(PhotoRender.isRaw) ?? false
+        return VStack(alignment: .leading, spacing: 10) {
+            if !editing.histogram.isEmpty { HistogramView(bins: editing.histogram) }
+            HStack(spacing: 8) {
+                Picker("Profile", selection: Binding(get: { record.adjust.profile ?? (raw ? .neutral : .asShot) },
+                                                     set: { value in change { $0.adjust.profile = value } })) {
+                    ForEach(PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : true }) { Text($0.title).tag($0) }
+                }
+                .fixedSize()
+                .help("The starting point: how the light becomes a picture, the same for every camera")
+                Spacer(minLength: 0)
+                Button("Auto") { autoTone() }
+                    .help("Exposure, highlights, shadows, whites and blacks for this photo")
+                presetsMenu
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+            FoldSection(title: "Light", key: "light") {
+                slider("Exposure", \.exposure, -5...5, format: "%+.2f")
                 slider("Contrast", \.contrast, -100...100)
                 slider("Highlights", \.highlights, -100...100)
                 slider("Shadows", \.shadows, -100...100)
                 slider("Whites", \.whites, -100...100)
                 slider("Blacks", \.blacks, -100...100)
             }
-            SidebarSection(title: Text("Colour")) {
-                slider("Temperature", \.temperature, -100...100)
+            FoldSection(title: "Colour", key: "colour") {
+                if raw, let path = shown {
+                    let kelvin = PhotoEngine.kelvin(record.adjust, asShot: PhotoRender.asShotKelvin(path))
+                    slider("Temperature", \.temperature, -100...100, label: "\(Int((kelvin / 50).rounded() * 50)) K")
+                } else {
+                    slider("Temperature", \.temperature, -100...100)
+                }
                 slider("Tint", \.tint, -100...100)
                 slider("Vibrance", \.vibrance, -100...100)
                 slider("Saturation", \.saturation, -100...100)
             }
-            SidebarSection(title: Text("Curves")) {
-                CurvesEditor(curves: record.adjust.curves) { curves in change { $0.adjust.curves = curves } }
-            }
-            SidebarSection(title: Text("Colour Wheels")) {
-                ColorWheelsEditor(wheels: record.adjust.wheels) { wheels in change { $0.adjust.wheels = wheels } }
-            }
-            SidebarSection(title: Text("Detail")) {
+            FoldSection(title: "Presence", key: "presence") {
+                slider("Texture", \.texture, -100...100)
                 slider("Clarity", \.clarity, -100...100)
-                slider("Sharpen", \.sharpen, 0...100)
-                slider("Noise", \.noise, 0...100)
+                slider("Dehaze", \.dehaze, -100...100)
                 slider("Vignette", \.vignette, -100...100)
             }
-            denoise
-            SidebarSection(title: Text("Crop")) {
-                HStack {
-                    Text("Aspect").foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+            FoldSection(title: "Masks", key: "masks", open: false) {
+                masksSection
+            }
+            FoldSection(title: "Colour Mixer", key: "mixer", open: false) {
+                ColorMixerEditor(mixer: record.adjust.mixer) { mixer in change { $0.adjust.mixer = mixer } }
+            }
+            FoldSection(title: "Curves", key: "curves", open: false) {
+                CurvesEditor(curves: record.adjust.curves) { curves in change { $0.adjust.curves = curves } }
+            }
+            FoldSection(title: "Colour Wheels", key: "wheels", open: false) {
+                ColorWheelsEditor(wheels: record.adjust.wheels) { wheels in change { $0.adjust.wheels = wheels } }
+            }
+            FoldSection(title: "Detail", key: "detail", open: false) {
+                slider("Sharpen", \.sharpen, 0...100)
+                slider("Noise", \.noise, 0...100)
+                denoise
+            }
+            FoldSection(title: "Crop", key: "crop") {
+                HStack(spacing: 6) {
                     Picker("Aspect", selection: Binding(get: { record.adjust.crop }, set: { value in
                         change { $0.adjust.crop = value; $0.adjust.cropRect = nil }
                         if value != .original { editing.cropping = true }
@@ -216,6 +245,14 @@ struct PhotoInspector: View {
                         ForEach(PhotoAdjustments.Crop.allCases) { Text($0.title).tag($0) }
                     }
                     .labelsHidden()
+                    Button {
+                        change { $0.adjust.cropPortrait = !($0.adjust.cropPortrait ?? portraitPhoto); $0.adjust.cropRect = nil }
+                    } label: {
+                        Image(systemName: (record.adjust.cropPortrait ?? portraitPhoto) ? "rectangle.portrait" : "rectangle")
+                    }
+                    .disabled(record.adjust.crop.shortOverLong == nil || record.adjust.crop == .square)
+                    .help("Turn the crop upright or on its side (X)")
+                    Spacer()
                     Button(editing.cropping ? "Done" : "Crop") { editing.cropping.toggle() }
                         .help("Show the crop frame on the photo (C)")
                 }
@@ -230,44 +267,171 @@ struct PhotoInspector: View {
         }
     }
 
+    private var masksSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                ForEach(PhotoMask.Kind.allCases, id: \.self) { kind in
+                    Button(kind == .subject ? "Select Subject" : "Select Background", systemImage: kind.symbol) {
+                        change { $0.adjust.masks.append(PhotoMask(kind: kind)) }
+                    }
+                }
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+            ForEach(record.adjust.masks) { mask in
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack {
+                        Label(mask.kind.title, systemImage: mask.kind.symbol).font(.callout.weight(.medium))
+                        Spacer()
+                        Button { change { $0.adjust.masks.removeAll { $0.id == mask.id } } } label: { Image(systemName: "trash") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 8)
+                    maskSlider("Exposure", mask, \.exposure, -3...3, "%+.2f")
+                    maskSlider("Contrast", mask, \.contrast, -100...100, "%+.0f")
+                    maskSlider("Saturation", mask, \.saturation, -100...100, "%+.0f")
+                    maskSlider("Warmth", mask, \.warmth, -100...100, "%+.0f")
+                    maskSlider("Clarity", mask, \.clarity, -100...100, "%+.0f")
+                }
+                .padding(.vertical, 4)
+                .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(Color.primary.opacity(0.04)))
+            }
+        }
+    }
+
+    private func maskSlider(_ title: LocalizedStringKey, _ mask: PhotoMask, _ path: WritableKeyPath<PhotoMask, Double>,
+                            _ range: ClosedRange<Double>, _ format: String) -> some View {
+        let value = mask[keyPath: path]
+        return HStack(spacing: 8) {
+            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 84, alignment: .leading)
+            Slider(value: Binding(get: { value }, set: { new in
+                change { record in if let i = record.adjust.masks.firstIndex(where: { $0.id == mask.id }) { record.adjust.masks[i][keyPath: path] = new } }
+            }), in: range)
+            Text(String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
+                .frame(width: 44, alignment: .trailing)
+        }
+        .font(.callout)
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .frame(minHeight: 24)
+    }
+
+    /// Lightroom's Auto, from the photo developed plain, for each photo being edited.
+    private func autoTone() {
+        let targets = paths
+        Task {
+            for path in targets {
+                var plain = PhotoRecord()
+                plain.adjust.profile = catalog.record(path).adjust.profile
+                guard let picture = await PhotoRender.quick(path, record: plain, maxSize: 512) else { continue }
+                let found = PhotoEngine.auto(picture)
+                catalog.update([path]) { record in
+                    record.adjust.exposure = found.exposure
+                    record.adjust.highlights = found.highlights
+                    record.adjust.shadows = found.shadows
+                    record.adjust.whites = found.whites
+                    record.adjust.blacks = found.blacks
+                    record.adjust.vibrance = found.vibrance
+                    record.edited = .now
+                }
+            }
+        }
+    }
+
+    private var portraitPhoto: Bool { shown.map(PhotoRender.isPortrait) ?? false }
+
     @State private var denoiseStrength = 50.0
     @State private var film = FilmEngine.shared
 
-    /// Denoise: a slower, better noise reduction at full size, done once and kept.
+    @AppStorage("photoDenoiseAI") private var denoiseAI = false
+
+    /// Denoise: a slower, better noise reduction at full size, done once and kept. Standard
+    /// (non-local means) or AI (a network trained on real camera noise, an optional download).
     private var denoise: some View {
-        SidebarSection(title: Text("Denoise")) {
-            let busy = paths.filter(editing.denoising.contains).count
-            VStack(alignment: .leading, spacing: 6) {
-                if film.state != .ready {
-                    Text("Uses the photo engine. Get it in the Film tab.").font(.caption).foregroundStyle(.secondary)
-                } else if busy > 0 {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small)
-                        Text("Removing noise from ^[\(busy) photo](inflect: true)…").font(.callout).foregroundStyle(.secondary)
-                    }
+        let busy = paths.filter(editing.denoising.contains).count
+        return VStack(alignment: .leading, spacing: 6) {
+            if film.denoiseEngine != .ready {
+                switch film.denoiseEngine {
+                case .installing:
+                    ProgressView(value: film.denoiseProgress)
+                    Text("Getting the denoise engine…").font(.caption).foregroundStyle(.secondary)
+                case .failed(let message):
+                    ProblemLabel(text: message)
+                    Button("Try Again") { film.installDenoiseEngine() }
+                default:
+                    Text("Removes noise at full size, done once per photo. Runs on this Mac.").font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Get Denoise (\(FilmEngine.denoiseEngineDownloadMB) MB)", systemImage: "arrow.down") { film.installDenoiseEngine() }
+                }
+            } else if busy > 0 {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Removing noise from ^[\(busy) photo](inflect: true)…").font(.callout).foregroundStyle(.secondary)
+                }
+            } else {
+                Picker("Denoise", selection: $denoiseAI) {
+                    Text("Standard").tag(false)
+                    Text("AI").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                if denoiseAI, film.denoiser != .ready {
+                    aiOffer
                 } else {
                     HStack(spacing: 8) {
-                        Slider(value: $denoiseStrength, in: 10...100, step: 5).controlSize(.small)
+                        Slider(value: $denoiseStrength, in: 10...100, step: 5)
                         Text(verbatim: "\(Int(denoiseStrength))").font(.caption.monospacedDigit()).frame(width: 26, alignment: .trailing)
-                        Button(record.denoise > 0 ? "Redo" : "Denoise") { editing.denoise(paths, strength: Int(denoiseStrength)) }
-                            .controlSize(.small)
-                    }
-                    if record.denoise > 0 {
-                        HStack {
-                            Label("Denoised at \(record.denoise)", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Remove") { change { $0.denoise = 0 } }.buttonStyle(.link).font(.caption)
+                        Button(record.denoise > 0 ? "Redo" : "Denoise") {
+                            editing.denoise(paths, strength: Int(denoiseStrength), ai: denoiseAI)
                         }
                     }
                 }
-                if let problem = editing.denoiseProblem { ProblemLabel(text: problem) }
+                if record.denoise > 0 {
+                    HStack {
+                        Label(record.denoiseAI ? "AI denoised at \(record.denoise)" : "Denoised at \(record.denoise)", systemImage: "checkmark.circle.fill")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Remove") { change { $0.denoise = 0; $0.denoiseAI = false } }.buttonStyle(.link).font(.caption)
+                    }
+                }
             }
-            .padding(.horizontal, 8)
+            if let problem = editing.denoiseProblem { ProblemLabel(text: problem) }
         }
-        .onAppear { if record.denoise > 0 { denoiseStrength = Double(record.denoise) } }
+        .controlSize(.small)
+        .padding(.horizontal, 8)
+        .padding(.top, 4)
+        .onAppear {
+            film.checkDenoiser()
+            if record.denoise > 0 { denoiseStrength = Double(record.denoise); denoiseAI = record.denoiseAI }
+        }
     }
 
-    private var presets: some View {
+    @ViewBuilder private var aiOffer: some View {
+        switch film.denoiser {
+        case .installing:
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: film.denoiserProgress)
+                Text("Getting the AI denoiser…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            ProblemLabel(text: message)
+            Button("Try Again") { film.installDenoiser() }
+        default:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("A network trained on real camera noise, like Lightroom’s. Runs on this Mac’s GPU.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 12) {
+                    Label("\(FilmEngine.denoiserDownloadMB) MB download", systemImage: "arrow.down.circle")
+                    Label("\(FilmEngine.denoiserDiskMB) MB on disk", systemImage: "internaldrive")
+                }
+                .font(.caption2).foregroundStyle(.secondary)
+                Button("Get AI Denoise", systemImage: "arrow.down") { film.installDenoiser() }
+                    .buttonStyle(BrandButtonStyle(large: false))
+            }
+        }
+    }
+
+    private var presetsMenu: some View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(catalog.presets) { preset in
@@ -284,10 +448,7 @@ struct PhotoInspector: View {
                 Label("Presets", systemImage: "wand.and.stars")
             }
             .fixedSize()
-            Spacer()
         }
-        .controlSize(.small)
-        .padding(.horizontal, 8)
         .alert("Save Preset", isPresented: $naming) {
             TextField("Name", text: $presetName)
             Button("Save") {
@@ -301,13 +462,13 @@ struct PhotoInspector: View {
     }
 
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<PhotoAdjustments, Double>, _ range: ClosedRange<Double>,
-                        format: String = "%+.0f") -> some View {
+                        format: String = "%+.0f", label: String? = nil) -> some View {
         let value = record.adjust[keyPath: path]
         return HStack(spacing: 8) {
             Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 84, alignment: .leading)
             Slider(value: Binding(get: { value }, set: { new in change { $0.adjust[keyPath: path] = new } }), in: range)
-            Text(String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
-                .frame(width: 44, alignment: .trailing)
+            Text(label ?? String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
+                .frame(width: label == nil ? 44 : 58, alignment: .trailing)
                 .onTapGesture(count: 2) { change { $0.adjust[keyPath: path] = 0 } }
                 .help("Double-click to reset")
         }
@@ -397,7 +558,7 @@ private struct PhotoFilmPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             Image(systemName: "film.stack").font(.system(size: 28)).foregroundStyle(Design.Brand.gradient)
             Text("Real film, simulated").font(.title3.weight(.semibold))
-            Text("spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data.")
+            Text("spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data. In darktable’s native version: quick.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 14) {
                 Label("\(FilmEngine.downloadMB) MB download", systemImage: "arrow.down.circle")
@@ -405,9 +566,9 @@ private struct PhotoFilmPanel: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            Button("Download Film Engine", systemImage: "arrow.down") { engine.install() }
+            Button("Download the Films", systemImage: "arrow.down") { engine.install() }
                 .buttonStyle(BrandButtonStyle())
-            Text("Downloaded into Pluck’s own folder and run on this Mac. Remove it any time in Settings.")
+            Text("The film and paper data, checked as it downloads, kept in Pluck’s own folder. Remove it any time in Settings.")
                 .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
@@ -417,7 +578,7 @@ private struct PhotoFilmPanel: View {
 
     private var installing: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Downloading the film engine").font(.callout.weight(.semibold))
+            Text("Downloading the films").font(.callout.weight(.semibold))
             ProgressView(value: engine.progress).progressViewStyle(.linear)
             HStack {
                 Text(engine.stage)
@@ -426,7 +587,7 @@ private struct PhotoFilmPanel: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
-            Text("About \(FilmEngine.downloadMB) MB. You can keep working meanwhile.").font(.caption2).foregroundStyle(.tertiary)
+            Text("About \(FilmEngine.downloadMB) MB.").font(.caption2).foregroundStyle(.tertiary)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
@@ -435,10 +596,12 @@ private struct PhotoFilmPanel: View {
 
     private var credit: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Film modelling powered by spektrafilm by Andrea Volpato.")
+            Text("Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version.")
             HStack(spacing: 4) {
                 Link("spektrafilm", destination: URL(string: "https://github.com/andreavolpato/spektrafilm")!)
-                Text(verbatim: "· GPLv3 · profiles CC BY-SA 4.0")
+                Text(verbatim: "·")
+                Link("darktable", destination: URL(string: "https://github.com/darktable-org/darktable")!)
+                Text(verbatim: "· GPLv3 · data CC BY-SA 4.0")
             }
         }
         .font(.caption2)
@@ -456,31 +619,36 @@ private struct PhotoFilmPanel: View {
         }
     }
 
-    private func number(_ key: String, fallback: Double) -> Double {
-        if case .number(let value) = record.film.changed[key] { return value }
-        if case .number(let value) = engine.schema[key] { return value }
-        return fallback
+    /// A setting's value: as changed for this photo, else the film's default.
+    private func value(_ key: String) -> Double {
+        switch record.film.changed[key] {
+        case .number(let v)?: return v
+        case .flag(let on)?: return on ? 1 : 0
+        default: return engine.schema[key]?.value ?? 0
+        }
     }
 
-    private func flag(_ key: String, fallback: Bool) -> Bool {
-        if case .flag(let value) = record.film.changed[key] { return value }
-        if case .flag(let value) = engine.schema[key] { return value }
-        return fallback
+    private func set(_ key: String, _ value: Double) {
+        change { $0.film.changed[key] = .number(value) }
     }
 
-    private func set(_ key: String, _ value: SettingValue) {
-        change { $0.film.changed[key] = value }
-    }
+    /// The settings with a place of their own above; the rest are under Advanced.
+    private static let shown: Set<String> = ["exposure_ev", "push_pull_stops", "film_format_mm", "scan_film", "print_exposure_ev",
+                                             "print_auto_exposure", "print_contrast", "filter_y", "filter_m", "preflash_exposure",
+                                             "grain_on", "grain_amount", "grain_granularity", "grain_blur", "halation_on",
+                                             "halation_amount", "halation_scale", "scatter_amount", "diffusion_on",
+                                             "diffusion_filter_family", "diffusion_strength", "diffusion_scale", "diffusion_warmth",
+                                             "scan_usm_amount", "scan_blur", "glare_percent", "couplers_amount"]
 
     private var controls: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 10) {
             Toggle(isOn: Binding(get: { record.filmOn }, set: { on in change { $0.filmOn = on } })) {
                 Label("Develop on Film", systemImage: "film").font(.callout.weight(.semibold))
             }
             .toggleStyle(.switch)
             .padding(.horizontal, 8)
 
-            SidebarSection(title: Text("Stock")) {
+            FoldSection(title: "Stock", key: "film-stock") {
                 filmRow("Film") {
                     Picker("Film", selection: Binding(get: { record.film.film }, set: { id in
                         change { record in
@@ -489,54 +657,102 @@ private struct PhotoFilmPanel: View {
                             if let paper = engine.films.first(where: { $0.id == id })?.print, engine.papers.contains(where: { $0.id == paper }) {
                                 record.film.paper = paper
                             }
+                            // Slides and black and white reversal are looked at, not printed.
+                            let film = engine.films.first { $0.id == id }
+                            record.film.changed["scan_film"] = .number(film?.type == "positive" ? 1 : 0)
                             record.filmOn = true
                         }
                     })) {
-                        Section("Colour Negative") { ForEach(engine.films.filter { $0.type == "negative" && $0.use != "cine" }) { Text($0.name).tag($0.id) } }
-                        Section("Slide") { ForEach(engine.films.filter { $0.type == "positive" }) { Text($0.name).tag($0.id) } }
-                        Section("Cinema") { ForEach(engine.films.filter { $0.use == "cine" && $0.type != "positive" }) { Text($0.name).tag($0.id) } }
+                        Section("Colour Negative") { ForEach(engine.films.filter { $0.type == "negative" && $0.use != "cine" && $0.bw != true }) { Text($0.name).tag($0.id) } }
+                        Section("Slide") { ForEach(engine.films.filter { $0.type == "positive" && $0.bw != true }) { Text($0.name).tag($0.id) } }
+                        Section("Cinema") { ForEach(engine.films.filter { $0.use == "cine" && $0.type != "positive" && $0.bw != true }) { Text($0.name).tag($0.id) } }
+                        Section("Black & White") { ForEach(engine.films.filter { $0.bw == true }) { Text($0.name).tag($0.id) } }
                     }
                     .labelsHidden()
                 }
-                filmRow("Paper") {
-                    Picker("Paper", selection: Binding(get: { record.film.paper }, set: { id in change { $0.film.paper = id; $0.filmOn = true } })) {
-                        ForEach(engine.papers) { Text($0.name).tag($0.id) }
+                if value("scan_film") < 0.5 {
+                    filmRow("Paper") {
+                        Picker("Paper", selection: Binding(get: { record.film.paper }, set: { id in change { $0.film.paper = id; $0.filmOn = true } })) {
+                            ForEach(engine.papers) { Text($0.name).tag($0.id) }
+                        }
+                        .labelsHidden()
                     }
-                    .labelsHidden()
                 }
+                filmToggle("Scan the Film", key: "scan_film")
+                    .help("Look at the film itself (a slide on a light box) instead of a print from it")
             }
-            SidebarSection(title: Text("Camera")) {
-                filmSlider("Exposure", key: "camera.exposure_compensation_ev", range: -3...3, fallback: 0, format: "%+.1f EV")
-                filmToggle("Auto Exposure", key: "camera.auto_exposure", fallback: true)
+            FoldSection(title: "Camera", key: "film-camera") {
+                filmSlider("Exposure", key: "exposure_ev", range: -4...4, format: "%+.1f EV")
+                filmSlider("Push / Pull", key: "push_pull_stops", range: -3...3, format: "%+.1f")
+                    .help("Shot at a different speed and developed to match: more contrast pushed, less pulled")
                 filmRow("Format") {
-                    Picker("Format", selection: Binding(get: { number("camera.film_format_mm", fallback: 35) }, set: { set("camera.film_format_mm", .number($0)) })) {
-                        Text("35 mm").tag(35.0)
-                        Text("Medium (6×6)").tag(60.0)
-                        Text("Large (4×5)").tag(100.0)
+                    Picker("Format", selection: Binding(get: { value("film_format_mm") }, set: { set("film_format_mm", $0) })) {
+                        Text("35 mm").tag(36.0)
+                        Text("645").tag(56.0)
+                        Text("6×6").tag(60.0)
+                        Text("6×7").tag(70.0)
+                        Text("4×5").tag(127.0)
                     }
                     .labelsHidden()
                 }
-                .help("Bigger film: finer grain")
+                .help("Bigger film: finer grain and smaller halation for the same picture")
             }
-            SidebarSection(title: Text("Print")) {
-                filmSlider("Print Exposure", key: "enlarger.print_exposure", range: 0.4...2.5, fallback: 1, format: "%.2f")
-                filmSlider("Warm / Cool", key: "enlarger.y_filter_shift", range: -30...30, fallback: 0, format: "%+.0f")
-                filmSlider("Magenta / Green", key: "enlarger.m_filter_shift", range: -30...30, fallback: 0, format: "%+.0f")
-                filmSlider("Pre-flash", key: "enlarger.preflash_exposure", range: 0...0.2, fallback: 0, format: "%.2f")
+            if value("scan_film") < 0.5 {
+                FoldSection(title: "Print", key: "film-print") {
+                    filmSlider("Exposure", key: "print_exposure_ev", range: -3...3, format: "%+.2f EV")
+                    filmToggle("Auto Exposure", key: "print_auto_exposure")
+                    filmSlider("Contrast", key: "print_contrast", range: 0.5...2, format: "%.2f")
+                    filmSlider("Warm / Cool", key: "filter_y", range: -60...60, format: "%+.0f")
+                    filmSlider("Magenta / Green", key: "filter_m", range: -60...60, format: "%+.0f")
+                    filmSlider("Pre-flash", key: "preflash_exposure", range: 0...2, format: "%.2f")
+                        .help("A little light on the paper before printing: softer, lifted shadows")
+                }
             }
-            SidebarSection(title: Text("Film Effects")) {
-                filmToggle("Grain", key: "film_render.grain.active", fallback: true)
-                filmSlider("Grain Size", key: "film_render.grain.agx_particle_area_um2", range: 0.05...1.2, fallback: 0.2, format: "%.2f")
-                filmToggle("Halation", key: "film_render.halation.active", fallback: true)
-                filmSlider("Halation", key: "film_render.halation.halation_amount", range: 0...4, fallback: 1, format: "%.1f")
-                filmSlider("Glow", key: "film_render.halation.scatter_amount", range: 0...4, fallback: 1, format: "%.1f")
-                filmSlider("Couplers", key: "film_render.dir_couplers.amount", range: 0...2, fallback: 1, format: "%.2f")
-                    .help("The film’s colour couplers: more saturation and local contrast")
-                filmToggle("Diffusion Filter", key: "camera.diffusion_filter.active", fallback: false)
-                filmSlider("Diffusion", key: "camera.diffusion_filter.strength", range: 0...2, fallback: 0.5, format: "%.2f")
+            FoldSection(title: "Grain", key: "film-grain") {
+                filmToggle("Grain", key: "grain_on")
+                if value("grain_on") > 0.5 {
+                    filmSlider("Amount", key: "grain_amount", range: 0...4, format: "%.2f")
+                    filmSlider("Size", key: "grain_granularity", range: 0...3, format: "%.2f")
+                    filmSlider("Softness", key: "grain_blur", range: 0.2...4, format: "%.2f")
+                }
             }
-            Fold(title: Text("Advanced"), detail: Text(verbatim: "\(engine.schema.count)"), open: $advancedOpen) {
-                ForEach(engine.schema.keys.sorted(), id: \.self) { key in advancedRow(key) }
+            FoldSection(title: "Halation", key: "film-halation") {
+                filmToggle("Halation", key: "halation_on")
+                if value("halation_on") > 0.5 {
+                    filmSlider("Strength", key: "halation_amount", range: 0...4, format: "%.2f")
+                    filmSlider("Size", key: "halation_scale", range: 0.2...4, format: "%.2f")
+                    filmSlider("Scatter", key: "scatter_amount", range: 0...1, format: "%.2f")
+                }
+                filmSlider("Couplers", key: "couplers_amount", range: 0...1, format: "%.2f")
+                    .help("The film’s colour couplers: richer colour and local contrast")
+            }
+            FoldSection(title: "Diffusion Filter", key: "film-diffusion", open: false) {
+                filmToggle("Filter", key: "diffusion_on")
+                if value("diffusion_on") > 0.5 {
+                    filmRow("Type") {
+                        Picker("Type", selection: Binding(get: { value("diffusion_filter_family") }, set: { set("diffusion_filter_family", $0) })) {
+                            Text("Black Pro-Mist").tag(0.0)
+                            Text("Glimmerglass").tag(1.0)
+                            Text("Pro-Mist").tag(2.0)
+                            Text("CineBloom").tag(3.0)
+                        }
+                        .labelsHidden()
+                    }
+                    filmSlider("Strength", key: "diffusion_strength", range: 0...2, format: "%.2f")
+                    filmSlider("Size", key: "diffusion_scale", range: 0.2...4, format: "%.2f")
+                    filmSlider("Warmth", key: "diffusion_warmth", range: -1.5...1.5, format: "%+.2f")
+                }
+            }
+            FoldSection(title: "Scanner", key: "film-scanner", open: false) {
+                filmSlider("Sharpness", key: "scan_usm_amount", range: 0...2, format: "%.2f")
+                filmSlider("Softness", key: "scan_blur", range: 0...4, format: "%.2f")
+                filmSlider("Glare", key: "glare_percent", range: 0...1, format: "%.2f")
+                    .help("The light of the room the print is seen in, lifting the blacks")
+            }
+            Fold(title: Text("Advanced"), detail: nil, open: $advancedOpen) {
+                ForEach(engine.schema.keys.filter { !Self.shown.contains($0) }.sorted(), id: \.self) { key in
+                    if let setting = engine.schema[key] { advancedRow(key, setting) }
+                }
             }
             HStack {
                 Button("Reset Film Settings") { change { $0.film.changed = [:] } }
@@ -558,54 +774,50 @@ private struct PhotoFilmPanel: View {
         .frame(minHeight: 26)
     }
 
-    private func filmSlider(_ title: LocalizedStringKey, key: String, range: ClosedRange<Double>, fallback: Double, format: String) -> some View {
-        let value = number(key, fallback: fallback)
+    private func filmSlider(_ title: LocalizedStringKey, key: String, range: ClosedRange<Double>, format: String) -> some View {
+        let current = value(key)
         return filmRow(title) {
-            Slider(value: Binding(get: { value }, set: { set(key, .number($0)) }), in: range)
-            Text(String(format: format, value)).font(.caption.monospacedDigit())
+            Slider(value: Binding(get: { current }, set: { set(key, $0) }), in: min(range.lowerBound, current)...max(range.upperBound, current))
+            Text(String(format: format, current)).font(.caption.monospacedDigit())
                 .foregroundStyle(record.film.changed[key] == nil ? .tertiary : .primary)
-                .frame(width: 54, alignment: .trailing)
+                .frame(width: 58, alignment: .trailing)
                 .onTapGesture(count: 2) { change { $0.film.changed[key] = nil } }
                 .help("Double-click to reset")
         }
     }
 
-    private func filmToggle(_ title: LocalizedStringKey, key: String, fallback: Bool) -> some View {
+    private func filmToggle(_ title: LocalizedStringKey, key: String) -> some View {
         filmRow(title) {
-            Toggle(title, isOn: Binding(get: { flag(key, fallback: fallback) }, set: { set(key, .flag($0)) }))
+            Toggle(title, isOn: Binding(get: { value(key) > 0.5 }, set: { set(key, $0 ? 1 : 0) }))
                 .toggleStyle(.switch).controlSize(.mini).labelsHidden()
         }
     }
 
-    /// Any of spektrafilm's settings, by its name.
-    @ViewBuilder private func advancedRow(_ key: String) -> some View {
-        let current = record.film.changed[key] ?? engine.schema[key]
-        HStack(spacing: 6) {
-            Text(key).font(.caption2.monospaced()).foregroundStyle(record.film.changed[key] == nil ? .secondary : .primary)
-                .lineLimit(1).truncationMode(.head)
-                .help(key)
-            Spacer(minLength: 4)
-            switch current {
-            case .flag(let value):
-                Toggle(key, isOn: Binding(get: { value }, set: { set(key, .flag($0)) })).toggleStyle(.switch).controlSize(.mini).labelsHidden()
-            case .number(let value):
-                TextField(key, value: Binding(get: { value }, set: { set(key, .number($0)) }), format: .number.precision(.significantDigits(1...6)))
-                    .textFieldStyle(.roundedBorder).controlSize(.mini).frame(width: 70).labelsHidden()
-            case .numbers(let values):
-                TextField(key, text: Binding(get: { values.map { String(format: "%g", $0) }.joined(separator: ", ") }, set: { text in
-                    let parsed = text.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-                    if parsed.count == values.count { set(key, .numbers(parsed)) }
-                }))
-                .textFieldStyle(.roundedBorder).controlSize(.mini).frame(width: 110).labelsHidden()
-            case .text(let value):
-                TextField(key, text: Binding(get: { value }, set: { set(key, .text($0)) }))
-                    .textFieldStyle(.roundedBorder).controlSize(.mini).frame(width: 110).labelsHidden()
-            case nil:
-                EmptyView()
+    /// Any other setting: a dial over darktable's range for it.
+    @ViewBuilder private func advancedRow(_ key: String, _ setting: FilmEngine.Setting) -> some View {
+        let name = FilmDial.words(key)
+        switch setting.kind {
+        case .flag:
+            HStack(spacing: 8) {
+                Text(name).font(.caption).foregroundStyle(record.film.changed[key] == nil ? .secondary : .primary).lineLimit(1)
+                Spacer()
+                Toggle(name, isOn: Binding(get: { value(key) > 0.5 }, set: { set(key, $0 ? 1 : 0) })).toggleStyle(.switch).controlSize(.mini).labelsHidden()
             }
+            .padding(.horizontal, 8).frame(minHeight: 22)
+        case .number, .choice:
+            let current = value(key)
+            HStack(spacing: 8) {
+                Text(name).font(.caption).foregroundStyle(record.film.changed[key] == nil ? .secondary : .primary).lineLimit(1)
+                    .frame(width: 120, alignment: .leading).help(key)
+                Slider(value: Binding(get: { current }, set: { set(key, setting.kind == .choice ? $0.rounded() : $0) }), in: setting.min...setting.max)
+                    .controlSize(.mini)
+                Text(String(format: abs(current) < 10 ? "%.2f" : "%.0f", current)).font(.caption2.monospacedDigit())
+                    .frame(width: 38, alignment: .trailing)
+                    .onTapGesture(count: 2) { change { $0.film.changed[key] = nil } }
+                    .help("Double-click to reset")
+            }
+            .padding(.horizontal, 8).frame(minHeight: 22)
         }
-        .padding(.horizontal, 8)
-        .frame(minHeight: 22)
     }
 }
 

@@ -14,7 +14,10 @@ struct PhotoPage: View {
     @AppStorage("photoSource") private var sourceKey = "all"
     @State private var selection: Set<String> = []
     @State private var focus: String?
-    @State private var loupe = false
+    /// Grid (many at once), Cull (one at a time, quick: the camera's own preview), or Edit.
+    enum ViewMode: String { case grid, cull, edit }
+    @AppStorage("photoView") private var view = ViewMode.grid
+    private var loupe: Bool { view != .grid }
     @State private var flagFilter: PhotoRecord.Flag?
     @State private var minRating = 0
     @State private var renamingAlbum: UUID?
@@ -61,7 +64,12 @@ struct PhotoPage: View {
                 Group {
                     if photos.isEmpty {
                         empty
-                    } else if loupe, let focus {
+                    } else if view == .cull, let focus {
+                        VStack(spacing: 0) {
+                            PhotoCullView(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus))
+                            filmstrip
+                        }
+                    } else if view == .edit, let focus {
                         VStack(spacing: 0) {
                             PhotoLoupe(path: focus, record: catalog.record(focus))
                             filmstrip
@@ -103,7 +111,13 @@ struct PhotoPage: View {
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
                 focus = photos.first
-                loupe = true
+                view = .edit
+            }
+            // -PluckScreenshotZoom YES: the first photo at 1:1.
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotZoom") {
+                focus = photos.first
+                view = .edit
+                editing.zoomed = true
             }
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotPhotoExport") {
                 selection = Set(photos)
@@ -113,10 +127,10 @@ struct PhotoPage: View {
         .onChange(of: editing.cropping) { _, cropping in
             guard cropping else { return }
             if focus == nil { focus = photos.first }
-            loupe = focus != nil
+            if focus != nil { view = .edit }
             if focus == nil { editing.cropping = false }
         }
-        .onChange(of: loupe) { _, shown in if !shown { editing.cropping = false } }
+        .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
         .onDisappear { editing.cropping = false }
     }
 
@@ -248,13 +262,14 @@ struct PhotoPage: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Picker("View", selection: $loupe) {
-                Image(systemName: "square.grid.3x3").tag(false).help("Grid")
-                Image(systemName: "rectangle").tag(true).help("One at a time")
+            Picker("View", selection: $view) {
+                Image(systemName: "square.grid.3x3").tag(ViewMode.grid).help("Grid (\(Shortcuts.shared.shortcut(.photoGrid).label))")
+                Image(systemName: "rectangle.stack").tag(ViewMode.cull).help("Cull: quick, one at a time (\(Shortcuts.shared.shortcut(.photoCull).label))")
+                Image(systemName: "slider.horizontal.below.rectangle").tag(ViewMode.edit).help("Edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 90)
+            .frame(width: 130)
             Menu {
                 Button("All") { flagFilter = nil }
                 Button("Picks") { flagFilter = .pick }
@@ -282,7 +297,7 @@ struct PhotoPage: View {
                 .frame(maxWidth: 180)
                 .help("Find photos by what’s in them, the text in them or their name")
             Text("^[\(photos.count) photo](inflect: true)").font(.callout).foregroundStyle(.secondary)
-            if !loupe {
+            if view == .grid {
                 Slider(value: $gridSize, in: 110...320).frame(width: 90).controlSize(.mini).help("Size")
             }
             Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
@@ -322,7 +337,7 @@ struct PhotoPage: View {
                     ForEach(photos, id: \.self) { path in
                         PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || (selection.isEmpty && focus == path))
                             .id(path)
-                            .onTapGesture(count: 2) { focus = path; selection = [path]; loupe = true }
+                            .onTapGesture(count: 2) { focus = path; selection = [path]; view = .edit }
                             .onTapGesture { click(path) }
                             .contextMenu { menu(for: path) }
                             .onDrag { NSItemProvider(object: URL(fileURLWithPath: path) as NSURL) }
@@ -423,33 +438,56 @@ struct PhotoPage: View {
         case .rightArrow where !editing.cropping: move(1)
         case .upArrow where !loupe: move(-columns)
         case .downArrow where !loupe: move(columns)
-        case .space, .return: if editing.cropping { editing.cropping = false } else if focus != nil { loupe.toggle() }
-        case .escape: if editing.cropping { editing.cropping = false } else { loupe = false }
+        case .space, .return: if editing.cropping { editing.cropping = false } else if focus != nil { view = view == .grid ? .edit : .grid }
+        case .escape:
+            if editing.cropping { editing.cropping = false } else if editing.zoomed { editing.zoomed = false } else { view = .grid }
         default:
             let character = press.characters.lowercased()
-            if let stars = Int(character), (0...5).contains(stars) {
+            if let stars = Int(character), (0...5).contains(stars), press.modifiers.isEmpty {
                 catalog.update(targets) { $0.rating = stars }
                 advance(targets)
-            } else if character == "p" {
+                return .handled
+            }
+            if character == "a", press.modifiers.contains(.command) {
+                selection = Set(photos)
+                return .handled
+            }
+            if view == .edit, press.modifiers.contains(.command), ["=", "+"].contains(character) { editing.zoomIn(); return .handled }
+            if view == .edit, press.modifiers.contains(.command), character == "-" { editing.zoomOut(); return .handled }
+            if view == .edit, press.modifiers.contains(.command), character == "0" { editing.zoom = nil; return .handled }
+            switch Shortcuts.shared.action(for: press, in: .photo) {
+            case .photoGrid: view = .grid
+            case .photoCull: if focus == nil { focus = photos.first }; view = .cull
+            case .photoEdit: if focus == nil { focus = photos.first }; view = .edit
+            case .photoCrop: editing.cropping.toggle()
+            case .photoZoom: if view == .edit { editing.zoom = editing.zoom == nil ? 1 : nil } else { return .ignored }
+            case .photoTurnCrop:
+                guard let focus else { return .ignored }
+                catalog.update([focus]) { record in
+                    let upright = record.adjust.cropPortrait ?? PhotoRender.isPortrait(focus)
+                    record.adjust.cropPortrait = !upright
+                    record.adjust.cropRect = nil
+                }
+            case .photoPick:
                 catalog.update(targets) { $0.flag = .pick }
                 advance(targets)
-            } else if character == "x" {
+            case .photoReject:
                 catalog.update(targets) { $0.flag = .reject }
                 advance(targets)
-            } else if character == "c", press.modifiers.isEmpty {
-                editing.cropping.toggle()
-            } else if character == "u" {
-                catalog.update(targets) { $0.flag = .none }
-            } else if character == "a", press.modifiers.contains(.command) {
-                selection = Set(photos)
-            } else {
-                return .ignored
+            case .photoUnflag: catalog.update(targets) { $0.flag = .none }
+            default: return .ignored
             }
         }
         return .handled
     }
 
     private var columns: Int { 4 }
+
+    /// The photos either side, to have ready.
+    private func neighbours(of path: String) -> [String] {
+        guard let index = photos.firstIndex(of: path) else { return [] }
+        return [index + 1, index - 1, index + 2].compactMap { photos.indices.contains($0) ? photos[$0] : nil }
+    }
 
     private func move(_ step: Int) {
         guard !photos.isEmpty else { return }
@@ -558,12 +596,36 @@ struct PhotoLoupe: View {
     @State private var problem: String?
     @State private var editing = PhotoEditing.shared
     @State private var catalog = PhotoCatalog.shared
+    @State private var detail: CGImage?
+    @State private var detailKey: DetailKey?
+    @State private var center = CGPoint(x: 0.5, y: 0.5)
+    @State private var drag: CGSize = .zero
+    @State private var pinchStart: Double?
+    @State private var viewSize: CGSize = .zero
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         ZStack {
             Color.black
-            if let image {
-                Image(nsImage: image).resizable().scaledToFit().padding(14)
+            if let zoom = editing.zoom, !editing.cropping, let image {
+                zoomedView(image, zoom: zoom)
+            } else if let image {
+                GeometryReader { geo in
+                    let fitted = Self.fitted(image.size, in: geo.size, inset: 14)
+                    Image(nsImage: image).resizable().scaledToFit().padding(14)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .contentShape(.rect)
+                        .onTapGesture { location in
+                            guard !editing.cropping, fitted.width > 0 else { return }
+                            center = CGPoint(x: min(max((location.x - fitted.minX) / fitted.width, 0), 1),
+                                             y: min(max((location.y - fitted.minY) / fitted.height, 0), 1))
+                            editing.zoom = 1
+                        }
+                        .gesture(MagnifyGesture().onChanged { value in
+                            guard !editing.cropping, value.magnification > 1.05 else { return }
+                            editing.zoom = max(fitZoom(image), 0.1) * value.magnification
+                        })
+                }
                 if editing.cropping, !original {
                     GeometryReader { geo in
                         let area = geo.size, inset = 14.0
@@ -571,10 +633,10 @@ struct PhotoLoupe: View {
                         let width = min(area.width - inset * 2, (area.height - inset * 2) * ratio), height = width / ratio
                         let frame = CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
                         CropOverlay(frame: frame, pictureRatio: ratio,
-                                    rect: record.adjust.cropRect ?? CropOverlay.centered(ratio: record.adjust.crop.ratio, pictureRatio: ratio),
-                                    ratio: record.adjust.crop.ratio) { rect in
-                            catalog.update([path]) { $0.adjust.cropRect = rect; $0.edited = .now }
-                        }
+                                    rect: record.adjust.cropRect ?? CropOverlay.centered(ratio: record.adjust.cropRatio(pictureRatio: ratio), pictureRatio: ratio),
+                                    ratio: record.adjust.cropRatio(pictureRatio: ratio), angle: record.adjust.straighten,
+                                    change: { rect in catalog.update([path]) { $0.adjust.cropRect = rect; $0.edited = .now } },
+                                    rotate: { angle in catalog.update([path]) { $0.adjust.straighten = angle; $0.edited = .now } })
                     }
                 }
             }
@@ -597,7 +659,134 @@ struct PhotoLoupe: View {
             }
             .padding(14)
         }
+        .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
         .task(id: TaskKey(path: path, record: shownRecord, original: original)) { await develop() }
+        .task(id: ZoomKey(path: path, record: shownRecord, center: center, size: viewSize, zoom: editing.cropping ? nil : editing.zoom)) {
+            // The sharp picture for this place and zoom, once the mouse rests (the view moves the
+            // loaded picture meanwhile). Not needed while the screen picture has enough pixels.
+            guard let zoom = editing.zoom, !editing.cropping, viewSize.width > 0, let image else { detail = nil; return }
+            let k = scaleToFull(image)
+            guard zoom * k > 1.05 else { detail = nil; return }
+            try? await Task.sleep(for: .milliseconds(140))
+            guard !Task.isCancelled else { return }
+            let shown = original ? PhotoRecord() : shownRecord
+            developing = true
+            let pixels = CGSize(width: viewSize.width * displayScale, height: viewSize.height * displayScale)
+            // The same place the view shows (kept inside the photo).
+            let c = clamped(center, width: Double(image.size.width) * k * zoom / displayScale,
+                            height: Double(image.size.height) * k * zoom / displayScale, view: viewSize)
+            if let found = await PhotoRender.region(path, record: shown, center: c, size: pixels, zoom: zoom), !Task.isCancelled {
+                detail = found.image
+                detailKey = DetailKey(center: c, zoom: zoom)
+            }
+            if !Task.isCancelled { developing = false }
+        }
+        .onChange(of: path) { _, _ in editing.zoom = nil; detail = nil }
+        .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
+    }
+
+    private struct ZoomKey: Hashable {
+        let path: String
+        let record: PhotoRecord
+        let center: CGPoint
+        let size: CGSize
+        let zoom: Double?
+    }
+
+    private struct DetailKey: Equatable {
+        let center: CGPoint
+        let zoom: Double
+    }
+
+    /// Photo pixels per pixel of the screen picture.
+    private func scaleToFull(_ image: NSImage) -> Double {
+        let full = Double(PhotoRender.fullLongEdge(path))
+        let shownLong = Double(max(image.size.width, image.size.height))
+        let baseLong = min(Double(PhotoRender.previewSize), full)
+        return full > 0 && shownLong > 0 ? max(full / max(baseLong, 1), 1) : 1
+    }
+
+    /// The zoom at which the photo just fits.
+    private func fitZoom(_ image: NSImage) -> Double {
+        let fitted = Self.fitted(image.size, in: viewSize, inset: 14)
+        let k = scaleToFull(image)
+        return Double(fitted.width) * displayScale / max(Double(image.size.width) * k, 1)
+    }
+
+    /// The photo at a zoom: the loaded picture scaled and moved straight away, the sharp
+    /// picture over it once it's ready. Drag to look around, pinch or scroll with ⌘ to zoom.
+    @ViewBuilder private func zoomedView(_ image: NSImage, zoom: Double) -> some View {
+        GeometryReader { geo in
+            let k = scaleToFull(image)
+            // The whole photo's size on screen at this zoom (points).
+            let width = Double(image.size.width) * k * zoom / displayScale, height = Double(image.size.height) * k * zoom / displayScale
+            let c = clamped(center, width: width, height: height, view: geo.size)
+            let x = geo.size.width / 2 + (0.5 - c.x) * width + drag.width, y = geo.size.height / 2 + (0.5 - c.y) * height + drag.height
+            ZStack {
+                Image(nsImage: image).resizable().interpolation(zoom * k > 2 ? .none : .high)
+                    .frame(width: width, height: height)
+                    .position(x: x, y: y)
+                if let detail, detailKey == DetailKey(center: c, zoom: zoom) {
+                    Image(decorative: detail, scale: displayScale)
+                        .position(x: geo.size.width / 2 + drag.width, y: geo.size.height / 2 + drag.height)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 2)
+                .onChanged { value in drag = value.translation }
+                .onEnded { value in
+                    center = clamped(CGPoint(x: c.x - value.translation.width / width, y: c.y - value.translation.height / height),
+                                     width: width, height: height, view: geo.size)
+                    drag = .zero
+                })
+            .simultaneousGesture(MagnifyGesture()
+                .onChanged { value in
+                    if pinchStart == nil { pinchStart = zoom }
+                    editing.zoom = min(max((pinchStart ?? zoom) * value.magnification, fitZoom(image) * 0.9), 8)
+                }
+                .onEnded { _ in
+                    pinchStart = nil
+                    if let z = editing.zoom, z <= fitZoom(image) { editing.zoom = nil }
+                })
+            .onTapGesture(count: 2) { editing.zoom = nil }
+            .overlay(alignment: .bottomTrailing) { zoomBar(image).padding(14) }
+        }
+    }
+
+    /// Keeps the photo's edges at the view's edges (or the photo centred when it's smaller).
+    private func clamped(_ point: CGPoint, width: Double, height: Double, view: CGSize) -> CGPoint {
+        func axis(_ v: Double, _ size: Double, _ room: Double) -> Double {
+            guard size > room else { return 0.5 }
+            let half = room / 2 / size
+            return min(max(v, half), 1 - half)
+        }
+        return CGPoint(x: axis(point.x, width, view.width), y: axis(point.y, height, view.height))
+    }
+
+    private func zoomBar(_ image: NSImage) -> some View {
+        HStack(spacing: 2) {
+            Button("Fit") { editing.zoom = nil }
+            ForEach(PhotoEditing.zoomSteps, id: \.self) { step in
+                Button(String(format: "%.0f%%", step * 100)) { editing.zoom = step }
+                    .fontWeight(abs((editing.zoom ?? 0) - step) < 0.001 ? .bold : .regular)
+            }
+            if let zoom = editing.zoom, !PhotoEditing.zoomSteps.contains(where: { abs($0 - zoom) < 0.001 }) {
+                Text(String(format: "%.0f%%", zoom * 100)).monospacedDigit().foregroundStyle(.secondary).padding(.horizontal, 4)
+            }
+        }
+        .buttonStyle(.plain)
+        .font(.caption)
+        .padding(.horizontal, 8).padding(.vertical, 5)
+        .background(.ultraThinMaterial, in: .capsule)
+    }
+
+    /// Where a picture of this size sits when fitted in the view.
+    static func fitted(_ size: CGSize, in area: CGSize, inset: CGFloat) -> CGRect {
+        let ratio = size.width / max(size.height, 1)
+        let width = min(area.width - inset * 2, (area.height - inset * 2) * ratio), height = width / ratio
+        return CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
     }
 
     private struct TaskKey: Hashable {
@@ -629,9 +818,10 @@ struct PhotoLoupe: View {
             developing = false
             return
         }
-        if let fast = await PhotoRender.quick(path, record: shown, maxSize: 1600) {
+        if let fast = await PhotoRender.quick(path, record: shown, maxSize: PhotoRender.previewSize) {
             guard !Task.isCancelled else { return }
             image = NSImage(cgImage: fast, size: .zero)
+            editing.histogram = PhotoEngine.histogram(fast)
             if !shown.filmOn {
                 developing = false
                 try? await Task.sleep(for: .milliseconds(700))
@@ -643,7 +833,7 @@ struct PhotoLoupe: View {
         guard !Task.isCancelled else { return }
         developing = true
         do {
-            if let developed = try await PhotoRender.develop(path, record: shown, maxSize: 1600) {
+            if let developed = try await PhotoRender.develop(path, record: shown, maxSize: PhotoRender.previewSize) {
                 guard !Task.isCancelled else { return }
                 image = NSImage(cgImage: developed, size: .zero)
                 PhotoRender.savePreview(developed, to: cached)
@@ -652,5 +842,76 @@ struct PhotoLoupe: View {
             if !Task.isCancelled { problem = error.localizedDescription }
         }
         if !Task.isCancelled { developing = false }
+    }
+}
+
+// MARK: - Culling
+
+/// One photo at a time, as quick as it gets: the preview the camera made (in RAW files too),
+/// with the photos either side made ready. Rate, pick and reject with the keys.
+struct PhotoCullView: View {
+    let path: String
+    let record: PhotoRecord
+    let neighbours: [String]
+    @State private var image: NSImage?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image { Image(nsImage: image).resizable().scaledToFit().padding(14) }
+            VStack {
+                Spacer()
+                HStack(spacing: 14) {
+                    HStack(spacing: 3) {
+                        ForEach(1...5, id: \.self) { star in
+                            Image(systemName: star <= record.rating ? "star.fill" : "star")
+                                .foregroundStyle(star <= record.rating ? Color.yellow : .white.opacity(0.4))
+                        }
+                    }
+                    if record.flag != .none {
+                        Image(systemName: record.flag == .pick ? "flag.fill" : "xmark.circle.fill")
+                            .foregroundStyle(record.flag == .pick ? .white : .red)
+                    }
+                    Text(URL(fileURLWithPath: path).lastPathComponent).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                }
+                .font(.callout)
+                .padding(.horizontal, 14).padding(.vertical, 7)
+                .background(.black.opacity(0.55), in: .capsule)
+                .padding(.bottom, 18)
+            }
+        }
+        .task(id: path) {
+            if let ready = CullCache.shared.image(path) { image = ready } else {
+                image = await CullCache.shared.load(path)
+            }
+            for next in neighbours { _ = await CullCache.shared.load(next) }
+        }
+    }
+}
+
+/// The cameras' own previews, kept for the last few photos.
+@MainActor
+final class CullCache {
+    static let shared = CullCache()
+    private var images: [String: NSImage] = [:]
+    private var order: [String] = []
+
+    func image(_ path: String) -> NSImage? { images[path] }
+
+    func load(_ path: String) async -> NSImage? {
+        if let known = images[path] { return known }
+        let size = PhotoRender.previewSize
+        let made = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: size,
+                                            kCGImageSourceCreateThumbnailWithTransform: true]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }.value
+        guard let made else { return nil }
+        let image = NSImage(cgImage: made, size: .zero)
+        images[path] = image
+        order.append(path)
+        if order.count > 12 { images[order.removeFirst()] = nil }
+        return image
     }
 }

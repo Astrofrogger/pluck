@@ -12,29 +12,38 @@ struct ProjectView: View {
     @AppStorage("projectSidebarTab") private var tab = ProjectInspector.Tab.clip
     @State private var zoom = 1.0
     @State private var dropTargeted = false
+    @Environment(\.editMedia) private var media
+    /// How much taller than its least the timeline is (drag the line above it).
+    @AppStorage("editTimelineGrow") private var timelineGrow = 80.0
     @FocusState private var focused: Bool
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                picture.frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                if let media { media }
                 VStack(spacing: Design.Spacing.controls) {
+                    picture.frame(maxWidth: .infinity, maxHeight: .infinity)
                     transport
-                    VStack(spacing: 4) {
-                        ProjectToolbar(model: model, zoom: $zoom, addMedia: addMedia, addMusic: addMusic)
-                        ProjectTimeline(model: model, zoom: $zoom)
-                    }
-                    .simultaneousGesture(TapGesture().onEnded { focused = true })
-                    footer
                 }
-                .padding(Design.Spacing.window)
+                .padding([.horizontal, .top], Design.Spacing.window)
+                .padding(.bottom, Design.Spacing.controls)
+                if sidebarShown {
+                    ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
+                    ProjectInspector(model: model, tab: $tab)
+                        .frame(width: sidebarWidth)
+                        .clipped()
+                }
             }
-            if sidebarShown {
-                ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
-                ProjectInspector(model: model, tab: $tab)
-                    .frame(width: sidebarWidth)
-                    .clipped()
+            HeightHandle(grow: $timelineGrow, range: 0...360)
+            VStack(spacing: Design.Spacing.controls) {
+                VStack(spacing: 4) {
+                    ProjectToolbar(model: model, zoom: $zoom, addMedia: addMedia, addMusic: addMusic)
+                    ProjectTimeline(model: model, zoom: $zoom, grow: timelineGrow)
+                }
+                .simultaneousGesture(TapGesture().onEnded { focused = true })
+                footer
             }
+            .padding(Design.Spacing.window)
         }
         .frame(minWidth: 550 + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
         .toolbar {
@@ -63,6 +72,7 @@ struct ProjectView: View {
                               fps: model.frameRate, manager: manager)
         }
         .onDisappear { model.player.pause() }
+        .onChange(of: Stabilizer.shared.finished) { _, _ in model.refresh() }
     }
 
     // MARK: - Picture
@@ -83,6 +93,17 @@ struct ProjectView: View {
                     ProjectPlayerSurface(player: model.player)
                     TitleOverlay(model: model)
                     if model.project.subtitlesOn == true { ProjectSubtitleOverlay(model: model) }
+                    if !model.isPlaying, sidebarShown, tab == .clip, let (index, _) = model.clip(at: model.time), model.project.clips.indices.contains(index) {
+                        let clip = model.project.clips[index]
+                        ViewerControlsOverlay(look: clip.look ?? ClipLook(), pictureSize: model.pictureSizes[clip.path], frameSize: model.renderSize) { record, body in
+                            model.selected = [clip.id]
+                            model.set(clip.id, record: record) { clip in
+                                var look = clip.look ?? ClipLook()
+                                body(&look)
+                                clip.look = look.isDefault ? nil : look
+                            }
+                        }
+                    }
                 }
                 .aspectRatio(model.renderSize.width / max(model.renderSize.height, 1), contentMode: .fit)
             }
@@ -95,6 +116,7 @@ struct ProjectView: View {
                 .background(.ultraThinMaterial, in: .rect(cornerRadius: Design.Radius.box))
             }
         }
+        .clipped()
         .contentShape(.rect)
         .onTapGesture { model.togglePlay(); focused = true }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
@@ -194,7 +216,7 @@ struct ProjectView: View {
 
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
-        let command = press.modifiers.contains(.command), shift = press.modifiers.contains(.shift)
+        let shift = press.modifiers.contains(.shift)
         switch press.key {
         case .space: model.togglePlay()
         case .leftArrow: model.step(frames: shift ? -Int(model.frameRate) : -1)
@@ -204,15 +226,15 @@ struct ProjectView: View {
         case .delete, .deleteForward:
             if let title = model.selectedTitle { model.removeTitle(title) } else { model.delete(model.selected) }
         default:
-            switch press.characters.lowercased() {
-            case "b" where command: model.split(at: model.time)
-            case "b": model.tool = .blade
-            case "a": model.tool = .select
-            case "d" where command: model.duplicate(model.selected)
-            case "z" where command && shift: model.redo()
-            case "z" where command: model.undo()
-            case "n": model.snapping.toggle()
-            case "t" where command: model.addTitle(at: model.time)
+            switch Shortcuts.shared.action(for: press, in: .edit) {
+            case .editSplit: model.split(at: model.time)
+            case .editBlade: model.tool = .blade
+            case .editSelect: model.tool = .select
+            case .editDuplicate: model.duplicate(model.selected)
+            case .editRedo: model.redo()
+            case .editUndo: model.undo()
+            case .editSnapping: model.snapping.toggle()
+            case .editTitle: model.addTitle(at: model.time)
             default: return .ignored
             }
         }

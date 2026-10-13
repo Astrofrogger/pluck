@@ -38,15 +38,24 @@ final class PhotoIndex {
 
     var count: Int { entries.count }
 
-    /// Photos not looked at yet (or changed since) are queued.
+    /// Photos not looked at yet (or changed since) are queued. The files are checked off the main
+    /// thread: a slow or sleeping drive mustn't hold up the window.
     func enqueue(_ paths: [String]) {
-        for path in paths where !queue.contains(path) {
-            let stamp = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? .distantPast
-            if let entry = entries[path], entry.stamp >= stamp { continue }
-            queue.append(path)
+        let known = entries.mapValues(\.stamp)
+        let waiting = Set(queue)
+        Task {
+            let fresh = await Task.detached(priority: .utility) { () -> [String] in
+                paths.filter { path in
+                    guard !waiting.contains(path) else { return false }
+                    let stamp = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? .distantPast
+                    if let seen = known[path], seen >= stamp { return false }
+                    return true
+                }
+            }.value
+            for path in fresh where !queue.contains(path) { queue.append(path) }
+            queued = queue.count
+            run()
         }
-        queued = queue.count
-        run()
     }
 
     private func run() {

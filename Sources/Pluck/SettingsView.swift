@@ -2,7 +2,7 @@ import Carbon.HIToolbox
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case general, format, downloads, ai, advanced, support
+    case general, format, downloads, ai, keys, advanced, support
 
     var id: String { rawValue }
 
@@ -12,6 +12,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .format: String(localized: "Format")
         case .downloads: String(localized: "Downloads")
         case .ai: String(localized: "AI")
+        case .keys: String(localized: "Keys")
         case .advanced: String(localized: "Advanced")
         case .support: String(localized: "Support")
         }
@@ -23,6 +24,7 @@ enum SettingsTab: String, CaseIterable, Identifiable {
         case .format: "slider.horizontal.3"
         case .downloads: "arrow.down.circle"
         case .ai: "sparkles"
+        case .keys: "keyboard"
         case .advanced: "terminal"
         case .support: "heart"
         }
@@ -42,21 +44,22 @@ struct SettingsView: View {
             case .downloads: DownloadSettings()
             #if STUDIO
             case .ai: AISettings()
+            case .keys: ShortcutSettings()
             #else
-            case .ai: EmptyView()
+            case .ai, .keys: EmptyView()
             #endif
             case .advanced: AdvancedSettings()
             case .support: SupportSettings()
             }
         }
         // Wide enough for all six tabs in the toolbar (narrower windows push the last ones into an overflow menu).
-        .frame(width: 600, height: 440)
+        .frame(width: Edition.isStudio ? 680 : 600, height: 440)
         .scenePadding()
         .navigationTitle("Settings")
         .toolbar {
             // One toolbar item per tab, so each is its own control for VoiceOver.
             ToolbarItemGroup(placement: .principal) {
-                ForEach(SettingsTab.allCases.filter { $0 != .ai || Edition.isStudio }) { item in
+                ForEach(SettingsTab.allCases.filter { ($0 != .ai && $0 != .keys) || Edition.isStudio }) { item in
                     SettingsTabButton(tab: item, selection: $tab)
                 }
             }

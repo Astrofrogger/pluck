@@ -96,6 +96,13 @@ final class EditorModel {
     var hasAudio: Bool { !peaks.isEmpty }
     /// The picture's size in pixels (for subtitles burned in at the right size).
     private(set) var pixelSize = CGSize(width: 1920, height: 1080)
+    /// What the player plays (the file, or a copy macOS can play).
+    @ObservationIgnored var playedAsset: AVURLAsset?
+    #if STUDIO
+    /// The picture's settings (transform, crop, dynamic zoom…), as for a clip in a project.
+    var look: ClipLook?
+    @ObservationIgnored let lookBox = LookBox()
+    #endif
     /// Subtitles made from the transcript and edited here, with their look and place.
     var subtitles: [SubtitleCue] = []
     var subtitleStyle = SubtitleStyle()
@@ -152,7 +159,12 @@ final class EditorModel {
             return
         }
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
+        playedAsset = asset
         loadSubtitles()
+        #if STUDIO
+        loadLook()
+        await applyLook()
+        #endif
         if ScreenshotMode.scene == "editor", let list = UserDefaults.standard.string(forKey: "PluckScreenshotCuts") {
             // "10,25,40": cuts; a time after "x" is a part taken out ("10,25,x10").
             for item in list.split(separator: ",") {

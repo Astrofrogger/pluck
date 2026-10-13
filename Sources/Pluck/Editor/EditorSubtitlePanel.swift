@@ -99,66 +99,74 @@ struct EditorSubtitlePanel: View {
 
     // MARK: - Style
 
-    private var styleControls: some View {
+    private var styleControls: some View { SubtitleStyleEditor(style: $model.subtitleStyle) }
+}
+
+/// How subtitles look: font, weight, size, colour, outline or box, shadow, italics, capitals
+/// and where they sit. The same for a file's subtitles and a project's.
+struct SubtitleStyleEditor: View {
+    @Binding var style: SubtitleStyle
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             row("Font") {
-                Picker("Font", selection: $model.subtitleStyle.font) {
+                Picker("Font", selection: $style.font) {
                     ForEach(fonts, id: \.self) { Text($0).font(.custom($0, size: 13)).tag($0) }
                 }
             }
             row("Weight") {
-                Picker("Weight", selection: $model.subtitleStyle.weight) {
+                Picker("Weight", selection: $style.weight) {
                     ForEach(SubtitleStyle.weights, id: \.value) { Text($0.title).tag($0.value) }
                 }
             }
             row("Size") {
-                Slider(value: $model.subtitleStyle.scale, in: 0.4...2.5)
-                Text(verbatim: "\(Int((model.subtitleStyle.scale * 100).rounded()))%")
+                Slider(value: $style.scale, in: 0.4...2.5)
+                Text(verbatim: "\(Int((style.scale * 100).rounded()))%")
                     .font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 36, alignment: .trailing)
             }
             row("Colour") {
                 HStack(spacing: 5) {
                     ForEach(SubtitleStyle.swatches, id: \.self) { hex in
-                        Swatch(color: SubtitleStyle.color(hex), on: model.subtitleStyle.color == hex) { model.subtitleStyle.color = hex }
+                        Swatch(color: SubtitleStyle.color(hex), on: style.color == hex) { style.color = hex }
                     }
                     ColorPicker("Colour", selection: colour(\.color), supportsOpacity: false)
                 }
             }
             row("Behind") {
-                Picker("Behind", selection: $model.subtitleStyle.box) {
+                Picker("Behind", selection: $style.box) {
                     Text("Outline").tag(false)
                     Text("Box").tag(true)
                 }
                 .pickerStyle(.segmented)
             }
-            if model.subtitleStyle.box {
+            if style.box {
                 row("Box") {
-                    Slider(value: $model.subtitleStyle.boxOpacity, in: 0.1...1)
+                    Slider(value: $style.boxOpacity, in: 0.1...1)
                     ColorPicker("Box", selection: colour(\.boxColor), supportsOpacity: false)
                 }
                 .help("How solid the box is, and its colour")
             } else {
                 row("Outline") {
-                    Slider(value: $model.subtitleStyle.outline, in: 0...8)
+                    Slider(value: $style.outline, in: 0...8)
                     ColorPicker("Outline", selection: colour(\.outlineColor), supportsOpacity: false)
                 }
                 .help("How thick the outline is, and its colour")
             }
             row("Shadow") {
-                Slider(value: $model.subtitleStyle.shadow, in: 0...8)
+                Slider(value: $style.shadow, in: 0...8)
             }
             row("Extras") {
                 HStack(spacing: 4) {
-                    Chip(text: Text("Italic").italic(), on: model.subtitleStyle.italic) { model.subtitleStyle.italic.toggle() }
-                    Chip(text: Text("CAPS"), on: model.subtitleStyle.uppercase) { model.subtitleStyle.uppercase.toggle() }
+                    Chip(text: Text("Italic").italic(), on: style.italic) { style.italic.toggle() }
+                    Chip(text: Text("CAPS"), on: style.uppercase) { style.uppercase.toggle() }
                     Spacer(minLength: 0)
                 }
             }
             row("Place") {
                 HStack(spacing: 4) {
-                    Chip(text: Text("Top"), on: model.subtitleStyle.y < 0.3) { place(0.1) }
-                    Chip(text: Text("Middle"), on: (0.3...0.7).contains(model.subtitleStyle.y)) { place(0.5) }
-                    Chip(text: Text("Bottom"), on: model.subtitleStyle.y > 0.7) { place(0.88) }
+                    Chip(text: Text("Top"), on: style.y < 0.3) { place(0.1) }
+                    Chip(text: Text("Middle"), on: (0.3...0.7).contains(style.y)) { place(0.5) }
+                    Chip(text: Text("Bottom"), on: style.y > 0.7) { place(0.88) }
                     Spacer(minLength: 0)
                 }
             }
@@ -169,17 +177,17 @@ struct EditorSubtitlePanel: View {
 
     private var fonts: [String] {
         let list = SubtitleStyle.fonts
-        return list.contains(model.subtitleStyle.font) ? list : [model.subtitleStyle.font] + list
+        return list.contains(style.font) ? list : [style.font] + list
     }
 
     private func place(_ y: Double) {
-        model.subtitleStyle.x = 0.5
-        model.subtitleStyle.y = y
+        style.x = 0.5
+        style.y = y
     }
 
     private func colour(_ path: WritableKeyPath<SubtitleStyle, String>) -> Binding<Color> {
-        Binding(get: { SubtitleStyle.color(model.subtitleStyle[keyPath: path]) },
-                set: { model.subtitleStyle[keyPath: path] = SubtitleStyle.hex($0) })
+        Binding(get: { SubtitleStyle.color(style[keyPath: path]) },
+                set: { style[keyPath: path] = SubtitleStyle.hex($0) })
     }
 
     /// A setting's name on the left, its controls on the right.

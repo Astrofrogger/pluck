@@ -6,10 +6,12 @@ import SwiftUI
 struct ProjectTimeline: View {
     @Bindable var model: ProjectModel
     @Binding var zoom: Double
+    /// Extra height, shared by the clips and the music.
+    var grow: Double = 0
 
     private let ruler: CGFloat = 20
-    private let clipsHeight: CGFloat = 64
-    private let musicHeight: CGFloat = 26
+    private var clipsHeight: CGFloat { 64 + grow * 0.7 }
+    private var musicHeight: CGFloat { 26 + grow * 0.3 }
     private let titlesHeight: CGFloat = 22
     private var height: CGFloat { ruler + 4 + clipsHeight + 4 + musicHeight + 4 + titlesHeight + 4 }
     private var clipsTop: CGFloat { ruler + 4 }

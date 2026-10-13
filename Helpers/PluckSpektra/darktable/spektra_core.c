@@ -1,0 +1,1189 @@
+/*
+    This file is part of darktable,
+    Copyright (C) 2026 darktable developers.
+
+    darktable is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    darktable is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with darktable.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+/* spektrafilm — spatial effects (grain blur and halation).
+ *
+ * These two operations are the only parts of the film simulation that a static
+ * LUT cannot carry, because they are neighbour-dependent. They live here (rather
+ * than in the inline-only spektra_core.h) so they can allocate scratch buffers
+ * for a proper direct Gaussian convolution (see dt_gaussian_kernel_1d): a
+ * truncated, normalized kernel applied separably (row pass, transpose, row
+ * pass, transpose back), matching what the reference spektrafilm's own
+ * Gaussian blur actually does, not a recursive IIR approximation whose
+ * effective blur radius measurably departs from the requested sigma. Boundary
+ * handling is clamp-to-edge.
+ */
+
+/* -fno-math-errno, as a source pragma, not a CMake compile option: the
+   option is GCC and Clang spelling and would have to be guarded by compiler id
+   in CMakeLists, and a guard there silently drops the optimisation for any
+   compiler the condition does not name. __GNUC__ answers the same question at
+   the point where it matters, and matches how the rest of the tree does it
+   (see common/box_filters.cc).
+
+   The gain is around the powf/exp2f/log10f calls in the per-pixel paths: told
+   that they never set errno, the compiler is free to inline and vectorise them
+   instead of treating each as a call with side effects. */
+#ifdef __GNUC__
+#pragma GCC optimize("no-math-errno")
+#endif
+
+#include "common/darktable.h"
+#include "common/imagebuf.h"
+
+#include <math.h>
+#include <string.h>
+
+#include "common/gaussian.h"
+#include "spektra_core.h"
+
+/* ------------------------------------------------------------------------ */
+/* Row-major Gaussian blur with transpose                                  */
+/* ------------------------------------------------------------------------ */
+/* A naive column pass has stride = width*4 bytes per pixel access, striding
+   beyond cache-line reach at any realistic resolution. Instead:
+   1. Row-pass (direct convolution) — good stride, stays in cache
+   2. Cache-blocked transpose — temp → scratch, sequential access both ways
+   3. Row-pass again on transposed data — second dimension, also good stride
+   4. Transpose back
+   The transpose itself is tiled so it stays in L2. */
+
+/* Maximum kernel half-width: see SF_GAUSS_MAX_RADIUS in spektra_core.h. */
+
+/* Direct kernel for the small-sigma path, matching the reference's own
+   _gaussian_kernel_1d: truncate = 3, radius = int(3*sigma + 0.5). `kernel` must
+   have room for 2*max_radius+1 taps; returns the radius actually used. */
+
+/* SF_GAUSS_EXACT_MAX_SIGMA is defined in spektra_core.h, shared with
+   spektrafilm.c's GPU macros so both dispatch at the same sigma. */
+
+/* Young-van Vliet order-3 recursive Gaussian -- the same filter and the same
+ * coefficients the reference runs above its own crossover (_yvv_coeffs /
+ * _iir_horizontal in fast_gaussian_filter.py).
+ *
+ * Matching the reference matters more here than being independently correct.
+ * Its filter runs 8-11% wide over the range that counts: a requested sigma of 5
+ * gives an effective 5.56, a requested 30 gives 32.28. Every spatial radius in
+ * this module was chosen by eye against renders made through it: halation's
+ * 65 um first bounce, the scatter core and tail, the diffusion bank. A filter
+ * that delivered exactly the sigma it was asked for would make every one of
+ * those halos about 10% too tight. */
+void sf_gauss_yvv_coeffs(const float sigma_req,
+                         float out[4])
+{
+  /* The clamp is this module's, not the recursion's: the CPU dispatch in
+     _blur_flat_inplace and _sf_yvv_blur_cl on the GPU both come through here,
+     so neither can end up filtering at a different sigma than the other. See
+     SF_GAUSS_MAX_IIR_SIGMA. */
+  dt_gaussian_yvv_coeffs(fminf(sigma_req, SF_GAUSS_MAX_IIR_SIGMA), out);
+}
+
+int sf_gauss_iir_passes(const float sigma,
+                        float *const pass_sigma)
+{
+  if(!(sigma > SF_GAUSS_MAX_IIR_SIGMA))
+  {
+    *pass_sigma = sigma;
+    return 1;
+  }
+  const float r = sigma / SF_GAUSS_MAX_IIR_SIGMA;
+  const int n = (int)ceilf(r * r);
+  *pass_sigma = sigma / sqrtf((float)n);
+  return n;
+}
+
+/* Forward then backward sweep over `len` stride-1 elements. Both sweeps seed
+ * their state by replicating the edge sample, as the reference does.
+ *
+ * The recursion v = B*x + B1*w1 + B2*w2 + B3*w3 is evaluated as an increment
+ * on the previous output, using B1 = 1 - B - B2 - B3:
+ *
+ *   v = w1 + (B*(x - w1) + B2*(w2 - w1) + B3*(w3 - w1))
+ *
+ * so B1 is not taken. Two properties follow, both of which the direct form
+ * lacks in float:
+ *
+ *  - the DC gain is exactly 1 for any rounding of B, B2 and B3. In the direct
+ *    form it is B / (1 - B1 - B2 - B3), and the four float coefficients do not
+ *    sum to 1 exactly; with B around 2e-6 at sigma 126 that rounding alone
+ *    puts the gain about 10% off;
+ *
+ *  - no large terms cancel. At large sigma B1 and B2 are about +2.9 and -2.8
+ *    against an output of order 1, so the direct form loses several ulp to
+ *    cancellation every step, and the near-unit poles carry that error along
+ *    the line: a 1-ulp change of the input moves the output by about 2e-3 at
+ *    sigma 126. Here the terms are differences of neighbouring states, and the
+ *    same input change moves the output by about 2e-4.
+ *
+ * Explicit fmaf(), in this exact nesting, and the same in spektrafilm.cl's
+ * four spektrafilm_yvv_* kernels: the result feeds straight back in as w1, so
+ * a compiler fusing or reassociating differently on the two sides would give a
+ * different filter, not a one-ulp difference. #pragma STDC FP_CONTRACT and
+ * #pragma OPENCL FP_CONTRACT do not pin this (GCC does not implement the C
+ * one, and not every OpenCL driver honours its own); an explicit fma is
+ * correctly rounded on both sides. The differences and the final add are
+ * single correctly rounded operations, and B3 * (w3 - w1) is a bare multiply,
+ * so every operation in the step is fully specified. */
+static void _sf_gauss_iir_1d(const float *const in,
+                             float *const out,
+                             const int len,
+                             const float B,
+                             const float B2,
+                             const float B3)
+{
+  float w1 = in[0], w2 = in[0], w3 = in[0];
+  for(int i = 0; i < len; i++)
+  {
+    const float v = w1 + fmaf(B, in[i] - w1, fmaf(B2, w2 - w1, B3 * (w3 - w1)));
+    out[i] = v;
+    w3 = w2;
+    w2 = w1;
+    w1 = v;
+  }
+  float y1 = out[len - 1], y2 = y1, y3 = y1;
+  for(int i = len - 1; i >= 0; i--)
+  {
+    const float v = y1 + fmaf(B, out[i] - y1, fmaf(B2, y2 - y1, B3 * (y3 - y1)));
+    out[i] = v;
+    y3 = y2;
+    y2 = y1;
+    y1 = v;
+  }
+}
+
+/* Direct 1D convolution along stride-1 elements, clamp-to-edge boundary (a
+   plain "hold the edge value" extension -- the exact boundary rule matters
+   far less than the kernel itself once the kernel is exact). `in` and
+   `out` must NOT alias. */
+static void _sf_gauss_convolve_1d(const float *const in,
+                                  float *const out,
+                                  const int len,
+                                  const float *const kernel,
+                                  const int radius)
+{
+  for(int x = 0; x < len; x++)
+  {
+    float acc = 0.0f;
+    for(int k = -radius; k <= radius; k++)
+    {
+      int xx = x + k;
+      xx = xx < 0 ? 0 : (xx >= len ? len - 1 : xx);
+      /* fma-pinned, matching spektrafilm_gauss_row/col_*c */
+      acc = fmaf(kernel[k + radius], in[xx], acc);
+    }
+    out[x] = acc;
+  }
+}
+
+/* Cache-blocked transpose of a width×height float buffer to height×width.
+   Using BLOCK=64 keeps read/write working sets in L1/L2 during the pass. */
+#define SF_TRANSPOSE_BLOCK 64
+static void _sf_transpose(const float *const src,
+                          float *const dst,
+                          const int w,
+                          const int h)
+{
+  DT_OMP_FOR()
+  for(int j0 = 0; j0 < h; j0 += SF_TRANSPOSE_BLOCK)
+  {
+    const int jlim = (j0 + SF_TRANSPOSE_BLOCK < h) ? j0 + SF_TRANSPOSE_BLOCK : h;
+    for(int i0 = 0; i0 < w; i0 += SF_TRANSPOSE_BLOCK)
+    {
+      const int ilim = (i0 + SF_TRANSPOSE_BLOCK < w) ? i0 + SF_TRANSPOSE_BLOCK : w;
+      for(int j = j0; j < jlim; j++)
+        for(int i = i0; i < ilim; i++)
+          dst[(size_t)i * h + j] = src[(size_t)j * w + i];
+    }
+  }
+}
+
+/* Single-channel exact Gaussian blur with cache-blocked transpose. `trans`
+   is a w*h intermediate buffer for the transpose (may be NULL: the row/col
+   passes then operate directly without the transpose, which is fine for
+   small buffers where cache locality matters less). */
+static void _blur_flat_inplace(float *const plane,
+                               const int w,
+                               const int h,
+                               const float sigma,
+                               float *const trans,
+                               const int exact_only)
+{
+  const int use_iir = !exact_only && sigma >= SF_GAUSS_EXACT_MAX_SIGMA;
+  float kernel[2 * SF_GAUSS_MAX_RADIUS + 1];
+  int radius = 0;
+  int passes = 1;
+  float yvv[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+  if(use_iir)
+  {
+    float pass_sigma = sigma;
+    passes = sf_gauss_iir_passes(sigma, &pass_sigma);
+    sf_gauss_yvv_coeffs(pass_sigma, yvv);
+  }
+  else radius = dt_gaussian_kernel_1d(sigma, kernel, SF_GAUSS_MAX_RADIUS);
+
+  for(int pass = 0; pass < passes; pass++)
+  {
+    if(trans && w >= 16 && h >= 16)
+    {
+      float *const temp = trans;
+      /* Pass 1: row-major on each row -> temp */
+      DT_OMP_FOR()
+      for(int j = 0; j < h; j++)
+      {
+        const size_t off = (size_t)j * w;
+        if(use_iir) _sf_gauss_iir_1d(plane + off, temp + off, w, yvv[0], yvv[2], yvv[3]);
+        else _sf_gauss_convolve_1d(plane + off, temp + off, w, kernel, radius);
+      }
+      /* Transpose temp (w×h) -> plane (h×w) */
+      _sf_transpose(temp, plane, w, h);
+      /* Pass 2: row-major on transposed data -> temp */
+      DT_OMP_FOR()
+      for(int j = 0; j < w; j++)
+      {
+        const size_t off = (size_t)j * h;
+        if(use_iir) _sf_gauss_iir_1d(plane + off, temp + off, h, yvv[0], yvv[2], yvv[3]);
+        else _sf_gauss_convolve_1d(plane + off, temp + off, h, kernel, radius);
+      }
+      /* Transpose back temp (h×w) -> plane (w×h) */
+      _sf_transpose(temp, plane, h, w);
+    }
+    else
+    {
+      /* small buffer: skip the cache-blocking transpose, convolve directly */
+      float *const row_tmp = dt_alloc_align_float((size_t)MAX(w, h));
+      if(row_tmp)
+      {
+        for(int j = 0; j < h; j++)
+        {
+          if(use_iir)
+            _sf_gauss_iir_1d(plane + (size_t)j * w, row_tmp, w, yvv[0], yvv[2], yvv[3]);
+          else
+            _sf_gauss_convolve_1d(plane + (size_t)j * w, row_tmp, w, kernel, radius);
+          memcpy(plane + (size_t)j * w, row_tmp, sizeof(float) * w);
+        }
+        float *const col_in = dt_alloc_align_float((size_t)h);
+        float *const col_out = dt_alloc_align_float((size_t)h);
+        if(col_in && col_out)
+        {
+          for(int i = 0; i < w; i++)
+          {
+            for(int j = 0; j < h; j++) col_in[j] = plane[(size_t)j * w + i];
+            if(use_iir) _sf_gauss_iir_1d(col_in, col_out, h, yvv[0], yvv[2], yvv[3]);
+            else _sf_gauss_convolve_1d(col_in, col_out, h, kernel, radius);
+            for(int j = 0; j < h; j++) plane[(size_t)j * w + i] = col_out[j];
+          }
+        }
+        dt_free_align(col_in);
+        dt_free_align(col_out);
+      }
+      dt_free_align(row_tmp);
+    }
+  }
+}
+
+static void _blur_channel(float *const buf,
+                          const int w,
+                          const int h,
+                          const int c,
+                          const float sigma,
+                          float *const plane,
+                          float *const trans,
+                          const int exact_only)
+{
+  if(sigma < 1e-6f) return;
+  const size_t npix = (size_t)w * h;
+  for(size_t i = 0; i < npix; i++) plane[i] = buf[i * 3 + c];
+  _blur_flat_inplace(plane, w, h, sigma, trans, exact_only);
+  for(size_t i = 0; i < npix; i++) buf[i * 3 + c] = plane[i];
+}
+
+/* Blur all three channels with the same sigma (grain clumps). Always uses
+   the exact kernel regardless of sigma: the fast IIR path has a known
+   ~18% effective-width error at the small sigmas grain's clump blur
+   typically uses, which would make grain visibly the wrong size relative
+   to upstream's own (exact-shape) Gaussian blur. Allocates trans buffer. */
+void sf_blur_plane3(float *const buf,
+                    const int w,
+                    const int h,
+                    const float sigma,
+                    float *const plane)
+{
+  if(sigma < SF_GAUSS_MIN_SIGMA) return;
+  float *const trans = dt_alloc_align_float((size_t)w * h);
+  for(int c = 0; c < 3; c++) _blur_channel(buf, w, h, c, sigma, plane, trans, /*exact_only=*/1);
+  dt_free_align(trans);
+}
+
+/* Same exact-kernel blur as sf_blur_plane3, but for one flat w*h buffer
+   already in place -- used for grain's per-sublayer dye-cloud blur, where
+   each (channel, sub-layer) has its own sigma. No 0.3px floor (unlike
+   sf_blur_plane3's guard for the visible clump blur): the dye-cloud sigma
+   is often well under a pixel and still meaningfully softens the raw
+   particle draw, matching upstream's plain `> 0` check. Caller-provided
+   plane IS buf (in place); trans may be NULL for small buffers. */
+void sf_blur_plane1(float *const buf,
+                    const int w,
+                    const int h,
+                    const float sigma,
+                    float *const plane,
+                    float *const trans)
+{
+  if(sigma < 1e-6f) return;
+  (void)plane; /* kept in the signature for API symmetry with sf_blur_plane3; unused: this
+                  variant blurs buf in place, it doesn't need a separate extract/write-back
+                  staging buffer the way the interleaved 3-channel path does. */
+  _blur_flat_inplace(buf, w, h, sigma, trans, /*exact_only=*/1);
+}
+
+/* Same as sf_blur_plane3, but allows the fast IIR path at large sigma: for
+   callers with no downstream dependency on the exact kernel's shape (DIR
+   coupler correction-field diffusion, unlike grain, isn't renormalizing
+   against it -- it's just smoothing a density correction, not restoring a
+   noise buffer's variance). */
+void sf_blur_plane3_fast(float *const buf,
+                         const int w,
+                         const int h,
+                         const float sigma,
+                         float *const plane)
+{
+  if(sigma < SF_GAUSS_MIN_SIGMA) return;
+  float *const trans = dt_alloc_align_float((size_t)w * h);
+  for(int c = 0; c < 3; c++) _blur_channel(buf, w, h, c, sigma, plane, trans, /*exact_only=*/0);
+  dt_free_align(trans);
+}
+
+/* Variance of the reference's Young-van Vliet filter at `sigma`, forward and
+   backward sweep together, from the same coefficients dt_gaussian_yvv_coeffs()
+   rounds to float, kept in double. For a causal B / (1 - b1 z - b2 z^2 - b3 z^3)
+   with S = 1 - b1 - b2 - b3, P = b1 + 2 b2 + 3 b3 and Q = b1 + 4 b2 + 9 b3 the
+   impulse response has variance P^2 / S^2 + Q / S; the backward sweep doubles
+   it. Matches the measured response of the double-precision recursion to the
+   second decimal (5 -> 5.56, 30 -> 32.28, 150 -> 137.88). */
+static double _yvv_ref_variance(const double s)
+{
+  const double q = (s >= 2.5) ? (0.98711 * s - 0.96330) : (3.97156 - 4.14554 * sqrt(1.0 - 0.26891 * s));
+  const double q2 = q * q, q3 = q2 * q;
+  const double b0 = 1.57825 + 2.44413 * q + 1.4281 * q2 + 0.422205 * q3;
+  const double b1 = (2.44413 * q + 2.85619 * q2 + 1.26661 * q3) / b0;
+  const double b2 = -(1.4281 * q2 + 1.26661 * q3) / b0;
+  const double b3 = 0.422205 * q3 / b0;
+  const double S = 1.0 - b1 - b2 - b3;
+  const double P = b1 + 2.0 * b2 + 3.0 * b3;
+  const double Q = b1 + 4.0 * b2 + 9.0 * b3;
+  return 2.0 * (P * P / (S * S) + Q / S);
+}
+
+int sf_wide_blur_plan(const float sigma,
+                      const int w,
+                      const int h,
+                      const int roi_x,
+                      const int roi_y,
+                      int *const k,
+                      float *const sigma_low,
+                      int *const lw,
+                      int *const lh,
+                      int *const ox,
+                      int *const oy)
+{
+  if(!(sigma >= SF_WIDE_BLUR_MIN_SIGMA) || w < 1 || h < 1) return 0;
+  const int kk = (int)(sigma / SF_WIDE_BLUR_LOW_SIGMA);
+  /* the width the recursive path delivers: n cascaded passes of pass_sigma,
+     variances adding */
+  float pass_sigma = sigma;
+  const int passes = sf_gauss_iir_passes(sigma, &pass_sigma);
+  const double target = (double)passes * _yvv_ref_variance((double)pass_sigma);
+  const double var = target - ((double)kk * kk - 1.0) / 12.0 - (double)kk * kk / 6.0;
+  *k = kk;
+  *sigma_low = (float)(sqrt(var) / kk);
+  /* offset of the buffer's first pixel inside its block: the grid sits on
+     multiples of k in absolute coordinates */
+  *ox = ((roi_x % kk) + kk) % kk;
+  *oy = ((roi_y % kk) + kk) % kk;
+  *lw = (*ox + w - 1) / kk + 1;
+  *lh = (*oy + h - 1) / kk + 1;
+  return 1;
+}
+
+void sf_wide_blur_inv_table(const int k,
+                            float *const inv)
+{
+  inv[0] = 0.0f;
+  for(int i = 1; i <= k; i++) inv[i] = 1.0f / (float)i;
+}
+
+/* Box average of each k x k block (clipped at the buffer edge) into `low`.
+   Must match spektrafilm_wide_rows and spektrafilm_wide_down in spektrafilm.cl
+   operation for operation:
+   each block row is summed left to right, its mean is folded in with fmaf in
+   top-to-bottom row order, and the sum of row means is scaled by inv[rows].
+   The x loop runs over the whole buffer row with the block index computed per
+   pixel, so a vectorising compiler cannot split one block's sum into partial
+   sums and reorder it. */
+static void _wide_down3(const float *const in,
+                        float *const low,
+                        const int w,
+                        const int h,
+                        const int k,
+                        const int lw,
+                        const int lh,
+                        const int ox,
+                        const int oy,
+                        const float *const inv)
+{
+  DT_OMP_FOR()
+  for(int Y = 0; Y < lh; Y++)
+  {
+    const int y0 = MAX(Y * k - oy, 0), y1 = MIN((Y + 1) * k - oy, h);
+    float *const rs = dt_alloc_align_float((size_t)lw * 3);
+    float *const lo = low + (size_t)Y * lw * 3;
+    for(int i = 0; i < lw * 3; i++) lo[i] = 0.0f;
+    if(rs)
+    {
+      for(int y = y0; y < y1; y++)
+      {
+        for(int i = 0; i < lw * 3; i++) rs[i] = 0.0f;
+        const float *const row = in + (size_t)y * w * 3;
+        for(int x = 0; x < w; x++)
+        {
+          const int X = (x + ox) / k;
+          rs[X * 3 + 0] += row[x * 3 + 0];
+          rs[X * 3 + 1] += row[x * 3 + 1];
+          rs[X * 3 + 2] += row[x * 3 + 2];
+        }
+        for(int X = 0; X < lw; X++)
+        {
+          const int cx = MIN((X + 1) * k - ox, w) - MAX(X * k - ox, 0);
+          for(int c = 0; c < 3; c++) lo[X * 3 + c] = fmaf(rs[X * 3 + c], inv[cx], lo[X * 3 + c]);
+        }
+      }
+      dt_free_align(rs);
+    }
+    const float ic = inv[y1 - y0];
+    for(int i = 0; i < lw * 3; i++) lo[i] = lo[i] * ic;
+  }
+}
+
+/* Bilinear interpolation of `low` back to w x h, sampling block centres.
+   Must match spektrafilm_wide_up in spektrafilm.cl operation for operation. */
+static void _wide_up3(const float *const low,
+                      float *const out,
+                      const int w,
+                      const int h,
+                      const int k,
+                      const int lw,
+                      const int lh,
+                      const int ox,
+                      const int oy,
+                      const float inv2k)
+{
+  DT_OMP_FOR()
+  for(int y = 0; y < h; y++)
+  {
+    const float v = (float)(2 * (y + oy) + 1 - k) * inv2k;
+    int j0 = (int)floorf(v), j1;
+    float fy;
+    if(j0 < 0) { j0 = j1 = 0; fy = 0.0f; }
+    else if(j0 >= lh - 1) { j0 = j1 = lh - 1; fy = 0.0f; }
+    else { j1 = j0 + 1; fy = v - (float)j0; }
+    const float *const r0 = low + (size_t)j0 * lw * 3;
+    const float *const r1 = low + (size_t)j1 * lw * 3;
+    for(int x = 0; x < w; x++)
+    {
+      const float u = (float)(2 * (x + ox) + 1 - k) * inv2k;
+      int i0 = (int)floorf(u), i1;
+      float fx;
+      if(i0 < 0) { i0 = i1 = 0; fx = 0.0f; }
+      else if(i0 >= lw - 1) { i0 = i1 = lw - 1; fx = 0.0f; }
+      else { i1 = i0 + 1; fx = u - (float)i0; }
+      float *const o = out + ((size_t)y * w + x) * 3;
+      for(int c = 0; c < 3; c++)
+      {
+        const float p00 = r0[i0 * 3 + c], p01 = r0[i1 * 3 + c];
+        const float p10 = r1[i0 * 3 + c], p11 = r1[i1 * 3 + c];
+        const float top = fmaf(fx, p01 - p00, p00);
+        const float bot = fmaf(fx, p11 - p10, p10);
+        o[c] = fmaf(fy, bot - top, top);
+      }
+    }
+  }
+}
+
+void sf_blur_plane3_wide(float *const buf,
+                         const int w,
+                         const int h,
+                         const int roi_x,
+                         const int roi_y,
+                         const float sigma,
+                         float *const plane)
+{
+  int k, lw, lh, ox, oy;
+  float sigma_low;
+  if(!sf_wide_blur_plan(sigma, w, h, roi_x, roi_y, &k, &sigma_low, &lw, &lh, &ox, &oy))
+  {
+    sf_blur_plane3_fast(buf, w, h, sigma, plane);
+    return;
+  }
+  float *const low = dt_alloc_align_float((size_t)lw * lh * 3);
+  float *const inv = dt_alloc_align_float((size_t)k + 1);
+  if(!low || !inv)
+  {
+    dt_free_align(low);
+    dt_free_align(inv);
+    sf_blur_plane3_fast(buf, w, h, sigma, plane);
+    return;
+  }
+  sf_wide_blur_inv_table(k, inv);
+  _wide_down3(buf, low, w, h, k, lw, lh, ox, oy, inv);
+  sf_blur_plane3(low, lw, lh, sigma_low, plane);
+  _wide_up3(low, buf, w, h, k, lw, lh, ox, oy, 1.0f / (float)(2 * k));
+  dt_free_align(low);
+  dt_free_align(inv);
+}
+
+/* Multiplicative unsharp mask on density (study b80): out = D * (D / blur(D))^amount.
+   The reference (apply_multiplicative_unsharp_mask, diffusion.py) follows this
+   with a per-channel scalar renormalisation that restores each channel's total
+   density mass. That renormalisation is deliberately NOT reproduced here: it is
+   a whole-image reduction, and this function runs on whatever ROI or tile the
+   pixelpipe hands it, so the scale factor would differ between the preview pipe,
+   the export pipe and every tile of a tiled export -- the same pixel would come
+   out at a different density depending on how the image was cut up. The
+   correction it applies is in any case tiny: measured over synthetic CMY density
+   fields with grain from sigma_D = 0.01 to 0.08, the factor stays inside
+   [0.9945, 1.0], i.e. under 0.03 dB. Dropping it also makes this path agree with
+   spektrafilm_grain_usm in the .cl, which never had the renormalisation. */
+void sf_multiplicative_unsharp_mask3(float *const buf,
+                                     const int w,
+                                     const int h,
+                                     const float sigma,
+                                     const float amount,
+                                     const float *const floor_d,
+                                     float *const orig,
+                                     float *const work)
+{
+  if(sigma <= 0.0f || amount <= 0.0f) return;
+  const size_t nn = (size_t)w * h * 3;
+  dt_iop_image_copy(orig, buf, nn);
+  sf_blur_plane3(buf, w, h, sigma, work);
+  const float eps = 1e-6f;
+  const float ratio_max = 4.0f;
+  for(size_t i = 0; i < nn; i++)
+  {
+    const float d0 = floor_d[i % 3];
+    const float D = fmaxf(orig[i] + d0, 0.0f);
+    const float blur = fmaxf(buf[i] + d0, eps);
+    const float ratio = fmaxf(fminf(D / blur, ratio_max), 1.0f / ratio_max);
+    /* fma-pinned, matching spektrafilm_grain_usm */
+    buf[i] = fmaxf(fmaf(D, powf(ratio, amount), -d0), 0.0f);
+  }
+}
+
+/* Additive unsharp mask ([df] apply_unsharp_mask, the scanner's own sharpening
+   pass): out = D + amount * (D - blur(D)). Distinct from the multiplicative one
+   above, which is the grain-recovery pass in the density domain -- this runs on
+   the scanned RGB, can legitimately overshoot below zero at an edge, and is
+   left unclamped exactly as the reference leaves it. */
+void sf_unsharp_mask3(float *const buf,
+                      const int w,
+                      const int h,
+                      const float sigma,
+                      const float amount,
+                      float *const orig,
+                      float *const work)
+{
+  if(sigma <= 0.0f || amount <= 0.0f) return;
+  const size_t nn = (size_t)w * h * 3;
+  dt_iop_image_copy(orig, buf, nn);
+  sf_blur_plane3(buf, w, h, sigma, work);
+  /* fma-pinned, matching spektrafilm_scan_usm */
+  for(size_t i = 0; i < nn; i++) buf[i] = fmaf(amount, orig[i] - buf[i], orig[i]);
+}
+
+/* Viewing glare ([gl] add_glare): a faint veil of the viewing illuminant, drawn
+   as a lognormal field of mean `percent`/100 and relative standard deviation
+   `roughness`, blurred by `blur` pixels.
+
+   The reference adds `glare_amount * illuminant_xyz` in XYZ before the output
+   matrix. That illuminant is normalized to Y = 1 and the matrix adapts it to the
+   output white, so it lands on RGB (1, 1, 1) exactly and can be added as one
+   scalar to all three channels after the matrix. It lands after the output gamut
+   compression: at the default 0.03% the difference is far
+   below a code value, and this keeps the whole spatial stage on one side of
+   sf_sim_scan.
+
+   Lognormal with linear-space mean m and std s: sigma2 = ln(1 + (s/m)^2),
+   mu = ln(m) - sigma2/2, so with s/m = roughness the shape parameter does not
+   depend on the amount at all. */
+void sf_glare(float *const rgb,
+              const int w,
+              const int h,
+              const float percent,
+              const float roughness,
+              const float blur,
+              const int roi_x,
+              const int roi_y,
+              float *const field)
+{
+  const float mean = percent * 0.01f;
+  if(mean <= 0.0f) return;
+  const float sigma2 = logf(1.0f + roughness * roughness);
+  const float s = sqrtf(sigma2), bias = -0.5f * sigma2;
+
+  DT_OMP_FOR()
+  for(int y = 0; y < h; y++)
+    for(int x = 0; x < w; x++)
+    {
+      const uint32_t seed = grain_pixel_seed((uint32_t)(x + roi_x), (uint32_t)(y + roi_y), 0x5eedu);
+      field[(size_t)y * w + x] = mean * expf(fmaf(s, grain_normal(seed), bias));
+    }
+  float *const trans = dt_alloc_align_float((size_t)w * h);
+  sf_blur_plane1(field, w, h, blur, NULL, trans);
+  dt_free_align(trans);
+
+  const size_t npix = (size_t)w * h;
+  DT_OMP_FOR()
+  for(size_t i = 0; i < npix; i++)
+  {
+    const float g = field[i];
+    rgb[i * 3 + 0] += g;
+    rgb[i * 3 + 1] += g;
+    rgb[i * 3 + 2] += g;
+  }
+}
+
+/* Blur packed buffer with per-channel sigma. `trans` is a w*h intermediate. */
+static void _blur_per_channel(float *const buf,
+                              const int w,
+                              const int h,
+                              const float sigma[3],
+                              float *const plane,
+                              float *const trans)
+{
+  for(int c = 0; c < 3; c++) _blur_channel(buf, w, h, c, sigma[c], plane, trans, /*exact_only=*/0);
+}
+
+/* Apply halation + scatter to a w*h*3 LINEAR plane, in place.
+ *
+ * Two stages, both physically motivated and run on linear irradiance:
+ *   1. Scatter (the emulsion point-spread function): a narrow core Gaussian plus
+ *      a wide three-Gaussian tail, mixed per channel.
+ *   2. Multi-bounce halation: N reflections off the film base, each a wider
+ *      Gaussian, weighted by a decaying series, mixed back per channel.
+ *
+ * `amount` scales the halation strength with a mild non-linearity so that 1.0 is
+ * the film-accurate value (red 0.05 / green 0.015 / blue 0.0) while higher values
+ * ramp up faster. `pixel_um` converts the micrometre-on-film radii to pixels. */
+/* Highlight boost (spektrafilm's pre-halation highlight reconstruction). On real
+   film the brightest highlights are clipped before they can scatter; this bows the
+   response upward above a threshold so blown highlights carry extra energy into the
+   halation/scatter that follows. Ported from spektrafilm's boost_highlights:
+     raw_x0 = midgray * 2^protect_ev            (threshold; below it, unchanged)
+     a      = 28^(1 - boost_range)              (curve sharpness)
+     k      = (2^boost_ev - 1) / (e^(a(1-x0)) - a(1-x0) - 1)   (normaliser)
+     above x0:  y = x + k*max * (e^(a*dx) - a*dx - 1),  dx=(x-x0)/max
+   max is midgray * 2^(protect_ev + SF_BOOST_SPAN_EV), and above it the curve
+   continues along its tangent (see sf_boost_plan_t). */
+int sf_boost_build_plan(const float boost_ev,
+                        const float boost_range,
+                        const float protect_ev,
+                        sf_boost_plan_t *plan)
+{
+  if(boost_ev <= 0.0f) return 0;
+
+  /* The reference normalises this curve by max(raw) over the whole frame, so its
+     brightest pixel lands exactly boost_ev stops higher. That is a whole-image
+     reduction, and this function only ever sees one ROI or one tile: the preview
+     pipe's downscale averages specular highlights down, so it measured a lower
+     peak and applied a different curve than the export, and a tiled export got a
+     different curve in every tile (tiling_callback sets overlap and factor, so
+     large images do get tiled).
+
+     Anchor the ceiling to the exposure scale instead. raw_x0 is already defined
+     as a number of stops above the film's calibrated middle grey, so defining
+     the ceiling the same way makes the whole curve scene-referred and identical
+     everywhere. Anchoring it to the film's own shoulder was the other candidate
+     and is a trap: the log exposure at 95% of curve excursion ranges from 2.5
+     (Velvia) to 272 (Vision3 250D) in raw units across the shipped stocks, which
+     would leave the slider nearly inert on negatives and violent on slides.
+
+     The reference's normalisation also bounds dx to 1 - x0, which a fixed
+     ceiling does not: anything above xmax would follow the bare exponential,
+     overflow float within a few stops and reach the recursive blurs as inf,
+     where inf - inf turns whole rows and columns into NaN. Above xmax the curve
+     therefore continues along its tangent. */
+  const double midgray = 0.184;
+  const double rng = fmin(fmax((double)boost_range, 0.0), 1.0);
+  const double prot = fmax((double)protect_ev, 0.0);
+  const double raw_x0 = midgray * exp2(prot);
+  const double maxv = midgray * exp2(prot + SF_BOOST_SPAN_EV);
+  const double a = pow(28.0, 1.0 - rng);
+  const double dxm = 1.0 - raw_x0 / maxv;
+  const double e_m = exp(a * dxm);
+  const double denom = e_m - a * dxm - 1.0;
+  if(denom <= 0.0) return 0;
+  const double gain = exp2((double)boost_ev) - 1.0;
+  const double k = gain / denom;
+  plan->raw_x0 = (float)raw_x0;
+  plan->xmax = (float)maxv;
+  plan->inv_max = (float)(1.0 / maxv);
+  plan->a = (float)a;
+  plan->a_log2e = (float)(a * M_LOG2E);
+  plan->scale = (float)(k * maxv);
+  plan->ext = (float)(gain * maxv);
+  plan->slope = (float)(k * a * (e_m - 1.0));
+  return 1;
+}
+
+void sf_boost_highlights(float *const raw,
+                         const int w,
+                         const int h,
+                         const float boost_ev,
+                         const float boost_range,
+                         const float protect_ev)
+{
+  sf_boost_plan_t bp;
+  if(!sf_boost_build_plan(boost_ev, boost_range, protect_ev, &bp)) return;
+  const size_t nn = (size_t)w * h * 3;
+
+  /* same expression, in the same association, as spektrafilm_boost */
+  DT_OMP_FOR()
+  for(size_t i = 0; i < nn; i++)
+  {
+    const float x = raw[i];
+    if(x <= bp.raw_x0) continue;
+    if(x <= bp.xmax)
+    {
+      const float dx = (x - bp.raw_x0) * bp.inv_max;
+      const float t = bp.a * dx;
+      raw[i] = fmaf(bp.scale, (grain_exp2f(bp.a_log2e * dx) - t) - 1.0f, x);
+    }
+    else
+      raw[i] = fmaf(bp.slope, x - bp.xmax, x + bp.ext);
+  }
+}
+
+void sf_halation(float *const raw,
+                 const int w,
+                 const int h,
+                 const int roi_x,
+                 const int roi_y,
+                 const double pixel_um,
+                 const double sc_core[3],
+                 const double sc_tail[3],
+                 const double w_s[3],
+                 const float scatter_amount,
+                 const float scatter_scale,
+                 const float halation_amount,
+                 const float halation_scale,
+                 const double halation_strength[3],
+                 const double halation_first_sigma_um)
+{
+  if(scatter_amount <= 0.0f && halation_amount <= 0.0f) return;
+
+  /* tail = sum of three Gaussians (amplitude, radius multiplier) */
+  static const double tail_amp[3] = { 0.1633, 0.6496, 0.1870 };
+  static const double tail_rat[3] = { 0.5360, 1.5236, 2.7684 };
+  /* stage 1 (scatter): s_amount is the (1-s)*raw + s*scattered blend weight,
+     matching upstream's scatter_amount 1:1 (no extra curve). scl is the
+     shared core/tail spatial-scale multiplier.
+
+     Clamped to [0, 1] because the blend is CONVEX: s is the fraction of photons
+     that scatter, so s = 1 (upstream's own default and maximum) already means
+     "all of them". Past 1 the weight on the unscattered term goes negative and
+     the stage stops being a blur and starts subtracting the sharp image --
+     s = 2 gives 2*scattered - raw, an inverted ghost of the subject with a dark
+     halo around it, clipping to black wherever it drives raw below zero. */
+  const double s_amount = fmin(fmax((double)scatter_amount, 0.0), 1.0);
+  const double scl = fmax((double)scatter_scale, 1e-3);
+  /* stage 2 (halation): per-channel strength at halation_amount==1.0, and the
+     first-bounce radius, both per-film (sf_sim_halation_params()) since
+     upstream keys these off the profile's use/antihalation tags -- e.g. a
+     modern strong-AH stock scatters far less red/green back than a
+     rem-jet-removed one. hscl is halation's OWN spatial-scale multiplier,
+     independent from the scatter stage's scl above. halation_amount is a
+     direct linear multiplier on strength here, matching upstream's
+     a_tot = halation_strength * halation_amount exactly (no extra curve). */
+  const double a_tot[3] = { halation_strength[0] * (double)halation_amount,
+                            halation_strength[1] * (double)halation_amount,
+                            halation_strength[2] * (double)halation_amount };
+  const double first_sigma_um = halation_first_sigma_um; /* base bounce radius */
+  const double hscl = fmax((double)halation_scale, 1e-3);
+  const int n_bounces = 3; /* bounce weights decay by 0.5 each, see decay[] below */
+
+  const size_t npix = (size_t)w * h;
+  const size_t nn = npix * 3;
+  float *const plane = dt_alloc_align_float(npix);
+  float *const trans = dt_alloc_align_float(npix);
+  if(!plane) { dt_free_align(trans); return; }
+
+  /* --- stage 1: scatter PSF (core + 3-component tail) --- */
+  if(s_amount > 0.0)
+  {
+    float *const core = dt_alloc_align_float(nn);
+    float *const tail = dt_alloc_align_float(nn);
+    float *const comp = dt_alloc_align_float(nn);
+    if(core && tail && comp)
+    {
+      dt_iop_image_copy(core, raw, nn);
+      float sc[3];
+      for(int c = 0; c < 3; c++) sc[c] = fmaxf((float)(sc_core[c] * scl / pixel_um), 1e-6f);
+      _blur_per_channel(core, w, h, sc, plane, trans);
+
+      memset(tail, 0, sizeof(float) * nn);
+      for(int g = 0; g < 3; g++)
+      {
+        dt_iop_image_copy(comp, raw, nn);
+        float lt[3];
+        for(int c = 0; c < 3; c++)
+          lt[c] = fmaxf((float)(tail_rat[g] * (sc_tail[c] * scl / pixel_um)), 1e-6f);
+        _blur_per_channel(comp, w, h, lt, plane, trans);
+        const float amp_g = (float)tail_amp[g];
+        for(size_t i = 0; i < nn; i++) tail[i] = fmaf(amp_g, comp[i], tail[i]);
+      }
+      /* float and fma-pinned, matching spektrafilm_scatter_combine */
+      const float s_f = (float)s_amount;
+      const float ws[3] = { (float)w_s[0], (float)w_s[1], (float)w_s[2] };
+      for(size_t i = 0; i < nn; i++)
+      {
+        const int c = i % 3;
+        const float scattered = fmaf(ws[c], tail[i], (1.0f - ws[c]) * core[i]);
+        raw[i] = fmaf(s_f, scattered - raw[i], raw[i]);
+      }
+    }
+    dt_free_align(core);
+    dt_free_align(tail);
+    dt_free_align(comp);
+  }
+
+  /* --- stage 2: multi-bounce halation --- */
+  if(halation_amount > 0.0f && (a_tot[0] > 0.0 || a_tot[1] > 0.0 || a_tot[2] > 0.0))
+  {
+    /* 0.5^(k-1) normalised by their sum 1.75, as float literals identical to
+       spektrafilm.c's GPU host so both paths weight the bounces alike */
+    static const float decay[3] = { 1.0f / 1.75f, 0.5f / 1.75f, 0.25f / 1.75f };
+    const float a_f[3] = { (float)a_tot[0], (float)a_tot[1], (float)a_tot[2] };
+
+    float *const blur = dt_alloc_align_float(nn);
+    float *const comp = dt_alloc_align_float(nn);
+    if(blur && comp)
+    {
+      memset(blur, 0, sizeof(float) * nn);
+      for(int k = 1; k <= n_bounces; k++)
+      {
+        dt_iop_image_copy(comp, raw, nn);
+        const float sk = fmaxf((float)((first_sigma_um * hscl / pixel_um) * sqrt((double)k)), 1e-6f);
+        const float sig3[3] = { sk, sk, sk };
+        /* one sigma for all three channels: wide bounces decimate, as
+           spektrafilm.c's GPU bounce loop does from the same threshold */
+        if(sk >= SF_WIDE_BLUR_EFFECT_SIGMA)
+          sf_blur_plane3_wide(comp, w, h, roi_x, roi_y, sk, plane);
+        else
+          _blur_per_channel(comp, w, h, sig3, plane, trans);
+        const float wk = decay[k - 1];
+        for(size_t i = 0; i < nn; i++) blur[i] = fmaf(wk, comp[i], blur[i]);
+      }
+      /* float and fma-pinned, matching spektrafilm_halation_apply */
+      for(size_t i = 0; i < nn; i++)
+      {
+        const int c = i % 3;
+        raw[i] = fmaf(a_f[c], blur[i], raw[i]) / (1.0f + a_f[c]);
+      }
+    }
+    dt_free_align(blur);
+    dt_free_align(comp);
+  }
+
+  dt_free_align(plane);
+  dt_free_align(trans);
+}
+
+/* ---------------- diffusion filter (Black Pro-Mist family) ----------------
+ *
+ * spektrafilm's diffusion filter is an energy-conserving scatter:
+ *   E_out = (1 - p_s) * E_in + p_s * (K_s * E_in)
+ * where the per-channel PSF K_s is a sum of radial exponentials grouped into
+ * core / halo / bloom. Each exponential exp(-r/lambda)/(2*pi*lambda^2) has
+ * per-axis sigma lambda*sqrt(3); we approximate each as a Gaussian of that sigma so
+ * the whole PSF becomes a weighted bank of Gaussian blurs (_blur_channel, this
+ * file's own exact direct convolution), summed per channel. The strength->p_s
+ * table, geometric lambda progressions, group weights and warmth
+ * redistribution are ported exactly from spektrafilm; only
+ * the exponential->Gaussian per-component shape is an approximation (a soft
+ * diffusion halo is dominated by scale, not tail shape). */
+
+#define SF_DIFFUSION_MAX_COMP 4
+
+typedef struct sf_diff_group_t
+{
+  double lambda_um;
+  double spread;
+  int n;
+  double alpha; /* bloom only; <=0 = uniform weights */
+} sf_diff_group_t;
+
+typedef struct sf_diff_family_t
+{
+  sf_diff_group_t core, halo, bloom;
+  double w_c, w_h, w_b;
+  double total_gain; /* family scatter gain in strength->p_s */
+  double halo_warmth_base; /* per-family halo warmth bias, added to the
+                               user's own warmth slider before redistribution
+                               (spektrafilm's DIFFUSION_FILTER_SHAPES
+                               halo_warmth_base) */
+} sf_diff_family_t;
+
+/* All four families spektrafilm ships, values ported exactly from
+   model/diffusion.py's _DIFFUSION_FILTER_SHAPES / _DIFFUSION_FAMILY_TOTAL_GAIN. */
+static const sf_diff_family_t SF_FAMILY_GLIMMERGLASS = {
+  { 10.0, 1.5, 2, 0.0 }, { 50.0, 2.0, 3, 0.0 }, { 260.0, 2.5, 4, 3.2 },
+  0.60, 0.30, 0.10, 0.65, 0.0
+};
+/* Black Pro-Mist (the app default family). */
+static const sf_diff_family_t SF_FAMILY_BPM = {
+  { 16.0, 1.5, 2, 0.0 }, { 95.0, 2.0, 3, 0.0 }, { 380.0, 2.5, 4, 3.5 },
+  0.40, 0.47, 0.13, 0.75, 0.65
+};
+/* Classic Pro-Mist. */
+static const sf_diff_family_t SF_FAMILY_PRO_MIST = {
+  { 14.0, 1.5, 2, 0.0 }, { 150.0, 2.0, 3, 0.0 }, { 650.0, 2.5, 4, 2.9 },
+  0.28, 0.42, 0.30, 1.05, 0.40
+};
+static const sf_diff_family_t SF_FAMILY_CINEBLOOM = {
+  { 20.0, 1.5, 2, 0.0 }, { 200.0, 2.0, 3, 0.0 }, { 1000.0, 2.5, 4, 2.5 },
+  0.22, 0.30, 0.48, 1.00, 0.85
+};
+/* Index order must match dt_iop_spektrafilm_diffusion_family_t in spektrafilm.c. */
+static const sf_diff_family_t *const SF_DIFF_FAMILIES[4] = {
+  &SF_FAMILY_BPM, &SF_FAMILY_GLIMMERGLASS, &SF_FAMILY_PRO_MIST, &SF_FAMILY_CINEBLOOM
+};
+
+static const double SF_DIFF_BREAKS[5] = { 0.125, 0.25, 0.5, 1.0, 2.0 };
+static const double SF_DIFF_FRAC[5] = { 0.10, 0.20, 0.35, 0.55, 0.75 };
+static const double SF_HALO_WARMTH_AXIS[3] = { 1.30, 0.15, -1.45 };
+
+/* strength -> deflected fraction p_s (log2-interpolated table * family gain) */
+static double sf_diff_strength_to_ps(double strength,
+                                     const sf_diff_family_t *fam)
+{
+  if(strength <= 0.0) return 0.0;
+  const double ls = log2(fmax(strength, 1e-6));
+  double base;
+  /* Below the first tabulated stop there is nothing to interpolate towards, so
+     ramp linearly in strength down to zero instead of holding the table's first
+     value. Holding it makes every strength under 1/8 deflect the same tenth of
+     the light, and makes the filter jump from off to that tenth the moment the
+     value leaves zero -- most visible at large spatial scales, where the tenth
+     is spread widest. The ramp meets the table exactly at 1/8, so every
+     tabulated stop is unchanged. */
+  if(ls <= log2(SF_DIFF_BREAKS[0]))
+    base = SF_DIFF_FRAC[0] * strength / SF_DIFF_BREAKS[0];
+  else if(ls >= log2(SF_DIFF_BREAKS[4])) base = SF_DIFF_FRAC[4];
+  else
+  {
+    base = SF_DIFF_FRAC[4];
+    for(int i = 0; i < 4; i++)
+    {
+      const double lo = log2(SF_DIFF_BREAKS[i]), hi = log2(SF_DIFF_BREAKS[i + 1]);
+      if(ls >= lo && ls <= hi)
+      {
+        const double t = (ls - lo) / (hi - lo);
+        base = SF_DIFF_FRAC[i] + t * (SF_DIFF_FRAC[i + 1] - SF_DIFF_FRAC[i]);
+        break;
+      }
+    }
+  }
+  return fmin(fmax(base * fam->total_gain, 0.0), 0.99);
+}
+
+/* expand a group into (lambda_um[], weight[]) summing to 1; returns count */
+static int sf_diff_expand(const sf_diff_group_t *g,
+                          const char is_bloom,
+                          double lam[SF_DIFFUSION_MAX_COMP],
+                          double wgt[SF_DIFFUSION_MAX_COMP])
+{
+  int n = g->n < 1 ? 1 : (g->n > SF_DIFFUSION_MAX_COMP ? SF_DIFFUSION_MAX_COMP : g->n);
+  if(n == 1 || g->spread <= 1.0)
+  {
+    lam[0] = g->lambda_um;
+    wgt[0] = 1.0;
+    return 1;
+  }
+  const double llo = log(g->lambda_um / g->spread), lhi = log(g->lambda_um * g->spread);
+  double wsum = 0.0;
+  for(int k = 0; k < n; k++)
+  {
+    lam[k] = exp(llo + (lhi - llo) * k / (n - 1));
+    wgt[k] = is_bloom ? pow(lam[k], 2.0 - g->alpha) : 1.0;
+    wsum += wgt[k];
+  }
+  for(int k = 0; k < n; k++) wgt[k] /= wsum;
+  return n;
+}
+
+/* per-channel halo weights after energy-conserving warmth redistribution */
+static void sf_diff_halo_warmth(const double *wgt,
+                                int n,
+                                double warmth,
+                                double out[3][SF_DIFFUSION_MAX_COMP])
+{
+  if(n < 2)
+  {
+    for(int c = 0; c < 3; c++)
+      for(int k = 0; k < n; k++) out[c][k] = wgt[k];
+    return;
+  }
+  warmth = fmin(fmax(warmth, -1.5), 1.5);
+  double g[SF_DIFFUSION_MAX_COMP], gmean = 0.0, tt = 0.0;
+  for(int k = 0; k < n; k++)
+  {
+    g[k] = -1.0 + 2.0 * k / (n - 1);
+    gmean += wgt[k] * g[k];
+    tt += wgt[k];
+  }
+  gmean /= tt; /* weighted mean, to re-centre */
+  for(int k = 0; k < n; k++) g[k] -= gmean;
+  for(int c = 0; c < 3; c++)
+  {
+    double s = 0.0, raw[SF_DIFFUSION_MAX_COMP];
+    for(int k = 0; k < n; k++)
+    {
+      raw[k] = wgt[k] * (1.0 + warmth * SF_HALO_WARMTH_AXIS[c] * g[k]);
+      if(raw[k] < 0.0) raw[k] = 0.0;
+      s += raw[k];
+    }
+    for(int k = 0; k < n; k++) out[c][k] = (s > 0.0) ? raw[k] * (tt / s) : wgt[k];
+  }
+}
+
+/* Build the shared Gaussian bank (used by both CPU and GPU). */
+int sf_diffusion_build_plan(int family,
+                            float strength,
+                            float halo_warmth,
+                            sf_diffusion_plan_t *plan)
+{
+  plan->n = 0;
+  plan->p_s = 0.0f;
+  const int nfam = (int)(sizeof(SF_DIFF_FAMILIES) / sizeof(SF_DIFF_FAMILIES[0]));
+  const sf_diff_family_t *fam = SF_DIFF_FAMILIES[(family >= 0 && family < nfam) ? family : 0];
+  const double p_s = sf_diff_strength_to_ps((double)strength, fam);
+  if(p_s <= 0.0) return 0;
+
+  double clam[SF_DIFFUSION_MAX_COMP], cw[SF_DIFFUSION_MAX_COMP];
+  double hlam[SF_DIFFUSION_MAX_COMP], hw[SF_DIFFUSION_MAX_COMP];
+  double blam[SF_DIFFUSION_MAX_COMP], bw[SF_DIFFUSION_MAX_COMP];
+  const int nc = sf_diff_expand(&fam->core, 0, clam, cw);
+  const int nh = sf_diff_expand(&fam->halo, 0, hlam, hw);
+  const int nb = sf_diff_expand(&fam->bloom, 1, blam, bw);
+  double hch[3][SF_DIFFUSION_MAX_COMP];
+  /* effective_warmth = family base + user knob, matching
+     diffusion_filter_radial_profile()'s own "cfg base + halo_warmth". */
+  sf_diff_halo_warmth(hw, nh, fam->halo_warmth_base + (double)halo_warmth, hch);
+
+  /* Moment-matched Gaussian surrogate for one 2D isotropic exponential
+     exp(-r/lambda) / (2*pi*lambda^2). That kernel has E[r^2] = 6*lambda^2, and a
+     2D Gaussian of per-axis sigma has E[r^2] = 2*sigma^2, so the second moments
+     match at sigma = lambda*sqrt(3). (The reference's own exponential surrogate
+     agrees: the SF_EXPTAIL_* mixture satisfies sum_k a_k * r_k^2 = 2.988 ~ 3.) */
+  const double L2 = 1.7320508075688772; /* sqrt(3) */
+  int idx = 0;
+  for(int k = 0; k < nc; k++) /* core: channel-independent */
+  {
+    plan->sigma_um[idx] = (float)(clam[k] * L2);
+    plan->wr[idx] = plan->wg[idx] = plan->wb[idx] = (float)(fam->w_c * cw[k]);
+    idx++;
+  }
+  for(int k = 0; k < nh; k++) /* halo: per channel (warmth) */
+  {
+    plan->sigma_um[idx] = (float)(hlam[k] * L2);
+    plan->wr[idx] = (float)(fam->w_h * hch[0][k]);
+    plan->wg[idx] = (float)(fam->w_h * hch[1][k]);
+    plan->wb[idx] = (float)(fam->w_h * hch[2][k]);
+    idx++;
+  }
+  for(int k = 0; k < nb; k++) /* bloom: channel-independent */
+  {
+    plan->sigma_um[idx] = (float)(blam[k] * L2);
+    plan->wr[idx] = plan->wg[idx] = plan->wb[idx] = (float)(fam->w_b * bw[k]);
+    idx++;
+  }
+  plan->n = idx;
+  plan->p_s = (float)p_s;
+  return 1;
+}
+
+/* Apply the diffusion filter in place on a linear w*h*3 plane. */
+void sf_diffusion_filter(float *const raw,
+                         const int w,
+                         const int h,
+                         const int roi_x,
+                         const int roi_y,
+                         const double pixel_um,
+                         const int family,
+                         const float strength,
+                         const float spatial_scale,
+                         const float halo_warmth)
+{
+  if(strength <= 0.0f || spatial_scale <= 0.0f) return;
+  sf_diffusion_plan_t plan;
+  if(!sf_diffusion_build_plan(family, strength, halo_warmth, &plan) || plan.p_s <= 0.0f) return;
+
+  const double sc = fmax((double)spatial_scale, 1e-6);
+  const size_t npix = (size_t)w * h, nn = npix * 3;
+
+  float *const acc = dt_alloc_align_float(nn);
+  float *const comp = dt_alloc_align_float(nn);
+  float *const plane1 = dt_alloc_align_float(npix);
+  float *const trans = dt_alloc_align_float(npix);
+  if(!acc || !comp || !plane1)
+  {
+    dt_free_align(acc);
+    dt_free_align(comp);
+    dt_free_align(plane1);
+    dt_free_align(trans);
+    return;
+  }
+  memset(acc, 0, sizeof(float) * nn);
+
+  for(int j = 0; j < plan.n; j++)
+  {
+    const float sigma = (float)(plan.sigma_um[j] * sc / fmax(pixel_um, 1e-3));
+    dt_iop_image_copy(comp, raw, nn);
+    /* wide components decimate, as spektrafilm.c's GPU bank loop does from
+       the same threshold */
+    if(sigma >= SF_WIDE_BLUR_EFFECT_SIGMA)
+      sf_blur_plane3_wide(comp, w, h, roi_x, roi_y, sigma, plane1);
+    else
+      for(int c = 0; c < 3; c++) _blur_channel(comp, w, h, c, sigma, plane1, trans, /*exact_only=*/0);
+    const float wr = plan.wr[j], wg = plan.wg[j], wb = plan.wb[j];
+    for(size_t i = 0; i < npix; i++)
+    {
+      acc[i * 3 + 0] = fmaf(wr, comp[i * 3 + 0], acc[i * 3 + 0]);
+      acc[i * 3 + 1] = fmaf(wg, comp[i * 3 + 1], acc[i * 3 + 1]);
+      acc[i * 3 + 2] = fmaf(wb, comp[i * 3 + 2], acc[i * 3 + 2]);
+    }
+  }
+
+  /* fma-pinned, matching spektrafilm_diffusion_accum / _mix */
+  const float ps = plan.p_s;
+  for(size_t i = 0; i < nn; i++) raw[i] = fmaf(ps, acc[i], (1.0f - ps) * raw[i]);
+
+  dt_free_align(acc);
+  dt_free_align(comp);
+  dt_free_align(plane1);
+  dt_free_align(trans);
+}

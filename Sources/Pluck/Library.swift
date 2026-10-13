@@ -55,6 +55,14 @@ final class LibraryStore {
 
     private(set) var entries: [Entry] = []
     @ObservationIgnored private var saveScheduled = false
+    /// Files taken out of the Library, and when: the download list doesn't put them back (only
+    /// downloading them again does).
+    @ObservationIgnored private var removedPaths: [String: Date] = [:]
+
+    private static var removedURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pluck/library-removed.json")
+    }
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -66,6 +74,9 @@ final class LibraryStore {
         decoder.dateDecodingStrategy = .iso8601
         if let data = try? Data(contentsOf: Self.fileURL), let saved = try? decoder.decode([Entry].self, from: data) {
             entries = saved
+        }
+        if let data = try? Data(contentsOf: Self.removedURL), let saved = try? decoder.decode([String: Date].self, from: data) {
+            removedPaths = saved
         }
     }
 
@@ -87,6 +98,10 @@ final class LibraryStore {
                 entry.transcriptID = item.transcriptID ?? entry.transcriptID
                 if entry != before { entries[position] = entry; changed = true }
             } else {
+                // Taken out of the Library (and not downloaded again since), or not there any more.
+                if let removed = removedPaths[file.path], (item.finishedAt ?? .distantPast) <= removed { continue }
+                guard FileManager.default.fileExists(atPath: file.path) else { continue }
+                removedPaths[file.path] = nil
                 entries.append(Entry(path: file.path, title: item.title, uploader: item.uploader, source: source,
                                      duration: item.duration, size: item.fileSize, thumbnail: item.thumbnail,
                                      added: item.finishedAt ?? .now, transcriptID: item.transcriptID))
@@ -106,6 +121,7 @@ final class LibraryStore {
     func remove(_ removed: [Entry]) {
         let paths = Set(removed.map(\.path))
         entries.removeAll { paths.contains($0.path) }
+        for path in paths { removedPaths[path] = .now }
         scheduleSave()
     }
 
@@ -143,6 +159,7 @@ final class LibraryStore {
             encoder.dateEncodingStrategy = .iso8601
             try? FileManager.default.createDirectory(at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? encoder.encode(self.entries).write(to: Self.fileURL, options: .atomic)
+            try? encoder.encode(self.removedPaths).write(to: Self.removedURL, options: .atomic)
         }
     }
 }

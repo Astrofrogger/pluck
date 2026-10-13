@@ -1,9 +1,13 @@
+import CryptoKit
 import Foundation
 
-/// spektrafilm, Andrea Volpato's spectral film simulation, as a separate program next to Pluck.
-/// It isn't part of Pluck: it's downloaded (with Python and its libraries, through uv) only when
-/// someone asks for it on the Photo page, into its own folder, and runs as its own process that
-/// Pluck sends jobs to. Film and paper profiles are CC BY-SA 4.0, credited on the Photo page.
+/// Pluck's film: spektrafilm, Andrea Volpato's spectral film simulation, in darktable's native
+/// port (pluck-spektra, a separate GPL program inside Pluck), with the film and paper data
+/// darktable publishes (a 9 MB pack, each file checked, downloaded when someone asks for it on
+/// the Photo page). Pluck sends it jobs. The data is CC BY-SA 4.0, credited on the Photo page.
+///
+/// Denoise runs in a separate Python engine (NumPy and scikit-image, through uv), downloaded
+/// only when someone asks for it, with an optional AI denoiser on top.
 @MainActor
 @Observable
 final class FilmEngine {
@@ -20,59 +24,76 @@ final class FilmEngine {
         let use: String
         /// The paper a film is made to be printed on.
         let print: String?
+        var bw: Bool? = false
     }
 
+    /// One of the film's settings: its default and range, as darktable has them.
+    struct Setting: Hashable {
+        enum Kind: String { case number, flag, choice }
+        let value: Double
+        let min: Double
+        let max: Double
+        let kind: Kind
+    }
+
+    /// The film data pack.
     private(set) var state: State = .notInstalled
-    /// While installing: what's happening, and how far (0…1).
+    /// While downloading: what's happening, and how far (0…1).
     private(set) var stage = ""
     private(set) var progress = 0.0
     private(set) var films: [Profile] = []
     private(set) var papers: [Profile] = []
-    /// Every setting spektrafilm has, with its default ("camera.exposure_compensation_ev": 0).
-    private(set) var schema: [String: SettingValue] = [:]
+    /// Every film setting, by name ("grain_amount"), with its default and range.
+    private(set) var schema: [String: Setting] = [:]
 
-    /// About what the download and the install take (shown before asking).
-    static let downloadMB = 200
-    static let diskMB = 550
-    static let uvVersion = "0.13.0"
-    static let spektrafilmVersion = "v0.3.3"
+    /// About what the download takes (shown before asking).
+    static let downloadMB = 9
+    static let diskMB = 10
+    static let packRepository = "darktable-org/darktable-spektrafilm"
 
     static var folder: URL {
-        // Tests use their own engine, never the one in Pluck's folder.
+        // Tests use their own copy, never the one in Pluck's folder.
         if ScreenshotMode.scene != nil, let test = UserDefaults.standard.string(forKey: "PluckScreenshotEngine") {
             return URL(fileURLWithPath: test, isDirectory: true)
         }
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Film Engine", isDirectory: true)
     }
-    private static var python: URL { folder.appendingPathComponent("venv/bin/python") }
-    private static var marker: URL { folder.appendingPathComponent("installed-\(spektrafilmVersion)") }
-    private static var bridge: URL? { Bundle.main.url(forResource: "pluck_film", withExtension: "py", subdirectory: "FilmEngine") }
+    /// The film data (pack.json, spectra_lut.f32, profiles/).
+    static var pack: URL { folder.appendingPathComponent("pack", isDirectory: true) }
+    private static var packMarker: URL { pack.appendingPathComponent(".complete") }
+    static var helper: URL? {
+        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pluck-spektra")
+        return FileManager.default.isExecutableFile(atPath: url.path) ? url : nil
+    }
 
-    /// The engine's processes: one for previews, more for exporting several photos at once.
+    /// The film's processes: one for previews, more for exporting several photos at once.
     @ObservationIgnored private var workers: [FilmWorker] = []
 
-    /// How many photos to develop at the same time when exporting: a render keeps about four
-    /// cores busy and needs a few GB of memory at full size.
+    /// How many photos to develop at the same time when exporting.
     static var exportWorkers: Int {
         let cores = ProcessInfo.processInfo.activeProcessorCount
         let gigabytes = Int(ProcessInfo.processInfo.physicalMemory / 1_073_741_824)
-        return max(1, min(cores / 4, gigabytes / 8, 4))
+        return max(1, min(cores / 2, gigabytes / 4, 6))
     }
 
     private init() {
-        if FileManager.default.fileExists(atPath: Self.marker.path) { state = .ready }
+        if FileManager.default.fileExists(atPath: Self.packMarker.path) { state = .ready }
+        // The earlier Python film engine has everything denoise needs.
+        if FileManager.default.fileExists(atPath: Self.pythonMarker.path)
+            || FileManager.default.fileExists(atPath: Self.folder.appendingPathComponent("installed-v0.3.3").path) { denoiseEngine = .ready }
+        if FileManager.default.fileExists(atPath: Self.denoiserMarker.path) { denoiser = .ready }
     }
 
-    // MARK: - Installing
+    // MARK: - The film data
 
-    /// Downloads uv, then Python, spektrafilm and its libraries into Pluck's folder.
+    /// Downloads darktable's spektrafilm data pack, checking every file against the manifest.
     func install() {
         guard state != .installing else { return }
         state = .installing
         progress = 0
         Task {
             do {
-                try await runInstall()
+                try await downloadPack()
                 state = .ready
                 await loadProfiles()
             } catch {
@@ -81,60 +102,250 @@ final class FilmEngine {
         }
     }
 
-    private func runInstall() async throws {
-        let folder = Self.folder
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        // 1. uv, the Python installer (a single program).
-        stage = String(localized: "Downloading the installer…")
-        let arch = ProcessInfo.processInfo.machineHardwareName == "arm64" ? "aarch64" : "x86_64"
-        let archive = URL(string: "https://github.com/astral-sh/uv/releases/download/\(Self.uvVersion)/uv-\(arch)-apple-darwin.tar.gz")!
-        let (download, _) = try await URLSession.shared.download(from: archive)
-        let tarball = folder.appendingPathComponent("uv.tar.gz")
-        try? FileManager.default.removeItem(at: tarball)
-        try FileManager.default.moveItem(at: download, to: tarball)
-        try await run("/usr/bin/tar", ["xzf", tarball.path, "-C", folder.path])
-        try? FileManager.default.removeItem(at: tarball)
-        let uv = folder.appendingPathComponent("uv-\(arch)-apple-darwin/uv").path
-        progress = 0.05
-
-        // 2. Python, spektrafilm and its libraries (the bulk), with progress from what's on disk.
-        let environment = ["UV_CACHE_DIR": folder.appendingPathComponent("cache").path,
-                           "UV_PYTHON_INSTALL_DIR": folder.appendingPathComponent("python").path]
-        let watcher = Task {
-            while !Task.isCancelled {
-                let mb = Double(Self.size(of: folder)) / 1_048_576
-                progress = min(0.05 + 0.9 * mb / Double(Self.diskMB + 450), 0.97)
-                try? await Task.sleep(for: .milliseconds(500))
-            }
+    private struct Manifest: Decodable {
+        struct Pack: Decodable {
+            struct File: Decodable { let path: String; let size: Int; let sha256: String }
+            let base: String
+            let pack_format: Int
+            let files: [File]
         }
-        defer { watcher.cancel() }
-        stage = String(localized: "Downloading Python…")
-        try await run(uv, ["venv", "--python", "3.13", folder.appendingPathComponent("venv").path, "-q", "--allow-existing"], environment: environment)
-        stage = String(localized: "Downloading spektrafilm…")
-        let python = Self.python.path
-        try await run(uv, ["pip", "install", "-q", "--python", python, "--no-deps",
-                           "spektrafilm @ https://github.com/andreavolpato/spektrafilm/archive/refs/tags/\(Self.spektrafilmVersion).tar.gz"],
-                      environment: environment)
-        stage = String(localized: "Downloading its libraries…")
-        // spektrafilm's own runtime libraries (its GUI's aren't needed).
-        try await run(uv, ["pip", "install", "-q", "--python", python, "numpy~=2.4", "scipy~=1.17", "colour-science~=0.4.6",
-                           "scikit-image~=0.26", "matplotlib~=3.10", "opt-einsum~=3.4.0", "numba~=0.64", "OpenImageIO~=3.1.11",
-                           "pyfftw~=0.15.0", "rawpy~=0.26.1", "exiv2~=0.18.1", "lensfunpy~=1.18.0"], environment: environment)
-        // The download cache isn't needed any more.
-        try? FileManager.default.removeItem(at: folder.appendingPathComponent("cache"))
-        stage = String(localized: "Getting the film engine ready…")
-        progress = 0.98
-        FileManager.default.createFile(atPath: Self.marker.path, contents: Data())
+        let packs: [Pack]
+    }
+
+    private func downloadPack() async throws {
+        let raw = "https://raw.githubusercontent.com/\(Self.packRepository)/main"
+        stage = String(localized: "Getting the list of films…")
+        let (data, _) = try await URLSession.shared.data(from: URL(string: raw + "/manifest.json")!)
+        let manifest = try JSONDecoder().decode(Manifest.self, from: data)
+        // The newest layout pluck-spektra reads (darktable's pack formats 2 and 3).
+        guard let pack = manifest.packs.filter({ (2...3).contains($0.pack_format) }).last else {
+            throw NSError(domain: "Pluck", code: 6, userInfo: [NSLocalizedDescriptionKey: String(localized: "There's no film data this version of Pluck can use.")])
+        }
+        let total = Double(pack.files.reduce(0) { $0 + $1.size })
+        let staging = Self.folder.appendingPathComponent("pack-download", isDirectory: true)
+        try? FileManager.default.removeItem(at: staging)
+        try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+        var done = 0.0
+        stage = String(localized: "Downloading the films and papers…")
+        for file in pack.files {
+            // Paths come from the manifest: nothing absolute, nothing that climbs out.
+            guard !file.path.hasPrefix("/"), !file.path.contains(".."), file.size < 64 << 20 else { throw NSError(domain: "Pluck", code: 7) }
+            let (body, _) = try await URLSession.shared.data(from: URL(string: "\(raw)/\(pack.base)/\(file.path)")!)
+            let hash = SHA256.hash(data: body).map { String(format: "%02x", $0) }.joined()
+            guard body.count == file.size, hash == file.sha256 else {
+                throw NSError(domain: "Pluck", code: 8, userInfo: [NSLocalizedDescriptionKey: String(localized: "A film file didn’t match its published checksum, so it was discarded. Try again.")])
+            }
+            let target = staging.appendingPathComponent(file.path)
+            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try body.write(to: target)
+            done += Double(file.size)
+            progress = done / max(total, 1)
+        }
+        // The data's licence travels with it.
+        if let (license, _) = try? await URLSession.shared.data(from: URL(string: raw + "/LICENSE")!) {
+            try? license.write(to: staging.appendingPathComponent("LICENSE"))
+        }
+        FileManager.default.createFile(atPath: staging.appendingPathComponent(".complete").path, contents: Data())
+        for worker in workers { worker.stop() }
+        workers = []
+        try? FileManager.default.removeItem(at: Self.pack)
+        try FileManager.default.moveItem(at: staging, to: Self.pack)
+        films = []
         progress = 1
     }
 
-    /// Removes the engine (Settings, or to reinstall).
+    /// Removes the film data and the denoise engine (Settings).
     func uninstall() {
         stop()
         try? FileManager.default.removeItem(at: Self.folder)
         state = .notInstalled
+        denoiseEngine = .notInstalled
+        denoiser = .notInstalled
         films = []
         papers = []
+    }
+
+    // MARK: - Running the film
+
+    func stop() {
+        for worker in workers { worker.stop() }
+        workers = []
+        for worker in pythonWorkers { worker.stop() }
+        pythonWorkers = []
+    }
+
+    /// A worker for this job: 0 for previews; 1… for exports (started as needed).
+    private func worker(_ index: Int) throws -> FilmWorker {
+        guard let helper = Self.helper else {
+            throw NSError(domain: "Pluck", code: 9, userInfo: [NSLocalizedDescriptionKey: String(localized: "The film engine isn't part of this build of Pluck.")])
+        }
+        while workers.count <= index { workers.append(FilmWorker(executable: helper, arguments: [], environment: [:])) }
+        return workers[index]
+    }
+
+    private func ask(_ job: [String: Any], worker index: Int = 0) async throws -> [String: Any] {
+        try await worker(index).ask(job)
+    }
+
+    func loadProfiles() async {
+        guard state == .ready, films.isEmpty else { return }
+        guard let answer = try? await ask(["do": "profiles", "pack": Self.pack.path]),
+              let data = try? JSONSerialization.data(withJSONObject: answer),
+              let lists = try? JSONDecoder().decode([String: [Profile]].self, from: data) else { return }
+        films = lists["film"] ?? []
+        papers = lists["print"] ?? []
+        if let raw = try? await ask(["do": "schema"]) {
+            schema = raw.compactMapValues { value -> Setting? in
+                guard let entry = value as? [String: Any], let def = (entry["default"] as? NSNumber)?.doubleValue,
+                      let min = (entry["min"] as? NSNumber)?.doubleValue, let max = (entry["max"] as? NSNumber)?.doubleValue else { return nil }
+                return Setting(value: def, min: min, max: max, kind: Setting.Kind(rawValue: entry["kind"] as? String ?? "") ?? .number)
+            }
+        }
+    }
+
+    /// Develops a picture on film: raw RGBA float in (linear sRGB, scene light), the same out
+    /// (linear sRGB, the finished print or scan). `fullLongEdge` is the photo's own long side,
+    /// so grain and halation keep their real size in a smaller preview.
+    func render(_ input: URL, to output: URL, width: Int, height: Int, film: FilmSettings, fullLongEdge: Int, worker: Int = 0) async throws {
+        var job: [String: Any] = ["do": "render", "pack": Self.pack.path, "input": input.path, "output": output.path,
+                                  "width": width, "height": height, "film": film.film, "print": film.paper,
+                                  "full_long_edge": fullLongEdge]
+        job["set"] = film.settings
+        _ = try await ask(job, worker: worker)
+    }
+
+    // MARK: - Denoise engine (Python, on request)
+
+    private(set) var denoiseEngine: State = .notInstalled
+    private(set) var denoiseProgress = 0.0
+    static let denoiseEngineDownloadMB = 120
+    static let uvVersion = "0.13.0"
+    @ObservationIgnored private var pythonWorkers: [FilmWorker] = []
+    private static var python: URL { folder.appendingPathComponent("venv/bin/python") }
+    private static var pythonMarker: URL { folder.appendingPathComponent("installed-denoise-v1") }
+    private static var bridge: URL? { Bundle.main.url(forResource: "pluck_film", withExtension: "py", subdirectory: "FilmEngine") }
+
+    /// Downloads uv, then Python, NumPy, scikit-image and OpenImageIO into Pluck's folder.
+    func installDenoiseEngine() {
+        guard denoiseEngine != .installing else { return }
+        denoiseEngine = .installing
+        denoiseProgress = 0
+        Task {
+            do {
+                try await runPythonInstall()
+                denoiseEngine = .ready
+            } catch {
+                denoiseEngine = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func runPythonInstall() async throws {
+        let folder = Self.folder
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let arch = ProcessInfo.processInfo.machineHardwareName == "arm64" ? "aarch64" : "x86_64"
+        let uv = folder.appendingPathComponent("uv-\(arch)-apple-darwin/uv").path
+        if !FileManager.default.isExecutableFile(atPath: uv) {
+            let archive = URL(string: "https://github.com/astral-sh/uv/releases/download/\(Self.uvVersion)/uv-\(arch)-apple-darwin.tar.gz")!
+            let (download, _) = try await URLSession.shared.download(from: archive)
+            let tarball = folder.appendingPathComponent("uv.tar.gz")
+            try? FileManager.default.removeItem(at: tarball)
+            try FileManager.default.moveItem(at: download, to: tarball)
+            try await run("/usr/bin/tar", ["xzf", tarball.path, "-C", folder.path])
+            try? FileManager.default.removeItem(at: tarball)
+        }
+        denoiseProgress = 0.05
+        let environment = ["UV_CACHE_DIR": folder.appendingPathComponent("cache").path,
+                           "UV_PYTHON_INSTALL_DIR": folder.appendingPathComponent("python").path]
+        let start = Self.size(of: folder)
+        let watcher = Task {
+            while !Task.isCancelled {
+                let mb = Double(Self.size(of: folder) - start) / 1_048_576
+                denoiseProgress = min(0.05 + 0.9 * mb / 350, 0.97)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        defer { watcher.cancel() }
+        try await run(uv, ["venv", "--python", "3.13", folder.appendingPathComponent("venv").path, "-q", "--allow-existing"], environment: environment)
+        try await run(uv, ["pip", "install", "-q", "--python", Self.python.path, "numpy~=2.4", "scipy~=1.17", "scikit-image~=0.26",
+                           "OpenImageIO~=3.1.11"], environment: environment)
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("cache"))
+        FileManager.default.createFile(atPath: Self.pythonMarker.path, contents: Data())
+        denoiseProgress = 1
+    }
+
+    private func python(_ index: Int) -> FilmWorker {
+        while pythonWorkers.count <= index {
+            pythonWorkers.append(FilmWorker(executable: Self.python, arguments: ["-u", Self.bridge?.path ?? ""],
+                                            environment: ["MPLCONFIGDIR": Self.folder.appendingPathComponent("matplotlib").path]))
+        }
+        return pythonWorkers[index]
+    }
+
+    // MARK: - AI denoise (optional)
+
+    enum AddOn: Equatable { case notInstalled, installing, ready, failed(String) }
+
+    /// The AI denoiser: SCUNet (Apache 2.0), a network trained on real camera noise, run with
+    /// PyTorch on the GPU through spandrel (MIT). An extra for the photo engine, on request.
+    private(set) var denoiser: AddOn = .notInstalled
+    private(set) var denoiserProgress = 0.0
+    static let denoiserDownloadMB = 160
+    static let denoiserDiskMB = 480
+    static let denoiserWeights = URL(string: "https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth")!
+    static let denoiserWeightsSize: Int64 = 71_982_841
+    static var denoiserModel: URL { folder.appendingPathComponent("models/scunet_color_real_psnr.pth") }
+    private static var denoiserMarker: URL { folder.appendingPathComponent("installed-denoiser-v1") }
+
+    func checkDenoiser() {
+        if denoiser != .installing { denoiser = FileManager.default.fileExists(atPath: Self.denoiserMarker.path) ? .ready : .notInstalled }
+    }
+
+    func installDenoiser() {
+        guard denoiseEngine == .ready, denoiser != .installing else { return }
+        denoiser = .installing
+        denoiserProgress = 0
+        Task {
+            do {
+                try await runDenoiserInstall()
+                denoiser = .ready
+            } catch {
+                denoiser = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    private func runDenoiserInstall() async throws {
+        let folder = Self.folder
+        let arch = ProcessInfo.processInfo.machineHardwareName == "arm64" ? "aarch64" : "x86_64"
+        let uv = folder.appendingPathComponent("uv-\(arch)-apple-darwin/uv").path
+        let environment = ["UV_CACHE_DIR": folder.appendingPathComponent("cache").path,
+                           "UV_PYTHON_INSTALL_DIR": folder.appendingPathComponent("python").path]
+        let start = Self.size(of: folder)
+        let watcher = Task {
+            while !Task.isCancelled {
+                let mb = Double(Self.size(of: folder) - start) / 1_048_576
+                denoiserProgress = min(0.9 * mb / Double(Self.denoiserDiskMB), 0.9)
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
+        defer { watcher.cancel() }
+        try await run(uv, ["pip", "install", "-q", "--python", Self.python.path, "torch~=2.8", "spandrel~=0.4"], environment: environment)
+        try? FileManager.default.removeItem(at: folder.appendingPathComponent("cache"))
+        // The network's weights, checked by their exact size.
+        let (download, _) = try await URLSession.shared.download(from: Self.denoiserWeights)
+        let size = (try? FileManager.default.attributesOfItem(atPath: download.path)[.size] as? NSNumber)?.int64Value
+        guard size == Self.denoiserWeightsSize else {
+            try? FileManager.default.removeItem(at: download)
+            throw NSError(domain: "Pluck", code: 5, userInfo: [NSLocalizedDescriptionKey: String(localized: "The AI denoiser didn’t download completely. Try again.")])
+        }
+        try FileManager.default.createDirectory(at: Self.denoiserModel.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? FileManager.default.removeItem(at: Self.denoiserModel)
+        try FileManager.default.moveItem(at: download, to: Self.denoiserModel)
+        for worker in pythonWorkers { worker.stop() }  // they load torch the next time
+        pythonWorkers = []
+        FileManager.default.createFile(atPath: Self.denoiserMarker.path, contents: Data())
+        denoiserProgress = 1
     }
 
     private func run(_ path: String, _ arguments: [String], environment: [String: String] = [:]) async throws {
@@ -166,48 +377,11 @@ final class FilmEngine {
         return total
     }
 
-    // MARK: - Running
-
-    func stop() {
-        for worker in workers { worker.stop() }
-        workers = []
-    }
-
-    /// A worker for this job: 0 for previews; 1… for exports (started as needed).
-    private func worker(_ index: Int) -> FilmWorker {
-        while workers.count <= index {
-            workers.append(FilmWorker(python: Self.python, bridge: Self.bridge, folder: Self.folder))
-        }
-        return workers[index]
-    }
-
-    private func ask(_ job: [String: Any], worker index: Int = 0) async throws -> [String: Any] {
-        try await worker(index).ask(job)
-    }
-
-    func loadProfiles() async {
-        guard state == .ready, films.isEmpty else { return }
-        guard let answer = try? await ask(["do": "profiles"]),
-              let data = try? JSONSerialization.data(withJSONObject: answer),
-              let lists = try? JSONDecoder().decode([String: [Profile]].self, from: data) else { return }
-        films = lists["film"] ?? []
-        papers = lists["print"] ?? []
-        if let raw = try? await ask(["do": "schema"]) {
-            schema = raw.compactMapValues(SettingValue.init)
-        }
-    }
-
-    /// Renders a linear sRGB TIFF through the film and paper into a 16-bit sRGB TIFF.
-    func render(_ input: URL, to output: URL, film: FilmSettings, preview: Bool, maxSize: Int = 1400, worker: Int = 0) async throws {
-        var job: [String: Any] = ["do": "render", "input": input.path, "output": output.path, "film": film.film, "print": film.paper,
-                                  "preview": preview, "max_size": maxSize]
-        job["set"] = film.settings
-        _ = try await ask(job, worker: worker)
-    }
-
     /// Takes the noise out of a linear TIFF (strength 0…1), into a linear half-float TIFF.
-    func denoise(_ input: URL, to output: URL, strength: Double, worker: Int = 1) async throws {
-        _ = try await ask(["do": "denoise", "input": input.path, "output": output.path, "strength": strength], worker: worker)
+    func denoise(_ input: URL, to output: URL, strength: Double, ai: Bool = false, worker: Int = 1) async throws {
+        var job: [String: Any] = ["do": "denoise", "input": input.path, "output": output.path, "strength": strength]
+        if ai { job["weights"] = Self.denoiserModel.path }
+        _ = try await python(worker).ask(job)
     }
 }
 
@@ -235,43 +409,63 @@ enum SettingValue: Codable, Hashable {
     }
 }
 
-/// A photo's film: the stock, the paper it's printed on, and any spektrafilm setting changed
-/// from its default (by its path, "camera.exposure_compensation_ev").
+/// A photo's film: the stock, the paper it's printed on, and any setting changed from its
+/// default (by darktable's name for it, "grain_amount").
 struct FilmSettings: Codable, Hashable {
     var film = "kodak_portra_400"
     var paper = "kodak_portra_endura"
     var changed: [String: SettingValue] = [:]
 
     var settings: [String: Any] { changed.mapValues(\.json) }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        film = try c.decodeIfPresent(String.self, forKey: .film) ?? "kodak_portra_400"
+        paper = try c.decodeIfPresent(String.self, forKey: .paper) ?? "kodak_portra_endura"
+        // Settings from the Python engine had dotted names ("camera.exposure_compensation_ev"):
+        // the few with a counterpart carry over, the rest start from the film's own defaults.
+        var settings = try c.decodeIfPresent([String: SettingValue].self, forKey: .changed) ?? [:]
+        let renamed = ["camera.exposure_compensation_ev": "exposure_ev", "enlarger.y_filter_shift": "filter_y",
+                       "enlarger.m_filter_shift": "filter_m", "film_render.halation.halation_amount": "halation_amount",
+                       "film_render.dir_couplers.amount": "couplers_amount", "camera.diffusion_filter.strength": "diffusion_strength",
+                       "camera.film_format_mm": "film_format_mm"]
+        for (old, new) in renamed { if let value = settings[old] { settings[new] = value } }
+        if case .number(let exposure)? = settings["enlarger.print_exposure"], exposure > 0 { settings["print_exposure_ev"] = .number(log2(exposure)) }
+        for (old, new) in ["film_render.grain.active": "grain_on", "film_render.halation.active": "halation_on",
+                           "camera.diffusion_filter.active": "diffusion_on"] {
+            if case .flag(let on)? = settings[old] { settings[new] = .number(on ? 1 : 0) }
+        }
+        changed = settings.filter { !$0.key.contains(".") }
+    }
 }
 
-/// One of the engine's processes, started on first use and kept (Python and its compiled code
-/// take a few seconds to start; after that a preview takes about a second). Jobs go one at a time.
+/// One of the engine's processes (the film helper, or Python for denoise), started on first use
+/// and kept: the film's tables stay built between renders. Jobs go one at a time.
 @MainActor
 final class FilmWorker {
-    private let python: URL
-    private let bridge: URL?
-    private let folder: URL
+    private let executable: URL
+    private let arguments: [String]
+    private let environment: [String: String]
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
     private var busy = false
     private var waiting: [CheckedContinuation<Void, Never>] = []
 
-    init(python: URL, bridge: URL?, folder: URL) {
-        self.python = python
-        self.bridge = bridge
-        self.folder = folder
+    init(executable: URL, arguments: [String], environment: [String: String]) {
+        self.executable = executable
+        self.arguments = arguments
+        self.environment = environment
     }
 
     private func start() throws {
         guard process == nil else { return }
-        guard let bridge else { throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey: "pluck_film.py is missing"]) }
         let process = Process()
-        process.executableURL = python
-        process.arguments = ["-u", bridge.path]
-        process.environment = ProcessInfo.processInfo.environment.merging(["MPLCONFIGDIR": folder.appendingPathComponent("matplotlib").path,
-                                                                           "NUMBA_CACHE_DIR": folder.appendingPathComponent("numba").path]) { $1 }
+        process.executableURL = executable
+        process.arguments = arguments
+        process.environment = ProcessInfo.processInfo.environment.merging(environment) { $1 }
         let stdin = Pipe(), stdout = Pipe()
         process.standardInput = stdin
         process.standardOutput = stdout

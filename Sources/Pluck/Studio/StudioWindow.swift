@@ -135,24 +135,24 @@ private struct EditPage: View {
     @State private var dropTargeted = false
 
     var body: some View {
-        HStack(spacing: 0) {
-            if mediaShown {
-                MediaPanel(nav: nav)
-                    .frame(width: mediaWidth)
-                    .transition(.move(edge: .leading))
-                ResizeHandle(width: $mediaWidth, range: 200...420, edge: .leading)
+        VStack(spacing: 0) {
+            if !nav.tabs.isEmpty {
+                TabStrip(nav: nav)
+                Divider()
             }
-            VStack(spacing: 0) {
-                if !nav.tabs.isEmpty {
-                    TabStrip(nav: nav)
-                    Divider()
-                }
+            HStack(spacing: 0) {
+                // With a file or project open, the media goes beside its viewer (the timeline
+                // runs under both); otherwise it's here.
+                if nav.current == nil, mediaShown { mediaColumn }
+                VStack(spacing: 0) {
                 if let tab = nav.current, let project = tab.project {
                     ProjectView(model: project)
                         .id(tab.id)
+                        .environment(\.editMedia, mediaShown ? AnyView(mediaColumn) : nil)
                 } else if let tab = nav.current, let target = tab.target, let model = tab.model {
                     EditorView(target: target, model: model)
                         .id(tab.id)
+                        .environment(\.editMedia, mediaShown ? AnyView(mediaColumn) : nil)
                 } else {
                     VStack(spacing: Design.Spacing.section) {
                         DropZone(symbol: "film", text: Text("Drop a video to edit it, or several to start a project"), targeted: dropTargeted)
@@ -166,6 +166,7 @@ private struct EditPage: View {
                     .padding(Design.Spacing.window)
                         .frame(maxWidth: 560, maxHeight: 320)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 }
             }
         }
@@ -192,6 +193,15 @@ private struct EditPage: View {
             }
             return true
         }
+    }
+
+    private var mediaColumn: some View {
+        HStack(spacing: 0) {
+            MediaPanel(nav: nav)
+                .frame(width: mediaWidth)
+            ResizeHandle(width: $mediaWidth, range: 200...420, edge: .leading)
+        }
+        .transition(.move(edge: .leading))
     }
 
     private func openPanel() {

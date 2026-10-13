@@ -8,3 +8,17 @@ libraries only when you choose to, into its own folder, and runs it as a separat
 
 pluck_film.py, the small script Pluck uses to talk to spektrafilm, is licensed under the
 GNU GPL version 3 as well.
+
+AI denoise (optional download)
+SCUNet by Kai Zhang et al. (https://github.com/cszn/SCUNet), Apache License 2.0; weights from
+https://github.com/cszn/KAIR. Run with spandrel (https://github.com/chaiNNer-org/spandrel), MIT
+License, and PyTorch (BSD-style license).
+
+pluck-spektra (Contents/Helpers/pluck-spektra)
+Pluck's film engine, a separate program under the GNU GPL version 3 or later (COPYING). It is
+built from darktable's native port of spektrafilm (https://github.com/darktable-org/darktable,
+Copyright (C) 2026 darktable developers) with a driver following darktable's spektrafilm module.
+Its source is in Pluck's repository, Helpers/PluckSpektra. The film and paper data is
+downloaded from https://github.com/darktable-org/darktable-spektrafilm, CC BY-SA 4.0
+© Andrea Volpato: spektrafilm by Andrea Volpato, https://github.com/andreavolpato/spektrafilm,
+licensed CC BY-SA 4.0.

@@ -115,7 +115,8 @@ enum EditorExport {
     /// as the settings' audio file). The Mac's own encoder is tried first when chosen, then x264/x265.
     static func joined(_ parts: [ClosedRange<Double>], of file: URL, video wantsVideo: Bool, audio: Bool, to output: URL, ffmpeg: String,
                        settings: EditorRenderSettings, audioOnly: Bool = false, source: CGSize, sourceFPS: Double,
-                       subtitles: URL? = nil, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+                       subtitles: URL? = nil, pictureChain: ((String, Double, Double, Int) -> [String])? = nil, steadied: URL? = nil,
+                       progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         let video = wantsVideo && !audioOnly
         guard !parts.isEmpty, video || audio else { return false }
         var graph: [String] = []
@@ -124,7 +125,12 @@ enum EditorExport {
             let start = String(format: "%.4f", part.lowerBound), end = String(format: "%.4f", part.upperBound)
             let length = part.upperBound - part.lowerBound
             if video {
-                graph.append("[0:v:0]trim=start=\(start):end=\(end),setpts=PTS-STARTPTS[v\(index)]")
+                if let pictureChain {
+                    // The picture's settings (transform, crop, dynamic zoom…), as in a project.
+                    graph += pictureChain(steadied == nil ? "[0:v:0]" : "[1:v:0]", part.lowerBound, part.upperBound, index)
+                } else {
+                    graph.append("[0:v:0]trim=start=\(start):end=\(end),setpts=PTS-STARTPTS[v\(index)]")
+                }
                 inputs += "[v\(index)]"
             }
             if audio {
@@ -143,7 +149,9 @@ enum EditorExport {
         }
         let total = parts.reduce(0) { $0 + $1.upperBound - $1.lowerBound }
         func arguments(hardware: Bool) -> [String] {
-            var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-i", file.path, "-filter_complex", graph.joined(separator: ";")]
+            var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-i", file.path]
+            if let steadied { arguments += ["-i", steadied.path] }
+            arguments += ["-filter_complex", graph.joined(separator: ";")]
             if video {
                 arguments += ["-map", "[v]"] + settings.videoArguments(source: source, sourceFPS: sourceFPS, length: total, hardware: hardware)
             }

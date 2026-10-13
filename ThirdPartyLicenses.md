@@ -48,3 +48,12 @@ The speaker model, [FluidInference/diar-streaming-sortformer-coreml](https://hug
 [Streaming Sortformer](https://huggingface.co/nvidia/diar_streaming_sortformer_4spk-v2.1) diarization model,
 released under the NVIDIA Open Model License (the conversion is published as CC BY 4.0). It isn't part
 of the app; Pluck downloads it when speakers are first labelled.
+
+## spektrafilm and darktable (film, Pluck Studio)
+Pluck Studio's film engine, `pluck-spektra`, is a separate program under the GNU GPL version 3
+or later, built from [darktable](https://github.com/darktable-org/darktable)'s native port of
+[spektrafilm](https://github.com/andreavolpato/spektrafilm) by Andrea Volpato (© darktable
+developers, GPL-3.0-or-later). Its source is in [Helpers/PluckSpektra](Helpers/PluckSpektra).
+The film and paper data is downloaded on request from
+[darktable-spektrafilm](https://github.com/darktable-org/darktable-spektrafilm), CC BY-SA 4.0 ©
+Andrea Volpato, with its licence.

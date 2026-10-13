@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "2.2.0", items: [
+                Item(symbol: "books.vertical", title: String(localized: "A tidier Library"),
+                     detail: String(localized: "Files you take out of the Library stay out, and files that aren’t there any more no longer come back.")),
+            ]),
             Release(version: "2.0.0", items: [
                 Item(symbol: "square.and.arrow.up", title: String(localized: "Export like an editing program"),
                      detail: String(localized: "The Editor’s export is now in its sidebar, with presets (Web, YouTube 4K, Email, ProRes master) and every setting by hand: MP4 or QuickTime, H.264, HEVC or ProRes, resolution, frame rate, quality or a file size to fit, and the sound. It shows how big the file will be before you start.")),

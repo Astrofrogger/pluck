@@ -1,5 +1,5 @@
-# Pluck's bridge to spektrafilm (https://github.com/andreavolpato/spektrafilm), the spectral
-# film simulation by Andrea Volpato. This script runs as its own program, next to Pluck, and
+# Pluck's denoise engine, and its earlier bridge to spektrafilm
+# (https://github.com/andreavolpato/spektrafilm), the spectral film simulation by Andrea Volpato. This script runs as its own program, next to Pluck, and
 # is licensed under the GNU GPL version 3 like spektrafilm. Film and paper profiles are
 # CC BY-SA 4.0 by Andrea Volpato.
 #
@@ -12,7 +12,7 @@
 #   {"do": "denoise", "input": path, "output": path, "strength": 0…1}
 #                                            -> {"ok": true}
 # The input is a linear sRGB float TIFF; the output is a 16-bit sRGB TIFF (a denoise writes a
-# linear half-float TIFF, to go on being developed).
+# linear half-float OpenEXR, to go on being developed).
 import dataclasses
 import json
 import sys
@@ -21,8 +21,13 @@ import traceback
 import numpy as np
 import OpenImageIO as oiio
 
-from spektrafilm.runtime.api import digest_params, init_params, simulate
-from spektrafilm.runtime.process import simulate_preview
+# spektrafilm itself is optional here: Pluck's films run in pluck-spektra, darktable's native
+# port, and this script is kept for denoising (and older film engines).
+try:
+    from spektrafilm.runtime.api import digest_params, init_params, simulate
+    from spektrafilm.runtime.process import simulate_preview
+except ImportError:
+    pass
 
 
 def profiles():
@@ -131,6 +136,8 @@ def denoise(job):
     from skimage.restoration import denoise_nl_means
     from skimage.transform import resize
     strength = min(max(float(job.get("strength", 0.5)), 0), 1)
+    if job.get("weights"):
+        return _ai_denoise(job, strength)
     buf = oiio.ImageBuf(job["input"])
     linear = np.asarray(buf.get_pixels(oiio.FLOAT))[..., :3]
     # Highlights over white are kept aside, so they survive the round trip.
@@ -153,13 +160,64 @@ def denoise(job):
     out[..., 2] = y + chroma[..., 0]
     out[..., 1] = (y - 0.2126 * out[..., 0] - 0.0722 * out[..., 2]) / 0.7152
     result = (_decode(out) + over).astype(np.float32)
-    spec = oiio.ImageSpec(w, h, 3, oiio.HALF)
-    spec.attribute("compression", "zip")
-    output = oiio.ImageOutput.create(job["output"])
-    output.open(job["output"], spec)
-    output.write_image(result)
-    output.close()
+    _write_linear(job["output"], result)
     return {"ok": True}
+
+
+_MODEL = None
+
+
+def _ai_denoise(job, strength):
+    """AI denoise: SCUNet (Apache 2.0, trained on real camera noise) through spandrel (MIT), on
+    the GPU when there is one, in overlapping tiles so any size fits in memory."""
+    global _MODEL
+    import torch
+    from spandrel import ModelLoader
+    device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+    if _MODEL is None:
+        _MODEL = ModelLoader().load_from_file(job["weights"]).model.eval().to(device)
+    buf = oiio.ImageBuf(job["input"])
+    linear = np.asarray(buf.get_pixels(oiio.FLOAT))[..., :3]
+    over = np.clip(linear - 1, 0, None)
+    rgb = _encode(np.clip(linear, 0, 1)).astype(np.float32)
+    h, w = rgb.shape[:2]
+    tile, pad = 512, 32
+    out = np.zeros_like(rgb)
+    weight = np.zeros((h, w, 1), np.float32)
+    ramp = np.minimum(np.arange(tile + 2 * pad), np.arange(tile + 2 * pad)[::-1]).astype(np.float32)
+    ramp = np.clip(ramp / pad, 0.05, 1)
+    with torch.no_grad():
+        for y in range(0, h, tile):
+            for x in range(0, w, tile):
+                y0, x0 = max(y - pad, 0), max(x - pad, 0)
+                y1, x1 = min(y + tile + pad, h), min(x + tile + pad, w)
+                part = torch.from_numpy(rgb[y0:y1, x0:x1].transpose(2, 0, 1)[None].copy()).to(device)
+                # The network wants sizes it can halve a few times.
+                ph, pw = (-part.shape[2]) % 64, (-part.shape[3]) % 64
+                if ph or pw:
+                    part = torch.nn.functional.pad(part, (0, pw, 0, ph), mode="reflect")
+                done = _MODEL(part)[0, :, : y1 - y0, : x1 - x0].clamp(0, 1).cpu().numpy().transpose(1, 2, 0)
+                # Tiles fade into each other where they overlap (no seams).
+                wt = (ramp[: y1 - y0, None] * ramp[None, : x1 - x0])[..., None]
+                out[y0:y1, x0:x1] += done * wt
+                weight[y0:y1, x0:x1] += wt
+    out /= np.maximum(weight, 1e-6)
+    blended = rgb + (out - rgb) * strength
+    _write_linear(job["output"], (_decode(blended) + over).astype(np.float32))
+    return {"ok": True}
+
+
+def _write_linear(path, rgb):
+    """Linear light as a half-float OpenEXR with alpha (Core Image reads three-channel float
+    TIFFs wrongly when it reads them in tiles)."""
+    h, w = rgb.shape[:2]
+    rgba = np.concatenate([rgb, np.ones((h, w, 1), np.float32)], -1).astype(np.float16)
+    spec = oiio.ImageSpec(w, h, 4, oiio.HALF)
+    spec.attribute("compression", "zip")
+    output = oiio.ImageOutput.create(path)
+    output.open(path, spec)
+    output.write_image(rgba)
+    output.close()
 
 
 def main():

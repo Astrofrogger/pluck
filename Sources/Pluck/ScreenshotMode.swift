@@ -444,6 +444,8 @@ enum ScreenshotMode {
                 StudioNavigator.shared.show(.photo)
             case "project":
                 // -PluckScreenshotFiles <a|b|c>: a project with these files.
+                // -PluckScreenshotStabilize <file>: steadies it.
+                if let file = defaults.string(forKey: "PluckScreenshotStabilize") { Stabilizer.shared.start(file) }
                 // -PluckScreenshotProject <file.json>: this project, opened.
                 if let file = defaults.string(forKey: "PluckScreenshotProject"), let data = try? Data(contentsOf: URL(fileURLWithPath: file)) {
                     let decoder = JSONDecoder()

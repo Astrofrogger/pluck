@@ -99,28 +99,16 @@ private struct ProjectClipPanel: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 10) {
                 if let clip {
                     clipSettings(clip)
                 } else if let song {
                     musicSettings(song)
                 } else {
-                    Text(model.selected.count > 1 ? "^[\(model.selected.count) clip](inflect: true) selected" : "Click a clip on the timeline to change it.")
+                    Text(model.selected.count > 1 ? "^[\(model.selected.count) clip](inflect: true) selected" : "Select a clip on the timeline.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
-                }
-                SidebarSection(title: Text("Clips")) {
-                    ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, item in
-                        SidebarRow(symbol: item.role?.symbol ?? "film", title: Text(item.name), detail: Text(Format.duration(item.length)),
-                                   selected: model.selected.contains(item.id)) {
-                            EmptyView()
-                        }
-                        .onTapGesture {
-                            model.selected = [item.id]
-                            model.seek(to: model.offsets[index])
-                        }
-                    }
                 }
             }
             .padding(.horizontal, 6)
@@ -129,39 +117,47 @@ private struct ProjectClipPanel: View {
     }
 
     private func clipSettings(_ clip: ProjectClip) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(clip.name).font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8)
-            Text(clip.file.lastPathComponent).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).padding(.horizontal, 8)
-                .padding(.bottom, 6)
-            inspectorRow("In") { Text(Format.duration(clip.start)).monospacedDigit() }
-            inspectorRow("Out") { Text(Format.duration(clip.end)).monospacedDigit() }
-            inspectorRow("Length") { Text(Format.duration(clip.length)).monospacedDigit() }
-            inspectorRow("Volume") {
-                Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
-                    if !editing { model.set(clip.id) { _ in } }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(clip.name).font(.callout.weight(.semibold)).lineLimit(2)
+                    Text(verbatim: "\(clip.file.lastPathComponent) · \(Format.duration(clip.length))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
-                Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
-            }
-            inspectorRow("Fade In") {
-                Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3)
-                Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
-            }
-            inspectorRow("Fade Out") {
-                Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3)
-                Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
-            }
-            ClipLookPanel(model: model, clip: clip)
-                .padding(.top, 10)
-            HStack(spacing: 8) {
-                Button("Duplicate") { model.duplicate([clip.id]) }
-                Button("Delete", role: .destructive) { model.delete([clip.id]) }
                 Spacer()
-                Button("Open File") { StudioNavigator.shared.open(EditorTarget(path: clip.path), at: clip.start) }
-                    .help("The whole file in its own tab, at this clip")
+                Menu {
+                    Button("Duplicate") { model.duplicate([clip.id]) }
+                    Button("Open File") { StudioNavigator.shared.open(EditorTarget(path: clip.path), at: clip.start) }
+                    Divider()
+                    Button("Delete", role: .destructive) { model.delete([clip.id]) }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
             }
-            .controlSize(.small)
             .padding(.horizontal, 8)
-            .padding(.top, 8)
+            .padding(.bottom, 4)
+            ClipLookEditor(look: clip.look ?? ClipLook(), path: clip.path) { record, body in
+                model.set(clip.id, record: record) { clip in
+                    var look = clip.look ?? ClipLook()
+                    body(&look)
+                    clip.look = look.isDefault ? nil : look
+                }
+            }
+            FoldSection(title: "Audio", key: "clip-audio") {
+                inspectorRow("Volume") {
+                    Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
+                        if !editing { model.set(clip.id) { _ in } }
+                    }
+                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                }
+                inspectorRow("Fade In") {
+                    Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3)
+                    Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                }
+                inspectorRow("Fade Out") {
+                    Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3)
+                    Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                }
+            }
         }
     }
 
@@ -441,115 +437,6 @@ private struct ProjectExportPanel: View {
     }
 }
 
-// MARK: - The clip's picture
-
-/// Transform, cropping, dynamic zoom, composite, speed and stabilization, as in DaVinci
-/// Resolve's Video inspector. Shown in the picture as you change it, and exported the same.
-private struct ClipLookPanel: View {
-    @Bindable var model: ProjectModel
-    let clip: ProjectClip
-
-    private var look: ClipLook { clip.look ?? ClipLook() }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            SidebarSection(title: Text("Transform")) {
-                inspectorRow("Scaling") {
-                    Picker("Scaling", selection: binding(\.scaling)) { ForEach(ClipLook.Scaling.allCases) { Text($0.title).tag($0) } }
-                        .pickerStyle(.segmented).labelsHidden()
-                }
-                slider("Zoom", \.zoom, 0.1...5, format: "%.2f×", reset: 1)
-                slider("Position X", \.x, -1...1, format: "%+.0f%%", scale: 100)
-                slider("Position Y", \.y, -1...1, format: "%+.0f%%", scale: 100)
-                slider("Rotation", \.rotation, -180...180, format: "%+.1f°")
-                inspectorRow("Flip") {
-                    Toggle(isOn: binding(\.flipH)) { Image(systemName: "arrow.left.and.right.righttriangle.left.righttriangle.right") }
-                        .toggleStyle(.button).help("Flip left to right")
-                    Toggle(isOn: binding(\.flipV)) { Image(systemName: "arrow.up.and.down.righttriangle.up.righttriangle.down") }
-                        .toggleStyle(.button).help("Flip upside down")
-                    Spacer()
-                }
-            }
-            SidebarSection(title: Text("Cropping")) {
-                slider("Left", \.cropLeft, 0...0.5, format: "%.0f%%", scale: 100)
-                slider("Right", \.cropRight, 0...0.5, format: "%.0f%%", scale: 100)
-                slider("Top", \.cropTop, 0...0.5, format: "%.0f%%", scale: 100)
-                slider("Bottom", \.cropBottom, 0...0.5, format: "%.0f%%", scale: 100)
-            }
-            SidebarSection(title: Text("Dynamic Zoom")) {
-                inspectorRow("Zoom") {
-                    Toggle("Zoom over the clip", isOn: Binding(get: { look.zoomEnd != nil }, set: { on in
-                        change(record: true) { $0.zoomEnd = on ? max($0.zoom, 1) * 1.2 : nil; if on { $0.zoom = max($0.zoom, 1) } }
-                    }))
-                    .toggleStyle(.switch).labelsHidden()
-                    Spacer()
-                }
-                if look.zoomEnd != nil {
-                    slider("Ends at", \.zoomEndValue, 1...4, format: "%.2f×", reset: 1.2)
-                }
-            }
-            SidebarSection(title: Text("Composite")) {
-                slider("Opacity", \.opacity, 0...1, format: "%.0f%%", scale: 100, reset: 1)
-            }
-            SidebarSection(title: Text("Speed")) {
-                inspectorRow("Speed") {
-                    Picker("Speed", selection: binding(\.speed)) {
-                        ForEach([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
-                    }
-                    .labelsHidden()
-                }
-            }
-            SidebarSection(title: Text("Stabilization")) {
-                inspectorRow("Stabilize") {
-                    Toggle("Stabilize", isOn: binding(\.stabilize)).toggleStyle(.switch).labelsHidden()
-                    Text("On export").font(.caption).foregroundStyle(.tertiary)
-                    Spacer()
-                }
-            }
-            if !look.isDefault {
-                Button("Reset Picture") { model.set(clip.id) { $0.look = nil } }
-                    .buttonStyle(.link)
-                    .padding(.horizontal, 8)
-            }
-        }
-    }
-
-    private func change(record: Bool, _ body: @escaping (inout ClipLook) -> Void) {
-        model.set(clip.id, record: record) { clip in
-            var look = clip.look ?? ClipLook()
-            body(&look)
-            clip.look = look.isDefault ? nil : look
-        }
-    }
-
-    private func binding<T>(_ path: WritableKeyPath<ClipLook, T>) -> Binding<T> {
-        Binding(get: { look[keyPath: path] }, set: { value in change(record: true) { $0[keyPath: path] = value } })
-    }
-
-    private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipLook, Double>, _ range: ClosedRange<Double>,
-                        format: String, scale: Double = 1, reset: Double = 0) -> some View {
-        let value = look[keyPath: path]
-        return inspectorRow(title) {
-            Slider(value: Binding(get: { value }, set: { new in change(record: false) { $0[keyPath: path] = new } }), in: range) { editing in
-                if !editing { change(record: true) { _ in } }
-            }
-            Text(String(format: format, value * scale)).font(.caption.monospacedDigit())
-                .foregroundStyle(value == reset ? .tertiary : .secondary)
-                .frame(width: 46, alignment: .trailing)
-                .onTapGesture(count: 2) { change(record: true) { $0[keyPath: path] = reset } }
-                .help("Double-click to reset")
-        }
-    }
-}
-
-private extension ClipLook {
-    /// The dynamic zoom's end, for a slider.
-    var zoomEndValue: Double {
-        get { zoomEnd ?? 1.2 }
-        set { zoomEnd = newValue }
-    }
-}
-
 // MARK: - Subtitles
 
 /// The project's subtitles: made from each clip's transcript, so they move with the clips.
@@ -619,26 +506,7 @@ private struct ProjectSubtitlesPanel: View {
                     }
                 }
                 SidebarSection(title: Text("Look")) {
-                    inspectorRow("Font") {
-                        Picker("Font", selection: style.font) { ForEach(SubtitleStyle.fonts, id: \.self) { Text($0).tag($0) } }.labelsHidden()
-                    }
-                    inspectorRow("Size") { Slider(value: style.scale, in: 0.6...2.5) }
-                    inspectorRow("Colour") {
-                        ColorPicker("Colour", selection: Binding(get: { SubtitleStyle.color(model.project.subtitleLook.color) },
-                                                                  set: { var s = model.project.subtitleLook; s.color = SubtitleStyle.hex($0); model.setSubtitleStyle(s) }),
-                                    supportsOpacity: false)
-                            .labelsHidden()
-                        Spacer()
-                    }
-                    inspectorRow("Box") { Toggle("Box", isOn: style.box).toggleStyle(.switch).labelsHidden(); Spacer() }
-                    inspectorRow("Place") {
-                        Picker("Place", selection: style.y) {
-                            Text("Top").tag(0.12)
-                            Text("Bottom").tag(0.88)
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                    }
+                    SubtitleStyleEditor(style: style)
                 }
                 if !lines.isEmpty {
                     SidebarSection(title: Text("Lines")) {

@@ -24,9 +24,13 @@ Tools page. Opening a file anywhere opens it in a tab on Edit (`EditorTarget.ope
   a project (`ProjectView`: clips, music and titles on a timeline), and the inspector on the right
   with its tabs. Export lives in the inspector, not a sheet. Side panels can be resized
   (`ResizeHandle`).
-- **Photo:** albums and folders on the left, a culling grid or one photo with a filmstrip, and the
-  inspector (Info, Adjust, Film, Export). Keys cull: 0–5, P, X, U, arrows. Film is spektrafilm,
-  a separate program downloaded only when asked (`FilmEngine`), always credited.
+- **Photo:** albums and folders on the left; Grid, Cull (embedded previews, instant) or Edit with a
+  filmstrip; the inspector (Info, Adjust, Film, Export). Keys are changeable (Settings ▸ Keys).
+  The develop engine is `PhotoEngine` (neutral RAW, guided-filter local tone, AgX and filmic
+  profiles, on the GPU). Film is spektrafilm in darktable's native port: `pluck-spektra`, a
+  separate GPL program built from `Helpers/PluckSpektra`, with darktable's data pack downloaded
+  only when asked (`FilmEngine`), always credited. Never copy darktable code into the app itself:
+  it would make Pluck GPL. Denoise has its own Python engine, also on request.
 - **Search:** where to look on the left (everything, the Library, a watched folder), results
   grouped as Said, Seen, Files and Photos.
 - **Pluck's colours:** `Design.Brand` (pink into violet, from the icon) marks what's chosen and

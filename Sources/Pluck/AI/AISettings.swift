@@ -38,7 +38,7 @@ struct AISettings: View {
                 LabeledContent("Watched folders") {
                     Text(verbatim: "\(FootageFolders.shared.folders.count)").monospacedDigit().foregroundStyle(.secondary)
                 }
-                LabeledContent("Film engine (spektrafilm)") {
+                LabeledContent("Films (spektrafilm)") {
                     HStack {
                         switch FilmEngine.shared.state {
                         case .ready:
@@ -54,7 +54,7 @@ struct AISettings: View {
             } header: {
                 Text("Search & photos")
             } footer: {
-                Text("Add watched folders on the Search page. The film engine is downloaded from the Photo page when you ask for it.")
+                Text("Add watched folders on the Search page. The films and the denoise engine are downloaded from the Photo page when you ask for them.")
             }
 
             Section("On this Mac") {

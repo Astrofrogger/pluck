@@ -110,54 +110,9 @@ final class ProjectExports {
         return steps.joined(separator: ",")
     }
 
-    /// One clip's picture, as the preview shows it: fitted (or filled, or stretched) to the
-    /// frame, cropped, flipped, zoomed (or zooming), turned and moved, on black.
     nonisolated static func videoChain(input: String, clip: ProjectClip, k: Int, width: Int, height: Int, rate: String) -> [String] {
-        func number(_ value: Double) -> String { String(format: "%.4f", value) }
-        let look = clip.look ?? ClipLook()
-        var steps = ["trim=start=\(number(clip.start)):end=\(number(clip.end))",
-                     clip.speed != 1 ? "setpts=(PTS-STARTPTS)/\(number(clip.speed))" : "setpts=PTS-STARTPTS"]
-        if look.stabilize { steps.append("deshake") }
-        switch look.scaling {
-        case .fit: steps.append("scale=\(width):\(height):force_original_aspect_ratio=decrease")
-        case .fill: steps.append("scale=\(width):\(height):force_original_aspect_ratio=increase")
-        case .stretch: steps.append("scale=\(width):\(height)")
-        }
-        steps.append("setsar=1")
-        if look.hasCrop {
-            // Cut, then put back where it was on black: cropping doesn't move the picture.
-            let keepW = max(1 - look.cropLeft - look.cropRight, 0.01), keepH = max(1 - look.cropTop - look.cropBottom, 0.01)
-            steps.append("crop=floor(iw*\(number(keepW))/2)*2:floor(ih*\(number(keepH))/2)*2:iw*\(number(look.cropLeft)):ih*\(number(look.cropTop))")
-            steps.append("pad=ceil(iw/\(number(keepW))/2)*2:ceil(ih/\(number(keepH))/2)*2:iw/\(number(keepW))*\(number(look.cropLeft)):ih/\(number(keepH))*\(number(look.cropTop)):black")
-        }
-        if look.flipH { steps.append("hflip") }
-        if look.flipV { steps.append("vflip") }
-        if look.zoomEnd != nil {
-            // Zooming over the clip: on the whole frame, then it's placed like any other.
-            let frames = max(Int((clip.length * (Double(rate) ?? 30)).rounded()), 1)
-            let from = max(look.zoom, 1), to = max(look.zoomEnd ?? 1, 1)
-            // zoompan makes one frame per frame it gets: the frame rate goes first.
-            steps.append("pad=\(width):\(height):(ow-iw)/2:(oh-ih)/2:black,fps=\(rate)")
-            steps.append("zoompan=z='\(number(from))+(\(number(to - from)))*(3*pow(min(on/\(frames),1),2)-2*pow(min(on/\(frames),1),3))'"
-                         + ":x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=\(width)x\(height):fps=\(rate)")
-        } else if look.zoom != 1 {
-            steps.append("scale=ceil(iw*\(number(look.zoom))/2)*2:ceil(ih*\(number(look.zoom))/2)*2")
-        }
-        if look.rotation != 0 {
-            // ffmpeg turns clockwise; the look anticlockwise.
-            let angle = -look.rotation * .pi / 180
-            steps.append("rotate=\(number(angle)):ow='ceil(rotw(\(number(angle)))/2)*2':oh='ceil(roth(\(number(angle)))/2)*2':c=black")
-        }
-        if look.opacity < 1 {
-            let o = number(max(look.opacity, 0))
-            steps.append("format=rgb24,colorchannelmixer=rr=\(o):gg=\(o):bb=\(o)")
-        }
-        let dx = number(look.x * Double(width)), dy = number(-look.y * Double(height))
-        return [
-            "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
-            input + steps.joined(separator: ",") + "[fg\(k)]",
-            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1,fps=\(rate),format=yuv420p[v\(k)]",
-        ]
+        ClipLook.ffmpegChain(input: input, start: clip.start, end: clip.end, length: clip.length, look: clip.look, k: k,
+                             width: width, height: height, rate: rate)
     }
 
     nonisolated private static func arguments(_ project: Project, streams: [String: Set<String>], settings: EditorRenderSettings,
@@ -168,7 +123,9 @@ final class ProjectExports {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         var inputs: [String] = []
         var index: [String: Int] = [:]
-        for path in project.clips.map(\.path) + project.music.map(\.path) where index[path] == nil {
+        // Stabilized clips' pictures come from their steadied copies.
+        let steadied = project.clips.compactMap { $0.look?.stabilize == true ? Stabilizer.copy(for: $0.path)?.path : nil }
+        for path in project.clips.map(\.path) + project.music.map(\.path) + steadied where index[path] == nil {
             index[path] = inputs.count / 2
             inputs += ["-i", path]
         }
@@ -179,7 +136,10 @@ final class ProjectExports {
             let kinds = streams[clip.path] ?? []
             if !audioOnly {
                 if kinds.contains("video") {
-                    graph += videoChain(input: "[\(i):v:0]", clip: clip, k: k, width: width, height: height, rate: rate)
+                    let copy = clip.look?.stabilize == true ? Stabilizer.copy(for: clip.path)?.path : nil
+                    graph += ClipLook.ffmpegChain(input: "[\(copy.flatMap { index[$0] } ?? i):v:0]", start: clip.start, end: clip.end,
+                                                  length: clip.length, look: clip.look, k: k, width: width, height: height, rate: rate,
+                                                  steadied: copy != nil)
                 } else {
                     graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(clip.length)),format=yuv420p[v\(k)]")
                 }

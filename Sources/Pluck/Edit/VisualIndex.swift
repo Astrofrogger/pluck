@@ -234,6 +234,9 @@ enum VisualIndex {
         defer { try? FileManager.default.removeItem(at: frameFile) }
         let embedding = NLEmbedding.sentenceEmbedding(for: .english)
         var shots: [Shot] = []
+        // Descriptions of the last few shots, by how they look: a piece that looks the same (the
+        // rest of an interview, a long static shot) reuses one instead of asking the model again.
+        var recent: [(print: VNFeaturePrintObservation, seen: Seen)] = []
         let total = bounds.count - 1
         for (number, (start, end)) in zip(bounds, bounds.dropFirst()).enumerated() {
             try Task.checkCancellation()
@@ -247,11 +250,23 @@ enum VisualIndex {
             var description = "", keywords: [String] = []
             var seen = Seen()
             var found: Seen?
-            if qwen {
-                Self.saveThumbnail(frame, to: frameFile, width: 640)
+            let print = Self.featurePrint(frame)
+            if let print, let same = recent.first(where: { other in
+                var distance: Float = 1
+                try? print.computeDistance(&distance, to: other.print)
+                return distance < 0.38
+            }) {
+                found = same.seen
+            }
+            if found == nil, qwen {
+                Self.saveThumbnail(frame, to: frameFile, width: 512)
                 found = try? await Self.describeWithQwen(frameFile)
             }
             if found == nil, canDescribe, #available(macOS 27, *) { found = try? await Self.describe(frame) }
+            if let found, let print {
+                recent.insert((print, found), at: 0)
+                if recent.count > 4 { recent.removeLast() }
+            }
             if let found {
                 seen = found
                 description = found.description
@@ -530,6 +545,13 @@ enum VisualIndex {
             let share = min(1, interest / most)
             return (usable * (0.15 + 0.85 * share), problems)
         }
+    }
+
+    /// What a picture looks like, to tell the same view from another.
+    static func featurePrint(_ image: CGImage) -> VNFeaturePrintObservation? {
+        let request = VNGenerateImageFeaturePrintRequest()
+        try? VNImageRequestHandler(cgImage: image).perform([request])
+        return request.results?.first
     }
 
     /// The best shots of a clip for a selects timeline: the highest scores, one per group of

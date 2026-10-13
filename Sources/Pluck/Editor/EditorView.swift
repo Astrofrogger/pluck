@@ -11,6 +11,8 @@ struct EditorView: View {
     /// Made here (its own window), or kept by a tab of the Studio window, which closes it.
     private let ownsModel: Bool
     @State private var zoom = 1.0
+    @Environment(\.editMedia) private var media
+    @AppStorage("editTimelineGrow") private var timelineGrow = 80.0
     @AppStorage("editorSidebarTab") private var sidebarTab = EditorSidebar.Tab.ai
     @AppStorage("editorSidebar") private var sidebarShown = true
     @AppStorage("editorSidebarWidth") private var sidebarWidth = 300.0
@@ -25,29 +27,35 @@ struct EditorView: View {
     private var exports: EditorExports { model.exports }
 
     var body: some View {
-        HStack(spacing: 0) {
-            VStack(spacing: 0) {
-                picture
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        VStack(spacing: 0) {
+            HStack(spacing: 0) {
+                if let media { media }
                 VStack(spacing: Design.Spacing.controls) {
+                    picture
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                     transport
-                    VStack(spacing: 4) {
-                        EditorToolbar(model: model, zoom: $zoom)
-                        EditorTimeline(model: model, zoom: $zoom)
-                    }
-                    // Working on the timeline: the keys are the Editor's again.
-                    .simultaneousGesture(TapGesture().onEnded { focused = true })
-                    exportBar
                 }
-                .padding(Design.Spacing.window)
+                .padding([.horizontal, .top], Design.Spacing.window)
+                .padding(.bottom, Design.Spacing.controls)
+                if sidebarShown {
+                    ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
+                    EditorSidebar(model: model)
+                        .frame(width: sidebarWidth)
+                        .clipped()
+                        .transition(.move(edge: .trailing))
+                }
             }
-            if sidebarShown {
-                ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
-                EditorSidebar(model: model)
-                    .frame(width: sidebarWidth)
-                    .clipped()
-                    .transition(.move(edge: .trailing))
+            HeightHandle(grow: $timelineGrow, range: 0...360)
+            VStack(spacing: Design.Spacing.controls) {
+                VStack(spacing: 4) {
+                    EditorToolbar(model: model, zoom: $zoom)
+                    EditorTimeline(model: model, zoom: $zoom, grow: timelineGrow)
+                }
+                // Working on the timeline: the keys are the Editor's again.
+                .simultaneousGesture(TapGesture().onEnded { focused = true })
+                exportBar
             }
+            .padding(Design.Spacing.window)
         }
         .frame(minWidth: (ownsModel ? 760 : 550) + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
         .toolbar {
@@ -97,6 +105,13 @@ struct EditorView: View {
                     if model.showSubtitles, !model.subtitles.isEmpty {
                         SubtitleOverlay(model: model)
                     }
+                    #if STUDIO
+                    if !model.isPlaying, sidebarShown, sidebarTab == .picture {
+                        ViewerControlsOverlay(look: model.look ?? ClipLook(), pictureSize: model.pixelSize, frameSize: model.pixelSize) { record, body in
+                            model.changeLook(record: record, body)
+                        }
+                    }
+                    #endif
                 }
                 .aspectRatio(model.aspect, contentMode: .fit)
             } else {
@@ -107,6 +122,7 @@ struct EditorView: View {
                 .accessibilityHidden(true)
             }
         }
+        .clipped()
         .contentShape(.rect)
         .onTapGesture { model.togglePlay(); focused = true }
     }
@@ -223,6 +239,18 @@ struct EditorView: View {
         case .end: model.seek(to: model.duration)
         case .delete, .deleteForward: model.removeSelected()
         default:
+            #if STUDIO
+            switch Shortcuts.shared.action(for: press, in: .edit) {
+            case .editMarkIn: model.markIn(); return .handled
+            case .editMarkOut: model.markOut(); return .handled
+            case .editSnapping: model.snapping.toggle(); return .handled
+            case .editSplit: model.cut(at: model.time); return .handled
+            case .editBlade: model.tool = .blade; return .handled
+            case .editSelect: model.tool = .select; return .handled
+            case .editUndo: model.undo(); return .handled
+            default: break
+            }
+            #endif
             switch press.characters.lowercased() {
             case "j": model.shuttle(-1)
             case "k": model.shuttle(0)

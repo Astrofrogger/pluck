@@ -50,6 +50,19 @@ final class EditorExports {
         let base = model.file.deletingPathExtension().lastPathComponent
         let video = model.hasVideo, audio = model.hasAudio, file = model.file
         let source = model.pixelSize, fps = model.frameRate
+        var pictureChain: ((String, Double, Double, Int) -> [String])?
+        var steadied: URL?
+        #if STUDIO
+        if let look = model.look, !audioOnly {
+            let width = Int(source.width) / 2 * 2, height = Int(source.height) / 2 * 2, rate = String(format: "%.3f", max(fps, 1))
+            steadied = look.stabilize ? Stabilizer.copy(for: file.path) : nil
+            let isSteadied = steadied != nil
+            pictureChain = { input, start, end, k in
+                ClipLook.ffmpegChain(input: input, start: start, end: end, length: end - start, look: look, k: k,
+                                     width: width, height: height, rate: rate, steadied: isSteadied)
+            }
+        }
+        #endif
         progress = 0
         Task {
             for (index, parts) in groups.enumerated() {
@@ -67,7 +80,7 @@ final class EditorExports {
                 let count = Double(groups.count)
                 let done = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: output, ffmpeg: ffmpeg,
                                                      settings: settings, audioOnly: audioOnly, source: source, sourceFPS: fps,
-                                                     subtitles: assFile) { value in
+                                                     subtitles: assFile, pictureChain: pictureChain, steadied: steadied) { value in
                     Task { @MainActor in self.progress = (Double(index) + value) / count }
                 }
                 if let assFile { try? FileManager.default.removeItem(at: assFile) }

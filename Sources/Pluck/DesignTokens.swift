@@ -694,3 +694,42 @@ struct BrandGlow: View {
         Circle().fill(color.opacity(strength)).frame(width: diameter, height: diameter).position(x: x, y: y)
     }
 }
+
+/// A divider dragged up or down to give the panel under it more height (the timeline).
+struct HeightHandle: View {
+    @Binding var grow: Double
+    let range: ClosedRange<Double>
+    @State private var start: Double?
+
+    var body: some View {
+        Divider()
+            .overlay {
+                Color.clear
+                    .frame(height: 8)
+                    .contentShape(.rect)
+                    .onHover { inside in
+                        if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(minimumDistance: 1)
+                        .onChanged { value in
+                            if start == nil { start = grow }
+                            grow = min(max((start ?? grow) - Double(value.translation.height), range.lowerBound), range.upperBound)
+                        }
+                        .onEnded { _ in start = nil })
+            }
+            .accessibilityHidden(true)
+    }
+}
+
+/// The Edit page's media panel, handed to the open project or file, which puts it beside its
+/// viewer (so the timeline can run the whole width under both).
+private struct EditMediaKey: EnvironmentKey {
+    static let defaultValue: AnyView? = nil
+}
+
+extension EnvironmentValues {
+    var editMedia: AnyView? {
+        get { self[EditMediaKey.self] }
+        set { self[EditMediaKey.self] = newValue }
+    }
+}

@@ -41,7 +41,7 @@ enum ProjectResolve {
                 var item: [String: Any] = ["path": clip.path, "track": 1, "recordIn": record, "sourceIn": sourceIn,
                                            "sourceOut": sourceOut, "mediaType": mediaType]
                 if mediaType == 1, !properties.isEmpty { item["properties"] = properties }
-                if mediaType == 1, clip.look?.zoomEnd != nil { item["zoom"] = "inOut" }
+                if mediaType == 1, clip.look?.hasDynamicZoom == true { item["zoom"] = "inOut" }
                 if let role = clip.role { item["clipColor"] = colour(role) }
                 items.append(item)
             }

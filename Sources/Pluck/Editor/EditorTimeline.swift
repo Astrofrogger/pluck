@@ -8,10 +8,12 @@ import SwiftUI
 struct EditorTimeline: View {
     @Bindable var model: EditorModel
     @Binding var zoom: Double
+    /// Extra height, shared by the pictures and the sound.
+    var grow: Double = 0
 
     private let ruler: CGFloat = 20
-    private var filmstrip: CGFloat { model.hasVideo ? 58 : 0 }
-    private var wave: CGFloat { model.hasVideo ? 44 : 110 }
+    private var filmstrip: CGFloat { model.hasVideo ? 58 + grow * 0.6 : 0 }
+    private var wave: CGFloat { model.hasVideo ? 44 + grow * 0.4 : 110 + grow }
     /// A lane for moments and filler words, when there are any.
     private var lane: CGFloat {
         model.visibleMarkers.contains { $0.kind == .moment || $0.kind == .filler || $0.kind == .story } ? 10 : 0
