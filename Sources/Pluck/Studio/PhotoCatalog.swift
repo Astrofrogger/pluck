@@ -15,6 +15,8 @@ struct PhotoRecord: Codable, Hashable {
     /// Noise taken out before developing (0: none, else the strength in %), by AI or not.
     var denoise = 0
     var denoiseAI = false
+    /// Looks kept along the way, to go back to.
+    var snapshots: [PhotoSnapshot] = []
 
     var isEdited: Bool { !adjust.isDefault || filmOn || denoise > 0 }
 
@@ -34,7 +36,18 @@ struct PhotoRecord: Codable, Hashable {
         edited = try c.decodeIfPresent(Date.self, forKey: .edited)
         denoise = try c.decodeIfPresent(Int.self, forKey: .denoise) ?? 0
         denoiseAI = try c.decodeIfPresent(Bool.self, forKey: .denoiseAI) ?? false
+        snapshots = try c.decodeIfPresent([PhotoSnapshot].self, forKey: .snapshots) ?? []
     }
+}
+
+/// A look kept to go back to: the adjustments and film at one moment.
+struct PhotoSnapshot: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var date = Date.now
+    var adjust: PhotoAdjustments
+    var filmOn: Bool
+    var film: FilmSettings
 }
 
 struct PhotoAlbum: Codable, Identifiable, Hashable {
@@ -129,7 +142,9 @@ final class PhotoCatalog {
     func record(_ path: String) -> PhotoRecord { records[path] ?? PhotoRecord() }
 
     func update(_ paths: [String], _ change: (inout PhotoRecord) -> Void) {
+        var before: [String: PhotoRecord?] = [:]
         for path in paths {
+            before[path] = records[path]
             var record = records[path] ?? PhotoRecord()
             change(&record)
             // A RAW keeps the decoder it was first edited with, so it looks the same after macOS updates.
@@ -138,7 +153,143 @@ final class PhotoCatalog {
             }
             records[path] = record
         }
+        remember(before)
+        changed(paths)
+    }
+
+    // MARK: - Undo
+
+    /// One change: the photos' records before and after it.
+    private struct Step {
+        var before: [String: PhotoRecord?]
+        var after: [String: PhotoRecord?]
+    }
+
+    @ObservationIgnored private var undoSteps: [Step] = []
+    @ObservationIgnored private var redoSteps: [Step] = []
+    @ObservationIgnored private var lastStep = Date.distantPast
+    private(set) var canUndo = false
+    private(set) var canRedo = false
+
+    /// Keeps the change to undo it. A slider's drag (the same photos, changes close together)
+    /// is one step.
+    private func remember(_ before: [String: PhotoRecord?]) {
+        let after = Dictionary(uniqueKeysWithValues: before.keys.map { ($0, records[$0]) })
+        if let last = undoSteps.last, Set(last.before.keys) == Set(before.keys), Date.now.timeIntervalSince(lastStep) < 0.6 {
+            undoSteps[undoSteps.count - 1].after = after
+        } else {
+            undoSteps.append(Step(before: before, after: after))
+            if undoSteps.count > 300 { undoSteps.removeFirst() }
+        }
+        lastStep = .now
+        redoSteps = []
+        canUndo = true
+        canRedo = false
+    }
+
+    /// Takes back the last change; the photos it touched.
+    @discardableResult
+    func undo() -> [String] {
+        guard let step = undoSteps.popLast() else { return [] }
+        apply(step.before)
+        redoSteps.append(step)
+        lastStep = .distantPast
+        canUndo = !undoSteps.isEmpty
+        canRedo = true
+        return Array(step.before.keys)
+    }
+
+    @discardableResult
+    func redo() -> [String] {
+        guard let step = redoSteps.popLast() else { return [] }
+        apply(step.after)
+        undoSteps.append(step)
+        lastStep = .distantPast
+        canUndo = true
+        canRedo = !redoSteps.isEmpty
+        return Array(step.after.keys)
+    }
+
+    private func apply(_ state: [String: PhotoRecord?]) {
+        for (path, record) in state { records[path] = record }
+        changed(Array(state.keys))
+    }
+
+    // MARK: - Snapshots
+
+    func takeSnapshot(of path: String) {
+        update([path]) { record in
+            let name = Date.now.formatted(date: .abbreviated, time: .shortened)
+            record.snapshots.append(PhotoSnapshot(name: name, adjust: record.adjust, filmOn: record.filmOn, film: record.film))
+        }
+    }
+
+    func restore(_ snapshot: PhotoSnapshot, on path: String) {
+        update([path]) { record in
+            record.adjust = snapshot.adjust
+            record.filmOn = snapshot.filmOn
+            record.film = snapshot.film
+            record.edited = .now
+        }
+    }
+
+    func deleteSnapshot(_ id: UUID, of path: String) {
+        update([path]) { $0.snapshots.removeAll { $0.id == id } }
+    }
+
+    // MARK: - Sidecars
+
+    @ObservationIgnored private var sidecarsWaiting: Set<String> = []
+    @ObservationIgnored private var sidecarsScheduled = false
+    @ObservationIgnored private var sidecarsRead: Set<String> = []
+
+    /// Whether ratings, labels and edits go into XMP sidecars next to the photos (Settings).
+    static var writesSidecars: Bool { UserDefaults.standard.bool(forKey: "photoWriteXMP") }
+
+    /// After any change: saved, and the sidecars written (a moment later, in the background).
+    private func changed(_ paths: [String]) {
         scheduleSave()
+        guard Self.writesSidecars else { return }
+        sidecarsWaiting.formUnion(paths)
+        guard !sidecarsScheduled else { return }
+        sidecarsScheduled = true
+        Task {
+            try? await Task.sleep(for: .seconds(1))
+            sidecarsScheduled = false
+            let waiting = sidecarsWaiting.map { ($0, record($0)) }
+            sidecarsWaiting = []
+            await Task.detached(priority: .utility) {
+                // A photo in a place Pluck can't write to keeps going without one.
+                for (path, record) in waiting { try? PhotoXMP.write(path, record: record) }
+            }.value
+        }
+    }
+
+    /// Writes the sidecars of every photo with something to say (when writing is turned on).
+    func writeAllSidecars() {
+        changed(records.filter { $0.value.rating > 0 || $0.value.flag != .none || $0.value.label != nil || $0.value.isEdited }.map(\.key))
+    }
+
+    /// Ratings, labels and flags other apps wrote (or Pluck's own edit from a sidecar), for
+    /// photos Pluck knows nothing about yet. In the background; once per photo per launch.
+    func readSidecars(_ paths: [String]) {
+        let unknown = paths.filter { records[$0] == nil && !sidecarsRead.contains($0) }
+        guard !unknown.isEmpty else { return }
+        sidecarsRead.formUnion(unknown)
+        Task {
+            let found = await Task.detached(priority: .utility) {
+                unknown.compactMap { path in PhotoXMP.read(path).map { (path, $0) } }
+            }.value
+            guard !found.isEmpty else { return }
+            for (path, metadata) in found where records[path] == nil {
+                var record = metadata.record ?? PhotoRecord()
+                if let rating = metadata.rating { record.rating = rating }
+                if metadata.label != nil { record.label = metadata.label }
+                if metadata.rejected { record.flag = .reject }
+                records[path] = record
+            }
+            scheduleSave()
+        }
     }
 
     /// Every photo in the albums and the watched folders.
@@ -167,6 +318,7 @@ final class PhotoCatalog {
         albums.append(album)
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
+        readSidecars(paths)
         return album
     }
 
@@ -176,6 +328,7 @@ final class PhotoCatalog {
         albums[index].paths += paths.filter { !existing.contains($0) }
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
+        readSidecars(paths)
     }
 
     func remove(_ paths: [String], from id: UUID) {

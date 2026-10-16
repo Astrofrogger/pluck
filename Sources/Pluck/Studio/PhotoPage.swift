@@ -15,7 +15,7 @@ struct PhotoPage: View {
     @State private var selection: Set<String> = []
     @State private var focus: String?
     /// Grid (many at once), Cull (one at a time, quick: the camera's own preview), or Edit.
-    enum ViewMode: String { case grid, cull, edit }
+    enum ViewMode: String { case grid, cull, edit, compare }
     @AppStorage("photoView") private var view = ViewMode.grid
     private var loupe: Bool { view != .grid }
     @State private var flagFilter: PhotoRecord.Flag?
@@ -69,6 +69,16 @@ struct PhotoPage: View {
                             PhotoCullView(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus))
                             filmstrip
                         }
+                    } else if view == .compare, let focus {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 2) {
+                                PhotoLoupe(path: focus, record: catalog.record(focus), linked: true)
+                                if let other = compared(with: focus) {
+                                    PhotoLoupe(path: other, record: catalog.record(other), linked: true, primary: false)
+                                }
+                            }
+                            filmstrip
+                        }
                     } else if view == .edit, let focus {
                         VStack(spacing: 0) {
                             PhotoLoupe(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus).prefix(2).map { ($0, catalog.record($0)) })
@@ -107,11 +117,18 @@ struct PhotoPage: View {
             focused = true
             FootageFolders.shared.start()
             PhotoIndex.shared.enqueue(catalog.allPhotos)
+            catalog.readSidecars(catalog.allPhotos)
             PhotoRender.trimCaches()
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
                 focus = photos.first
                 view = .edit
+            }
+            // -PluckScreenshotCompare YES: the first two side by side (with -PluckScreenshotClipping YES: clipping shown).
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotCompare") {
+                focus = photos.first
+                view = .compare
+                editing.showClipping = UserDefaults.standard.bool(forKey: "PluckScreenshotClipping")
             }
             // -PluckScreenshotZoom YES: the first photo at 1:1.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotZoom") {
@@ -266,10 +283,11 @@ struct PhotoPage: View {
                 Image(systemName: "square.grid.3x3").tag(ViewMode.grid).help("Grid (\(Shortcuts.shared.shortcut(.photoGrid).label))")
                 Image(systemName: "rectangle.stack").tag(ViewMode.cull).help("Cull: quick, one at a time (\(Shortcuts.shared.shortcut(.photoCull).label))")
                 Image(systemName: "slider.horizontal.below.rectangle").tag(ViewMode.edit).help("Edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
+                Image(systemName: "rectangle.split.2x1").tag(ViewMode.compare).help("Compare two, zoomed together (\(Shortcuts.shared.shortcut(.photoCompare).label))")
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 130)
+            .frame(width: 170)
             Menu {
                 Button("All") { flagFilter = nil }
                 Button("Picks") { flagFilter = .pick }
@@ -448,19 +466,31 @@ struct PhotoPage: View {
                 advance(targets)
                 return .handled
             }
+            // 6–9: colour labels, as in Lightroom (again takes it off).
+            if let number = Int(character), (6...9).contains(number), press.modifiers.isEmpty {
+                let label = ["red", "yellow", "green", "blue"][number - 6]
+                let all = targets.allSatisfy { catalog.record($0).label == label }
+                catalog.update(targets) { $0.label = all ? nil : label }
+                return .handled
+            }
+            if character == "z", press.modifiers == .command { catalog.undo(); return .handled }
+            if character == "z", press.modifiers == [.command, .shift] { catalog.redo(); return .handled }
             if character == "a", press.modifiers.contains(.command) {
                 selection = Set(photos)
                 return .handled
             }
-            if view == .edit, press.modifiers.contains(.command), ["=", "+"].contains(character) { editing.zoomIn(); return .handled }
-            if view == .edit, press.modifiers.contains(.command), character == "-" { editing.zoomOut(); return .handled }
-            if view == .edit, press.modifiers.contains(.command), character == "0" { editing.zoom = nil; return .handled }
+            let zoomable = view == .edit || view == .compare
+            if zoomable, press.modifiers.contains(.command), ["=", "+"].contains(character) { editing.zoomIn(); return .handled }
+            if zoomable, press.modifiers.contains(.command), character == "-" { editing.zoomOut(); return .handled }
+            if zoomable, press.modifiers.contains(.command), character == "0" { editing.zoom = nil; return .handled }
             switch Shortcuts.shared.action(for: press, in: .photo) {
             case .photoGrid: view = .grid
             case .photoCull: if focus == nil { focus = photos.first }; view = .cull
             case .photoEdit: if focus == nil { focus = photos.first }; view = .edit
+            case .photoCompare: if focus == nil { focus = photos.first }; view = view == .compare ? .edit : .compare
+            case .photoClipping: editing.showClipping.toggle()
             case .photoCrop: editing.cropping.toggle()
-            case .photoZoom: if view == .edit { editing.zoom = editing.zoom == nil ? 1 : nil } else { return .ignored }
+            case .photoZoom: if zoomable { editing.zoom = editing.zoom == nil ? 1 : nil } else { return .ignored }
             case .photoTurnCrop:
                 guard let focus else { return .ignored }
                 catalog.update([focus]) { record in
@@ -482,6 +512,13 @@ struct PhotoPage: View {
     }
 
     private var columns: Int { 4 }
+
+    /// The photo Compare puts next to the selected one: the other of two selected, else the next.
+    private func compared(with focus: String) -> String? {
+        if selection.count == 2, let other = selection.first(where: { $0 != focus }) { return other }
+        guard let index = photos.firstIndex(of: focus) else { return nil }
+        return photos.indices.contains(index + 1) ? photos[index + 1] : index > 0 ? photos[index - 1] : nil
+    }
 
     /// The photos either side, to have ready.
     private func neighbours(of path: String) -> [String] {
@@ -595,6 +632,10 @@ struct PhotoLoupe: View {
     let record: PhotoRecord
     /// The photos either side (and their settings), decoded ahead.
     var neighbours: [(String, PhotoRecord)] = []
+    /// In Compare: zoomed and moved together with the other photo.
+    var linked = false
+    /// The one whose histogram shows (Compare shows two).
+    var primary = true
     /// The developed preview (or the film's picture).
     @State private var picture: CIImage?
     /// The photo at full size, for the settings in `fullKey`.
@@ -605,8 +646,8 @@ struct PhotoLoupe: View {
     @State private var problem: String?
     @State private var editing = PhotoEditing.shared
     @State private var catalog = PhotoCatalog.shared
-    @State private var center = CGPoint(x: 0.5, y: 0.5)
-    @State private var drag: CGSize = .zero
+    @State private var ownCenter = CGPoint(x: 0.5, y: 0.5)
+    @State private var ownDrag: CGSize = .zero
     @State private var pinchStart: Double?
     @State private var viewSize: CGSize = .zero
     @Environment(\.displayScale) private var displayScale
@@ -618,7 +659,7 @@ struct PhotoLoupe: View {
                 GeometryReader { geo in
                     let frame = pictureFrame(in: geo.size)
                     ZStack {
-                        PhotoCanvas(image: shownImage ?? picture, frame: frame)
+                        PhotoCanvas(image: editing.showClipping ? PhotoEngine.clipping(shownImage ?? picture) : shownImage ?? picture, frame: frame)
                         if let zoom = editing.zoom, !editing.cropping {
                             zoomGestures(zoom: zoom, area: geo.size, frame: frame)
                         } else {
@@ -680,8 +721,19 @@ struct PhotoLoupe: View {
                 for (next, record) in ahead { _ = PhotoRender.base(next, maxSize: size, record: record) }
             }.value
         }
-        .onChange(of: path) { _, _ in editing.zoom = nil; full = nil; fullKey = nil }
+        .onChange(of: path) { _, _ in if !linked { editing.zoom = nil }; full = nil; fullKey = nil }
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
+    }
+
+    /// Where the zoomed photo looks (shared with the other photo in Compare).
+    private var center: CGPoint {
+        get { linked ? editing.compareCenter : ownCenter }
+        nonmutating set { if linked { editing.compareCenter = newValue } else { ownCenter = newValue } }
+    }
+
+    private var drag: CGSize {
+        get { linked ? editing.compareDrag : ownDrag }
+        nonmutating set { if linked { editing.compareDrag = newValue } else { ownDrag = newValue } }
     }
 
     private struct TaskKey: Hashable {
@@ -849,7 +901,7 @@ struct PhotoLoupe: View {
             developing = false
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled, let quick else { return }
-            editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(quick) }.value
+            if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(quick) }.value }
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled, shown.isEdited else { return }
             await Task.detached(priority: .utility) {
@@ -866,7 +918,7 @@ struct PhotoLoupe: View {
                 let film = CIImage(cgImage: developed)
                 picture = film
                 FilmPictures.shared.keep(film, for: cached.path)
-                editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value
+                if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
                 PhotoRender.savePreview(developed, to: cached)
             }
         } catch {

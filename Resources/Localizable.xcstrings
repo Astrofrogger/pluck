@@ -7586,6 +7586,64 @@
         }
       }
     },
+    "A small .xmp file next to each photo, which Lightroom, Capture One and darktable read. Ratings and labels from those apps are always read.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine kleine .xmp-Datei neben jedem Foto, die Lightroom, Capture One und darktable lesen. Bewertungen und Etiketten aus diesen Apps werden immer gelesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pequeño archivo .xmp junto a cada foto, que leen Lightroom, Capture One y darktable. Las valoraciones y etiquetas de esas apps siempre se leen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un petit fichier .xmp à côté de chaque photo, lu par Lightroom, Capture One et darktable. Les notes et étiquettes de ces apps sont toujours lues."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un piccolo file .xmp accanto a ogni foto, letto da Lightroom, Capture One e darktable. Valutazioni ed etichette di quelle app vengono sempre lette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各写真の横に置かれる小さな.xmpファイルで、Lightroom、Capture One、darktableが読み込みます。これらのアプリのレーティングとラベルは常に読み込まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 사진 옆에 놓이는 작은 .xmp 파일로, Lightroom, Capture One, darktable이 읽습니다. 이 앱들의 별점과 레이블은 항상 읽어 옵니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een klein .xmp-bestand naast elke foto, dat Lightroom, Capture One en darktable lezen. Beoordelingen en labels uit die apps worden altijd gelezen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um pequeno arquivo .xmp ao lado de cada foto, lido pelo Lightroom, Capture One e darktable. Classificações e rótulos desses apps são sempre lidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每张照片旁的一个小 .xmp 文件，Lightroom、Capture One 和 darktable 都能读取。这些应用的评分和标签始终会被读取。"
+          }
+        }
+      }
+    },
     "A smooth, even camera move: good for a speed ramp": {
       "localizations": {
         "de": {
@@ -21079,6 +21137,64 @@
         }
       }
     },
+    "Choose What to Paste…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswählen, was eingefügt wird …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elegir qué pegar…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisir quoi coller…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli cosa incollare…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "貼り付ける項目を選択…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "붙여넣을 항목 선택…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiezen wat je plakt…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolher o que colar…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要粘贴的内容…"
+          }
+        }
+      }
+    },
     "Choose Your Pluck": {
       "localizations": {
         "de": {
@@ -25030,6 +25146,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "广告片"
+          }
+        }
+      }
+    },
+    "Compare two photos": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Fotos vergleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparar dos fotos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparer deux photos"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confronta due foto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2枚の写真を比較"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 사진 비교"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twee foto’s vergelijken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparar duas fotos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比较两张照片"
+          }
+        }
+      }
+    },
+    "Compare two, zoomed together (%@)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei vergleichen, gemeinsam gezoomt (%@)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparar dos, con zoom a la vez (%@)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparer deux, zoom lié (%@)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confronta due, con zoom insieme (%@)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2枚を比較、ズームは連動 (%@)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 장 비교, 함께 확대 (%@)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twee vergelijken, samen ingezoomd (%@)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparar duas, com zoom juntas (%@)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "比较两张，同步缩放 (%@)"
           }
         }
       }
@@ -49195,6 +49427,7 @@
       }
     },
     "Give the selected photos the copied adjustments and film": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -49248,6 +49481,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "将拷贝的调整和胶片应用到所选照片"
+          }
+        }
+      }
+    },
+    "Give the selected photos the copied adjustments and film (or choose which)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die kopierten Anpassungen und den Film auf die ausgewählten Fotos übertragen (oder auswählen, welche)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar a las fotos seleccionadas los ajustes y la película copiados (o elegir cuáles)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appliquer aux photos sélectionnées les réglages et le film copiés (ou choisir lesquels)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Applica alle foto selezionate le regolazioni e la pellicola copiate (o scegli quali)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピーした調整とフィルムを選択した写真に適用（または項目を選択）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사한 조정과 필름을 선택한 사진에 적용 (또는 항목 선택)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De gekopieerde aanpassingen en film op de geselecteerde foto’s zetten (of kiezen welke)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aplicar às fotos selecionadas os ajustes e o filme copiados (ou escolher quais)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将复制的调整和胶片应用到所选照片（或选择哪些）"
+          }
+        }
+      }
+    },
+    "Gives the selected photos this one’s brightness": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gibt den ausgewählten Fotos die Helligkeit dieses Fotos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da a las fotos seleccionadas el brillo de esta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Donne aux photos sélectionnées la luminosité de celle-ci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dà alle foto selezionate la luminosità di questa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した写真をこの写真と同じ明るさにします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 사진에 이 사진의 밝기를 적용합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geeft de geselecteerde foto’s de helderheid van deze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dá às fotos selecionadas o brilho desta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让所选照片与这张亮度一致"
           }
         }
       }
@@ -49368,6 +49717,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "光晕"
+          }
+        }
+      }
+    },
+    "Go back to this look": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu diesem Look zurückkehren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a este aspecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir à ce rendu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Torna a questo aspetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この見た目に戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 모습으로 돌아가기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terug naar deze look"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar a este visual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "回到这个外观"
           }
         }
       }
@@ -54076,6 +54483,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "请在此 Mac 上保持 Pluck 和 DaVinci Resolve 打开，并登录项目库。"
+          }
+        }
+      }
+    },
+    "Keep This Look": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Look behalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar este aspecto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder ce rendu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conserva questo aspetto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この見た目を保存"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 모습 저장"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze look bewaren"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar este visual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留此外观"
           }
         }
       }
@@ -64959,6 +65424,64 @@
         }
       }
     },
+    "Match Exposure": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belichtung angleichen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar exposición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Égaliser l’exposition"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniforma esposizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "露出を揃える"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노출 맞추기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Belichting gelijkmaken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Igualar exposição"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匹配曝光"
+          }
+        }
+      }
+    },
     "Match colour": {
       "extractionState": "stale",
       "localizations": {
@@ -66295,6 +66818,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "调音台录音"
+          }
+        }
+      }
+    },
+    "Mixer, Curves and Wheels": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mischer, Kurven und Farbräder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mezclador, curvas y ruedas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mélangeur, courbes et roues"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixer, curve e ruote"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミキサー、カーブ、ホイール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "믹서, 커브, 휠"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixer, curven en wielen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mixer, curvas e rodas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混合器、曲线和色轮"
           }
         }
       }
@@ -79953,6 +80534,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "粘贴你收到的邀请链接"
+          }
+        }
+      }
+    },
+    "Paste to ^[%lld photo](inflect: true)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In ^[%lld Foto](inflect: true) einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar en ^[%lld foto](inflect: true)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller sur ^[%lld photo](inflect: true)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla su ^[%lld foto](inflect: true)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld枚の写真に貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 %lld장에 붙여넣기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plakken op %lld foto(’s)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colar em ^[%lld foto](inflect: true)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴到 %lld 张照片"
           }
         }
       }
@@ -104395,6 +105034,64 @@
         }
       }
     },
+    "Show clipping": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beschneidung anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar recorte"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher l’écrêtage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra clipping"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリッピングを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클리핑 표시"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipping tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar recorte"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示溢出"
+          }
+        }
+      }
+    },
     "Show in Finder": {
       "localizations": {
         "de": {
@@ -106082,6 +106779,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "吸附（N）"
+          }
+        }
+      }
+    },
+    "Snapshots": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnappschüsse"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantáneas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantanés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Istantanee"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スナップショット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스냅숏"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snapshots"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instantâneos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快照"
           }
         }
       }
@@ -134208,6 +134963,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "无需切换到 Pluck 即可使用。"
+          }
+        }
+      }
+    },
+    "Write ratings and edits to XMP sidecars": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewertungen und Bearbeitungen in XMP-Filialdateien schreiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribir valoraciones y ediciones en archivos XMP adjuntos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Écrire notes et retouches dans des fichiers XMP annexes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrivi valutazioni e modifiche in file XMP affiancati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レーティングと編集をXMPサイドカーに書き込む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "별점과 편집을 XMP 사이드카에 기록"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beoordelingen en bewerkingen naar XMP-bestanden schrijven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gravar classificações e edições em arquivos XMP auxiliares"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将评分和编辑写入 XMP 附属文件"
           }
         }
       }

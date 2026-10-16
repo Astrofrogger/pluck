@@ -147,6 +147,7 @@ private struct GeneralSettings: View {
     @State private var loginNeedsApproval = LoginItem.needsApproval
     @State private var loginError: String?
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
+    @AppStorage("photoWriteXMP") private var writeXMP = false
     @Environment(AppUpdater.self) private var appUpdater
 
     var body: some View {
@@ -214,6 +215,18 @@ private struct GeneralSettings: View {
                     }
                 }
             }
+
+            #if STUDIO
+            Section {
+                Toggle("Write ratings and edits to XMP sidecars", isOn: $writeXMP)
+                    .onChange(of: writeXMP) { _, on in if on { PhotoCatalog.shared.writeAllSidecars() } }
+            } header: {
+                Text("Photos")
+            } footer: {
+                Text("A small .xmp file next to each photo, which Lightroom, Capture One and darktable read. Ratings and labels from those apps are always read.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            #endif
 
             Section {
                 Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)

@@ -332,9 +332,9 @@ enum PhotoRender {
         return picture(image)
     }
 
-    /// Auto for this photo (version 2): measured in scene light at its white balance, with the
-    /// faces macOS finds weighed most.
-    static func auto(_ path: String, record: PhotoRecord) -> PhotoAdjustments? {
+    /// The photo's light at its white balance (no exposure), small: brightness per pixel, and
+    /// where macOS finds faces (shares of the photo, from the bottom left).
+    static func measure(_ path: String, record: PhotoRecord) -> (luminance: [Float], width: Int, height: Int, faces: [CGRect])? {
         var plain = PhotoRecord()
         plain.adjust.temperature = record.adjust.temperature
         plain.adjust.tint = record.adjust.tint
@@ -354,7 +354,18 @@ enum PhotoRender {
             try? VNImageRequestHandler(cgImage: shown).perform([request])
             faces = request.results?.map(\.boundingBox) ?? []
         }
-        return PhotoEngine.auto(luminance: luminance, width: width, height: height, faces: faces)
+        return (luminance, width, height, faces)
+    }
+
+    /// Auto for this photo (version 2): measured in scene light at its white balance, with the
+    /// faces macOS finds weighed most.
+    static func auto(_ path: String, record: PhotoRecord) -> PhotoAdjustments? {
+        measure(path, record: record).map { PhotoEngine.auto(luminance: $0.luminance, width: $0.width, height: $0.height, faces: $0.faces) }
+    }
+
+    /// The photo's middle brightness before exposure, in stops from mid grey (faces weighed most).
+    static func middle(_ path: String, record: PhotoRecord) -> Double? {
+        measure(path, record: record).flatMap { PhotoEngine.middle(luminance: $0.luminance, width: $0.width, height: $0.height, faces: $0.faces) }
     }
 
     /// A developed image as a picture (sRGB), at most this long (0: as it is).

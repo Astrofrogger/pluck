@@ -17,6 +17,11 @@ final class PhotoEditing {
         set { zoom = newValue ? (zoom ?? 1) : nil }
     }
     static let zoomSteps: [Double] = [0.25, 0.5, 1, 2, 4]
+    /// Where both photos in Compare look (shares of the photo), and the drag in progress.
+    var compareCenter = CGPoint(x: 0.5, y: 0.5)
+    var compareDrag: CGSize = .zero
+    /// Clipped highlights shown red and clipped shadows blue (J).
+    var showClipping = false
 
     func zoomIn() { zoom = Self.zoomSteps.first { $0 > (zoom ?? 0.2) + 0.001 } ?? Self.zoomSteps.last }
     func zoomOut() {

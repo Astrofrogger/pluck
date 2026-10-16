@@ -157,20 +157,90 @@ struct PhotoInspector: View {
                 HStack(spacing: 8) {
                     Button("Copy") { PhotoInspector.clipboard = record }
                         .help("Copy this photo’s adjustments and film")
-                    Button("Paste") {
-                        guard let copied = PhotoInspector.clipboard else { return }
-                        change { $0.adjust = copied.adjust.keepingDecoder(of: $0.adjust); $0.film = copied.film; $0.filmOn = copied.filmOn }
+                    Menu("Paste") {
+                        Button("Choose What to Paste…") { choosingPaste = true }
+                    } primaryAction: {
+                        paste(Set(PasteGroup.allCases))
                     }
+                    .fixedSize()
                     .disabled(PhotoInspector.clipboard == nil)
-                    .help("Give the selected photos the copied adjustments and film")
+                    .help("Give the selected photos the copied adjustments and film (or choose which)")
                     Spacer()
                     Button("Reset", role: .destructive) { change { $0.adjust = PhotoAdjustments(); $0.filmOn = false; $0.film = FilmSettings() } }
                 }
                 .controlSize(.small)
                 .padding(.horizontal, 8)
+                if paths.count > 1 {
+                    HStack {
+                        Button("Match Exposure") { matchExposure() }
+                            .help("Gives the selected photos this one’s brightness")
+                        if matching { ProgressView().controlSize(.small) }
+                    }
+                    .controlSize(.small)
+                    .padding(.horizontal, 8)
+                }
+            }
+            if let shown, paths.count == 1 {
+                SidebarSection(title: Text("Snapshots")) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(record.snapshots.reversed()) { snapshot in
+                            HStack {
+                                Button { catalog.restore(snapshot, on: shown) } label: {
+                                    Label(snapshot.name, systemImage: "camera.metering.center.weighted").lineLimit(1)
+                                }
+                                .buttonStyle(.plain)
+                                .help("Go back to this look")
+                                Spacer()
+                                Button { catalog.deleteSnapshot(snapshot.id, of: shown) } label: { Image(systemName: "xmark") }
+                                    .buttonStyle(.borderless).foregroundStyle(.secondary)
+                            }
+                            .font(.callout)
+                        }
+                        Button("Keep This Look", systemImage: "plus") { catalog.takeSnapshot(of: shown) }
+                            .buttonStyle(.link).font(.callout)
+                    }
+                    .padding(.horizontal, 8)
+                }
             }
         }
+        .sheet(isPresented: $choosingPaste) {
+            PasteChooser(count: paths.count) { groups in paste(groups) }
+        }
     }
+
+    /// Part (or all) of the copied settings onto the selected photos.
+    private func paste(_ groups: Set<PasteGroup>) {
+        guard let copied = PhotoInspector.clipboard else { return }
+        change { record in for group in PasteGroup.allCases where groups.contains(group) { group.apply(copied, to: &record) } }
+    }
+
+    /// The selected photos as bright as the one shown: each one's middle (faces weighed most)
+    /// put where this one's is.
+    private func matchExposure() {
+        guard let shown else { return }
+        let targets = paths.filter { $0 != shown }
+        let reference = catalog.record(shown)
+        let records = Dictionary(uniqueKeysWithValues: targets.map { ($0, catalog.record($0)) })
+        matching = true
+        Task {
+            let found = await Task.detached(priority: .userInitiated) { () -> [String: Double] in
+                guard let middle = PhotoRender.middle(shown, record: reference) else { return [:] }
+                let goal = middle + reference.adjust.exposure
+                var exposures: [String: Double] = [:]
+                for (path, record) in records {
+                    if let own = PhotoRender.middle(path, record: record) { exposures[path] = ((goal - own) * 20).rounded() / 20 }
+                }
+                return exposures
+            }.value
+            for (path, exposure) in found {
+                catalog.update([path]) { $0.adjust.exposure = min(max(exposure, -5), 5); $0.edited = .now }
+            }
+            matching = false
+        }
+    }
+
+    @State private var choosingPaste = false
+    @State private var matching = false
 
     @MainActor static var clipboard: PhotoRecord?
 

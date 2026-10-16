@@ -107,12 +107,12 @@ enum PhotoEngine {
         let data = withUnsafeBytes(of: p) { Data($0) }
         let grade = withUnsafeBytes(of: Grade(a)) { Data($0) }
         let curves = modern && !a.curves.isDefault ? curveTable(a.curves) : Data(count: 16)
-        guard let developed = try? DevelopPass.apply(withExtent: extent, inputs: inputs, arguments: [
+        guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
             "params": data, "grade": grade, "curves": curves,
             "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, extent]
                 .flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
         ]) else { return exposed }
-        return developed.cropped(to: extent)
+        return developed
     }
 
     /// What's worked out small from the photo once per white balance: the two local-tone layers,
@@ -192,10 +192,10 @@ enum PhotoEngine {
         let small = s < 0.5 ? image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
                             : image.transformed(by: CGAffineTransform(scaleX: s, y: s))
         let extent = small.extent.integral
-        guard let prepared = try? GuidePrep.apply(withExtent: extent, inputs: [small.clampedToExtent()], arguments: [:]) else { return small }
+        guard let prepared = try? apply(GuidePrep.self, extent: extent, inputs: [small.clampedToExtent()], arguments: [:]) else { return small }
         let means = prepared.clampedToExtent().applyingFilter("CIBoxBlur", parameters: ["inputRadius": radius]).cropped(to: extent)
         let epsData = withUnsafeBytes(of: eps) { Data($0) }
-        guard let coef = try? GuideCoef.apply(withExtent: extent, inputs: [means.clampedToExtent()], arguments: ["eps": epsData]) else { return small }
+        guard let coef = try? apply(GuideCoef.self, extent: extent, inputs: [means.clampedToExtent()], arguments: ["eps": epsData]) else { return small }
         return coef.clampedToExtent().applyingFilter("CIBoxBlur", parameters: ["inputRadius": radius]).cropped(to: extent)
     }
 
@@ -696,6 +696,17 @@ enum PhotoEngine {
         }
     }
 
+    /// One of the passes over `extent`. Core Image is given an extent a hair larger and the result
+    /// is cut back: with a whole-pixel extent it asks for a pixel more than it needs at the edges,
+    /// and when two such passes end up in one render (two developed photos side by side) it then
+    /// reads one pass's result where the other's belongs (macOS 27: the first photo came out
+    /// black or smeared). Asked for exactly what's needed, it keeps them apart.
+    static func apply(_ kernel: CIImageProcessorKernel.Type, extent: CGRect, inputs: [CIImage]?,
+                      arguments: [String: Any]?) throws -> CIImage {
+        let padded = CGRect(x: extent.minX, y: extent.minY, width: extent.width + 1 / 256, height: extent.height + 1 / 256)
+        return try kernel.apply(withExtent: padded, inputs: inputs, arguments: arguments).cropped(to: extent)
+    }
+
     /// Runs one compute function over the output, with the inputs at the same place.
     /// `offsetsIndex`: where the inputs' offsets go among the buffers (after all the bytes when nil).
     static func run(_ name: String, inputs: [CIImageProcessorInput]?, output: CIImageProcessorOutput, bytes: [Data] = [],
@@ -870,6 +881,21 @@ extension PhotoEngine {
         return bins.map { $0.map { min($0 / top, 1) } }
     }
 
+    /// The developed picture with what's clipped marked, as Lightroom's J: highlights at white in
+    /// any channel red, shadows at black in all of them blue.
+    static func clipping(_ image: CIImage) -> CIImage {
+        let extent = image.extent
+        let brightest = image.applyingFilter("CIMaximumComponent")
+        let highlights = brightest.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.997])
+        let shadows = brightest.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.0004]).applyingFilter("CIColorInvert")
+        let red = CIImage(color: CIColor(red: 1, green: 0.1, blue: 0.1)).cropped(to: extent)
+        let blue = CIImage(color: CIColor(red: 0.15, green: 0.35, blue: 1)).cropped(to: extent)
+        return blue.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: red.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: image, kCIInputMaskImageKey: highlights]),
+            kCIInputMaskImageKey: shadows,
+        ]).cropped(to: extent)
+    }
+
     /// The photo in scene light at this white balance (no exposure): for measuring it.
     static func balanced(_ image: CIImage, _ a: PhotoAdjustments, kelvin: Double) -> CIImage {
         linear(image, whiteBalance(a, kelvin: kelvin), wide: a.process >= 2)
@@ -881,27 +907,11 @@ extension PhotoEngine {
     /// `faces`: where faces are, as shares of the photo (from the bottom left).
     static func auto(luminance: [Float], width: Int, height: Int, faces: [CGRect]) -> PhotoAdjustments {
         var a = PhotoAdjustments()
-        var weighted: [(Float, Float)] = []
-        var plain: [Float] = []
-        weighted.reserveCapacity(luminance.count)
-        for y in 0..<height {
-            for x in 0..<width {
-                let v = luminance[y * width + x]
-                guard v > 1e-6, v.isFinite else { continue }
-                let ev = log2(v / 0.18)
-                plain.append(ev)
-                let point = CGPoint(x: (Double(x) + 0.5) / Double(width), y: 1 - (Double(y) + 0.5) / Double(height))
-                weighted.append((ev, faces.contains { $0.contains(point) } ? 8 : 1))
-            }
-        }
-        guard !plain.isEmpty else { return a }
-        weighted.sort { $0.0 < $1.0 }
-        let total = weighted.reduce(0) { $0 + $1.1 }
-        var running: Float = 0, middle: Float = 0
-        for (ev, w) in weighted { running += w; if running >= total / 2 { middle = ev; break } }
+        guard let middle = middle(luminance: luminance, width: width, height: height, faces: faces) else { return a }
+        var plain = luminance.filter { $0 > 1e-6 && $0.isFinite }.map { log2($0 / 0.18) }
         plain.sort()
         func at(_ share: Double) -> Double { Double(plain[min(Int(Double(plain.count - 1) * share), plain.count - 1)]) }
-        a.exposure = (min(max(-Double(middle), -3), 3) * 20).rounded() / 20
+        a.exposure = (min(max(-middle, -3), 3) * 20).rounded() / 20
         let top = at(0.995) + a.exposure, shade = at(0.05) + a.exposure, floor = at(0.005) + a.exposure
         if top > 3 { a.highlights = -min((top - 3) * 35, 100).rounded() }
         if top < 1.5 { a.whites = min((1.5 - top) * 30, 60).rounded() }
@@ -909,6 +919,27 @@ extension PhotoEngine {
         if floor > -5 { a.blacks = -min((floor + 5) * 15, 40).rounded() }
         a.vibrance = 10
         return a
+    }
+
+    /// The middle of the photo's light (stops from mid grey), each face's pixels counting eight
+    /// times; nil for a black photo.
+    static func middle(luminance: [Float], width: Int, height: Int, faces: [CGRect]) -> Double? {
+        var weighted: [(Float, Float)] = []
+        weighted.reserveCapacity(luminance.count)
+        for y in 0..<height {
+            for x in 0..<width {
+                let v = luminance[y * width + x]
+                guard v > 1e-6, v.isFinite else { continue }
+                let point = CGPoint(x: (Double(x) + 0.5) / Double(width), y: 1 - (Double(y) + 0.5) / Double(height))
+                weighted.append((log2(v / 0.18), faces.contains { $0.contains(point) } ? 8 : 1))
+            }
+        }
+        guard !weighted.isEmpty else { return nil }
+        weighted.sort { $0.0 < $1.0 }
+        let total = weighted.reduce(0) { $0 + $1.1 }
+        var running: Float = 0
+        for (ev, w) in weighted { running += w; if running >= total / 2 { return Double(ev) } }
+        return Double(weighted.last!.0)
     }
 
     /// Lightroom's Auto: exposure for a pleasing middle, highlights and whites to keep the
