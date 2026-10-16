@@ -5,6 +5,13 @@ import SwiftUI
 enum Design {
     /// Pluck's own colours, from the app icon: a warm pink running into violet. Used sparingly,
     /// for what's chosen and the main action, so it keeps meaning something.
+    /// Around photos being judged: a neutral grey (coloured or very dark surroundings shift how
+    /// colour and brightness are seen).
+    enum Photo {
+        static let surroundWhite: CGFloat = 0.16
+        static let surround = Color(white: surroundWhite)
+    }
+
     enum Brand {
         static let pink = Color(red: 0.99, green: 0.37, blue: 0.48)
         static let violet = Color(red: 0.56, green: 0.33, blue: 0.96)

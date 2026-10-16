@@ -39,7 +39,7 @@ struct Shortcut: Codable, Hashable {
 
 /// Everything that has a key on the Photo and Edit pages. The keys can be changed in Settings.
 enum ShortcutAction: String, CaseIterable, Identifiable {
-    case photoGrid, photoCull, photoEdit, photoCompare, photoCrop, photoZoom, photoClipping, photoTurnCrop, photoPick, photoReject, photoUnflag
+    case photoGrid, photoCull, photoEdit, photoCompare, photoCrop, photoZoom, photoClipping, photoMaskOverlay, photoTurnCrop, photoPick, photoReject, photoUnflag
     case editSelect, editBlade, editSplit, editDuplicate, editUndo, editRedo, editSnapping, editMarkIn, editMarkOut, editTitle
 
     var id: String { rawValue }
@@ -58,6 +58,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoEdit: String(localized: "Edit one photo")
         case .photoCompare: String(localized: "Compare two photos")
         case .photoClipping: String(localized: "Show clipping")
+        case .photoMaskOverlay: String(localized: "Show the mask in red")
         case .photoCrop: String(localized: "Crop")
         case .photoZoom: String(localized: "Zoom to 100%")
         case .photoTurnCrop: String(localized: "Turn the crop")
@@ -85,6 +86,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoEdit: Shortcut("e")
         case .photoCompare: Shortcut("c", shift: true)
         case .photoClipping: Shortcut("j")
+        case .photoMaskOverlay: Shortcut("o")
         case .photoCrop: Shortcut("c")
         case .photoZoom: Shortcut("z")
         case .photoTurnCrop: Shortcut("x", shift: true)

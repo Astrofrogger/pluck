@@ -24,9 +24,12 @@ struct StudioWindow: View {
         .modifier(ClearToolbarOnHome(home: nav.page == .home))
         .frame(minWidth: 1120, minHeight: 680)
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
-                    .help("Settings (⌘,)")
+            // (Not on the Photo page: the room goes to the photo. ⌘, still opens Settings.)
+            if nav.page != .photo {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
+                        .help("Settings (⌘,)")
+                }
             }
         }
         .modifier(DownloadSheets())

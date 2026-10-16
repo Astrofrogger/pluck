@@ -130,19 +130,140 @@ struct PhotoAdjustments: Codable, Hashable {
     var needsLUT: Bool { process < 2 && (vibrance != 0 || saturation != 0 || !curves.isDefault || !wheels.isDefault || !mixer.isDefault) }
 }
 
-/// A part of the photo found by macOS's own subject detection, and what changes there.
+/// A local adjustment: where (one or more parts, combined) and what changes there. Version 2
+/// develops each mask's settings in the same pass as the photo (scene light, the same sliders as
+/// the whole photo); version 1 used the subject or the rest only, with simpler changes.
 struct PhotoMask: Codable, Hashable, Identifiable {
+    /// The first engine's masks (still read: a mask without parts is this, as one part).
     enum Kind: String, Codable, CaseIterable { case subject, background
         var title: String { self == .subject ? String(localized: "Subject") : String(localized: "Background") }
         var symbol: String { self == .subject ? "person.crop.rectangle" : "photo" }
     }
     var id = UUID()
-    var kind: Kind
+    var kind: Kind = .subject
+    /// Where: the parts in order, each added, taken away or kept only where it overlaps.
+    var parts: [MaskPart] = []
+    /// Everywhere but where the parts are.
+    var invert = false
+    /// How much of its changes (1: as set; 0 none … 2 twice).
+    var amount = 1.0
     var exposure = 0.0      // stops
     var contrast = 0.0      // -100…100
+    var highlights = 0.0
+    var shadows = 0.0
     var saturation = 0.0    // -100…100
-    var warmth = 0.0        // -100…100
+    var warmth = 0.0        // -100…100 (Temperature, in the mask)
+    var tint = 0.0
     var clarity = 0.0       // -100…100
+    var texture = 0.0
+    var dehaze = 0.0
+
+    init(kind: Kind) { self.kind = kind }
+
+    init(part: MaskPart) {
+        parts = [part]
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback }
+        id = value(.id, UUID()); kind = value(.kind, Kind.subject); parts = value(.parts, [MaskPart]()); invert = value(.invert, false)
+        amount = value(.amount, 1)
+        exposure = value(.exposure, 0); contrast = value(.contrast, 0); highlights = value(.highlights, 0); shadows = value(.shadows, 0)
+        saturation = value(.saturation, 0); warmth = value(.warmth, 0); tint = value(.tint, 0)
+        clarity = value(.clarity, 0); texture = value(.texture, 0); dehaze = value(.dehaze, 0)
+    }
+
+    /// The parts, a first-engine mask read as one.
+    var shape: [MaskPart] {
+        parts.isEmpty ? [MaskPart(kind: .subject, invert: kind == .background)] : parts
+    }
+
+    var title: String { shape.first.map { $0.kind.title } ?? kind.title }
+    var symbol: String { shape.first.map { $0.kind.symbol } ?? kind.symbol }
+}
+
+/// One part of a mask's shape.
+struct MaskPart: Codable, Hashable, Identifiable {
+    enum Kind: String, Codable, CaseIterable, Identifiable {
+        case subject, people, object, linear, radial, brush, luminance, colour
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .subject: String(localized: "Subject")
+            case .people: String(localized: "People")
+            case .object: String(localized: "Object")
+            case .linear: String(localized: "Linear Gradient")
+            case .radial: String(localized: "Radial Gradient")
+            case .brush: String(localized: "Brush")
+            case .luminance: String(localized: "Brightness Range")
+            case .colour: String(localized: "Colour Range")
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .subject: "person.crop.rectangle"
+            case .people: "person.2"
+            case .object: "cursorarrow.click.2"
+            case .linear: "rectangle.tophalf.filled"
+            case .radial: "circle.dashed"
+            case .brush: "paintbrush.pointed"
+            case .luminance: "circle.lefthalf.filled"
+            case .colour: "eyedropper"
+            }
+        }
+        /// Worked out from the photo's own colours (in the develop pass), not drawn.
+        var isRange: Bool { self == .luminance || self == .colour }
+        /// Found by macOS (Vision).
+        var isAI: Bool { self == .subject || self == .people || self == .object }
+    }
+    enum Mode: String, Codable, CaseIterable { case add, subtract, intersect }
+
+    var id = UUID()
+    var kind: Kind
+    var mode = Mode.add
+    var invert = false
+    /// Linear: full at `a`, none at `b`. Radial: the centre is `a`. Object: `a` is where it was
+    /// clicked. Shares of the photo, from the top left.
+    var a = CGPoint(x: 0.5, y: 0.25)
+    var b = CGPoint(x: 0.5, y: 0.6)
+    /// Radial: half the width and height, as shares of the photo's.
+    var radius = CGSize(width: 0.25, height: 0.25)
+    /// Radial: how soft the edge is (0 hard … 1 soft).
+    var feather = 0.5
+    var strokes: [BrushStroke] = []
+    /// Brightness range (0 black … 1 white) and its soft edge.
+    var low = 0.0
+    var high = 1.0
+    var smooth = 0.1
+    /// Colour range: the hue (OkLCh degrees) and how wide.
+    var hue = 30.0
+    var hueRange = 40.0
+
+    init(kind: Kind, invert: Bool = false) {
+        self.kind = kind
+        self.invert = invert
+        if kind == .radial { a = CGPoint(x: 0.5, y: 0.5) }
+        if kind == .luminance { low = 0.6 }
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback }
+        id = value(.id, UUID()); kind = value(.kind, Kind.subject); mode = value(.mode, Mode.add); invert = value(.invert, false)
+        a = value(.a, CGPoint(x: 0.5, y: 0.25)); b = value(.b, CGPoint(x: 0.5, y: 0.6)); radius = value(.radius, CGSize(width: 0.25, height: 0.25))
+        feather = value(.feather, 0.5); strokes = value(.strokes, [BrushStroke]())
+        low = value(.low, 0); high = value(.high, 1); smooth = value(.smooth, 0.1); hue = value(.hue, 30); hueRange = value(.hueRange, 40)
+    }
+}
+
+/// A brush stroke: the points (shares of the photo, from the top left), its size (share of the
+/// photo's long side) and softness; or rubbing out.
+struct BrushStroke: Codable, Hashable {
+    var points: [CGPoint]
+    var size = 0.05
+    var softness = 0.5
+    var erase = false
 }
 
 /// A crop, as shares (0…1) of the picture: where its corner is, and how big it is.

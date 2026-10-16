@@ -22,6 +22,22 @@ final class PhotoEditing {
     var compareDrag: CGSize = .zero
     /// Clipped highlights shown red and clipped shadows blue (J).
     var showClipping = false
+    /// A look being pointed at in Looks: shown on the big photo until the pointer leaves.
+    var previewRecord: PhotoRecord?
+    /// The section held to see the photo without it (its eye in the Adjust panel).
+    var peek: AdjustSection?
+    /// The mask the pointer is over in the list (shown in red, like the chosen one).
+    var hoverMask: UUID?
+    /// The mask being shaped (its handles on the photo, shown in red), and which of its parts.
+    var selectedMask: UUID?
+    var selectedPart: UUID?
+    var maskOverlay = true
+    var brushSize = 0.05
+    var brushSoftness = 0.5
+    var brushErase = false
+    /// Finding an object from a click (macOS 27), and what to say about it.
+    var findingObject = false
+    var objectNote: String?
 
     func zoomIn() { zoom = Self.zoomSteps.first { $0 > (zoom ?? 0.2) + 0.001 } ?? Self.zoomSteps.last }
     func zoomOut() {
@@ -699,28 +715,94 @@ struct FilmDialGroup: View {
 // MARK: - Histogram
 
 /// The photo's red, green and blue, as in Lightroom, over the Adjust panel.
+/// The histogram. Drag on it to move the tone slider for that part (blacks, shadows, exposure,
+/// highlights, whites), as in Lightroom; the part under the pointer is named. The triangles in
+/// the corners show the clipping on the photo.
 struct HistogramView: View {
     let bins: [[Float]]
+    /// A drag on a part: the slider's key path and how far (shares of the width).
+    var drag: ((WritableKeyPath<PhotoAdjustments, Double>, Double) -> Void)?
+    @State private var hover: Int?
+    @State private var dragging: Int?
+    @State private var last: CGFloat = 0
+    @State private var editing = PhotoEditing.shared
+
+    /// The parts, left to right: where they end (shares of the width), name, slider.
+    private static let parts: [(Double, LocalizedStringKey, WritableKeyPath<PhotoAdjustments, Double>)] = [
+        (0.12, "Blacks", \.blacks), (0.36, "Shadows", \.shadows), (0.64, "Exposure", \.exposure), (0.88, "Highlights", \.highlights), (1, "Whites", \.whites),
+    ]
+
+    private static func part(_ share: Double) -> Int { parts.firstIndex { share <= $0.0 } ?? parts.count - 1 }
 
     var body: some View {
-        Canvas { context, size in
-            guard bins.count == 3 else { return }
-            let colours: [Color] = [.red, .green, .blue]
-            for (channel, values) in bins.enumerated() {
-                var path = Path()
-                path.move(to: CGPoint(x: 0, y: size.height))
-                for (i, v) in values.enumerated() {
-                    path.addLine(to: CGPoint(x: size.width * CGFloat(i) / CGFloat(values.count - 1), y: size.height * (1 - CGFloat(v))))
+        GeometryReader { geo in
+            ZStack(alignment: .topLeading) {
+                Canvas { context, size in
+                    if let shade = dragging ?? hover {
+                        let from = shade == 0 ? 0 : Self.parts[shade - 1].0, to = Self.parts[shade].0
+                        context.fill(Path(CGRect(x: size.width * from, y: 0, width: size.width * (to - from), height: size.height)), with: .color(.white.opacity(0.07)))
+                    }
+                    guard bins.count == 3 else { return }
+                    let colours: [Color] = [.red, .green, .blue]
+                    for (channel, values) in bins.enumerated() {
+                        var path = Path()
+                        path.move(to: CGPoint(x: 0, y: size.height))
+                        for (i, v) in values.enumerated() {
+                            path.addLine(to: CGPoint(x: size.width * CGFloat(i) / CGFloat(values.count - 1), y: size.height * (1 - CGFloat(v))))
+                        }
+                        path.addLine(to: CGPoint(x: size.width, y: size.height))
+                        path.closeSubpath()
+                        context.fill(path, with: .color(colours[channel].opacity(0.45)))
+                    }
                 }
-                path.addLine(to: CGPoint(x: size.width, y: size.height))
-                path.closeSubpath()
-                context.fill(path, with: .color(colours[channel].opacity(0.45)))
+                .blendMode(.plusLighter)
+                if let shown = dragging ?? hover {
+                    Text(Self.parts[shown].1).font(.caption2.weight(.medium)).foregroundStyle(.white.opacity(0.8)).padding(5)
+                }
+                HStack {
+                    clipTriangle(left: true)
+                    Spacer()
+                    clipTriangle(left: false)
+                }
+                .padding(4)
             }
+            .contentShape(.rect)
+            .onContinuousHover { phase in
+                if case .active(let at) = phase { hover = Self.part(at.x / max(geo.size.width, 1)) } else { hover = nil }
+            }
+            .gesture(DragGesture(minimumDistance: 1)
+                .onChanged { value in
+                    guard let drag else { return }
+                    if dragging == nil { dragging = Self.part(value.startLocation.x / max(geo.size.width, 1)); last = value.startLocation.x }
+                    let moved = (value.location.x - last) / max(geo.size.width, 1)
+                    last = value.location.x
+                    if let part = dragging { drag(Self.parts[part].2, moved) }
+                }
+                .onEnded { _ in dragging = nil })
         }
-        .blendMode(.plusLighter)
         .frame(height: 64)
         .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(.black.opacity(0.35)))
         .clipShape(RoundedRectangle(cornerRadius: Design.Radius.small))
         .padding(.horizontal, 8)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("Histogram"))
+        .help("Drag to change that part of the tones")
+    }
+
+    /// Clipping in the shadows (left) or highlights (right): lit when the photo has some; click
+    /// to show it on the photo.
+    private func clipTriangle(left: Bool) -> some View {
+        let values = bins.count == 3 ? bins.map { left ? $0.first ?? 0 : $0.last ?? 0 } : []
+        let clipped = values.contains { $0 > 0.02 }
+        return Button { editing.showClipping.toggle() } label: {
+            Image(systemName: left ? "arrowtriangle.left.fill" : "arrowtriangle.right.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(clipped ? (left ? Color.blue : Color.red) : .white.opacity(0.35))
+                .padding(2)
+                .background(editing.showClipping ? Color.white.opacity(0.2) : .clear, in: .rect(cornerRadius: 3))
+        }
+        .buttonStyle(.plain)
+        .help("Show clipping (J)")
+        .accessibilityLabel(Text(left ? "Shadow clipping" : "Highlight clipping"))
     }
 }

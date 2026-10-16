@@ -28,7 +28,7 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
         framebufferOnly = false
         isPaused = true
         enableSetNeedsDisplay = true
-        clearColor = MTLClearColor(red: 0, green: 0, blue: 0, alpha: 1)
+        clearColor = MTLClearColor(red: 0.022, green: 0.022, blue: 0.022, alpha: 1)
         if let layer = layer as? CAMetalLayer {
             layer.wantsExtendedDynamicRangeContent = true
             layer.colorspace = space
@@ -56,7 +56,9 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
         let size = drawableSize
         let scale = size.width / max(bounds.width, 1)
         let screen = CGRect(origin: .zero, size: size)
-        var picture = CIImage(color: .black).cropped(to: screen)
+        let grey = Design.Photo.surroundWhite
+        var picture = CIImage(color: CIColor(red: grey, green: grey, blue: grey, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) ?? .black)
+            .cropped(to: screen)
         if let image, image.extent.width > 0, image.extent.height > 0, !image.extent.isInfinite, target.width > 0 {
             let e = image.extent
             // The frame in drawable pixels, from the bottom left.

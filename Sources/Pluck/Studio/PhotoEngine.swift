@@ -50,8 +50,10 @@ enum PhotoEngine {
     /// local-tone layers are then worked out once per white balance and reused while the other
     /// sliders move. Exposure needs no new layers: it moves the log brightness, and the layers
     /// with it.
+    /// `masks`: the masks' shapes (one per channel, see PhotoMasks.layer) for version 2;
+    /// `overlay`: the mask shown in red.
     static func develop(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, asShotKelvin: Double = 5500, scene: Bool = false,
-                        cacheKey: String? = nil) -> CIImage {
+                        cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil) -> CIImage {
         let extent = image.extent
         let modern = a.process >= 2
         // 1. Exposure and white balance: one matrix in linear light.
@@ -61,7 +63,8 @@ enum PhotoEngine {
         // 2–3. Local tone and the profile, in one pass, from two base layers (and the haze, when
         // it's taken out).
         let long = max(extent.width, extent.height)
-        let hazy = modern && a.dehaze != 0
+        let local = modern && masks != nil ? Array(a.masks.prefix(PhotoMasks.limit)) : []
+        let hazy = modern && (a.dehaze != 0 || local.contains { $0.dehaze != 0 })
         let layers: Layers
         var shift: Float = 0
         func make(_ source: CIImage) -> Layers {
@@ -75,44 +78,92 @@ enum PhotoEngine {
         } else {
             layers = make(exposed)
         }
-        var p = Params()
-        p.shadows = Float(a.shadows / 100)
-        p.highlights = Float(a.highlights / 100)
-        p.whites = Float(a.whites / 100)
-        p.blacks = Float(a.blacks / 100)
-        p.contrast = Float(a.contrast / 100)
-        p.clarity = Float(a.clarity / 100)
-        p.texture = Float(a.texture / 100)
-        p.dehaze = Float(a.dehaze / 100)
         let profile = a.profile ?? (isRaw ? .neutral : .asShot)
         let shown = profile == .asShot && isRaw ? .standard : profile
-        p.profile = Int32(PhotoEngine.Profile.allCases.firstIndex(of: shown) ?? 0)
-        p.isRaw = isRaw ? 1 : 0
-        p.scene = scene ? 1 : 0
-        p.shift = shift
-        p.process = Int32(min(a.process, 2))
-        if modern {
-            tone(a, profile: shown, into: &p)
-            p.curves = a.curves.isDefault ? 0 : 1
-            if let airlight = layers.haze?.airlight {
-                // The haze's colour, at this exposure.
-                let k = Float(cacheKey == nil ? 1 : gain)
-                p.hazeR = airlight.x * k; p.hazeG = airlight.y * k; p.hazeB = airlight.z * k
+        func params(_ a: PhotoAdjustments, shift: Float) -> Params {
+            var p = Params()
+            p.shadows = Float(a.shadows / 100)
+            p.highlights = Float(a.highlights / 100)
+            p.whites = Float(a.whites / 100)
+            p.blacks = Float(a.blacks / 100)
+            p.contrast = Float(a.contrast / 100)
+            p.clarity = Float(a.clarity / 100)
+            p.texture = Float(a.texture / 100)
+            p.dehaze = Float(a.dehaze / 100)
+            p.profile = Int32(PhotoEngine.Profile.allCases.firstIndex(of: shown) ?? 0)
+            p.isRaw = isRaw ? 1 : 0
+            p.scene = scene ? 1 : 0
+            p.shift = shift
+            p.process = Int32(min(a.process, 2))
+            if modern {
+                tone(a, profile: shown, into: &p)
+                p.curves = a.curves.isDefault ? 0 : 1
+                if let airlight = layers.haze?.airlight {
+                    // The haze's colour, at this exposure.
+                    let k = Float(cacheKey == nil ? 1 : gain)
+                    p.hazeR = airlight.x * k; p.hazeG = airlight.y * k; p.hazeB = airlight.z * k
+                }
             }
+            return p
         }
+        var p = params(a, shift: shift)
+        p.masks = Int32(local.count)
+        p.overlay = Float(overlay.map { $0 < local.count ? $0 : -1 } ?? -1)
+        var all = [p], grades = [Grade(a)], infos: [MaskInfo] = []
+        // Each mask: the photo's settings with the mask's changes, and its own white balance
+        // and exposure as a matrix on top of the photo's.
+        for mask in local {
+            var m = a
+            let k = mask.amount
+            func add(_ path: WritableKeyPath<PhotoAdjustments, Double>, _ amount: Double) { m[keyPath: path] = min(max(m[keyPath: path] + amount * k, -100), 100) }
+            add(\.contrast, mask.contrast); add(\.highlights, mask.highlights); add(\.shadows, mask.shadows)
+            add(\.saturation, mask.saturation); add(\.clarity, mask.clarity); add(\.texture, mask.texture); add(\.dehaze, mask.dehaze)
+            add(\.temperature, mask.warmth); add(\.tint, mask.tint)
+            let change = multiply(whiteBalance(m, kelvin: asShotKelvin), inverse(balance)).map { $0 * pow(2, mask.exposure * k) }
+            var own = params(m, shift: shift + Float(mask.exposure * k))
+            // The haze's colour as the mask sees it (its exposure and white balance too).
+            let h = [Double(own.hazeR), Double(own.hazeG), Double(own.hazeB)]
+            own.hazeR = Float(change[0] * h[0] + change[1] * h[1] + change[2] * h[2])
+            own.hazeG = Float(change[3] * h[0] + change[4] * h[1] + change[5] * h[2])
+            own.hazeB = Float(change[6] * h[0] + change[7] * h[1] + change[8] * h[2])
+            all.append(own)
+            grades.append(Grade(m))
+            var info = MaskInfo()
+            info.m0 = SIMD4(Float(change[0]), Float(change[3]), Float(change[6]), 0)
+            info.m1 = SIMD4(Float(change[1]), Float(change[4]), Float(change[7]), 0)
+            info.m2 = SIMD4(Float(change[2]), Float(change[5]), Float(change[8]), 0)
+            if let range = mask.shape.first(where: { $0.kind == .luminance }) {
+                info.lum = SIMD4(Float(range.low), Float(range.high), Float(max(range.smooth, 0.01)), 1)
+            }
+            if let range = mask.shape.first(where: { $0.kind == .colour }) {
+                info.col = SIMD4(Float(range.hue), Float(range.hueRange), 1, 0)
+            }
+            info.col.w = mask.invert ? 1 : 0
+            infos.append(info)
+        }
+        if infos.isEmpty { infos = [MaskInfo()] }
         // The layers go in small and are read smoothly where each pixel falls (scaling them up
         // to the photo's size first would cost more than all the rest).
-        let hazeLayer = layers.haze?.through ?? CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
-        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer]
-        let data = withUnsafeBytes(of: p) { Data($0) }
-        let grade = withUnsafeBytes(of: Grade(a)) { Data($0) }
+        let dot = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
+        let hazeLayer = layers.haze?.through ?? dot
+        let maskLayer = local.isEmpty ? dot : masks ?? dot
+        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer, maskLayer]
+        let data = all.withUnsafeBytes { Data($0) }
+        let grade = grades.withUnsafeBytes { Data($0) }
+        let info = infos.withUnsafeBytes { Data($0) }
         let curves = modern && !a.curves.isDefault ? curveTable(a.curves) : Data(count: 16)
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
-            "params": data, "grade": grade, "curves": curves,
-            "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, extent]
+            "params": data, "grade": grade, "curves": curves, "masks": info,
+            "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, extent]
                 .flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
         ]) else { return exposed }
         return developed
+    }
+
+    /// A mask's limits besides its shape, for the GPU (see MaskInfo in the shaders).
+    struct MaskInfo {
+        var m0 = SIMD4<Float>(1, 0, 0, 0), m1 = SIMD4<Float>(0, 1, 0, 0), m2 = SIMD4<Float>(0, 0, 1, 0)
+        var lum = SIMD4<Float>(), col = SIMD4<Float>()
     }
 
     /// What's worked out small from the photo once per white balance: the two local-tone layers,
@@ -143,8 +194,12 @@ enum PhotoEngine {
     /// around each place (relative to that colour), smoothed along the photo's edges.
     private static func haze(_ image: CIImage, long: Double) -> (through: CIImage, airlight: SIMD3<Float>) {
         let s = min(640 / long, 1)
-        let small = (s < 0.5 ? image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
-                             : image.transformed(by: CGAffineTransform(scaleX: s, y: s))).cropped(to: image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral)
+        // The edges carried on before it's made small, so the edge pixels aren't mixed with
+        // nothing (which reads as haze there).
+        let frame = image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral
+        let carried = image.clampedToExtent().cropped(to: image.extent.insetBy(dx: -16 / s, dy: -16 / s))
+        let small = (s < 0.5 ? carried.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
+                             : carried.transformed(by: CGAffineTransform(scaleX: s, y: s))).cropped(to: frame)
         let extent = small.extent
         // The haze's colour: the average of the haziest 0.1% (where the darkest channel is
         // brightest), from a softened copy so single bright lights don't count.
@@ -178,8 +233,12 @@ enum PhotoEngine {
             "inputRVector": CIVector(x: -0.95, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: -0.95, y: 0, z: 0, w: 0),
             "inputBVector": CIVector(x: -0.95, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 1, y: 1, z: 1, w: 0),
         ])
-        let guideImage = small.applyingFilter("CIMaximumComponent")
-        let refined = through.applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": guideImage, "inputRadius": 10, "inputEpsilon": 0.001])
+        // Both carried on a little past the edges, or the filter reads nothing there (not
+        // endlessly: the passes before it can't be asked for an endless picture).
+        let margin = extent.insetBy(dx: -24, dy: -24)
+        let guideImage = small.applyingFilter("CIMaximumComponent").clampedToExtent().cropped(to: margin)
+        let refined = through.clampedToExtent().cropped(to: margin)
+            .applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": guideImage, "inputRadius": 10, "inputEpsilon": 0.001])
             .cropped(to: extent)
         return (refined, airlight)
     }
@@ -188,10 +247,12 @@ enum PhotoEngine {
     /// base layer is a·L + b, which follows edges instead of blurring over them.
     private static func guide(_ image: CIImage, scale: Double, radius: Double, eps: Float) -> CIImage {
         let s = min(scale, 1)
-        // Properly filtered: a sampled one would be noisy on a full-size photo.
-        let small = s < 0.5 ? image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
-                            : image.transformed(by: CGAffineTransform(scaleX: s, y: s))
-        let extent = small.extent.integral
+        // Properly filtered: a sampled one would be noisy on a full-size photo. The edges are
+        // carried on first, so the edge pixels aren't mixed with nothing.
+        let extent = image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral
+        let carried = image.clampedToExtent().cropped(to: image.extent.insetBy(dx: -16 / s, dy: -16 / s))
+        let small = (s < 0.5 ? carried.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
+                             : carried.transformed(by: CGAffineTransform(scaleX: s, y: s))).cropped(to: extent)
         guard let prepared = try? apply(GuidePrep.self, extent: extent, inputs: [small.clampedToExtent()], arguments: [:]) else { return small }
         let means = prepared.clampedToExtent().applyingFilter("CIBoxBlur", parameters: ["inputRadius": radius]).cropped(to: extent)
         let epsData = withUnsafeBytes(of: eps) { Data($0) }
@@ -221,7 +282,7 @@ enum PhotoEngine {
     private static let bradford = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296]
     private static let cat16 = [0.401288, 0.650173, -0.051461, -0.250268, 1.204414, 0.045854, -0.002079, 0.048952, 0.953127]
 
-    private static func inverse(_ m: [Double]) -> [Double] {
+    static func inverse(_ m: [Double]) -> [Double] {
         let a = m[0], b = m[1], c = m[2], d = m[3], e = m[4], f = m[5], g = m[6], h = m[7], i = m[8]
         let det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
         return [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det,
@@ -255,7 +316,7 @@ enum PhotoEngine {
         return [m[0] * X + m[1] * Y + m[2] * Z, m[3] * X + m[4] * Y + m[5] * Z, m[6] * X + m[7] * Y + m[8] * Z]
     }
 
-    private static func multiply(_ a: [Double], _ b: [Double]) -> [Double] {
+    static func multiply(_ a: [Double], _ b: [Double]) -> [Double] {
         var r = [Double](repeating: 0, count: 9)
         for i in 0..<3 { for j in 0..<3 { r[i * 3 + j] = (0..<3).reduce(0) { $0 + a[i * 3 + $1] * b[$1 * 3 + j] } } }
         return r
@@ -269,11 +330,12 @@ enum PhotoEngine {
         var profile: Int32 = 0, isRaw: Int32 = 0, scene: Int32 = 0
         /// Stops of exposure the layers were made without.
         var shift: Float = 0
-        var process: Int32 = 1, curves: Int32 = 0, mono: Int32 = 0, pad0: Int32 = 0
+        /// `masks`: how many masks follow this in the list; `overlay`: the one shown red (-1: none).
+        var process: Int32 = 1, curves: Int32 = 0, mono: Int32 = 0, masks: Int32 = 0
         var hazeR: Float = 0, hazeG: Float = 0, hazeB: Float = 0, sat: Float = 1
         var toneLo: Float = 0, toneHi: Float = 1, toneGrey: Float = 0.5, toneY: Float = 0.5
         var toneSlope: Float = 1, tonePt: Float = 3, tonePb: Float = 3, toneFloor: Float = 0
-        var toneCeiling: Float = 1, pad1: Float = 0, pad2: Float = 0, pad3: Float = 0
+        var toneCeiling: Float = 1, overlay: Float = -1, pad2: Float = 0, pad3: Float = 0
     }
 
     /// The colour wheels and the mixer, for the GPU.
@@ -364,11 +426,11 @@ enum PhotoEngine {
         float contrast, clarity, texture, dehaze;
         int profile, isRaw, scene;
         float shift;
-        int process, curves, mono, pad0;
+        int process, curves, mono, masks;
         float hazeR, hazeG, hazeB, sat;
         float toneLo, toneHi, toneGrey, toneY;
         float toneSlope, tonePt, tonePb, toneFloor;
-        float toneCeiling, pad1, pad2, pad3;
+        float toneCeiling, overlay, pad2, pad3;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -575,18 +637,75 @@ enum PhotoEngine {
         return clamp(outc, 0.0, 1.0);
     }
 
+    // A mask's place in the mask layer and what limits it besides its shape.
+    struct MaskInfo {
+        float4 m0, m1, m2;      // its white balance and exposure, as matrix columns
+        float4 lum;             // brightness range: low, high, smooth, on
+        float4 col;             // colour range: hue, width, on, invert the whole mask
+    };
+
+    // The local tone (shadows, highlights, clarity, texture) as the new log brightness.
+    inline float tonedLog(float L, float2 al, float2 as, constant Params &p) {
+        // b moves with the exposure the layers were made without: (1 − a)·shift.
+        float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
+        float baseS = as.x * L + as.y + (1.0 - as.x) * p.shift;
+        float detail = L - baseS, mid = baseS - baseL;
+        // Local tone, on the large base, in stops from mid grey. Highlights compress (or stretch)
+        // what's above mid grey, shadows what's below: the curve always keeps rising, so nothing
+        // turns over into halos or grey skies, however far it goes.
+        float t = baseL - log2(0.18);
+        float kh = p.highlights < 0 ? 1.0 + p.highlights * 0.62 : 1.0 + p.highlights * 0.45;
+        float ks = p.shadows > 0 ? 1.0 - p.shadows * 0.6 : 1.0 - p.shadows * 0.5;
+        float above = t - 0.6, below = t + 0.4;
+        float softAbove = above > 8.0 ? above : log(1.0 + exp(above));
+        float softBelow = below < -8.0 ? below : -log(1.0 + exp(-below));
+        float base = baseL + (kh - 1.0) * softAbove + (ks - 1.0) * softBelow;
+        float midWeight = 1.0 - abs(smoothstep(-6.0, 3.0, base - log2(0.18)) * 2.0 - 1.0);
+        float clarity = 1.0 + p.clarity * (p.clarity > 0 ? 0.9 : 0.85) * (0.35 + 0.65 * midWeight);
+        return base + mid * (clarity + (p.process < 2 ? p.dehaze * 0.6 : 0.0)) + detail * (1.0 + p.texture * 0.9);
+    }
+
+    // Version 2, one pixel: dehaze, local tone, then the rest (finish). `t`: how much light gets
+    // through the haze there.
+    inline float3 developModern(float3 c, float2 al, float2 as, float t, constant Params &p, constant Grade &g, constant float4 *curve) {
+        float L = log2(max(luma(c), 1e-5));
+        // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
+        // through (the dark channel prior); the layers then work on what's left.
+        if (p.dehaze != 0) {
+            float3 A = float3(p.hazeR, p.hazeG, p.hazeB);
+            if (p.dehaze > 0) {
+                float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8);
+                c = (c - A) / through + A;
+            } else {
+                // More haze where there's already some (far away), less up close.
+                float through = 1.0 + 0.22 * p.dehaze * (1.0 - 0.5 * t);
+                c = c * through + A * (1.0 - through);
+            }
+            float Ld = log2(max(luma(c), 1e-5));
+            // The layers' base follows the change, so it isn't undone as detail.
+            al.y += (Ld - L) * (1.0 - al.x);
+            as.y += (Ld - L) * (1.0 - as.x);
+            L = Ld;
+        }
+        c *= exp2(tonedLog(L, al, as, p) - L);
+        return finish(c, p, g, curve);
+    }
+
     kernel void develop(texture2d<float, access::read> image [[texture(0)]],
                         texture2d<float, access::sample> large [[texture(1)]],
                         texture2d<float, access::sample> small [[texture(2)]],
                         texture2d<float, access::sample> haze [[texture(3)]],
-                        texture2d<float, access::write> dst [[texture(4)]],
-                        constant Params &p [[buffer(0)]],
+                        texture2d<float, access::sample> masks [[texture(4)]],
+                        texture2d<float, access::write> dst [[texture(5)]],
+                        constant Params *ps [[buffer(0)]],
                         constant int2 *offsets [[buffer(1)]],
                         constant float4 *map [[buffer(2)]],
-                        constant Grade &g [[buffer(3)]],
+                        constant Grade *gs [[buffer(3)]],
                         constant float4 *curve [[buffer(4)]],
+                        constant MaskInfo *info [[buffer(5)]],
                         uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        constant Params &p = ps[0];
         constexpr sampler smooth(coord::normalized, address::clamp_to_edge, filter::linear);
         float3 c = image.read(at(gid, offsets[0], uint2(image.get_width(), image.get_height()))).rgb;
         // Version 1 had no colours past sRGB; version 2 keeps them until the gamut compression.
@@ -599,48 +718,47 @@ enum PhotoEngine {
         float2 t2 = float2(map[2].x * pos.x + map[2].y, map[2].z * pos.y + map[2].w);
         float2 uv1 = t1 / float2(large.get_width(), large.get_height()), uv2 = t2 / float2(small.get_width(), small.get_height());
         float2 al = large.sample(smooth, uv1).rg, as = small.sample(smooth, uv2).rg;
-        // Dehaze (version 2): the haze taken out (or added) in scene light, from how much of the
-        // light got through (the dark channel prior); the layers then work on what's left.
-        if (p.process >= 2 && p.dehaze != 0) {
+        if (p.process >= 2) {
             float2 t3 = float2(map[3].x * pos.x + map[3].y, map[3].z * pos.y + map[3].w);
-            float t = haze.sample(smooth, t3 / float2(haze.get_width(), haze.get_height())).r;
-            float3 A = float3(p.hazeR, p.hazeG, p.hazeB);
-            if (p.dehaze > 0) {
-                float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8);
-                c = (c - A) / through + A;
-            } else {
-                // More haze where there's already some (far away), less up close.
-                float through = 1.0 + 0.22 * p.dehaze * (1.0 - 0.5 * t);
-                c = c * through + A * (1.0 - through);
+            float through = haze.sample(smooth, t3 / float2(haze.get_width(), haze.get_height())).r;
+            float3 out = developModern(c, al, as, through, p, gs[0], curve);
+            // The masks: each one's own settings developed here too, mixed in where it is.
+            int count = p.masks;
+            if (count > 0) {
+                float2 t4 = float2(map[4].x * pos.x + map[4].y, map[4].z * pos.y + map[4].w);
+                float4 shape = masks.sample(smooth, t4 / float2(masks.get_width(), masks.get_height()));
+                // The ranges look at the photo as developed (its brightness and colour).
+                float3 seen = clamp(out, 0.0, 1.0);
+                float bright = pow(max(luma(seen), 0.0), 1.0 / 2.2);
+                float3 o = oklab(seen);
+                float chroma = length(o.yz), hue = atan2(o.z, o.y) * 57.29578;
+                if (hue < 0) hue += 360.0;
+                float marked = 0;
+                for (int k = 0; k < count && k < 4; k++) {
+                    constant MaskInfo &m = info[k];
+                    float w = shape[k];
+                    if (m.lum.w > 0) {
+                        w *= smoothstep(m.lum.x - m.lum.z, m.lum.x + 0.001, bright) * (1.0 - smoothstep(m.lum.y - 0.001, m.lum.y + m.lum.z, bright));
+                    }
+                    if (m.col.z > 0) {
+                        float d = abs(hue - m.col.x);
+                        if (d > 180) d = 360 - d;
+                        w *= (1.0 - smoothstep(m.col.y * 0.5, m.col.y * 0.5 + 18.0, d)) * smoothstep(0.015, 0.05, chroma);
+                    }
+                    if (m.col.w > 0) w = 1.0 - w;
+                    if (k == int(p.overlay)) marked = w;
+                    if (w < 0.002) continue;
+                    float3 ck = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz) * c;
+                    out = mix(out, developModern(ck, al, as, through, ps[k + 1], gs[k + 1], curve), w);
+                }
+                // The mask being edited, shown in red.
+                if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
             }
-            float Yd = max(luma(c), 1e-5);
-            // The layers' base follows the change, so it isn't undone as detail.
-            float moved = log2(Yd) - L;
-            al.y += moved * (1.0 - al.x);
-            as.y += moved * (1.0 - as.x);
-            L = log2(Yd);
+            dst.write(float4(out, 1.0), gid);
+            return;
         }
-        // b moves with the exposure the layers were made without: (1 − a)·shift.
-        float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
-        float baseS = as.x * L + as.y + (1.0 - as.x) * p.shift;
-        float detail = L - baseS, mid = baseS - baseL;
-
-        // Local tone, on the large base, in stops from mid grey. Highlights compress (or stretch)
-        // what's above mid grey, shadows what's below: the curve always keeps rising, so nothing
-        // turns over into halos or grey skies, however far it goes.
-        float t = baseL - log2(0.18);
-        float kh = p.highlights < 0 ? 1.0 + p.highlights * 0.62 : 1.0 + p.highlights * 0.45;
-        float ks = p.shadows > 0 ? 1.0 - p.shadows * 0.6 : 1.0 - p.shadows * 0.5;
-        float above = t - 0.6, below = t + 0.4;
-        float softAbove = above > 8.0 ? above : log(1.0 + exp(above));
-        float softBelow = below < -8.0 ? below : -log(1.0 + exp(-below));
-        float base = baseL + (kh - 1.0) * softAbove + (ks - 1.0) * softBelow;
-        // Dehaze: deeper local contrast and blacks where it's bright and flat.
-        float midWeight = 1.0 - abs(smoothstep(-6.0, 3.0, base - log2(0.18)) * 2.0 - 1.0);
-        float clarity = 1.0 + p.clarity * (p.clarity > 0 ? 0.9 : 0.85) * (0.35 + 0.65 * midWeight);
-        float Lp = base + mid * (clarity + (p.process < 2 ? p.dehaze * 0.6 : 0.0)) + detail * (1.0 + p.texture * 0.9);
+        float Lp = tonedLog(L, al, as, p);
         c *= exp2(Lp - L);
-        if (p.process >= 2) { dst.write(float4(finish(c, p, g, curve), 1.0), gid); return; }
         if (p.dehaze != 0) {
             float haze = 0.03 * p.dehaze;
             c = max((c - haze * 0.18) / (1.0 - haze), 0.0);
@@ -832,19 +950,19 @@ final class DevelopPass: CIImageProcessorKernel {
     /// The photo where the output is; the two small layers whole.
     override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect {
         // (As numbers: Core Image moves rectangles it finds among the arguments.)
-        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 16 else { return outputRect }
+        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 20 else { return outputRect }
         let i = Int(input - 1) * 4
         return CGRect(x: sizes[i], y: sizes[i + 1], width: sizes[i + 2], height: sizes[i + 3])
     }
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
         // Where each pixel falls in the two layers' textures: texel = (sx·x + bx, sy·y + by) from
         // the photo's coordinates (y up) to the textures' (y down, from the piece handed over).
-        guard let inputs, inputs.count == 4, let sizes = arguments?["layers"] as? [Double], sizes.count == 16 else {
+        guard let inputs, inputs.count == 5, let sizes = arguments?["layers"] as? [Double], sizes.count == 20 else {
             throw NSError(domain: "Pluck", code: 11)
         }
-        let photo = CGRect(x: sizes[12], y: sizes[13], width: sizes[14], height: sizes[15])
+        let photo = CGRect(x: sizes[16], y: sizes[17], width: sizes[18], height: sizes[19])
         var map = [SIMD4<Float>(Float(output.region.minX), Float(output.region.maxY), 0, 0)]
-        for layer in 0..<3 {
+        for layer in 0..<4 {
             let extent = CGRect(x: sizes[layer * 4], y: sizes[layer * 4 + 1], width: sizes[layer * 4 + 2], height: sizes[layer * 4 + 3])
             let region = inputs[layer + 1].region
             let sx = extent.width / photo.width, sy = extent.height / photo.height
@@ -854,7 +972,7 @@ final class DevelopPass: CIImageProcessorKernel {
         let bytes = map.withUnsafeBytes { Data($0) }
         try PhotoEngine.run("develop", inputs: inputs, output: output,
                             bytes: [(arguments?["params"] as? Data) ?? Data(), bytes, (arguments?["grade"] as? Data) ?? Data(),
-                                    (arguments?["curves"] as? Data) ?? Data(count: 16)],
+                                    (arguments?["curves"] as? Data) ?? Data(count: 16), (arguments?["masks"] as? Data) ?? Data(count: 96)],
                             offsetsIndex: 1)
     }
 }

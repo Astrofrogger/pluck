@@ -13,15 +13,17 @@ struct PhotoInspector: View {
     @State private var catalog = PhotoCatalog.shared
     @State private var editing = PhotoEditing.shared
     @State private var naming = false
+    @State private var showingLooks = false
     @State private var presetName = ""
 
     enum Tab: String, CaseIterable, Identifiable {
-        case info, adjust, film, export
+        case info, adjust, masks, film, export
         var id: String { rawValue }
         var symbol: String {
             switch self {
             case .info: "info.circle"
             case .adjust: "slider.horizontal.3"
+            case .masks: "circle.dashed.inset.filled"
             case .film: "film"
             case .export: "square.and.arrow.up"
             }
@@ -30,6 +32,7 @@ struct PhotoInspector: View {
             switch self {
             case .info: "Info"
             case .adjust: "Adjust"
+            case .masks: "Masks"
             case .film: "Film"
             case .export: "Export"
             }
@@ -37,6 +40,17 @@ struct PhotoInspector: View {
     }
 
     static let labels = ["red", "orange", "yellow", "green", "blue", "purple"]
+
+    static func labelTitle(_ name: String) -> String {
+        switch name {
+        case "red": String(localized: "Red")
+        case "orange": String(localized: "Orange")
+        case "yellow": String(localized: "Yellow")
+        case "green": String(localized: "Green")
+        case "blue": String(localized: "Blue")
+        default: String(localized: "Purple")
+        }
+    }
 
     static func labelColor(_ name: String) -> Color {
         switch name {
@@ -66,6 +80,8 @@ struct PhotoInspector: View {
                     }
                     .buttonStyle(.plain)
                     .help(Text(item.title))
+                    .accessibilityLabel(Text(item.title))
+                    .accessibilityAddTraits(tab == item ? .isSelected : [])
                 }
             }
             .padding(6)
@@ -91,6 +107,7 @@ struct PhotoInspector: View {
                         switch tab {
                         case .info: info
                         case .adjust: adjust
+                        case .masks: masks
                         case .film: PhotoFilmPanel(paths: paths, record: record)
                         case .export: PhotoExportPanel(paths: paths)
                         }
@@ -101,6 +118,7 @@ struct PhotoInspector: View {
             }
         }
         .background(.background.secondary)
+        .onChange(of: tab) { _, now in if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil } }
     }
 
     private func change(_ body: @escaping (inout PhotoRecord) -> Void) {
@@ -249,16 +267,25 @@ struct PhotoInspector: View {
     private var adjust: some View {
         let raw = shown.map(PhotoRender.isRaw) ?? false
         return VStack(alignment: .leading, spacing: 10) {
-            if !editing.histogram.isEmpty { HistogramView(bins: editing.histogram) }
+            if !editing.histogram.isEmpty {
+                HistogramView(bins: editing.histogram) { path, share in
+                    // Exposure moves in stops (the width is 4), the rest in their own range.
+                    let scale = path == \PhotoAdjustments.exposure ? 4.0 : 200.0
+                    change { $0.adjust[keyPath: path] = min(max($0.adjust[keyPath: path] + share * scale, path == \PhotoAdjustments.exposure ? -5 : -100),
+                                                         path == \PhotoAdjustments.exposure ? 5 : 100) }
+                }
+            }
             HStack(spacing: 8) {
                 Picker("Profile", selection: Binding(get: { record.adjust.profile ?? (raw ? .neutral : .asShot) },
                                                      set: { value in change { $0.adjust.profile = value } })) {
                     ForEach(PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : true }) { Text($0.title).tag($0) }
                 }
+                .labelsHidden()
                 .fixedSize()
                 .help("The starting point: how the light becomes a picture, the same for every camera")
                 Spacer(minLength: 0)
-                Button("Auto") { autoTone() }
+                Button("Auto", systemImage: "wand.and.stars") { autoTone() }
+                    .fixedSize()
                     .help("Exposure, highlights, shadows, whites and blacks for this photo")
                 presetsMenu
             }
@@ -275,77 +302,60 @@ struct PhotoInspector: View {
                 .controlSize(.small)
                 .padding(.horizontal, 8)
             }
-            FoldSection(title: "Light", key: "light") {
-                slider("Exposure", \.exposure, -5...5, format: "%+.2f")
+            AdjustFold(title: "Light", section: .light, adjust: record.adjust, open: true, reset: { resetSection(.light) }) {
+                slider("Exposure", \.exposure, -5...5, format: "%+.2f", clipping: true)
                 slider("Contrast", \.contrast, -100...100)
-                slider("Highlights", \.highlights, -100...100)
-                slider("Shadows", \.shadows, -100...100)
-                slider("Whites", \.whites, -100...100)
-                slider("Blacks", \.blacks, -100...100)
+                slider("Highlights", \.highlights, -100...100, clipping: true)
+                slider("Shadows", \.shadows, -100...100, clipping: true)
+                slider("Whites", \.whites, -100...100, clipping: true)
+                slider("Blacks", \.blacks, -100...100, clipping: true)
             }
-            FoldSection(title: "Colour", key: "colour") {
+            AdjustFold(title: "Colour", section: .colour, adjust: record.adjust, open: true, reset: { resetSection(.colour) }) {
                 if raw, let path = shown {
                     let kelvin = PhotoEngine.kelvin(record.adjust, asShot: PhotoRender.asShotKelvin(path))
-                    slider("Temperature", \.temperature, -100...100, label: "\(Int((kelvin / 50).rounded() * 50)) K")
+                    slider("Temperature", \.temperature, -100...100, label: "\(Int((kelvin / 50).rounded() * 50)) K", track: .temperature)
                 } else {
-                    slider("Temperature", \.temperature, -100...100)
+                    slider("Temperature", \.temperature, -100...100, track: .temperature)
                 }
-                slider("Tint", \.tint, -100...100)
-                slider("Vibrance", \.vibrance, -100...100)
-                slider("Saturation", \.saturation, -100...100)
+                slider("Tint", \.tint, -100...100, track: .tint)
+                slider("Vibrance", \.vibrance, -100...100, track: .saturation)
+                slider("Saturation", \.saturation, -100...100, track: .saturation)
             }
-            FoldSection(title: "Presence", key: "presence") {
+            AdjustFold(title: "Presence", section: .presence, adjust: record.adjust, reset: { resetSection(.presence) }) {
                 slider("Texture", \.texture, -100...100)
                 slider("Clarity", \.clarity, -100...100)
                 slider("Dehaze", \.dehaze, -100...100)
                 slider("Vignette", \.vignette, -100...100)
             }
-            FoldSection(title: "Masks", key: "masks", open: false) {
-                masksSection
-            }
-            FoldSection(title: "Colour Mixer", key: "mixer", open: false) {
+            AdjustFold(title: "Colour Mixer", section: .mixer, adjust: record.adjust, reset: { resetSection(.mixer) }) {
                 ColorMixerEditor(mixer: record.adjust.mixer) { mixer in change { $0.adjust.mixer = mixer } }
             }
-            FoldSection(title: "Curves", key: "curves", open: false) {
+            AdjustFold(title: "Curves", section: .curves, adjust: record.adjust, reset: { resetSection(.curves) }) {
                 CurvesEditor(curves: record.adjust.curves) { curves in change { $0.adjust.curves = curves } }
             }
-            FoldSection(title: "Colour Wheels", key: "wheels", open: false) {
+            AdjustFold(title: "Colour Wheels", section: .wheels, adjust: record.adjust, reset: { resetSection(.wheels) }) {
                 ColorWheelsEditor(wheels: record.adjust.wheels) { wheels in change { $0.adjust.wheels = wheels } }
             }
-            FoldSection(title: "Detail", key: "detail", open: false) {
+            AdjustFold(title: "Detail", section: .detail, adjust: record.adjust, reset: { resetSection(.detail) }) {
                 slider("Sharpen", \.sharpen, 0...100)
                 slider("Noise", \.noise, 0...100)
                 if raw { slider("Moiré", \.moire, 0...100) }
                 denoise
             }
-            FoldSection(title: "Crop", key: "crop") {
-                HStack(spacing: 6) {
-                    Picker("Aspect", selection: Binding(get: { record.adjust.crop }, set: { value in
-                        change { $0.adjust.crop = value; $0.adjust.cropRect = nil }
-                        if value != .original { editing.cropping = true }
-                    })) {
-                        ForEach(PhotoAdjustments.Crop.allCases) { Text($0.title).tag($0) }
-                    }
-                    .labelsHidden()
-                    Button {
-                        change { $0.adjust.cropPortrait = !($0.adjust.cropPortrait ?? portraitPhoto); $0.adjust.cropRect = nil }
-                    } label: {
-                        Image(systemName: (record.adjust.cropPortrait ?? portraitPhoto) ? "rectangle.portrait" : "rectangle")
-                    }
-                    .disabled(record.adjust.crop.shortOverLong == nil || record.adjust.crop == .square)
-                    .help("Turn the crop upright or on its side (X)")
-                    Spacer()
-                    Button(editing.cropping ? "Done" : "Crop") { editing.cropping.toggle() }
-                        .help("Show the crop frame on the photo (C)")
-                }
-                .font(.callout)
-                .controlSize(.small)
-                .padding(.horizontal, 8)
-                slider("Straighten", \.straighten, -45...45, format: "%+.1f°")
-            }
             Button("Reset Adjustments") { change { $0.adjust = PhotoAdjustments() } }
                 .buttonStyle(.link)
                 .padding(.horizontal, 8)
+        }
+    }
+
+    /// Masks: their own place, so it's always clear which one is being shaped.
+    @ViewBuilder private var masks: some View {
+        if record.adjust.process >= 2, let shown, paths.count == 1 {
+            PhotoMaskPanel(path: shown, record: record)
+        } else if paths.count > 1 {
+            Text("Masks are made one photo at a time.").font(.callout).foregroundStyle(.secondary).padding(.horizontal, 8)
+        } else {
+            masksSection
         }
     }
 
@@ -524,21 +534,23 @@ struct PhotoInspector: View {
 
     private var presetsMenu: some View {
         HStack(spacing: 8) {
-            Menu {
-                ForEach(catalog.presets) { preset in
-                    Button(preset.name) { change { $0.adjust = preset.adjust.keepingDecoder(of: $0.adjust); $0.filmOn = preset.filmOn; $0.film = preset.film } }
-                }
-                if !catalog.presets.isEmpty { Divider() }
-                Button("Save as Preset…") { presetName = ""; naming = true }
-                if !catalog.presets.isEmpty {
-                    Menu("Delete") {
-                        ForEach(catalog.presets) { preset in Button(preset.name) { catalog.deletePreset(preset.id) } }
-                    }
-                }
-            } label: {
-                Label("Presets", systemImage: "wand.and.stars")
+            Button { showingLooks = true } label: {
+                Label("Looks", systemImage: "square.grid.2x2")
             }
             .fixedSize()
+            .help("Profiles and presets, as pictures of this photo")
+            .onAppear { if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLooks") { showingLooks = true } }
+            .popover(isPresented: $showingLooks, arrowEdge: .leading) {
+                if let shown {
+                    PhotoLooks(path: shown, record: record) { look in
+                        change { $0.adjust = look.adjust; $0.filmOn = look.filmOn; $0.film = look.film }
+                    } save: {
+                        showingLooks = false
+                        presetName = ""
+                        naming = true
+                    }
+                }
+            }
         }
         .alert("Save Preset", isPresented: $naming) {
             TextField("Name", text: $presetName)
@@ -553,20 +565,14 @@ struct PhotoInspector: View {
     }
 
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<PhotoAdjustments, Double>, _ range: ClosedRange<Double>,
-                        format: String = "%+.0f", label: String? = nil) -> some View {
-        let value = record.adjust[keyPath: path]
-        return HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 84, alignment: .leading)
-            Slider(value: Binding(get: { value }, set: { new in change { $0.adjust[keyPath: path] = new } }), in: range)
-            Text(label ?? String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
-                .frame(width: label == nil ? 44 : 58, alignment: .trailing)
-                .onTapGesture(count: 2) { change { $0.adjust[keyPath: path] = 0 } }
-                .help("Double-click to reset")
-        }
-        .font(.callout)
-        .controlSize(.small)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 26)
+                        format: String = "%+.0f", label: String? = nil, track: AdjustSlider.Track = .plain, clipping: Bool = false) -> some View {
+        AdjustSlider(title: title, value: record.adjust[keyPath: path], range: range, format: format, label: label, track: track,
+                     clipping: clipping) { new in change { $0.adjust[keyPath: path] = new } }
+    }
+
+    private func resetSection(_ section: AdjustSection) {
+        change { section.reset(&$0.adjust) }
+        if editing.peek == section { editing.peek = nil }
     }
 }
 

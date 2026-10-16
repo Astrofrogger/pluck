@@ -7,6 +7,8 @@ import Vision
 enum PhotoMasks {
     nonisolated(unsafe) private static var subjects: [String: CIImage] = [:]
     private static let lock = NSLock()
+    /// How many masks a photo can have (they share one layer, a channel each).
+    static let limit = 4
 
     /// The subject's mask for this photo (white where the subject is), at its own small size
     /// (scale it to the picture).
@@ -84,5 +86,205 @@ enum PhotoMasks {
                 .cropped(to: e)
         }
         return result
+    }
+
+    // MARK: - Version 2: shapes
+
+    nonisolated(unsafe) private static var people: [String: CIImage] = [:]
+    nonisolated(unsafe) private static var objects: [String: CIImage] = [:]
+    nonisolated(unsafe) private static var layers: [String: CIImage] = [:]
+    nonisolated(unsafe) private static var layerOrder: [String] = []
+
+    /// The masks' shapes as one layer, small (at most 1536 on the long side): mask k in channel
+    /// k (white where it applies). The ranges and turning the whole mask round are done in the
+    /// develop pass. Kept per photo and shape, so a slider never remakes it.
+    static func layer(_ masks: [PhotoMask], path: String, base: CIImage, context: CIContext) -> CIImage? {
+        let masks = Array(masks.prefix(limit))
+        guard !masks.isEmpty else { return nil }
+        let e = base.extent
+        let scale = min(1, 1536 / max(e.width, e.height))
+        let width = max(Int((e.width * scale).rounded()), 1), height = max(Int((e.height * scale).rounded()), 1)
+        let shapes = masks.map { $0.shape.filter { !$0.kind.isRange } }
+        let key = path + "|\(width)x\(height)|" + ((try? String(decoding: JSONEncoder().encode(shapes), as: UTF8.self)) ?? "")
+        lock.lock()
+        if let known = layers[key] { lock.unlock(); return known.transformed(by: CGAffineTransform(scaleX: e.width / CGFloat(width), y: e.height / CGFloat(height))) }
+        lock.unlock()
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let size = CGSize(width: width, height: height)
+        for (k, parts) in shapes.enumerated() {
+            let grey = combine(parts, path: path, base: base, size: size, context: context)
+            var plane = [UInt8](repeating: 0, count: width * height)
+            context.render(grey, toBitmap: &plane, rowBytes: width, bounds: CGRect(origin: .zero, size: size), format: .L8,
+                           colorSpace: nil)
+            for i in 0..<(width * height) { bytes[i * 4 + k] = plane[i] }
+        }
+        let made = CIImage(bitmapData: Data(bytes), bytesPerRow: width * 4, size: size, format: .RGBA8, colorSpace: nil)
+        lock.lock()
+        layers[key] = made
+        layerOrder.append(key)
+        if layerOrder.count > 16 { layers[layerOrder.removeFirst()] = nil }
+        lock.unlock()
+        return made.transformed(by: CGAffineTransform(scaleX: e.width / CGFloat(width), y: e.height / CGFloat(height)))
+    }
+
+    /// One mask's drawn and found parts, combined in order, as grey at this size (white: in).
+    private static func combine(_ parts: [MaskPart], path: String, base: CIImage, size: CGSize, context: CIContext) -> CIImage {
+        let frame = CGRect(origin: .zero, size: size)
+        let white = CIImage(color: .white).cropped(to: frame)
+        guard !parts.isEmpty else { return white }
+        var result: CIImage?
+        for part in parts {
+            var shape = draw(part, path: path, base: base, size: size, context: context).cropped(to: frame)
+            if part.invert { shape = shape.applyingFilter("CIColorInvert") }
+            guard let so = result else { result = part.mode == .subtract ? shape.applyingFilter("CIColorInvert") : shape; continue }
+            switch part.mode {
+            case .add: result = shape.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: so])
+            case .subtract: result = shape.applyingFilter("CIColorInvert").applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: so])
+            case .intersect: result = shape.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: so])
+            }
+        }
+        return (result ?? white).cropped(to: frame)
+    }
+
+    /// One part, grey at this size. Points are shares from the top left; Core Image counts from
+    /// the bottom left.
+    private static func draw(_ part: MaskPart, path: String, base: CIImage, size: CGSize, context: CIContext) -> CIImage {
+        let frame = CGRect(origin: .zero, size: size)
+        let black = CIImage(color: .black).cropped(to: frame)
+        func at(_ p: CGPoint) -> CGPoint { CGPoint(x: p.x * size.width, y: (1 - p.y) * size.height) }
+        switch part.kind {
+        case .linear:
+            let gradient = CIFilter(name: "CISmoothLinearGradient", parameters: [
+                "inputPoint0": CIVector(cgPoint: at(part.a)), "inputPoint1": CIVector(cgPoint: at(part.b)),
+                "inputColor0": CIColor.white, "inputColor1": CIColor.black,
+            ])?.outputImage
+            return gradient?.cropped(to: frame) ?? black
+        case .radial:
+            // A circle of radius 1, made the ellipse's size and put at its centre.
+            let inner = max(0.001, 1 - part.feather)
+            let unit = CIFilter(name: "CIRadialGradient", parameters: [
+                "inputCenter": CIVector(x: 0, y: 0), "inputRadius0": inner * 100, "inputRadius1": 100,
+                "inputColor0": CIColor.white, "inputColor1": CIColor.black,
+            ])?.outputImage
+            let centre = at(part.a)
+            let shaped = unit?.transformed(by: CGAffineTransform(scaleX: part.radius.width * size.width / 100, y: part.radius.height * size.height / 100)
+                .concatenating(CGAffineTransform(translationX: centre.x, y: centre.y)))
+            return shaped?.cropped(to: frame) ?? black
+        case .brush:
+            return brush(part.strokes, size: size)
+        case .subject:
+            return scaled(subject(path, from: base, context: context), to: size, guide: base, context: context) ?? black
+        case .people:
+            return scaled(person(path, from: base, context: context), to: size, guide: base, context: context) ?? black
+        case .object:
+            lock.lock(); let found = objects[objectKey(path, part.a)]; lock.unlock()
+            return scaled(found, to: size, guide: base, context: context) ?? black
+        case .luminance, .colour:
+            return CIImage(color: .white).cropped(to: frame)
+        }
+    }
+
+    /// A found mask made this size, its edges drawn to the photo's (a guided filter: hair and
+    /// fine edges follow the picture instead of the small mask's blur).
+    private static func scaled(_ mask: CIImage?, to size: CGSize, guide: CIImage, context: CIContext) -> CIImage? {
+        guard let mask else { return nil }
+        let m = mask.extent, g = guide.extent
+        let fitted = mask.transformed(by: CGAffineTransform(translationX: -m.minX, y: -m.minY)
+            .concatenating(CGAffineTransform(scaleX: size.width / m.width, y: size.height / m.height)))
+        let picture = guide.transformed(by: CGAffineTransform(translationX: -g.minX, y: -g.minY)
+            .concatenating(CGAffineTransform(scaleX: size.width / g.width, y: size.height / g.height)))
+            .applyingFilter("CILinearToSRGBToneCurve").applyingFilter("CIMaximumComponent")
+        let frame = CGRect(origin: .zero, size: size)
+        let margin = frame.insetBy(dx: -24, dy: -24)
+        return fitted.clampedToExtent().cropped(to: margin).applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": picture.clampedToExtent().cropped(to: margin),
+                                                                                      "inputRadius": max(size.width, size.height) / 300,
+                                                                                      "inputEpsilon": 0.0008]).cropped(to: frame)
+    }
+
+    /// Brush strokes painted (white; rubbing out paints black), softened by their softness.
+    private static func brush(_ strokes: [BrushStroke], size: CGSize) -> CIImage {
+        let width = Int(size.width), height = Int(size.height)
+        guard width > 0, height > 0, let canvas = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                                            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue)
+        else { return CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: size)) }
+        canvas.setFillColor(gray: 0, alpha: 1)
+        canvas.fill(CGRect(origin: .zero, size: size))
+        canvas.setLineCap(.round)
+        canvas.setLineJoin(.round)
+        let long = max(size.width, size.height)
+        var soft = 0.0
+        for stroke in strokes where !stroke.points.isEmpty {
+            canvas.setStrokeColor(gray: stroke.erase ? 0 : 1, alpha: 1)
+            canvas.setLineWidth(stroke.size * long)
+            let points = stroke.points.map { CGPoint(x: $0.x * size.width, y: (1 - $0.y) * size.height) }
+            canvas.beginPath()
+            canvas.move(to: points[0])
+            for point in points.dropFirst() { canvas.addLine(to: point) }
+            if points.count == 1 { canvas.addLine(to: CGPoint(x: points[0].x + 0.01, y: points[0].y)) }
+            canvas.strokePath()
+            soft = max(soft, stroke.size * long * stroke.softness * 0.4)
+        }
+        guard let painted = canvas.makeImage() else { return CIImage(color: .black).cropped(to: CGRect(origin: .zero, size: size)) }
+        let image = CIImage(cgImage: painted)
+        let frame = CGRect(origin: .zero, size: size)
+        return soft > 0.5 ? image.clampedToExtent().applyingGaussianBlur(sigma: soft).cropped(to: frame) : image
+    }
+
+    /// The people in the photo (macOS's person segmentation, at its best quality), small.
+    static func person(_ path: String, from image: CIImage, context: CIContext) -> CIImage? {
+        lock.lock()
+        if let known = people[path] { lock.unlock(); return known }
+        lock.unlock()
+        let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
+        let request = VNGeneratePersonSegmentationRequest()
+        request.qualityLevel = .accurate
+        request.outputPixelFormat = kCVPixelFormatType_OneComponent8
+        try? VNImageRequestHandler(cgImage: cg).perform([request])
+        let mask = request.results?.first.map { CIImage(cvPixelBuffer: $0.pixelBuffer) }
+            ?? CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+        lock.lock(); people[path] = mask; if people.count > 24 { people.removeValue(forKey: people.keys.first!) }; lock.unlock()
+        return mask
+    }
+
+    private static func objectKey(_ path: String, _ point: CGPoint) -> String {
+        "\(path)|\(Int(point.x * 1000))|\(Int(point.y * 1000))"
+    }
+
+    /// Whether the object at this point was found (and is kept).
+    static func hasObject(_ path: String, at point: CGPoint) -> Bool {
+        lock.withLock { objects[objectKey(path, point)] != nil }
+    }
+
+    /// Whether this Mac can find an object from a click (macOS 27).
+    static var canFindObjects: Bool {
+        if #available(macOS 27, *) { return true }
+        return false
+    }
+
+    /// The object at this point (shares from the top left), found by macOS 27 and kept. Its model
+    /// is downloaded by macOS the first time (`downloading` is told). False when none was found.
+    static func findObject(_ path: String, at point: CGPoint, from image: CIImage, context: CIContext,
+                           downloading: @Sendable @escaping () -> Void = {}) async -> Bool {
+        guard #available(macOS 27, *) else { return false }
+        let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        else { return false }
+        let request = GenerateIterativeSegmentationRequest(seedPoint: NormalizedPoint(x: point.x, y: 1 - point.y))
+        request.qualityLevel = .accurate
+        if await request.assetStatus != .ready {
+            downloading()
+            do { try await request.downloadAssets() } catch { return false }
+        }
+        guard let observation = try? await request.perform(on: cg),
+              let picture = try? observation.cgImage else { return false }
+        keep(CIImage(cgImage: picture), as: objectKey(path, point))
+        return true
+    }
+
+    private static func keep(_ mask: CIImage, as key: String) {
+        lock.withLock { objects[key] = mask }
     }
 }

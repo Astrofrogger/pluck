@@ -145,10 +145,15 @@ enum PhotoRender {
     /// tone and the profile (the photo engine), colour (a lookup table), noise, sharpening,
     /// straightening and crop, vignette. `scene`: light only, for the film engine.
     /// `cacheKey`: the decoded photo is a kept one (see `base`), so its local-tone layers can be.
+    /// `overlay`: the mask shown in red (version 2), while it's edited.
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, kelvin: Double, scene: Bool = false, crop: Bool = true,
-                         path: String? = nil, cacheKey: String? = nil) -> CIImage {
+                         path: String? = nil, cacheKey: String? = nil, overlay: Int? = nil) -> CIImage {
         let base = image
-        var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey)
+        // Version 2 develops the masks in the same pass (their shapes as one small layer).
+        let modern = a.process >= 2
+        let shapes = modern && !a.masks.isEmpty ? path.flatMap { PhotoMasks.layer(a.masks, path: $0, base: base, context: context) } : nil
+        var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey,
+                                        masks: shapes, overlay: overlay)
         let long = max(image.extent.width, image.extent.height)
         if !scene, a.needsLUT {
             let filter = CIFilter.colorCubeWithColorSpace()
@@ -158,7 +163,7 @@ enum PhotoRender {
             filter.colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
             image = filter.outputImage ?? image
         }
-        if !scene, !a.masks.isEmpty, let path {
+        if !scene, !modern, !a.masks.isEmpty, let path {
             image = PhotoMasks.apply(a.masks, to: image, base: base, path: path, context: context)
         }
         if a.noise > 0, !isRaw {
@@ -190,8 +195,9 @@ enum PhotoRender {
 
     /// The adjustments for this photo (whether it's RAW, and its as-shot light).
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, path: String, scene: Bool = false, crop: Bool = true,
-                         cacheKey: String? = nil) -> CIImage {
-        adjusted(image, a, isRaw: isRaw(path), kelvin: asShotKelvin(path), scene: scene, crop: crop, path: path, cacheKey: cacheKey)
+                         cacheKey: String? = nil, overlay: Int? = nil) -> CIImage {
+        adjusted(image, a, isRaw: isRaw(path), kelvin: asShotKelvin(path), scene: scene, crop: crop, path: path, cacheKey: cacheKey,
+                 overlay: overlay)
     }
 
     /// Straightening and the crop. The crop is kept as shares from the top left of the
@@ -321,9 +327,9 @@ enum PhotoRender {
 
     /// The developed photo (the adjustments, no film), still to be drawn: for the screen.
     /// `maxSize` 0: full size, for looking closely (only the part on screen is worked out).
-    static func image(_ path: String, record: PhotoRecord, maxSize: Int) -> CIImage? {
+    static func image(_ path: String, record: PhotoRecord, maxSize: Int, overlay: Int? = nil) -> CIImage? {
         guard let kept = base(path, maxSize: maxSize, record: record) else { return nil }
-        return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key)
+        return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key, overlay: overlay)
     }
 
     /// The adjustments only (no film), straight away, as a picture.

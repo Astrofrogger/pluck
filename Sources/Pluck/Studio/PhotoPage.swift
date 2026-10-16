@@ -20,6 +20,9 @@ struct PhotoPage: View {
     private var loupe: Bool { view != .grid }
     @State private var flagFilter: PhotoRecord.Flag?
     @State private var minRating = 0
+    @State private var labelFilter: String?
+    @AppStorage("photoSidebarHidden") private var sidebarHidden = false
+    @AppStorage("photoInspectorHidden") private var inspectorHidden = false
     @State private var renamingAlbum: UUID?
     @State private var albumName = ""
     @State private var dropTargeted = false
@@ -41,7 +44,7 @@ struct PhotoPage: View {
     private var photos: [String] {
         var list = catalog.photos(in: source).filter { path in
             let record = catalog.record(path)
-            return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter)
+            return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter) && (labelFilter == nil || record.label == labelFilter)
         }
         // What's in the picture (or its text, or its name).
         let words = search.split(separator: " ").map(String.init)
@@ -56,8 +59,10 @@ struct PhotoPage: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            sidebar.frame(width: 220)
-            Divider()
+            if !sidebarHidden {
+                sidebar.frame(width: 220)
+                Divider()
+            }
             VStack(spacing: 0) {
                 toolbar
                 Divider()
@@ -98,10 +103,12 @@ struct PhotoPage: View {
                 }
                 return true
             }
-            ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
-            PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
-                .frame(width: inspectorWidth)
-                .clipped()
+            if !inspectorHidden {
+                ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
+                PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
+                    .frame(width: inspectorWidth)
+                    .clipped()
+            }
         }
         .frame(minWidth: 1000, minHeight: 600)
         .navigationTitle("Photo")
@@ -129,6 +136,21 @@ struct PhotoPage: View {
                 focus = photos.first
                 view = .compare
                 editing.showClipping = UserDefaults.standard.bool(forKey: "PluckScreenshotClipping")
+            }
+            // -PluckScreenshotMask YES: the first photo large, its first mask being shaped.
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotMask") {
+                focus = photos.first
+                view = .edit
+                if let first = focus.flatMap({ catalog.record($0).adjust.masks.first }) {
+                    editing.selectedMask = first.id
+                    editing.selectedPart = first.shape.first?.id
+                }
+            }
+            // -PluckScreenshotCrop YES: the first photo being cropped.
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotCrop") {
+                focus = photos.first
+                view = .edit
+                editing.cropping = true
             }
             // -PluckScreenshotZoom YES: the first photo at 1:1.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotZoom") {
@@ -277,47 +299,62 @@ struct PhotoPage: View {
 
     // MARK: - Toolbar
 
+    /// Browse (the grid, or one at a time to cull) or Edit (one photo, or two to compare).
+    private var editingMode: Bool { view == .edit || view == .compare }
+
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Picker("View", selection: $view) {
-                Image(systemName: "square.grid.3x3").tag(ViewMode.grid).help("Grid (\(Shortcuts.shared.shortcut(.photoGrid).label))")
-                Image(systemName: "rectangle.stack").tag(ViewMode.cull).help("Cull: quick, one at a time (\(Shortcuts.shared.shortcut(.photoCull).label))")
-                Image(systemName: "slider.horizontal.below.rectangle").tag(ViewMode.edit).help("Edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
-                Image(systemName: "rectangle.split.2x1").tag(ViewMode.compare).help("Compare two, zoomed together (\(Shortcuts.shared.shortcut(.photoCompare).label))")
+            Picker("Mode", selection: Binding(get: { editingMode }, set: { edit in
+                if edit { if focus == nil { focus = photos.first }; view = .edit } else { view = .grid }
+            })) {
+                Text("Browse").tag(false)
+                Text("Edit").tag(true)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 170)
-            Menu {
-                Button("All") { flagFilter = nil }
-                Button("Picks") { flagFilter = .pick }
-                Button("Not Flagged") { flagFilter = PhotoRecord.Flag.none }
-                Button("Rejected") { flagFilter = .reject }
-            } label: {
-                Label(flagTitle, systemImage: "flag")
-            }
             .fixedSize()
-            Menu {
-                ForEach(0...5, id: \.self) { stars in
-                    Button(stars == 0 ? String(localized: "Any Rating") : String(repeating: "★", count: stars) + "+") { minRating = stars }
+            .help("Browse (\(Shortcuts.shared.shortcut(.photoGrid).label)) or edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
+            if editingMode {
+                Toggle(isOn: Binding(get: { view == .compare }, set: { view = $0 ? .compare : .edit })) {
+                    Image(systemName: "rectangle.split.2x1")
                 }
-            } label: {
-                Label(minRating == 0 ? String(localized: "Any Rating") : String(repeating: "★", count: minRating) + "+", systemImage: "star")
+                .toggleStyle(.button)
+                .help("Compare with the next photo, zoomed together (\(Shortcuts.shared.shortcut(.photoCompare).label))")
+                .accessibilityLabel(Text("Compare"))
+                Toggle(isOn: $editing.cropping) { Image(systemName: "crop") }
+                    .toggleStyle(.button)
+                    .help("Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))")
+                    .accessibilityLabel(Text("Crop"))
+                Image(systemName: editing.asShot ? "circle.lefthalf.filled.inverse" : "circle.lefthalf.filled")
+                    .frame(width: 26, height: 20)
+                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(editing.asShot ? 0.2 : 0.08)))
+                    .contentShape(.rect)
+                    .onLongPressGesture(minimumDuration: 0, perform: {}, onPressingChanged: { editing.asShot = $0 })
+                    .help("Hold to see it as shot (or hold \\)")
+                    .accessibilityLabel(Text("Hold to see it as shot"))
+                    .accessibilityAddTraits(.isButton)
+            } else {
+                Toggle(isOn: Binding(get: { view == .cull }, set: { one in
+                    if one, focus == nil { focus = photos.first }
+                    view = one ? .cull : .grid
+                })) {
+                    Image(systemName: "rectangle")
+                }
+                .toggleStyle(.button)
+                .help("One at a time, to cull quickly (\(Shortcuts.shared.shortcut(.photoCull).label))")
+                .accessibilityLabel(Text("One at a time"))
             }
-            .fixedSize()
-            Toggle("Auto-advance", isOn: $autoAdvance)
-                .toggleStyle(.switch)
-                .controlSize(.mini)
-                .help("After rating or flagging, go to the next photo")
+            filterMenu
             Spacer()
-            TextField("Find: beach, a menu…", text: $search)
-                .textFieldStyle(.roundedBorder)
-                .frame(maxWidth: 180)
-                .help("Find photos by what’s in them, the text in them or their name")
-            Text("^[\(photos.count) photo](inflect: true)").font(.callout).foregroundStyle(.secondary)
-            if view == .grid {
-                Slider(value: $gridSize, in: 110...320).frame(width: 90).controlSize(.mini).help("Size")
+            HStack(spacing: 4) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Find", text: $search).textFieldStyle(.plain).frame(maxWidth: 150)
             }
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+            .help("Find photos by what’s in them, the text in them or their name")
+            Text("^[\(photos.count) photo](inflect: true)").font(.callout).foregroundStyle(.secondary)
+            moreMenu
             Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
                 .buttonStyle(BrandButtonStyle(large: false))
         }
@@ -326,13 +363,62 @@ struct PhotoPage: View {
         .padding(.vertical, 8)
     }
 
-    private var flagTitle: String {
-        switch flagFilter {
-        case .pick: String(localized: "Picks")
-        case .reject: String(localized: "Rejected")
-        case .some(.none): String(localized: "Not Flagged")
-        case nil: String(localized: "All")
+    private var filtering: Bool { flagFilter != nil || minRating > 0 || labelFilter != nil }
+
+    /// One menu for every filter: flag, rating, colour label.
+    private var filterMenu: some View {
+        Menu {
+            Picker("Flag", selection: $flagFilter) {
+                Text("All").tag(PhotoRecord.Flag?.none)
+                Text("Picks").tag(PhotoRecord.Flag?.some(.pick))
+                Text("Not Flagged").tag(PhotoRecord.Flag?.some(.none))
+                Text("Rejected").tag(PhotoRecord.Flag?.some(.reject))
+            }
+            .pickerStyle(.inline)
+            Picker("Rating", selection: $minRating) {
+                Text("Any Rating").tag(0)
+                ForEach(1...5, id: \.self) { stars in Text(String(repeating: "★", count: stars) + "+").tag(stars) }
+            }
+            .pickerStyle(.inline)
+            Picker("Label", selection: $labelFilter) {
+                Text("Any Label").tag(String?.none)
+                ForEach(PhotoInspector.labels, id: \.self) { name in Text(PhotoInspector.labelTitle(name)).tag(String?.some(name)) }
+            }
+            .pickerStyle(.inline)
+            if filtering {
+                Divider()
+                Button("Show All") { flagFilter = nil; minRating = 0; labelFilter = nil }
+            }
+        } label: {
+            Label(filterTitle, systemImage: filtering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
         }
+        .fixedSize()
+        .help("Show only some photos")
+    }
+
+    private var filterTitle: String {
+        var parts: [String] = []
+        if let flagFilter { parts.append(flagFilter == .pick ? String(localized: "Picks") : flagFilter == .reject ? String(localized: "Rejected") : String(localized: "Not Flagged")) }
+        if minRating > 0 { parts.append(String(repeating: "★", count: minRating) + "+") }
+        if let labelFilter { parts.append(PhotoInspector.labelTitle(labelFilter)) }
+        return parts.isEmpty ? String(localized: "Filter") : parts.joined(separator: " · ")
+    }
+
+    /// The rest, out of the way: culling and panels.
+    private var moreMenu: some View {
+        Menu {
+            Toggle("Auto-Advance After Rating", isOn: $autoAdvance)
+            Toggle("Show Clipping (\(Shortcuts.shared.shortcut(.photoClipping).label))", isOn: $editing.showClipping)
+            Divider()
+            Toggle("Show Albums (⇧Tab)", isOn: Binding(get: { !sidebarHidden }, set: { sidebarHidden = !$0 }))
+            Toggle("Show Inspector (Tab)", isOn: Binding(get: { !inspectorHidden }, set: { inspectorHidden = !$0 }))
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("More")
+        .accessibilityLabel(Text("More"))
     }
 
     // MARK: - Photos
@@ -363,9 +449,21 @@ struct PhotoPage: View {
                 }
                 .padding(14)
             }
-            .onChange(of: focus) { _, path in if let path { withAnimation { scroller.scrollTo(path, anchor: .center) } } }
+            .onChange(of: focus) { _, path in
+                guard let path else { return }
+                if reduceMotion { scroller.scrollTo(path, anchor: .center) } else { withAnimation { scroller.scrollTo(path, anchor: .center) } }
+            }
+            .simultaneousGesture(MagnifyGesture()
+                .onChanged { value in
+                    if pinchSize == nil { pinchSize = gridSize }
+                    gridSize = min(max((pinchSize ?? gridSize) * value.magnification, 90), 420)
+                }
+                .onEnded { _ in pinchSize = nil })
         }
     }
+
+    @State private var pinchSize: Double?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var filmstrip: some View {
         ScrollViewReader { scroller in
@@ -383,7 +481,10 @@ struct PhotoPage: View {
             }
             .frame(height: 88)
             .background(.background.secondary)
-            .onChange(of: focus) { _, path in if let path { withAnimation { scroller.scrollTo(path, anchor: .center) } } }
+            .onChange(of: focus) { _, path in
+                guard let path else { return }
+                if reduceMotion { scroller.scrollTo(path, anchor: .center) } else { withAnimation { scroller.scrollTo(path, anchor: .center) } }
+            }
         }
     }
 
@@ -452,6 +553,15 @@ struct PhotoPage: View {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
         let targets = selection.isEmpty ? (focus.map { [$0] } ?? []) : Array(selection)
         switch press.key {
+        case .tab:
+            // Tab: the inspector; Shift-Tab: both panels (as in Lightroom).
+            if press.modifiers.contains(.shift) {
+                let show = sidebarHidden || inspectorHidden
+                sidebarHidden = !show
+                inspectorHidden = !show
+            } else {
+                inspectorHidden.toggle()
+            }
         case .leftArrow where !editing.cropping: move(-1)
         case .rightArrow where !editing.cropping: move(1)
         case .upArrow where !loupe: move(-columns)
@@ -480,6 +590,8 @@ struct PhotoPage: View {
                 return .handled
             }
             let zoomable = view == .edit || view == .compare
+            if view == .grid, press.modifiers.contains(.command), ["=", "+"].contains(character) { gridSize = min(gridSize * 1.25, 420); return .handled }
+            if view == .grid, press.modifiers.contains(.command), character == "-" { gridSize = max(gridSize / 1.25, 90); return .handled }
             if zoomable, press.modifiers.contains(.command), ["=", "+"].contains(character) { editing.zoomIn(); return .handled }
             if zoomable, press.modifiers.contains(.command), character == "-" { editing.zoomOut(); return .handled }
             if zoomable, press.modifiers.contains(.command), character == "0" { editing.zoom = nil; return .handled }
@@ -489,6 +601,7 @@ struct PhotoPage: View {
             case .photoEdit: if focus == nil { focus = photos.first }; view = .edit
             case .photoCompare: if focus == nil { focus = photos.first }; view = view == .compare ? .edit : .compare
             case .photoClipping: editing.showClipping.toggle()
+            case .photoMaskOverlay: if editing.selectedMask != nil { editing.maskOverlay.toggle() } else { return .ignored }
             case .photoCrop: editing.cropping.toggle()
             case .photoZoom: if zoomable { editing.zoom = editing.zoom == nil ? 1 : nil } else { return .ignored }
             case .photoTurnCrop:
@@ -542,6 +655,17 @@ struct PhotoPage: View {
 // MARK: - A photo in the grid
 
 private struct PhotoCell: View {
+    /// What VoiceOver says about a photo: its rating, flag, label and whether it's edited.
+    static func describe(_ record: PhotoRecord) -> String {
+        var parts: [String] = []
+        if record.rating > 0 { parts.append(String(localized: "^[\(record.rating) star](inflect: true)")) }
+        if record.flag == .pick { parts.append(String(localized: "Pick")) }
+        if record.flag == .reject { parts.append(String(localized: "Rejected")) }
+        if let label = record.label { parts.append(PhotoInspector.labelTitle(label)) }
+        if record.isEdited { parts.append(String(localized: "Edited")) }
+        return parts.joined(separator: ", ")
+    }
+
     let path: String
     let record: PhotoRecord
     let selected: Bool
@@ -591,6 +715,10 @@ private struct PhotoCell: View {
             .contentShape(.rect)
             .onHover { hovering = $0 }
             .help(URL(fileURLWithPath: path).lastPathComponent)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text(verbatim: URL(fileURLWithPath: path).lastPathComponent))
+            .accessibilityValue(Text(Self.describe(record)))
+            .accessibilityAddTraits(selected ? [.isImage, .isSelected] : .isImage)
             .task(id: record) { await load() }
     }
 
@@ -654,7 +782,7 @@ struct PhotoLoupe: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Design.Photo.surround
             if let picture {
                 GeometryReader { geo in
                     let frame = pictureFrame(in: geo.size)
@@ -664,6 +792,9 @@ struct PhotoLoupe: View {
                             zoomGestures(zoom: zoom, area: geo.size, frame: frame)
                         } else {
                             fitGestures(frame: frame)
+                        }
+                        if shapingMask, !editing.cropping, !original {
+                            PhotoMaskHandles(path: path, record: record, frame: frame)
                         }
                     }
                     if editing.cropping, !original {
@@ -696,15 +827,16 @@ struct PhotoLoupe: View {
             }
             .padding(14)
         }
+        .overlay(alignment: .bottom) { if editing.cropping, primary, !original { cropBar.padding(14) } }
         .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
-        .task(id: TaskKey(path: path, record: shownRecord, original: original)) { await develop() }
+        .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay)) { await develop() }
         .task(id: wantedFull) {
             // The photo at full size once zoomed in past the preview (decoded once, then only the
             // adjustments are redone).
             guard let key = wantedFull else { return }
             if full == nil || fullKey?.path != key.path { developing = true }
-            let path = key.path, record = key.record
-            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0) }.value
+            let path = key.path, record = key.record, marked = key.overlay
+            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0, overlay: marked) }.value
             guard !Task.isCancelled else { return }
             full = made
             fullKey = key
@@ -721,8 +853,48 @@ struct PhotoLoupe: View {
                 for (next, record) in ahead { _ = PhotoRender.base(next, maxSize: size, record: record) }
             }.value
         }
-        .onChange(of: path) { _, _ in if !linked { editing.zoom = nil }; full = nil; fullKey = nil }
+        .onChange(of: path) { _, _ in
+            if !linked { editing.zoom = nil }
+            full = nil; fullKey = nil
+            if primary { editing.selectedMask = nil }
+        }
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
+    }
+
+    /// The crop's controls, on the photo while cropping: the shape, upright or on its side,
+    /// straighten, reset and done.
+    private var cropBar: some View {
+        let a = record.adjust
+        let upright = a.cropPortrait ?? PhotoRender.isPortrait(path)
+        return HStack(spacing: 10) {
+            Picker("Aspect", selection: Binding(get: { a.crop }, set: { value in
+                catalog.update([path]) { $0.adjust.crop = value; $0.adjust.cropRect = nil; $0.edited = .now }
+            })) {
+                ForEach(PhotoAdjustments.Crop.allCases) { Text($0.title).tag($0) }
+            }
+            .labelsHidden()
+            .fixedSize()
+            Button {
+                catalog.update([path]) { $0.adjust.cropPortrait = !upright; $0.adjust.cropRect = nil; $0.edited = .now }
+            } label: {
+                Image(systemName: upright ? "rectangle.portrait" : "rectangle")
+            }
+            .disabled(a.crop.shortOverLong == nil || a.crop == .square)
+            .help("Turn the crop upright or on its side (\(Shortcuts.shared.shortcut(.photoTurnCrop).label))")
+            .accessibilityLabel(Text("Turn the crop"))
+            AdjustSlider(title: "Straighten", value: a.straighten, range: -45...45, format: "%+.1f°") { new in
+                catalog.update([path]) { $0.adjust.straighten = new; $0.edited = .now }
+            }
+            .frame(width: 280)
+            Button("Reset") {
+                catalog.update([path]) { $0.adjust.crop = .original; $0.adjust.cropRect = nil; $0.adjust.straighten = 0; $0.adjust.cropPortrait = nil; $0.edited = .now }
+            }
+            Button("Done") { editing.cropping = false }
+                .keyboardShortcut(.defaultAction)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 12).padding(.vertical, 7)
+        .background(.regularMaterial, in: .capsule)
     }
 
     /// Where the zoomed photo looks (shared with the other photo in Compare).
@@ -740,23 +912,44 @@ struct PhotoLoupe: View {
         let path: String
         let record: PhotoRecord
         let original: Bool
+        let overlay: Int?
     }
 
     private struct FullKey: Hashable {
         let path: String
         let record: PhotoRecord
+        let overlay: Int?
     }
 
     private var original: Bool { editing.asShot }
 
-    /// While cropping, the whole picture shows (the frame marks the crop).
+    /// A mask of this photo is being shaped (version 2).
+    private var shapingMask: Bool {
+        primary && record.adjust.process >= 2 && record.adjust.masks.contains { $0.id == editing.selectedMask }
+    }
+
+    /// The mask shown in red while it's shaped.
+    private var overlay: Int? {
+        guard primary, record.adjust.process >= 2 else { return nil }
+        // The one the pointer is over in the list, else the one being shaped.
+        if let hover = editing.hoverMask, let index = record.adjust.masks.firstIndex(where: { $0.id == hover }) { return index }
+        guard shapingMask, editing.maskOverlay else { return nil }
+        return record.adjust.masks.firstIndex { $0.id == editing.selectedMask }
+    }
+
+    /// While cropping or shaping a mask, the whole picture shows (the frame marks the crop;
+    /// masks are placed on the whole photo).
     private var shownRecord: PhotoRecord {
-        var shown = record
-        if editing.cropping {
+        var shown = primary ? editing.previewRecord ?? record : record
+        // (A look pointed at shows without its film: that takes seconds.)
+        if primary, editing.previewRecord != nil { shown.filmOn = false }
+        if editing.cropping || shapingMask {
             shown.adjust.cropRect = nil
             shown.adjust.crop = .original
             shown.filmOn = false
         }
+        // An Adjust section's eye held: the photo without it.
+        if primary, let peek = editing.peek { peek.reset(&shown.adjust) }
         return shown
     }
 
@@ -765,7 +958,7 @@ struct PhotoLoupe: View {
         guard let zoom = editing.zoom, !editing.cropping, zoom * scaleToFull > 1.05 else { return nil }
         var shown = original ? PhotoRecord() : shownRecord
         shown.filmOn = false
-        return FullKey(path: path, record: shown)
+        return FullKey(path: path, record: shown, overlay: original ? nil : overlay)
     }
 
     /// The full size when it's made for what's showing now.
@@ -792,7 +985,12 @@ struct PhotoLoupe: View {
     private func pictureFrame(in area: CGSize) -> CGRect {
         guard let picture else { return .zero }
         let size = picture.extent.size
-        guard let zoom = editing.zoom, !editing.cropping else { return Self.fitted(size, in: area, inset: 14) }
+        if editing.cropping, primary {
+            // Room under the photo for the crop's bar.
+            let fitted = Self.fitted(size, in: CGSize(width: area.width, height: max(area.height - 52, 1)), inset: 14)
+            return fitted
+        }
+        guard let zoom = editing.zoom else { return Self.fitted(size, in: area, inset: 14) }
         let width = Double(size.width) * scaleToFull * zoom / displayScale, height = Double(size.height) * scaleToFull * zoom / displayScale
         let c = clamped(center, width: width, height: height, view: area)
         let x = area.width / 2 + (0.5 - c.x) * width + drag.width, y = area.height / 2 + (0.5 - c.y) * height + drag.height
@@ -886,7 +1084,8 @@ struct PhotoLoupe: View {
             developing = false
             return
         }
-        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size) }.value
+        let marked = original ? nil : overlay
+        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked) }.value
         guard !Task.isCancelled else { return }
         if shown.filmOn, FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
             // The film's look from last time while it's developed again at this size.
@@ -900,7 +1099,8 @@ struct PhotoLoupe: View {
         if !shown.filmOn {
             developing = false
             try? await Task.sleep(for: .milliseconds(150))
-            guard !Task.isCancelled, let quick else { return }
+            // (Not while a mask shows in red.)
+            guard !Task.isCancelled, let quick, marked == nil else { return }
             if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(quick) }.value }
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled, shown.isEdited else { return }
@@ -956,7 +1156,7 @@ struct PhotoCullView: View {
 
     var body: some View {
         ZStack {
-            Color.black
+            Design.Photo.surround
             if let image { Image(nsImage: image).resizable().scaledToFit().padding(14) }
             VStack {
                 Spacer()
