@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "2.3.0", items: [
+                Item(symbol: "camera.aperture", title: String(localized: "A faster, truer photo engine"),
+                     detail: String(localized: "Sliders follow the mouse straight from the GPU, colours past sRGB are kept, white balance uses CAT16 and dehaze is real. Earlier edits keep their look until you update them.")),
+                Item(symbol: "circle.dashed.inset.filled", title: String(localized: "Masks, Lightroom style"),
+                     detail: String(localized: "Subject, people, objects, gradients, brush and brightness or colour ranges, combined as you like, with all the main sliders. Found by AI that runs locally on your Mac.")),
+                Item(symbol: "square.grid.2x2", title: String(localized: "A friendlier Photo page"),
+                     detail: String(localized: "Browse and Edit, one filter menu, sliders that show what they do, Looks with live previews, crop on the photo, tool search and ? for every key.")),
+                Item(symbol: "rectangle.split.2x1", title: String(localized: "Cull and share like a pro"),
+                     detail: String(localized: "Compare two photos zoomed together, clipping warnings, colour label keys, undo, snapshots, selective paste, Match Exposure and XMP sidecars for Lightroom and Capture One.")),
+            ]),
             Release(version: "2.2.0", items: [
                 Item(symbol: "camera.aperture", title: String(localized: "A real RAW developer"),
                      detail: String(localized: "Every camera starts from the same neutral point, with profiles, Kelvin white balance and highlights and shadows that recover without halos. Masks, colour mixer, Auto, live histogram and zoom up to 400%. Your originals are never changed.")),

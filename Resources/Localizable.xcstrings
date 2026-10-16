@@ -6075,6 +6075,64 @@
         }
       }
     },
+    "A faster, truer photo engine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine schnellere, genauere Foto-Engine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un motor de fotos más rápido y fiel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un moteur photo plus rapide et plus fidèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un motore foto più veloce e fedele"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より速く、より忠実な写真エンジン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 빠르고 정확한 사진 엔진"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een snellere, getrouwere foto-engine"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um mecanismo de fotos mais rápido e fiel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更快、更真实的照片引擎"
+          }
+        }
+      }
+    },
     "A file’s name or title": {
       "localizations": {
         "de": {
@@ -6303,6 +6361,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "全新外观"
+          }
+        }
+      }
+    },
+    "A friendlier Photo page": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine freundlichere Foto-Seite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una página de Fotos más amable"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une page Photo plus conviviale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una pagina Foto più semplice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使いやすくなった写真ページ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 친근한 사진 페이지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een vriendelijkere Foto-pagina"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma página de Fotos mais amigável"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更友好的照片页面"
           }
         }
       }
@@ -18524,6 +18640,64 @@
         }
       }
     },
+    "Browse and Edit, one filter menu, sliders that show what they do, Looks with live previews, crop on the photo, tool search and ? for every key.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchsuchen und Bearbeiten, ein Filtermenü, Regler, die zeigen, was sie tun, Looks mit Live-Vorschau, Zuschneiden im Foto, Werkzeugsuche und ? für alle Tasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explorar y Editar, un solo menú de filtros, reguladores que muestran lo que hacen, estilos con vista previa en vivo, recorte sobre la foto, búsqueda de herramientas y ? para todas las teclas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcourir et Retoucher, un seul menu de filtres, des curseurs qui montrent ce qu’ils font, des rendus avec aperçu en direct, le recadrage sur la photo, la recherche d’outils et ? pour toutes les touches."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfoglia e Modifica, un solo menu di filtri, cursori che mostrano cosa fanno, look con anteprima dal vivo, ritaglio sulla foto, ricerca degli strumenti e ? per tutti i tasti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブラウズと編集、ひとつにまとめたフィルタメニュー、効果がわかるスライダー、ライブプレビュー付きのルック、写真上での切り抜き、ツール検索、?ですべてのキーを表示。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "둘러보기와 편집, 하나로 합친 필터 메뉴, 효과가 보이는 슬라이더, 실시간 미리보기 룩, 사진 위 자르기, 도구 찾기, ?로 모든 키 보기."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bladeren en Bewerken, één filtermenu, schuifregelaars die laten zien wat ze doen, looks met live voorvertoning, bijsnijden op de foto, gereedschap zoeken en ? voor alle toetsen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegar e Editar, um só menu de filtros, controles que mostram o que fazem, visuais com prévia ao vivo, recorte na foto, busca de ferramentas e ? para todas as teclas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "浏览与编辑、统一的筛选菜单、一目了然的滑块、带实时预览的外观、在照片上裁剪、工具搜索，以及按 ? 查看所有按键。"
+          }
+        }
+      }
+    },
     "Browse or edit": {
       "localizations": {
         "de": {
@@ -26668,6 +26842,64 @@
         }
       }
     },
+    "Compare two photos zoomed together, clipping warnings, colour label keys, undo, snapshots, selective paste, Match Exposure and XMP sidecars for Lightroom and Capture One.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwei Fotos gemeinsam gezoomt vergleichen, Beschneidungswarnungen, Tasten für Farbetiketten, Widerrufen, Schnappschüsse, selektives Einfügen, Belichtung angleichen und XMP-Filialdateien für Lightroom und Capture One."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compara dos fotos con zoom a la vez, avisos de recorte, teclas para etiquetas de color, deshacer, instantáneas, pegado selectivo, Igualar exposición y archivos XMP para Lightroom y Capture One."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparez deux photos avec zoom lié, alertes d’écrêtage, touches d’étiquettes de couleur, annulation, instantanés, collage sélectif, Égaliser l’exposition et fichiers XMP pour Lightroom et Capture One."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confronta due foto con zoom insieme, avvisi di clipping, tasti per le etichette colore, annulla, istantanee, incolla selettivo, Uniforma esposizione e file XMP per Lightroom e Capture One."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2枚の写真をズーム連動で比較、クリッピング警告、カラーラベルのキー、取り消し、スナップショット、選択的な貼り付け、露出を揃える、LightroomとCapture One向けのXMPサイドカー。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "두 사진을 함께 확대해 비교, 클리핑 경고, 색상 레이블 키, 실행 취소, 스냅숏, 선택 붙여넣기, 노출 맞추기, Lightroom과 Capture One용 XMP 사이드카."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twee foto’s samen ingezoomd vergelijken, clippingwaarschuwingen, toetsen voor kleurlabels, ongedaan maken, snapshots, selectief plakken, Belichting gelijkmaken en XMP-bestanden voor Lightroom en Capture One."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare duas fotos com zoom junto, avisos de recorte, teclas de rótulos de cor, desfazer, instantâneos, colar seletivo, Igualar exposição e arquivos XMP para Lightroom e Capture One."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "同步缩放比较两张照片、溢出警告、颜色标签按键、撤销、快照、选择性粘贴、匹配曝光，以及适用于 Lightroom 和 Capture One 的 XMP 附属文件。"
+          }
+        }
+      }
+    },
     "Compare two, zoomed together (%@)": {
       "extractionState": "stale",
       "localizations": {
@@ -30334,6 +30566,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "筛选"
+          }
+        }
+      }
+    },
+    "Cull and share like a pro": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aussortieren und teilen wie ein Profi"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona y comparte como un profesional"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Triez et partagez comme un pro"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli e condividi come un professionista"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロのように選別して共有"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로처럼 고르고 공유하기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecteren en delen als een pro"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione e compartilhe como um profissional"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "像专业人士一样筛选和共享"
           }
         }
       }
@@ -68164,6 +68454,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "蒙版需逐张照片创建。"
+          }
+        }
+      }
+    },
+    "Masks, Lightroom style": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masken wie in Lightroom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máscaras al estilo Lightroom"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des masques façon Lightroom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschere in stile Lightroom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroom風のマスク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroom 스타일 마스크"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maskers zoals in Lightroom"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máscaras no estilo Lightroom"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroom 风格的蒙版"
           }
         }
       }
@@ -110802,6 +111150,64 @@
         }
       }
     },
+    "Sliders follow the mouse straight from the GPU, colours past sRGB are kept, white balance uses CAT16 and dehaze is real. Earlier edits keep their look until you update them.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Regler folgen der Maus direkt von der GPU, Farben jenseits von sRGB bleiben erhalten, der Weißabgleich nutzt CAT16 und Dunst entfernen ist echt. Frühere Bearbeitungen behalten ihren Look, bis du sie aktualisierst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los reguladores siguen al ratón directamente desde la GPU, se conservan los colores más allá de sRGB, el balance de blancos usa CAT16 y la eliminación de neblina es real. Las ediciones anteriores conservan su aspecto hasta que las actualices."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les curseurs suivent la souris directement depuis le GPU, les couleurs au-delà du sRGB sont conservées, la balance des blancs utilise CAT16 et la correction du voile est réelle. Les retouches précédentes gardent leur rendu jusqu’à leur mise à jour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I cursori seguono il mouse direttamente dalla GPU, i colori oltre lo sRGB vengono mantenuti, il bilanciamento del bianco usa CAT16 e la rimozione della foschia è reale. Le modifiche precedenti mantengono il loro aspetto finché non le aggiorni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スライダーはGPUから直接マウスに追従し、sRGBを超える色を保持、ホワイトバランスはCAT16、かすみの除去は本格的になりました。以前の編集は更新するまで見た目が保たれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "슬라이더가 GPU에서 바로 마우스를 따라오고, sRGB를 넘는 색이 유지되며, 화이트 밸런스는 CAT16을 쓰고 안개 제거는 진짜입니다. 이전 편집은 업데이트하기 전까지 모습이 유지됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schuifregelaars volgen de muis rechtstreeks vanaf de GPU, kleuren buiten sRGB blijven behouden, witbalans gebruikt CAT16 en nevel verwijderen is echt. Eerdere bewerkingen houden hun look tot je ze bijwerkt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os controles seguem o mouse direto da GPU, cores além do sRGB são mantidas, o balanço de branco usa CAT16 e a remoção de névoa é real. Edições anteriores mantêm o visual até você atualizá-las."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑块直接由 GPU 跟随鼠标，保留超出 sRGB 的颜色，白平衡使用 CAT16，去雾效果真实。之前的编辑在你更新前保持原样。"
+          }
+        }
+      }
+    },
     "Slow motion 2×": {
       "localizations": {
         "de": {
@@ -115562,6 +115968,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "主体"
+          }
+        }
+      }
+    },
+    "Subject, people, objects, gradients, brush and brightness or colour ranges, combined as you like, with all the main sliders. Found by AI that runs locally on your Mac.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motiv, Personen, Objekte, Verläufe, Pinsel sowie Helligkeits- oder Farbbereiche, beliebig kombiniert, mit allen wichtigen Reglern. Erkannt von KI, die lokal auf deinem Mac läuft."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sujeto, personas, objetos, degradados, pincel y rangos de brillo o color, combinados a tu gusto, con todos los reguladores principales. Detectados por una IA que funciona localmente en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sujet, personnes, objets, dégradés, pinceau et plages de luminosité ou de couleur, combinés à votre guise, avec tous les curseurs principaux. Détectés par une IA qui fonctionne localement sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soggetto, persone, oggetti, gradienti, pennello e intervalli di luminosità o colore, combinati come vuoi, con tutti i cursori principali. Riconosciuti da un’IA che funziona in locale sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "被写体、人物、物体、グラデーション、ブラシ、明るさや色の範囲を自由に組み合わせ、主要なスライダーをすべて使えます。検出はMac上でローカルに動作するAIが行います。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "피사체, 사람, 대상, 그라디언트, 브러시, 밝기 또는 색상 범위를 원하는 대로 조합하고 주요 슬라이더를 모두 쓸 수 있습니다. Mac에서 로컬로 실행되는 AI가 찾아냅니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onderwerp, personen, objecten, verlopen, penseel en helderheids- of kleurbereiken, naar wens gecombineerd, met alle belangrijke schuifregelaars. Gevonden door AI die lokaal op je Mac draait."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assunto, pessoas, objetos, gradientes, pincel e faixas de brilho ou cor, combinados como quiser, com todos os controles principais. Detectados por IA que roda localmente no seu Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主体、人物、物体、渐变、画笔以及亮度或颜色范围，可随意组合，并提供所有主要滑块。由在你的 Mac 上本地运行的 AI 识别。"
           }
         }
       }
