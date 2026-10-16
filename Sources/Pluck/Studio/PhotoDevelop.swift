@@ -23,6 +23,11 @@ struct PhotoAdjustments: Codable, Hashable {
     var sharpen = 0.0        // 0…100
     var noise = 0.0          // noise reduction, 0…100
     var moire = 0.0          // moiré reduction (RAW), 0…100
+    /// How the photo is developed, as Lightroom's process versions: 1 the first engine (sRGB,
+    /// colour after the profile), 2 scene-referred colour (wide gamut, CAT16, grading before the
+    /// tone curve, Whites and Blacks on the curve, real dehaze). Old edits keep their look.
+    var process = PhotoAdjustments.currentProcess
+    static let currentProcess = 2
     /// The version of Apple's RAW decoder the photo was edited with, kept so a macOS update
     /// doesn't change how it looks (nil: not edited yet, the newest).
     var rawDecoder: String?
@@ -95,12 +100,16 @@ struct PhotoAdjustments: Codable, Hashable {
         noise = value(.noise, 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
+        // Saved before versions: the first engine, unless nothing was changed.
+        process = value(.process, 1)
+        if process < Self.currentProcess, isDefault { process = Self.currentProcess }
     }
 
     /// Nothing changed (which decoder made the photo doesn't count).
     var isDefault: Bool {
         var plain = self
         plain.rawDecoder = nil
+        plain.process = Self.currentProcess
         return plain == PhotoAdjustments()
     }
 
@@ -116,8 +125,9 @@ struct PhotoAdjustments: Codable, Hashable {
         crop.ratio(portrait: cropPortrait ?? (pictureRatio < 1))
     }
 
-    /// Whether anything that lives in the colour lookup table is changed.
-    var needsLUT: Bool { vibrance != 0 || saturation != 0 || !curves.isDefault || !wheels.isDefault || !mixer.isDefault }
+    /// Whether anything that lives in the colour lookup table is changed (version 1: version 2
+    /// does all of it in the develop pass).
+    var needsLUT: Bool { process < 2 && (vibrance != 0 || saturation != 0 || !curves.isDefault || !wheels.isDefault || !mixer.isDefault) }
 }
 
 /// A part of the photo found by macOS's own subject detection, and what changes there.

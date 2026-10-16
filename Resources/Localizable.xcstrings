@@ -31210,6 +31210,64 @@
         }
       }
     },
+    "Develop with the current engine: wider colour, white balance, tone curve and dehaze. The look changes a little.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit der aktuellen Engine entwickeln: größerer Farbraum, Weißabgleich, Tonkurve und Dunst entfernen. Der Look ändert sich etwas."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revelar con el motor actual: color más amplio, balance de blancos, curva de tonos y eliminación de neblina. El aspecto cambia un poco."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développer avec le moteur actuel : couleurs plus étendues, balance des blancs, courbe des tons et correction du voile. Le rendu change un peu."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sviluppa con il motore attuale: colore più ampio, bilanciamento del bianco, curva tonale e rimozione foschia. L’aspetto cambia un po’."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "現在のエンジンで現像します：より広い色域、ホワイトバランス、トーンカーブ、かすみの除去。見た目が少し変わります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "현재 엔진으로 현상합니다: 더 넓은 색 영역, 화이트 밸런스, 톤 커브, 안개 제거. 보이는 모습이 조금 바뀝니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontwikkelen met de huidige engine: breder kleurbereik, witbalans, toonkromme en nevel verwijderen. De look verandert een beetje."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revelar com o mecanismo atual: cores mais amplas, balanço de branco, curva de tons e remoção de névoa. O visual muda um pouco."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用当前引擎冲印：更广的色彩、白平衡、色调曲线和去雾。外观会略有变化。"
+          }
+        }
+      }
+    },
     "Developing the film…": {
       "localizations": {
         "de": {
@@ -37309,6 +37367,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "每个镜头都会对准人物或主体构图，标题完整显示。"
+          }
+        }
+      }
+    },
+    "Earlier engine": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Frühere Engine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motor anterior"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moteur précédent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Motore precedente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以前のエンジン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 엔진"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eerdere engine"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mecanismo anterior"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "早期引擎"
           }
         }
       }
@@ -127994,6 +128110,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "已是最新"
+          }
+        }
+      }
+    },
+    "Update": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktualisieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bijwerken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新"
           }
         }
       }

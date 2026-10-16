@@ -4,6 +4,7 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 import ImageIO
 import Metal
+import Vision
 import UniformTypeIdentifiers
 
 /// Develops a photo with Pluck's photo engine (PhotoEngine: neutral RAW, local tone, profiles,
@@ -105,8 +106,9 @@ enum PhotoRender {
         raw.detailAmount = 0
         raw.contrastAmount = 0
         if #available(macOS 26, *) { raw.isHighlightRecoveryEnabled = true }
-        // Apple's gamut mapping stays until Pluck works in a wider space than sRGB: without it,
-        // the most saturated colours would clip.
+        // Apple's gamut mapping stays on: without it, near-black noise comes out in strong,
+        // impossible blues (measured: nearly three times as many) that Shadows then lifts. What
+        // it leaves outside sRGB, version 2 keeps and compresses itself.
         raw.isGamutMappingEnabled = true
         raw.isLensCorrectionEnabled = true
         raw.moireReductionAmount = Float(moire / 100)
@@ -328,6 +330,31 @@ enum PhotoRender {
     static func quick(_ path: String, record: PhotoRecord, maxSize: Int) async -> CGImage? {
         guard let image = image(path, record: record, maxSize: maxSize) else { return nil }
         return picture(image)
+    }
+
+    /// Auto for this photo (version 2): measured in scene light at its white balance, with the
+    /// faces macOS finds weighed most.
+    static func auto(_ path: String, record: PhotoRecord) -> PhotoAdjustments? {
+        var plain = PhotoRecord()
+        plain.adjust.temperature = record.adjust.temperature
+        plain.adjust.tint = record.adjust.tint
+        plain.adjust.rawDecoder = record.adjust.rawDecoder
+        guard let kept = base(path, maxSize: 384, record: plain) else { return nil }
+        let light = PhotoEngine.balanced(kept.image, plain.adjust, kelvin: asShotKelvin(path))
+        let extent = light.extent.integral
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0 else { return nil }
+        var pixels = [Float](repeating: 0, count: width * height * 4)
+        context.render(light, toBitmap: &pixels, rowBytes: width * 16, bounds: extent, format: .RGBAf,
+                       colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        let luminance = (0..<(width * height)).map { i in 0.2126 * pixels[i * 4] + 0.7152 * pixels[i * 4 + 1] + 0.0722 * pixels[i * 4 + 2] }
+        var faces: [CGRect] = []
+        if let shown = picture(PhotoEngine.develop(kept.image, plain.adjust, isRaw: isRaw(path), asShotKelvin: asShotKelvin(path))) {
+            let request = VNDetectFaceRectanglesRequest()
+            try? VNImageRequestHandler(cgImage: shown).perform([request])
+            faces = request.results?.map(\.boundingBox) ?? []
+        }
+        return PhotoEngine.auto(luminance: luminance, width: width, height: height, faces: faces)
     }
 
     /// A developed image as a picture (sRGB), at most this long (0: as it is).

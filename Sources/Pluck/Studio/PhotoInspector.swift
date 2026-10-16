@@ -194,6 +194,17 @@ struct PhotoInspector: View {
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
+            if record.adjust.process < PhotoAdjustments.currentProcess {
+                // Edited with the first engine: kept as it was until asked.
+                HStack(spacing: 8) {
+                    Label("Earlier engine", systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    Button("Update") { change { $0.adjust.process = PhotoAdjustments.currentProcess } }
+                        .help("Develop with the current engine: wider colour, white balance, tone curve and dehaze. The look changes a little.")
+                }
+                .controlSize(.small)
+                .padding(.horizontal, 8)
+            }
             FoldSection(title: "Light", key: "light") {
                 slider("Exposure", \.exposure, -5...5, format: "%+.2f")
                 slider("Contrast", \.contrast, -100...100)
@@ -322,10 +333,19 @@ struct PhotoInspector: View {
         let targets = paths
         Task {
             for path in targets {
-                var plain = PhotoRecord()
-                plain.adjust.profile = catalog.record(path).adjust.profile
-                guard let picture = await PhotoRender.quick(path, record: plain, maxSize: 512) else { continue }
-                let found = PhotoEngine.auto(picture)
+                let record = catalog.record(path)
+                let found: PhotoAdjustments
+                if record.adjust.process >= 2 {
+                    guard let measured = await Task.detached(priority: .userInitiated, operation: { PhotoRender.auto(path, record: record) }).value
+                    else { continue }
+                    found = measured
+                } else {
+                    var plain = PhotoRecord()
+                    plain.adjust.process = 1
+                    plain.adjust.profile = record.adjust.profile
+                    guard let picture = await PhotoRender.quick(path, record: plain, maxSize: 512) else { continue }
+                    found = PhotoEngine.auto(picture)
+                }
                 catalog.update([path]) { record in
                     record.adjust.exposure = found.exposure
                     record.adjust.highlights = found.highlights
