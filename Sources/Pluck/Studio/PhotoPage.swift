@@ -122,6 +122,8 @@ struct PhotoPage: View {
         }
         .onAppear {
             focused = true
+            // Back in Edit (or one at a time) from last time: with the first photo.
+            if view != .grid, focus == nil { focus = photos.first }
             FootageFolders.shared.start()
             PhotoIndex.shared.enqueue(catalog.allPhotos)
             catalog.readSidecars(catalog.allPhotos)
@@ -146,6 +148,9 @@ struct PhotoPage: View {
                     editing.selectedPart = first.shape.first?.id
                 }
             }
+            // -PluckScreenshotFind <text>: the Adjust panel's search filled in. -PluckScreenshotKeys YES: the keys.
+            if ScreenshotMode.scene == "photo", let text = UserDefaults.standard.string(forKey: "PluckScreenshotFind") { editing.toolQuery = text }
+            if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotKeys") { editing.showingKeys = true }
             // -PluckScreenshotCrop YES: the first photo being cropped.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotCrop") {
                 focus = photos.first
@@ -171,6 +176,7 @@ struct PhotoPage: View {
         }
         .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
         .onDisappear { editing.cropping = false }
+        .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
     }
 
     // MARK: - Sidebar
@@ -300,7 +306,7 @@ struct PhotoPage: View {
     // MARK: - Toolbar
 
     /// Browse (the grid, or one at a time to cull) or Edit (one photo, or two to compare).
-    private var editingMode: Bool { view == .edit || view == .compare }
+    private var editingMode: Bool { (view == .edit || view == .compare) && focus != nil }
 
     private var toolbar: some View {
         HStack(spacing: 10) {
@@ -412,6 +418,8 @@ struct PhotoPage: View {
             Divider()
             Toggle("Show Albums (⇧Tab)", isOn: Binding(get: { !sidebarHidden }, set: { sidebarHidden = !$0 }))
             Toggle("Show Inspector (Tab)", isOn: Binding(get: { !inspectorHidden }, set: { inspectorHidden = !$0 }))
+            Divider()
+            Button("Keyboard Shortcuts (?)") { editing.showingKeys = true }
         } label: {
             Image(systemName: "ellipsis.circle")
         }
@@ -583,6 +591,7 @@ struct PhotoPage: View {
                 catalog.update(targets) { $0.label = all ? nil : label }
                 return .handled
             }
+            if character == "?" { editing.showingKeys = true; return .handled }
             if character == "z", press.modifiers == .command { catalog.undo(); return .handled }
             if character == "z", press.modifiers == [.command, .shift] { catalog.redo(); return .handled }
             if character == "a", press.modifiers.contains(.command) {
@@ -795,6 +804,8 @@ struct PhotoLoupe: View {
                         }
                         if shapingMask, !editing.cropping, !original {
                             PhotoMaskHandles(path: path, record: record, frame: frame)
+                        } else if editing.mixerTargeting, primary, !editing.cropping, !original {
+                            MixerTarget(path: path, record: record, frame: frame)
                         }
                     }
                     if editing.cropping, !original {

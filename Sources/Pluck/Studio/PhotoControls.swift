@@ -22,6 +22,13 @@ final class PhotoEditing {
     var compareDrag: CGSize = .zero
     /// Clipped highlights shown red and clipped shadows blue (J).
     var showClipping = false
+    /// The Colour Mixer's band shown, and dragging on the photo to change colours.
+    var mixerBand = 0
+    var mixerTargeting = false
+    /// What's typed in the Adjust panel's search (tools whose name matches show).
+    var toolQuery = ""
+    /// The keyboard shortcuts shown (? or the … menu).
+    var showingKeys = false
     /// A look being pointed at in Looks: shown on the big photo until the pointer leaves.
     var previewRecord: PhotoRecord?
     /// The section held to see the photo without it (its eye in the Adjust panel).
@@ -506,58 +513,105 @@ struct FoldSection<Content: View>: View {
 struct ColorMixerEditor: View {
     let mixer: ColorMixer
     let change: (ColorMixer) -> Void
-    @AppStorage("mixerAspect") private var aspect = 1
+    @State private var editing = PhotoEditing.shared
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Picker("", selection: $aspect) {
-                Text("Hue").tag(0)
-                Text("Saturation").tag(1)
-                Text("Luminance").tag(2)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .controlSize(.small)
-            .padding(.horizontal, 8)
-            .padding(.bottom, 4)
-            ForEach(ColorMixer.Band.allCases) { band in
-                let value = values[band.rawValue]
-                HStack(spacing: 8) {
-                    Circle().fill(Color(hue: swatchHue(band), saturation: 0.75, brightness: 0.9)).frame(width: 10, height: 10)
-                    Text(band.title).foregroundStyle(.secondary).lineLimit(1).frame(width: 66, alignment: .leading)
-                    Slider(value: Binding(get: { value }, set: { set(band, $0) }), in: -100...100)
-                    Text(String(format: "%+.0f", value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
-                        .frame(width: 34, alignment: .trailing)
-                        .onTapGesture(count: 2) { set(band, 0) }
+        let band = ColorMixer.Band(rawValue: editing.mixerBand) ?? .red
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 0) {
+                ForEach(ColorMixer.Band.allCases) { item in
+                    let edited = mixer.hue[item.rawValue] != 0 || mixer.saturation[item.rawValue] != 0 || mixer.luminance[item.rawValue] != 0
+                    Button { editing.mixerBand = item.rawValue } label: {
+                        VStack(spacing: 3) {
+                            Circle().fill(Self.colour(item)).frame(width: 18, height: 18)
+                                .overlay(Circle().strokeBorder(.white, lineWidth: item == band ? 2 : 0))
+                                .shadow(color: .black.opacity(0.3), radius: 1)
+                            Circle().fill(edited ? Color.accentColor : .clear).frame(width: 4, height: 4)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .help(item.title)
+                    .accessibilityLabel(Text(item.title))
+                    .accessibilityAddTraits(item == band ? .isSelected : [])
                 }
-                .font(.callout)
-                .controlSize(.small)
-                .padding(.horizontal, 8)
-                .frame(minHeight: 24)
+                Toggle(isOn: $editing.mixerTargeting) { Image(systemName: "scope") }
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .help("Drag on the photo: up and down changes the colour under the pointer (saturation; with ⌥ luminance, with ⇧ hue)")
+                    .accessibilityLabel(Text("Change a colour by dragging on the photo"))
             }
+            .padding(.horizontal, 8)
+            AdjustSlider(title: "Hue", value: mixer.hue[band.rawValue], range: -100...100, track: .hues) { set(\.hue, band, $0) }
+            AdjustSlider(title: "Saturation", value: mixer.saturation[band.rawValue], range: -100...100, track: .colour(Self.colour(band))) { set(\.saturation, band, $0) }
+            AdjustSlider(title: "Luminance", value: mixer.luminance[band.rawValue], range: -100...100) { set(\.luminance, band, $0) }
         }
     }
 
-    private var values: [Double] {
-        switch aspect {
-        case 0: mixer.hue
-        case 2: mixer.luminance
-        default: mixer.saturation
-        }
-    }
-
-    private func set(_ band: ColorMixer.Band, _ value: Double) {
+    private func set(_ aspect: WritableKeyPath<ColorMixer, [Double]>, _ band: ColorMixer.Band, _ value: Double) {
         var new = mixer
-        switch aspect {
-        case 0: new.hue[band.rawValue] = value
-        case 2: new.luminance[band.rawValue] = value
-        default: new.saturation[band.rawValue] = value
-        }
+        new[keyPath: aspect][band.rawValue] = value
         change(new)
     }
 
-    private func swatchHue(_ band: ColorMixer.Band) -> Double {
-        [0.0, 0.08, 0.15, 0.33, 0.5, 0.62, 0.75, 0.88][band.rawValue]
+    /// The band's colour (its OkLCh hue, as a swatch).
+    static func colour(_ band: ColorMixer.Band) -> Color { PhotoMaskPanel.swatch(band.hue) }
+}
+
+/// Dragging on the photo to change the colour under the pointer (the mixer's target): up adds,
+/// down takes away; saturation, or luminance with Option, or hue with Shift. The bands near that
+/// colour move together, as much as they share it.
+struct MixerTarget: View {
+    let path: String
+    let record: PhotoRecord
+    let frame: CGRect
+    @State private var editing = PhotoEditing.shared
+    @State private var catalog = PhotoCatalog.shared
+    @State private var start: (weights: [Double], mixer: ColorMixer, aspect: WritableKeyPath<ColorMixer, [Double]>)?
+    @State private var sampling = false
+    @State private var travel: CGFloat = 0
+
+    var body: some View {
+        Color.clear
+            .contentShape(.rect)
+            .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    travel = value.translation.height
+                    if start == nil, !sampling { begin(at: value.startLocation) }
+                    apply()
+                }
+                .onEnded { _ in start = nil; sampling = false })
+    }
+
+    private func begin(at location: CGPoint) {
+        sampling = true
+        let flags = NSEvent.modifierFlags
+        let aspect: WritableKeyPath<ColorMixer, [Double]> = flags.contains(.option) ? \.luminance : flags.contains(.shift) ? \.hue : \.saturation
+        let at = CGPoint(x: (location.x - frame.minX) / max(frame.width, 1), y: (location.y - frame.minY) / max(frame.height, 1))
+        let path = self.path, record = self.record
+        Task {
+            guard let colour = await Task.detached(priority: .userInitiated, operation: { PhotoRender.sample(path, record: record, at: at) }).value
+            else { return }
+            let seen = PhotoRender.describe(colour)
+            var weights = ColorMixer.weights(seen.hue)
+            let top = max(weights.max() ?? 1, 0.0001)
+            weights = weights.map { $0 / top }
+            start = (weights, record.adjust.mixer, aspect)
+            if let strongest = weights.indices.max(by: { weights[$0] < weights[$1] }) { editing.mixerBand = strongest }
+            apply()
+        }
+    }
+
+    private func apply() {
+        guard let start else { return }
+        let amount = Double(-travel) * 0.5
+        var mixer = start.mixer
+        for i in 0..<8 where start.weights[i] > 0.05 {
+            mixer[keyPath: start.aspect][i] = min(max(start.mixer[keyPath: start.aspect][i] + amount * start.weights[i], -100), 100)
+        }
+        catalog.update([path]) { $0.adjust.mixer = mixer; $0.edited = .now }
     }
 }
 

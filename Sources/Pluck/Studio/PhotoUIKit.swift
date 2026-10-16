@@ -170,6 +170,28 @@ struct AdjustSlider: View {
 enum AdjustSection: String, CaseIterable {
     case light, colour, presence, mixer, curves, wheels, detail
 
+    /// The words it's found by: its name and its tools'.
+    var words: [String] {
+        switch self {
+        case .light: [String(localized: "Light"), String(localized: "Exposure"), String(localized: "Contrast"), String(localized: "Highlights"),
+                      String(localized: "Shadows"), String(localized: "Whites"), String(localized: "Blacks"), String(localized: "Brightness")]
+        case .colour: [String(localized: "Colour"), String(localized: "Temperature"), String(localized: "Tint"), String(localized: "Vibrance"),
+                       String(localized: "Saturation"), String(localized: "White Balance")]
+        case .presence: [String(localized: "Presence"), String(localized: "Texture"), String(localized: "Clarity"), String(localized: "Dehaze"),
+                         String(localized: "Vignette")]
+        case .mixer: [String(localized: "Colour Mixer"), String(localized: "Hue"), String(localized: "Saturation"), String(localized: "Luminance")]
+        case .curves: [String(localized: "Curves"), String(localized: "Tone Curve")]
+        case .wheels: [String(localized: "Colour Wheels"), String(localized: "Colour Grading")]
+        case .detail: [String(localized: "Detail"), String(localized: "Sharpen"), String(localized: "Noise"), String(localized: "Moiré"),
+                       String(localized: "Denoise")]
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        let wanted = query.trimmingCharacters(in: .whitespaces)
+        return wanted.isEmpty || words.contains { $0.localizedCaseInsensitiveContains(wanted) }
+    }
+
     func isEdited(_ a: PhotoAdjustments) -> Bool {
         var plain = a
         reset(&plain)
@@ -221,6 +243,11 @@ struct AdjustFold<Content: View>: View {
     }
 
     var body: some View {
+        let searching = !editing.toolQuery.trimmingCharacters(in: .whitespaces).isEmpty
+        if !searching || section.matches(editing.toolQuery) { fold(open: isOpen || searching) }
+    }
+
+    @ViewBuilder private func fold(open: Bool) -> some View {
         let edited = section.isEdited(adjust)
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 6) {
@@ -229,7 +256,7 @@ struct AdjustFold<Content: View>: View {
                 } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                            .rotationEffect(.degrees(isOpen ? 90 : 0))
+                            .rotationEffect(.degrees(open ? 90 : 0))
                             .foregroundStyle(.tertiary)
                         Text(title).font(.caption.weight(.semibold)).textCase(.uppercase)
                             .foregroundStyle(edited ? .primary : .secondary)
@@ -241,7 +268,7 @@ struct AdjustFold<Content: View>: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text(title))
                 .accessibilityValue(Text(edited ? "Changed" : "Not changed"))
-                .accessibilityHint(Text(isOpen ? "Closes the section" : "Opens the section"))
+                .accessibilityHint(Text(open ? "Closes the section" : "Opens the section"))
                 if edited, hovering || editing.peek == section {
                     Image(systemName: editing.peek == section ? "eye.slash" : "eye")
                         .foregroundStyle(.secondary)
@@ -262,12 +289,25 @@ struct AdjustFold<Content: View>: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
             .onHover { hovering = $0 }
-            if isOpen { content }
+            if open { content }
         }
     }
 }
 
 // MARK: - Looks
+
+extension PhotoRecord {
+    /// On this film, with the paper it's made for (slides and black-and-white reversal are
+    /// looked at, not printed).
+    @MainActor mutating func useFilm(_ id: String, engine: FilmEngine) {
+        film.film = id
+        if let paper = engine.films.first(where: { $0.id == id })?.print, engine.papers.contains(where: { $0.id == paper }) {
+            film.paper = paper
+        }
+        film.changed["scan_film"] = .number(engine.films.first { $0.id == id }?.type == "positive" ? 1 : 0)
+        filmOn = true
+    }
+}
 
 /// Looks: the profiles and your presets as small pictures of this photo. Point at one to see it
 /// on the big photo, click to use it.
@@ -279,6 +319,7 @@ struct PhotoLooks: View {
     @State private var catalog = PhotoCatalog.shared
     @State private var editing = PhotoEditing.shared
     @State private var pictures: [String: NSImage] = [:]
+    @State private var engine = FilmEngine.shared
 
     private struct Look: Identifiable {
         let id: String
@@ -307,11 +348,22 @@ struct PhotoLooks: View {
         }
     }
 
+    /// The film stocks (when the film engine is here), each with the photo's own settings.
+    private var films: [Look] {
+        guard engine.state == .ready else { return [] }
+        return engine.films.map { film in
+            var r = record
+            r.useFilm(film.id, engine: engine)
+            return Look(id: "film-" + film.id, title: film.name, record: r, film: true)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 section("Profiles", profiles)
                 section("Presets", presets)
+                section("Film", films)
                 if catalog.presets.isEmpty {
                     Text("Save a look you like to use it on other photos.").font(.caption).foregroundStyle(.secondary)
                 }
@@ -356,14 +408,15 @@ struct PhotoLooks: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .onHover { inside in editing.previewRecord = inside ? look.record : nil }
+        .onHover { inside in if !look.film || look.preset != nil { editing.previewRecord = inside ? look.record : nil } }
         .contextMenu {
             if let id = look.preset { Button("Delete Preset", role: .destructive) { catalog.deletePreset(id) } }
         }
         .accessibilityLabel(Text(look.title))
     }
 
-    /// The small pictures, one after the other (the film's are shown without it: too slow).
+    /// The small pictures, one after the other: the profiles and presets first (presets without
+    /// their film, which is slow), then each film stock through the film engine.
     private func render() async {
         for look in profiles + presets where pictures[look.id] == nil {
             var shown = look.record
@@ -375,6 +428,129 @@ struct PhotoLooks: View {
             }.value
             if Task.isCancelled { return }
             if let made { pictures[look.id] = NSImage(cgImage: made, size: .zero) }
+        }
+        await engine.loadProfiles()
+        for look in films where pictures[look.id] == nil {
+            // A worker of its own, so the big photo's film isn't kept waiting.
+            guard let made = try? await PhotoRender.develop(path, record: look.record, maxSize: 200, worker: 4) else { continue }
+            if Task.isCancelled { return }
+            pictures[look.id] = NSImage(cgImage: made, size: .zero)
+        }
+    }
+}
+
+// MARK: - Finding a tool
+
+/// What else the Adjust panel's search finds: tools that live somewhere else, and where.
+enum ToolJump: CaseIterable {
+    case crop, masks, film, looks, export, auto
+
+    var title: String {
+        switch self {
+        case .crop: String(localized: "Crop and Straighten")
+        case .masks: String(localized: "Masks")
+        case .film: String(localized: "Film")
+        case .looks: String(localized: "Looks")
+        case .export: String(localized: "Export")
+        case .auto: String(localized: "Auto")
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .crop: "crop"
+        case .masks: "circle.dashed.inset.filled"
+        case .film: "film"
+        case .looks: "square.grid.2x2"
+        case .export: "square.and.arrow.up"
+        case .auto: "wand.and.stars"
+        }
+    }
+
+    private var words: [String] {
+        switch self {
+        case .crop: [title, String(localized: "Crop"), String(localized: "Straighten"), String(localized: "Rotate"), String(localized: "Aspect")]
+        case .masks: [title, String(localized: "Subject"), String(localized: "People"), String(localized: "Brush"), String(localized: "Linear Gradient"),
+                      String(localized: "Radial Gradient"), String(localized: "Sky"), String(localized: "Local")]
+        case .film: [title, String(localized: "Grain"), String(localized: "Halation"), String(localized: "Stock"), String(localized: "Paper")]
+        case .looks: [title, String(localized: "Presets"), String(localized: "Profile")]
+        case .export: [title, String(localized: "Save"), String(localized: "JPEG")]
+        case .auto: [title, String(localized: "Enhance")]
+        }
+    }
+
+    func matches(_ query: String) -> Bool {
+        let wanted = query.trimmingCharacters(in: .whitespaces)
+        return !wanted.isEmpty && words.contains { $0.localizedCaseInsensitiveContains(wanted) }
+    }
+}
+
+/// The Adjust panel's search field: type a tool's name to see only that.
+struct ToolSearchField: View {
+    @State private var editing = PhotoEditing.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Find a tool", text: $editing.toolQuery).textFieldStyle(.plain)
+            if !editing.toolQuery.isEmpty {
+                Button { editing.toolQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
+                    .buttonStyle(.plain).foregroundStyle(.secondary)
+                    .accessibilityLabel(Text("Clear"))
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 7).padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
+        .padding(.horizontal, 8)
+        .onExitCommand { editing.toolQuery = "" }
+    }
+}
+
+// MARK: - Keys
+
+/// Every key on the Photo page, at a glance (? shows it). The ones that can be changed are
+/// changed in Settings › Keys.
+struct PhotoKeysSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var shortcuts = Shortcuts.shared
+
+    private var fixed: [(String, String)] {
+        [("1–5", String(localized: "Rate")), ("0", String(localized: "Clear the rating")), ("6–9", String(localized: "Red, yellow, green or blue label")),
+         ("← →", String(localized: "Previous and next photo")), ("Space", String(localized: "Browse or edit")),
+         ("\\", String(localized: "Hold to see it as shot")), ("⌘+  ⌘−  ⌘0", String(localized: "Zoom (in Browse: the grid's size)")),
+         ("⌘Z  ⇧⌘Z", String(localized: "Undo and redo")), ("Tab", String(localized: "Show or hide the inspector")),
+         ("⇧Tab", String(localized: "Show or hide both panels")), ("Esc", String(localized: "Back")), ("?", String(localized: "These keys"))]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Keys").font(Design.Typography.sheetTitle)
+            HStack(alignment: .top, spacing: 28) {
+                column(fixed)
+                column(ShortcutAction.allCases.filter { $0.group == .photo }.map { (shortcuts.shortcut($0).label, $0.title) })
+            }
+            HStack {
+                Text("Change them in Settings › Keys.").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 620)
+    }
+
+    private func column(_ rows: [(String, String)]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(rows, id: \.1) { key, what in
+                HStack(spacing: 10) {
+                    Text(key).font(.callout.monospaced().weight(.medium))
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.08)))
+                        .frame(width: 96, alignment: .leading)
+                    Text(what).font(.callout)
+                }
+            }
         }
     }
 }

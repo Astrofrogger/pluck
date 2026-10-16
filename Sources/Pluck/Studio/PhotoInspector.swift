@@ -118,7 +118,10 @@ struct PhotoInspector: View {
             }
         }
         .background(.background.secondary)
-        .onChange(of: tab) { _, now in if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil } }
+        .onChange(of: tab) { _, now in
+            if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil }
+            if now != .adjust { editing.mixerTargeting = false }
+        }
     }
 
     private func change(_ body: @escaping (inout PhotoRecord) -> Void) {
@@ -300,6 +303,18 @@ struct PhotoInspector: View {
                         .help("Develop with the current engine: wider colour, white balance, tone curve and dehaze. The look changes a little.")
                 }
                 .controlSize(.small)
+                .padding(.horizontal, 8)
+            }
+            ToolSearchField()
+            let jumps = ToolJump.allCases.filter { $0.matches(editing.toolQuery) }
+            if !jumps.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(jumps, id: \.self) { jump in
+                        Button { go(jump) } label: { Label(jump.title, systemImage: jump.symbol) }
+                            .buttonStyle(.link)
+                    }
+                }
+                .font(.callout)
                 .padding(.horizontal, 8)
             }
             AdjustFold(title: "Light", section: .light, adjust: record.adjust, open: true, reset: { resetSection(.light) }) {
@@ -570,6 +585,19 @@ struct PhotoInspector: View {
                      clipping: clipping) { new in change { $0.adjust[keyPath: path] = new } }
     }
 
+    /// A tool found by the search that lives elsewhere: there.
+    private func go(_ jump: ToolJump) {
+        editing.toolQuery = ""
+        switch jump {
+        case .crop: editing.cropping = true
+        case .masks: tab = .masks
+        case .film: tab = .film
+        case .looks: showingLooks = true
+        case .export: tab = .export
+        case .auto: autoTone()
+        }
+    }
+
     private func resetSection(_ section: AdjustSection) {
         change { section.reset(&$0.adjust) }
         if editing.peek == section { editing.peek = nil }
@@ -748,17 +776,7 @@ private struct PhotoFilmPanel: View {
             FoldSection(title: "Stock", key: "film-stock") {
                 filmRow("Film") {
                     Picker("Film", selection: Binding(get: { record.film.film }, set: { id in
-                        change { record in
-                            record.film.film = id
-                            // The paper the film is made for.
-                            if let paper = engine.films.first(where: { $0.id == id })?.print, engine.papers.contains(where: { $0.id == paper }) {
-                                record.film.paper = paper
-                            }
-                            // Slides and black and white reversal are looked at, not printed.
-                            let film = engine.films.first { $0.id == id }
-                            record.film.changed["scan_film"] = .number(film?.type == "positive" ? 1 : 0)
-                            record.filmOn = true
-                        }
+                        change { $0.useFilm(id, engine: engine) }
                     })) {
                         Section("Colour Negative") { ForEach(engine.films.filter { $0.type == "negative" && $0.use != "cine" && $0.bw != true }) { Text($0.name).tag($0.id) } }
                         Section("Slide") { ForEach(engine.films.filter { $0.type == "positive" && $0.bw != true }) { Text($0.name).tag($0.id) } }

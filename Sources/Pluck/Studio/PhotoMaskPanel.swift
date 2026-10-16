@@ -199,10 +199,12 @@ struct PhotoMaskPanel: View {
                 hint("Click the object on the photo")
             }
         case .luminance:
+            hint("Click the photo to pick a brightness")
             partSlider("From", part, in: mask, \.low, 0...1)
             partSlider("To", part, in: mask, \.high, 0...1)
             partSlider("Smooth", part, in: mask, \.smooth, 0.01...0.5)
         case .colour:
+            hint("Click the photo to pick a colour")
             HStack(spacing: 8) {
                 Text("Hue").foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
                 Slider(value: Binding(get: { part.hue }, set: { value in updatePart(part.id, in: mask.id) { $0.hue = value } }), in: 0...360)
@@ -324,6 +326,7 @@ struct PhotoMaskHandles: View {
                 case .radial: radial(part, in: mask)
                 case .brush: brush(part, in: mask)
                 case .object: object(part, in: mask)
+                case .luminance, .colour: pick(part, in: mask)
                 default: EmptyView()
                 }
             }
@@ -414,6 +417,32 @@ struct PhotoMaskHandles: View {
                     painting = true
                 }
                 .onEnded { _ in painting = false })
+    }
+
+    // MARK: - Ranges
+
+    /// Click the photo: the range is set around what's there (its brightness, or its colour).
+    private func pick(_ part: MaskPart, in mask: PhotoMask) -> some View {
+        Color.clear
+            .contentShape(.rect)
+            .onTapGesture { location in
+                let at = share(location), path = self.path, record = self.record
+                Task {
+                    guard let colour = await Task.detached(priority: .userInitiated, operation: { PhotoRender.sample(path, record: record, at: at) }).value
+                    else { return }
+                    let seen = PhotoRender.describe(colour)
+                    setPart(part, in: mask) { range in
+                        if range.kind == .luminance {
+                            range.low = max(seen.brightness - 0.15, 0)
+                            range.high = min(seen.brightness + 0.15, 1)
+                        } else {
+                            range.hue = seen.hue
+                            range.hueRange = 40
+                        }
+                    }
+                }
+            }
+            .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
     }
 
     // MARK: - Object

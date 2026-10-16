@@ -4,6 +4,7 @@ import CoreImage.CIFilterBuiltins
 import CryptoKit
 import ImageIO
 import Metal
+import simd
 import Vision
 import UniformTypeIdentifiers
 
@@ -372,6 +373,37 @@ enum PhotoRender {
     /// The photo's middle brightness before exposure, in stops from mid grey (faces weighed most).
     static func middle(_ path: String, record: PhotoRecord) -> Double? {
         measure(path, record: record).flatMap { PhotoEngine.middle(luminance: $0.luminance, width: $0.width, height: $0.height, faces: $0.faces) }
+    }
+
+    /// The developed photo's colour around a point (shares of the photo, from the top left), as
+    /// the screen shows it (linear sRGB), without its masks: for picking a range or a colour.
+    static func sample(_ path: String, record: PhotoRecord, at point: CGPoint) -> SIMD3<Double>? {
+        var plain = record
+        plain.adjust.masks = []
+        plain.adjust.cropRect = nil
+        plain.adjust.crop = .original
+        plain.adjust.straighten = 0
+        guard let image = image(path, record: plain, maxSize: 640) else { return nil }
+        let e = image.extent
+        let x = e.minX + point.x * e.width, y = e.maxY - point.y * e.height
+        let spot = CGRect(x: x - 2, y: y - 2, width: 5, height: 5).intersection(e)
+        guard !spot.isEmpty else { return nil }
+        let average = image.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: spot)])
+        var pixel = [Float](repeating: 0, count: 4)
+        context.render(average, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf,
+                       colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB))
+        return SIMD3(Double(pixel[0]), Double(pixel[1]), Double(pixel[2]))
+    }
+
+    /// The colour's brightness as the masks' brightness range measures it (0 black … 1 white),
+    /// and its hue in OkLCh (degrees) with how colourful it is.
+    static func describe(_ colour: SIMD3<Double>) -> (brightness: Double, hue: Double, chroma: Double) {
+        let c = simd_clamp(colour, SIMD3(repeating: 0), SIMD3(repeating: 1))
+        let luma = 0.2126 * c.x + 0.7152 * c.y + 0.0722 * c.z
+        let (_, a, b) = OkLab.from(c.x, c.y, c.z)
+        var hue = atan2(b, a) * 180 / .pi
+        if hue < 0 { hue += 360 }
+        return (pow(max(luma, 0), 1 / 2.2), hue, (a * a + b * b).squareRoot())
     }
 
     /// A developed image as a picture (sRGB), at most this long (0: as it is).
