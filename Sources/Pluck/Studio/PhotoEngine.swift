@@ -28,6 +28,16 @@ enum PhotoEngine {
         }
     }
 
+    // MARK: - The GPU
+
+    /// The one context all photo work goes through, so what it keeps on the GPU is shared.
+    static let device = MTLCreateSystemDefaultDevice()
+    nonisolated(unsafe) static let context: CIContext = {
+        let options: [CIContextOption: Any] = [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                                               .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false, .name: "Pluck Photo"]
+        return device.map { CIContext(mtlDevice: $0, options: options) } ?? CIContext(options: options)
+    }()
+
     // MARK: - Developing
 
     /// The picture from a decoded photo (linear light, white at 1, brighter kept above 1).
@@ -35,25 +45,33 @@ enum PhotoEngine {
     /// picture (JPEG, HEIC), where As Shot leaves its look alone.
     /// `scene`: stop before the profile and give scene light (for the film engine, which makes
     /// its own picture from it).
-    static func develop(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, asShotKelvin: Double = 5500, scene: Bool = false) -> CIImage {
+    /// `cacheKey`: the decoded photo is one that's kept (a preview's or the full size); its
+    /// local-tone layers are then worked out once per white balance and reused while the other
+    /// sliders move. Exposure needs no new layers: it moves the log brightness, and the layers
+    /// with it.
+    static func develop(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, asShotKelvin: Double = 5500, scene: Bool = false,
+                        cacheKey: String? = nil) -> CIImage {
         let extent = image.extent
-        var image = image
         // 1. Exposure and white balance: one matrix in linear light.
         let gain = pow(2, a.exposure)
-        let m = whiteBalance(a, kelvin: asShotKelvin).map { $0 * gain }
-        image = image.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: m[0], y: m[1], z: m[2], w: 0),
-            "inputGVector": CIVector(x: m[3], y: m[4], z: m[5], w: 0),
-            "inputBVector": CIVector(x: m[6], y: m[7], z: m[8], w: 0),
-        ])
-        // No negative light (and a step Core Image always runs on the GPU: a photo straight from
-        // memory isn't handed to the passes below otherwise).
-        image = image.applyingFilter("CIColorClamp", parameters: ["inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 1),
-                                                                   "inputMaxComponents": CIVector(x: 64, y: 64, z: 64, w: 1)])
+        let balance = whiteBalance(a, kelvin: asShotKelvin)
+        let exposed = linear(image, balance.map { $0 * gain })
         // 2–3. Local tone and the profile, in one pass, from two base layers.
         let long = max(extent.width, extent.height)
-        let large = guide(image, scale: 640 / long, radius: 16, eps: 0.03)
-        let small = guide(image, scale: 1600 / long, radius: 6, eps: 0.02)
+        let layers: (large: CIImage, small: CIImage)
+        var shift: Float = 0
+        if let cacheKey {
+            let key = cacheKey + "|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
+            layers = GuideCache.shared.layers(key) {
+                let balanced = linear(image, balance)
+                return (guide(balanced, scale: 640 / long, radius: 16, eps: 0.03), guide(balanced, scale: 1600 / long, radius: 6, eps: 0.02))
+            }
+            shift = Float(a.exposure)
+        } else {
+            layers = (guide(exposed, scale: 640 / long, radius: 16, eps: 0.03), guide(exposed, scale: 1600 / long, radius: 6, eps: 0.02))
+        }
+        let large = layers.large, small = layers.small
+        let image = exposed
         var p = Params()
         p.shadows = Float(a.shadows / 100)
         p.highlights = Float(a.highlights / 100)
@@ -67,12 +85,28 @@ enum PhotoEngine {
         p.profile = Int32(PhotoEngine.Profile.allCases.firstIndex(of: profile == .asShot && isRaw ? .standard : profile) ?? 0)
         p.isRaw = isRaw ? 1 : 0
         p.scene = scene ? 1 : 0
-        let inputs = [image.clampedToExtent(),
-                      large.transformed(by: CGAffineTransform(scaleX: long / 640, y: long / 640)).clampedToExtent(),
-                      small.transformed(by: CGAffineTransform(scaleX: long / 1600, y: long / 1600)).clampedToExtent()]
+        p.shift = shift
+        // The layers go in small and are read smoothly where each pixel falls (scaling them up
+        // to the photo's size first would cost more than all the rest).
+        let inputs = [image.clampedToExtent(), large, small]
         let data = withUnsafeBytes(of: p) { Data($0) }
-        guard let developed = try? DevelopPass.apply(withExtent: extent, inputs: inputs, arguments: ["params": data]) else { return image }
+        guard let developed = try? DevelopPass.apply(withExtent: extent, inputs: inputs, arguments: [
+            "params": data, "layers": [large.extent, small.extent, extent].flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
+        ]) else { return image }
         return developed.cropped(to: extent)
+    }
+
+    /// A 3×3 matrix in linear light, then no negative light (and a step Core Image always runs on
+    /// the GPU: a photo straight from memory isn't handed to the passes otherwise).
+    private static func linear(_ image: CIImage, _ m: [Double]) -> CIImage {
+        image.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: m[0], y: m[1], z: m[2], w: 0),
+            "inputGVector": CIVector(x: m[3], y: m[4], z: m[5], w: 0),
+            "inputBVector": CIVector(x: m[6], y: m[7], z: m[8], w: 0),
+        ]).applyingFilter("CIColorClamp", parameters: ["inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 1),
+                                                       "inputMaxComponents": CIVector(x: 64, y: 64, z: 64, w: 1)])
+        // (An alpha of at least 1 reaches past the photo: kept to its size.)
+        .cropped(to: image.extent)
     }
 
     /// The guided filter's coefficients (a, b) for the log brightness, worked out small: the
@@ -146,6 +180,8 @@ enum PhotoEngine {
         var shadows: Float = 0, highlights: Float = 0, whites: Float = 0, blacks: Float = 0
         var contrast: Float = 0, clarity: Float = 0, texture: Float = 0, dehaze: Float = 0
         var profile: Int32 = 0, isRaw: Int32 = 0, scene: Int32 = 0
+        /// Stops of exposure the layers were made without.
+        var shift: Float = 0
     }
 
     static let shaders = #"""
@@ -156,6 +192,7 @@ enum PhotoEngine {
         float shadows, highlights, whites, blacks;
         float contrast, clarity, texture, dehaze;
         int profile, isRaw, scene;
+        float shift;
     };
 
     inline float luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
@@ -216,19 +253,27 @@ enum PhotoEngine {
     }
 
     kernel void develop(texture2d<float, access::read> image [[texture(0)]],
-                        texture2d<float, access::read> large [[texture(1)]],
-                        texture2d<float, access::read> small [[texture(2)]],
+                        texture2d<float, access::sample> large [[texture(1)]],
+                        texture2d<float, access::sample> small [[texture(2)]],
                         texture2d<float, access::write> dst [[texture(3)]],
                         constant Params &p [[buffer(0)]],
                         constant int2 *offsets [[buffer(1)]],
+                        constant float4 *map [[buffer(2)]],
                         uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        constexpr sampler smooth(coord::normalized, address::clamp_to_edge, filter::linear);
         float3 c = max(image.read(at(gid, offsets[0], uint2(image.get_width(), image.get_height()))).rgb, 0.0);
         float Y = max(luma(c), 1e-5);
         float L = log2(Y);
-        float2 al = large.read(at(gid, offsets[1], uint2(large.get_width(), large.get_height()))).rg, as = small.read(at(gid, offsets[2], uint2(small.get_width(), small.get_height()))).rg;
-        float baseL = al.x * L + al.y;
-        float baseS = as.x * L + as.y;
+        // Where this pixel is in the photo, then in each small layer's texture.
+        float2 pos = float2(map[0].x + float(gid.x) + 0.5, map[0].y - float(gid.y) - 0.5);
+        float2 t1 = float2(map[1].x * pos.x + map[1].y, map[1].z * pos.y + map[1].w);
+        float2 t2 = float2(map[2].x * pos.x + map[2].y, map[2].z * pos.y + map[2].w);
+        float2 uv1 = t1 / float2(large.get_width(), large.get_height()), uv2 = t2 / float2(small.get_width(), small.get_height());
+        float2 al = large.sample(smooth, uv1).rg, as = small.sample(smooth, uv2).rg;
+        // b moves with the exposure the layers were made without: (1 − a)·shift.
+        float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
+        float baseS = as.x * L + as.y + (1.0 - as.x) * p.shift;
         float detail = L - baseS, mid = baseS - baseL;
 
         // Local tone, on the large base, in stops from mid grey. Highlights compress (or stretch)
@@ -302,7 +347,9 @@ enum PhotoEngine {
     }
 
     /// Runs one compute function over the output, with the inputs at the same place.
-    static func run(_ name: String, inputs: [CIImageProcessorInput]?, output: CIImageProcessorOutput, bytes: [Data] = []) throws {
+    /// `offsetsIndex`: where the inputs' offsets go among the buffers (after all the bytes when nil).
+    static func run(_ name: String, inputs: [CIImageProcessorInput]?, output: CIImageProcessorOutput, bytes: [Data] = [],
+                    offsetsIndex: Int? = nil) throws {
         guard let buffer = output.metalCommandBuffer, let target = output.metalTexture,
               let state = Library.shared.pipeline(name, device: buffer.device),
               let encoder = buffer.makeComputeCommandEncoder() else {
@@ -322,8 +369,9 @@ enum PhotoEngine {
             index += 1
         }
         encoder.setTexture(target, index: index)
+        let offsetsAt = offsetsIndex ?? bytes.count
         for (i, data) in bytes.enumerated() {
-            data.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: data.count, index: i) }
+            data.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: data.count, index: i < offsetsAt ? i : i + 1) }
         }
         // Each input's offset from the output (in the textures' top-down rows).
         var offsets: [SIMD2<Int32>] = (inputs ?? []).map { input in
@@ -331,7 +379,7 @@ enum PhotoEngine {
                   Int32(input.region.maxY.rounded(.up) - output.region.maxY.rounded(.up)))
         }
         if offsets.isEmpty { offsets = [.zero] }
-        encoder.setBytes(&offsets, length: MemoryLayout<SIMD2<Int32>>.stride * offsets.count, index: bytes.count)
+        encoder.setBytes(&offsets, length: MemoryLayout<SIMD2<Int32>>.stride * offsets.count, index: offsetsAt)
         let width = state.threadExecutionWidth, height = max(state.maxTotalThreadsPerThreadgroup / width, 1)
         encoder.dispatchThreads(MTLSize(width: target.width, height: target.height, depth: 1),
                                 threadsPerThreadgroup: MTLSize(width: width, height: height, depth: 1))
@@ -353,6 +401,45 @@ enum PhotoEngine {
         guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
         texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0, withBytes: input.baseAddress, bytesPerRow: input.bytesPerRow)
         return texture
+    }
+}
+
+/// The local-tone layers of the photos being edited, worked out once (a few megabytes each).
+final class GuideCache: @unchecked Sendable {
+    static let shared = GuideCache()
+    private var layers: [String: (large: CIImage, small: CIImage)] = [:]
+    private var order: [String] = []
+    private let lock = NSLock()
+
+    func layers(_ key: String, make: () -> (large: CIImage, small: CIImage)) -> (large: CIImage, small: CIImage) {
+        lock.lock()
+        if let known = layers[key] {
+            order.removeAll { $0 == key }
+            order.append(key)
+            lock.unlock()
+            return known
+        }
+        lock.unlock()
+        let made = make()
+        let kept = (large: render(made.large), small: render(made.small))
+        lock.lock()
+        layers[key] = kept
+        order.append(key)
+        if order.count > 12 { layers[order.removeFirst()] = nil }
+        lock.unlock()
+        return kept
+    }
+
+    func removeAll() {
+        lock.lock(); layers = [:]; order = []; lock.unlock()
+    }
+
+    /// Rendered now and kept as floats (the same place and size).
+    private func render(_ image: CIImage) -> CIImage {
+        let extent = image.extent.integral
+        guard let made = PhotoEngine.context.createCGImage(image, from: extent, format: .RGBAf,
+                                                           colorSpace: nil) else { return image }
+        return CIImage(cgImage: made, options: [.colorSpace: NSNull()]).transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
     }
 }
 
@@ -379,32 +466,54 @@ final class GuideCoef: CIImageProcessorKernel {
 /// Local tone and the profile.
 final class DevelopPass: CIImageProcessorKernel {
     override class var outputFormat: CIFormat { .RGBAh }
-    override class func formatForInput(at input: Int32) -> CIFormat { input == 0 ? .RGBAh : .RGBAf }
-    override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect { outputRect }
+    override class func formatForInput(at input: Int32) -> CIFormat { .RGBAh }
+    /// The photo where the output is; the two small layers whole.
+    override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect {
+        // (As numbers: Core Image moves rectangles it finds among the arguments.)
+        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 12 else { return outputRect }
+        let i = Int(input - 1) * 4
+        return CGRect(x: sizes[i], y: sizes[i + 1], width: sizes[i + 2], height: sizes[i + 3])
+    }
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
-        try PhotoEngine.run("develop", inputs: inputs, output: output, bytes: [(arguments?["params"] as? Data) ?? Data()])
+        // Where each pixel falls in the two layers' textures: texel = (sx·x + bx, sy·y + by) from
+        // the photo's coordinates (y up) to the textures' (y down, from the piece handed over).
+        guard let inputs, inputs.count == 3, let sizes = arguments?["layers"] as? [Double], sizes.count == 12 else {
+            throw NSError(domain: "Pluck", code: 11)
+        }
+        let photo = CGRect(x: sizes[8], y: sizes[9], width: sizes[10], height: sizes[11])
+        var map = [SIMD4<Float>(Float(output.region.minX), Float(output.region.maxY), 0, 0)]
+        for layer in 0..<2 {
+            let extent = CGRect(x: sizes[layer * 4], y: sizes[layer * 4 + 1], width: sizes[layer * 4 + 2], height: sizes[layer * 4 + 3])
+            let region = inputs[layer + 1].region
+            let sx = extent.width / photo.width, sy = extent.height / photo.height
+            map.append(SIMD4(Float(sx), Float(extent.minX - photo.minX * sx - region.minX),
+                             Float(-sy), Float(region.maxY - extent.minY + photo.minY * sy)))
+        }
+        let bytes = map.withUnsafeBytes { Data($0) }
+        try PhotoEngine.run("develop", inputs: inputs, output: output,
+                            bytes: [(arguments?["params"] as? Data) ?? Data(), bytes], offsetsIndex: 1)
     }
 }
 
 // MARK: - Histogram and Auto
 
 extension PhotoEngine {
-    /// Red, green and blue counts in 64 steps, from a developed picture (made small first).
-    static func histogram(_ image: CGImage) -> [[Float]] {
-        let width = 256, height = max(1, Int(Double(image.height) * 256 / Double(max(image.width, 1))))
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        guard let context = CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
-        else { return [] }
-        context.interpolationQuality = .low
-        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    /// Red, green and blue counts in 64 steps, from a developed image, on the GPU (as the
+    /// screen shows it: in sRGB steps, from a small copy).
+    static func histogram(_ image: CIImage) -> [[Float]] {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0, !extent.isInfinite else { return [] }
+        let scale = min(1, 512 / max(extent.width, extent.height))
+        let small = image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": scale, "inputAspectRatio": 1])
+            .applyingFilter("CILinearToSRGBToneCurve")
+        let counted = small.applyingFilter("CIAreaHistogram", parameters: [kCIInputExtentKey: CIVector(cgRect: small.extent.integral),
+                                                                          "inputCount": 64, "inputScale": 1])
+        var values = [Float](repeating: 0, count: 64 * 4)
+        context.render(counted, toBitmap: &values, rowBytes: 64 * 16, bounds: CGRect(x: 0, y: 0, width: 64, height: 1),
+                       format: .RGBAf, colorSpace: nil)
         var bins = [[Float]](repeating: [Float](repeating: 0, count: 64), count: 3)
-        for i in stride(from: 0, to: pixels.count, by: 4) {
-            bins[0][Int(pixels[i]) / 4] += 1
-            bins[1][Int(pixels[i + 1]) / 4] += 1
-            bins[2][Int(pixels[i + 2]) / 4] += 1
-        }
-        let top = max(bins.flatMap { $0.dropFirst().dropLast() }.max() ?? 1, 1)
+        for i in 0..<64 { for c in 0..<3 { bins[c][i] = values[i * 4 + c] } }
+        let top = max(bins.flatMap { $0.dropFirst().dropLast() }.max() ?? 1, 1e-9)
         return bins.map { $0.map { min($0 / top, 1) } }
     }
 

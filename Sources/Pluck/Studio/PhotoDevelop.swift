@@ -22,6 +22,10 @@ struct PhotoAdjustments: Codable, Hashable {
     var profile: PhotoEngine.Profile?
     var sharpen = 0.0        // 0…100
     var noise = 0.0          // noise reduction, 0…100
+    var moire = 0.0          // moiré reduction (RAW), 0…100
+    /// The version of Apple's RAW decoder the photo was edited with, kept so a macOS update
+    /// doesn't change how it looks (nil: not edited yet, the newest).
+    var rawDecoder: String?
     var vignette = 0.0       // darker edges -100 … lighter 100
     var straighten = 0.0     // degrees, -45…45
     var crop = Crop.original
@@ -88,12 +92,24 @@ struct PhotoAdjustments: Codable, Hashable {
         whites = value(.whites, 0); blacks = value(.blacks, 0); temperature = value(.temperature, 0); tint = value(.tint, 0)
         vibrance = value(.vibrance, 0); saturation = value(.saturation, 0); clarity = value(.clarity, 0); sharpen = value(.sharpen, 0)
         texture = value(.texture, 0); dehaze = value(.dehaze, 0); profile = value(.profile, nil as PhotoEngine.Profile?)
-        noise = value(.noise, 0); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
+        noise = value(.noise, 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
     }
 
-    var isDefault: Bool { self == PhotoAdjustments() }
+    /// Nothing changed (which decoder made the photo doesn't count).
+    var isDefault: Bool {
+        var plain = self
+        plain.rawDecoder = nil
+        return plain == PhotoAdjustments()
+    }
+
+    /// These settings for another photo, which keeps its own decoder.
+    func keepingDecoder(of other: PhotoAdjustments) -> PhotoAdjustments {
+        var copy = self
+        copy.rawDecoder = other.rawDecoder
+        return copy
+    }
 
     /// The crop's width over height, for a picture of this shape.
     func cropRatio(pictureRatio: Double) -> Double? {
@@ -236,58 +252,61 @@ enum DevelopLUT {
 
         var values = [Float](repeating: 0, count: size * size * size * 4)
         let step = 1.0 / Double(size - 1)
-        var index = 0
-        for bi in 0..<size {
-            for gi in 0..<size {
-                for ri in 0..<size {
-                    var r = Double(ri) * step, g = Double(gi) * step, b = Double(bi) * step
-                    // Colour wheels (lift, gamma, gain, offset), per channel.
-                    if !w.isDefault {
-                        func grade(_ v: Double, _ lc: Double, _ gc: Double, _ kc: Double, _ oc: Double) -> Double {
-                            let liftAmount = (w.lift.master + lc) * 0.25
-                            let gainAmount = 1 + (w.gain.master + kc) * 0.5
-                            let gammaPower = pow(2, -(w.gamma.master + gc) * 0.8)
-                            var x = v * gainAmount + liftAmount * (1 - v)
-                            x = x > 0 ? pow(x, gammaPower) : x
-                            return x + (w.offset.master + oc) * 0.15
+        // One blue slice per core at a time: the table follows a slider.
+        values.withUnsafeMutableBufferPointer { buffer in
+            DispatchQueue.concurrentPerform(iterations: size) { bi in
+                var index = bi * size * size * 4
+                for gi in 0..<size {
+                    for ri in 0..<size {
+                        var r = Double(ri) * step, g = Double(gi) * step, b = Double(bi) * step
+                        // Colour wheels (lift, gamma, gain, offset), per channel.
+                        if !w.isDefault {
+                            func grade(_ v: Double, _ lc: Double, _ gc: Double, _ kc: Double, _ oc: Double) -> Double {
+                                let liftAmount = (w.lift.master + lc) * 0.25
+                                let gainAmount = 1 + (w.gain.master + kc) * 0.5
+                                let gammaPower = pow(2, -(w.gamma.master + gc) * 0.8)
+                                var x = v * gainAmount + liftAmount * (1 - v)
+                                x = x > 0 ? pow(x, gammaPower) : x
+                                return x + (w.offset.master + oc) * 0.15
+                            }
+                            r = grade(r, lift.0, gamma.0, gain.0, offset.0)
+                            g = grade(g, lift.1, gamma.1, gain.1, offset.1)
+                            b = grade(b, lift.2, gamma.2, gain.2, offset.2)
                         }
-                        r = grade(r, lift.0, gamma.0, gain.0, offset.0)
-                        g = grade(g, lift.1, gamma.1, gain.1, offset.1)
-                        b = grade(b, lift.2, gamma.2, gain.2, offset.2)
+                        // Curves: per channel, then the master.
+                        r = master.value(red.value(r)); g = master.value(green.value(g)); b = master.value(blue.value(b))
+                        // The colour mixer, saturation and vibrance, in OkLCh (so hues hold). Vibrance lifts
+                        // dull colours more than strong ones, and leaves skin tones mostly alone.
+                        if saturation != 1 || vibrance != 0 || !a.mixer.isDefault {
+                            let (L0, A0, B0) = OkLab.from(decode(clamp(r)), decode(clamp(g)), decode(clamp(b)))
+                            var L = L0, C = (A0 * A0 + B0 * B0).squareRoot()
+                            var h = atan2(B0, A0) * 180 / .pi
+                            if h < 0 { h += 360 }
+                            if !a.mixer.isDefault, C > 0.002 {
+                                let w = ColorMixer.weights(h)
+                                var dh = 0.0, ds = 0.0, dl = 0.0
+                                for i in 0..<8 { dh += w[i] * a.mixer.hue[i]; ds += w[i] * a.mixer.saturation[i]; dl += w[i] * a.mixer.luminance[i] }
+                                // Grey stays grey: the mixer works in proportion to how colourful it is.
+                                let colourful = min(C / 0.08, 1)
+                                h += dh / 100 * 30 * colourful
+                                C *= max(0, 1 + ds / 100 * colourful)
+                                L *= 1 + dl / 100 * 0.35 * colourful
+                            }
+                            var amount = saturation
+                            if vibrance != 0 {
+                                var skin = abs(h - 55)
+                                if skin > 180 { skin = 360 - skin }
+                                let protect = exp(-(skin * skin) / (2 * 18 * 18)) * 0.7
+                                amount *= 1 + vibrance * (1 - min(C / 0.22, 1)) * (1 - protect)
+                            }
+                            C *= max(amount, 0)
+                            let rad = h * .pi / 180
+                            let (lr, lg, lb) = OkLab.to(L, C * cos(rad), C * sin(rad))
+                            r = encode(lr); g = encode(lg); b = encode(lb)
+                        }
+                        buffer[index] = Float(clamp(r)); buffer[index + 1] = Float(clamp(g)); buffer[index + 2] = Float(clamp(b)); buffer[index + 3] = 1
+                        index += 4
                     }
-                    // Curves: per channel, then the master.
-                    r = master.value(red.value(r)); g = master.value(green.value(g)); b = master.value(blue.value(b))
-                    // The colour mixer, saturation and vibrance, in OkLCh (so hues hold). Vibrance lifts
-                    // dull colours more than strong ones, and leaves skin tones mostly alone.
-                    if saturation != 1 || vibrance != 0 || !a.mixer.isDefault {
-                        let (L0, A0, B0) = OkLab.from(decode(clamp(r)), decode(clamp(g)), decode(clamp(b)))
-                        var L = L0, C = (A0 * A0 + B0 * B0).squareRoot()
-                        var h = atan2(B0, A0) * 180 / .pi
-                        if h < 0 { h += 360 }
-                        if !a.mixer.isDefault, C > 0.002 {
-                            let w = ColorMixer.weights(h)
-                            var dh = 0.0, ds = 0.0, dl = 0.0
-                            for i in 0..<8 { dh += w[i] * a.mixer.hue[i]; ds += w[i] * a.mixer.saturation[i]; dl += w[i] * a.mixer.luminance[i] }
-                            // Grey stays grey: the mixer works in proportion to how colourful it is.
-                            let colourful = min(C / 0.08, 1)
-                            h += dh / 100 * 30 * colourful
-                            C *= max(0, 1 + ds / 100 * colourful)
-                            L *= 1 + dl / 100 * 0.35 * colourful
-                        }
-                        var amount = saturation
-                        if vibrance != 0 {
-                            var skin = abs(h - 55)
-                            if skin > 180 { skin = 360 - skin }
-                            let protect = exp(-(skin * skin) / (2 * 18 * 18)) * 0.7
-                            amount *= 1 + vibrance * (1 - min(C / 0.22, 1)) * (1 - protect)
-                        }
-                        C *= max(amount, 0)
-                        let rad = h * .pi / 180
-                        let (lr, lg, lb) = OkLab.to(L, C * cos(rad), C * sin(rad))
-                        r = encode(lr); g = encode(lg); b = encode(lb)
-                    }
-                    values[index] = Float(clamp(r)); values[index + 1] = Float(clamp(g)); values[index + 2] = Float(clamp(b)); values[index + 3] = 1
-                    index += 4
                 }
             }
         }

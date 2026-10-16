@@ -3,14 +3,14 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import CryptoKit
 import ImageIO
+import Metal
 import UniformTypeIdentifiers
 
 /// Develops a photo with Pluck's photo engine (PhotoEngine: neutral RAW, local tone, profiles,
 /// on the GPU), then, when film is on, the film and paper through spektrafilm (about a second
 /// for a preview, longer at full size).
 enum PhotoRender {
-    nonisolated(unsafe) private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
-                                                                         .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false])
+    private static var context: CIContext { PhotoEngine.context }
 
     /// The big picture's size: the screen's pixels (sharp on Retina), at least 2048.
     @MainActor static var previewSize: Int {
@@ -59,7 +59,7 @@ enum PhotoRender {
     /// The photo, at most this many pixels on its long side (0: full size), in linear light. RAW
     /// is decoded neutral: none of the camera maker's look, so every camera starts the same.
     /// The denoised photo when there is one for this strength.
-    static func source(_ path: String, maxSize: Int, denoise: Int = 0, noise: Double = 0) -> CIImage? {
+    static func source(_ path: String, maxSize: Int, denoise: Int = 0, noise: Double = 0, raw settings: RawSettings = RawSettings()) -> CIImage? {
         if denoise > 0, let clean = denoised(path, strength: denoise), FileManager.default.fileExists(atPath: clean.path),
            var image = CIImage(contentsOf: clean) {
             let long = max(image.extent.width, image.extent.height)
@@ -77,7 +77,7 @@ enum PhotoRender {
                 let long = max(raw.nativeSize.width, raw.nativeSize.height)
                 if long > 0 { raw.scaleFactor = Float(min(1, Double(maxSize) / long)) }
             }
-            neutral(raw, noise: noise)
+            neutral(raw, noise: noise, moire: settings.moire, decoder: settings.decoder)
             // Lens correction leaves an unfilled edge: a sliver (0.4%) goes.
             guard let image = raw.outputImage else { return nil }
             let edge = max(2, (max(image.extent.width, image.extent.height) * 0.004).rounded(.up))
@@ -93,27 +93,60 @@ enum PhotoRender {
     }
 
     /// Apple's RAW engine without its look: no boost or tone mapping, the highlights' headroom
-    /// kept, no sharpening (Pluck sharpens last), lens corrections on.
-    static func neutral(_ raw: CIRAWFilter, noise: Double) {
+    /// kept, no sharpening or extra detail and contrast (Pluck does those), lens corrections on.
+    /// Every switch is set, so nothing depends on Apple's defaults; the decoder's version is the
+    /// one the photo was edited with.
+    static func neutral(_ raw: CIRAWFilter, noise: Double, moire: Double = 0, decoder: String? = nil) {
         raw.boostAmount = 0
         raw.boostShadowAmount = 0
         raw.localToneMapAmount = 0
         raw.extendedDynamicRangeAmount = 2
         raw.sharpnessAmount = 0
+        raw.detailAmount = 0
+        raw.contrastAmount = 0
+        if #available(macOS 26, *) { raw.isHighlightRecoveryEnabled = true }
+        // Apple's gamut mapping stays until Pluck works in a wider space than sRGB: without it,
+        // the most saturated colours would clip.
+        raw.isGamutMappingEnabled = true
         raw.isLensCorrectionEnabled = true
-        if noise > 0 {
-            raw.luminanceNoiseReductionAmount = Float(noise / 100)
-            raw.colorNoiseReductionAmount = Float(max(Double(raw.colorNoiseReductionAmount), noise / 100))
+        raw.moireReductionAmount = Float(moire / 100)
+        if let decoder, let version = raw.supportedDecoderVersions.first(where: { $0.rawValue == decoder }) {
+            raw.decoderVersion = version
         }
+        raw.luminanceNoiseReductionAmount = Float(noise / 100)
+        raw.colorNoiseReductionAmount = Float(max(0.5, noise / 100))
+    }
+
+    /// The RAW decoder a new edit is pinned to (the newest this Mac has).
+    static func currentDecoder(_ path: String) -> String? {
+        guard isRaw(path) else { return nil }
+        kelvinLock.lock()
+        if let known = decoders[path] { kelvinLock.unlock(); return known }
+        kelvinLock.unlock()
+        guard let version = CIRAWFilter(imageURL: URL(fileURLWithPath: path))?.decoderVersion.rawValue else { return nil }
+        kelvinLock.lock(); decoders[path] = version; kelvinLock.unlock()
+        return version
+    }
+
+    nonisolated(unsafe) private static var decoders: [String: String] = [:]
+
+    /// What the RAW decoder is given besides noise.
+    struct RawSettings: Hashable {
+        var moire = 0.0
+        var decoder: String?
+        init() {}
+        init(_ a: PhotoAdjustments) { moire = a.moire; decoder = a.rawDecoder }
+        var key: String { "\(Int(moire))|\(decoder ?? "")" }
     }
 
     /// The adjustments, in the order a photo editor applies them: light and white balance, local
     /// tone and the profile (the photo engine), colour (a lookup table), noise, sharpening,
     /// straightening and crop, vignette. `scene`: light only, for the film engine.
+    /// `cacheKey`: the decoded photo is a kept one (see `base`), so its local-tone layers can be.
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, kelvin: Double, scene: Bool = false, crop: Bool = true,
-                         path: String? = nil) -> CIImage {
+                         path: String? = nil, cacheKey: String? = nil) -> CIImage {
         let base = image
-        var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene)
+        var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey)
         let long = max(image.extent.width, image.extent.height)
         if !scene, a.needsLUT {
             let filter = CIFilter.colorCubeWithColorSpace()
@@ -154,8 +187,9 @@ enum PhotoRender {
     }
 
     /// The adjustments for this photo (whether it's RAW, and its as-shot light).
-    static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, path: String, scene: Bool = false, crop: Bool = true) -> CIImage {
-        adjusted(image, a, isRaw: isRaw(path), kelvin: asShotKelvin(path), scene: scene, crop: crop, path: path)
+    static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, path: String, scene: Bool = false, crop: Bool = true,
+                         cacheKey: String? = nil) -> CIImage {
+        adjusted(image, a, isRaw: isRaw(path), kelvin: asShotKelvin(path), scene: scene, crop: crop, path: path, cacheKey: cacheKey)
     }
 
     /// Straightening and the crop. The crop is kept as shares from the top left of the
@@ -210,17 +244,19 @@ enum PhotoRender {
     // MARK: - Developing
 
     /// The developed photo as a picture to show or save. `maxSize` 0 is full size (slow with film).
+    /// A preview is developed from the kept decode; full size (for saving) from the file.
     static func develop(_ path: String, record: PhotoRecord, maxSize: Int, worker: Int = 0) async throws -> CGImage? {
         let noise = isRaw(path) ? record.adjust.noise : 0
-        guard let source = maxSize > 0 ? previewBase(path, maxSize: maxSize, denoise: record.denoiseKey, noise: noise)
-            : source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise) else { return nil }
+        let kept = maxSize > 0 ? base(path, maxSize: maxSize, record: record) : nil
+        guard let source = kept?.image ?? source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust))
+        else { return nil }
         guard record.filmOn else {
-            let image = adjusted(source, record.adjust, path: path)
+            let image = adjusted(source, record.adjust, path: path, cacheKey: kept?.key)
             return context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         // The film makes the picture from scene light: the light and local tone go in, the film's
         // own curve and colour do the rest.
-        let image = adjusted(source, record.adjust, path: path, scene: true)
+        let image = adjusted(source, record.adjust, path: path, scene: true, cacheKey: kept?.key)
         // Through the film: raw linear floats in and out (pluck-spektra, darktable's port).
         let extent = image.extent.integral
         let width = Int(extent.width), height = Int(extent.height)
@@ -264,73 +300,45 @@ enum PhotoRender {
         return long
     }
 
-    // MARK: - Decoded photos kept in memory
+    // MARK: - Decoded photos kept on the GPU
 
-    nonisolated(unsafe) private static var bases: [String: CIImage] = [:]
-    nonisolated(unsafe) private static var baseOrder: [String] = []
-    private static let baseLock = NSLock()
-
-    /// The photo decoded once at preview size (RAW included) and kept, so a slider only redoes
-    /// the adjustments: that is what makes editing follow the mouse.
-    static func previewBase(_ path: String, maxSize: Int, denoise: Int = 0, noise: Double = 0) -> CIImage? {
+    /// The photo decoded once (RAW included) and kept on the GPU, so a slider only redoes the
+    /// adjustments: that is what makes editing follow the mouse. `maxSize` 0: full size. The key
+    /// names this decode (for the layers worked out from it).
+    static func base(_ path: String, maxSize: Int, record: PhotoRecord) -> (image: CIImage, key: String)? {
+        let noise = isRaw(path) ? record.adjust.noise : 0
+        let denoise = record.denoiseKey
         let ready = denoise > 0 && denoised(path, strength: denoise).map { FileManager.default.fileExists(atPath: $0.path) } == true
-        let key = "\(maxSize)|\(ready ? denoise : 0)|\(Int(noise))|\(path)"
-        baseLock.lock()
-        if let base = bases[key] { baseLock.unlock(); return base }
-        baseLock.unlock()
-        guard let source = source(path, maxSize: maxSize, denoise: ready ? denoise : 0, noise: ready ? 0 : noise) else { return nil }
-        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-        guard let decoded = context.createCGImage(source, from: source.extent, format: .RGBAh, colorSpace: linear) else { return source }
-        let base = CIImage(cgImage: decoded)
-        baseLock.lock()
-        bases[key] = base
-        baseOrder.append(key)
-        if baseOrder.count > 5 { bases[baseOrder.removeFirst()] = nil }
-        baseLock.unlock()
-        return base
+        let settings = RawSettings(record.adjust)
+        let key = "\(maxSize)|\(ready ? denoise : 0)|\(ready ? 0 : Int(noise))|\(settings.key)|\(path)"
+        if let known = BaseCache.shared.image(key) { return (known, key) }
+        guard let source = source(path, maxSize: maxSize, denoise: ready ? denoise : 0, noise: ready ? 0 : noise, raw: settings),
+              let kept = BaseCache.shared.keep(source, key: key) else { return nil }
+        return (kept, key)
     }
 
-    nonisolated(unsafe) private static var full: (key: String, image: CIImage)?
-
-    /// The photo decoded at full size (one kept, for looking closely).
-    static func fullBase(_ path: String, denoise: Int, noise: Double) -> CIImage? {
-        let ready = denoise > 0 && denoised(path, strength: denoise).map { FileManager.default.fileExists(atPath: $0.path) } == true
-        let key = "\(ready ? denoise : 0)|\(Int(noise))|\(path)"
-        baseLock.lock()
-        if let full, full.key == key { baseLock.unlock(); return full.image }
-        baseLock.unlock()
-        guard let source = source(path, maxSize: 0, denoise: ready ? denoise : 0, noise: ready ? 0 : noise),
-              let decoded = context.createCGImage(source, from: source.extent, format: .RGBAh,
-                                                  colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!) else { return nil }
-        let image = CIImage(cgImage: decoded)
-        baseLock.lock(); full = (key, image); baseLock.unlock()
-        return image
+    /// The developed photo (the adjustments, no film), still to be drawn: for the screen.
+    /// `maxSize` 0: full size, for looking closely (only the part on screen is worked out).
+    static func image(_ path: String, record: PhotoRecord, maxSize: Int) -> CIImage? {
+        guard let kept = base(path, maxSize: maxSize, record: record) else { return nil }
+        return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key)
     }
 
-    /// Part of the developed photo at a zoom (1: one photo pixel per screen pixel): `size` screen
-    /// pixels around `center` (shares of the picture, from the top left). Only that part is worked
-    /// out. Also the picture's full size.
-    static func region(_ path: String, record: PhotoRecord, center: CGPoint, size: CGSize, zoom: Double) async -> (image: CGImage, full: CGSize)? {
-        guard let base = fullBase(path, denoise: record.denoiseKey, noise: isRaw(path) ? record.adjust.noise : 0) else { return nil }
-        let image = adjusted(base, record.adjust, path: path)
-        let e = image.extent
-        // The part of the photo that fills the view, in photo pixels.
-        let w = min(size.width / zoom, e.width), h = min(size.height / zoom, e.height)
-        let x = min(max(e.minX + center.x * e.width - w / 2, e.minX), e.maxX - w)
-        let y = min(max(e.maxY - center.y * e.height - h / 2, e.minY), e.maxY - h)
-        let part = image.cropped(to: CGRect(x: x, y: y, width: w, height: h))
-            .transformed(by: CGAffineTransform(translationX: -x, y: -y).concatenating(CGAffineTransform(scaleX: zoom, y: zoom)))
-        let out = CGRect(x: 0, y: 0, width: (w * zoom).rounded(), height: (h * zoom).rounded())
-        guard let cg = context.createCGImage(zoom >= 1.5 ? part.samplingNearest() : part, from: out, format: .RGBA8,
-                                             colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
-        return (cg, e.size)
-    }
-
-    /// The adjustments only (no film), straight away: for following a slider.
+    /// The adjustments only (no film), straight away, as a picture.
     static func quick(_ path: String, record: PhotoRecord, maxSize: Int) async -> CGImage? {
-        guard let base = previewBase(path, maxSize: maxSize, denoise: record.denoiseKey, noise: isRaw(path) ? record.adjust.noise : 0) else { return nil }
-        let image = adjusted(base, record.adjust, path: path)
-        return context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        guard let image = image(path, record: record, maxSize: maxSize) else { return nil }
+        return picture(image)
+    }
+
+    /// A developed image as a picture (sRGB), at most this long (0: as it is).
+    static func picture(_ image: CIImage, maxSize: Int = 0) -> CGImage? {
+        var image = image
+        let long = max(image.extent.width, image.extent.height)
+        if maxSize > 0, long > Double(maxSize) {
+            let scale = Double(maxSize) / long
+            image = image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": scale, "inputAspectRatio": 1])
+        }
+        return context.createCGImage(image, from: image.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 
     // MARK: - Denoising
@@ -401,14 +409,7 @@ enum PhotoRender {
     static func savePreview(_ image: CGImage, to url: URL) {
         // The grid's copy: small is enough there.
         var image = image
-        let long = max(image.width, image.height)
-        if long > 1200 {
-            let scale = 1200 / Double(long)
-            let small = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            if let made = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) {
-                image = made
-            }
-        }
+        if max(image.width, image.height) > 1200, let small = picture(CIImage(cgImage: image), maxSize: 1200) { image = small }
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
         CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
@@ -454,4 +455,71 @@ enum PhotoRender {
         guard CGImageDestinationFinalize(destination) else { throw NSError(domain: "Pluck", code: 3) }
         return output
     }
+}
+
+/// The decoded photos, kept on the GPU (as half floats) within a share of the Mac's memory; the
+/// least recently used go first, and all of them when the Mac runs short.
+final class BaseCache: @unchecked Sendable {
+    static let shared = BaseCache()
+    private var images: [String: (image: CIImage, bytes: Int)] = [:]
+    private var order: [String] = []
+    private var total = 0
+    private let budget = Int(min(ProcessInfo.processInfo.physicalMemory / 5, 4 << 30))
+    private let lock = NSLock()
+    private let pressure = DispatchSource.makeMemoryPressureSource(eventMask: [.warning, .critical], queue: .global(qos: .utility))
+
+    private init() {
+        pressure.setEventHandler { [weak self] in
+            self?.removeAll()
+            GuideCache.shared.removeAll()
+        }
+        pressure.activate()
+    }
+
+    func image(_ key: String) -> CIImage? {
+        lock.lock(); defer { lock.unlock() }
+        guard let known = images[key] else { return nil }
+        order.removeAll { $0 == key }
+        order.append(key)
+        return known.image
+    }
+
+    /// Decodes the photo into a texture now and keeps it.
+    func keep(_ source: CIImage, key: String) -> CIImage? {
+        let extent = source.extent.integral
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0, let device = PhotoEngine.device, let queue = Self.queue,
+              let buffer = queue.makeCommandBuffer() else { return nil }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: width, height: height, mipmapped: false)
+        descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        descriptor.storageMode = .private
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let destination = CIRenderDestination(mtlTexture: texture, commandBuffer: buffer)
+        destination.colorSpace = linear
+        guard (try? PhotoEngine.context.startTask(toRender: source.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)),
+                                                  to: destination)) != nil else { return nil }
+        buffer.commit()
+        buffer.waitUntilCompleted()
+        guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: linear]) else { return nil }
+        let bytes = width * height * 8
+        lock.lock()
+        if let old = images[key] { total -= old.bytes; order.removeAll { $0 == key } }
+        images[key] = (image, bytes)
+        order.append(key)
+        total += bytes
+        while total > budget, order.count > 1 {
+            let oldest = order.removeFirst()
+            total -= images[oldest]?.bytes ?? 0
+            images[oldest] = nil
+        }
+        lock.unlock()
+        return image
+    }
+
+    func removeAll() {
+        lock.lock(); images = [:]; order = []; total = 0; lock.unlock()
+    }
+
+    private static let queue = PhotoEngine.device?.makeCommandQueue()
 }

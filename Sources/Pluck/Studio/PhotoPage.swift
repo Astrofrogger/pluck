@@ -71,7 +71,7 @@ struct PhotoPage: View {
                         }
                     } else if view == .edit, let focus {
                         VStack(spacing: 0) {
-                            PhotoLoupe(path: focus, record: catalog.record(focus))
+                            PhotoLoupe(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus).prefix(2).map { ($0, catalog.record($0)) })
                             filmstrip
                         }
                     } else {
@@ -586,18 +586,25 @@ private struct PhotoCell: View {
 
 // MARK: - One photo, large
 
-/// The developed photo, re-developed a moment after a setting changes. With film on, a quick
-/// look first (the adjustments) and the film render when it's ready. Hold \ to see it as shot.
+/// The developed photo, drawn from the GPU as a setting changes (only the adjustments are redone:
+/// the decode and the local-tone layers are kept). Zoomed in past the preview, the photo at full
+/// size, of which only the part on screen is worked out. With film on, the film render follows
+/// when the slider rests. Hold \ to see it as shot.
 struct PhotoLoupe: View {
     let path: String
     let record: PhotoRecord
-    @State private var image: NSImage?
+    /// The photos either side (and their settings), decoded ahead.
+    var neighbours: [(String, PhotoRecord)] = []
+    /// The developed preview (or the film's picture).
+    @State private var picture: CIImage?
+    /// The photo at full size, for the settings in `fullKey`.
+    @State private var full: CIImage?
+    @State private var fullKey: FullKey?
+    @State private var fullLong = 0.0
     @State private var developing = false
     @State private var problem: String?
     @State private var editing = PhotoEditing.shared
     @State private var catalog = PhotoCatalog.shared
-    @State private var detail: CGImage?
-    @State private var detailKey: DetailKey?
     @State private var center = CGPoint(x: 0.5, y: 0.5)
     @State private var drag: CGSize = .zero
     @State private var pinchStart: Double?
@@ -607,31 +614,20 @@ struct PhotoLoupe: View {
     var body: some View {
         ZStack {
             Color.black
-            if let zoom = editing.zoom, !editing.cropping, let image {
-                zoomedView(image, zoom: zoom)
-            } else if let image {
+            if let picture {
                 GeometryReader { geo in
-                    let fitted = Self.fitted(image.size, in: geo.size, inset: 14)
-                    Image(nsImage: image).resizable().scaledToFit().padding(14)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .contentShape(.rect)
-                        .onTapGesture { location in
-                            guard !editing.cropping, fitted.width > 0 else { return }
-                            center = CGPoint(x: min(max((location.x - fitted.minX) / fitted.width, 0), 1),
-                                             y: min(max((location.y - fitted.minY) / fitted.height, 0), 1))
-                            editing.zoom = 1
+                    let frame = pictureFrame(in: geo.size)
+                    ZStack {
+                        PhotoCanvas(image: shownImage ?? picture, frame: frame)
+                        if let zoom = editing.zoom, !editing.cropping {
+                            zoomGestures(zoom: zoom, area: geo.size, frame: frame)
+                        } else {
+                            fitGestures(frame: frame)
                         }
-                        .gesture(MagnifyGesture().onChanged { value in
-                            guard !editing.cropping, value.magnification > 1.05 else { return }
-                            editing.zoom = max(fitZoom(image), 0.1) * value.magnification
-                        })
-                }
-                if editing.cropping, !original {
-                    GeometryReader { geo in
-                        let area = geo.size, inset = 14.0
-                        let ratio = image.size.width / max(image.size.height, 1)
-                        let width = min(area.width - inset * 2, (area.height - inset * 2) * ratio), height = width / ratio
-                        let frame = CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
+                    }
+                    if editing.cropping, !original {
+                        let size = picture.extent.size
+                        let ratio = size.width / max(size.height, 1)
                         CropOverlay(frame: frame, pictureRatio: ratio,
                                     rect: record.adjust.cropRect ?? CropOverlay.centered(ratio: record.adjust.cropRatio(pictureRatio: ratio), pictureRatio: ratio),
                                     ratio: record.adjust.cropRatio(pictureRatio: ratio), angle: record.adjust.straighten,
@@ -661,98 +657,135 @@ struct PhotoLoupe: View {
         }
         .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
         .task(id: TaskKey(path: path, record: shownRecord, original: original)) { await develop() }
-        .task(id: ZoomKey(path: path, record: shownRecord, center: center, size: viewSize, zoom: editing.cropping ? nil : editing.zoom)) {
-            // The sharp picture for this place and zoom, once the mouse rests (the view moves the
-            // loaded picture meanwhile). Not needed while the screen picture has enough pixels.
-            guard let zoom = editing.zoom, !editing.cropping, viewSize.width > 0, let image else { detail = nil; return }
-            let k = scaleToFull(image)
-            guard zoom * k > 1.05 else { detail = nil; return }
-            try? await Task.sleep(for: .milliseconds(140))
+        .task(id: wantedFull) {
+            // The photo at full size once zoomed in past the preview (decoded once, then only the
+            // adjustments are redone).
+            guard let key = wantedFull else { return }
+            if full == nil || fullKey?.path != key.path { developing = true }
+            let path = key.path, record = key.record
+            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0) }.value
             guard !Task.isCancelled else { return }
-            let shown = original ? PhotoRecord() : shownRecord
-            developing = true
-            let pixels = CGSize(width: viewSize.width * displayScale, height: viewSize.height * displayScale)
-            // The same place the view shows (kept inside the photo).
-            let c = clamped(center, width: Double(image.size.width) * k * zoom / displayScale,
-                            height: Double(image.size.height) * k * zoom / displayScale, view: viewSize)
-            if let found = await PhotoRender.region(path, record: shown, center: c, size: pixels, zoom: zoom), !Task.isCancelled {
-                detail = found.image
-                detailKey = DetailKey(center: c, zoom: zoom)
-            }
-            if !Task.isCancelled { developing = false }
+            full = made
+            fullKey = key
+            developing = false
         }
-        .onChange(of: path) { _, _ in editing.zoom = nil; detail = nil }
+        .task(id: path) {
+            let path = self.path
+            fullLong = Double(await Task.detached { PhotoRender.fullLongEdge(path) }.value)
+            // The photos either side, decoded ahead, once this one is showing.
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            let size = PhotoRender.previewSize, ahead = neighbours
+            await Task.detached(priority: .utility) {
+                for (next, record) in ahead { _ = PhotoRender.base(next, maxSize: size, record: record) }
+            }.value
+        }
+        .onChange(of: path) { _, _ in editing.zoom = nil; full = nil; fullKey = nil }
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
     }
 
-    private struct ZoomKey: Hashable {
+    private struct TaskKey: Hashable {
         let path: String
         let record: PhotoRecord
-        let center: CGPoint
-        let size: CGSize
-        let zoom: Double?
+        let original: Bool
     }
 
-    private struct DetailKey: Equatable {
-        let center: CGPoint
-        let zoom: Double
+    private struct FullKey: Hashable {
+        let path: String
+        let record: PhotoRecord
     }
 
-    /// Photo pixels per pixel of the screen picture.
-    private func scaleToFull(_ image: NSImage) -> Double {
-        let full = Double(PhotoRender.fullLongEdge(path))
-        let shownLong = Double(max(image.size.width, image.size.height))
-        let baseLong = min(Double(PhotoRender.previewSize), full)
-        return full > 0 && shownLong > 0 ? max(full / max(baseLong, 1), 1) : 1
+    private var original: Bool { editing.asShot }
+
+    /// While cropping, the whole picture shows (the frame marks the crop).
+    private var shownRecord: PhotoRecord {
+        var shown = record
+        if editing.cropping {
+            shown.adjust.cropRect = nil
+            shown.adjust.crop = .original
+            shown.filmOn = false
+        }
+        return shown
+    }
+
+    /// The settings to show the full size for: zoomed in past the preview's own pixels.
+    private var wantedFull: FullKey? {
+        guard let zoom = editing.zoom, !editing.cropping, zoom * scaleToFull > 1.05 else { return nil }
+        var shown = original ? PhotoRecord() : shownRecord
+        shown.filmOn = false
+        return FullKey(path: path, record: shown)
+    }
+
+    /// The full size when it's made for what's showing now.
+    private var shownImage: CIImage? {
+        guard let wanted = wantedFull, fullKey == wanted else { return nil }
+        return full
+    }
+
+    /// Photo pixels per pixel of the preview.
+    private var scaleToFull: Double {
+        guard let picture else { return 1 }
+        let shownLong = Double(max(picture.extent.width, picture.extent.height))
+        return fullLong > 0 && shownLong > 0 ? max(fullLong / shownLong, 1) : 1
     }
 
     /// The zoom at which the photo just fits.
-    private func fitZoom(_ image: NSImage) -> Double {
-        let fitted = Self.fitted(image.size, in: viewSize, inset: 14)
-        let k = scaleToFull(image)
-        return Double(fitted.width) * displayScale / max(Double(image.size.width) * k, 1)
+    private func fitZoom() -> Double {
+        guard let picture else { return 1 }
+        let fitted = Self.fitted(picture.extent.size, in: viewSize, inset: 14)
+        return Double(fitted.width) * displayScale / max(Double(picture.extent.width) * scaleToFull, 1)
     }
 
-    /// The photo at a zoom: the loaded picture scaled and moved straight away, the sharp
-    /// picture over it once it's ready. Drag to look around, pinch or scroll with ⌘ to zoom.
-    @ViewBuilder private func zoomedView(_ image: NSImage, zoom: Double) -> some View {
-        GeometryReader { geo in
-            let k = scaleToFull(image)
-            // The whole photo's size on screen at this zoom (points).
-            let width = Double(image.size.width) * k * zoom / displayScale, height = Double(image.size.height) * k * zoom / displayScale
-            let c = clamped(center, width: width, height: height, view: geo.size)
-            let x = geo.size.width / 2 + (0.5 - c.x) * width + drag.width, y = geo.size.height / 2 + (0.5 - c.y) * height + drag.height
-            ZStack {
-                Image(nsImage: image).resizable().interpolation(zoom * k > 2 ? .none : .high)
-                    .frame(width: width, height: height)
-                    .position(x: x, y: y)
-                if let detail, detailKey == DetailKey(center: c, zoom: zoom) {
-                    Image(decorative: detail, scale: displayScale)
-                        .position(x: geo.size.width / 2 + drag.width, y: geo.size.height / 2 + drag.height)
-                }
+    /// Where the whole photo goes in the view (points, from the top left).
+    private func pictureFrame(in area: CGSize) -> CGRect {
+        guard let picture else { return .zero }
+        let size = picture.extent.size
+        guard let zoom = editing.zoom, !editing.cropping else { return Self.fitted(size, in: area, inset: 14) }
+        let width = Double(size.width) * scaleToFull * zoom / displayScale, height = Double(size.height) * scaleToFull * zoom / displayScale
+        let c = clamped(center, width: width, height: height, view: area)
+        let x = area.width / 2 + (0.5 - c.x) * width + drag.width, y = area.height / 2 + (0.5 - c.y) * height + drag.height
+        return CGRect(x: x - width / 2, y: y - height / 2, width: width, height: height)
+    }
+
+    /// Fitted: click to look at that place at 100%, pinch to zoom in.
+    private func fitGestures(frame: CGRect) -> some View {
+        Color.clear
+            .contentShape(.rect)
+            .onTapGesture { location in
+                guard !editing.cropping, frame.width > 0 else { return }
+                center = CGPoint(x: min(max((location.x - frame.minX) / frame.width, 0), 1),
+                                 y: min(max((location.y - frame.minY) / frame.height, 0), 1))
+                editing.zoom = 1
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipped()
+            .gesture(MagnifyGesture().onChanged { value in
+                guard !editing.cropping, value.magnification > 1.05 else { return }
+                editing.zoom = max(fitZoom(), 0.1) * value.magnification
+            })
+    }
+
+    /// Zoomed: drag to look around, pinch (or ⌘ and scroll) to zoom, double-click to fit.
+    private func zoomGestures(zoom: Double, area: CGSize, frame: CGRect) -> some View {
+        Color.clear
             .contentShape(.rect)
             .gesture(DragGesture(minimumDistance: 2)
                 .onChanged { value in drag = value.translation }
                 .onEnded { value in
-                    center = clamped(CGPoint(x: c.x - value.translation.width / width, y: c.y - value.translation.height / height),
-                                     width: width, height: height, view: geo.size)
+                    let c = clamped(center, width: frame.width, height: frame.height, view: area)
+                    center = clamped(CGPoint(x: c.x - value.translation.width / frame.width, y: c.y - value.translation.height / frame.height),
+                                     width: frame.width, height: frame.height, view: area)
                     drag = .zero
                 })
             .simultaneousGesture(MagnifyGesture()
                 .onChanged { value in
                     if pinchStart == nil { pinchStart = zoom }
-                    editing.zoom = min(max((pinchStart ?? zoom) * value.magnification, fitZoom(image) * 0.9), 8)
+                    editing.zoom = min(max((pinchStart ?? zoom) * value.magnification, fitZoom() * 0.9), 8)
                 }
                 .onEnded { _ in
                     pinchStart = nil
-                    if let z = editing.zoom, z <= fitZoom(image) { editing.zoom = nil }
+                    if let z = editing.zoom, z <= fitZoom() { editing.zoom = nil }
                 })
             .onTapGesture(count: 2) { editing.zoom = nil }
-            .overlay(alignment: .bottomTrailing) { zoomBar(image).padding(14) }
-        }
+            .overlay(alignment: .bottomTrailing) { zoomBar.padding(14) }
     }
 
     /// Keeps the photo's edges at the view's edges (or the photo centred when it's smaller).
@@ -765,7 +798,7 @@ struct PhotoLoupe: View {
         return CGPoint(x: axis(point.x, width, view.width), y: axis(point.y, height, view.height))
     }
 
-    private func zoomBar(_ image: NSImage) -> some View {
+    private var zoomBar: some View {
         HStack(spacing: 2) {
             Button("Fit") { editing.zoom = nil }
             ForEach(PhotoEditing.zoomSteps, id: \.self) { step in
@@ -789,59 +822,73 @@ struct PhotoLoupe: View {
         return CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
     }
 
-    private struct TaskKey: Hashable {
-        let path: String
-        let record: PhotoRecord
-        let original: Bool
-    }
-
-    private var original: Bool { editing.asShot }
-
-    /// While cropping, the whole picture shows (the frame marks the crop).
-    private var shownRecord: PhotoRecord {
-        var shown = record
-        if editing.cropping {
-            shown.adjust.cropRect = nil
-            shown.adjust.crop = .original
-            shown.filmOn = false
-        }
-        return shown
-    }
-
-    /// The adjustments follow at once; the film (seconds) waits until the slider rests.
+    /// The adjustments follow at once; the histogram and the grid's copy when the slider rests;
+    /// the film (a second or so) after that.
     private func develop() async {
         problem = nil
         let shown = original ? PhotoRecord() : shownRecord
+        let path = self.path, size = PhotoRender.previewSize
         let cached = PhotoRender.cachedPreview(path, record: shown)
-        if shown.filmOn, let saved = NSImage(contentsOf: cached) {
-            image = saved
+        if shown.filmOn, let known = FilmPictures.shared.picture(cached.path) {
+            picture = known
             developing = false
             return
         }
-        if let fast = await PhotoRender.quick(path, record: shown, maxSize: PhotoRender.previewSize) {
-            guard !Task.isCancelled else { return }
-            image = NSImage(cgImage: fast, size: .zero)
-            editing.histogram = PhotoEngine.histogram(fast)
-            if !shown.filmOn {
-                developing = false
-                try? await Task.sleep(for: .milliseconds(700))
-                if !Task.isCancelled, shown.isEdited { PhotoRender.savePreview(fast, to: cached) }
-                return
-            }
+        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size) }.value
+        guard !Task.isCancelled else { return }
+        if shown.filmOn, FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
+            // The film's look from last time while it's developed again at this size.
+            picture = saved
+        } else if let quick {
+            picture = quick
+        } else {
+            problem = String(localized: "The photo couldn’t be read.")
+            return
+        }
+        if !shown.filmOn {
+            developing = false
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled, let quick else { return }
+            editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(quick) }.value
+            try? await Task.sleep(for: .milliseconds(550))
+            guard !Task.isCancelled, shown.isEdited else { return }
+            await Task.detached(priority: .utility) {
+                if let small = PhotoRender.picture(quick, maxSize: 1200) { PhotoRender.savePreview(small, to: cached) }
+            }.value
+            return
         }
         try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
         developing = true
         do {
-            if let developed = try await PhotoRender.develop(path, record: shown, maxSize: PhotoRender.previewSize) {
+            if let developed = try await PhotoRender.develop(path, record: shown, maxSize: size) {
                 guard !Task.isCancelled else { return }
-                image = NSImage(cgImage: developed, size: .zero)
+                let film = CIImage(cgImage: developed)
+                picture = film
+                FilmPictures.shared.keep(film, for: cached.path)
+                editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value
                 PhotoRender.savePreview(developed, to: cached)
             }
         } catch {
             if !Task.isCancelled { problem = error.localizedDescription }
         }
         if !Task.isCancelled { developing = false }
+    }
+}
+
+/// The last few film pictures made, to show again at once (the film takes a second or so).
+@MainActor
+final class FilmPictures {
+    static let shared = FilmPictures()
+    private var pictures: [String: CIImage] = [:]
+    private var order: [String] = []
+
+    func picture(_ key: String) -> CIImage? { pictures[key] }
+
+    func keep(_ picture: CIImage, for key: String) {
+        if pictures[key] == nil { order.append(key) }
+        pictures[key] = picture
+        if order.count > 8 { pictures[order.removeFirst()] = nil }
     }
 }
 

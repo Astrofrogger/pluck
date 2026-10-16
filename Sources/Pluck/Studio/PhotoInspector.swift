@@ -159,7 +159,7 @@ struct PhotoInspector: View {
                         .help("Copy this photo’s adjustments and film")
                     Button("Paste") {
                         guard let copied = PhotoInspector.clipboard else { return }
-                        change { $0.adjust = copied.adjust; $0.film = copied.film; $0.filmOn = copied.filmOn }
+                        change { $0.adjust = copied.adjust.keepingDecoder(of: $0.adjust); $0.film = copied.film; $0.filmOn = copied.filmOn }
                     }
                     .disabled(PhotoInspector.clipboard == nil)
                     .help("Give the selected photos the copied adjustments and film")
@@ -234,6 +234,7 @@ struct PhotoInspector: View {
             FoldSection(title: "Detail", key: "detail", open: false) {
                 slider("Sharpen", \.sharpen, 0...100)
                 slider("Noise", \.noise, 0...100)
+                if raw { slider("Moiré", \.moire, 0...100) }
                 denoise
             }
             FoldSection(title: "Crop", key: "crop") {
@@ -435,7 +436,7 @@ struct PhotoInspector: View {
         HStack(spacing: 8) {
             Menu {
                 ForEach(catalog.presets) { preset in
-                    Button(preset.name) { change { $0.adjust = preset.adjust; $0.filmOn = preset.filmOn; $0.film = preset.film } }
+                    Button(preset.name) { change { $0.adjust = preset.adjust.keepingDecoder(of: $0.adjust); $0.filmOn = preset.filmOn; $0.film = preset.film } }
                 }
                 if !catalog.presets.isEmpty { Divider() }
                 Button("Save as Preset…") { presetName = ""; naming = true }

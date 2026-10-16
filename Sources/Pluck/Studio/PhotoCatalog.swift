@@ -132,6 +132,10 @@ final class PhotoCatalog {
         for path in paths {
             var record = records[path] ?? PhotoRecord()
             change(&record)
+            // A RAW keeps the decoder it was first edited with, so it looks the same after macOS updates.
+            if record.adjust.rawDecoder == nil, !record.adjust.isDefault {
+                record.adjust.rawDecoder = PhotoRender.currentDecoder(path)
+            }
             records[path] = record
         }
         scheduleSave()
