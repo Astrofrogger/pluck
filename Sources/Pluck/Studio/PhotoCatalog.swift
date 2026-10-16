@@ -318,6 +318,7 @@ final class PhotoCatalog {
         albums.append(album)
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
+        PhotoChecks.shared.enqueue(paths)
         readSidecars(paths)
         return album
     }
@@ -328,6 +329,7 @@ final class PhotoCatalog {
         albums[index].paths += paths.filter { !existing.contains($0) }
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
+        PhotoChecks.shared.enqueue(paths)
         readSidecars(paths)
     }
 

@@ -968,38 +968,127 @@ private struct Fold<Content: View>: View {
 private struct PhotoExportPanel: View {
     let paths: [String]
     @State private var catalog = PhotoCatalog.shared
-    @AppStorage("photoExportFormat") private var format = PhotoRender.Format.jpeg
-    @AppStorage("photoExportQuality") private var quality = 0.9
-    @AppStorage("photoExportLongSide") private var longSide = 0
+    @AppStorage("photoExportSettings") private var stored = Data()
     @AppStorage("photoExportFolder") private var folderPath = ""
     @State private var editing = PhotoEditing.shared
+    @State private var saved = PhotoExportPreset.saved
+    @State private var naming = false
+    @State private var presetName = ""
     private var done: Int { editing.exportDone }
     private var running: Bool { editing.exporting }
     private var total: Int { editing.exportTotal }
+
+    private var settings: PhotoExportSettings {
+        get { (try? JSONDecoder().decode(PhotoExportSettings.self, from: stored)) ?? PhotoExportSettings() }
+        nonmutating set { stored = (try? JSONEncoder().encode(newValue)) ?? Data() }
+    }
+
+    private func binding<T>(_ path: WritableKeyPath<PhotoExportSettings, T>) -> Binding<T> {
+        Binding(get: { settings[keyPath: path] }, set: { value in var s = settings; s[keyPath: path] = value; settings = s })
+    }
 
     private var folder: URL {
         folderPath.isEmpty ? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck", isDirectory: true)
             : URL(fileURLWithPath: folderPath, isDirectory: true)
     }
 
+    private var presetTitle: String {
+        (PhotoExportPreset.builtIn + saved).first { $0.settings == settings }?.name ?? String(localized: "Custom")
+    }
+
     var body: some View {
+        let s = settings
+        let onFilm = paths.contains { catalog.record($0).filmOn }
         VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Menu {
+                    ForEach(PhotoExportPreset.builtIn) { preset in Button(preset.name) { settings = preset.settings } }
+                    if !saved.isEmpty {
+                        Divider()
+                        ForEach(saved) { preset in Button(preset.name) { settings = preset.settings } }
+                    }
+                    Divider()
+                    Button("Save as Preset…") { presetName = ""; naming = true }
+                    if !saved.isEmpty {
+                        Menu("Delete") {
+                            ForEach(saved) { preset in
+                                Button(preset.name) { saved.removeAll { $0.id == preset.id }; PhotoExportPreset.saved = saved }
+                            }
+                        }
+                    }
+                } label: {
+                    Label(presetTitle, systemImage: "slider.horizontal.below.square.and.square.filled")
+                }
+                .fixedSize()
+                Spacer()
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 8)
             SidebarSection(title: Text("File")) {
                 row("Format") {
-                    Picker("Format", selection: $format) { ForEach(PhotoRender.Format.allCases) { Text($0.title).tag($0) } }.labelsHidden()
+                    Picker("Format", selection: binding(\.format)) { ForEach(PhotoRender.Format.allCases) { Text($0.title).tag($0) } }.labelsHidden()
                 }
-                if format == .jpeg || format == .heic {
+                if s.format == .jpeg || s.format == .heic {
                     row("Quality") {
-                        Slider(value: $quality, in: 0.5...1)
-                        Text(quality, format: .percent.precision(.fractionLength(0))).font(.caption.monospacedDigit()).frame(width: 40)
+                        Slider(value: binding(\.quality), in: 0.5...1)
+                        Text(s.quality, format: .percent.precision(.fractionLength(0))).font(.caption.monospacedDigit()).frame(width: 40)
                     }
                 }
                 row("Size") {
-                    Picker("Size", selection: $longSide) {
+                    Picker("Size", selection: binding(\.longSide)) {
                         Text("Full Size").tag(0)
                         Text("4096 px").tag(4096)
                         Text("2048 px").tag(2048)
                         Text("1080 px").tag(1080)
+                    }
+                    .labelsHidden()
+                }
+                row("Colour") {
+                    Picker("Colour", selection: binding(\.space)) {
+                        Text("sRGB").tag(PhotoExportSettings.Space.srgb)
+                        Text("Display P3").tag(PhotoExportSettings.Space.p3)
+                    }
+                    .labelsHidden()
+                    .help("sRGB for the web and most screens; Display P3 for Apple screens and print")
+                }
+                row("Sharpen") {
+                    Picker("Sharpen", selection: binding(\.sharpen)) {
+                        Text("None").tag(PhotoExportSettings.Sharpen.none)
+                        Text("For Screens").tag(PhotoExportSettings.Sharpen.screen)
+                        Text("For Print").tag(PhotoExportSettings.Sharpen.print)
+                    }
+                    .labelsHidden()
+                }
+                if s.format.canBeHDR {
+                    row("HDR") {
+                        Toggle("HDR", isOn: binding(\.hdr)).labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                            .help("Bright highlights on HDR screens (a gain map); looks as usual everywhere else")
+                    }
+                    if s.hdr, onFilm {
+                        Text("Photos on film are saved without HDR.").font(.caption2).foregroundStyle(.tertiary).padding(.horizontal, 8)
+                    }
+                }
+            }
+            SidebarSection(title: Text("Names and Info")) {
+                row("Names") {
+                    Picker("Names", selection: binding(\.naming)) {
+                        Text("As the Photo").tag(PhotoExportSettings.Naming.original)
+                        Text("New Name").tag(PhotoExportSettings.Naming.custom)
+                    }
+                    .labelsHidden()
+                }
+                if s.naming == .custom {
+                    row("Name") {
+                        TextField("Wedding", text: binding(\.name)).textFieldStyle(.roundedBorder)
+                    }
+                    Text(verbatim: s.fileName(for: paths.first ?? "photo", number: 0) + "." + s.format.fileExtension)
+                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                }
+                row("Metadata") {
+                    Picker("Metadata", selection: binding(\.metadata)) {
+                        Text("All").tag(PhotoExportSettings.Metadata.all)
+                        Text("All but Location").tag(PhotoExportSettings.Metadata.noLocation)
+                        Text("None").tag(PhotoExportSettings.Metadata.none)
                     }
                     .labelsHidden()
                 }
@@ -1030,11 +1119,19 @@ private struct PhotoExportPanel: View {
                 } else if let lastFolder = editing.exportFolder {
                     Button("Show in Finder") { NSWorkspace.shared.open(lastFolder) }.buttonStyle(.link).font(.caption)
                 }
-                if paths.contains(where: { catalog.record($0).filmOn }) {
+                if onFilm {
                     Text("Photos on film are developed at full size: that takes a while each.").font(.caption2).foregroundStyle(.tertiary)
                 }
             }
             .padding(.horizontal, 8)
+        }
+        .alert("Save Export Preset", isPresented: $naming) {
+            TextField("Name", text: $presetName)
+            Button("Save") {
+                let name = presetName.trimmingCharacters(in: .whitespaces)
+                if !name.isEmpty { saved.append(PhotoExportPreset(name: name, settings: settings)); PhotoExportPreset.saved = saved }
+            }
+            Button("Cancel", role: .cancel) {}
         }
         .task {
             // Screenshots: -PluckScreenshotPhotoExport YES exports the selection straight away.
@@ -1058,13 +1155,14 @@ private struct PhotoExportPanel: View {
 
     private func export() {
         let started = Date.now
-        let targets = paths, folder = self.folder, format = self.format, quality = self.quality, longSide = self.longSide
+        let targets = paths, folder = self.folder, settings = self.settings
         let editing = editing
         editing.exporting = true
         editing.exportDone = 0
         editing.exportTotal = targets.count
         editing.exportProblem = nil
         let records = Dictionary(uniqueKeysWithValues: targets.map { ($0, catalog.record($0)) })
+        let numbers = Dictionary(uniqueKeysWithValues: targets.enumerated().map { ($1, $0) })
         // Several at a time, each on its own film engine process (previews keep the first one).
         let lanes = min(FilmEngine.exportWorkers, targets.count)
         Task {
@@ -1075,8 +1173,8 @@ private struct PhotoExportPanel: View {
                     guard let path = queue.popFirst() else { return }
                     group.addTask {
                         do {
-                            _ = try await PhotoRender.export(path, record: records[path] ?? PhotoRecord(), to: folder, format: format,
-                                                             quality: quality, longSide: longSide, worker: lane + 1)
+                            _ = try await PhotoRender.export(path, record: records[path] ?? PhotoRecord(), to: folder, settings: settings,
+                                                             number: numbers[path] ?? 0, worker: lane + 1)
                             return (lane, nil)
                         } catch {
                             return (lane, error.localizedDescription)

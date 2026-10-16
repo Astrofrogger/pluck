@@ -53,7 +53,7 @@ enum PhotoEngine {
     /// `masks`: the masks' shapes (one per channel, see PhotoMasks.layer) for version 2;
     /// `overlay`: the mask shown in red.
     static func develop(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, asShotKelvin: Double = 5500, scene: Bool = false,
-                        cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil) -> CIImage {
+                        cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil, peak: Double = 1) -> CIImage {
         let extent = image.extent
         let modern = a.process >= 2
         // 1. Exposure and white balance: one matrix in linear light.
@@ -65,14 +65,15 @@ enum PhotoEngine {
         let long = max(extent.width, extent.height)
         let local = modern && masks != nil ? Array(a.masks.prefix(PhotoMasks.limit)) : []
         let hazy = modern && (a.dehaze != 0 || local.contains { $0.dehaze != 0 })
+        let soft = modern && (a.clarity != 0 || local.contains { $0.clarity != 0 })
         let layers: Layers
         var shift: Float = 0
         func make(_ source: CIImage) -> Layers {
             Layers(large: guide(source, scale: 640 / long, radius: 16, eps: 0.03), small: guide(source, scale: 1600 / long, radius: 6, eps: 0.02),
-                   haze: hazy ? haze(source, long: long) : nil)
+                   haze: hazy ? haze(source, long: long) : nil, glow: soft ? glow(source, long: long) : nil)
         }
         if let cacheKey {
-            let key = cacheKey + "|\(a.process)|\(hazy)|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
+            let key = cacheKey + "|\(a.process)|\(hazy)|\(soft)|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
             layers = GuideCache.shared.layers(key) { make(linear(image, balance, wide: modern)) }
             shift = Float(a.exposure)
         } else {
@@ -96,13 +97,14 @@ enum PhotoEngine {
             p.shift = shift
             p.process = Int32(min(a.process, 2))
             if modern {
-                tone(a, profile: shown, into: &p)
+                tone(a, profile: shown, into: &p, peak: peak)
                 p.curves = a.curves.isDefault ? 0 : 1
                 if let airlight = layers.haze?.airlight {
                     // The haze's colour, at this exposure.
                     let k = Float(cacheKey == nil ? 1 : gain)
                     p.hazeR = airlight.x * k; p.hazeG = airlight.y * k; p.hazeB = airlight.z * k
                 }
+                p.glowGain = Float(cacheKey == nil ? 1 : gain)
             }
             return p
         }
@@ -147,14 +149,15 @@ enum PhotoEngine {
         let dot = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
         let hazeLayer = layers.haze?.through ?? dot
         let maskLayer = local.isEmpty ? dot : masks ?? dot
-        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer, maskLayer]
+        let glowLayer = layers.glow ?? dot
+        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer, maskLayer, glowLayer]
         let data = all.withUnsafeBytes { Data($0) }
         let grade = grades.withUnsafeBytes { Data($0) }
         let info = infos.withUnsafeBytes { Data($0) }
         let curves = modern && !a.curves.isDefault ? curveTable(a.curves) : Data(count: 16)
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
             "params": data, "grade": grade, "curves": curves, "masks": info,
-            "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, extent]
+            "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, glowLayer.extent, extent]
                 .flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
         ]) else { return exposed }
         return developed
@@ -172,6 +175,8 @@ enum PhotoEngine {
         var large: CIImage
         var small: CIImage
         var haze: (through: CIImage, airlight: SIMD3<Float>)?
+        /// A soft copy of the photo (version 2's clarity and mist).
+        var glow: CIImage?
     }
 
     /// A 3×3 matrix in linear light, then within range (and a step Core Image always runs on
@@ -187,6 +192,17 @@ enum PhotoEngine {
                                                        "inputMaxComponents": CIVector(x: 64, y: 64, z: 64, w: 1)])
         // (An alpha of at least 1 reaches past the photo: kept to its size.)
         .cropped(to: image.extent)
+    }
+
+    /// A soft copy of the photo, small (blurred over about 2% of its size): clarity's reference and
+    /// the mist's light. Its edges carried on, so they aren't mixed with nothing.
+    private static func glow(_ image: CIImage, long: Double) -> CIImage {
+        let s = min(480 / long, 1)
+        let frame = image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral
+        let carried = image.clampedToExtent().cropped(to: image.extent.insetBy(dx: -40 / s, dy: -40 / s))
+        let small = s < 0.5 ? carried.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
+                            : carried.transformed(by: CGAffineTransform(scaleX: s, y: s))
+        return small.applyingGaussianBlur(sigma: 0.02 * max(frame.width, frame.height)).cropped(to: frame)
     }
 
     /// The haze, worked out small (He et al.'s dark channel prior): its colour is the brightest
@@ -335,7 +351,9 @@ enum PhotoEngine {
         var hazeR: Float = 0, hazeG: Float = 0, hazeB: Float = 0, sat: Float = 1
         var toneLo: Float = 0, toneHi: Float = 1, toneGrey: Float = 0.5, toneY: Float = 0.5
         var toneSlope: Float = 1, tonePt: Float = 3, tonePb: Float = 3, toneFloor: Float = 0
-        var toneCeiling: Float = 1, overlay: Float = -1, pad2: Float = 0, pad3: Float = 0
+        /// `peak`: the brightest the picture goes (1: white; above for HDR, in display light).
+        /// `glowGain`: the soft layer's exposure (it's made without the photo's own).
+        var toneCeiling: Float = 1, overlay: Float = -1, peak: Float = 1, glowGain: Float = 1
     }
 
     /// The colour wheels and the mixer, for the GPU.
@@ -369,8 +387,10 @@ enum PhotoEngine {
     /// The tone curve for these settings (version 2): AgX's shape (fitted to Blender's), with the
     /// slope at mid grey from Contrast and the profile, and the black and white points (in stops)
     /// from Blacks and Whites.
-    static func tone(_ a: PhotoAdjustments, profile: Profile, into p: inout Params) {
-        let lo = -12.47393 - a.blacks / 100 * 2.5, hi = 4.026069 - a.whites / 100 * 2.5
+    /// `peak` above 1: HDR, the brightest stops given that much more room (the white point moves
+    /// up by as many stops, so the middle and the shadows stay as they are).
+    static func tone(_ a: PhotoAdjustments, profile: Profile, into p: inout Params, peak: Double = 1) {
+        let lo = -12.47393 - a.blacks / 100 * 2.5, hi = 4.026069 - a.whites / 100 * 2.5 + log2(max(peak, 1))
         let grey = (log2(0.18 * 1.15) - lo) / (hi - lo)
         let y0 = 0.5219
         let look: Double = switch profile {
@@ -393,8 +413,9 @@ enum PhotoEngine {
             let d = slope * grey
             return y0 - d / pow(1 + pow(d / (y0 - bottom), pt), 1 / pt)
         }
-        var top = 1.0001, high = 50.0
-        for _ in 0..<40 { let mid = (top + high) / 2; if shoulder(mid) < 1 { top = mid } else { high = mid } }
+        let white = pow(max(peak, 1), 1 / 2.2)
+        var top = white + 0.0001, high = 50.0
+        for _ in 0..<40 { let mid = (top + high) / 2; if shoulder(mid) < white { top = mid } else { high = mid } }
         var bottom = -50.0, low = -0.0001
         for _ in 0..<40 { let mid = (bottom + low) / 2; if toe(mid) > 0 { low = mid } else { bottom = mid } }
         p.toneLo = Float(lo); p.toneHi = Float(hi); p.toneGrey = Float(grey); p.toneY = Float(y0)
@@ -402,6 +423,7 @@ enum PhotoEngine {
         p.toneFloor = Float((bottom + low) / 2); p.toneCeiling = Float((top + high) / 2)
         p.sat = Float(profile == .vivid ? 1.35 : profile == .standard ? 1.15 : profile == .flat ? 0.95 : 1)
         p.mono = profile == .monochrome ? 1 : 0
+        p.peak = Float(max(peak, 1))
     }
 
     /// The curves as a table of 128 steps per channel (the master after each).
@@ -430,7 +452,7 @@ enum PhotoEngine {
         float hazeR, hazeG, hazeB, sat;
         float toneLo, toneHi, toneGrey, toneY;
         float toneSlope, tonePt, tonePb, toneFloor;
-        float toneCeiling, overlay, pad2, pad3;
+        float toneCeiling, overlay, peak, glowGain;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -620,12 +642,14 @@ enum PhotoEngine {
             float3 x = clamp((log2(max(v, 1e-10)) - p.toneLo) / (p.toneHi - p.toneLo), 0.0, 1.0);
             v = float3(toneCurve(x.r, p), toneCurve(x.g, p), toneCurve(x.b, p));
             v = outset * v;
-            outc = pow(clamp(v, 0.0, 1.0), 2.2);
+            outc = pow(clamp(v, 0.0, pow(p.peak, 1.0 / 2.2)), 2.2);
             float Y2 = luma(outc);
             outc = p.mono != 0 ? float3(Y2) : max(Y2 + (outc - Y2) * p.sat, 0.0);
         }
         // The curves, on the picture (sRGB steps), as in Lightroom.
+        // (HDR: what's brighter than white keeps its light; the curves shape up to white.)
         if (p.curves != 0) {
+            float3 bright = outc;
             float3 e = select(1.055 * pow(clamp(outc, 0.0, 1.0), 1.0 / 2.4) - 0.055, outc * 12.92, outc <= 0.0031308);
             float3 at = clamp(e, 0.0, 1.0) * 127.0;
             int3 i0 = int3(floor(at)), i1 = min(i0 + 1, 127);
@@ -633,8 +657,9 @@ enum PhotoEngine {
             float3 lo = float3(curve[i0.r].r, curve[i0.g].g, curve[i0.b].b), hi = float3(curve[i1.r].r, curve[i1.g].g, curve[i1.b].b);
             e = mix(lo, hi, f);
             outc = select(pow((e + 0.055) / 1.055, 2.4), e / 12.92, e <= 0.04045);
+            outc = select(outc, bright, bright > 1.0);
         }
-        return clamp(outc, 0.0, 1.0);
+        return clamp(outc, 0.0, p.peak);
     }
 
     // A mask's place in the mask layer and what limits it besides its shape.
@@ -661,13 +686,16 @@ enum PhotoEngine {
         float softBelow = below < -8.0 ? below : -log(1.0 + exp(-below));
         float base = baseL + (kh - 1.0) * softAbove + (ks - 1.0) * softBelow;
         float midWeight = 1.0 - abs(smoothstep(-6.0, 3.0, base - log2(0.18)) * 2.0 - 1.0);
-        float clarity = 1.0 + p.clarity * (p.clarity > 0 ? 0.9 : 0.85) * (0.35 + 0.65 * midWeight);
+        // (Version 2 does clarity itself, on the soft layer: see developModern.)
+        float strength = p.process < 2 ? p.clarity : 0.0;
+        float clarity = 1.0 + strength * (strength > 0 ? 0.9 : 0.85) * (0.35 + 0.65 * midWeight);
         return base + mid * (clarity + (p.process < 2 ? p.dehaze * 0.6 : 0.0)) + detail * (1.0 + p.texture * 0.9);
     }
 
     // Version 2, one pixel: dehaze, local tone, then the rest (finish). `t`: how much light gets
     // through the haze there.
-    inline float3 developModern(float3 c, float2 al, float2 as, float t, constant Params &p, constant Grade &g, constant float4 *curve) {
+    inline float3 developModern(float3 c, float2 al, float2 as, float t, float3 soft, float3 wide,
+                                constant Params &p, constant Grade &g, constant float4 *curve) {
         float L = log2(max(luma(c), 1e-5));
         // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
         // through (the dark channel prior); the layers then work on what's left.
@@ -687,7 +715,23 @@ enum PhotoEngine {
             as.y += (Ld - L) * (1.0 - as.x);
             L = Ld;
         }
-        c *= exp2(tonedLog(L, al, as, p) - L);
+        float Lp = tonedLog(L, al, as, p);
+        // Clarity: the contrast against a soft copy of the photo (about 2% of its size), mostly in
+        // the midtones; a third of its base follows the edges, so it doesn't halo.
+        if (p.clarity != 0) {
+            float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
+            float local = L - mix(log2(max(luma(soft), 1e-5)), baseL, 0.35);
+            float w = 1.0 - abs(smoothstep(-6.0, 3.0, Lp - log2(0.18)) * 2.0 - 1.0);
+            Lp += local * p.clarity * (p.clarity > 0 ? 0.9 : 0.5) * (0.3 + 0.7 * w);
+        }
+        c *= exp2(Lp - L);
+        // Below zero, a mist filter as well: a soft veil over the picture and the highlights
+        // blooming into what's around them (as a diffusion filter on the lens).
+        if (p.clarity < 0) {
+            float k = -p.clarity;
+            float3 bloom = wide * smoothstep(0.25, 2.5, luma(wide));
+            c = mix(c, soft, 0.22 * k) + bloom * 0.45 * k;
+        }
         return finish(c, p, g, curve);
     }
 
@@ -696,7 +740,8 @@ enum PhotoEngine {
                         texture2d<float, access::sample> small [[texture(2)]],
                         texture2d<float, access::sample> haze [[texture(3)]],
                         texture2d<float, access::sample> masks [[texture(4)]],
-                        texture2d<float, access::write> dst [[texture(5)]],
+                        texture2d<float, access::sample> glow [[texture(5)]],
+                        texture2d<float, access::write> dst [[texture(6)]],
                         constant Params *ps [[buffer(0)]],
                         constant int2 *offsets [[buffer(1)]],
                         constant float4 *map [[buffer(2)]],
@@ -721,7 +766,18 @@ enum PhotoEngine {
         if (p.process >= 2) {
             float2 t3 = float2(map[3].x * pos.x + map[3].y, map[3].z * pos.y + map[3].w);
             float through = haze.sample(smooth, t3 / float2(haze.get_width(), haze.get_height())).r;
-            float3 out = developModern(c, al, as, through, p, gs[0], curve);
+            // The soft layer here, and wider (around this place) for the mist's bloom.
+            float2 t5 = float2(map[5].x * pos.x + map[5].y, map[5].z * pos.y + map[5].w) / float2(glow.get_width(), glow.get_height());
+            float3 soft = glow.sample(smooth, t5).rgb * p.glowGain;
+            float reach = 0.035;
+            float3 wide = soft;
+            for (int i = 0; i < 8; i++) {
+                float angle = float(i) * 0.785398;
+                float2 o = float2(cos(angle), sin(angle)) * reach * float2(1.0, float(glow.get_width()) / float(max(glow.get_height(), 1u)));
+                wide += glow.sample(smooth, t5 + o).rgb * p.glowGain;
+            }
+            wide /= 9.0;
+            float3 out = developModern(c, al, as, through, soft, wide, p, gs[0], curve);
             // The masks: each one's own settings developed here too, mixed in where it is.
             int count = p.masks;
             if (count > 0) {
@@ -748,8 +804,8 @@ enum PhotoEngine {
                     if (m.col.w > 0) w = 1.0 - w;
                     if (k == int(p.overlay)) marked = w;
                     if (w < 0.002) continue;
-                    float3 ck = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz) * c;
-                    out = mix(out, developModern(ck, al, as, through, ps[k + 1], gs[k + 1], curve), w);
+                    float3x3 change = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz);
+                    out = mix(out, developModern(change * c, al, as, through, change * soft, change * wide, ps[k + 1], gs[k + 1], curve), w);
                 }
                 // The mask being edited, shown in red.
                 if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
@@ -901,7 +957,7 @@ final class GuideCache: @unchecked Sendable {
         lock.unlock()
         let made = make()
         let kept = PhotoEngine.Layers(large: render(made.large), small: render(made.small),
-                                      haze: made.haze.map { (render($0.through), $0.airlight) })
+                                      haze: made.haze.map { (render($0.through), $0.airlight) }, glow: made.glow.map(render))
         lock.lock()
         layers[key] = kept
         order.append(key)
@@ -950,19 +1006,19 @@ final class DevelopPass: CIImageProcessorKernel {
     /// The photo where the output is; the two small layers whole.
     override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect {
         // (As numbers: Core Image moves rectangles it finds among the arguments.)
-        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 20 else { return outputRect }
+        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else { return outputRect }
         let i = Int(input - 1) * 4
         return CGRect(x: sizes[i], y: sizes[i + 1], width: sizes[i + 2], height: sizes[i + 3])
     }
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
         // Where each pixel falls in the two layers' textures: texel = (sx·x + bx, sy·y + by) from
         // the photo's coordinates (y up) to the textures' (y down, from the piece handed over).
-        guard let inputs, inputs.count == 5, let sizes = arguments?["layers"] as? [Double], sizes.count == 20 else {
+        guard let inputs, inputs.count == 6, let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else {
             throw NSError(domain: "Pluck", code: 11)
         }
-        let photo = CGRect(x: sizes[16], y: sizes[17], width: sizes[18], height: sizes[19])
+        let photo = CGRect(x: sizes[20], y: sizes[21], width: sizes[22], height: sizes[23])
         var map = [SIMD4<Float>(Float(output.region.minX), Float(output.region.maxY), 0, 0)]
-        for layer in 0..<4 {
+        for layer in 0..<5 {
             let extent = CGRect(x: sizes[layer * 4], y: sizes[layer * 4 + 1], width: sizes[layer * 4 + 2], height: sizes[layer * 4 + 3])
             let region = inputs[layer + 1].region
             let sx = extent.width / photo.width, sy = extent.height / photo.height

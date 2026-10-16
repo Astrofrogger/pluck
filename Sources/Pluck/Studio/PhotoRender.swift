@@ -148,13 +148,13 @@ enum PhotoRender {
     /// `cacheKey`: the decoded photo is a kept one (see `base`), so its local-tone layers can be.
     /// `overlay`: the mask shown in red (version 2), while it's edited.
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, kelvin: Double, scene: Bool = false, crop: Bool = true,
-                         path: String? = nil, cacheKey: String? = nil, overlay: Int? = nil) -> CIImage {
+                         path: String? = nil, cacheKey: String? = nil, overlay: Int? = nil, peak: Double = 1) -> CIImage {
         let base = image
         // Version 2 develops the masks in the same pass (their shapes as one small layer).
         let modern = a.process >= 2
         let shapes = modern && !a.masks.isEmpty ? path.flatMap { PhotoMasks.layer(a.masks, path: $0, base: base, context: context) } : nil
         var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey,
-                                        masks: shapes, overlay: overlay)
+                                        masks: shapes, overlay: overlay, peak: peak)
         let long = max(image.extent.width, image.extent.height)
         if !scene, a.needsLUT {
             let filter = CIFilter.colorCubeWithColorSpace()
@@ -196,9 +196,9 @@ enum PhotoRender {
 
     /// The adjustments for this photo (whether it's RAW, and its as-shot light).
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, path: String, scene: Bool = false, crop: Bool = true,
-                         cacheKey: String? = nil, overlay: Int? = nil) -> CIImage {
+                         cacheKey: String? = nil, overlay: Int? = nil, peak: Double = 1) -> CIImage {
         adjusted(image, a, isRaw: isRaw(path), kelvin: asShotKelvin(path), scene: scene, crop: crop, path: path, cacheKey: cacheKey,
-                 overlay: overlay)
+                 overlay: overlay, peak: peak)
     }
 
     /// Straightening and the crop. The crop is kept as shares from the top left of the
@@ -494,7 +494,7 @@ enum PhotoRender {
 
     // MARK: - Export
 
-    enum Format: String, CaseIterable, Identifiable {
+    enum Format: String, CaseIterable, Identifiable, Codable {
         case jpeg, heic, tiff, png
         var id: String { rawValue }
         var title: String { rawValue == "jpeg" ? "JPEG" : rawValue.uppercased() }
@@ -509,27 +509,151 @@ enum PhotoRender {
         var fileExtension: String { self == .jpeg ? "jpg" : rawValue }
     }
 
-    /// Writes the developed photo: full size (or this long side), in this format.
-    static func export(_ path: String, record: PhotoRecord, to folder: URL, format: Format, quality: Double, longSide: Int,
+    /// Writes the developed photo with these settings (`number`: its place in the export, for
+    /// numbered names). HDR (JPEG and HEIC, macOS 15): the picture as on any screen, with a gain map
+    /// that lets an HDR screen show its highlights up to two stops brighter.
+    static func export(_ path: String, record: PhotoRecord, to folder: URL, settings: PhotoExportSettings, number: Int = 0,
                        worker: Int = 1) async throws -> URL {
-        guard var image = try await develop(path, record: record, maxSize: 0, worker: worker) else {
-            throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "The photo couldn’t be read.")])
-        }
-        if longSide > 0, max(image.width, image.height) > longSide {
-            let scale = Double(longSide) / Double(max(image.width, image.height))
-            let resized = CIImage(cgImage: image).transformed(by: CGAffineTransform(scaleX: scale, y: scale))
-            if let smaller = context.createCGImage(resized, from: resized.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) {
-                image = smaller
+        var picture: CIImage
+        var hdr: CIImage?
+        if record.filmOn {
+            // The film makes its own (SDR) picture.
+            guard let made = try await develop(path, record: record, maxSize: 0, worker: worker) else { throw unreadable }
+            picture = CIImage(cgImage: made)
+        } else {
+            let noise = isRaw(path) ? record.adjust.noise : 0
+            guard let decoded = source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust)) else { throw unreadable }
+            picture = adjusted(decoded, record.adjust, path: path)
+            if settings.hdr, settings.format.canBeHDR, record.adjust.process >= 2 {
+                hdr = adjusted(decoded, record.adjust, path: path, peak: PhotoExportSettings.hdrPeak)
             }
         }
-        let name = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-        let output = Converting.outputURL(folder: folder.path, name: name, fileExtension: format.fileExtension)
-        guard let destination = CGImageDestinationCreateWithURL(output as CFURL, format.type.identifier as CFString, 1, nil) else {
+        func finish(_ image: CIImage) -> CIImage {
+            var image = image
+            let long = max(image.extent.width, image.extent.height)
+            if settings.longSide > 0, long > Double(settings.longSide) {
+                image = image.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": Double(settings.longSide) / long, "inputAspectRatio": 1])
+            }
+            if let (amount, radius) = settings.sharpen.strength {
+                image = image.applyingFilter("CISharpenLuminance", parameters: ["inputSharpness": amount, "inputRadius": radius])
+            }
+            let e = image.extent.integral
+            return image.cropped(to: e).transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+        }
+        picture = finish(picture)
+        hdr = hdr.map(finish)
+        let properties = metadata(of: path, keeping: settings.metadata)
+        let name = settings.fileName(for: path, number: number)
+        let output = Converting.outputURL(folder: folder.path, name: name, fileExtension: settings.format.fileExtension)
+        let space = CGColorSpace(name: settings.space == .p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
+        if let hdr, #available(macOS 15, *) {
+            var options: [CIImageRepresentationOption: Any] = [.hdrImage: hdr]
+            options[CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)] = settings.quality
+            let tagged = picture.settingProperties(properties)
+            if settings.format == .heic {
+                try context.writeHEIFRepresentation(of: tagged, to: output, format: .RGBA8, colorSpace: space, options: options)
+            } else {
+                try context.writeJPEGRepresentation(of: tagged, to: output, colorSpace: space, options: options)
+            }
+            return output
+        }
+        let deep = settings.format == .tiff
+        guard let image = context.createCGImage(picture, from: picture.extent, format: deep ? .RGBA16 : .RGBA8, colorSpace: space),
+              let destination = CGImageDestinationCreateWithURL(output as CFURL, settings.format.type.identifier as CFString, 1, nil) else {
             throw NSError(domain: "Pluck", code: 2)
         }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        var options = properties
+        options[kCGImageDestinationLossyCompressionQuality as String] = settings.quality
+        CGImageDestinationAddImage(destination, image, options as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw NSError(domain: "Pluck", code: 3) }
         return output
+    }
+
+    private static var unreadable: NSError {
+        NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "The photo couldn’t be read.")])
+    }
+
+    /// The camera's metadata for the exported file (upright: the turn is in the pixels now).
+    private static func metadata(of path: String, keeping: PhotoExportSettings.Metadata) -> [String: Any] {
+        guard keeping != .none, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+              var properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else { return [:] }
+        for key in [kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight, kCGImagePropertyDepth, kCGImagePropertyColorModel,
+                    kCGImagePropertyProfileName, kCGImagePropertyOrientation] {
+            properties[key as String] = nil
+        }
+        properties[kCGImagePropertyOrientation as String] = 1
+        if var tiff = properties[kCGImagePropertyTIFFDictionary as String] as? [String: Any] {
+            tiff[kCGImagePropertyTIFFOrientation as String] = 1
+            properties[kCGImagePropertyTIFFDictionary as String] = tiff
+        }
+        if keeping == .noLocation { properties[kCGImagePropertyGPSDictionary as String] = nil }
+        return properties
+    }
+}
+
+/// How photos are exported: format, size, colour, sharpening for where they're going, HDR,
+/// what metadata goes along, and their names. Saved as presets.
+struct PhotoExportSettings: Codable, Hashable {
+    enum Space: String, Codable, CaseIterable { case srgb, p3 }
+    enum Sharpen: String, Codable, CaseIterable {
+        case none, screen, print
+        /// CISharpenLuminance's amount and radius.
+        var strength: (Double, Double)? {
+            switch self {
+            case .none: nil
+            case .screen: (0.4, 1.0)
+            case .print: (0.7, 1.6)
+            }
+        }
+    }
+    enum Metadata: String, Codable, CaseIterable { case all, noLocation, none }
+    enum Naming: String, Codable, CaseIterable { case original, custom }
+
+    static let hdrPeak = 4.0
+
+    var format = PhotoRender.Format.jpeg
+    var quality = 0.9
+    var longSide = 0
+    var space = Space.srgb
+    var sharpen = Sharpen.none
+    var hdr = false
+    var metadata = Metadata.all
+    var naming = Naming.original
+    var name = ""
+
+    /// The file's name (no extension): as the photo, or the name given and its number.
+    func fileName(for path: String, number: Int) -> String {
+        let original = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        let base = name.trimmingCharacters(in: .whitespaces)
+        guard naming == .custom, !base.isEmpty else { return original }
+        return base + "-" + String(format: "%03d", number + 1)
+    }
+}
+
+extension PhotoRender.Format {
+    /// Holds a gain map for HDR screens.
+    var canBeHDR: Bool { self == .jpeg || self == .heic }
+}
+
+/// An export's settings with a name: the built-in ones and yours.
+struct PhotoExportPreset: Codable, Identifiable, Hashable {
+    var id = UUID()
+    var name: String
+    var settings: PhotoExportSettings
+
+    static let builtIn: [PhotoExportPreset] = [
+        PhotoExportPreset(name: String(localized: "Full Size"), settings: PhotoExportSettings()),
+        PhotoExportPreset(name: String(localized: "Web"), settings: PhotoExportSettings(quality: 0.85, longSide: 2048, sharpen: .screen, metadata: .noLocation)),
+        PhotoExportPreset(name: String(localized: "Social"), settings: PhotoExportSettings(quality: 0.9, longSide: 1080, sharpen: .screen, metadata: .noLocation)),
+        PhotoExportPreset(name: String(localized: "HDR"), settings: PhotoExportSettings(format: .heic, quality: 0.9, space: .p3, hdr: true)),
+        PhotoExportPreset(name: String(localized: "Print"), settings: PhotoExportSettings(format: .tiff, space: .p3, sharpen: .print)),
+    ]
+
+    private static let key = "photoExportPresets"
+
+    static var saved: [PhotoExportPreset] {
+        get { (UserDefaults.standard.data(forKey: key)).flatMap { try? JSONDecoder().decode([PhotoExportPreset].self, from: $0) } ?? [] }
+        set { UserDefaults.standard.set(try? JSONEncoder().encode(newValue), forKey: key) }
     }
 }
 

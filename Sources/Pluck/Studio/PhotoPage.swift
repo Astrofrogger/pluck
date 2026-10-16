@@ -21,6 +21,12 @@ struct PhotoPage: View {
     @State private var flagFilter: PhotoRecord.Flag?
     @State private var minRating = 0
     @State private var labelFilter: String?
+    /// The checks' filter: only what looks fine, or only possible rejects.
+    @State private var checkFilter: Bool?
+    @AppStorage("photoStackBursts") private var stackBursts = false
+    @State private var checks = PhotoChecks.shared
+    @State private var importing = false
+    @State private var importAlbum: UUID?
     @AppStorage("photoSidebarHidden") private var sidebarHidden = false
     @AppStorage("photoInspectorHidden") private var inspectorHidden = false
     @State private var renamingAlbum: UUID?
@@ -44,7 +50,9 @@ struct PhotoPage: View {
     private var photos: [String] {
         var list = catalog.photos(in: source).filter { path in
             let record = catalog.record(path)
+            let fine = checks.check(path).map { !$0.possibleReject }
             return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter) && (labelFilter == nil || record.label == labelFilter)
+                && (checkFilter == nil || fine == checkFilter)
         }
         // What's in the picture (or its text, or its name).
         let words = search.split(separator: " ").map(String.init)
@@ -54,7 +62,18 @@ struct PhotoPage: View {
             var seen: Set<String> = []
             list = (found + byName).filter { seen.insert($0).inserted }
         }
+        // One per burst (the sharpest), when asked.
+        if stackBursts { list = checks.bursts(list).map { $0[0] } }
         return list
+    }
+
+    /// How many more photos each burst's shown photo stands for.
+    private var burstSizes: [String: Int] {
+        guard stackBursts else { return [:] }
+        let all = catalog.photos(in: source)
+        var sizes: [String: Int] = [:]
+        for group in checks.bursts(all) where group.count > 1 { sizes[group[0]] = group.count - 1 }
+        return sizes
     }
 
     var body: some View {
@@ -127,6 +146,7 @@ struct PhotoPage: View {
             FootageFolders.shared.start()
             PhotoIndex.shared.enqueue(catalog.allPhotos)
             catalog.readSidecars(catalog.allPhotos)
+            checks.enqueue(catalog.allPhotos)
             PhotoRender.trimCaches()
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
@@ -148,6 +168,8 @@ struct PhotoPage: View {
                     editing.selectedPart = first.shape.first?.id
                 }
             }
+            // -PluckScreenshotImport <folder>: the import sheet, from that folder.
+            if ScreenshotMode.scene == "photo", Self.importTest.isEmpty == false { importing = true }
             // -PluckScreenshotFind <text>: the Adjust panel's search filled in. -PluckScreenshotKeys YES: the keys.
             if ScreenshotMode.scene == "photo", let text = UserDefaults.standard.string(forKey: "PluckScreenshotFind") { editing.toolQuery = text }
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotKeys") { editing.showingKeys = true }
@@ -177,6 +199,9 @@ struct PhotoPage: View {
         .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
         .onDisappear { editing.cropping = false }
         .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
+        .sheet(isPresented: $importing) {
+            PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
+        }
     }
 
     // MARK: - Sidebar
@@ -369,7 +394,7 @@ struct PhotoPage: View {
         .padding(.vertical, 8)
     }
 
-    private var filtering: Bool { flagFilter != nil || minRating > 0 || labelFilter != nil }
+    private var filtering: Bool { flagFilter != nil || minRating > 0 || labelFilter != nil || checkFilter != nil }
 
     /// One menu for every filter: flag, rating, colour label.
     private var filterMenu: some View {
@@ -391,9 +416,17 @@ struct PhotoPage: View {
                 ForEach(PhotoInspector.labels, id: \.self) { name in Text(PhotoInspector.labelTitle(name)).tag(String?.some(name)) }
             }
             .pickerStyle(.inline)
+            Picker("Quick Look", selection: $checkFilter) {
+                Text("Any Photo").tag(Bool?.none)
+                Text("Looks Fine").tag(Bool?.some(true))
+                Text("Possible Rejects").tag(Bool?.some(false))
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Toggle("One per Burst", isOn: $stackBursts)
             if filtering {
                 Divider()
-                Button("Show All") { flagFilter = nil; minRating = 0; labelFilter = nil }
+                Button("Show All") { flagFilter = nil; minRating = 0; labelFilter = nil; checkFilter = nil }
             }
         } label: {
             Label(filterTitle, systemImage: filtering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
@@ -407,6 +440,7 @@ struct PhotoPage: View {
         if let flagFilter { parts.append(flagFilter == .pick ? String(localized: "Picks") : flagFilter == .reject ? String(localized: "Rejected") : String(localized: "Not Flagged")) }
         if minRating > 0 { parts.append(String(repeating: "★", count: minRating) + "+") }
         if let labelFilter { parts.append(PhotoInspector.labelTitle(labelFilter)) }
+        if let checkFilter { parts.append(checkFilter ? String(localized: "Looks Fine") : String(localized: "Possible Rejects")) }
         return parts.isEmpty ? String(localized: "Filter") : parts.joined(separator: " · ")
     }
 
@@ -443,11 +477,13 @@ struct PhotoPage: View {
     }
 
     private var grid: some View {
-        ScrollViewReader { scroller in
+        let sizes = burstSizes
+        return ScrollViewReader { scroller in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: gridSize, maximum: gridSize * 1.4), spacing: 10)], spacing: 10) {
                     ForEach(photos, id: \.self) { path in
-                        PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || (selection.isEmpty && focus == path))
+                        PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || (selection.isEmpty && focus == path),
+                                  check: checks.check(path), stack: sizes[path] ?? 0)
                             .id(path)
                             .onTapGesture(count: 2) { focus = path; selection = [path]; view = .edit }
                             .onTapGesture { click(path) }
@@ -529,14 +565,30 @@ struct PhotoPage: View {
     // MARK: - Importing
 
     /// Photos chosen (files or folders) go into a new album, or into the given one.
+    /// Tests: the folder the import sheet starts from.
+    static var importTest: [URL] {
+        guard ScreenshotMode.scene == "photo", let folder = UserDefaults.standard.string(forKey: "PluckScreenshotImport") else { return [] }
+        return [URL(fileURLWithPath: folder)]
+    }
+
+    /// The import sheet (a card or a folder; copied or used where they are).
     private func importPhotos(into album: UUID? = nil) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.image]
-        panel.prompt = String(localized: "Import")
-        guard panel.runModal() == .OK else { return }
-        importPhotos(panel.urls, into: album)
+        importAlbum = album
+        importing = true
+    }
+
+    /// What the import sheet brought in: into the album asked for, else a new one.
+    private func imported(_ paths: [String], named name: String) {
+        if let album = importAlbum {
+            catalog.add(paths, to: album)
+        } else {
+            let created = catalog.newAlbum(named: name, with: paths)
+            source = .album(created.id)
+        }
+        importAlbum = nil
+        checks.enqueue(paths)
+        focus = paths.first
+        selection = []
     }
 
     private func importPhotos(_ urls: [URL], into album: UUID? = nil) {
@@ -679,6 +731,9 @@ private struct PhotoCell: View {
     let record: PhotoRecord
     let selected: Bool
     var compact = false
+    var check: PhotoCheck?
+    /// More photos in its burst, behind it.
+    var stack = 0
     @State private var image: NSImage?
     @State private var hovering = false
 
@@ -690,6 +745,21 @@ private struct PhotoCell: View {
                     Image(nsImage: image).resizable().scaledToFit()
                 } else {
                     ProgressView().controlSize(.small)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // What the quick look found (only when something may be wrong), and bursts.
+                if !compact {
+                    HStack(spacing: 4) {
+                        if let check, check.eyesClosed { Image(systemName: "eye.slash").help("Eyes may be closed") }
+                        if let check, check.looksSoft { Image(systemName: "circle.dotted").help("May be out of focus") }
+                        if stack > 0 { Label("+\(stack)", systemImage: "square.stack").help("Burst: the sharpest shown, ^[\(stack) more photo](inflect: true) behind it") }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
+                    .background((check?.possibleReject ?? false) || stack > 0 ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear), in: .capsule)
+                    .padding(6)
                 }
             }
             .overlay(alignment: .bottomLeading) {
@@ -1171,6 +1241,9 @@ struct PhotoCullView: View {
             if let image { Image(nsImage: image).resizable().scaledToFit().padding(14) }
             VStack {
                 Spacer()
+                if let image, let faces = PhotoChecks.shared.check(path)?.faces, !faces.isEmpty {
+                    FaceStrip(image: image, faces: faces)
+                }
                 HStack(spacing: 14) {
                     HStack(spacing: 3) {
                         ForEach(1...5, id: \.self) { star in
@@ -1196,6 +1269,39 @@ struct PhotoCullView: View {
             }
             for next in neighbours { _ = await CullCache.shared.load(next) }
         }
+    }
+}
+
+/// The faces in a photo, close up, to check eyes and focus at a glance.
+private struct FaceStrip: View {
+    let image: NSImage
+    let faces: [CGRect]
+
+    var body: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(faces.prefix(8).enumerated()), id: \.offset) { _, face in
+                if let crop = crop(face) {
+                    Image(decorative: crop, scale: 1).resizable().scaledToFill()
+                        .frame(width: 84, height: 84)
+                        .clipShape(RoundedRectangle(cornerRadius: Design.Radius.small))
+                        .overlay(RoundedRectangle(cornerRadius: Design.Radius.small).strokeBorder(.white.opacity(0.3)))
+                }
+            }
+        }
+        .padding(6)
+        .background(.black.opacity(0.45), in: .rect(cornerRadius: Design.Radius.control))
+        .padding(.bottom, 8)
+        .accessibilityHidden(true)
+    }
+
+    /// A face with some room around it (Vision's box is from the bottom left).
+    private func crop(_ box: CGRect) -> CGImage? {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let side = max(box.width * w, box.height * h) * 1.5
+        let centre = CGPoint(x: box.midX * w, y: (1 - box.midY) * h)
+        let rect = CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side).intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        return cg.cropping(to: rect.integral)
     }
 }
 
