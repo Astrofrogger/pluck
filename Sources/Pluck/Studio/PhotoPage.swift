@@ -38,7 +38,14 @@ struct PhotoPage: View {
 
     /// The album or list open on the left (remembered, so a drop goes into the album you see).
     private var source: PhotoCatalog.Source {
-        get { PhotoCatalog.Source(key: sourceKey) }
+        get {
+            // An album or folder that's gone since: all photos instead of nothing.
+            switch PhotoCatalog.Source(key: sourceKey) {
+            case .album(let id) where !catalog.albums.contains(where: { $0.id == id }): .all
+            case .folder(let id) where !FootageFolders.shared.folders.contains(where: { $0.id == id }): .all
+            case let kept: kept
+            }
+        }
         nonmutating set { sourceKey = newValue.key }
     }
     @FocusState private var focused: Bool

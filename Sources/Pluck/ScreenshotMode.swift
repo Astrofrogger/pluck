@@ -63,6 +63,15 @@ enum ScreenshotMode {
             if rounds > 30 { timer.invalidate() }
         }
 
+        // -PluckScreenshotSeed <folder>: its videos, songs and photos added as finished items (once),
+        // so the list, Home and the Library have something to show.
+        if let seed = defaults.string(forKey: "PluckScreenshotSeed") {
+            let files = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: seed), includingPropertiesForKeys: nil)) ?? [])
+                .filter { !$0.lastPathComponent.hasPrefix(".") && !$0.hasDirectoryPath }
+                .sorted { $0.lastPathComponent > $1.lastPathComponent }
+            let known = Set(manager.items.compactMap { $0.fileURL?.path })
+            _ = manager.addLocalFiles(files.filter { !known.contains($0.path) })
+        }
         let wanted = defaults.string(forKey: "PluckScreenshotItem")
         let finished = manager.items.filter { $0.state == .finished && $0.existingFile != nil }
         let item = finished.first { wanted == nil || $0.title.hasPrefix(wanted!) } ?? finished.first
@@ -470,6 +479,8 @@ enum ScreenshotMode {
                 StudioNavigator.shared.open(windowID: "rawPlayer")
             case "offload":
                 // -PluckScreenshotOffloadFrom <folder> -PluckScreenshotOffloadTo <a|b>: offloaded at once.
+                // -PluckScreenshotOffloadCard <folder>: shown as the only card plugged in.
+                if let card = defaults.string(forKey: "PluckScreenshotOffloadCard") { OffloadView.cardsShown = [URL(fileURLWithPath: card)] }
                 StudioNavigator.shared.open(windowID: "offload")
                 // -PluckScreenshotOffloadCheck <folder>: that copy checked against its MHL.
                 // -PluckScreenshotLog <file>: why an offload couldn't start, and each check's result.
@@ -520,9 +531,7 @@ enum ScreenshotMode {
                     }
                 }
             case "tools":
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    NotificationCenter.default.post(name: ToolsPanel.showNotification, object: nil)
-                }
+                StudioNavigator.shared.show(.tools)
             case "derush":
                 // -PluckScreenshotFile <file or folder> is added and analysed.
                 StudioNavigator.shared.open(windowID: "derush")

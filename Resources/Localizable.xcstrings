@@ -8161,6 +8161,64 @@
         }
       }
     },
+    "A full drive, a folder Pluck can’t write to or a dropped connection are now said in plain words, for downloads and for converting.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein volles Laufwerk, ein Ordner, in den Pluck nicht schreiben kann, oder eine abgebrochene Verbindung werden jetzt verständlich erklärt, beim Laden und beim Umwandeln."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un disco lleno, una carpeta en la que Pluck no puede escribir o una conexión cortada ahora se explican con palabras sencillas, al descargar y al convertir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un disque plein, un dossier où Pluck ne peut pas écrire ou une connexion perdue sont désormais expliqués simplement, pour les téléchargements comme pour les conversions."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un disco pieno, una cartella in cui Pluck non può scrivere o una connessione caduta ora vengono spiegati con parole semplici, nei download e nelle conversioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドライブの空き不足、Pluck が書き込めないフォルダ、接続の切断を、ダウンロードと変換のどちらでもわかりやすく伝えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드라이브 공간 부족, Pluck이 쓸 수 없는 폴더, 끊긴 연결을 이제 다운로드와 변환 모두에서 쉬운 말로 알려 줍니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een volle schijf, een map waar Pluck niet in kan schrijven of een verbroken verbinding worden nu in gewone woorden uitgelegd, bij downloaden en omzetten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um disco cheio, uma pasta em que o Pluck não pode gravar ou uma conexão perdida agora são explicados em palavras simples, ao baixar e ao converter."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘已满、Pluck 无法写入的文件夹或连接中断，现在在下载和转换时都会用简单的话说明。"
+          }
+        }
+      }
+    },
     "A full-width timeline, drag to transform and zoom on the picture, dynamic zoom with start and end frames, stabilization you can preview, and clip colour with LUTs, for projects and single files alike.": {
       "localizations": {
         "de": {
@@ -10365,6 +10423,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "柔和的边缘扫过标志将其展现，形状随之落到位。"
+          }
+        }
+      }
+    },
+    "A stronger Editor": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein stärkerer Editor"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un editor más potente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un éditeur plus puissant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un editor più potente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より強力なエディタ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 강력해진 편집기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een sterkere editor"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um editor mais poderoso"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更强大的编辑器"
           }
         }
       }
@@ -16002,6 +16118,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "动画预览"
+          }
+        }
+      }
+    },
+    "Animations designed for your logo": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animationen, für dein Logo gestaltet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animaciones diseñadas para tu logotipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des animations conçues pour votre logo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animazioni progettate per il tuo logo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたのロゴのためのアニメーション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 로고를 위해 디자인된 애니메이션"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animaties ontworpen voor je logo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animações criadas para o seu logotipo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为你的标志设计的动画"
           }
         }
       }
@@ -26886,6 +27060,64 @@
         }
       }
     },
+    "Choose several in the Library": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehrere in der Mediathek auswählen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige varios en la Biblioteca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez-en plusieurs dans la Bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegline più di uno nella Libreria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリで複数を選択"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브러리에서 여러 개 선택"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies er meerdere in de bibliotheek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha vários na Biblioteca"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在资料库中多选"
+          }
+        }
+      }
+    },
     "Choose the folder of a copy, with its MHL file.": {
       "localizations": {
         "de": {
@@ -28572,6 +28804,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "清除评分"
+          }
+        }
+      }
+    },
+    "Clearer when something goes wrong": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klarer, wenn etwas schiefgeht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más claro cuando algo falla"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus clair quand quelque chose ne va pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più chiaro quando qualcosa va storto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "問題が起きたときにわかりやすく"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "문제가 생겼을 때 더 명확하게"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duidelijker als er iets misgaat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais claro quando algo dá errado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "出错时说得更清楚"
           }
         }
       }
@@ -33816,6 +34106,64 @@
         }
       }
     },
+    "Copy a card to several drives at once, every file checked against the original. A drive that’s pulled out picks up where it stopped, with a report for the production.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiere eine Karte auf mehrere Laufwerke zugleich, jede Datei mit dem Original verglichen. Ein abgezogenes Laufwerk macht dort weiter, wo es stand, mit einem Bericht für die Produktion."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia una tarjeta a varios discos a la vez, con cada archivo comprobado contra el original. Un disco que se desconecta sigue donde se quedó, con un informe para la producción."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiez une carte sur plusieurs disques à la fois, chaque fichier vérifié par rapport à l’original. Un disque débranché reprend là où il s’était arrêté, avec un rapport pour la production."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia una scheda su più dischi insieme, ogni file verificato rispetto all’originale. Un disco scollegato riprende da dove si era fermato, con un rapporto per la produzione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カードを複数のドライブへ一度にコピーし、すべてのファイルを元と照合。抜けたドライブは止まったところから再開し、制作用のレポートも作成します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드를 여러 드라이브에 한 번에 복사하고 모든 파일을 원본과 대조합니다. 분리된 드라이브는 멈춘 곳부터 이어서 진행하며, 제작용 보고서도 만듭니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieer een kaart naar meerdere schijven tegelijk, elk bestand gecontroleerd met het origineel. Een losgekoppelde schijf gaat verder waar hij stopte, met een rapport voor de productie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copie um cartão para vários discos de uma vez, cada arquivo conferido com o original. Um disco desconectado continua de onde parou, com um relatório para a produção."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次将存储卡复制到多块硬盘，每个文件都与原件核对。拔出的硬盘会从停下的地方继续，并为制作生成报告。"
+          }
+        }
+      }
+    },
     "Copy a card to several drives at once, every file checked. If a drive disconnects, it carries on when it’s back.": {
       "localizations": {
         "de": {
@@ -38298,6 +38646,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "深度范围"
+          }
+        }
+      }
+    },
+    "Depth and sky masks": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tiefen- und Himmelsmasken"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máscaras de profundidad y cielo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masques de profondeur et de ciel"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maschere di profondità e cielo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深度と空のマスク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "깊이 및 하늘 마스크"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diepte- en luchtmaskers"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Máscaras de profundidade e céu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "深度和天空蒙版"
           }
         }
       }
@@ -46496,6 +46902,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "随处剪辑邀请"
+          }
+        }
+      }
+    },
+    "Edit by deleting words from the transcript, cut to the beat, reframe for vertical, dip to black or white, see waveforms and relink missing media. Long renders can be stopped.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schneide, indem du Wörter aus dem Transkript löschst, schneide im Takt, rahme für Hochformat neu, blende über Schwarz oder Weiß, sieh Wellenformen und verknüpfe fehlende Medien neu. Lange Renderings lassen sich stoppen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edita borrando palabras de la transcripción, corta al ritmo, reencuadra en vertical, funde a negro o a blanco, ve las formas de onda y vuelve a enlazar medios que faltan. Los renderizados largos se pueden detener."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montez en supprimant des mots de la transcription, coupez sur le rythme, recadrez en vertical, faites des fondus au noir ou au blanc, voyez les formes d’onde et reliez les médias manquants. Les longs rendus peuvent être arrêtés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monta cancellando parole dalla trascrizione, taglia a tempo, reinquadra in verticale, dissolvi al nero o al bianco, vedi le forme d’onda e ricollega i media mancanti. I rendering lunghi si possono interrompere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "書き起こしから単語を消して編集、ビートに合わせてカット、縦向きにリフレーム、黒や白へのディップ、波形表示、見つからないメディアの再リンク。長いレンダリングは停止できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대본에서 단어를 지워 편집하고, 비트에 맞춰 자르고, 세로로 재구성하고, 검정이나 흰색으로 디졸브하고, 파형을 보고, 없는 미디어를 다시 연결하세요. 긴 렌더링은 멈출 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monteer door woorden uit het transcript te wissen, knip op de beat, kader opnieuw voor staand, fade naar zwart of wit, bekijk golfvormen en koppel ontbrekende media opnieuw. Lange renders kun je stoppen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edite apagando palavras da transcrição, corte no ritmo, reenquadre para vertical, faça transições para preto ou branco, veja formas de onda e reconecte mídias ausentes. Renderizações longas podem ser interrompidas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过删除转录文字来剪辑、按节拍剪切、为竖屏重新构图、淡入淡出到黑色或白色、查看波形并重新链接丢失的媒体。长时间渲染可以停止。"
           }
         }
       }
@@ -97638,6 +98102,64 @@
         }
       }
     },
+    "Play .r3d and Blackmagic RAW smoothly, decoded on the Mac’s graphics chip, with ISO, white balance, LUTs, timecode and sound. ProRes, MXF and image sequences too. Open a folder to skim every clip in it, and press Space in Finder to preview raw clips.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spiele .r3d und Blackmagic RAW flüssig ab, dekodiert auf dem Grafikchip des Mac, mit ISO, Weißabgleich, LUTs, Timecode und Ton. Auch ProRes, MXF und Bildsequenzen. Öffne einen Ordner, um alle Clips darin zu überfliegen, und drücke im Finder die Leertaste für eine Vorschau von RAW-Clips."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduce .r3d y Blackmagic RAW con fluidez, decodificado en el chip gráfico del Mac, con ISO, balance de blancos, LUT, código de tiempo y sonido. También ProRes, MXF y secuencias de imágenes. Abre una carpeta para recorrer todos sus clips y pulsa Espacio en el Finder para previsualizar clips RAW."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lisez les fichiers .r3d et le Blackmagic RAW de façon fluide, décodés par la puce graphique du Mac, avec ISO, balance des blancs, LUT, timecode et son. ProRes, MXF et séquences d’images aussi. Ouvrez un dossier pour survoler tous ses plans, et appuyez sur Espace dans le Finder pour prévisualiser les plans RAW."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduci .r3d e Blackmagic RAW in modo fluido, decodificati dal chip grafico del Mac, con ISO, bilanciamento del bianco, LUT, timecode e audio. Anche ProRes, MXF e sequenze di immagini. Apri una cartella per scorrere tutte le clip e premi Spazio nel Finder per vedere l’anteprima delle clip RAW."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".r3d と Blackmagic RAW を Mac のグラフィックスチップでデコードし、ISO、ホワイトバランス、LUT、タイムコード、サウンド付きでなめらかに再生。ProRes、MXF、画像シーケンスにも対応。フォルダを開けば中のクリップをすべてスキムでき、Finder でスペースを押せば RAW クリップをプレビューできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ".r3d와 Blackmagic RAW를 Mac의 그래픽 칩으로 디코딩해 ISO, 화이트 밸런스, LUT, 타임코드, 사운드와 함께 부드럽게 재생합니다. ProRes, MXF, 이미지 시퀀스도 지원합니다. 폴더를 열어 모든 클립을 훑어보고, Finder에서 스페이스를 눌러 RAW 클립을 미리 보세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speel .r3d en Blackmagic RAW vloeiend af, gedecodeerd op de grafische chip van de Mac, met ISO, witbalans, LUT’s, timecode en geluid. Ook ProRes, MXF en beeldreeksen. Open een map om door al zijn clips te bladeren en druk in de Finder op de spatiebalk om RAW-clips te bekijken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduza .r3d e Blackmagic RAW com fluidez, decodificados pelo chip gráfico do Mac, com ISO, balanço de branco, LUTs, timecode e som. Também ProRes, MXF e sequências de imagens. Abra uma pasta para percorrer todos os clipes e pressione Espaço no Finder para pré-visualizar clipes RAW."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流畅播放 .r3d 和 Blackmagic RAW，由 Mac 的图形芯片解码，支持 ISO、白平衡、LUT、时间码和声音。也支持 ProRes、MXF 和图像序列。打开文件夹即可快速浏览其中所有片段，在“访达”中按空格键即可预览 RAW 片段。"
+          }
+        }
+      }
+    },
     "Play a finished download or show it in Finder straight from the notification.": {
       "localizations": {
         "de": {
@@ -98682,6 +99204,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "播放器"
+          }
+        }
+      }
+    },
+    "Player, for camera raw": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player, für Kamera-RAW"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproductor, para RAW de cámara"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecteur, pour le RAW de caméra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player, per il RAW della camera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレーヤー、カメラRAWに対応"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플레이어, 카메라 RAW용"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player, voor camera-RAW"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Player, para RAW de câmera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放器，支持相机 RAW"
           }
         }
       }
@@ -119344,6 +119924,64 @@
         }
       }
     },
+    "Select the sky or what’s near and far in a photo, worked out on your Mac.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle den Himmel oder Nahes und Fernes in einem Foto aus, berechnet auf deinem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona el cielo o lo cercano y lejano de una foto, calculado en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez le ciel ou ce qui est proche et lointain dans une photo, calculé sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona il cielo o ciò che è vicino e lontano in una foto, calcolato sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真の空や手前と奥を、Mac 上で計算して選択します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진에서 하늘이나 가깝고 먼 곳을 Mac에서 계산해 선택하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecteer de lucht of wat dichtbij en ver weg is in een foto, berekend op je Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione o céu ou o que está perto e longe numa foto, calculado no seu Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择照片中的天空或远近区域，在你的 Mac 上计算。"
+          }
+        }
+      }
+    },
     "Select this chapter": {
       "localizations": {
         "de": {
@@ -122010,6 +122648,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "锐度"
+          }
+        }
+      }
+    },
+    "Shift-click or Command-click to pick several, then delete them all at once. File ▸ Remove Missing Files from Library clears out what’s no longer on your Mac.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Umschalt- oder Befehlstaste-Klick mehrere auswählen und alle auf einmal löschen. „Ablage ▸ Fehlende Dateien aus der Mediathek entfernen“ räumt auf, was nicht mehr auf deinem Mac ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Haz clic con Mayúsculas o Comando para elegir varios y elimínalos todos a la vez. Archivo ▸ Quitar archivos que faltan de la Biblioteca retira lo que ya no está en tu Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cliquez avec Maj ou Commande pour en choisir plusieurs, puis supprimez-les d’un coup. Fichier ▸ Retirer les fichiers manquants de la Bibliothèque fait le ménage de ce qui n’est plus sur votre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic con Maiusc o Comando per sceglierne più di uno, poi eliminali tutti insieme. File ▸ Rimuovi file mancanti dalla Libreria toglie ciò che non è più sul tuo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shiftクリックまたはコマンドクリックで複数を選び、まとめて削除できます。「ファイル ▸ 見つからないファイルをライブラリから削除」で、Macにもうないものを片付けます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift 또는 Command를 누른 채 클릭해 여러 개를 고르고 한 번에 삭제하세요. 파일 ▸ 라이브러리에서 없는 파일 제거로 Mac에 더 이상 없는 항목을 정리합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shift- of Command-klik om er meerdere te kiezen en verwijder ze in één keer. Archief ▸ Ontbrekende bestanden uit bibliotheek verwijderen ruimt op wat niet meer op je Mac staat."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique com Shift ou Command para escolher vários e apague todos de uma vez. Arquivo ▸ Remover arquivos ausentes da Biblioteca limpa o que não está mais no seu Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按住 Shift 或 Command 点按以选择多个，然后一次删除。“文件 ▸ 从资料库中移除丢失的文件”会清理 Mac 上已不存在的项目。"
           }
         }
       }
@@ -135843,6 +136539,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "编辑器边栏会找出精彩片段和口头禅并剪掉，还能生成可编辑、缩放和拖动位置的字幕，再烧录到导出中。一切都在你的 Mac 上本地运行。"
+          }
+        }
+      }
+    },
+    "The Logo Animator reads your logo like a motion designer and makes an animation from its own shapes. Change its feel or any part, export a reveal, intro, sting, loop or still in 4K, with transparency and a sound on the landing.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Logo-Animator liest dein Logo wie ein Motion-Designer und macht aus seinen eigenen Formen eine Animation. Ändere ihr Gefühl oder jeden Teil, exportiere eine Enthüllung, ein Intro, einen Sting, eine Schleife oder ein Standbild in 4K, mit Transparenz und einem Klang bei der Landung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El animador de logotipos lee tu logotipo como un diseñador de movimiento y crea una animación con sus propias formas. Cambia su carácter o cualquier parte y exporta una revelación, intro, firma, bucle o imagen fija en 4K, con transparencia y un sonido al aterrizar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’animateur de logo lit votre logo comme un motion designer et crée une animation à partir de ses propres formes. Changez son caractère ou n’importe quel élément, exportez une révélation, une intro, une signature, une boucle ou une image fixe en 4K, avec transparence et un son à l’arrivée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’animatore di loghi legge il tuo logo come un motion designer e crea un’animazione con le sue stesse forme. Cambia il carattere o qualsiasi parte, esporta una rivelazione, un’intro, una firma, un loop o un’immagine fissa in 4K, con trasparenza e un suono all’arrivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ロゴアニメーターはモーションデザイナーのようにロゴを読み取り、ロゴ自身の形からアニメーションを作ります。雰囲気や各パーツを変えて、リビール、イントロ、スティング、ループ、静止画を透明付きの4Kで、着地のサウンド付きで書き出せます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로고 애니메이터는 모션 디자이너처럼 로고를 읽고 로고 고유의 모양으로 애니메이션을 만듭니다. 느낌이나 각 부분을 바꾸고, 리빌, 인트로, 스팅, 루프, 스틸을 투명 배경의 4K로, 착지 사운드와 함께 내보내세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De logo-animator leest je logo zoals een motion designer en maakt een animatie uit zijn eigen vormen. Verander het gevoel of elk onderdeel, en exporteer een onthulling, intro, sting, lus of still in 4K, met transparantie en een geluid bij de landing."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O animador de logotipos lê o seu logotipo como um motion designer e cria uma animação com as próprias formas. Mude o estilo ou qualquer parte e exporte uma revelação, intro, vinheta, loop ou imagem estática em 4K, com transparência e um som no pouso."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标志动画器会像动态设计师一样解读你的标志，用它自身的形状制作动画。可以更改感觉或任意部件，以4K导出揭示、开场、标识、循环或静帧，带透明度并在落定时配上声音。"
           }
         }
       }

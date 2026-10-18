@@ -5,6 +5,18 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.0.0", items: [
+                Item(symbol: "play.rectangle", title: String(localized: "Player, for camera raw"),
+                     detail: String(localized: "Play .r3d and Blackmagic RAW smoothly, decoded on the Mac’s graphics chip, with ISO, white balance, LUTs, timecode and sound. ProRes, MXF and image sequences too. Open a folder to skim every clip in it, and press Space in Finder to preview raw clips.")),
+                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload"),
+                     detail: String(localized: "Copy a card to several drives at once, every file checked against the original. A drive that’s pulled out picks up where it stopped, with a report for the production.")),
+                Item(symbol: "wand.and.stars", title: String(localized: "Animations designed for your logo"),
+                     detail: String(localized: "The Logo Animator reads your logo like a motion designer and makes an animation from its own shapes. Change its feel or any part, export a reveal, intro, sting, loop or still in 4K, with transparency and a sound on the landing.")),
+                Item(symbol: "film.stack", title: String(localized: "A stronger Editor"),
+                     detail: String(localized: "Edit by deleting words from the transcript, cut to the beat, reframe for vertical, dip to black or white, see waveforms and relink missing media. Long renders can be stopped.")),
+                Item(symbol: "mountain.2", title: String(localized: "Depth and sky masks"),
+                     detail: String(localized: "Select the sky or what’s near and far in a photo, worked out on your Mac.")),
+            ]),
             Release(version: "2.3.0", items: [
                 Item(symbol: "camera.aperture", title: String(localized: "A faster, truer photo engine"),
                      detail: String(localized: "Sliders follow the mouse straight from the GPU, colours past sRGB are kept, white balance uses CAT16 and dehaze is real. Earlier edits keep their look until you update them.")),

@@ -106,6 +106,12 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.0.0", items: [
+                Item(symbol: "checklist", title: String(localized: "Choose several in the Library"),
+                     detail: String(localized: "Shift-click or Command-click to pick several, then delete them all at once. File ▸ Remove Missing Files from Library clears out what’s no longer on your Mac.")),
+                Item(symbol: "text.bubble", title: String(localized: "Clearer when something goes wrong"),
+                     detail: String(localized: "A full drive, a folder Pluck can’t write to or a dropped connection are now said in plain words, for downloads and for converting.")),
+            ]),
             Release(version: "2.2.0", items: [
                 Item(symbol: "books.vertical", title: String(localized: "A tidier Library"),
                      detail: String(localized: "Files you take out of the Library stay out, and files that aren’t there any more no longer come back.")),

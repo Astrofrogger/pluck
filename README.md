@@ -1,12 +1,14 @@
-<h1 align="center">Pluck</h1>
+<h1 align="center">Pluck Studio</h1>
 
 <p align="center">
-  <b>Download video and music from YouTube, Spotify, Apple Music links and almost any website, in a Mac app that feels like it came with your Mac.</b>
+  <b>A creative studio for your Mac. Bring footage in from a link or a card, play camera raw, edit video and photos, animate your logo and check the export before it goes out. Everything runs on your Mac; nothing is uploaded.</b>
 </p>
 
 <p align="center">
-  <a href="https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg"><b>⬇︎ Download Pluck for Mac</b></a>
-  &nbsp;·&nbsp; free · macOS 14 or later · Apple Silicon & Intel · 10 languages
+  <a href="https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck-Studio.dmg"><b>⬇︎ Download Pluck Studio</b></a>
+  &nbsp;·&nbsp;
+  <a href="https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg">or just the downloader</a>
+  <br>free · macOS 14 or later · Apple silicon & Intel · 10 languages
 </p>
 
 <p align="center">
@@ -15,87 +17,148 @@
 
 <p align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/main-dark.png">
-    <img src="docs/screenshots/main-light.png" width="620" alt="Pluck's main window: Dua Lipa and Billie Eilish videos downloading, Olivia Rodrigo paused, and Sabrina Carpenter and Chappell Roan finished, the song with lyrics at AAC 256 kbps">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/home-dark.png">
+    <img src="docs/screenshots/home-light.png" width="760" alt="Pluck Studio's Home: a field to paste a link or drop a file, a project to continue editing and the latest downloads">
   </picture>
 </p>
 
-**Paste a link or type what you're looking for, press Return, done.** Pluck is a native SwiftUI front-end for [yt-dlp](https://github.com/yt-dlp/yt-dlp), with Liquid Glass on macOS 26 and later.
+One window, six pages along the bottom: **Home, Library, Edit, Photo, Search and Tools.** Paste a link or drop a file and pick up where you left off. A native SwiftUI app, with Liquid Glass on macOS 26 and later.
 
-- 🔎 **Search right in Pluck:** type a song or video name and download from YouTube Music or YouTube with one click
-- 📋 **Many links at once:** paste or drop a whole list of links, or a text file full of them
-- 🎵 **Music done properly:** the best audio on offer (256 kbps with YouTube Premium), cover art, tags and lyrics, and added to Apple Music automatically if you like
-- 🎬 **Any video quality,** from 360p to 4K, clips of just the part you need, and pause and resume for big downloads
-- ✨ **Local AI, on your Mac:** subtitles and translations, who said what, summaries and chapters, shorts, removing silences, clean audio, upscaling and smooth motion, new backgrounds, privacy blur and stems. Nothing is uploaded
-- 📚 **Library:** everything you've saved, by kind and site, with tags, search, duplicates and the space it takes
-- 🗜️ **Convert your own files:** extract audio, convert to MP4, trim, make GIFs, shrink a video to the size and resolution you choose, or compress photos
-- 🌐 **Almost any website:** 1,800+ sites through yt-dlp, plus Spotify and Apple Music links and pages yt-dlp doesn't know
-- ⚡️ **Nothing to install:** Pluck sets up and updates yt-dlp, ffmpeg and Deno for you, and updates itself
+- 🎬 **Edit:** a real timeline, with editing by deleting words from the transcript, cuts on the beat, subtitles, titles and music, then off to DaVinci Resolve or an export
+- 📷 **Photo:** cull and develop RAW photos, with masks for the subject, people, sky and depth, film looks and XMP sidecars for Lightroom and Capture One
+- 🎞️ **Player:** plays camera raw (.r3d and Blackmagic RAW) smoothly on the Mac's graphics chip, plus ProRes, MXF and image sequences, with a folder browser to skim every clip
+- 💾 **Offload:** copies a card to several drives at once, every file read back and checked
+- ✨ **Logo Animator & Brand Pack:** an animation designed from your logo's own shapes, plus lower thirds, title and end cards in its colours
+- ✅ **Delivery Check:** flash frames, black, frozen picture, dropouts, loudness and typos, found before the client does
+- 🔎 **Search:** find a moment by what was said or what's in the picture, across your downloads and footage folders
+- ⬇︎ **Download:** video and music from YouTube, Spotify and Apple Music links and 1,800+ sites, into a Library that keeps it all
+- 🧠 **Local AI:** subtitles, translations, speakers, summaries, shorts, clean audio, new backgrounds, privacy blur, stems and more, on your Mac
 
 <table>
   <tr>
     <td align="center" width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/search-dark.png">
-        <img src="docs/screenshots/search-light.png" width="380" alt="Search results for Sabrina Carpenter on the Music tab, each with a download button">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/edit-dark.png">
+        <img src="docs/screenshots/edit-light.png" width="400" alt="The Edit page: a project of three Tears of Steel clips on the timeline, with waveforms, the media beside it and Send to DaVinci">
       </picture>
-      <br><b>Search, then download</b><br>Songs from YouTube Music or videos from YouTube, one click each.
+      <br><b>Edit</b><br>Projects and single files, on a full-width timeline.
     </td>
     <td align="center" width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/playlist-dark.png">
-        <img src="docs/screenshots/playlist-light.png" width="380" alt="The playlist picker showing the 17 Blender open movies, all selected">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/photo-dark.png">
+        <img src="docs/screenshots/photo-light.png" width="400" alt="The Photo page: a lake photo being edited, with the histogram and Light and Colour sliders, and a filmstrip below">
       </picture>
-      <br><b>Pick from playlists</b><br>One video, a few or all of them, from YouTube, Spotify or Apple Music.
-    </td>
-  </tr>
-  <tr>
-    <td align="center" width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/menubar-dark.png">
-        <img src="docs/screenshots/menubar-light.png" width="300" alt="The menu bar panel with a link field, format menu and download progress">
-      </picture>
-      <br><b>Lives in your menu bar</b><br>Paste, search and follow progress without opening a window.
-    </td>
-    <td align="center" width="50%">
-      <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/settings-dark.png">
-        <img src="docs/screenshots/settings-light.png" width="360" alt="Settings, Downloads tab: embed metadata, cover art, subtitles and lyrics, and file names">
-      </picture>
-      <br><b>Simple settings</b><br>Formats, file names, lyrics, login at startup, browser cookies.
+      <br><b>Photo</b><br>Cull, then develop, with your originals never changed.
     </td>
   </tr>
   <tr>
     <td align="center" width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/player-dark.png">
-        <img src="docs/screenshots/player-light.png" width="380" alt="Pluck Player with a two-person interview: the transcript beside the video shows who says what, Mia and Daniel">
+        <img src="docs/screenshots/player-light.png" width="400" alt="The Player: a clip playing full width, with LUT, exposure and export settings beside it">
       </picture>
-      <br><b>Who said what</b><br>Transcripts, summaries and chapters, with the speakers named.
+      <br><b>Player</b><br>Camera raw with ISO, white balance, LUTs and timecode.
     </td>
     <td align="center" width="50%">
       <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/ai-dark.png">
-        <img src="docs/screenshots/ai-light.png" width="300" alt="The convert window for a video from your Mac, with ten local AI actions: shorts, subtitles, summaries, chapters, removing silences, upscaling, new background, privacy blur, clean audio and stems">
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/browser-dark.png">
+        <img src="docs/screenshots/browser-light.png" width="400" alt="The Player's folder browser: a thumbnail per clip, with its length, size, frame rate and format">
       </picture>
-      <br><b>Local AI for your own files</b><br>Drop a video or song and pick what to do with it.
+      <br><b>Open a folder</b><br>Every clip in it and its subfolders, to skim and scrub.
     </td>
   </tr>
   <tr>
-    <td align="center" colspan="2">
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/offload-dark.png">
+        <img src="docs/screenshots/offload-light.png" width="400" alt="Offload: card A001 copied to the drives Shuttle and Backup, 4 files checked on every drive">
+      </picture>
+      <br><b>Offload</b><br>One card, several drives, every copy checked with xxHash64.
+    </td>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/logo-dark.png">
+        <img src="docs/screenshots/logo-light.png" width="400" alt="The Logo Animator with a made-up logo, Compass Travel Studio: its animation, feel and the timing of each part">
+      </picture>
+      <br><b>Logo Animator</b><br>Designed for your logo; change its feel or any part.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/library-dark.png">
-        <img src="docs/screenshots/library-light.png" width="620" alt="The Pluck Library: collections for videos, music, photos and sites, with a grid of saved videos and songs">
+        <img src="docs/screenshots/library-light.png" width="400" alt="The Library: everything saved, as a grid, with collections for videos, music, photos and tidying up">
       </picture>
-      <br><b>Library</b><br>Everything you've saved, by kind and site, with tags, duplicates and the space it takes.
+      <br><b>Library</b><br>Everything you've saved, with tags, duplicates and missing files.
+    </td>
+    <td align="center" width="50%">
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/tools-dark.png">
+        <img src="docs/screenshots/tools-light.png" width="400" alt="The Tools page: Derush Footage, Offload, Player, Live Recorder, Delivery Check, Logo Animator, Brand Pack, Fit Music to Length and Edit Anywhere">
+      </picture>
+      <br><b>Tools</b><br>The rest of the studio, one click away.
     </td>
   </tr>
 </table>
 
-## Install
-Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg)**, open it, and drag Pluck into Applications. The first time you open it, go to System Settings → Privacy & Security and click **Open Anyway**, because the app isn't signed with an Apple Developer ID. After that, Pluck checks GitHub for its own updates and installs them when you click **Install & Relaunch**.
+## Two editions
+**Pluck Studio** is everything on this page. **Pluck** is the lightweight one: downloading video and music, the Library, sharing to your phone and converting files, small and focused. Switch between them any time in Settings → General; your downloads, Library and settings stay.
 
-## Features
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/screenshots/basic-dark.png">
+    <img src="docs/screenshots/basic-light.png" width="560" alt="Pluck, the downloader: a link field and five finished downloads">
+  </picture>
+</p>
+
+## Install
+Download **[Pluck-Studio.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck-Studio.dmg)** (or **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/download/Pluck.dmg)** for just the downloader), open it, and drag the app into Applications. The first time you open it, go to System Settings → Privacy & Security and click **Open Anyway**, because the app isn't signed with an Apple Developer ID. After that, Pluck checks GitHub for its own updates and installs them when you click **Install & Relaunch**.
+
+## Pluck Studio
+
+### Edit
+- **Projects:** drop several videos and local AI lays out a story across them at the length you choose, or open a single file in a tab
+- **A full-width timeline** with waveforms, titles, music and subtitles; move, zoom, crop, speed up, stabilise and colour each clip, with LUTs
+- **Edit by text:** delete words from the transcript to cut them, remove filler words and silences, keep only the passages worth telling a story with
+- **Cut to the beat, reframe for vertical,** dip to black or white, dynamic zoom with start and end frames, and relink missing media
+- **Subtitles your way:** font, weight, size, colour, outline or box, shadow; drag lines on the timeline, add, split or join them
+- **Send to DaVinci Resolve** as a new timeline with its subtitles, or export; long renders can be stopped
+
+### Photo
+- **Browse and Edit:** ratings, picks, colour labels, albums in folders, Compare two photos zoomed together, burst stacking and quick checks for blur and closed eyes
+- **A real RAW developer:** every camera from the same neutral point, profiles, Kelvin white balance with CAT16, highlights and shadows without halos, curves, colour mixer and wheels, dehaze, live histogram and clipping warnings
+- **Masks:** subject, people, objects, sky, depth, gradients, brush and brightness or colour ranges, combined as you like; found by AI on your Mac
+- **Looks** with live previews, snapshots, selective paste, Match Exposure, crop with rotation, optional AI denoise, and **XMP sidecars** for Lightroom and Capture One
+- **Real film:** [spektrafilm](https://github.com/andreavolpato/spektrafilm) simulates film stock, paper, grain and halation from measured data, an optional 9 MB download (GPLv3)
+
+### Player
+- **Camera raw:** .r3d and Blackmagic RAW, decoded on the Mac's graphics chip, with ISO, white balance, LUTs, timecode and sound; ProRes, MXF and image sequences too
+- **Open a folder** to see every clip in it and its subfolders as a thumbnail, with search, and scrub through them
+- **Export** to ProRes, HEVC or H.264 at the size you choose, save the frame on screen, and press Space in Finder to preview raw clips
+
+### Offload
+- **One card to several drives at once,** every file read back and checked against the original with xxHash64, and an MHL for each copy
+- A drive that's pulled out **picks up where it stopped;** check any copy later against its MHL, and get a report for the production
+
+### Logo Animator & Brand Pack
+- **The Logo Animator** reads your logo like a motion designer: it takes it apart into its shapes, finds the symbol, the name and the tagline, and designs an animation for it. Pick a feel (calm, premium, playful or bold), ask for another idea, or change when and how any part comes in
+- **Export** a reveal, intro, sting, loop or still, up to 4K, in 16:9, 9:16, square or 4:5, with transparency (ProRes 4444 or HEVC) and a sound on the moment the logo lands
+- **Brand Pack** makes lower thirds (one per name, all at once), a title card and an end card in your logo's colours, animated and transparent
+
+### Delivery Check
+Drop a finished export and Pluck looks it over before it goes out: flash frames, black, a frozen picture, sound dropping out, loudness for where it's going (online, social, broadcast in Europe or the US), typos in titles and text too close to the edge. Each finding opens at its moment.
+
+### Search
+Find a moment by what was said and by what's in the picture, in your own language, across your downloads and the footage folders you point Pluck at (⇧⌘F). **Find Shots** can write what it sees into your DaVinci Resolve project: a description, keywords and a marker per shot.
+
+### More tools
+- **Derush Footage:** local AI looks at every shot of a shoot and builds a first selection and timeline in Resolve
+- **Live Recorder:** record a live stream from the start or from now
+- **Fit Music to Length:** a song cut to land exactly on time, from a few seconds to many minutes
+- **Edit Anywhere:** render DaVinci Resolve timelines on another Mac from anywhere, with the originals on its storage, fetch proxies or originals, and search its footage. Everything stays on your own private network
+
+## Downloading and converting
+In both Pluck and Pluck Studio; Local AI is Pluck Studio's.
 
 ### Getting things in
 - **Paste a link** (Pluck fills it in from the clipboard when you switch to it), drag one onto the window, or **type words to search** YouTube Music (songs) or YouTube (videos)
@@ -119,11 +182,11 @@ Download **[Pluck.dmg](https://github.com/Astrofrogger/pluck/releases/latest/dow
 - **Add to Apple Music:** turn it on in Settings → Downloads to add every song you download, or only the file types you pick (M4A, MP3, WAV, AIFF, MP4, M4V, MOV). With *All songs*, FLAC gets an Apple Lossless copy and Opus/WebM an AAC copy, since Apple Music can't import those. Your original files stay where they are
 - **Cover art and tags** (title, artist, album) are embedded automatically
 
-### Local AI
+### Local AI (Pluck Studio)
 Everything here runs **locally on your Mac**: Apple's on-device speech recognition, translation, voice isolation, video processing and Apple Intelligence, plus open-source models for stems and speakers. Nothing you download, say or search is uploaded. Click the ✨ button on a finished download, or drop a video or song from your Mac on the window to use these on your own files. Select several items (⌘ or ⇧) to add subtitles, remove silences or clean up the audio of all of them at once:
 - **Subtitles & transcripts:** transcribe any video or song, save an `.srt`, add subtitle tracks to the video or burn them into the picture, and translate them into one or more other languages
 - **Translate subtitle files:** drop an `.srt` or `.vtt` on Pluck to translate it into one or more languages; the translations are saved next to it
-- **Who said what:** up to four speakers are told apart; subtitles and transcripts show their names (rename them in Pluck Player) and summaries know who said what. The speaker model (about 230 MB, NVIDIA Sortformer) is downloaded the first time
+- **Who said what:** up to four speakers are told apart; subtitles and transcripts show their names (rename them in the Editor) and summaries know who said what. The speaker model (about 230 MB, NVIDIA Sortformer) is downloaded the first time
 - **Remove silences & fillers:** cuts long pauses and filler words like "uhm" into a tightened copy, at a tight, natural or relaxed pace. For editing, it can also save an EDL with the same cuts for DaVinci Resolve or Premiere Pro
 - **Clean up audio:** removes background noise, hum and wind around voices with Apple's voice isolation, then levels the loudness for online video (−14 LUFS), podcasts (−16) or broadcast (−23). The picture is copied untouched
 - **Upscale & smooth:** makes low-resolution video sharp in 1080p or 4K, and adds frames for twice as smooth motion or 2× and 4× slow motion
@@ -134,7 +197,7 @@ Everything here runs **locally on your Mac**: Apple's on-device speech recogniti
 - **Shorts:** 1–5 vertical 9:16 clips from a long video. Local AI picks the best moments, each shot is framed steadily on the speaker or subject (titles are shown whole), and the spoken word is highlighted
 - **Caption styles:** for shorts and burned-in subtitles, choose a highlight box or colored text, the color, a size and a font, including your own fonts
 - **Stems & karaoke:** split a song into vocals, drums, bass and other, plus an instrumental (karaoke) version. The model (168 MB, [HTDemucs](https://github.com/facebookresearch/demucs), MIT) is downloaded the first time and checked
-- **Pluck Player:** watch with the transcript, summary and chapters beside the video; click a line to jump there. Export the transcript as text, Markdown or Word, or save the frame on screen as a picture
+- **Transcript beside the video:** in the Editor, watch with the transcript, summary and chapters beside the video; click a line to jump there. Export the transcript as text, Markdown or Word, or save the frame on screen as a picture
 - **Spoken language:** for your own files, Pluck asks which language is spoken before it writes a transcript, so summaries, chapters and shorts get it right
 
 Requirements: transcripts, subtitles, search, shorts, filler words and upscaling need macOS 26 or later; summaries, chapters and the smartest search and shorts also need Apple Intelligence; speaker labels need Apple silicon; stems need macOS 27 on Apple silicon. Removing silences, cleaning up audio, new backgrounds and privacy blur work on every supported Mac. Features a Mac can't run are simply hidden. Third-party licences are in [ThirdPartyLicenses.md](ThirdPartyLicenses.md).
@@ -179,22 +242,24 @@ javascript:location.href='pluck://download?url='+encodeURIComponent(location.hre
 Pluck opens with the link filled in; press Return to start. (A `pluck://` link never starts a download by itself, so websites can't trigger downloads.)
 
 ## Requirements
-macOS 14 Sonoma or later, on Apple Silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin` and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced.
+macOS 14 Sonoma or later, on Apple silicon or Intel. On macOS 26 and later it uses Liquid Glass; older versions get the standard macOS look. Nothing else is needed: on first launch Pluck downloads yt-dlp, ffmpeg/ffprobe and Deno into `~/Library/Application Support/Pluck/bin` and keeps them updated. To use your own Homebrew copies instead, turn off auto-update in Settings → Advanced. Features a Mac can't run are simply hidden; the local AI requirements are listed under [Local AI](#local-ai-pluck-studio).
 
-## Release
+## Build
 ```bash
-./scripts/release.sh 1.8.0 "What changed"
+./scripts/build-app.sh                  # Pluck Studio → build/Pluck.app
+./scripts/build-app.sh --edition basic  # Pluck → build/basic/Pluck.app
+./scripts/build-app.sh --install        # also copies it to /Applications
 ```
-Add the version's notes to `Sources/Pluck/WhatsNew.swift` first (the script refuses to release without them); people see them after updating. The script bumps the version, builds the app, uploads `Pluck.dmg`, `Pluck.zip` and `Pluck.zip.sha256` to a GitHub release, and tags it. Running copies of Pluck pick up the new version within a day, or straight away with Pluck → Check for Updates….
+Camera raw in the Player needs the camera makers' SDKs, which can't be part of this repository. Download the R3D SDK and the Blackmagic RAW SDK, accept their licences, and put them in `../sdks` (`red/R3DSDK…` and `braw/SDK`), or point `PLUCK_RAW_SDKS` at them; the build picks them up and copies only their runtime libraries into the app. Without them, Pluck builds and runs, just without camera raw.
 
 ## Translations
 Strings live in `Resources/Localizable.xcstrings` (a String Catalog you can open in Xcode). After changing text in the code, run `./scripts/update-strings.sh` to add new strings to the catalog, then translate them.
 
-## Build
+## Release
 ```bash
-./scripts/build-app.sh            # → build/Pluck.app
-./scripts/build-app.sh --install  # also copies it to /Applications
+./scripts/release.sh 3.0.0 "What changed"
 ```
+Add the version's notes to `Sources/Pluck/WhatsNew.swift` (both editions) or `Sources/Pluck/Studio/WhatsNewStudio.swift` (Studio only) first; the script refuses to release without them, and people see them after updating. It bumps the version, builds both editions, makes `Pluck.dmg` and `Pluck-Studio.dmg`, tags the release and uploads them to GitHub. Running copies pick up the new version within a day, or straight away with Pluck → Check for Updates….
 
 ---
-<sub>Screenshots show search results and download progress for songs by Dua Lipa, Billie Eilish, Olivia Rodrigo, Sabrina Carpenter and Chappell Roan, with their YouTube thumbnails; no music was downloaded to make them. The interview is <a href="https://mango.blender.org">Tears of Steel</a> (Blender Foundation, CC BY) with a made-up conversation, and the playlist shows <a href="https://studio.blender.org/films/">Blender Studio open movies</a> (CC BY). Pluck is meant for content you have the right to download.</sub>
+<sub>Screenshots show only openly licensed media. Films: <a href="https://mango.blender.org">Tears of Steel</a>, <a href="https://durian.blender.org">Sintel</a> and <a href="https://peach.blender.org">Big Buck Bunny</a>, © Blender Foundation, CC BY 3.0. Photos from Wikimedia Commons: <a href="https://commons.wikimedia.org/wiki/File:Friars%27_Crag_Derwentwater_Lake_District_2022_01.jpg">Friars' Crag, Derwentwater</a> by Julian Herzog (CC BY 4.0); <a href="https://commons.wikimedia.org/wiki/File:Breiðamerkurjökull_glacier,_Iceland,_20240719_1427_2618.jpg">Breiðamerkurjökull</a>, <a href="https://commons.wikimedia.org/wiki/File:Breiðamerkurjökull_glacier,_Iceland,_20240719_1514_2687.jpg">Breiðamerkurjökull ice</a> and <a href="https://commons.wikimedia.org/wiki/File:Fjallsárlón_glacier_lake,_Iceland,_20240719_1720_2774.jpg">Fjallsárlón</a> by Jakub Hałun (CC BY 4.0); <a href="https://commons.wikimedia.org/wiki/File:Barranco_Valle_de_la_Fuente_-_Fuerteventura.jpg">Barranco Valle de la Fuente</a> by H. Zell (CC BY 3.0); <a href="https://commons.wikimedia.org/wiki/File:Alone_in_the_unspoilt_wilderness_(Unsplash).jpg">Alone in the unspoilt wilderness</a> by David Marcu (CC0). The logo is made up. Pluck is meant for content you have the right to download. Third-party licences are in <a href="ThirdPartyLicenses.md">ThirdPartyLicenses.md</a>.</sub>

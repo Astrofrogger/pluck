@@ -12,6 +12,8 @@ struct OffloadView: View {
     @State private var found: (count: Int, bytes: Int64)?
     @State private var name = ""
     @State private var problem: String?
+    /// For screenshots: these instead of the cards plugged in.
+    @MainActor static var cardsShown: [URL]?
     @State private var starting = false
     @State private var dropping = false
 
@@ -132,7 +134,7 @@ struct OffloadView: View {
     private func refreshCards() {
         // Not the drives the copies go to.
         let targets = Set(roots.compactMap { (try? $0.resourceValues(forKeys: [.volumeURLKey]))?.volume?.standardizedFileURL.path })
-        cards = OffloadCenter.cards().filter { !targets.contains($0.standardizedFileURL.path) }
+        cards = (Self.cardsShown ?? OffloadCenter.cards()).filter { !targets.contains($0.standardizedFileURL.path) }
         if source == nil, let card = cards.first { choose(card) }
         if let source, !FileManager.default.fileExists(atPath: source.path) { self.source = nil; found = nil }
     }

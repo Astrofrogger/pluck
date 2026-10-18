@@ -3,8 +3,8 @@ Pick one of the two files below, open it and drag Pluck into Applications.
 
 | File | What you get |
 |---|---|
+| **Pluck-Studio.dmg** | Pluck Studio: the creative studio. Editing, Photo, the Player for camera raw, Offload, the Logo Animator and Brand Pack, Delivery Check, Search and local AI, plus everything in Pluck. |
 | **Pluck.dmg** | Pluck: downloading videos and music, the Library, sharing to your phone and converting files. Small and focused. |
-| **Pluck-Studio.dmg** | Pluck Studio: everything in Pluck, plus local AI, the editing tools for DaVinci Resolve, the Logo Animator and Edit Anywhere. |
 
 You can switch between them any time in Settings → General; your downloads, Library and settings stay.
 
