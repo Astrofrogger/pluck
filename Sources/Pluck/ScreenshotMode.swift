@@ -88,6 +88,12 @@ enum ScreenshotMode {
             case let search where search.hasPrefix("search:"):
                 manager.startSearch(String(search.dropFirst("search:".count)), kind: .music)
             case "convert": if let file = item?.existingFile { manager.openConverter(for: [file]) }
+            case "downloadtest":
+                // -PluckScreenshotLink <link> downloaded into each of -PluckScreenshotFile <a|b|…>; to -PluckScreenshotLog.
+                Task { await DownloadSelfTest.run(defaults: defaults, manager: manager) }
+            case "converttest":
+                // Every file in -PluckScreenshotFile <folder> through each conversion, into -PluckScreenshotOutput; to -PluckScreenshotLog.
+                Task { await ConvertSelfTest.run(defaults: defaults, manager: manager) }
             case "library": openLibrary(openWindow)
             case "settings": openSettings()
             case "subscriptiontest":
@@ -396,6 +402,18 @@ enum ScreenshotMode {
                         StudioNavigator.shared.open(windowID: "officeRender")
                     }
                 }
+            case "logogolden":
+                // Golden frames for the Logo Animator: every logo in -PluckScreenshotFile <folder>,
+                // every style and outro at eight moments, to -PluckScreenshotOutput <folder>
+                // (PNGs and manifest.txt of pixel hashes); -PluckScreenshotBaseline <folder> compares
+                // them with an earlier run in report.txt.
+                guard let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput") else { break }
+                Task.detached(priority: .userInitiated) {
+                    let baseline = defaults.string(forKey: "PluckScreenshotBaseline").map { URL(fileURLWithPath: $0) }
+                    LogoAnimation.renderGoldenFrames(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output), baseline: baseline)
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
@@ -406,6 +424,51 @@ enum ScreenshotMode {
                         NotificationCenter.default.post(name: BrandPackView.openNotification, object: logo)
                     }
                 }
+            case "raw":
+                // -PluckScreenshotFile <clip>: opened in Raw Player.
+                RawPlayerView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                StudioNavigator.shared.open(windowID: "rawPlayer")
+            case "offload":
+                // -PluckScreenshotOffloadFrom <folder> -PluckScreenshotOffloadTo <a|b>: offloaded at once.
+                StudioNavigator.shared.open(windowID: "offload")
+                // -PluckScreenshotOffloadCheck <folder>: that copy checked against its MHL.
+                // -PluckScreenshotLog <file>: why an offload couldn't start, and each check's result.
+                let log = defaults.string(forKey: "PluckScreenshotLog")
+                func note(_ line: String) {
+                    guard let log else { return }
+                    let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
+                    try? (old + line + "\n").write(toFile: log, atomically: true, encoding: .utf8)
+                }
+                if let folder = defaults.string(forKey: "PluckScreenshotOffloadCheck") {
+                    OffloadCenter.shared.check(URL(fileURLWithPath: folder))
+                    Task {
+                        while let check = OffloadCenter.shared.checks.first, !check.finished { try? await Task.sleep(for: .milliseconds(200)) }
+                        if let c = OffloadCenter.shared.checks.first {
+                            note("check matched \(c.matched) changed \(c.changed) missing \(c.missing) extra \(c.extra) unchecked \(c.unchecked) problem \(c.problem ?? "-")")
+                        }
+                    }
+                }
+                // -PluckScreenshotOffloadRetry YES: the files that couldn't be copied, once more.
+                if defaults.bool(forKey: "PluckScreenshotOffloadRetry") {
+                    for job in OffloadCenter.shared.jobs where !job.problems.isEmpty { OffloadCenter.shared.retryProblems(job.id) }
+                }
+                // -PluckScreenshotOffloadResume YES: the unfinished ones carry on.
+                if defaults.bool(forKey: "PluckScreenshotOffloadResume") {
+                    for job in OffloadCenter.shared.jobs where job.finished == nil { OffloadCenter.shared.resume(job.id) }
+                }
+                if let from = defaults.string(forKey: "PluckScreenshotOffloadFrom"), let to = defaults.string(forKey: "PluckScreenshotOffloadTo") {
+                    Task {
+                        let problem = await OffloadCenter.shared.add(source: URL(fileURLWithPath: from),
+                                                           roots: to.split(separator: "|").map { URL(fileURLWithPath: String($0)) },
+                                                           name: defaults.string(forKey: "PluckScreenshotName") ?? "Card",
+                                                           cascade: defaults.bool(forKey: "PluckScreenshotOffloadCascade"),
+                                                           eject: defaults.bool(forKey: "PluckScreenshotOffloadEject"))
+                        note("add \(problem ?? "ok")")
+                    }
+                }
+            case "deliverytest":
+                // Every file in -PluckScreenshotFile <folder> checked for -PluckScreenshotDestination; to -PluckScreenshotLog.
+                Task { await DeliveryCheck.selfTest(defaults: defaults) }
             case "delivery":
                 // -PluckScreenshotFile <video> is checked.
                 let video = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
