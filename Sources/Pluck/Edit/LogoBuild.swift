@@ -26,7 +26,7 @@ extension LogoAnimation {
     /// Timing of the building styles.
     func buildTiming(_ style: Style) -> [(start: Double, length: Double)] {
         var result = [(start: Double, length: Double)](repeating: (0, 1), count: elements.count)
-        let (plates, shapes, heroes) = castOrder
+        let (plates, shapes, sparks) = castOrder
         for (n, i) in plates.enumerated() { result[i] = (Double(n) * 0.12, 0.8) }
         let after = plates.isEmpty ? 0.0 : 0.4
         switch style {
@@ -41,7 +41,7 @@ extension LogoAnimation {
         default:
             break
         }
-        for i in elements.indices where !elements[i].hero { if let base = elements[i].base { result[i] = result[base] } }
+        for i in elements.indices where !elements[i].spark { if let base = elements[i].base { result[i] = result[base] } }
         return result
     }
 
@@ -61,9 +61,9 @@ extension LogoAnimation {
         /// A symbol beside a name: the symbol comes together in the middle, then slides home as
         /// the name unrolls from behind it.
         case symbol
-        /// A name with a hero (the dot on an i, a sparkle): the hero grows in, in the middle, then
+        /// A name with a spark (the dot on an i, a sparkle): the spark grows in, in the middle, then
         /// glides home as the name opens from behind it to both sides.
-        case hero(Int)
+        case spark(Int)
         /// Letters on a plate: the plate opens from a line in the middle, then the letters rise
         /// from their baseline, from the middle out.
         case plate
@@ -73,9 +73,9 @@ extension LogoAnimation {
 
     var assembleMode: AssembleMode {
         if symbolAndWordmark != nil { return .symbol }
-        // The hero nearest the middle leads (the name opens out of it).
-        if let hero = heroes.min(by: { abs(elements[$0].box.midX - size.width / 2) < abs(elements[$1].box.midX - size.width / 2) }) {
-            return .hero(hero)
+        // The spark nearest the middle leads (the name opens out of it).
+        if let spark = sparks.min(by: { abs(elements[$0].box.midX - size.width / 2) < abs(elements[$1].box.midX - size.width / 2) }) {
+            return .spark(spark)
         }
         if !castOrder.plates.isEmpty { return .plate }
         return .tracking
@@ -85,37 +85,37 @@ extension LogoAnimation {
     private var secondAct: (start: Double, length: Double) {
         switch assembleMode {
         case .symbol: return (slideStart, Self.slideLength)
-        case .hero: return (Self.heroLands - 0.03, 0.8)
+        case .spark: return (Self.sparkLands - 0.03, 0.8)
         case .plate: return (0.75, 0.9)
         case .tracking: return (0.1, 1.2)
         }
     }
 
-    /// The hero's beats: it grows in, in the middle, gathers itself, glides onto its place and
+    /// The spark's beats: it grows in, in the middle, gathers itself, glides onto its place and
     /// settles there. One deliberate move, no bouncing about (that reads as a gimmick).
-    static let heroGather = 0.42, heroTakeOff = 0.6, heroLands = 1.08
+    static let sparkGather = 0.42, sparkTakeOff = 0.6, sparkLands = 1.08
 
-    /// Where the hero is at time `t` (its centre on the canvas) and how it's squashed or
+    /// Where the spark is at time `t` (its centre on the canvas) and how it's squashed or
     /// stretched (x and y scale, on top of its size).
-    private func heroPose(_ t: Double, centre: CGPoint, home: CGRect, size: Double, rise: Double)
+    private func sparkPose(_ t: Double, centre: CGPoint, home: CGRect, size: Double, rise: Double)
         -> (centre: CGPoint, sx: Double, sy: Double, lift: Double) {
-        if t < Self.heroTakeOff {
+        if t < Self.sparkTakeOff {
             // Grows in with one soft overshoot, then sinks a touch into itself before it moves.
             let grow = Physics.spring(t, frequency: 2.4, damping: 0.72)
-            let gather = t > Self.heroGather
-                ? sin(Double.pi * min((t - Self.heroGather) / (Self.heroTakeOff - Self.heroGather), 1) / 2) * 0.06 : 0
+            let gather = t > Self.sparkGather
+                ? sin(Double.pi * min((t - Self.sparkGather) / (Self.sparkTakeOff - Self.sparkGather), 1) / 2) * 0.06 : 0
             return (centre, grow * (1 + gather), grow * (1 - gather), 0)
         }
-        if t < Self.heroLands {
+        if t < Self.sparkLands {
             // The glide: eased, along a shallow curve, never a lob.
-            let u = Easing.inOutCubic((t - Self.heroTakeOff) / (Self.heroLands - Self.heroTakeOff))
+            let u = Easing.inOutCubic((t - Self.sparkTakeOff) / (Self.sparkLands - Self.sparkTakeOff))
             let arc = abs(home.midY - centre.y) / 2 + rise * 0.05
             let x = centre.x + (home.midX - centre.x) * u
             let y = centre.y + (home.midY - centre.y) * u + 4 * u * (1 - u) * arc
             return (CGPoint(x: x, y: y), 1, 1, 0)
         }
         // Arrived: a small settle, gone within a quarter of a second.
-        let squash = Physics.squash(since: t - Self.heroLands, strength: 0.3)
+        let squash = Physics.squash(since: t - Self.sparkLands, strength: 0.3)
         return (CGPoint(x: home.midX, y: home.midY), 1 + squash * 0.6, 1 - squash, 0)
     }
 
@@ -125,7 +125,7 @@ extension LogoAnimation {
     }
 
     private func assembleTiming(_ result: inout [(start: Double, length: Double)]) {
-        let (plates, shapes, heroes) = castOrder
+        let (plates, shapes, sparks) = castOrder
         let act = secondAct
         let whole = CGRect(origin: .zero, size: size)
         switch assembleMode {
@@ -137,18 +137,18 @@ extension LogoAnimation {
             for i in layout.letters {
                 result[i] = (act.start + (elements[i].box.minX - letterBox.minX) / max(letterBox.width, 1) * act.length * 0.8, 0.8)
             }
-            for (n, i) in heroes.enumerated() { result[i] = (act.start + act.length * 0.9 + Double(n) * 0.1, 0.7) }
+            for (n, i) in sparks.enumerated() { result[i] = (act.start + act.length * 0.9 + Double(n) * 0.1, 0.7) }
             for i in shapes where result[i].start == 0 && !layout.symbols.contains(i) && !layout.letters.contains(i) {
                 result[i] = (act.start, 0.8)
             }
-        case .hero(let lead):
+        case .spark(let lead):
             result[lead] = (0, act.start + act.length + 0.6)
             let home = elements[lead].box
             let reach = shapes.map { abs(elements[$0].box.midX - home.midX) }.max() ?? 1
             for i in shapes {
                 result[i] = (act.start + abs(elements[i].box.midX - home.midX) / max(reach, 1) * act.length * 0.55, 0.9)
             }
-            for (n, i) in heroes.filter({ $0 != lead }).enumerated() { result[i] = (act.start + act.length * 0.85 + Double(n) * 0.12, 0.8) }
+            for (n, i) in sparks.filter({ $0 != lead }).enumerated() { result[i] = (act.start + act.length * 0.85 + Double(n) * 0.12, 0.8) }
         case .plate:
             for (n, i) in plates.enumerated() { result[i] = (Double(n) * 0.18, 1.0) }
             for i in shapes {
@@ -161,11 +161,11 @@ extension LogoAnimation {
                 }
             }
             let end = (shapes.map { result[$0].start }.max() ?? act.start) + 0.4
-            for (n, i) in heroes.enumerated() { result[i] = (end + Double(n) * 0.1, 0.7) }
+            for (n, i) in sparks.enumerated() { result[i] = (end + Double(n) * 0.1, 0.7) }
         case .tracking:
             for i in shapes { result[i] = (act.start + fromMiddle(i, of: whole) * 0.2, act.length) }
             let end = act.start + act.length * 0.7
-            for (n, i) in heroes.enumerated() { result[i] = (end + Double(n) * 0.1, 0.7) }
+            for (n, i) in sparks.enumerated() { result[i] = (end + Double(n) * 0.1, 0.7) }
         }
     }
 
@@ -179,11 +179,11 @@ extension LogoAnimation {
         let shift = (layout?.shift ?? 0) * fit * (1 - move)
         let symbolBox = layout.map { place(union($0.symbols)) }
         let letterBox = layout.map { place(union($0.letters)) }
-        // Where the hero lands, the name opens out of it.
-        var heroCentre = CGPoint.zero
-        if case .hero(let lead) = mode {
+        // Where the spark lands, the name opens out of it.
+        var sparkCentre = CGPoint.zero
+        if case .spark(let lead) = mode {
             let home = place(elements[lead].box)
-            heroCentre = CGPoint(x: home.midX, y: home.midY)
+            sparkCentre = CGPoint(x: home.midX, y: home.midY)
         }
         for (index, element) in elements.enumerated() {
             let local = t - timing[index].start
@@ -199,7 +199,7 @@ extension LogoAnimation {
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: 0.7 + 0.3 * s, y: 0.7 + 0.3 * s)
                     context.setAlpha(min(local * 5, 1))
                     element.draw(in: rect, context)
-                } else if element.hero {
+                } else if element.spark {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if layout.symbols.contains(index) {
                     // The symbol's parts come together in the middle, then the symbol slides home.
@@ -219,35 +219,35 @@ extension LogoAnimation {
                     context.translateBy(x: shift, y: 0)
                     element.draw(in: rect, context)
                 }
-            case .hero(let lead):
+            case .spark(let lead):
                 if index == lead {
                     // Grows in, in the middle of the frame (a little bigger than it will be), then
                     // glides onto its place, easing to its size on the way, and settles there.
                     let boost = min(max(mainLetterHeight * fit * 0.3 / max(rect.height, 1), 1), 1.5)
-                    let hop = min(max((local - Self.heroTakeOff) / (Self.heroLands - Self.heroTakeOff), 0), 1)
+                    let hop = min(max((local - Self.sparkTakeOff) / (Self.sparkLands - Self.sparkTakeOff), 0), 1)
                     let size = 1 + (boost - 1) * (1 - Easing.inOutCubic(hop))
                     let rise = max(mainLetterHeight * fit * 0.9, rect.height * 4)
-                    let pose = heroPose(local, centre: CGPoint(x: whole.midX, y: whole.midY), home: rect, size: size, rise: rise)
+                    let pose = sparkPose(local, centre: CGPoint(x: whole.midX, y: whole.midY), home: rect, size: size, rise: rise)
                     context.translateBy(x: pose.centre.x - rect.midX, y: pose.centre.y - rect.midY + pose.lift)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY - rect.height / 2), x: size * pose.sx, y: size * pose.sy)
                     element.draw(in: rect, context)
-                } else if element.hero {
+                } else if element.spark {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if element.kind == .plate {
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.65)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: s, y: s)
                     element.draw(in: rect, context)
                 } else {
-                    // The landing pushes the name out of the hero's place to both sides.
-                    let reach = max(heroCentre.x - whole.minX, whole.maxX - heroCentre.x) + 8
+                    // The landing pushes the name out of the spark's place to both sides.
+                    let reach = max(sparkCentre.x - whole.minX, whole.maxX - sparkCentre.x) + 8
                     let open = Easing.outQuint(min(max(t - act.start, 0) / (act.length * 0.9), 1)) * reach
                     guard open > 0.5 else { break }
-                    context.clip(to: CGRect(x: heroCentre.x - open, y: whole.minY - whole.height, width: open * 2, height: whole.height * 3))
+                    context.clip(to: CGRect(x: sparkCentre.x - open, y: whole.minY - whole.height, width: open * 2, height: whole.height * 3))
                     // They slide out a little way behind the opening edge, never so far that
                     // they pile up on each other.
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.9)
-                    let gap = min(abs(heroCentre.x - rect.midX) * 0.12, rect.width * 0.6)
-                    context.translateBy(x: (heroCentre.x < rect.midX ? -gap : gap) * (1 - s), y: 0)
+                    let gap = min(abs(sparkCentre.x - rect.midX) * 0.12, rect.width * 0.6)
+                    context.translateBy(x: (sparkCentre.x < rect.midX ? -gap : gap) * (1 - s), y: 0)
                     element.draw(in: rect, context)
                 }
             case .plate:
@@ -258,7 +258,7 @@ extension LogoAnimation {
                     let line = min(3 / max(rect.height, 1), 1)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: width, y: line + (1 - line) * height)
                     element.draw(in: rect, context)
-                } else if element.hero {
+                } else if element.spark {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if let plate = element.plate {
                     // Rises from behind its own baseline, within the plate.
@@ -272,7 +272,7 @@ extension LogoAnimation {
                     drawSpreading(element, local: local, length: timing[index].length, rect: rect, centreX: whole.midX, in: context)
                 }
             case .tracking:
-                if element.hero {
+                if element.spark {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if element.kind == .plate {
                     context.setAlpha(min(local * 4, 1))
@@ -348,9 +348,9 @@ extension LogoAnimation {
     /// The liquid's plan: when each main shape's droplet arrives, and when it all settles into
     /// the logo itself. The main shapes are grouped by colour (one liquid per colour).
     var liquidPlan: (arrivals: [Int: Double], groups: [[Int]], settle: Double) {
-        let (plates, shapes, heroes) = castOrder
+        let (plates, shapes, sparks) = castOrder
         let tallest = shapes.map { elements[$0].box.height }.max() ?? 0
-        let main = (shapes.filter { elements[$0].box.height > tallest * 0.45 && elements[$0].kind != .accent } + heroes)
+        let main = (shapes.filter { elements[$0].box.height > tallest * 0.45 && elements[$0].kind != .accent } + sparks)
         let start = plates.isEmpty ? 0.0 : 0.4
         // Nearest first: droplets reach the shapes close to the middle soonest.
         let centre = CGPoint(x: size.width / 2, y: size.height / 2)

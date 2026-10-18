@@ -49,17 +49,17 @@ extension LogoAnimation {
     static let expressive: Set<Style> = [.lineDraw, .bounce, .stretch]
 
     /// Order within the expressive styles: plates first, then everything else in reading order,
-    /// heroes last.
-    var castOrder: (plates: [Int], shapes: [Int], heroes: [Int]) {
+    /// sparks last.
+    var castOrder: (plates: [Int], shapes: [Int], sparks: [Int]) {
         let plates = elements.indices.filter { elements[$0].kind == .plate }
-        let heroes = self.heroes
-        let shapes = elements.indices.filter { elements[$0].kind != .plate && !elements[$0].hero }
-        return (plates, shapes, heroes)
+        let sparks = self.sparks
+        let shapes = elements.indices.filter { elements[$0].kind != .plate && !elements[$0].spark }
+        return (plates, shapes, sparks)
     }
 
     func expressiveTiming(_ style: Style) -> [(start: Double, length: Double)] {
         var result = [(start: Double, length: Double)](repeating: (0, 1), count: elements.count)
-        let (plates, shapes, heroes) = castOrder
+        let (plates, shapes, sparks) = castOrder
         let step = shapes.count > 1 ? min(0.07, 0.65 / Double(shapes.count - 1)) : 0
         switch style {
         case .lineDraw:
@@ -68,21 +68,21 @@ extension LogoAnimation {
             let after = plates.isEmpty ? 0 : 1.05 + Double(max(plates.count - 1, 0)) * 0.2
             for (n, i) in shapes.enumerated() { result[i] = (after + Double(n) * step, 1.25) }
             let end = after + Double(max(shapes.count - 1, 0)) * step + 0.9
-            for (n, i) in heroes.enumerated() { result[i] = (end + Double(n) * 0.12, 0.9) }
+            for (n, i) in sparks.enumerated() { result[i] = (end + Double(n) * 0.12, 0.9) }
         case .stretch:
             for (n, i) in plates.enumerated() { result[i] = (Double(n) * 0.15, 1.1) }
             let after = plates.isEmpty ? 0 : 0.4
             // A wave from left to right (both lines together).
             for i in shapes { result[i] = (after + elements[i].box.minX / max(size.width, 1) * 0.5, 2.4) }
-            for (n, i) in heroes.enumerated() { result[i] = (after + 0.65 + Double(n) * 0.1, 0.8) }
+            for (n, i) in sparks.enumerated() { result[i] = (after + 0.65 + Double(n) * 0.1, 0.8) }
         case .bounce:
             for (n, i) in plates.enumerated() { result[i] = (Double(n) * 0.15, 0.9) }
             let after = plates.isEmpty ? 0 : 0.45
             // Long enough for the last little bounce and wobble to die out.
             for (n, i) in shapes.enumerated() { result[i] = (after + Double(n) * step, 1.6) }
-            // The hero follows straight after the last letter.
+            // The spark follows straight after the last letter.
             let end = after + Double(max(shapes.count - 1, 0)) * step + 0.22
-            for (n, i) in heroes.enumerated() {
+            for (n, i) in sparks.enumerated() {
                 // A dot on a letter lands on it straight after the letter is up, in the wave.
                 if let base = elements[i].base { result[i] = (result[base].start + 0.28, 1.6) }
                 else { result[i] = (end + Double(n) * 0.12, 1.6) }
@@ -90,8 +90,8 @@ extension LogoAnimation {
         default:
             break
         }
-        // A dot that isn't a hero moves with its letter.
-        for i in elements.indices where !elements[i].hero { if let base = elements[i].base { result[i] = result[base] } }
+        // A dot that isn't a spark moves with its letter.
+        for i in elements.indices where !elements[i].spark { if let base = elements[i].base { result[i] = result[base] } }
         return result
     }
 
@@ -121,7 +121,7 @@ extension LogoAnimation {
         }
         switch style {
         case .stretch:
-            if element.hero {
+            if element.spark {
                 popIn(element, local: local, rect: rect, in: context)
                 return
             }
@@ -146,7 +146,7 @@ extension LogoAnimation {
             scale(context, around: anchor, x: sx, y: max(s, 0.001))
             element.draw(in: rect, context)
         case .lineDraw:
-            if element.hero {
+            if element.spark {
                 popIn(element, local: local, rect: rect, in: context)
                 return
             }
@@ -199,7 +199,7 @@ extension LogoAnimation {
             }
             // On a plate, a shape rises out of it from behind its own baseline with a gentle
             // spring (a jump would be cut off at the plate's edge).
-            if let plate = element.plate, !element.hero {
+            if let plate = element.plate, !element.spark {
                 let area = plateRect(plate)
                 let s = Physics.spring(local, frequency: 2.1, damping: 0.62)
                 context.saveGState()
@@ -214,7 +214,7 @@ extension LogoAnimation {
             }
             // Several lines: each shape pops up from its own baseline, stretching up past its
             // height, squashing and settling, without leaving its line.
-            if lineCount > 1, !element.hero {
+            if lineCount > 1, !element.spark {
                 let frequency = 2.3, damping = 0.42
                 let sy = Physics.spring(local, frequency: frequency, damping: damping)
                 let peak = 1 / (2 * frequency * sqrt(1 - damping * damping))
@@ -229,10 +229,10 @@ extension LogoAnimation {
                 return
             }
             // One line drops in from above, stretched as it falls and squashed as it lands, over
-            // a soft shadow; the hero drops onto its letter from a little above it.
+            // a soft shadow; the spark drops onto its letter from a little above it.
             let base = element.base.map { elements[$0].box.height * fit } ?? rect.height
-            let fall = element.hero ? 0.34 : 0.42
-            let height = element.hero ? base * 1.6 : rect.height * 2.6
+            let fall = element.spark ? 0.34 : 0.42
+            let height = element.spark ? base * 1.6 : rect.height * 2.6
             let drop = Physics.drop(local, fall: fall)
             let speed = abs(drop.velocity) * fall / 2
             let stretch = 1 + min(speed, 1) * 0.22

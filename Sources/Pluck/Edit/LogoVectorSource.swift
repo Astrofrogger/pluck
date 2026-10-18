@@ -10,6 +10,8 @@ struct VectorArt: @unchecked Sendable {
         var path: CGPath
         var colour: CGColor
         var evenOdd: Bool
+        /// Painted as a line in the file (now its outline).
+        var stroke = false
     }
 
     /// Top left origin, in the units the system draws the file at (its natural size).
@@ -345,7 +347,7 @@ private final class SVGReader: NSObject, XMLParserDelegate {
         if let stroke = style.stroke, style.strokeWidth > 0, tag(stroke, style.strokeOpacity * style.opacity) {
             let outline = path.copy(strokingWithWidth: style.strokeWidth, lineCap: style.cap, lineJoin: style.join, miterLimit: style.miter)
             let colour = stroke.copy(alpha: stroke.alpha * style.strokeOpacity * style.opacity) ?? stroke
-            if let placed = outline.copy(using: &transform) { shapes.append(.init(path: placed, colour: colour, evenOdd: false)) }
+            if let placed = outline.copy(using: &transform) { shapes.append(.init(path: placed, colour: colour, evenOdd: false, stroke: true)) }
         }
     }
 
@@ -584,7 +586,7 @@ private final class PDFShapeReader {
         let box = page.getBoxRect(.cropBox)
         var flip = CGAffineTransform(a: 1, b: 0, c: 0, d: -1, tx: -box.minX, ty: box.maxY)
         let shapes = reader.shapes.compactMap { shape -> VectorArt.Shape? in
-            shape.path.copy(using: &flip).map { .init(path: $0, colour: shape.colour, evenOdd: shape.evenOdd) }
+            shape.path.copy(using: &flip).map { .init(path: $0, colour: shape.colour, evenOdd: shape.evenOdd, stroke: shape.stroke) }
         }
         return VectorArt(shapes: shapes, size: box.size)
     }
@@ -600,7 +602,7 @@ private final class PDFShapeReader {
         }
         if stroke, state.lineWidth > 0 {
             let outline = path.copy(strokingWithWidth: max(state.lineWidth, 0.1), lineCap: state.cap, lineJoin: state.join, miterLimit: state.miter)
-            if let placed = outline.copy(using: &ctm) { shapes.append(.init(path: placed, colour: state.stroke, evenOdd: false)) }
+            if let placed = outline.copy(using: &ctm) { shapes.append(.init(path: placed, colour: state.stroke, evenOdd: false, stroke: true)) }
         }
         path = CGMutablePath()
     }

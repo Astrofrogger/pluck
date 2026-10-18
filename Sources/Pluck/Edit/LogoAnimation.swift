@@ -32,7 +32,9 @@ struct LogoAnimation: @unchecked Sendable {
         var base: Int?
         /// A small round or star-like shape that can lead the animation (a dot, a full stop, a
         /// sparkle).
-        var hero = false
+        var spark = false
+        /// Taken for a letter without the text recogniser reading it (one of several similar shapes).
+        var guessedLetter = false
         /// How much ink (logo pixels).
         var area: Double = 0
         /// The shape as drawn in the logo file (logo pixels, origin top left), for SVG and PDF
@@ -43,11 +45,13 @@ struct LogoAnimation: @unchecked Sendable {
     }
 
     enum Style: String, CaseIterable, Identifiable, Sendable {
-        case automatic, assemble, bounce, stretch, liquid, lineDraw, elegant, rise, wipe, build, pop, cascade, reveal
+        /// Designed for this logo (see LogoComposer); as a template it plays what Automatic would.
+        case designed, automatic, assemble, bounce, stretch, liquid, lineDraw, elegant, rise, wipe, build, pop, cascade, reveal
         var id: String { rawValue }
 
         var label: String {
             switch self {
+            case .designed: String(localized: "Designed for This Logo")
             case .automatic: String(localized: "Automatic")
             case .elegant: String(localized: "Elegant")
             case .rise: String(localized: "Rise")
@@ -66,6 +70,7 @@ struct LogoAnimation: @unchecked Sendable {
 
         var detail: String {
             switch self {
+            case .designed: String(localized: "A motion made from this logo’s own shapes: its hero leads, the rest follows.")
             case .automatic: String(localized: "Pluck picks the style that suits the logo.")
             case .elegant: String(localized: "Each shape fades up out of a soft focus, one after another. Calm and refined.")
             case .rise: String(localized: "The letters rise from behind an invisible line; the symbol grows into focus.")
@@ -92,23 +97,25 @@ struct LogoAnimation: @unchecked Sendable {
     /// For SVG and PDF: how much the file's shapes, as read, differ from the system's picture of
     /// the file (a share of the inked pixels; 1% or more and they aren't used).
     let artDifference: Double?
+    /// The logo read as a motion designer would: roles, layout, hero, symmetry, character.
+    private(set) var profile = LogoProfile()
 
     var symbolCount: Int { elements.filter { $0.kind == .symbol }.count }
     /// Boxes and badges other shapes sit on.
     var plateCount: Int { elements.filter { $0.kind == .plate }.count }
     var letterCount: Int { elements.filter { $0.kind == .letter }.count }
-    var heroes: [Int] { elements.indices.filter { elements[$0].hero } }
+    var sparks: [Int] { elements.indices.filter { elements[$0].spark } }
 
-    /// The colour for lines: the hero's, else the logo's second colour, else its main one.
+    /// The colour for lines: the spark's, else the logo's second colour, else its main one.
     var accentColour: CGColor {
         func rgb(_ c: CGColor) -> SIMD3<Double> {
             let v = c.converted(to: CGColorSpace(name: CGColorSpace.sRGB)!, intent: .defaultIntent, options: nil)?.components ?? [0, 0, 0, 1]
             return SIMD3(v[0], v[min(1, v.count - 1)], v[min(2, v.count - 1)])
         }
-        // The hero's, when it's a colour (a white dot's lines would vanish on white).
-        if let hero = heroes.first {
-            let c = rgb(elements[hero].colour)
-            if c.max() - c.min() > 0.15 { return elements[hero].colour }
+        // The spark's, when it's a colour (a white dot's lines would vanish on white).
+        if let spark = sparks.first {
+            let c = rgb(elements[spark].colour)
+            if c.max() - c.min() > 0.15 { return elements[spark].colour }
         }
         // Ink per colour, the main one first.
         var totals: [(colour: CGColor, rgb: SIMD3<Double>, area: Double)] = []
@@ -137,7 +144,7 @@ struct LogoAnimation: @unchecked Sendable {
     var suggestedStyle: Style { directed ?? layoutStyle }
 
     /// A style from the logo's layout alone: anything Assemble can stage (a symbol beside a name, a
-    /// hero, a plate) assembles; a plain name bounces; a symbol alone comes into focus.
+    /// spark, a plate) assembles; a plain name bounces; a symbol alone comes into focus.
     var layoutStyle: Style {
         if case .tracking = assembleMode { return letterCount >= 2 ? .bounce : .elegant }
         return .assemble
@@ -153,6 +160,17 @@ struct LogoAnimation: @unchecked Sendable {
     }
 
     // MARK: - Analysis
+
+    /// A logo made of these parts (another layout of one already read).
+    init(logo: CGImage, size: CGSize, elements: [Element], vectorLogo: [VectorArt.Shape]?, artDifference: Double?, directed: Style?) {
+        self.logo = logo
+        self.size = size
+        self.elements = elements
+        self.vectorLogo = vectorLogo
+        self.artDifference = artDifference
+        self.directed = directed
+        profile = makeProfile()
+    }
 
     init(contentsOf url: URL) throws {
         // Pictures are read straight at the working size (a print-size PNG of 10,000 pixels is
@@ -185,10 +203,12 @@ struct LogoAnimation: @unchecked Sendable {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         image.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
         NSGraphicsContext.restoreGraphicsState()
+        // The picture's own scale each way (its size is rounded to whole pixels).
+        let pictureScale = CGSize(width: Double(width) / natural.width, height: Double(height) / natural.height)
         var art = art
         if let read = art {
             let difference = abs(read.size.width - natural.width) < 0.5 && abs(read.size.height - natural.height) < 0.5
-                ? Self.artDifference(read, picture: pixels, width: width, height: height, scale: scale) : 1
+                ? Self.artDifference(read, picture: pixels, width: width, height: height, scale: pictureScale) : 1
             artDifference = difference
             if difference >= 0.01 { art = nil }
         } else {
@@ -222,9 +242,10 @@ struct LogoAnimation: @unchecked Sendable {
         var elements = Self.elements(trimmed, alpha: alpha, width: w, height: h, logo: logo)
         guard !elements.isEmpty else { throw Failure() }
         self.vectorLogo = art.flatMap {
-            Self.attach($0, scale: scale, offset: CGPoint(x: minX, y: minY), to: &elements, logo: trimmed, width: w, height: h)
+            Self.attach($0, scale: pictureScale, offset: CGPoint(x: minX, y: minY), to: &elements, logo: trimmed, width: w, height: h)
         }
         self.elements = elements
+        profile = makeProfile()
     }
 
     /// Logos without transparency (a JPG on white): the background colour, taken from the
@@ -508,6 +529,7 @@ struct LogoAnimation: @unchecked Sendable {
             // Shapes about letter height are letters; much taller ones stay the symbol.
             for i in result.indices where result[i].kind == .symbol && result[i].box.height < typical * 1.6 && result[i].box.height > typical * 0.5 {
                 result[i].kind = .letter
+                result[i].guessedLetter = true
             }
         }
         // A shape the twin of a symbol (one of three sparkles, near the text) is a symbol too.
@@ -549,13 +571,13 @@ struct LogoAnimation: @unchecked Sendable {
             ordered[i].plate = ordered[i].plateID.flatMap { position[$0] }
             ordered[i].base = ordered[i].baseID.flatMap { position[$0] }
         }
-        markHeroes(&ordered)
+        markSparks(&ordered)
         return ordered
     }
 
-    /// Heroes: dots and marks (the dot on an i, a full stop, a sparkle), small next to the
+    /// Sparks: dots and marks (the dot on an i, a full stop, a sparkle), small next to the
     /// letters and compact (round or star-like). At most three.
-    private static func markHeroes(_ elements: inout [Element]) {
+    private static func markSparks(_ elements: inout [Element]) {
         // Compared with the main letters (the tagline's small letters don't count).
         let letters = elements.filter { $0.kind == .letter }
         let tallest = letters.map(\.box.height).max() ?? 0
@@ -580,9 +602,9 @@ struct LogoAnimation: @unchecked Sendable {
             let accentA = elements[a].kind == .accent, accentB = elements[b].kind == .accent
             return accentA != accentB ? accentA : elements[a].area > elements[b].area
         }
-        // Many small dots (a row of i's, a dotted pattern) aren't heroes.
+        // Many small dots (a row of i's, a dotted pattern) aren't sparks.
         guard !ranked.isEmpty, ranked.count <= 4 else { return }
-        for i in ranked.prefix(3) { elements[i].hero = true }
+        for i in ranked.prefix(3) { elements[i].spark = true }
     }
 
     /// A shape split into the shapes it's built from: by colour, then into connected pieces.
@@ -916,7 +938,7 @@ struct LogoAnimation: @unchecked Sendable {
 
     /// When each element starts and how long its entrance takes (seconds).
     func timing(_ style: Style) -> [(start: Double, length: Double)] {
-        let style = style == .automatic ? suggestedStyle : style
+        let style = style == .automatic || style == .designed ? suggestedStyle : style
         if style == .assemble || style == .liquid { return buildTiming(style) }
         if Self.expressive.contains(style) { return expressiveTiming(style) }
         let symbols = elements.indices.filter { elements[$0].kind == .symbol || elements[$0].kind == .plate }
@@ -938,7 +960,7 @@ struct LogoAnimation: @unchecked Sendable {
         case .wipe:
             // Each shape settles as the edge passes it.
             for i in elements.indices { result[i] = (elements[i].box.midX / size.width * Self.wipeLength * 0.85 - 0.1, 0.9) }
-        case .build, .automatic:
+        case .build, .automatic, .designed:
             for (n, i) in symbols.enumerated() { result[i] = (Double(n) * 0.12, 1.1) }
             let after = symbols.isEmpty ? 0 : 0.75 + Double(symbols.count - 1) * 0.12
             for (n, i) in letters.enumerated() { result[i] = (after + Double(n) * letterStep, 0.7) }
@@ -1094,7 +1116,7 @@ struct LogoAnimation: @unchecked Sendable {
     /// Draws the logo at time `t` (seconds), centred in a frame of `canvas`, the logo
     /// `logoWidth` of the frame's width at most. The context's origin is bottom left.
     func draw(at t: Double, style chosen: Style, in context: CGContext, canvas: CGSize, logoScale: Double = 0.62) {
-        let style = chosen == .automatic ? suggestedStyle : chosen
+        let style = chosen == .automatic || chosen == .designed ? suggestedStyle : chosen
         let fit = min(canvas.width * logoScale / size.width, canvas.height * 0.5 / size.height)
         let drawn = CGSize(width: size.width * fit, height: size.height * fit)
         let origin = CGPoint(x: (canvas.width - drawn.width) / 2, y: (canvas.height - drawn.height) / 2)
@@ -1224,18 +1246,19 @@ struct LogoAnimation: @unchecked Sendable {
     }
 
     func export(to output: URL, plan: Plan, size canvas: CGSize, frameRate: Int, background: CGColor?, ffmpeg: String,
+                file: LogoFile = .automatic, audio: URL? = nil,
                 progress: @escaping @Sendable (Double) -> Void) async throws {
         let animation = self
         // Motion blur where shapes fly (the expressive styles and Assemble).
         let samples: Int
         if case .template(let chosen) = plan.source {
-            let style = chosen == .automatic ? suggestedStyle : chosen
+            let style = chosen == .automatic || chosen == .designed ? suggestedStyle : chosen
             samples = Self.expressive.contains(style) || style == .assemble ? 5 : 1
         } else {
             samples = 1
         }
         try await Self.writeVideo(to: output, size: canvas, frameRate: frameRate, length: plan.total, transparent: background == nil,
-                                  motionBlur: samples, ffmpeg: ffmpeg, progress: progress) { t, context in
+                                  file: file, audio: audio, motionBlur: samples, ffmpeg: ffmpeg, progress: progress) { t, context in
             if let background {
                 context.setFillColor(background)
                 context.fill(CGRect(origin: .zero, size: canvas))
@@ -1248,18 +1271,21 @@ struct LogoAnimation: @unchecked Sendable {
     /// `transparent`, otherwise H.264. `motionBlur` moments are averaged per frame where
     /// something moves, as a camera with a half-open shutter sees it.
     static func writeVideo(to output: URL, size canvas: CGSize, frameRate: Int, length: Double, transparent: Bool,
+                           file: LogoFile = .automatic, audio: URL? = nil,
                            motionBlur samples: Int = 1, ffmpeg: String, progress: @escaping @Sendable (Double) -> Void,
                            draw: @escaping @Sendable (Double, CGContext) -> Void) async throws {
         let width = Int(canvas.width), height = Int(canvas.height)
         let frames = Int((length * Double(frameRate)).rounded())
         var args = ["-nostdin", "-y", "-v", "error", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", "\(width)x\(height)",
                     "-r", String(frameRate), "-i", "-"]
-        if transparent {
-            args += ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-vendor", "apl0"]
-        } else {
-            args += ["-c:v", "libx264", "-preset", "slow", "-crf", "14", "-pix_fmt", "yuv420p", "-movflags", "+faststart"]
-        }
-        args.append(output.path)
+        let kind = file.resolved(transparent: transparent)
+        // A sound (its own file, as long as the video) as a second input.
+        let sound = kind.carriesSound ? audio : nil
+        if let sound { args += ["-i", sound.path] }
+        args += kind.videoArguments(transparent: transparent, frameRate: frameRate, width: width)
+        if sound != nil { args += ["-map", "0:v", "-map", "1:a"] + kind.audioArguments + ["-shortest"] }
+        if kind == .pngSequence { try? FileManager.default.createDirectory(at: output, withIntermediateDirectories: true) }
+        args.append(kind.target(output))
         // If ffmpeg stops early, writing to it must fail, not end the app.
         signal(SIGPIPE, SIG_IGN)
         // Stopping (the caller's task cancelled) ends ffmpeg and removes the unfinished file.

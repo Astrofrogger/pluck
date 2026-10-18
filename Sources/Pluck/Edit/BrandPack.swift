@@ -11,6 +11,11 @@ struct BrandPack {
     var lowerThirdStyle: LowerThirdStyle
     /// Behind the title and end cards (nil: transparent). Lower thirds are always transparent.
     var background: CGColor?
+    /// The end card's logo animation and its feel (from the Logo Animator's saved design, see
+    /// `LogoAnimation.suggestedMotion`); nil: the style Automatic suggests.
+    var endMotion: (plan: LogoAnimation.Plan, feel: LogoProfile.Personality)?
+    /// The end card's sound: a hit where the logo lands.
+    var endSound = LogoSound.none
 
     enum LowerThirdStyle: String, CaseIterable, Identifiable {
         case plate, line
@@ -85,7 +90,7 @@ struct BrandPack {
     }
 
     /// The end card's logo animation: the logo's own style, settled and held.
-    private var endPlan: LogoAnimation.Plan { logo.plan(logo.suggestedStyle, outro: .none) }
+    private var endPlan: LogoAnimation.Plan { endMotion?.plan ?? logo.plan(logo.suggestedStyle, outro: .none) }
 
     // MARK: - Drawing
 
@@ -352,9 +357,20 @@ struct BrandPack {
             let pack = self
             // Motion blur for the end card's logo animation; the rest moves in clean wipes.
             var blur = 1
-            if case .endCard = graphic { blur = 5 }
+            var audio: URL?
+            if case .endCard = graphic {
+                blur = 5
+                // Its sound: the hit where the logo lands (the card's animation keeps the logo's timing).
+                if endSound != .none {
+                    let wav = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-end-\(UUID().uuidString).wav")
+                    try endSound.write(to: wav, length: length(graphic), resolve: logo.resolveTime(of: endPlan),
+                                       feel: endMotion?.feel ?? logo.profile.personality())
+                    audio = wav
+                }
+            }
+            defer { if let audio { try? FileManager.default.removeItem(at: audio) } }
             try await LogoAnimation.writeVideo(to: url, size: canvas, frameRate: frameRate, length: length(graphic), transparent: transparent,
-                                               motionBlur: blur, ffmpeg: ffmpeg, progress: { value in
+                                               audio: audio, motionBlur: blur, ffmpeg: ffmpeg, progress: { value in
                 progress((Double(n) + value) / Double(graphics.count))
             }) { t, context in
                 pack.draw(graphic, at: t, in: context, canvas: canvas)

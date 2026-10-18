@@ -38,7 +38,7 @@ enum LogoDirector {
         case .organic?: style = .liquid
         case .technical?: style = animation.symbolAndWordmark != nil ? .assemble : .lineDraw
         case .playful?, .friendly?:
-            // Bouncing suits a playful name without a symbol or a hero to lead it.
+            // Bouncing suits a playful name without a symbol or a spark to lead it.
             if case .tracking = animation.assembleMode { style = .bounce } else { style = .assemble }
         case .bold?, .elegant?: style = .assemble
         case nil: style = layout

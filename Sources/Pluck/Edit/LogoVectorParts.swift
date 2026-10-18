@@ -7,8 +7,8 @@ import Foundation
 extension LogoAnimation {
     /// How far the art is from the system's own picture of the file: the share of inked pixels
     /// that differ (1 if it can't be drawn). Under 1%, its reading is complete and lines up.
-    static func artDifference(_ art: VectorArt, picture pixels: [UInt8], width: Int, height: Int, scale: Double) -> Double {
-        guard let drawn = render(art.shapes, width: width, height: height, transform: CGAffineTransform(scaleX: scale, y: scale)) else { return 1 }
+    static func artDifference(_ art: VectorArt, picture pixels: [UInt8], width: Int, height: Int, scale: CGSize) -> Double {
+        guard let drawn = render(art.shapes, width: width, height: height, transform: CGAffineTransform(scaleX: scale.width, y: scale.height)) else { return 1 }
         var inked = 0, differ = 0
         for i in 0..<(width * height) {
             let o = i * 4
@@ -74,28 +74,23 @@ extension LogoAnimation {
         subpaths.removeAll { $0.boundingBoxOfPath.isEmpty && $0.boundingBoxOfPath.width + $0.boundingBoxOfPath.height == 0 }
         guard subpaths.count > 1 else { return [shape] }
         let boxes = subpaths.map(\.boundingBoxOfPath)
-        // Each outline joins the outermost outline around it.
+        // How deep each outline sits inside the others: at an even depth it's a piece of its own
+        // (also one inside another's hole, like a dot in a ring); at an odd depth it's a hole in
+        // the outline just around it.
+        let containers = subpaths.indices.map { i in
+            subpaths.indices.filter { j in
+                j != i && boxes[j].insetBy(dx: -0.01, dy: -0.01).contains(boxes[i])
+                    && boxes[j].width * boxes[j].height > boxes[i].width * boxes[i].height
+                    && subpaths[j].contains(subpaths[i].currentPoint, using: .winding)
+            }
+        }
         var root = Array(subpaths.indices)
-        for i in subpaths.indices {
-            var best: Int?
-            for j in subpaths.indices where j != i && boxes[j].insetBy(dx: -0.01, dy: -0.01).contains(boxes[i])
-                && boxes[j].width * boxes[j].height > boxes[i].width * boxes[i].height
-                && subpaths[j].contains(subpaths[i].currentPoint, using: .winding) {
-                if best.map({ boxes[j].width * boxes[j].height > boxes[$0].width * boxes[$0].height }) ?? true { best = j }
-            }
-            if let best { root[i] = best }
-        }
-        // Outlines that overlap stay together too: where they cross, the fill rule decides
-        // what's filled, and apart they'd fill it differently.
-        func top(_ i: Int) -> Int { var i = i; while root[i] != i { i = root[i] }; return i }
-        let tops = Array(Set(subpaths.indices.map(top))).sorted()
-        for (n, a) in tops.enumerated() {
-            for b in tops[(n + 1)...] where boxes[a].intersects(boxes[b]) && subpaths[a].intersects(subpaths[b]) {
-                let (ra, rb) = (top(a), top(b))
-                if ra != rb { root[max(ra, rb)] = min(ra, rb) }
+        for i in subpaths.indices.sorted(by: { containers[$0].count < containers[$1].count }) where containers[i].count % 2 == 1 {
+            // The tightest outline around it, which is at the depth just above.
+            if let parent = containers[i].min(by: { boxes[$0].width * boxes[$0].height < boxes[$1].width * boxes[$1].height }) {
+                root[i] = root[parent]
             }
         }
-        for i in subpaths.indices { root[i] = top(i) }
         var order: [Int] = []
         var groups: [Int: CGMutablePath] = [:]
         for i in subpaths.indices {
@@ -103,18 +98,36 @@ extension LogoAnimation {
             if groups[key] == nil { groups[key] = CGMutablePath(); order.append(key) }
             groups[key]!.addPath(subpaths[i])
         }
-        return order.map { VectorArt.Shape(path: groups[$0]!, colour: shape.colour, evenOdd: shape.evenOdd) }
+        // Pieces that overlap (holes and all) stay together too: where they cross, the fill rule
+        // decides what's filled, and apart they'd fill it differently.
+        let rule: CGPathFillRule = shape.evenOdd ? .evenOdd : .winding
+        var merged = true
+        while merged {
+            merged = false
+            search: for (n, a) in order.enumerated() {
+                for b in order[(n + 1)...] where groups[a]!.boundingBoxOfPath.intersects(groups[b]!.boundingBoxOfPath)
+                    && groups[a]!.intersects(groups[b]!, using: rule) {
+                    groups[a]!.addPath(groups[b]!)
+                    groups[b] = nil
+                    order.removeAll { $0 == b }
+                    merged = true
+                    break search
+                }
+            }
+        }
+        return order.map { VectorArt.Shape(path: groups[$0]!, colour: shape.colour, evenOdd: shape.evenOdd, stroke: shape.stroke) }
     }
 
     /// Gives each element the shapes of `art` that make it up (art in the file's units, drawn at
-    /// `scale` and then moved by `offset` into logo pixels). Returns every shape that belongs to
+    /// `scale` (across and down: the picture's size is rounded to whole pixels) and then moved by
+    /// `offset` into logo pixels). Returns every shape that belongs to
     /// the logo, in drawing order, when all of its elements could be given theirs.
-    static func attach(_ art: VectorArt, scale: Double, offset: CGPoint, to elements: inout [Element],
+    static func attach(_ art: VectorArt, scale: CGSize, offset: CGPoint, to elements: inout [Element],
                        logo pixels: [UInt8], width w: Int, height h: Int) -> [VectorArt.Shape]? {
-        var place = CGAffineTransform(scaleX: scale, y: scale).concatenating(CGAffineTransform(translationX: -offset.x, y: -offset.y))
+        var place = CGAffineTransform(scaleX: scale.width, y: scale.height).concatenating(CGAffineTransform(translationX: -offset.x, y: -offset.y))
         let pieces = art.shapes.flatMap { shape -> [VectorArt.Shape] in
             guard let path = shape.path.copy(using: &place) else { return [] }
-            return islands(VectorArt.Shape(path: path, colour: shape.colour, evenOdd: shape.evenOdd))
+            return islands(VectorArt.Shape(path: path, colour: shape.colour, evenOdd: shape.evenOdd, stroke: shape.stroke))
         }
         // Each element's own coverage, from its picture.
         let alphas = elements.map { element -> [UInt8] in

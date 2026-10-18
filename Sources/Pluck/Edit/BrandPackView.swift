@@ -10,6 +10,9 @@ struct BrandPackView: View {
     @Environment(DownloadManager.self) private var manager
     @State private var logo: LogoAnimation?
     @State private var logoFile: URL?
+    /// The end card's logo animation: the Logo Animator's saved design for this logo, if any.
+    @State private var endMotion: (plan: LogoAnimation.Plan, feel: LogoProfile.Personality)?
+    @AppStorage("brandPackSound") private var endSound: LogoSound = .none
     @State private var loading = false
     @State private var problem: String?
     @AppStorage("brandPackPeople") private var people = "Alex Morgan, Director"
@@ -164,6 +167,13 @@ struct BrandPackView: View {
             TextField("Line under the logo", text: $line, prompt: Text(verbatim: "example.com"))
                 .capsuleField()
                 .onChange(of: line) { showing = .endCard }
+            CardField(label: Text("Sound")) {
+                Picker("Sound", selection: $endSound) {
+                    ForEach(LogoSound.allCases) { Text($0.label).tag($0) }
+                }
+                .fixedSize()
+                .help(endSound.help)
+            }
         }
         Card {
             CardHeader(symbol: "paintpalette", title: Text("Look"),
@@ -230,6 +240,8 @@ struct BrandPackView: View {
     private var pack: BrandPack? {
         guard let logo else { return nil }
         var pack = BrandPack(logo: logo, font: font, lowerThirdStyle: style, background: nil)
+        pack.endMotion = endMotion
+        pack.endSound = endSound
         switch background {
         case .automatic: pack.background = pack.contrasting
         case .brand: pack.background = pack.brand
@@ -273,8 +285,12 @@ struct BrandPackView: View {
         problem = nil
         Task {
             do {
-                let loaded = try await Task.detached { try LogoAnimation(contentsOf: url) }.value
+                let (loaded, motion) = try await Task.detached { () -> (LogoAnimation, (plan: LogoAnimation.Plan, feel: LogoProfile.Personality)) in
+                    let logo = try LogoAnimation(contentsOf: url)
+                    return (logo, logo.suggestedMotion(savedFor: url))
+                }.value
                 logo = loaded
+                endMotion = motion
                 logoFile = url
                 started = .now
             } catch {

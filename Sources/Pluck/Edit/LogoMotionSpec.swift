@@ -102,9 +102,14 @@ struct MotionSpec: Codable, Equatable, Sendable {
     }
 
     /// Where a part shows.
-    enum Clip: String, Codable, Sendable {
+    enum Clip: Codable, Equatable, Sendable {
         /// Only above its own bottom edge, as if rising from behind a line.
         case aboveBaseline
+        /// Only inside this box of the logo (logo pixels, origin top left), which stays put: the
+        /// space a part slides into view in.
+        case region(CGRect)
+        /// Only this box of the part, which moves with it: half of a part, flying in on its own.
+        case piece(CGRect)
     }
 
     struct Track: Codable, Equatable, Sendable {
@@ -192,7 +197,7 @@ extension LogoAnimation {
 
     /// A classic style as a spec for this logo (nil for the procedural styles).
     func motionSpec(for chosen: Style) -> MotionSpec? {
-        let style = chosen == .automatic ? suggestedStyle : chosen
+        let style = chosen == .automatic || chosen == .designed ? suggestedStyle : chosen
         guard Self.specStyles.contains(style) else { return nil }
         let timing = timing(style)
         var tracks: [MotionSpec.Track] = []
@@ -277,8 +282,13 @@ extension LogoAnimation {
             let rect = place(element.box)
             func value(_ property: MotionSpec.Property) -> Double { track.value(property, at: t) }
             context.saveGState()
-            if track.clip == .aboveBaseline {
+            switch track.clip {
+            case .aboveBaseline?:
                 context.clip(to: CGRect(x: rect.minX - rect.width, y: rect.minY - 0.5, width: rect.width * 3, height: canvas.height))
+            case .region(let box)?:
+                context.clip(to: place(box))
+            case .piece?, nil:
+                break
             }
             let dx = value(.translateX), dy = value(.translateY)
             if dx != 0 || dy != 0 { context.translateBy(x: dx * fit, y: -dy * fit) }
@@ -292,6 +302,8 @@ extension LogoAnimation {
                 if rotation != 0 { context.rotate(by: rotation) }
                 context.translateBy(x: -anchor.x, y: -anchor.y)
             }
+            // A piece is cut out where the part is now (after it's moved).
+            if case .piece(let box)? = track.clip { context.clip(to: place(box)) }
             if track.stroked {
                 let strokeOpacity = value(.strokeOpacity), trim = value(.strokeTrim)
                 if strokeOpacity > 0, trim > 0 {

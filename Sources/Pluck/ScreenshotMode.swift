@@ -414,6 +414,46 @@ enum ScreenshotMode {
                     LogoAnimation.renderGoldenFrames(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output), baseline: baseline)
                     await MainActor.run { NSApp.terminate(nil) }
                 }
+            case "logoprofile":
+                // -PluckScreenshotFile <folder> of logos: each one's profile, as JSON lines, to -PluckScreenshotOutput <file>.
+                guard let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput") else { break }
+                Task.detached(priority: .userInitiated) {
+                    LogoAnimation.writeProfiles(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output))
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
+            case "logodesign":
+                // -PluckScreenshotFile <folder> of logos: three designed ideas each, to -PluckScreenshotOutput <folder>.
+                guard let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput") else { break }
+                Task.detached(priority: .userInitiated) {
+                    LogoAnimation.writeDesigns(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output))
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
+            case "logoedits":
+                // -PluckScreenshotFile <folder> of logos: random design edits checked, to -PluckScreenshotOutput <file>.
+                guard let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput") else { break }
+                Task.detached(priority: .userInitiated) {
+                    LogoAnimation.checkEdits(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output))
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
+            case "logooutputs":
+                // -PluckScreenshotFile <folder> of logos: outputs, loop, sound and files checked, into -PluckScreenshotOutput <folder>.
+                guard let folder = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput"), let ffmpeg = manager.tool("ffmpeg") else { break }
+                Task.detached(priority: .userInitiated) {
+                    await LogoAnimation.checkOutputs(from: URL(fileURLWithPath: folder), to: URL(fileURLWithPath: output), ffmpeg: ffmpeg)
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
+            case "brandpackcheck":
+                // -PluckScreenshotFile <logo>: Brand Pack with and without a saved design, into -PluckScreenshotOutput <folder>.
+                guard let logo = defaults.string(forKey: "PluckScreenshotFile"),
+                      let output = defaults.string(forKey: "PluckScreenshotOutput"), let ffmpeg = manager.tool("ffmpeg") else { break }
+                Task.detached(priority: .userInitiated) {
+                    await LogoAnimation.checkBrandPack(URL(fileURLWithPath: logo), to: URL(fileURLWithPath: output), ffmpeg: ffmpeg)
+                    await MainActor.run { NSApp.terminate(nil) }
+                }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
