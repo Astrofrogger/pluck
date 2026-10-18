@@ -10,6 +10,7 @@ struct StudioWindow: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openPluckSettings) private var openSettings
     @State private var nav = StudioNavigator.shared
+    @State private var sideButtons: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -38,6 +39,16 @@ struct StudioWindow: View {
             if ScreenshotMode.scene != nil, let name = UserDefaults.standard.string(forKey: "PluckScreenshotPage"),
                let page = StudioNavigator.Page(rawValue: name) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { nav.show(page) }
+            }
+            // The mouse's side buttons go back and forward, as in a browser.
+            if sideButtons == nil {
+                sideButtons = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+                    switch event.buttonNumber {
+                    case 3: nav.goBack(); return nil
+                    case 4: nav.goForward(); return nil
+                    default: return event
+                    }
+                }
             }
             // Watched folders: new footage is indexed while Pluck is open.
             FootageFolders.shared.start()
@@ -689,8 +700,13 @@ private struct ToolsPage: View {
             toolView(tool)
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
-                        Button { nav.tool = nil } label: { Label("Tools", systemImage: "chevron.left") }
-                            .help("All tools")
+                        if let back = nav.toolBack {
+                            Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
+                                .help("Back to the folder (Esc)")
+                        } else {
+                            Button { nav.tool = nil } label: { Label("Tools", systemImage: "chevron.left") }
+                                .help("All tools")
+                        }
                     }
                 }
         } else {

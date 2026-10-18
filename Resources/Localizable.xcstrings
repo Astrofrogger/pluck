@@ -18857,6 +18857,64 @@
         }
       }
     },
+    "Back and forward": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück und vorwärts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atrás y adelante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Précédent et suivant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indietro e avanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "戻る・進む"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "뒤로 및 앞으로"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terug en vooruit"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar e avançar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "后退与前进"
+          }
+        }
+      }
+    },
     "Back one frame (←)": {
       "localizations": {
         "de": {
@@ -19202,6 +19260,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "回到底部中间，或在画面上拖动。"
+          }
+        }
+      }
+    },
+    "Back to the folder (Esc)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurück zum Ordner (Esc)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a la carpeta (Esc)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revenir au dossier (Échap)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Torna alla cartella (Esc)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダに戻る（Esc）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더로 돌아가기(Esc)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terug naar de map (Esc)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voltar à pasta (Esc)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返回文件夹（Esc）"
           }
         }
       }
@@ -161236,6 +161352,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载项会保留在列表中"
+          }
+        }
+      }
+    },
+    "Your mouse’s side buttons go back and forward, as in a browser. In the Player, back takes a clip to its folder, with a clearer button for it too.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Seitentasten deiner Maus gehen zurück und vorwärts, wie im Browser. Im Player führt Zurück von einem Clip zu seinem Ordner, jetzt auch mit einer deutlicheren Taste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los botones laterales del ratón van atrás y adelante, como en un navegador. En el Reproductor, atrás lleva de un clip a su carpeta, ahora también con un botón más claro."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les boutons latéraux de votre souris reviennent en arrière et avancent, comme dans un navigateur. Dans le Lecteur, Précédent ramène un plan à son dossier, avec aussi un bouton plus visible."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tasti laterali del mouse vanno indietro e avanti, come in un browser. Nel Player, indietro riporta da una clip alla sua cartella, ora anche con un pulsante più chiaro."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マウスのサイドボタンで、ブラウザのように戻る・進むができます。プレーヤーでは、戻るでクリップからそのフォルダに戻れ、わかりやすいボタンも追加しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마우스 측면 버튼으로 브라우저처럼 뒤로 및 앞으로 이동합니다. 플레이어에서는 뒤로를 누르면 클립에서 폴더로 돌아가며, 더 잘 보이는 버튼도 생겼습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De zijknoppen van je muis gaan terug en vooruit, zoals in een browser. In de Player brengt terug een clip naar zijn map, nu ook met een duidelijkere knop."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os botões laterais do mouse voltam e avançam, como num navegador. No Player, voltar leva um clipe à sua pasta, agora também com um botão mais claro."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "鼠标侧键可像浏览器一样后退和前进。在播放器中，后退会从片段回到它的文件夹，并新增了更醒目的按钮。"
           }
         }
       }

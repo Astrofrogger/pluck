@@ -10,6 +10,8 @@ struct RawPlayerView: View {
     @State private var player = RawPlayer()
     /// A folder of footage being browsed (clips open from it, and Esc goes back to it).
     @State private var folder: RawFolder?
+    /// The clip last open from the folder, for going forward to it again.
+    @State private var lastClip: URL?
     @State private var dropping = false
     @State private var showMeta = false
     @AppStorage("rawExportCodec") private var exportCodec = RawExport.Codec.proresHQ.rawValue
@@ -95,6 +97,16 @@ struct RawPlayerView: View {
             }
             return .handled
         }
+        // While a clip of a folder plays, the window's back button goes back to the folder.
+        .onChange(of: folder != nil && player.info != nil, initial: true) { _, inClip in
+            StudioNavigator.shared.toolBack = inClip ? (folder?.url.lastPathComponent ?? "", { player.eject() }) : nil
+        }
+        // ...and forward again to the clip that was open.
+        .onChange(of: player.url) { old, new in if new == nil, folder != nil, let old { lastClip = old } }
+        .onChange(of: folder?.url) { lastClip = nil }
+        .onChange(of: "\(folder != nil && player.info == nil)\(lastClip?.path ?? "")", initial: true) {
+            StudioNavigator.shared.toolForward = folder != nil && player.info == nil ? lastClip.map { clip in { player.open(clip) } } : nil
+        }
         .onChange(of: timecodeMode, initial: true) { _, mode in player.timecodeMode = RawPlayer.TimecodeMode(rawValue: mode) ?? .source }
         .task(id: lutFoldersText) { loadLUTs() }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
@@ -127,7 +139,7 @@ struct RawPlayerView: View {
                 }
             }
             // Tests: -PluckScreenshotOpenFirst YES opens a browsed folder's first clip (and with
-            // -PluckScreenshotBack YES goes back to the folder 3 seconds later).
+            // -PluckScreenshotBack YES goes back to the folder 3 seconds later, as the back button).
             if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotOpenFirst") {
                 Task {
                     for _ in 0..<40 where (folder?.allClips.isEmpty ?? true) { try? await Task.sleep(for: .milliseconds(250)) }
@@ -135,7 +147,12 @@ struct RawPlayerView: View {
                     player.open(first.url)
                     guard UserDefaults.standard.bool(forKey: "PluckScreenshotBack") else { return }
                     try? await Task.sleep(for: .seconds(3))
-                    player.eject()
+                    // As the window's back button does.
+                    StudioNavigator.shared.goBack()
+                    // -PluckScreenshotForward YES: and forward to the clip again 3 seconds later.
+                    guard UserDefaults.standard.bool(forKey: "PluckScreenshotForward") else { return }
+                    try? await Task.sleep(for: .seconds(3))
+                    StudioNavigator.shared.goForward()
                 }
             }
             // Tests: -PluckScreenshotLog <file>: what opened (or why not), the first picture, an export's end.
@@ -174,6 +191,8 @@ struct RawPlayerView: View {
             if let url = note.object as? URL { Self.openFile = nil; openAny(url) }
         }
         .onDisappear {
+            StudioNavigator.shared.toolBack = nil
+            StudioNavigator.shared.toolForward = nil
             player.close()
             folder?.close()
         }
@@ -218,9 +237,9 @@ struct RawPlayerView: View {
                 if let info = player.info {
                     if let folder {
                         Button { player.eject() } label: {
-                            Label(folder.url.lastPathComponent, systemImage: "chevron.backward")
+                            Label(folder.url.lastPathComponent, systemImage: "square.grid.2x2")
                         }
-                        .buttonStyle(.link)
+                        .buttonStyle(GlassCapsuleButtonStyle())
                         .help("Back to the folder (Esc). ⌘↑ and ⌘↓ go to the previous and next clip.")
                     }
                     VStack(alignment: .leading, spacing: 2) {

@@ -59,11 +59,71 @@ final class StudioNavigator {
         var title: String { project?.project.name ?? target?.file.deletingPathExtension().lastPathComponent ?? "" }
     }
 
-    var page: Page = .home
+    var page: Page = .home {
+        didSet { if oldValue != page { moved(from: Place(page: oldValue, tool: tool)) } }
+    }
     private(set) var tabs: [Tab] = []
     var currentID: Tab.ID?
     /// The tool open on the Tools page (nil: the list of tools).
-    var tool: PluckTool?
+    var tool: PluckTool? {
+        didSet { if oldValue != tool { moved(from: Place(page: page, tool: oldValue)) } }
+    }
+    /// A step back inside the open tool (a clip back to its folder), taken by the back button
+    /// before it goes back to all tools.
+    var toolBack: (title: String, action: () -> Void)?
+    /// And forward again inside it (the folder to the clip that was open).
+    var toolForward: (() -> Void)?
+
+    // MARK: - Back and forward (the mouse's side buttons), as in a browser
+
+    /// Where the window was: a page, and on Tools, the tool open.
+    private struct Place: Equatable {
+        var page: Page
+        var tool: PluckTool?
+        init(page: Page, tool: PluckTool?) {
+            self.page = page
+            self.tool = page == .tools ? tool : nil
+        }
+    }
+    private var backward: [Place] = []
+    private var forward: [Place] = []
+    private var restoring = false
+    private var here: Place { Place(page: page, tool: tool) }
+
+    private func moved(from place: Place) {
+        guard !restoring, place != here, place != backward.last else { return }
+        backward.append(place)
+        if backward.count > 50 { backward.removeFirst() }
+        forward = []
+    }
+
+    private func go(to place: Place) {
+        restoring = true
+        page = place.page
+        if place.page == .tools { tool = place.tool }
+        restoring = false
+    }
+
+    /// One step back: inside the tool first, then where the window was before.
+    func goBack() {
+        if page == .tools, tool != nil, let back = toolBack { back.action(); return }
+        while let place = backward.popLast() {
+            guard place != here else { continue }
+            forward.append(here)
+            go(to: place)
+            return
+        }
+    }
+
+    func goForward() {
+        if page == .tools, tool != nil, let next = toolForward { next(); return }
+        while let place = forward.popLast() {
+            guard place != here else { continue }
+            backward.append(here)
+            go(to: place)
+            return
+        }
+    }
     /// Files edited lately, newest first, for Home.
     private(set) var recent: [String] = UserDefaults.standard.stringArray(forKey: recentKey) ?? []
 

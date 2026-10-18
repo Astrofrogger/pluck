@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.0.1", items: [
+                Item(symbol: "computermouse", title: String(localized: "Back and forward"),
+                     detail: String(localized: "Your mouse’s side buttons go back and forward, as in a browser. In the Player, back takes a clip to its folder, with a clearer button for it too.")),
+            ]),
             Release(version: "3.0.0", items: [
                 Item(symbol: "play.rectangle", title: String(localized: "Player, for camera raw"),
                      detail: String(localized: "Play .r3d and Blackmagic RAW smoothly, decoded on the Mac’s graphics chip, with ISO, white balance, LUTs, timecode and sound. ProRes, MXF and image sequences too. Open a folder to skim every clip in it, and press Space in Finder to preview raw clips.")),
