@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.4", items: [
+                Item(symbol: "photo.on.rectangle", title: String(localized: "Thumbnails for RED clips shown as one item"),
+                     detail: String(localized: "With RED clips shown as one item in Finder, each now gets a picture from its take. Log out and back in once for Finder to pick it up.")),
+            ]),
             Release(version: "3.1.3", items: [
                 Item(symbol: "speaker.wave.2", title: String(localized: "Whole RED takes, with sound"),
                      detail: String(localized: "Quick Look plays a take the camera split into several files from start to end, with its sound. In Settings, RED clips can show as one item in Finder.")),

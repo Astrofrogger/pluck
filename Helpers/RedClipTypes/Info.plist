@@ -2,8 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Only declares RED clip folders (.RDC) as one item: registered with macOS when Settings
-	     asks for that, and unregistered again when not. It does nothing when run. -->
 	<key>CFBundleExecutable</key>
 	<string>RedClipTypes</string>
 	<key>CFBundleIdentifier</key>
@@ -13,9 +11,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.1</string>
 	<key>CFBundleVersion</key>
-	<string>1</string>
+	<string>2</string>
 	<key>LSBackgroundOnly</key>
 	<true/>
 	<key>LSMinimumSystemVersion</key>
@@ -23,15 +21,14 @@
 	<key>UTExportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.red.rdc</string>
-			<key>UTTypeDescription</key>
-			<string>RED Clip</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>com.apple.package</string>
-				<string>public.audiovisual-content</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>RED Clip</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.red.rdc</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

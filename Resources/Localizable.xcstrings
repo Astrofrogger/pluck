@@ -152297,6 +152297,64 @@
         }
       }
     },
+    "Thumbnails for RED clips shown as one item": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturen für RED-Clips als ein Objekt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturas para los clips RED como un solo elemento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vignettes pour les plans RED affichés comme un seul élément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniature per le clip RED come unico elemento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ひとつの項目として表示した RED クリップのサムネール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하나의 항목으로 보이는 RED 클립의 썸네일"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturen voor RED-clips als één item"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Miniaturas para clipes RED como um item"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示为单个项目的 RED 片段的缩略图"
+          }
+        }
+      }
+    },
     "Tidier Find Shots": {
       "localizations": {
         "de": {
@@ -165130,6 +165188,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "全景"
+          }
+        }
+      }
+    },
+    "With RED clips shown as one item in Finder, each now gets a picture from its take. Log out and back in once for Finder to pick it up.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wenn RED-Clips im Finder als ein Objekt erscheinen, bekommt jetzt jeder ein Bild aus seiner Aufnahme. Melde dich einmal ab und wieder an, damit der Finder das übernimmt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con los clips RED como un solo elemento en el Finder, cada uno muestra ahora una imagen de su toma. Cierra sesión y vuelve a entrar una vez para que el Finder lo aplique."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec les plans RED affichés comme un seul élément dans le Finder, chacun montre maintenant une image de sa prise. Fermez la session et rouvrez-la une fois pour que le Finder en tienne compte."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con le clip RED mostrate come unico elemento nel Finder, ognuna ora mostra un’immagine della sua ripresa. Esci e rientra una volta perché il Finder lo applichi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder で RED クリップをひとつの項目として表示すると、それぞれにテイクの画像が付くようになりました。Finder に反映するには一度ログアウトして再ログインしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 RED 클립을 하나의 항목으로 표시하면 이제 각각 테이크의 그림이 보입니다. Finder에 반영하려면 한 번 로그아웃했다가 다시 로그인하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met RED-clips als één item in de Finder krijgt elke clip nu een beeld uit zijn take. Meld je één keer af en weer aan zodat de Finder het oppikt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com os clipes RED como um item no Finder, cada um agora mostra uma imagem da sua tomada. Saia e entre de novo uma vez para o Finder aplicar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中将 RED 片段显示为单个项目时，每个片段现在都会显示其镜头中的画面。请注销并重新登录一次，让 Finder 应用此更改。"
           }
         }
       }
