@@ -344,6 +344,17 @@ private struct MediaPanel: View {
     @State private var newName = ""
     /// Files that aren't there (deleted, or on a drive that isn't plugged in): left out.
     @State private var missing: Set<String> = []
+    /// What the search finds inside the media: what's said and what's seen.
+    @State private var moments: [Moment] = []
+    @State private var searchingMoments = false
+
+    struct Moment: Identifiable {
+        var path: String
+        var span: ClosedRange<Double>
+        var text: String
+        var said: Bool
+        var id: String { path + "@\(span.lowerBound)" }
+    }
 
     private var media: [LibraryStore.Entry] {
         let terms = search.trimmingCharacters(in: .whitespaces).lowercased()
@@ -403,6 +414,18 @@ private struct MediaPanel: View {
                         }
                         .padding(.bottom, 8)
                     }
+                    if let project = nav.current?.project, !project.project.clips.isEmpty {
+                        timelineIndex(project)
+                    }
+                    if searchingMoments || !moments.isEmpty {
+                        SidebarSection(title: Text("Moments")) {
+                            if searchingMoments, moments.isEmpty {
+                                ProgressView().controlSize(.small).padding(8)
+                            }
+                            ForEach(moments) { moment in momentRow(moment) }
+                        }
+                        .padding(.bottom, 8)
+                    }
                     SidebarSection(title: Text("Media")) {
                         ForEach(media) { entry in
                             MediaRow(entry: entry, on: nav.current?.target?.path == entry.path)
@@ -447,6 +470,22 @@ private struct MediaPanel: View {
             }
             Button("Cancel", role: .cancel) { renaming = nil }
         }
+        .onAppear {
+            // Tests: -PluckScreenshotMediaSearch <words> searches the media.
+            if ScreenshotMode.scene != nil, let words = UserDefaults.standard.string(forKey: "PluckScreenshotMediaSearch") { search = words }
+        }
+        .task(id: search) {
+            // Inside the media too, once the search is a word or more (and the typing stops).
+            let query = search.trimmingCharacters(in: .whitespaces)
+            guard query.count >= 3 else { moments = []; searchingMoments = false; return }
+            try? await Task.sleep(for: .milliseconds(450))
+            guard !Task.isCancelled else { return }
+            searchingMoments = true
+            let found = await findMoments(query)
+            guard !Task.isCancelled else { return }
+            moments = found
+            searchingMoments = false
+        }
         .task(id: library.entries.count) {
             let paths = library.entries.map(\.path)
             missing = await Task.detached { Set(paths.filter { !FileManager.default.fileExists(atPath: $0) }) }.value
@@ -456,6 +495,97 @@ private struct MediaPanel: View {
 
 extension MediaPanel {
     enum Rename: Equatable { case project(UUID), folder(UUID) }
+
+    /// The open project's clips and titles in order, searchable; a click goes there.
+    @ViewBuilder func timelineIndex(_ model: ProjectModel) -> some View {
+        let terms = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let offsets = model.offsets
+        let clips = model.project.clips.enumerated().map { (offsets[$0.offset], $0.element.name, "film") }
+        let titles = model.project.titles.map { ($0.start, $0.text, "textformat") }
+        let entries = (clips + titles).filter { terms.isEmpty || $0.1.lowercased().contains(terms) }.sorted { $0.0 < $1.0 }
+        if !entries.isEmpty {
+            SidebarSection(title: Text("Timeline")) {
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                    SidebarRow(symbol: entry.2, title: Text(verbatim: entry.1), detail: Text(model.timecode(entry.0)),
+                               selected: model.time >= entry.0 - 0.001 && entry.2 == "film" && model.clip(at: model.time).map { offsets[$0.index] == entry.0 } == true) {
+                        EmptyView()
+                    }
+                    .onTapGesture { model.seek(to: entry.0) }
+                }
+            }
+            .padding(.bottom, 8)
+        }
+    }
+
+    /// The best few moments: what's said (transcripts) and what's seen (looked-at videos).
+    func findMoments(_ query: String) async -> [Moment] {
+        var found: [Moment] = []
+        if let search = AppDelegate.shared?.ai.search {
+            for hit in await search.search(query).prefix(6) where hit.available {
+                let bite = Self.soundbite(hit.filePath, from: hit.start, terms: hit.terms + query.split(separator: " ").map(String.init))
+                found.append(Moment(path: hit.filePath, span: bite.span, text: bite.text ?? hit.text, said: true))
+            }
+        }
+        let indexer = VisualIndexer.shared
+        if indexer.indexes.isEmpty { indexer.reload() }
+        for hit in VisualIndex.search(query, in: indexer.indexes, limit: 6) where FileManager.default.fileExists(atPath: hit.path) {
+            found.append(Moment(path: hit.path, span: hit.shot.start...hit.shot.end, text: hit.shot.description, said: false))
+        }
+        return found
+    }
+
+    /// The sentence a hit is in (where its words were found, at most 20 seconds), and its text: a
+    /// soundbite.
+    static func soundbite(_ path: String, from start: Double, terms: [String]) -> (span: ClosedRange<Double>, text: String?) {
+        guard let words = TranscriptStore.find(forFile: path)?.words, !words.isEmpty else { return (start...(start + 10), nil) }
+        let wanted = terms.map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }.filter { $0.count >= 3 }
+        func ends(_ word: Transcript.Word) -> Bool { word.t.trimmingCharacters(in: .whitespaces).last.map { ".!?…".contains($0) } ?? false }
+        // The first word of the passage that matches.
+        let from = words.firstIndex { $0.s >= start - 0.05 } ?? 0
+        var hit = from
+        for index in from..<words.count where words[index].s < start + 25 {
+            let word = words[index].t.lowercased()
+            if wanted.contains(where: { word.contains($0) || $0.contains(word.trimmingCharacters(in: .whitespaces.union(.punctuationCharacters))) && word.count > 3 }) {
+                hit = index
+                break
+            }
+        }
+        // Back to where its sentence starts, on to where it ends.
+        var first = hit
+        while first > 0, !ends(words[first - 1]), words[hit].s - words[first - 1].s < 12 { first -= 1 }
+        var last = hit
+        while last + 1 < words.count, !ends(words[last]), words[last + 1].e - words[first].s < 20 { last += 1 }
+        let text = words[first...last].map(\.t).joined().trimmingCharacters(in: .whitespaces)
+        return (max(words[first].s - 0.15, 0)...(words[last].e + 0.2), text)
+    }
+
+    func momentRow(_ moment: Moment) -> some View {
+        let name = URL(fileURLWithPath: moment.path).deletingPathExtension().lastPathComponent
+        return HStack(alignment: .top, spacing: 8) {
+            Image(systemName: moment.said ? "quote.bubble" : "eye")
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(moment.text).font(.callout).lineLimit(2)
+                Text(verbatim: "\(name) · \(Format.duration(moment.span.lowerBound))").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .contentShape(.rect)
+        .onTapGesture {
+            // In a project, ⌥-click adds the moment at the end; otherwise it opens there.
+            if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
+                Task { await project.add([ProjectModel.moment(moment.path, moment.span)]) }
+            } else {
+                EditorModel.startRange = (moment.span.lowerBound, moment.span.upperBound)
+                nav.open(EditorTarget(path: moment.path))
+            }
+        }
+        .onDrag { NSItemProvider(object: ProjectModel.moment(moment.path, moment.span) as NSURL) }
+        .help("Click to open it there; drag onto a project’s timeline to add just this moment (⌥-click adds it at the end)")
+    }
 
     func projectRow(_ project: Project) -> some View {
         // An open project's name and length as they are now.
@@ -583,6 +713,8 @@ private struct ToolsPage: View {
     @ViewBuilder private func toolView(_ tool: PluckTool) -> some View {
         switch tool {
         case .derush: DerushView()
+        case .offload: OffloadView()
+        case .rawPlayer: RawPlayerView()
         case .liveRecorder: LiveRecorderView()
         case .deliveryCheck: DeliveryCheckView()
         case .logoAnimator: LogoAnimatorView()

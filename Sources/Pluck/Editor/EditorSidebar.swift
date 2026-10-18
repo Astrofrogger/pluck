@@ -45,22 +45,7 @@ struct EditorSidebar: View {
     var body: some View {
         VStack(spacing: 0) {
             if tabs.count > 1 {
-                HStack(spacing: 2) {
-                    ForEach(tabs) { item in
-                        Button { tab = item } label: {
-                            Image(systemName: item.symbol)
-                                .font(.system(size: 14, weight: .medium))
-                                .frame(maxWidth: .infinity, minHeight: 28)
-                                .foregroundStyle(tab == item ? Color.accentColor : .secondary)
-                                .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(tab == item ? Color.accentColor.opacity(0.14) : .clear))
-                                .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .help(Text(item.title))
-                        .accessibilityLabel(Text(item.title))
-                    }
-                }
-                .padding(6)
+                InspectorTabBar(tabs: tabs, selection: $tab, symbol: \.symbol) { Text($0.title) }
                 Divider()
             }
             Text(shown.title)
@@ -224,7 +209,7 @@ struct SidebarRow<Trailing: View>: View {
         .padding(.horizontal, 8)
         .frame(minHeight: 26)
         .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-            .fill(selected ? Color.accentColor.opacity(0.2) : hovering ? Color.primary.opacity(0.06) : .clear))
+            .fill(selected ? Design.Brand.chosenFill : AnyShapeStyle(hovering ? Color.primary.opacity(0.06) : .clear)))
         .contentShape(.rect)
         .onHover { hovering = $0 }
     }

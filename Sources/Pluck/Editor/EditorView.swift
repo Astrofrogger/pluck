@@ -184,11 +184,11 @@ struct EditorView: View {
                     .font(.callout.monospacedDigit())
                     .lineLimit(1)
                 if let progress = exports.progress {
-                    ProgressView(value: progress).frame(width: 180)
+                    ExportProgress(value: progress) { exports.stop() }.frame(width: 200)
                 } else if let output = exports.output {
                     DoneLabel(text: Text(output.lastPathComponent), file: output)
                 } else if let problem = exports.problem {
-                    Text(problem).font(.caption).foregroundStyle(.orange).lineLimit(1)
+                    ProblemLabel(text: problem).lineLimit(1)
                 } else if exports.handedOver {
                     Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
                 }
@@ -248,6 +248,7 @@ struct EditorView: View {
             case .editBlade: model.tool = .blade; return .handled
             case .editSelect: model.tool = .select; return .handled
             case .editUndo: model.undo(); return .handled
+            case .editRedo: model.redo(); return .handled
             default: break
             }
             #endif
@@ -264,6 +265,7 @@ struct EditorView: View {
             case "b" where command: model.cut(at: model.time)
             case "b": model.tool = .blade
             case "a": model.tool = .select
+            case "z" where command && press.modifiers.contains(.shift): model.redo()
             case "z" where command: model.undo()
             case "=" where command, "+" where command: zoom = min(zoom * 1.6, max(1, min(model.duration / 2, 200)))
             case "-" where command: zoom = max(zoom / 1.6, 1)

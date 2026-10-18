@@ -33,21 +33,7 @@ struct ProjectInspector: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 2) {
-                ForEach(Tab.allCases) { item in
-                    Button { tab = item } label: {
-                        Image(systemName: item.symbol)
-                            .font(.system(size: 14, weight: .medium))
-                            .frame(maxWidth: .infinity, minHeight: 28)
-                            .foregroundStyle(tab == item ? Color.accentColor : .secondary)
-                            .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(tab == item ? Color.accentColor.opacity(0.14) : .clear))
-                            .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                    .help(Text(item.title))
-                }
-            }
-            .padding(6)
+            InspectorTabBar(tabs: Tab.allCases, selection: $tab, symbol: \.symbol) { Text($0.title) }
             Divider()
             Text(tab.title)
                 .font(.headline)
@@ -139,6 +125,7 @@ private struct ProjectClipPanel: View {
                 model.set(clip.id, record: record) { clip in
                     var look = clip.look ?? ClipLook()
                     body(&look)
+                    look.reframed = nil   // placed by hand now
                     clip.look = look.isDefault ? nil : look
                 }
             }
@@ -156,6 +143,28 @@ private struct ProjectClipPanel: View {
                 inspectorRow("Fade Out") {
                     Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3)
                     Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                }
+            }
+            FoldSection(title: "Transition", key: "clip-transition") {
+                inspectorRow("At the End") {
+                    Picker("At the End", selection: Binding(get: { clip.dipOut.map { $0.white ? 2 : 1 } ?? 0 }, set: { value in
+                        model.set(clip.id) { clip in
+                            clip.dipOut = value == 0 ? nil : ProjectDip(white: value == 2, length: clip.dipOut?.length ?? 0.8)
+                        }
+                    })) {
+                        Text("Cut").tag(0)
+                        Text("Dip to Black").tag(1)
+                        Text("Dip to White").tag(2)
+                    }
+                    .labelsHidden()
+                }
+                if let dip = clip.dipOut {
+                    inspectorRow("Length") {
+                        Slider(value: Binding(get: { dip.length }, set: { value in model.set(clip.id, record: false) { $0.dipOut?.length = value } }), in: 0.2...3) { editing in
+                            if !editing { model.set(clip.id) { _ in } }
+                        }
+                        Text(String(format: "%.1f s", dip.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                    }
                 }
             }
         }
@@ -417,9 +426,9 @@ private struct ProjectExportPanel: View {
                     .buttonStyle(BrandButtonStyle())
                     .disabled(model.project.clips.isEmpty || model.exports.isRunning)
                     if let progress = model.exports.progress {
-                        ProgressView(value: progress).controlSize(.small)
+                        ExportProgress(value: progress) { model.exports.stop() }
                     } else if let problem = model.exports.problem {
-                        Text(problem).font(.caption).foregroundStyle(.orange)
+                        ProblemLabel(text: problem)
                     }
                 }
                 .padding(.horizontal, 8)

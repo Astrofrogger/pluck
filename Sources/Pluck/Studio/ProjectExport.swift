@@ -12,7 +12,12 @@ final class ProjectExports {
     private(set) var problem: String?
     private(set) var finished: [URL] = []
 
+    @ObservationIgnored private var task: Task<Void, Never>?
+
     var isRunning: Bool { progress != nil }
+
+    /// Stops the export; what was written so far is thrown away.
+    func stop() { task?.cancel() }
 
     func run(_ project: Project, settings: EditorRenderSettings, audioOnly: Bool, size: CGSize, fps: Double, manager: DownloadManager) {
         guard !project.clips.isEmpty else { return }
@@ -22,11 +27,18 @@ final class ProjectExports {
         }
         output = nil
         problem = nil
+        let missing = ProjectModel.missingFiles(in: project)
+        guard missing.isEmpty else {
+            let names = missing.map { ($0 as NSString).lastPathComponent }.sorted()
+            problem = String(localized: "Offline: \(names.prefix(3).formatted(.list(type: .and)))\(names.count > 3 ? "…" : "")")
+            return
+        }
         progress = 0
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let output = Converting.outputURL(folder: folder, name: project.name,
                                           fileExtension: audioOnly ? settings.audioFile.rawValue : settings.container.fileExtension)
-        Task {
+        task = Task {
             // What each file has: a picture, sound or both.
             var streams: [String: Set<String>] = [:]
             for path in Set(project.clips.map(\.path) + project.music.map(\.path)) {
@@ -52,16 +64,23 @@ final class ProjectExports {
             }
             let report: @Sendable (Double) -> Void = { value in Task { @MainActor in self.progress = value } }
             let hardware = !audioOnly && settings.hardware && !settings.codec.isProRes
-            var done = await EditorExport.run(ffmpeg, arguments(hardware), total: project.duration, progress: report)
-            if !done, hardware { done = await EditorExport.run(ffmpeg, arguments(false), total: project.duration, progress: report) }
-            if !done, ScreenshotMode.scene != nil {
+            var outcome = EditorExport.Outcome.stopped
+            if !Task.isCancelled { outcome = await EditorExport.run(ffmpeg, arguments(hardware), total: project.duration, progress: report) }
+            if outcome.isFailed, hardware, !Task.isCancelled {
+                report(0)
+                outcome = await EditorExport.run(ffmpeg, arguments(false), total: project.duration, progress: report)
+            }
+            let done = outcome.isDone
+            if outcome.isFailed, ScreenshotMode.scene != nil {
                 // Tests: the command, to run by hand.
-                try? ([ffmpeg] + arguments(false)).joined(separator: "\n")
+                let tail = if case .failed(let lines) = outcome { lines } else { "" }
+                try? ([ffmpeg] + arguments(false) + ["", tail]).joined(separator: "\n")
                     .write(to: FileManager.default.temporaryDirectory.appendingPathComponent("pluck-project-export.txt"), atomically: true, encoding: .utf8)
             }
             if let assFile { try? FileManager.default.removeItem(at: assFile) }
             if let subtitleFile { try? FileManager.default.removeItem(at: subtitleFile) }
             progress = nil
+            task = nil
             if done, !cues.isEmpty {
                 // The subtitles as a file too, next to the video.
                 try? EditorSubtitleFiles.srt(cues).write(to: output.deletingPathExtension().appendingPathExtension("srt"), atomically: true, encoding: .utf8)
@@ -73,7 +92,7 @@ final class ProjectExports {
                 manager.saveHistory()
             } else {
                 try? FileManager.default.removeItem(at: output)
-                problem = String(localized: "The export couldn’t be written.")
+                problem = EditorExport.readable(outcome)
             }
         }
     }
@@ -121,25 +140,41 @@ final class ProjectExports {
         let width = Int(size.width) / 2 * 2, height = Int(size.height) / 2 * 2
         let rate = String(format: "%.3f", max(fps, 1))
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
-        var inputs: [String] = []
-        var index: [String: Int] = [:]
-        // Stabilized clips' pictures come from their steadied copies.
-        let steadied = project.clips.compactMap { $0.look?.stabilize == true ? Stabilizer.copy(for: $0.path)?.path : nil }
-        for path in project.clips.map(\.path) + project.music.map(\.path) + steadied where index[path] == nil {
-            index[path] = inputs.count / 2
-            inputs += ["-i", path]
+        // The files, each opened where it's first needed. A clip earlier in a file than the one
+        // before it opens the file again (seeking there), so ffmpeg never holds the frames in between.
+        // (A clip's picture and sound share one.)
+        var opened: [(path: String, from: Double, to: Double, last: Double)] = []
+        func input(_ path: String, _ start: Double, _ end: Double) -> (index: Int, from: Double) {
+            if let i = opened.lastIndex(where: { $0.path == path && ($0.to <= start + 0.001 || $0.last == start) }) {
+                opened[i].to = max(opened[i].to, end)
+                opened[i].last = start
+                return (i, opened[i].from)
+            }
+            opened.append((path, start, end, start))
+            return (opened.count - 1, start)
         }
         var graph: [String] = []
         var joined = ""
         for (k, clip) in project.clips.enumerated() {
-            let i = index[clip.path] ?? 0
             let kinds = streams[clip.path] ?? []
             if !audioOnly {
                 if kinds.contains("video") {
+                    // Stabilized clips' pictures come from their steadied copies.
                     let copy = clip.look?.stabilize == true ? Stabilizer.copy(for: clip.path)?.path : nil
-                    graph += ClipLook.ffmpegChain(input: "[\(copy.flatMap { index[$0] } ?? i):v:0]", start: clip.start, end: clip.end,
+                    let (v, from) = input(copy ?? clip.path, clip.start, clip.end)
+                    // Dips to black or white at the edits, as the preview draws them.
+                    var finish: [String] = []
+                    if k > 0, let dip = project.clips[k - 1].dipOut {
+                        let half = min(dip.length / 2, clip.length / 2)
+                        finish.append("fade=t=in:st=0:d=\(number(half)):color=\(dip.white ? "white" : "black")")
+                    }
+                    if let dip = clip.dipOut {
+                        let half = min(dip.length / 2, clip.length / 2)
+                        finish.append("fade=t=out:st=\(number(max(clip.length - half, 0))):d=\(number(half)):color=\(dip.white ? "white" : "black")")
+                    }
+                    graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: clip.start - from, end: clip.end - from,
                                                   length: clip.length, look: clip.look, k: k, width: width, height: height, rate: rate,
-                                                  steadied: copy != nil)
+                                                  steadied: copy != nil, finish: finish)
                 } else {
                     graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(clip.length)),format=yuv420p[v\(k)]")
                 }
@@ -147,14 +182,16 @@ final class ProjectExports {
             }
             var audio: String
             if kinds.contains("audio") {
-                audio = "[\(i):a:0]atrim=start=\(number(clip.start)):end=\(number(clip.end)),asetpts=PTS-STARTPTS,volume=\(number(clip.volume))"
+                let (i, from) = input(clip.path, clip.start, clip.end)
+                audio = "[\(i):a:0]atrim=start=\(number(clip.start - from)):end=\(number(clip.end - from)),asetpts=PTS-STARTPTS,volume=\(number(clip.volume))"
                 // Faster or slower, at the same pitch (atempo goes from half to double speed per step).
                 if clip.speed != 1 { audio += "," + tempo(clip.speed) }
             } else {
                 audio = "anullsrc=r=48000:cl=stereo,atrim=duration=\(number(clip.length))"
             }
-            if clip.fadeIn > 0 { audio += ",afade=t=in:d=\(number(min(clip.fadeIn, clip.length)))" }
-            if clip.fadeOut > 0 { audio += ",afade=t=out:st=\(number(max(clip.length - clip.fadeOut, 0))):d=\(number(min(clip.fadeOut, clip.length)))" }
+            let fade = fades(clip.fadeIn, clip.fadeOut, over: clip.length)
+            if fade.in > 0 { audio += ",afade=t=in:d=\(number(fade.in))" }
+            if fade.out > 0 { audio += ",afade=t=out:st=\(number(max(clip.length - fade.out, 0))):d=\(number(fade.out))" }
             graph.append(audio + ",aformat=sample_rates=48000:channel_layouts=stereo[a\(k)]")
             joined += "[a\(k)]"
         }
@@ -163,13 +200,14 @@ final class ProjectExports {
         // The music under the clips.
         var mixed = "[ac]"
         for (m, song) in project.music.enumerated() {
-            let i = index[song.path] ?? 0
             let length = min(song.length, max(project.duration - song.at, 0))
             guard length > 0, streams[song.path]?.contains("audio") == true else { continue }
+            let (i, from) = input(song.path, song.start, song.start + length)
             let delay = Int(song.at * 1000)
-            graph.append("[\(i):a:0]atrim=start=\(number(song.start)):end=\(number(song.start + length)),asetpts=PTS-STARTPTS,"
-                         + "volume=\(number(song.volume)),afade=t=in:d=\(number(max(song.fadeIn, 0.01))),"
-                         + "afade=t=out:st=\(number(max(length - song.fadeOut, 0))):d=\(number(max(song.fadeOut, 0.01))),"
+            let songFade = fades(max(song.fadeIn, 0.01), max(song.fadeOut, 0.01), over: length)
+            graph.append("[\(i):a:0]atrim=start=\(number(song.start - from)):end=\(number(song.start + length - from)),asetpts=PTS-STARTPTS,"
+                         + "volume=\(number(song.volume)),afade=t=in:d=\(number(songFade.in)),"
+                         + "afade=t=out:st=\(number(max(length - songFade.out, 0))):d=\(number(songFade.out)),"
                          + "adelay=\(delay)|\(delay),aformat=sample_rates=48000:channel_layouts=stereo[m\(m)]")
             mixed += "[m\(m)]"
         }
@@ -181,6 +219,13 @@ final class ProjectExports {
             if let titles { chain.append("ass=\(EditorSubtitleFiles.filterPath(titles))") }
             chain += settings.filters
             graph.append("[vc]" + (chain.isEmpty ? "null" : chain.joined(separator: ",")) + "[v]")
+        }
+        var inputs: [String] = []
+        for file in opened {
+            // Many files open at once: fewer decoding threads each (only one decodes at a time).
+            if opened.count > 24 { inputs += ["-threads", "2"] }
+            if file.from > 0 { inputs += ["-ss", number(file.from)] }
+            inputs += ["-t", number(file.to - file.from + 1), "-i", file.path]
         }
         var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1"] + inputs + ["-filter_complex", graph.joined(separator: ";")]
         if !audioOnly {

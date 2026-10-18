@@ -39,6 +39,7 @@ extension EditorModel {
     private func remember() {
         history.append((cuts, removed))
         if history.count > 200 { history.removeFirst() }
+        future = []
     }
 
     /// Cuts the file at a time (the blade, or ⌘B at the playhead).
@@ -80,6 +81,24 @@ extension EditorModel {
         }
     }
 
+    /// Takes a stretch out (cutting at its edges), or puts it back when it's all out already:
+    /// editing by the words. Every part inside it goes, not only the first.
+    func toggleOut(_ span: ClosedRange<Double>) {
+        let start = snappedToFrame(span.lowerBound), end = snappedToFrame(span.upperBound)
+        guard end - start >= frame else { return }
+        let inside = parts.filter { $0.start < end - frame / 2 && $0.end > start + frame / 2 }
+        remember()
+        if !inside.isEmpty, inside.allSatisfy(\.removed) {
+            for part in inside { removed.remove(part.start) }
+            return
+        }
+        for edge in [start, end] where edge > 0 && edge < duration && !cuts.contains(where: { abs($0 - edge) < frame / 2 }) {
+            cuts.append(edge)
+        }
+        cuts.sort()
+        for part in parts where part.start >= start - frame / 2 && part.end <= end + frame / 2 { removed.insert(part.start) }
+    }
+
     /// Puts everything back: no cuts, nothing taken out.
     func resetEdit() {
         guard isEdited else { return }
@@ -90,11 +109,21 @@ extension EditorModel {
     }
 
     var canUndo: Bool { !history.isEmpty }
+    var canRedo: Bool { !future.isEmpty }
 
     func undo() {
         guard let last = history.popLast() else { return }
+        future.append((cuts, removed))
         cuts = last.cuts
         removed = last.removed
+        selected = selected.filter { start in parts.contains { $0.start == start } }
+    }
+
+    func redo() {
+        guard let next = future.popLast() else { return }
+        history.append((cuts, removed))
+        cuts = next.cuts
+        removed = next.removed
         selected = selected.filter { start in parts.contains { $0.start == start } }
     }
 
@@ -116,9 +145,9 @@ enum EditorExport {
     static func joined(_ parts: [ClosedRange<Double>], of file: URL, video wantsVideo: Bool, audio: Bool, to output: URL, ffmpeg: String,
                        settings: EditorRenderSettings, audioOnly: Bool = false, source: CGSize, sourceFPS: Double,
                        subtitles: URL? = nil, pictureChain: ((String, Double, Double, Int) -> [String])? = nil, steadied: URL? = nil,
-                       progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+                       progress: @escaping @Sendable (Double) -> Void) async -> Outcome {
         let video = wantsVideo && !audioOnly
-        guard !parts.isEmpty, video || audio else { return false }
+        guard !parts.isEmpty, video || audio else { return .failed("") }
         var graph: [String] = []
         var inputs = ""
         for (index, part) in parts.enumerated() {
@@ -160,31 +189,103 @@ enum EditorExport {
             return arguments + [output.path]
         }
         let hardware = video && settings.hardware && !settings.codec.isProRes
-        if await run(ffmpeg, arguments(hardware: hardware), total: total, progress: progress) { return true }
+        let first = await run(ffmpeg, arguments(hardware: hardware), total: total, progress: progress)
         // This Mac's encoder couldn't (an old Mac, an odd size): the same with x264 or x265.
-        guard hardware else { return false }
+        guard hardware, first.isFailed, !Task.isCancelled else { return first }
         progress(0)
         return await run(ffmpeg, arguments(hardware: false), total: total, progress: progress)
     }
 
-    static func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        await Task.detached {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: ffmpeg)
-            process.arguments = arguments
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = FileHandle.nullDevice
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                guard let text = String(data: handle.availableData, encoding: .utf8) else { return }
-                for line in text.split(separator: "\n") where line.hasPrefix("out_time_us=") {
-                    if let micro = Double(line.dropFirst("out_time_us=".count)) { progress(min(1, micro / 1_000_000 / max(total, 0.1))) }
-                }
+    /// How a run of ffmpeg ended.
+    enum Outcome: Sendable {
+        case done, stopped
+        /// The last lines ffmpeg wrote about what went wrong.
+        case failed(String)
+
+        var isDone: Bool { if case .done = self { true } else { false } }
+        var isFailed: Bool { if case .failed = self { true } else { false } }
+    }
+
+    /// Runs ffmpeg, reporting how far it is. Cancelling the task stops ffmpeg.
+    static func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) async -> Outcome {
+        let job = FFmpegJob()
+        return await withTaskCancellationHandler {
+            await Task.detached { job.run(ffmpeg, arguments, total: total, progress: progress) }.value
+        } onCancel: {
+            job.stop()
+        }
+    }
+
+    /// What went wrong, in one sentence (from ffmpeg's last lines).
+    static func readable(_ outcome: Outcome) -> String? {
+        guard case .failed(let tail) = outcome else { return nil }
+        let text = tail.lowercased()
+        if text.contains("no space left") { return String(localized: "There’s no room left on the disk.") }
+        if text.contains("error opening output") || text.contains("permission denied") || text.contains("operation not permitted")
+            || text.contains("read-only file system") {
+            return String(localized: "Pluck can’t write to the export folder. Is its drive connected?")
+        }
+        if text.contains("no such file or directory") { return String(localized: "A file the export needs is missing.") }
+        if text.contains("invalid data found") || text.contains("moov atom not found") { return String(localized: "One of the files can’t be read.") }
+        return String(localized: "The export couldn’t be written.")
+    }
+}
+
+/// One ffmpeg process: stoppable from any thread, keeping the end of what it wrote to stderr.
+private final class FFmpegJob: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var stopped = false
+    private var errors = Data()
+
+    func stop() {
+        lock.withLock {
+            stopped = true
+            if process?.isRunning == true { process?.terminate() }
+        }
+    }
+
+    func run(_ ffmpeg: String, _ arguments: [String], total: Double, progress: @escaping @Sendable (Double) -> Void) -> EditorExport.Outcome {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
+        process.arguments = arguments
+        let out = Pipe(), err = Pipe()
+        process.standardOutput = out
+        process.standardError = err
+        out.fileHandleForReading.readabilityHandler = { handle in
+            guard let text = String(data: handle.availableData, encoding: .utf8) else { return }
+            for line in text.split(separator: "\n") where line.hasPrefix("out_time_us=") {
+                if let micro = Double(line.dropFirst("out_time_us=".count)) { progress(min(1, micro / 1_000_000 / max(total, 0.1))) }
             }
-            guard (try? process.run()) != nil else { return false }
-            process.waitUntilExit()
-            pipe.fileHandleForReading.readabilityHandler = nil
-            return process.terminationStatus == 0
-        }.value
+        }
+        err.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            let data = handle.availableData
+            guard let self, !data.isEmpty else { return }
+            self.lock.withLock {
+                self.errors.append(data)
+                // Only the end matters.
+                if self.errors.count > 16_384 { self.errors = self.errors.suffix(8_192) }
+            }
+        }
+        let started: Bool = lock.withLock {
+            guard !stopped, (try? process.run()) != nil else { return false }
+            self.process = process
+            return true
+        }
+        guard started else {
+            out.fileHandleForReading.readabilityHandler = nil
+            err.fileHandleForReading.readabilityHandler = nil
+            return lock.withLock { stopped } ? .stopped : .failed("")
+        }
+        process.waitUntilExit()
+        out.fileHandleForReading.readabilityHandler = nil
+        err.fileHandleForReading.readabilityHandler = nil
+        if let rest = try? err.fileHandleForReading.readToEnd() { lock.withLock { errors.append(rest) } }
+        return lock.withLock {
+            if stopped { return .stopped }
+            if process.terminationStatus == 0 { return .done }
+            let lines = String(decoding: errors, as: UTF8.self).split(separator: "\n").suffix(20)
+            return .failed(lines.joined(separator: "\n"))
+        }
     }
 }

@@ -59,6 +59,25 @@ struct ProjectView: View {
         .focusEffectDisabled()
         .onKeyPress(phases: .down, action: key)
         .onAppear { focused = true }
+        .task {
+            // Tests: -PluckScreenshotAspect <9:16> reframes the project.
+            if ScreenshotMode.scene == "project", let aspect = UserDefaults.standard.string(forKey: "PluckScreenshotAspect") {
+                try? await Task.sleep(for: .seconds(2))
+                await model.setAspect(aspect)
+            }
+            // Tests: -PluckScreenshotFitBeat YES fits the cuts to the beat once the beats are found.
+            if ScreenshotMode.scene == "project", UserDefaults.standard.bool(forKey: "PluckScreenshotFitBeat") {
+                for _ in 0..<60 where model.timelineBeats.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
+                model.fitToBeat()
+            }
+        }
+        .task {
+            // Tests: -PluckScreenshotRelink <folder> finds the missing files there.
+            if ScreenshotMode.scene == "project", let folder = UserDefaults.standard.string(forKey: "PluckScreenshotRelink") {
+                try? await Task.sleep(for: .seconds(3))
+                _ = await model.relink(in: URL(fileURLWithPath: folder))
+            }
+        }
         .task(id: model.project.clips.count) {
             // Screenshots: -PluckScreenshotExport YES exports once the clips are in, with a title and music.
             guard ScreenshotMode.scene == "project", UserDefaults.standard.bool(forKey: "PluckScreenshotExport"),
@@ -100,6 +119,7 @@ struct ProjectView: View {
                             model.set(clip.id, record: record) { clip in
                                 var look = clip.look ?? ClipLook()
                                 body(&look)
+                                look.reframed = nil   // placed by hand now
                                 clip.look = look.isDefault ? nil : look
                             }
                         }
@@ -165,6 +185,15 @@ struct ProjectView: View {
     private var footer: some View {
         HStack(spacing: Design.Spacing.controls) {
             Text(model.project.name).font(.callout.weight(.medium)).lineLimit(1)
+            if let problem = model.saveProblem {
+                ProblemLabel(text: problem)
+                Button("Try Again") { model.save(now: true) }.buttonStyle(.link)
+            }
+            if !model.missing.isEmpty {
+                ProblemLabel(text: String(AttributedString(localized: "^[\(model.missing.count) file](inflect: true) offline").characters))
+                    .help(model.missing.map { ($0 as NSString).lastPathComponent }.sorted().joined(separator: "\n"))
+                Button("Relink…") { relink() }.buttonStyle(.link)
+            }
             Spacer(minLength: 8)
             if ProjectResolve.isAvailable {
                 Button {
@@ -189,6 +218,17 @@ struct ProjectView: View {
                 .keyboardShortcut("e", modifiers: .command)
             }
         }
+    }
+
+    /// Finds the missing files in a folder the user picks.
+    private func relink() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = String(localized: "Relink")
+        panel.message = String(localized: "Choose the folder the missing files are in now.")
+        guard panel.runModal() == .OK, let folder = panel.url else { return }
+        Task { _ = await model.relink(in: folder) }
     }
 
     // MARK: - Adding
@@ -223,6 +263,12 @@ struct ProjectView: View {
         case .rightArrow: model.step(frames: shift ? Int(model.frameRate) : 1)
         case .home: model.seek(to: 0)
         case .end: model.seek(to: model.duration)
+        // Edit to edit, and shuttling, as in the Editor.
+        case .upArrow: model.jumpToEdit(forward: false)
+        case .downArrow: model.jumpToEdit(forward: true)
+        case "j": model.shuttle(-1)
+        case "k": model.shuttle(0)
+        case "l": model.shuttle(1)
         case .delete, .deleteForward:
             if let title = model.selectedTitle { model.removeTitle(title) } else { model.delete(model.selected) }
         default:
@@ -329,6 +375,28 @@ private struct ProjectToolbar: View {
             tool("textformat", "Add a Title at the Playhead (⌘T)") { model.addTitle(at: model.time) }
             divider
             tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
+            if !model.timelineBeats.isEmpty {
+                tool("metronome", "Fit the Cuts to the Beat") { model.fitToBeat() }
+                    .disabled(model.project.clips.count < 2)
+            }
+            divider
+            Menu {
+                Picker("Frame", selection: Binding(get: { model.project.aspect ?? "" }, set: { value in
+                    Task { await model.setAspect(value.isEmpty ? nil : value) }
+                })) {
+                    Text("As the Clips").tag("")
+                    Text("Vertical (9:16)").tag("9:16")
+                    Text("Square (1:1)").tag("1:1")
+                    Text("Portrait (4:5)").tag("4:5")
+                }
+                .pickerStyle(.inline)
+            } label: {
+                Image(systemName: "aspectratio")
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("The frame’s shape: each clip is filled and framed on its subject")
             Spacer(minLength: 4)
             Image(systemName: "minus.magnifyingglass").font(.caption).foregroundStyle(.secondary)
             Slider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), in: 0...log(max(min(model.duration / 2, 400), 1.01)))
@@ -359,10 +427,10 @@ private struct ProjectToolButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol).font(.system(size: 13, weight: .medium))
-                .foregroundStyle(on ? Color.accentColor : .primary)
+                .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.primary))
                 .frame(minWidth: 28, minHeight: 24)
                 .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-                    .fill(on ? Color.accentColor.opacity(0.18) : hovering && isEnabled ? Color.primary.opacity(0.08) : .clear))
+                    .fill(on ? Design.Brand.chosenFill : AnyShapeStyle(hovering && isEnabled ? Color.primary.opacity(0.08) : .clear)))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)

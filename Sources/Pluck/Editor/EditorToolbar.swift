@@ -21,6 +21,8 @@ struct EditorToolbar: View {
                 .disabled(model.selected.isEmpty)
             ToolButton(symbol: "arrow.uturn.backward", label: "Undo (⌘Z)") { model.undo() }
                 .disabled(!model.canUndo)
+            ToolButton(symbol: "arrow.uturn.forward", label: "Redo (⇧⌘Z)") { model.redo() }
+                .disabled(!model.canRedo)
             divider
             ToolButton(symbol: "arrow.right.to.line", label: "Mark In at the Playhead (I)") { model.markIn() }
             ToolButton(symbol: "arrow.left.to.line", label: "Mark Out at the Playhead (O)") { model.markOut() }
@@ -71,11 +73,11 @@ private struct ToolButton: View {
                 Image(systemName: symbol).font(.system(size: 13, weight: .medium))
                 if let title { Text(title).font(.caption.weight(.medium)) }
             }
-                .foregroundStyle(on ? Color.accentColor : .primary)
+                .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.primary))
                 .padding(.horizontal, title == nil ? 0 : 6)
                 .frame(minWidth: 28, minHeight: 24)
                 .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-                    .fill(on ? Color.accentColor.opacity(0.18) : hovering && isEnabled ? Color.primary.opacity(0.08) : .clear))
+                    .fill(on ? Design.Brand.chosenFill : AnyShapeStyle(hovering && isEnabled ? Color.primary.opacity(0.08) : .clear)))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)

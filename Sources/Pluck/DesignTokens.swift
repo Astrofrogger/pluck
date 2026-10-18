@@ -16,6 +16,12 @@ enum Design {
         static let pink = Color(red: 0.99, green: 0.37, blue: 0.48)
         static let violet = Color(red: 0.56, green: 0.33, blue: 0.96)
         static let gradient = LinearGradient(colors: [pink, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+        /// What's chosen (a tab, a tool that's on): Pluck's colours in Pluck Studio, the Mac's
+        /// accent colour in basic Pluck.
+        static var chosen: AnyShapeStyle { Edition.isStudio ? AnyShapeStyle(gradient) : AnyShapeStyle(Color.accentColor) }
+        static var chosenFill: AnyShapeStyle {
+            Edition.isStudio ? AnyShapeStyle(gradient.opacity(0.22)) : AnyShapeStyle(Color.accentColor.opacity(0.18))
+        }
     }
 
     enum Size {
@@ -738,5 +744,33 @@ extension EnvironmentValues {
     var editMedia: AnyView? {
         get { self[EditMediaKey.self] }
         set { self[EditMediaKey.self] = newValue }
+    }
+}
+
+/// An inspector's tabs: a row of symbols, the chosen one in Pluck's colours (as the page bar).
+struct InspectorTabBar<Tab: Hashable & Identifiable>: View {
+    let tabs: [Tab]
+    @Binding var selection: Tab
+    let symbol: (Tab) -> String
+    let title: (Tab) -> Text
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(tabs) { item in
+                let on = selection == item
+                Button { selection = item } label: {
+                    Image(systemName: symbol(item))
+                        .font(.system(size: Design.Size.icon - 3, weight: on ? .semibold : .medium))
+                        .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.secondary))
+                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(on ? Color.primary.opacity(0.08) : .clear))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(title(item))
+                .accessibilityLabel(title(item))
+            }
+        }
+        .padding(6)
     }
 }

@@ -15,7 +15,12 @@ final class EditorExports {
     /// Everything this file exported, newest first.
     private(set) var finished: [URL] = []
 
+    @ObservationIgnored private var task: Task<Void, Never>?
+
     var isRunning: Bool { progress != nil }
+
+    /// Stops the export; what was written so far is thrown away.
+    func stop() { task?.cancel() }
 
     func run(_ choice: EditorExportChoice, model: EditorModel, manager: DownloadManager) {
         output = nil
@@ -45,6 +50,7 @@ final class EditorExports {
     private func render(_ groups: [[ClosedRange<Double>]], choice: EditorExportChoice, model: EditorModel, manager: DownloadManager) {
         guard let ffmpeg = manager.tool("ffmpeg") else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         let audioOnly = choice.format == .audio || !model.hasVideo
         let settings = choice.settings
         let base = model.file.deletingPathExtension().lastPathComponent
@@ -64,7 +70,7 @@ final class EditorExports {
         }
         #endif
         progress = 0
-        Task {
+        task = Task {
             for (index, parts) in groups.enumerated() {
                 let suffix = groups.count > 1 ? String(localized: " (part \(index + 1))")
                     : model.isEdited ? String(localized: " (edit)") : model.hasRange ? String(localized: " (part)") : String(localized: " (export)")
@@ -78,24 +84,26 @@ final class EditorExports {
                     if (try? text.write(to: ass, atomically: true, encoding: .utf8)) != nil { assFile = ass }
                 }
                 let count = Double(groups.count)
-                let done = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: output, ffmpeg: ffmpeg,
+                guard !Task.isCancelled else { break }
+                let outcome = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: output, ffmpeg: ffmpeg,
                                                      settings: settings, audioOnly: audioOnly, source: source, sourceFPS: fps,
                                                      subtitles: assFile, pictureChain: pictureChain, steadied: steadied) { value in
                     Task { @MainActor in self.progress = (Double(index) + value) / count }
                 }
                 if let assFile { try? FileManager.default.removeItem(at: assFile) }
-                if done {
+                if outcome.isDone {
                     self.output = output
                     finished.insert(output, at: 0)
                     if choice.srt { writeSRT(model, for: parts, next: output) }
                     _ = manager.addLocalFiles([output])
                 } else {
                     try? FileManager.default.removeItem(at: output)
-                    problem = String(localized: "The export couldn’t be written.")
+                    problem = EditorExport.readable(outcome)
                     break
                 }
             }
             progress = nil
+            task = nil
             manager.saveHistory()
         }
     }
@@ -107,5 +115,22 @@ final class EditorExports {
         let url = output?.deletingPathExtension().appendingPathExtension("srt")
             ?? Converting.outputURL(folder: folder, name: model.file.deletingPathExtension().lastPathComponent, fileExtension: "srt")
         try? EditorSubtitleFiles.srt(model.subtitlesForEdit(parts)).write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
+/// An export's progress, with a button to stop it.
+struct ExportProgress: View {
+    let value: Double
+    let stop: () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            ProgressView(value: value).controlSize(.small)
+            Button("Stop Export", systemImage: "xmark.circle.fill", action: stop)
+                .labelStyle(.iconOnly)
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Stop the export")
+        }
     }
 }

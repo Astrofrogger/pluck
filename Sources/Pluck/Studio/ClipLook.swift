@@ -78,6 +78,8 @@ struct ClipLook: Codable, Hashable {
     var speed = 1.0
     var stabilize = false
     var color = ClipColor()
+    /// Placed by Pluck for the project's frame shape (not by hand).
+    var reframed: Bool?
 
     var isDefault: Bool { self == ClipLook() }
     var hasCrop: Bool { cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0 }
@@ -109,6 +111,7 @@ struct ClipLook: Codable, Hashable {
         zoomFrom = value(.zoomFrom, nil as ZoomFrame?); zoomTo = value(.zoomTo, nil as ZoomFrame?); zoomEase = value(.zoomEase, Ease.easeInOut)
         opacity = value(.opacity, 1); speed = value(.speed, 1); stabilize = value(.stabilize, false)
         color = value(.color, ClipColor())
+        reframed = value(.reframed, nil as Bool?)
         // Before start and end frames: a zoom from `zoom` to this, about the middle.
         if zoomFrom == nil, let end = try? c.decodeIfPresent(Double.self, forKey: .legacyZoomEnd) {
             zoomFrom = ZoomFrame(size: 1 / max(zoom, 1))
@@ -119,7 +122,7 @@ struct ClipLook: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case scaling, zoom, x, y, rotation, flipH, flipV, cropLeft, cropRight, cropTop, cropBottom
-        case zoomFrom, zoomTo, zoomEase, opacity, speed, stabilize, color
+        case zoomFrom, zoomTo, zoomEase, opacity, speed, stabilize, color, reframed
         case legacyZoomEnd = "zoomEnd"
     }
 
@@ -131,6 +134,7 @@ struct ClipLook: Codable, Hashable {
         try c.encode(cropTop, forKey: .cropTop); try c.encode(cropBottom, forKey: .cropBottom)
         try c.encodeIfPresent(zoomFrom, forKey: .zoomFrom); try c.encodeIfPresent(zoomTo, forKey: .zoomTo); try c.encode(zoomEase, forKey: .zoomEase)
         try c.encode(opacity, forKey: .opacity); try c.encode(speed, forKey: .speed); try c.encode(stabilize, forKey: .stabilize)
+        try c.encodeIfPresent(reframed, forKey: .reframed)
         if !color.isDefault { try c.encode(color, forKey: .color) }
     }
 }
@@ -198,7 +202,7 @@ extension ClipLook {
     /// The same for ffmpeg: a filter chain from an input's picture to `[v<k>]` (trimmed to the
     /// clip, at its speed), fitted to width × height.
     static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
-                            width: Int, height: Int, rate: String, steadied: Bool = false) -> [String] {
+                            width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = []) -> [String] {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
@@ -251,7 +255,7 @@ extension ClipLook {
         return [
             "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
             input + steps.joined(separator: ",") + "[fg\(k)]",
-            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1,\(after),format=yuv420p[v\(k)]",
+            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1,\(([after] + finish).joined(separator: ",")),format=yuv420p[v\(k)]",
         ]
     }
 }

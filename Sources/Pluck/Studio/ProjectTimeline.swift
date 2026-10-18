@@ -126,16 +126,30 @@ struct ProjectTimeline: View {
 
             ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, clip in
                 let left = x(offsets[index]), w = max(x(offsets[index] + clip.length) - left, 2)
-                ClipBlock(clip: clip, thumbnails: model.thumbnails[clip.path] ?? [], selected: model.selected.contains(clip.id),
-                          moving: grab == .clip(clip.id, offset: grabOffset(clip.id)))
+                ClipBlock(clip: clip, thumbnails: model.thumbnails[ProjectModel.thumbnailKey(clip)] ?? [], selected: model.selected.contains(clip.id),
+                          moving: grab == .clip(clip.id, offset: grabOffset(clip.id)), offline: model.missing.contains(clip.path),
+                          peaks: model.peaks(for: clip))
                     .frame(width: w, height: clipsHeight)
                     .offset(x: left, y: clipsTop)
                     .opacity(isMoving(clip.id) ? 0.35 : 1)
             }
+            // Dips at the edits: a small black or white mark on the cut.
+            ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, clip in
+                if let dip = clip.dipOut {
+                    let at = x(offsets[index] + clip.length)
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(dip.white ? Color.white : Color.black)
+                        .overlay { RoundedRectangle(cornerRadius: 2).strokeBorder(.white.opacity(0.7), lineWidth: 1) }
+                        .rotationEffect(.degrees(45))
+                        .frame(width: 9, height: 9)
+                        .offset(x: at - 4.5, y: clipsTop + clipsHeight - 14)
+                        .allowsHitTesting(false)
+                }
+            }
             // A moved clip, under the pointer, and where it would land.
             if case .clip(let id, _) = grab, let dragX, let clip = model.project.clips.first(where: { $0.id == id }) {
                 let w = max(x(clip.length), 24)
-                ClipBlock(clip: clip, thumbnails: model.thumbnails[clip.path] ?? [], selected: true, moving: true)
+                ClipBlock(clip: clip, thumbnails: model.thumbnails[ProjectModel.thumbnailKey(clip)] ?? [], selected: true, moving: true, peaks: model.peaks(for: clip))
                     .frame(width: w, height: clipsHeight)
                     .offset(x: dragX - w / 2, y: clipsTop - 6)
                     .shadow(color: .black.opacity(0.5), radius: 8, y: 4)
@@ -148,7 +162,9 @@ struct ProjectTimeline: View {
             }
             ForEach(model.project.music) { song in
                 let left = x(song.at), w = max(x(min(song.at + song.length, seconds)) - left, 2)
-                lengthBlock(song.name, symbol: "music.note", tint: .teal, selected: model.selected.contains(song.id))
+                lengthBlock(song.name, symbol: model.missing.contains(song.path) ? "exclamationmark.triangle.fill" : "music.note",
+                            tint: model.missing.contains(song.path) ? .red : .teal, selected: model.selected.contains(song.id))
+                    .overlay { beatGrid(song, left: left, x: x) }
                     .frame(width: w, height: musicHeight)
                     .offset(x: left, y: musicTop)
             }
@@ -171,6 +187,27 @@ struct ProjectTimeline: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { value in changed(value, width: width, t: t, x: x) }
             .onEnded { value in ended(value, t: t) })
+    }
+
+    /// The song's beats as ticks, bars taller (when they're far enough apart to see).
+    private func beatGrid(_ song: ProjectMusic, left: CGFloat, x: @escaping (Double) -> CGFloat) -> some View {
+        let map = model.beatMaps[song.path]
+        return Canvas { context, size in
+            guard let map, map.beats.count > 1 else { return }
+            let spacing = x(map.beats[1]) - x(map.beats[0])
+            let bars = Set(map.bars.map { ($0.start * 100).rounded() })
+            for beat in map.beats where beat >= song.start && beat <= song.end {
+                let isBar = bars.contains((beat * 100).rounded())
+                // Beats only when there's room; bars from a little further out.
+                guard spacing >= 5 || (isBar && spacing * 4 >= 6) else { continue }
+                let px = x(song.at + beat - song.start) - left
+                guard px >= 0, px <= size.width else { continue }
+                let height = isBar ? size.height : size.height * 0.35
+                context.fill(Path(CGRect(x: px - 0.5, y: size.height - height, width: 1, height: height)),
+                             with: .color(.white.opacity(isBar ? 0.55 : 0.3)))
+            }
+        }
+        .allowsHitTesting(false)
     }
 
     private func lane(top: CGFloat, height: CGFloat, width: CGFloat, label: String? = nil) -> some View {
@@ -257,9 +294,13 @@ struct ProjectTimeline: View {
             let delta = Double(value.translation.width / width) * seconds
             model.trim(id, start: clip.start + delta * clip.speed, record: false)
         case .clipEnd(let id):
-            guard let clip = before?.clips.first(where: { $0.id == id }) else { return }
+            guard let before, let index = before.clips.firstIndex(where: { $0.id == id }) else { return }
+            let clip = before.clips[index]
             let delta = Double(value.translation.width / width) * seconds
-            model.trim(id, end: clip.end + delta * clip.speed, record: false)
+            // The cut snaps (to edges, the playhead, the music's beats).
+            let at = before.clips[..<index].reduce(0) { $0 + $1.length }
+            let cut = model.snappedToBeat(at + clip.length + delta, tolerance: tolerance)
+            model.trim(id, end: clip.start + (cut - at) * clip.speed, record: false)
         case .music(let id, let offset):
             let at = max(model.snapped(t(value.location.x) - offset, tolerance: tolerance), 0)
             model.setMusic(id, record: false) { $0.at = at }
@@ -367,12 +408,20 @@ private struct ClipBlock: View {
     let thumbnails: [NSImage]
     let selected: Bool
     let moving: Bool
+    /// Its file isn't there.
+    var offline = false
+    /// Its sound, across the clip.
+    var peaks: ArraySlice<Float> = []
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.6)
-                if !thumbnails.isEmpty {
+                if offline {
+                    Color.red.opacity(0.45)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.white)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if !thumbnails.isEmpty {
                     HStack(spacing: 0) {
                         let count = max(Int(geometry.size.width / 70), 1)
                         ForEach(0..<count, id: \.self) { slot in
@@ -382,8 +431,27 @@ private struct ClipBlock: View {
                                 .clipped()
                         }
                     }
-                } else {
+                } else if peaks.isEmpty {
                     Image(systemName: "waveform").foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                // Its sound: along the bottom under pictures, the whole block for sound only.
+                if !offline, !peaks.isEmpty {
+                    let strip = thumbnails.isEmpty ? geometry.size.height - 16 : min(18, geometry.size.height * 0.28)
+                    Canvas { context, size in
+                        let columns = max(Int(size.width / 2), 1)
+                        let values = Array(peaks)
+                        var path = Path()
+                        for column in 0..<columns {
+                            let a = column * values.count / columns, b = max(a + 1, (column + 1) * values.count / columns)
+                            let peak = CGFloat(values[a..<min(b, values.count)].max() ?? 0)
+                            let h = max(peak * size.height, 0.5)
+                            path.addRect(CGRect(x: CGFloat(column) * 2, y: (size.height - h) / 2, width: 1.2, height: h))
+                        }
+                        context.fill(path, with: .color(Color.cyan.opacity(0.85)))
+                    }
+                    .frame(height: strip)
+                    .background(thumbnails.isEmpty ? Color.clear : Color.black.opacity(0.55))
+                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
                 LinearGradient(colors: [.black.opacity(0.65), .clear], startPoint: .top, endPoint: .center)
                 VStack(alignment: .leading, spacing: 1) {

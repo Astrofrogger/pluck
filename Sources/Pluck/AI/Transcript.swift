@@ -258,7 +258,33 @@ enum TranscriptStore {
         encoder.dateEncodingStrategy = .iso8601
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? encoder.encode(transcript).write(to: url(for: transcript.id), options: .atomic)
+        lock.withLock {
+            index?[transcript.filePath] = transcript.id
+            kept[transcript.id] = transcript
+        }
         NotificationCenter.default.post(name: didSave, object: transcript.id)
+    }
+
+    // MARK: - Finding by file, without reading them all
+
+    /// Which transcript belongs to which file (built once by reading them all, then kept up to
+    /// date as they're saved), and the last few read.
+    nonisolated(unsafe) private static var index: [String: String]?
+    nonisolated(unsafe) private static var kept: [String: Transcript] = [:]
+    private static let lock = NSLock()
+
+    private static func cached(_ id: String) -> Transcript? {
+        if let known = lock.withLock({ kept[id] }) {
+            if FileManager.default.fileExists(atPath: url(for: id).path) { return known }
+            lock.withLock { kept[id] = nil }
+            return nil
+        }
+        guard let transcript = load(id) else { return nil }
+        lock.withLock {
+            kept[id] = transcript
+            if kept.count > 48 { kept.removeValue(forKey: kept.keys.first!) }
+        }
+        return transcript
     }
 
     /// Posted with the transcript's id after it's saved (a new summary, chapters…).
@@ -269,9 +295,20 @@ enum TranscriptStore {
         return files.filter { $0.pathExtension == "json" }.compactMap { load($0.deletingPathExtension().lastPathComponent) }
     }
 
-    /// The transcript of a file, if one was made.
+    /// The transcript of a file, if one was made (from the index: no reading every transcript).
     static func find(forFile path: String) -> Transcript? {
-        all().first { $0.filePath == path }
+        var map = lock.withLock { index }
+        if map == nil {
+            var built: [String: String] = [:]
+            for transcript in all() { built[transcript.filePath] = transcript.id }
+            lock.withLock { index = built }
+            map = built
+        }
+        guard let id = map?[path] else { return nil }
+        if let transcript = cached(id), transcript.filePath == path { return transcript }
+        // Gone or changed since: look again next time.
+        lock.withLock { index = nil }
+        return nil
     }
 }
 

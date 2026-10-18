@@ -106,9 +106,9 @@ struct EditorExportPanel: View {
 
     @ViewBuilder private var status: some View {
         if let progress = exports.progress {
-            ProgressView(value: progress).controlSize(.small)
+            ExportProgress(value: progress) { exports.stop() }
         } else if let problem = exports.problem {
-            Text(problem).font(.caption).foregroundStyle(.orange)
+            ProblemLabel(text: problem)
         } else if exports.handedOver {
             Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
         }

@@ -16,6 +16,10 @@ struct EditorAIPanel: View {
     @State private var cues: [Transcript.Cue] = []
     @State private var search = ""
     @State private var anchor: Transcript.Cue?
+    /// Words picked in the transcript (indices into its words), to cut with ⌫.
+    @State private var wordSelection: ClosedRange<Int>?
+    @State private var wordAnchor: Int?
+    @FocusState private var wordsFocused: Bool
     @State private var item: DownloadItem?
     /// The sentence the transcript list is scrolled to.
     @State private var scrolledCue: Double?
@@ -58,6 +62,16 @@ struct EditorAIPanel: View {
             if part == .transcript, ScreenshotMode.scene == "editor", UserDefaults.standard.bool(forKey: "PluckScreenshotStory"),
                transcript != nil, storyBeats.isEmpty {
                 findStory()
+            }
+            // Tests: -PluckScreenshotCutWords <first>-<last> picks those words and cuts them.
+            if part == .transcript, ScreenshotMode.scene == "editor", transcript != nil,
+               let pick = UserDefaults.standard.string(forKey: "PluckScreenshotCutWords")?.split(separator: "-").compactMap({ Int($0) }), pick.count == 2 {
+                Task {
+                    try? await Task.sleep(for: .seconds(2))
+                    wordAnchor = pick[0]
+                    wordSelection = pick[0]...pick[1]
+                    if let span = wordSpan() { model.toggleOut(span) }
+                }
             }
             if part == .ai, ScreenshotMode.scene == "editor", UserDefaults.standard.bool(forKey: "PluckScreenshotFind"), transcript != nil {
                 findMoments()
@@ -314,11 +328,25 @@ struct EditorAIPanel: View {
                     .padding(.horizontal, 6)
                 }
                 .scrollPosition(id: $scrolledCue, anchor: .center)
+                .focusable()
+                .focused($wordsFocused)
+                .focusEffectDisabled()
+                // ⌫ cuts the picked words (or puts them back); without words it's the Editor's.
+                .onKeyPress(keys: [.delete, .deleteForward]) { _ in
+                    guard let span = wordSpan() else { return .ignored }
+                    model.toggleOut(span)
+                    return .handled
+                }
+                .onKeyPress(.escape) {
+                    guard wordSelection != nil else { return .ignored }
+                    wordSelection = nil
+                    return .handled
+                }
                 .onChange(of: current?.id) { _, id in
                     if model.isPlaying, search.isEmpty, let id { withAnimation { scrolledCue = id } }
                 }
                 speakerBar
-                Text("Click to go there. ⇧-click another line to make the range.")
+                Text("Click a word to go there, ⇧-click to pick up to it, ⌫ to cut. ⇧-click a time for the range.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .padding(8)
@@ -720,11 +748,58 @@ struct EditorAIPanel: View {
     private func cueLine(_ cue: Transcript.Cue, playing: Bool, removed: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(Format.duration(cue.start)).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 32, alignment: .leading)
-            Text(text(of: cue)).font(.callout)
-                .foregroundStyle(playing ? .primary : .secondary)
-                .strikethrough(removed, color: .red)
-                .fixedSize(horizontal: false, vertical: true)
+            if translation == nil, let words = transcript?.words, cue.words.upperBound <= words.count {
+                // Word by word: pick words to cut them.
+                FlowLayout(spacing: 0) {
+                    ForEach(cue.words, id: \.self) { index in
+                        wordView(index, words[index], first: index == cue.words.lowerBound, playing: playing)
+                    }
+                }
+            } else {
+                Text(text(of: cue)).font(.callout)
+                    .foregroundStyle(playing ? .primary : .secondary)
+                    .strikethrough(removed, color: .red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
+    }
+
+    private func wordView(_ index: Int, _ word: Transcript.Word, first: Bool, playing: Bool) -> some View {
+        let picked = wordSelection?.contains(index) ?? false
+        let out = model.part(at: (word.s + word.e) / 2)?.removed ?? false
+        // (Words carry their space in front; not at the start of a line.)
+        return Text(first ? word.t.trimmingCharacters(in: .whitespaces) : word.t)
+            .font(.callout)
+            .foregroundStyle(out ? .tertiary : playing ? .primary : .secondary)
+            .strikethrough(out, color: .red)
+            .padding(.vertical, 1)
+            .background(picked ? Color.accentColor.opacity(0.35) : .clear, in: .rect(cornerRadius: 3))
+            .contentShape(.rect)
+            .onTapGesture { pickWord(index) }
+    }
+
+    /// Click: this word (and go there). ⇧-click: from the last word clicked to this one.
+    private func pickWord(_ index: Int) {
+        wordsFocused = true
+        if NSApp.currentEvent?.modifierFlags.contains(.shift) == true, let wordAnchor {
+            wordSelection = min(wordAnchor, index)...max(wordAnchor, index)
+        } else {
+            wordAnchor = index
+            wordSelection = index...index
+            if let word = transcript?.words[index] { model.seek(to: word.s) }
+        }
+    }
+
+    /// The stretch the picked words take, with a little of the pause around them (never into the
+    /// words next to them).
+    private func wordSpan() -> ClosedRange<Double>? {
+        guard let wordSelection, let words = transcript?.words, wordSelection.upperBound < words.count else { return nil }
+        let first = words[wordSelection.lowerBound], last = words[wordSelection.upperBound]
+        let before = wordSelection.lowerBound > 0 ? words[wordSelection.lowerBound - 1].e : 0
+        let after = wordSelection.upperBound + 1 < words.count ? words[wordSelection.upperBound + 1].s : model.duration
+        let start = max(first.s - 0.25, (before + first.s) / 2, 0)
+        let end = min(last.e + 0.25, (last.e + after) / 2, model.duration)
+        return end > start ? start...end : nil
     }
 
     // MARK: - Subtitles

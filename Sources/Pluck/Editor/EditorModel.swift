@@ -55,7 +55,7 @@ final class EditorModel {
     /// The subtitle line picked on the timeline or in the sidebar.
     var selectedSubtitle: UUID?
     /// Loaded once: the view can come and go (tabs, pages) without reading the file again.
-    @ObservationIgnored private var loaded = false
+    @ObservationIgnored private(set) var loaded = false
 
     private(set) var duration: Double = 0
     private(set) var frameRate: Double = 25
@@ -64,8 +64,8 @@ final class EditorModel {
     private(set) var aspect: CGFloat = 16 / 9
     /// Where the playhead is (seconds).
     private(set) var time: Double = 0
-    var inPoint: Double?
-    var outPoint: Double?
+    var inPoint: Double? { didSet { editChanged() } }
+    var outPoint: Double? { didSet { editChanged() } }
     /// Plays the range over and over.
     var loop = false
     /// Thumbnails spread evenly over the file, for the filmstrip.
@@ -86,12 +86,16 @@ final class EditorModel {
     enum Tool { case select, blade }
     var tool: Tool = .select
     /// Where the file is cut into parts (seconds, in order).
-    var cuts: [Double] = []
+    var cuts: [Double] = [] { didSet { editChanged() } }
     /// The parts taken out, by where they start.
-    var removed: Set<Double> = []
+    var removed: Set<Double> = [] { didSet { editChanged() } }
     /// The parts selected on the timeline, by where they start.
     var selected: Set<Double> = []
     @ObservationIgnored var history: [(cuts: [Double], removed: Set<Double>)] = []
+    @ObservationIgnored var future: [(cuts: [Double], removed: Set<Double>)] = []
+    /// The edit being brought back from disk (not a change to save), and the save waiting.
+    @ObservationIgnored var restoringEdit = false
+    @ObservationIgnored var editSaveTask: Task<Void, Never>?
     /// Whether the file has sound (for exporting the edit).
     var hasAudio: Bool { !peaks.isEmpty }
     /// The picture's size in pixels (for subtitles burned in at the right size).
@@ -161,6 +165,7 @@ final class EditorModel {
         player.replaceCurrentItem(with: AVPlayerItem(asset: asset))
         playedAsset = asset
         loadSubtitles()
+        loadEdit()
         #if STUDIO
         loadLook()
         await applyLook()
@@ -302,15 +307,20 @@ final class EditorModel {
         } ?? ""
         let name = SHA256.hash(data: Data((file.path + stamp).utf8)).prefix(10).map { String(format: "%02x", $0) }.joined() + (video ? ".mov" : ".m4a")
         let copy = folder.appendingPathComponent(name)
-        let old = Date.now.addingTimeInterval(-14 * 86_400)
-        for item in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentAccessDateKey])) ?? [] where item != copy {
-            if let used = try? item.resourceValues(forKeys: [.contentAccessDateKey]).contentAccessDate, used < old {
-                try? FileManager.default.removeItem(at: item)
-            }
+        // Copies not used for two weeks go (each use touches its date: APFS barely keeps access
+        // dates). Half-made ones go after a day.
+        let old = Date.now.addingTimeInterval(-14 * 86_400), stale = Date.now.addingTimeInterval(-86_400)
+        for item in (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] where item != copy {
+            guard let used = try? item.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { continue }
+            if used < (item.lastPathComponent.hasPrefix("partial-") ? stale : old) { try? FileManager.default.removeItem(at: item) }
         }
-        if FileManager.default.fileExists(atPath: copy.path) { return copy }
+        if FileManager.default.fileExists(atPath: copy.path) {
+            try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: copy.path)
+            return copy
+        }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let partial = folder.appendingPathComponent("partial-" + name)
+        // Its own half-made file (two tabs can make the same copy at once).
+        let partial = folder.appendingPathComponent("partial-\(UUID().uuidString)-" + name)
         var arguments = ["-nostdin", "-y", "-v", "error", "-i", file.path]
         if video {
             arguments += ["-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=-2:'min(1080,ih)'", "-c:v", "h264_videotoolbox", "-b:v", "8M",
@@ -330,7 +340,8 @@ final class EditorModel {
         }.value
         guard made, (try? FileManager.default.moveItem(at: partial, to: copy)) != nil else {
             try? FileManager.default.removeItem(at: partial)
-            return nil
+            // The other tab finished it first.
+            return FileManager.default.fileExists(atPath: copy.path) ? copy : nil
         }
         return copy
     }
@@ -355,9 +366,14 @@ final class EditorModel {
     /// The sound's peaks, read with ffmpeg at a low rate (plenty for drawing).
     private func loadPeaks(ffmpeg: String?) async {
         guard let ffmpeg else { return }
-        let file = self.file, duration = self.duration
+        peaks = await Self.peaks(of: file, duration: duration, ffmpeg: ffmpeg)
+    }
+
+    /// A file's sound as peaks (0…1, about 3000 of them across the file), read with ffmpeg at a low
+    /// rate: plenty for drawing.
+    nonisolated static func peaks(of file: URL, duration: Double, ffmpeg: String) async -> [Float] {
         let rate = duration > 1800 ? 500 : 2000
-        let peaks = await Task.detached { () -> [Float] in
+        return await Task.detached { () -> [Float] in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = ["-nostdin", "-v", "error", "-i", file.path, "-vn", "-ac", "1", "-ar", String(rate), "-f", "f32le", "-"]
@@ -382,7 +398,6 @@ final class EditorModel {
             let top = max(peaks.max() ?? 1, 0.05)
             return peaks.map { min($0 / top, 1) }
         }.value
-        self.peaks = peaks
     }
 
     /// The frame at the playhead as a full-size picture, saved where the person chooses.
@@ -390,8 +405,10 @@ final class EditorModel {
         player.pause()
         let time = CMTime(seconds: self.time, preferredTimescale: 600)
         let file = self.file
+        // What's playing (a copy macOS can play, for WebM and MKV), not always the original.
+        let asset = playedAsset ?? AVURLAsset(url: file)
         Task {
-            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file))
+            let generator = AVAssetImageGenerator(asset: asset)
             generator.appliesPreferredTrackTransform = true
             generator.requestedTimeToleranceBefore = .zero
             generator.requestedTimeToleranceAfter = .zero
@@ -412,6 +429,7 @@ final class EditorModel {
     }
 
     func close() {
+        if editSaveTask != nil { saveEdit() }
         player.pause()
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
@@ -540,9 +558,19 @@ final class EditorModel {
     // MARK: - Showing time
 
     /// "01:23:10" (minutes, seconds, frames) or with hours for long files.
+    /// One frame's duration, exact for the NTSC rates (23.976, 29.97, 59.94: 1001/24000…).
+    nonisolated static func frameDuration(_ fps: Double) -> CMTime {
+        for (rate, base) in [(24000, 1001), (30000, 1001), (48000, 1001), (60000, 1001), (120000, 1001)]
+        where abs(fps - Double(rate) / Double(base)) < 0.005 {
+            return CMTime(value: CMTimeValue(base), timescale: CMTimeScale(rate))
+        }
+        return CMTime(value: 1, timescale: CMTimeScale(max(fps.rounded(), 1)))
+    }
+
     func timecode(_ seconds: Double) -> String {
+        // Frames counted at the real rate, labelled at the nominal one (non-drop timecode).
         let fps = max(Int(frameRate.rounded()), 1)
-        let totalFrames = Int((seconds * Double(fps)).rounded())
+        let totalFrames = Int((seconds * max(frameRate, 1)).rounded())
         let frames = totalFrames % fps, totalSeconds = totalFrames / fps
         let s = totalSeconds % 60, m = (totalSeconds / 60) % 60, h = totalSeconds / 3600
         return duration >= 3600 ? String(format: "%d:%02d:%02d:%02d", h, m, s, frames) : String(format: "%02d:%02d:%02d", m, s, frames)
