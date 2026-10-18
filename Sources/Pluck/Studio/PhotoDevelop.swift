@@ -186,13 +186,15 @@ struct PhotoMask: Codable, Hashable, Identifiable {
 /// One part of a mask's shape.
 struct MaskPart: Codable, Hashable, Identifiable {
     enum Kind: String, Codable, CaseIterable, Identifiable {
-        case subject, people, object, linear, radial, brush, luminance, colour
+        case subject, people, object, sky, depth, linear, radial, brush, luminance, colour
         var id: String { rawValue }
         var title: String {
             switch self {
             case .subject: String(localized: "Subject")
             case .people: String(localized: "People")
             case .object: String(localized: "Object")
+            case .sky: String(localized: "Sky")
+            case .depth: String(localized: "Depth Range")
             case .linear: String(localized: "Linear Gradient")
             case .radial: String(localized: "Radial Gradient")
             case .brush: String(localized: "Brush")
@@ -205,6 +207,8 @@ struct MaskPart: Codable, Hashable, Identifiable {
             case .subject: "person.crop.rectangle"
             case .people: "person.2"
             case .object: "cursorarrow.click.2"
+            case .sky: "cloud.sun"
+            case .depth: "square.3.layers.3d.down.right"
             case .linear: "rectangle.tophalf.filled"
             case .radial: "circle.dashed"
             case .brush: "paintbrush.pointed"
@@ -214,8 +218,10 @@ struct MaskPart: Codable, Hashable, Identifiable {
         }
         /// Worked out from the photo's own colours (in the develop pass), not drawn.
         var isRange: Bool { self == .luminance || self == .colour }
-        /// Found by macOS (Vision).
-        var isAI: Bool { self == .subject || self == .people || self == .object }
+        /// Found by AI on this Mac (Vision, or the depth finder).
+        var isAI: Bool { self == .subject || self == .people || self == .object || self == .sky || self == .depth }
+        /// Needs the depth finder (an optional download).
+        var needsDepth: Bool { self == .sky || self == .depth }
     }
     enum Mode: String, Codable, CaseIterable { case add, subtract, intersect }
 
@@ -232,7 +238,8 @@ struct MaskPart: Codable, Hashable, Identifiable {
     /// Radial: how soft the edge is (0 hard … 1 soft).
     var feather = 0.5
     var strokes: [BrushStroke] = []
-    /// Brightness range (0 black … 1 white) and its soft edge.
+    /// Brightness range (0 black … 1 white) and its soft edge; for Depth Range, how far (0 nearest
+    /// … 1 farthest).
     var low = 0.0
     var high = 1.0
     var smooth = 0.1
@@ -245,6 +252,7 @@ struct MaskPart: Codable, Hashable, Identifiable {
         self.invert = invert
         if kind == .radial { a = CGPoint(x: 0.5, y: 0.5) }
         if kind == .luminance { low = 0.6 }
+        if kind == .depth { low = 0; high = 0.4 }
     }
 
     init(from decoder: Decoder) throws {

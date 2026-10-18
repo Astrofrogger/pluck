@@ -39,7 +39,7 @@ struct PhotoMaskPanel: View {
 
     /// New mask: what macOS finds, what's drawn, and ranges of the photo's own colours.
     private var picker: some View {
-        let groups: [[MaskPart.Kind]] = [[.subject, .people, .object].filter(available), [.linear, .radial, .brush], [.luminance, .colour]]
+        let groups: [[MaskPart.Kind]] = [[.subject, .people, .object].filter(available), [.sky, .depth], [.linear, .radial, .brush], [.luminance, .colour]]
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(groups.indices, id: \.self) { g in
                 HStack(spacing: 6) {
@@ -214,6 +214,31 @@ struct PhotoMaskPanel: View {
             partSlider("Range", part, in: mask, \.hueRange, 5...180)
         case .subject, .people:
             EmptyView()
+        case .sky, .depth:
+            depthFinder
+            if part.kind == .depth, depth.state == .ready {
+                partSlider("From", part, in: mask, \.low, 0...1)
+                partSlider("To", part, in: mask, \.high, 0...1)
+                hint("0 is nearest, 1 farthest")
+            }
+        }
+    }
+
+    @State private var depth = PhotoDepth.shared
+
+    /// The depth finder (Sky and Depth Range need it): an optional download, run on this Mac.
+    @ViewBuilder private var depthFinder: some View {
+        switch depth.state {
+        case .ready: EmptyView()
+        case .downloading(let share):
+            ProgressView(value: share).controlSize(.small).padding(.horizontal, 8)
+        case .failed(let problem):
+            ProblemLabel(text: problem).padding(.horizontal, 8)
+            Button("Try Again") { depth.install() }.controlSize(.small).padding(.horizontal, 8)
+        case .notInstalled:
+            hint("Sky and depth need the depth finder: it works out how far each place is, on this Mac.")
+            Button("Get Depth Finder (\(PhotoDepth.downloadMB) MB)", systemImage: "arrow.down") { depth.install() }
+                .controlSize(.small).padding(.horizontal, 8)
         }
     }
 

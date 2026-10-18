@@ -105,7 +105,9 @@ enum PhotoMasks {
         let scale = min(1, 1536 / max(e.width, e.height))
         let width = max(Int((e.width * scale).rounded()), 1), height = max(Int((e.height * scale).rounded()), 1)
         let shapes = masks.map { $0.shape.filter { !$0.kind.isRange } }
-        let key = path + "|\(width)x\(height)|" + ((try? String(decoding: JSONEncoder().encode(shapes), as: UTF8.self)) ?? "")
+        // (The depth finder arriving makes Sky and Depth Range parts something.)
+        let depth = shapes.joined().contains { $0.kind.needsDepth } && PhotoDepth.isReady
+        let key = path + "|\(width)x\(height)|\(depth)|" + ((try? String(decoding: JSONEncoder().encode(shapes), as: UTF8.self)) ?? "")
         lock.lock()
         if let known = layers[key] { lock.unlock(); return known.transformed(by: CGAffineTransform(scaleX: e.width / CGFloat(width), y: e.height / CGFloat(height))) }
         lock.unlock()
@@ -179,9 +181,40 @@ enum PhotoMasks {
         case .object:
             lock.lock(); let found = objects[objectKey(path, part.a)]; lock.unlock()
             return scaled(found, to: size, guide: base, context: context) ?? black
+        case .depth:
+            guard let near = PhotoDepth.nearness(path, from: base, context: context) else { return black }
+            // How far, in the window asked for (with soft edges).
+            let far = near.applyingFilter("CIColorInvert")
+            let windowed = far.applyingFilter("CIColorMap", parameters: ["inputGradientImage": window(low: part.low, high: part.high, soft: max(part.smooth, 0.02))])
+            return scaled(windowed, to: size, guide: base, context: context) ?? black
+        case .sky:
+            guard let near = PhotoDepth.nearness(path, from: base, context: context) else { return black }
+            // The farthest places that are bright: open sky, not far-off ground in shadow.
+            let far = near.applyingFilter("CIColorInvert").applyingFilter("CIColorMap", parameters: ["inputGradientImage": window(low: 0.94, high: 1.2, soft: 0.04)])
+            let m = near.extent, b = base.extent
+            let light = base.transformed(by: CGAffineTransform(translationX: -b.minX, y: -b.minY).concatenating(CGAffineTransform(scaleX: m.width / b.width, y: m.height / b.height)))
+                .applyingFilter("CILinearToSRGBToneCurve").applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
+                .applyingFilter("CIColorMap", parameters: ["inputGradientImage": window(low: 0.32, high: 2, soft: 0.15)]).cropped(to: m)
+            // A little wider than it's found, so no light fringe is left along what stands against it.
+            let sky = far.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: light]).cropped(to: m)
+                .clampedToExtent().applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": 6]).cropped(to: m)
+            return scaled(sky, to: size, guide: base, context: context) ?? black
         case .luminance, .colour:
             return CIImage(color: .white).cropped(to: frame)
         }
+    }
+
+    /// A grey ramp (for CIColorMap): white from `low` to `high` (0…1), fading over `soft`.
+    private static func window(low: Double, high: Double, soft: Double) -> CIImage {
+        var bytes = [UInt8](repeating: 0, count: 256 * 4)
+        for i in 0..<256 {
+            let x = Double(i) / 255
+            func step(_ a: Double, _ b: Double, _ v: Double) -> Double { let t = min(max((v - a) / max(b - a, 1e-4), 0), 1); return t * t * (3 - 2 * t) }
+            let v = step(low - soft, low, x) * (1 - step(high, high + soft, x))
+            let g = UInt8((v * 255).rounded())
+            bytes[i * 4] = g; bytes[i * 4 + 1] = g; bytes[i * 4 + 2] = g; bytes[i * 4 + 3] = 255
+        }
+        return CIImage(bitmapData: Data(bytes), bytesPerRow: 256 * 4, size: CGSize(width: 256, height: 1), format: .RGBA8, colorSpace: nil)
     }
 
     /// A found mask made this size, its edges drawn to the photo's (a guided filter: hair and
