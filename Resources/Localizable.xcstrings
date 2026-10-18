@@ -126107,6 +126107,64 @@
         }
       }
     },
+    "Send to DaVinci works again": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„An DaVinci senden“ funktioniert wieder"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar a DaVinci vuelve a funcionar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer à DaVinci fonctionne de nouveau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia a DaVinci funziona di nuovo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「DaVinci に送る」が再び使えます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci로 보내기가 다시 작동합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naar DaVinci sturen werkt weer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar para o DaVinci funciona de novo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“发送到 DaVinci”已恢复正常"
+          }
+        }
+      }
+    },
     "Send to Phone": {
       "localizations": {
         "de": {
@@ -126393,6 +126451,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在发送 %@"
+          }
+        }
+      }
+    },
+    "Sending camera clips to DaVinci Resolve stopped with an error in 3.1.6. It's fixed.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Senden von Kamera-Clips an DaVinci Resolve brach in 3.1.6 mit einem Fehler ab. Das ist behoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar clips de cámara a DaVinci Resolve se detenía con un error en 3.1.6. Ya está corregido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’envoi de plans de caméra vers DaVinci Resolve s’arrêtait sur une erreur dans la 3.1.6. C’est corrigé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’invio di clip della camera a DaVinci Resolve si fermava con un errore nella 3.1.6. È stato corretto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.1.6 ではカメラのクリップを DaVinci Resolve に送るとエラーで止まっていました。修正しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.1.6에서는 카메라 클립을 DaVinci Resolve로 보낼 때 오류로 멈췄습니다. 수정되었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cameraclips naar DaVinci Resolve sturen stopte in 3.1.6 met een fout. Dat is opgelost."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar clipes da câmera para o DaVinci Resolve parava com um erro na 3.1.6. Já foi corrigido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 3.1.6 中，将摄影机片段发送到 DaVinci Resolve 会因错误而中断。现已修复。"
           }
         }
       }

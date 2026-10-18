@@ -143,7 +143,7 @@ enum Resolve {
             text += " · plays at %s · %s× %s" % (label(plays), label(round(max(factor, 1 / factor), 2)), kind)
         comments = (video.GetMetadata("Comments") or "").strip()
         if text not in comments:
-            video.SetMetadata("Comments", (comments + "\n" + text).strip())
+            video.SetMetadata("Comments", (comments + "\\n" + text).strip())
     clips = 0
     skipped = 0
     linked = 0

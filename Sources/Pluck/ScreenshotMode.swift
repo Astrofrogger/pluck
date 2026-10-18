@@ -79,6 +79,20 @@ enum ScreenshotMode {
                     """)
             }
         }
+        // -PluckScreenshotSendClips <file>, -PluckScreenshotLog <file>: the clip sent to Resolve as the
+        // app sends it (into "Pluck Test"), and what came of it.
+        if let file = defaults.string(forKey: "PluckScreenshotSendClips"), let log = defaults.string(forKey: "PluckScreenshotLog") {
+            Task {
+                let line: String
+                do {
+                    let sent = try await Resolve.sendClips([URL(fileURLWithPath: file)], bin: ["Pluck Test", "Sub"])
+                    line = "ok \(sent.imported) \(sent.skipped) \(sent.linked) \(sent.project)"
+                } catch {
+                    line = "failed \(error.localizedDescription)"
+                }
+                try? line.write(toFile: log, atomically: true, encoding: .utf8)
+            }
+        }
         // -PluckScreenshotBinChooser <file>: the dialog asking which bin of Resolve it goes in.
         if let file = defaults.string(forKey: "PluckScreenshotBinChooser") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Resolve.sendClipsAndShow([URL(fileURLWithPath: file)]) }

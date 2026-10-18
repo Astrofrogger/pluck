@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.7", items: [
+                Item(symbol: "wrench.and.screwdriver", title: String(localized: "Send to DaVinci works again"),
+                     detail: String(localized: "Sending camera clips to DaVinci Resolve stopped with an error in 3.1.6. It's fixed.")),
+            ]),
             Release(version: "3.1.6", items: [
                 Item(symbol: "folder.badge.plus", title: String(localized: "Your bins in DaVinci"),
                      detail: String(localized: "Pick the bin and sub-bin clips go in, from the project’s own or a new name. Clips already in the project are left out, and each clip’s Comments say the rate it was shot at.")),
