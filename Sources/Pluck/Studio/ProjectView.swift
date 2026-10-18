@@ -14,7 +14,7 @@ struct ProjectView: View {
     @State private var dropTargeted = false
     @Environment(\.editMedia) private var media
     /// How much taller than its least the timeline is (drag the line above it).
-    @AppStorage("editTimelineGrow") private var timelineGrow = 80.0
+    @AppStorage("editTimelineGrow") private var timelineGrow = 30.0
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -41,12 +41,40 @@ struct ProjectView: View {
                     ProjectTimeline(model: model, zoom: $zoom, grow: timelineGrow)
                 }
                 .simultaneousGesture(TapGesture().onEnded { focused = true })
-                footer
+                // Only when something needs doing (a save that failed, files offline).
+                if model.saveProblem != nil || !model.missing.isEmpty { footer }
             }
-            .padding(Design.Spacing.window)
+            .padding(.horizontal, Design.Spacing.inset)
+            .padding(.top, Design.Spacing.controls)
+            .padding(.bottom, Design.Spacing.inset)
         }
-        .frame(minWidth: 550 + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
+        // (With the media beside it, all of it fits the smallest window.)
+        .frame(minWidth: 460 + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
         .toolbar {
+            // The edit going out: to DaVinci Resolve, or exported.
+            ToolbarItemGroup(placement: .primaryAction) {
+                if ProjectResolve.isAvailable {
+                    Button {
+                        ProjectResolve.sendAndShow(model)
+                    } label: {
+                        if model.sendingToResolve {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Label("Send to DaVinci", systemImage: "arrow.up.forward.app")
+                        }
+                    }
+                    .disabled(model.project.clips.isEmpty || model.sendingToResolve)
+                    .help("Send to DaVinci Resolve: a new timeline in the project open there, with the subtitles (files already there aren’t imported again)")
+                }
+                Button {
+                    withAnimation(.snappy) { tab = .export; sidebarShown = true }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up").labelStyle(.titleAndIcon)
+                }
+                .disabled(model.project.clips.isEmpty)
+                .keyboardShortcut("e", modifiers: .command)
+                .help("Export (⌘E)")
+            }
             ToolbarItem {
                 Button { withAnimation(.snappy) { sidebarShown.toggle() } } label: { Label("Sidebar", systemImage: "sidebar.right") }
                     .help("Show or hide the sidebar (⌥⌘S)")
@@ -87,8 +115,21 @@ struct ProjectView: View {
                 await model.addMusic(URL(fileURLWithPath: song))
             }
             try? await Task.sleep(for: .seconds(2))
-            model.exports.run(model.project, settings: EditorRenderSettings(), audioOnly: false, size: model.renderSize,
-                              fps: model.frameRate, manager: manager)
+            // -PluckScreenshotExportEach YES: each clip as a file of its own.
+            if UserDefaults.standard.bool(forKey: "PluckScreenshotExportEach") {
+                model.exports.runEach(model.project, settings: EditorRenderSettings(), audioOnly: false, size: model.renderSize,
+                                      fps: model.frameRate, lengths: model.knownLengths, manager: manager)
+            } else {
+                model.exports.run(model.project, settings: EditorRenderSettings(), audioOnly: false, size: model.renderSize,
+                                  fps: model.frameRate, lengths: model.knownLengths, manager: manager)
+            }
+        }
+        .task {
+            // Tests: -PluckScreenshotSaveFrame <file.png> saves the frame at the playhead there.
+            if ScreenshotMode.scene == "project", let file = UserDefaults.standard.string(forKey: "PluckScreenshotSaveFrame") {
+                try? await Task.sleep(for: .seconds(8))
+                model.saveFrame(to: URL(fileURLWithPath: file))
+            }
         }
         .onDisappear { model.player.pause() }
         .onChange(of: Stabilizer.shared.finished) { _, _ in model.refresh() }
@@ -156,8 +197,10 @@ struct ProjectView: View {
 
     private var transport: some View {
         HStack(spacing: Design.Spacing.controls) {
+            // The side labels give way first when the viewer is narrow (the controls never do).
             Text("^[\(model.project.clips.count) clip](inflect: true)").font(.callout).foregroundStyle(.secondary)
-                .frame(minWidth: 80, alignment: .leading)
+                .lineLimit(1)
+                .layoutPriority(-1)
             Spacer(minLength: 8)
             GlassGroup(spacing: Design.Spacing.controls) {
                 HStack(spacing: Design.Spacing.controls) {
@@ -173,18 +216,19 @@ struct ProjectView: View {
                         .buttonStyle(BarButtonStyle()).help("To the end")
                 }
             }
-            Text(model.timecode(model.time))
+            Text(model.timecode(model.time, full: true))
                 .font(.system(size: 20, weight: .medium).monospacedDigit())
                 .fixedSize()
             Spacer(minLength: 8)
-            Text(model.timecode(model.duration)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                .frame(minWidth: 80, alignment: .trailing)
+            Text(Format.duration(model.duration)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                .help("The length of the edit")
+                .lineLimit(1)
+                .layoutPriority(-1)
         }
     }
 
     private var footer: some View {
         HStack(spacing: Design.Spacing.controls) {
-            Text(model.project.name).font(.callout.weight(.medium)).lineLimit(1)
             if let problem = model.saveProblem {
                 ProblemLabel(text: problem)
                 Button("Try Again") { model.save(now: true) }.buttonStyle(.link)
@@ -195,28 +239,6 @@ struct ProjectView: View {
                 Button("Relink…") { relink() }.buttonStyle(.link)
             }
             Spacer(minLength: 8)
-            if ProjectResolve.isAvailable {
-                Button {
-                    ProjectResolve.sendAndShow(model)
-                } label: {
-                    if model.sendingToResolve {
-                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Sending…") }
-                    } else {
-                        Label("Send to DaVinci", systemImage: "arrow.up.forward.app")
-                    }
-                }
-                .buttonStyle(GlassCapsuleButtonStyle())
-                .disabled(model.project.clips.isEmpty || model.sendingToResolve)
-                .help("A new timeline in the project open in DaVinci Resolve, with the subtitles (files already there aren’t imported again)")
-            }
-            if !(sidebarShown && tab == .export) {
-                Button("Export…", systemImage: "square.and.arrow.up") {
-                    withAnimation(.snappy) { tab = .export; sidebarShown = true }
-                }
-                .buttonStyle(BrandButtonStyle())
-                .disabled(model.project.clips.isEmpty)
-                .keyboardShortcut("e", modifiers: .command)
-            }
         }
     }
 
@@ -257,6 +279,31 @@ struct ProjectView: View {
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
         let shift = press.modifiers.contains(.shift)
+        let option = press.modifiers.contains(.option), command = press.modifiers.contains(.command)
+        // With ⌥ the typed character changes (⌥I is a dead key, ⌥O is ø): the key itself.
+        let letter = (option ? NSApp.currentEvent?.charactersIgnoringModifiers : nil)?.lowercased() ?? press.characters.lowercased()
+        if option, !command {
+            switch letter {
+            case "i": model.clearIn(); return .handled
+            case "o": model.clearOut(); return .handled
+            case "x": model.clearRange(); return .handled
+            default: break
+            }
+        }
+        if command, !option {
+            // Zoom in and out of the timeline, as in the Editor; clips copied and pasted.
+            switch letter {
+            case "c" where !shift: return model.copySelection() ? .handled : .ignored
+            case "x" where !shift: model.cutSelection(); return .handled
+            case "v" where !shift: return model.paste() ? .handled : .ignored
+            case "=", "+": zoom = min(zoom * 1.5, max(min(model.duration / 2, 400), 1)); return .handled
+            case "-": zoom = max(zoom / 1.5, 1); return .handled
+            case "0": zoom = 1; return .handled
+            default: break
+            }
+        }
+        // ⇧F: the frame at the playhead, held.
+        if shift, !command, !option, letter == "f" { model.freezeFrame(); return .handled }
         switch press.key {
         case .space: model.togglePlay()
         case .leftArrow: model.step(frames: shift ? -Int(model.frameRate) : -1)
@@ -270,7 +317,10 @@ struct ProjectView: View {
         case "k": model.shuttle(0)
         case "l": model.shuttle(1)
         case .delete, .deleteForward:
-            if let title = model.selectedTitle { model.removeTitle(title) } else { model.delete(model.selected) }
+            // A title, a song or clips, whichever is selected.
+            if let title = model.selectedTitle { model.removeTitle(title) }
+            else if let song = model.project.music.first(where: { model.selected.contains($0.id) }) { model.removeMusic(song.id); model.selected = [] }
+            else { let chosen = model.selected; model.delete(chosen); model.removeItems(chosen) }
         default:
             switch Shortcuts.shared.action(for: press, in: .edit) {
             case .editSplit: model.split(at: model.time)
@@ -281,6 +331,9 @@ struct ProjectView: View {
             case .editUndo: model.undo()
             case .editSnapping: model.snapping.toggle()
             case .editTitle: model.addTitle(at: model.time)
+            case .editMarkIn: model.markIn()
+            case .editMarkOut: model.markOut()
+            case .editMarker: model.addMarker()
             default: return .ignored
             }
         }
@@ -352,6 +405,17 @@ private struct ProjectToolbar: View {
     let addMusic: () -> Void
 
     var body: some View {
+        // With words beside the main tools when there's room, symbols alone when not.
+        ViewThatFits(in: .horizontal) {
+            row(words: true)
+            row(words: false)
+        }
+        .padding(.horizontal, 4)
+        .frame(height: 36)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.fill.quaternary))
+    }
+
+    private func row(words: Bool) -> some View {
         HStack(spacing: 2) {
             HStack(spacing: 0) {
                 tool("cursorarrow", "Selection tool: click a clip to select it, drag to move it (A)", on: model.tool == .select) { model.tool = .select }
@@ -360,26 +424,26 @@ private struct ProjectToolbar: View {
             .padding(2)
             .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.black.opacity(0.25)))
             divider
-            tool("square.split.1x2", "Split at the Playhead (⌘B)") { model.split(at: model.time) }
-            tool("plus.square.on.square", "Duplicate (⌘D)") { model.duplicate(model.selected) }
-                .disabled(model.selected.isEmpty)
-            tool("trash", "Delete (⌫)") { model.delete(model.selected) }
+            tool("square.split.1x2", "Split at the Playhead (⌘B)", words ? "Split" : nil) { model.split(at: model.time) }
+            tool("pause.rectangle", "Freeze Frame: hold the frame at the playhead (⇧F)", words ? "Freeze" : nil) { model.freezeFrame() }
+                .disabled(model.project.clips.isEmpty)
+            tool("bookmark", "Add a Marker at the Playhead (M)", words ? "Marker" : nil) { model.addMarker() }
+            tool("trash", "Delete (⌫)") { let chosen = model.selected; model.delete(chosen); model.removeItems(chosen) }
                 .disabled(model.selected.isEmpty)
             tool("arrow.uturn.backward", "Undo (⌘Z)") { model.undo() }
                 .disabled(!model.canUndo)
             tool("arrow.uturn.forward", "Redo (⇧⌘Z)") { model.redo() }
                 .disabled(!model.canRedo)
             divider
-            tool("film.stack", "Add Videos…") { addMedia() }
-            tool("music.note", "Add Music…") { addMusic() }
-            tool("textformat", "Add a Title at the Playhead (⌘T)") { model.addTitle(at: model.time) }
+            tool("film.stack", "Add Videos…", words ? "Video" : nil) { addMedia() }
+            tool("music.note", "Add Music…", words ? "Music" : nil) { addMusic() }
+            tool("textformat", "Add a Title at the Playhead (⌘T)", words ? "Title" : nil) { model.addTitle(at: model.time) }
             divider
             tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
             if !model.timelineBeats.isEmpty {
                 tool("metronome", "Fit the Cuts to the Beat") { model.fitToBeat() }
                     .disabled(model.project.clips.count < 2)
             }
-            divider
             Menu {
                 Picker("Frame", selection: Binding(get: { model.project.aspect ?? "" }, set: { value in
                     Task { await model.setAspect(value.isEmpty ? nil : value) }
@@ -397,28 +461,32 @@ private struct ProjectToolbar: View {
             .menuIndicator(.hidden)
             .fixedSize()
             .help("The frame’s shape: each clip is filled and framed on its subject")
+            tool("camera", "Save the Frame at the Playhead as a Picture", words ? "Still" : nil) { model.saveFrame() }
+                .disabled(model.project.clips.isEmpty)
             Spacer(minLength: 4)
             Image(systemName: "minus.magnifyingglass").font(.caption).foregroundStyle(.secondary)
             Slider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), in: 0...log(max(min(model.duration / 2, 400), 1.01)))
                 .controlSize(.mini)
                 .frame(minWidth: 50, maxWidth: 110)
+                .help("Zoom the timeline (⌘+ and ⌘−)")
+                .accessibilityLabel(Text("Zoom"))
             Image(systemName: "plus.magnifyingglass").font(.caption).foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 4)
-        .frame(height: 30)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.fill.quaternary))
     }
 
     private var divider: some View { Divider().frame(height: 16).padding(.horizontal, 4) }
 
-    private func tool(_ symbol: String, _ label: LocalizedStringKey, on: Bool = false, action: @escaping () -> Void) -> some View {
-        ProjectToolButton(symbol: symbol, label: label, on: on, action: action)
+    private func tool(_ symbol: String, _ label: LocalizedStringKey, _ title: LocalizedStringKey? = nil, on: Bool = false,
+                      action: @escaping () -> Void) -> some View {
+        ProjectToolButton(symbol: symbol, label: label, title: title, on: on, action: action)
     }
 }
 
 private struct ProjectToolButton: View {
     let symbol: String
     let label: LocalizedStringKey
+    /// A word beside the symbol, when there's room.
+    var title: LocalizedStringKey?
     let on: Bool
     let action: () -> Void
     @State private var hovering = false
@@ -426,9 +494,13 @@ private struct ProjectToolButton: View {
 
     var body: some View {
         Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 13, weight: .medium))
+            HStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 13, weight: .medium))
+                if let title { Text(title).font(.callout).lineLimit(1).fixedSize() }
+            }
                 .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.primary))
-                .frame(minWidth: 28, minHeight: 24)
+                .padding(.horizontal, title == nil ? 0 : 7)
+                .frame(minWidth: 30, minHeight: 28)
                 .background(RoundedRectangle(cornerRadius: Design.Radius.small)
                     .fill(on ? Design.Brand.chosenFill : AnyShapeStyle(hovering && isEnabled ? Color.primary.opacity(0.08) : .clear)))
                 .contentShape(.rect)

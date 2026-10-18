@@ -34,6 +34,12 @@ final class VisualIndexer {
         indexes = paths.compactMap(VisualIndex.load)
     }
 
+    /// The same, read off the main thread (a big footage library is many megabytes of index).
+    func reloadInBackground() async {
+        let paths = Set(LibraryStore.shared.entries.map(\.path)).union(FootageFolders.shared.allVideos)
+        indexes = await Task.detached(priority: .userInitiated) { paths.compactMap(VisualIndex.load) }.value
+    }
+
     func enqueue(_ files: [URL]) {
         for file in files where !queue.contains(file) { queue.append(file) }
         queued = queue.count

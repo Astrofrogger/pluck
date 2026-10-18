@@ -157,7 +157,9 @@ extension ClipLook {
 
     /// The picture placed in a frame of this size, `progress` (0…1) through the clip: fitted,
     /// cropped, flipped, zoomed, turned and moved, on black; then dynamic zoom over the frame.
-    static func place(_ image: CIImage, look: ClipLook?, progress: Double, in size: CGSize) -> CIImage {
+    /// `onBlack`: on the main line, filling the frame with black around it; else (laid over
+    /// another picture) clear around it.
+    static func place(_ image: CIImage, look: ClipLook?, progress: Double, in size: CGSize, onBlack: Bool = true) -> CIImage {
         let look = look ?? ClipLook()
         let image = look.color.apply(image)
         let extent = image.extent
@@ -187,7 +189,7 @@ extension ClipLook {
                                                                            "inputBVector": CIVector(x: 0, y: 0, z: o, w: 0)])
         }
         let frame = CGRect(origin: .zero, size: size)
-        var placed = picture.composited(over: CIImage(color: .black).cropped(to: frame)).cropped(to: frame)
+        var placed = (onBlack ? picture.composited(over: CIImage(color: .black).cropped(to: frame)) : picture).cropped(to: frame)
         if let f = look.zoomFrame(at: progress) {
             // The part of the frame shown fills it (y counts from the top in the frame).
             let s = 1 / f.size
@@ -201,12 +203,16 @@ extension ClipLook {
 
     /// The same for ffmpeg: a filter chain from an input's picture to `[v<k>]` (trimmed to the
     /// clip, at its speed), fitted to width × height.
+    /// `hold`: one frame (at `start`) kept for this long (a held frame). `clear`: on nothing rather
+    /// than black, keeping what's around the picture see-through (laid over another).
     static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
-                            width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = []) -> [String] {
+                            width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = [],
+                            hold: Double? = nil, clear: Bool = false) -> [String] {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
-                     look.speed != 1 ? "setpts=(PTS-STARTPTS)/\(number(look.speed))" : "setpts=PTS-STARTPTS"]
+                     look.speed != 1 && hold == nil ? "setpts=(PTS-STARTPTS)/\(number(look.speed))" : "setpts=PTS-STARTPTS"]
+        if let hold { steps.append("trim=end_frame=1,tpad=stop_mode=clone:stop_duration=\(number(hold))") }
         // Not steadied yet: ffmpeg's own (rougher) stabilizer.
         if look.stabilize, !steadied { steps.append("deshake") }
         if !look.color.isDefault, let cube = look.color.cubeFile() {
@@ -252,10 +258,11 @@ extension ClipLook {
             let size = lerp(from.size, to.size), cx = lerp(from.x, to.x), cy = lerp(from.y, to.y)
             after += ",zoompan=z='1/\(size)':x='\(cx)*iw-iw/zoom/2':y='\(cy)*ih-ih/zoom/2':d=1:s=\(width)x\(height):fps=\(rate)"
         }
+        if clear { steps.append("format=yuva420p") }
         return [
-            "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
+            clear ? "color=black@0.0:s=\(width)x\(height):r=\(rate),format=yuva420p[bg\(k)]" : "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
             input + steps.joined(separator: ",") + "[fg\(k)]",
-            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1,\(([after] + finish).joined(separator: ",")),format=yuv420p[v\(k)]",
+            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1\(clear ? ":format=auto" : ""),\(([after] + finish).joined(separator: ",")),format=\(clear ? "yuva420p" : "yuv420p")[v\(k)]",
         ]
     }
 }
@@ -406,7 +413,7 @@ struct ClipLookEditor: View {
 
     private func row<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 70, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: 96, alignment: .leading)
             HStack(spacing: 6) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .font(.callout)
@@ -424,7 +431,8 @@ struct ClipLookEditor: View {
             }
             Text(String(format: format, value * scale)).font(.caption.monospacedDigit())
                 .foregroundStyle(value == reset ? .tertiary : .secondary)
-                .frame(width: 46, alignment: .trailing)
+                .frame(minWidth: 46, alignment: .trailing)
+                .fixedSize()
                 .onTapGesture(count: 2) { change(true) { $0[keyPath: path] = reset } }
                 .help("Double-click to reset")
         }
@@ -438,7 +446,8 @@ struct ClipLookEditor: View {
                 if !editing { change(true) { _ in } }
             }
             Text(String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == reset ? .tertiary : .secondary)
-                .frame(width: 46, alignment: .trailing)
+                .frame(minWidth: 46, alignment: .trailing)
+                .fixedSize()
                 .onTapGesture(count: 2) { change(true) { $0.color[keyPath: path] = reset } }
         }
     }

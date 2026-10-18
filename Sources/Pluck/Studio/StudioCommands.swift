@@ -20,13 +20,6 @@ struct ExportSubtitlesCommand: View {
             let cues = project.project.subtitleCues
             return cues.isEmpty ? nil : (cues, project.project.name)
         }
-        guard let model = tab.model else { return nil }
-        let name = model.file.deletingPathExtension().lastPathComponent
-        if !model.subtitles.isEmpty { return (model.subtitles, name) }
-        guard let transcript = TranscriptStore.find(forFile: model.file.path) else { return nil }
-        let cues = transcript.cues(maxCharacters: 84, maxDuration: 6).map {
-            SubtitleCue(start: $0.start, end: $0.end, text: Transcript.twoLines(Glossary.correct($0.text, terms: Glossary.shared.terms)))
-        }
-        return cues.isEmpty ? nil : (cues, name)
+        return nil
     }
 }

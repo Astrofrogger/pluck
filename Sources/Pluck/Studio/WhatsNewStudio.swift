@@ -5,6 +5,14 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.0", items: [
+                Item(symbol: "film.stack", title: String(localized: "One editor"),
+                     detail: String(localized: "A file you open is edited like a project, with the transcript and Local AI. New: overlay and sound tracks, cross dissolves, freeze frames, detached audio, markers, in and out points, copy and paste.")),
+                Item(symbol: "square.and.arrow.up", title: String(localized: "Export your way"),
+                     detail: String(localized: "Export the whole edit, only the in to the out point, or each clip as a file of its own. Save the frame on screen as a picture.")),
+                Item(symbol: "rectangle.expand.vertical", title: String(localized: "Roomier and quicker"),
+                     detail: String(localized: "A larger viewer, tools with names, text with room to breathe, and searching your media that keeps up with a big library.")),
+            ]),
             Release(version: "3.0.2", items: [
                 Item(symbol: "slowmo", title: String(localized: "Frame rates at a glance"),
                      detail: String(localized: "The Player shows the rate a clip plays at and was shot at, with slow motion marked, and the camera, lens and recording in plain words. Clips in a folder show it too.")),

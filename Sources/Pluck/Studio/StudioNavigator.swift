@@ -36,27 +36,17 @@ final class StudioNavigator {
         var shortcut: KeyEquivalent { KeyEquivalent(Character("\((Page.allCases.firstIndex(of: self) ?? 0) + 1)")) }
     }
 
-    /// A file open on the Edit page (with everything done to it so far), or a project.
+    /// A project open on the Edit page (a file opened is its own project).
     @MainActor
     final class Tab: Identifiable {
         let id = UUID()
-        let target: EditorTarget?
-        let model: EditorModel?
         let project: ProjectModel?
 
-        init(target: EditorTarget) {
-            self.target = target
-            model = EditorModel(file: target.file)
-            project = nil
-        }
-
         init(project: Project) {
-            target = nil
-            model = nil
             self.project = ProjectModel(project: project)
         }
 
-        var title: String { project?.project.name ?? target?.file.deletingPathExtension().lastPathComponent ?? "" }
+        var title: String { project?.project.name ?? "" }
     }
 
     var page: Page = .home {
@@ -141,24 +131,29 @@ final class StudioNavigator {
 
     /// Opens the file in a tab on the Edit page (or goes to its tab when it's open), at a
     /// moment if given.
-    func open(_ target: EditorTarget, at start: Double? = nil) {
-        if let tab = tabs.first(where: { $0.target?.path == target.path }) {
-            currentID = tab.id
-            if let start { tab.model?.seek(to: start) }
-        } else {
-            let tab = Tab(target: target)
-            tab.model?.startAt = start
-            tabs.append(tab)
-            currentID = tab.id
-            AppDelegate.shared?.ai.imported([target.file])
+    func open(_ target: EditorTarget, at start: Double? = nil, range: ClosedRange<Double>? = nil) {
+        // The file's own project: its edit, kept as a project of the parts kept.
+        let project = tabs.compactMap(\.project).first { $0.project.origin == target.path }?.project ?? ProjectStore.fileProject(for: target.path)
+        let opened = !tabs.contains { $0.project?.project.id == project.id }
+        open(project)
+        if opened { AppDelegate.shared?.ai.imported([target.file]) }
+        guard let model = tabs.first(where: { $0.project?.project.id == project.id })?.project else { return }
+        Task {
+            await model.prepareFile()
+            // At a moment of the file (a search hit, a transcript line), or a stretch of it.
+            if let range, let from = model.timelineTimes(of: range.lowerBound, in: target.path).first,
+               let to = model.timelineTimes(of: max(range.upperBound - 0.001, range.lowerBound), in: target.path).first {
+                model.markIn(from)
+                model.markOut(to)
+                model.seek(to: from)
+            } else if let start, let at = model.timelineTimes(of: start, in: target.path).first {
+                model.seek(to: at)
+            }
         }
-        remember(target.path)
-        page = .edit
     }
 
     func close(_ id: Tab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
-        tabs[index].model?.close()
         tabs[index].project?.close()
         tabs.remove(at: index)
         if currentID == id { currentID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id }
@@ -198,14 +193,15 @@ final class StudioNavigator {
             tabs.append(tab)
             currentID = tab.id
         }
-        remember(Self.projectKey(project.id))
+        // A file's own project is remembered as the file.
+        remember(project.origin ?? Self.projectKey(project.id))
         page = .edit
     }
 
     /// A new project, with these files on its timeline (in this order).
     @discardableResult
     func newProject(with files: [URL] = [], named name: String? = nil, clips: [ProjectClip]? = nil) -> Project {
-        let count = ProjectStore.all().count + 1
+        let count = ProjectStore.madeProjects().count + 1
         var project = Project(name: name ?? String(localized: "Project \(count)"))
         if let clips { project.clips = clips }
         ProjectStore.save(project)

@@ -163,10 +163,6 @@ private struct EditPage: View {
                     ProjectView(model: project)
                         .id(tab.id)
                         .environment(\.editMedia, mediaShown ? AnyView(mediaColumn) : nil)
-                } else if let tab = nav.current, let target = tab.target, let model = tab.model {
-                    EditorView(target: target, model: model)
-                        .id(tab.id)
-                        .environment(\.editMedia, mediaShown ? AnyView(mediaColumn) : nil)
                 } else {
                     VStack(spacing: Design.Spacing.section) {
                         DropZone(symbol: "film", text: Text("Drop a video to edit it, or several to start a project"), targeted: dropTargeted)
@@ -345,8 +341,10 @@ private struct TabChip: View {
 /// The media to edit: what's downloading, and the Library's videos and songs.
 private struct MediaPanel: View {
     @Bindable var nav: StudioNavigator
-    @Environment(DownloadManager.self) private var manager
     @State private var library = LibraryStore.shared
+    /// The videos and songs, newest first, each with the words to find it by (made once per
+    /// change to the Library, so typing only filters).
+    @State private var catalog: [Indexed] = []
     @State private var search = ""
     @State private var projects: [Project] = []
     @State private var folders: [ProjectStore.Folder] = []
@@ -367,12 +365,21 @@ private struct MediaPanel: View {
         var id: String { path + "@\(span.lowerBound)" }
     }
 
+    struct Indexed: Sendable {
+        var entry: LibraryStore.Entry
+        /// Title, channel, tags and site, lowercased, without accents.
+        var words: String
+    }
+
+    nonisolated static func fold(_ text: String) -> String {
+        text.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil)
+    }
+
+    /// What the search finds: every word typed, in any order.
     private var media: [LibraryStore.Entry] {
-        let terms = search.trimmingCharacters(in: .whitespaces).lowercased()
-        return library.entries
-            .filter { ($0.kind == .video || $0.kind == .audio) && !missing.contains($0.path)
-                && (terms.isEmpty || $0.title.lowercased().contains(terms)) }
-            .sorted { $0.added > $1.added }
+        let terms = Self.fold(search).split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !terms.isEmpty else { return catalog.map(\.entry) }
+        return catalog.filter { item in terms.allSatisfy { item.words.contains($0) } }.map(\.entry)
     }
 
     var body: some View {
@@ -380,20 +387,8 @@ private struct MediaPanel: View {
             PaneSearchField(prompt: "Search media", text: $search)
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
-                    let active = manager.items.filter(\.isActive)
-                    if !active.isEmpty {
-                        SidebarSection(title: Text("Downloading")) {
-                            ForEach(active) { item in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(item.title).font(.callout).lineLimit(1)
-                                    ProgressView(value: item.progress).controlSize(.small)
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                            }
-                        }
-                        .padding(.bottom, 8)
-                    }
+                    // (Its own view: progress ticks redraw it alone, not the whole list.)
+                    DownloadingSection()
                     if !projects.isEmpty || !folders.isEmpty {
                         SidebarSection(title: Text("Projects")) {
                             ForEach(folders) { folder in
@@ -439,7 +434,7 @@ private struct MediaPanel: View {
                     }
                     SidebarSection(title: Text("Media")) {
                         ForEach(media) { entry in
-                            MediaRow(entry: entry, on: nav.current?.target?.path == entry.path)
+                            MediaRow(entry: entry, on: nav.current?.project?.project.origin == entry.path)
                                 .onTapGesture {
                                     // In a project, a click adds the file at the end; elsewhere it opens it.
                                     if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
@@ -449,6 +444,19 @@ private struct MediaPanel: View {
                                     }
                                 }
                                 .onDrag { NSItemProvider(object: entry.file as NSURL) }
+                                .contextMenu {
+                                    Button("Open") { nav.open(EditorTarget(path: entry.path)) }
+                                    if let project = nav.current?.project {
+                                        Divider()
+                                        Button("Add to the Timeline") { Task { await project.add([entry.file]) } }
+                                        if entry.kind == .video {
+                                            Button("Add as Overlay") { Task { await project.addOverlay(entry.file) } }
+                                                .help("Laid over the picture from the playhead (B-roll, picture in picture)")
+                                        }
+                                        Button("Add as Sound") { Task { await project.addAudio(entry.file) } }
+                                            .help("On a sound track from the playhead (a voice-over, a sound)")
+                                    }
+                                }
                                 .help("Click to open; drag onto a project’s timeline to add it (⌥-click adds it at the end)")
                         }
                     }
@@ -458,7 +466,7 @@ private struct MediaPanel: View {
         }
         .background(.background.secondary)
         .task(id: "\(nav.tabs.count) \(nav.projectsChanged)") {
-            projects = ProjectStore.all()
+            projects = ProjectStore.madeProjects()
             folders = ProjectStore.folders()
         }
         .contextMenu {
@@ -497,9 +505,21 @@ private struct MediaPanel: View {
             moments = found
             searchingMoments = false
         }
-        .task(id: library.entries.count) {
-            let paths = library.entries.map(\.path)
-            missing = await Task.detached { Set(paths.filter { !FileManager.default.fileExists(atPath: $0) }) }.value
+        .task(id: library.entries) {
+            // Off the main thread: which files are there, what kind they are, their words.
+            let entries = library.entries
+            let (found, gone) = await Task.detached(priority: .userInitiated) { () -> ([Indexed], Set<String>) in
+                var gone: Set<String> = []
+                let items = entries.compactMap { entry -> Indexed? in
+                    guard entry.kind == .video || entry.kind == .audio else { return nil }
+                    guard FileManager.default.fileExists(atPath: entry.path) else { gone.insert(entry.path); return nil }
+                    let words = ([entry.title, entry.uploader, entry.source] + entry.tags.map(Optional.some)).compactMap { $0 }.joined(separator: " ")
+                    return Indexed(entry: entry, words: MediaPanel.fold(words))
+                }
+                return (items.sorted { $0.entry.added > $1.entry.added }, gone)
+            }.value
+            catalog = found
+            missing = gone
         }
     }
 }
@@ -517,7 +537,7 @@ extension MediaPanel {
         if !entries.isEmpty {
             SidebarSection(title: Text("Timeline")) {
                 ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    SidebarRow(symbol: entry.2, title: Text(verbatim: entry.1), detail: Text(model.timecode(entry.0)),
+                    SidebarRow(symbol: entry.2, title: Text(verbatim: entry.1), detail: Text(verbatim: Format.duration(entry.0)),
                                selected: model.time >= entry.0 - 0.001 && entry.2 == "film" && model.clip(at: model.time).map { offsets[$0.index] == entry.0 } == true) {
                         EmptyView()
                     }
@@ -532,22 +552,30 @@ extension MediaPanel {
     func findMoments(_ query: String) async -> [Moment] {
         var found: [Moment] = []
         if let search = AppDelegate.shared?.ai.search {
-            for hit in await search.search(query).prefix(6) where hit.available {
-                let bite = Self.soundbite(hit.filePath, from: hit.start, terms: hit.terms + query.split(separator: " ").map(String.init))
-                found.append(Moment(path: hit.filePath, span: bite.span, text: bite.text ?? hit.text, said: true))
-            }
+            let hits = await search.search(query, quick: true).prefix(6).filter(\.available)
+            let words = query.split(separator: " ").map(String.init)
+            let bites = hits.map { ($0.filePath, $0.start, $0.terms + words, $0.text) }
+            found += await Task.detached(priority: .userInitiated) {
+                bites.map { path, start, terms, text in
+                    let bite = MediaPanel.soundbite(path, from: start, terms: terms)
+                    return Moment(path: path, span: bite.span, text: bite.text ?? text, said: true)
+                }
+            }.value
         }
+        guard !Task.isCancelled else { return found }
         let indexer = VisualIndexer.shared
-        if indexer.indexes.isEmpty { indexer.reload() }
-        for hit in VisualIndex.search(query, in: indexer.indexes, limit: 6) where FileManager.default.fileExists(atPath: hit.path) {
-            found.append(Moment(path: hit.path, span: hit.shot.start...hit.shot.end, text: hit.shot.description, said: false))
-        }
+        if indexer.indexes.isEmpty { await indexer.reloadInBackground() }
+        let indexes = indexer.indexes
+        found += await Task.detached(priority: .userInitiated) {
+            VisualIndex.search(query, in: indexes, limit: 6).filter { FileManager.default.fileExists(atPath: $0.path) }
+                .map { Moment(path: $0.path, span: $0.shot.start...$0.shot.end, text: $0.shot.description, said: false) }
+        }.value
         return found
     }
 
     /// The sentence a hit is in (where its words were found, at most 20 seconds), and its text: a
     /// soundbite.
-    static func soundbite(_ path: String, from start: Double, terms: [String]) -> (span: ClosedRange<Double>, text: String?) {
+    nonisolated static func soundbite(_ path: String, from start: Double, terms: [String]) -> (span: ClosedRange<Double>, text: String?) {
         guard let words = TranscriptStore.find(forFile: path)?.words, !words.isEmpty else { return (start...(start + 10), nil) }
         let wanted = terms.map { $0.lowercased().trimmingCharacters(in: .punctuationCharacters) }.filter { $0.count >= 3 }
         func ends(_ word: Transcript.Word) -> Bool { word.t.trimmingCharacters(in: .whitespaces).last.map { ".!?…".contains($0) } ?? false }
@@ -590,8 +618,7 @@ extension MediaPanel {
             if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
                 Task { await project.add([ProjectModel.moment(moment.path, moment.span)]) }
             } else {
-                EditorModel.startRange = (moment.span.lowerBound, moment.span.upperBound)
-                nav.open(EditorTarget(path: moment.path))
+                nav.open(EditorTarget(path: moment.path), range: moment.span)
             }
         }
         .onDrag { NSItemProvider(object: ProjectModel.moment(moment.path, moment.span) as NSURL) }
@@ -633,6 +660,28 @@ extension MediaPanel {
     }
 }
 
+/// What's downloading, above the media.
+private struct DownloadingSection: View {
+    @Environment(DownloadManager.self) private var manager
+
+    var body: some View {
+        let active = manager.items.filter(\.isActive)
+        if !active.isEmpty {
+            SidebarSection(title: Text("Downloading")) {
+                ForEach(active) { item in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(item.title).font(.callout).lineLimit(2)
+                        ProgressView(value: item.progress).controlSize(.small)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                }
+            }
+            .padding(.bottom, 8)
+        }
+    }
+}
+
 private struct MediaRow: View {
     let entry: LibraryStore.Entry
     let on: Bool
@@ -641,9 +690,10 @@ private struct MediaRow: View {
     var body: some View {
         HStack(spacing: 8) {
             FileThumbnail(file: entry.file, remote: entry.thumbnail, audio: entry.kind == .audio)
-                .frame(width: 56, height: 32)
+                .frame(width: 64, height: 36)
+                .clipShape(.rect(cornerRadius: 4))
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.title).font(.callout).lineLimit(1)
+                Text(entry.title).font(.callout).lineLimit(2)
                 if let duration = entry.duration {
                     Text(Format.duration(duration)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }

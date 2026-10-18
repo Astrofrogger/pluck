@@ -171,9 +171,9 @@ struct SidebarSection<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             title
-                .font(.caption2.weight(.semibold))
+                .font(.caption.weight(.semibold))
                 .textCase(.uppercase)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
                 .padding(.bottom, 3)
             content

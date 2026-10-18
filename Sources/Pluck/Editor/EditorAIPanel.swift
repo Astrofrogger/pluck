@@ -5,10 +5,10 @@ import Translation
 /// Local AI in the Editor's sidebar. The Transcript tab: what's said, to read along, jump with and
 /// set the range by. The Local AI tab: the best moments and filler words, found and marked on the
 /// timeline (filler words cut out in one go), and Pluck's AI tools for this file.
-struct EditorAIPanel: View {
+struct EditorAIPanel<Model: FileEditing>: View {
     enum Part { case transcript, ai, subtitles }
 
-    @Bindable var model: EditorModel
+    @Bindable var model: Model
     let part: Part
     @Environment(AIStudio.self) private var ai
     @Environment(DownloadManager.self) private var manager
@@ -41,7 +41,7 @@ struct EditorAIPanel: View {
     @State private var translationRequest: TranslationRequest?
 
     /// Running jobs live in the model, so leaving and coming back shows them still going.
-    private var jobs: EditorModel.Jobs { model.jobs }
+    private var jobs: FileJobs { model.jobs }
 
     var body: some View {
         Group {
@@ -142,7 +142,7 @@ struct EditorAIPanel: View {
         return abs(lines[low].s - cue.start) < 0.01 ? lines[low].t : cue.text
     }
 
-    private static let languages = ["en", "nl", "fr", "de", "es", "it", "pt", "ja", "ko", "zh-Hans"]
+    private static var languages: [String] { ["en", "nl", "fr", "de", "es", "it", "pt", "ja", "ko", "zh-Hans"] }
 
     private func name(of code: String) -> String {
         Locale.current.localizedString(forIdentifier: code)?.localizedCapitalized ?? code
@@ -355,7 +355,7 @@ struct EditorAIPanel: View {
 
     // MARK: Speakers
 
-    private static let speakerColors: [Color] = [.blue, .orange, .green, .purple]
+    private static var speakerColors: [Color] { [.blue, .orange, .green, .purple] }
 
     private func color(of speaker: Int) -> Color { Self.speakerColors[(speaker - 1) % Self.speakerColors.count] }
 
@@ -709,7 +709,7 @@ struct EditorAIPanel: View {
     private func cueRow(_ cue: Transcript.Cue) -> some View {
         let inRange = model.hasRange && cue.start >= model.rangeStart - 0.05 && cue.end <= model.rangeEnd + 0.05
         let playing = current?.id == cue.id
-        let removed = model.part(at: cue.start + 0.01)?.removed ?? false
+        let removed = model.isOut(cue.start + 0.01)
         // A passage marked for the story: lit in its role's colour, named where it starts.
         let beat = storyBeats.first { $0.kept && cue.start >= $0.start - 0.05 && cue.start < $0.end - 0.05 }
         return VStack(alignment: .leading, spacing: 2) {
@@ -747,7 +747,7 @@ struct EditorAIPanel: View {
 
     private func cueLine(_ cue: Transcript.Cue, playing: Bool, removed: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(Format.duration(cue.start)).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 32, alignment: .leading)
+            Text(Format.duration(cue.start)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 32, alignment: .leading).fixedSize()
             if translation == nil, let words = transcript?.words, cue.words.upperBound <= words.count {
                 // Word by word: pick words to cut them.
                 FlowLayout(spacing: 0) {
@@ -766,7 +766,7 @@ struct EditorAIPanel: View {
 
     private func wordView(_ index: Int, _ word: Transcript.Word, first: Bool, playing: Bool) -> some View {
         let picked = wordSelection?.contains(index) ?? false
-        let out = model.part(at: (word.s + word.e) / 2)?.removed ?? false
+        let out = model.isOut((word.s + word.e) / 2)
         // (Words carry their space in front; not at the start of a line.)
         return Text(first ? word.t.trimmingCharacters(in: .whitespaces) : word.t)
             .font(.callout)
@@ -951,9 +951,7 @@ struct EditorAIPanel: View {
 
     // MARK: - Tools
 
-    fileprivate enum Tool: CaseIterable {
-        case shorts, subtitles, tighten, enhance, background, blur, cleanup, stems
-    }
+    fileprivate typealias Tool = EditorAITool
 
     private func available(_ tool: Tool) -> Bool {
         switch tool {
@@ -1028,9 +1026,14 @@ struct EditorAIPanel: View {
     }
 }
 
+/// The local-AI tools the panel opens.
+fileprivate enum EditorAITool: CaseIterable {
+    case shorts, subtitles, tighten, enhance, background, blur, cleanup, stems
+}
+
 /// A local-AI tool's window, shown over the Editor.
 private struct EditorToolSheet: Identifiable {
-    let tool: EditorAIPanel.Tool
+    let tool: EditorAITool
     let item: DownloadItem
     var id: String { "\(tool)" }
 }

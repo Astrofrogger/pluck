@@ -322,7 +322,7 @@ struct EditorTimeline: View {
                     context.fill(Path(CGRect(x: x, y: waveTop, width: max(end - x, 1), height: wave)), with: .color(.gray.opacity(0.35)))
                 case .chapter:
                     context.fill(Path(CGRect(x: x - 0.5, y: top, width: 1.5, height: size.height - top)), with: .color(.orange))
-                    let label = Text(marker.title).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                    let label = Text(marker.title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white)
                     let resolved = context.resolve(label)
                     let labelSize = resolved.measure(in: CGSize(width: 160, height: 14))
                     let box = CGRect(x: x, y: top, width: min(labelSize.width + 8, 168), height: 15)

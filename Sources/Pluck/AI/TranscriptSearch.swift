@@ -93,7 +93,9 @@ final class TranscriptSearch {
     }
 
     /// The moments that answer a question. `within`: only files in these folders (a scope).
-    func search(_ query: String, within folders: [String] = []) async -> [Hit] {
+    /// `quick`: the words as typed, without translating them or asking for related words (for
+    /// searching as you type).
+    func search(_ query: String, within folders: [String] = [], quick: Bool = false) async -> [Hit] {
         await refresh()
         let question = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !question.isEmpty, !passages.isEmpty else { return [] }
@@ -103,14 +105,14 @@ final class TranscriptSearch {
 
         // The question in the other languages spoken in the transcripts, translated on this Mac.
         let asked = language.rawValue
-        for target in languages where target != asked {
+        for target in languages where target != asked && !quick {
             if let translated = await translate(question, from: asked, to: target) {
                 terms += Self.roots(translated, language: NLLanguage(target))
                 highlightWords += translated.split(separator: " ").map(String.init)
             }
         }
 
-        if #available(macOS 26, *), LocalAI.canSummarize {
+        if #available(macOS 26, *), LocalAI.canSummarize, !quick {
             let aiWords = (try? await Self.expand(question, languages: Array(languages))) ?? []
             terms += aiWords.flatMap { word in
                 // Roots in whichever language the word is in.

@@ -135,7 +135,6 @@ struct SendToResolveCommand: View {
         if ProjectResolve.isAvailable {
             Button("Send to DaVinci Resolve") {
                 if let project = nav.current?.project { ProjectResolve.sendAndShow(project) }
-                else if let model = nav.current?.model { Resolve.sendAndShow([model.file]) }
             }
             .keyboardShortcut("r", modifiers: [.command, .option])
             .disabled(nav.current == nil)

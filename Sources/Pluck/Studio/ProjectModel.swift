@@ -21,6 +21,17 @@ struct ProjectClip: Codable, Identifiable, Hashable {
     var look: ClipLook?
     /// A dip to black or white at its end (into the next clip).
     var dipOut: ProjectDip?
+    /// Where it starts on the timeline: only for clips on an extra track (the main line's
+    /// follow one another).
+    var at: Double?
+    /// Clips that move together (a picture and the sound taken off it).
+    var link: UUID?
+    /// false: its sound was taken off to an audio track (nil: it plays its own).
+    var ownAudio: Bool?
+    /// A held frame: the file's picture at this time, for the clip's length.
+    var freeze: Double?
+    /// How the clip before it goes into it.
+    var transitionIn: ProjectTransition?
 
     var speed: Double { look?.speed ?? 1 }
     /// How long it lasts on the timeline (its part of the file, at its speed).
@@ -38,6 +49,8 @@ extension ProjectClip {
         start = value(.start, 0); end = value(.end, 0); volume = value(.volume, 1); fadeIn = value(.fadeIn, 0); fadeOut = value(.fadeOut, 0)
         title = value(.title, nil as String?); role = value(.role, nil as StoryBeat.Role?); look = value(.look, nil as ClipLook?)
         dipOut = value(.dipOut, nil as ProjectDip?)
+        at = value(.at, nil as Double?); link = value(.link, nil as UUID?); ownAudio = value(.ownAudio, nil as Bool?)
+        freeze = value(.freeze, nil as Double?); transitionIn = value(.transitionIn, nil as ProjectTransition?)
     }
 }
 
@@ -128,6 +141,18 @@ struct Project: Codable, Identifiable {
     var subtitleLanguage: String?
     /// The frame's shape when it isn't the clips' own ("9:16", "1:1", "4:5").
     var aspect: String?
+    /// The file this project was opened from, when it's that file's own edit (a file opened on
+    /// the Edit page is a project of its clips). Not listed with the projects made by hand.
+    var origin: String?
+    /// Lanes over and beside the main line of clips.
+    var tracks: [ProjectTrack]?
+    var markers: [ProjectMarker]?
+    /// A part of the timeline to play, loop or export (timeline seconds).
+    var inPoint: Double?
+    var outPoint: Double?
+    /// Subtitles written or timed by hand, per file in the file's own time (they then replace
+    /// the transcript's lines for that file).
+    var fileSubtitles: [String: [SubtitleCue]]?
     var titleStyle: SubtitleStyle = {
         var style = SubtitleStyle()
         style.y = 0.5
@@ -162,6 +187,10 @@ extension Project {
         subtitlesOn = value(.subtitlesOn, nil as Bool?); subtitleEdits = value(.subtitleEdits, nil as [String: String]?)
         subtitleStyle = value(.subtitleStyle, nil as SubtitleStyle?); subtitleLanguage = value(.subtitleLanguage, nil as String?)
         aspect = value(.aspect, nil as String?)
+        origin = value(.origin, nil as String?); tracks = value(.tracks, nil as [ProjectTrack]?)
+        markers = value(.markers, nil as [ProjectMarker]?)
+        inPoint = value(.inPoint, nil as Double?); outPoint = value(.outPoint, nil as Double?)
+        fileSubtitles = value(.fileSubtitles, nil as [String: [SubtitleCue]]?)
         if let style = value(.titleStyle, nil as SubtitleStyle?) { titleStyle = style }
     }
 }
@@ -199,14 +228,15 @@ extension Project {
         let edits = subtitleEdits ?? [:]
         for clip in clips {
             defer { at += clip.length }
-            let transcript = transcripts[clip.path] ?? TranscriptStore.find(forFile: clip.path)
-            guard let transcript else { continue }
-            transcripts[clip.path] = transcript
             var lines: [(start: Double, end: Double, text: String)]
-            if let language = subtitleLanguage, !language.isEmpty, let translation = transcript.translations?[language] {
-                lines = translation.lines.map { ($0.s, $0.e, Transcript.twoLines($0.t)) }
+            if let cues = fileSubtitles?[clip.path] {
+                // Lines written or timed by hand for the file.
+                lines = cues.map { ($0.start, $0.end, $0.text) }
+            } else if let transcript = transcripts[clip.path] ?? TranscriptStore.find(forFile: clip.path) {
+                transcripts[clip.path] = transcript
+                lines = Self.transcriptLines(transcript, language: subtitleLanguage)
             } else {
-                lines = transcript.cues(maxCharacters: 84, maxDuration: 6).map { ($0.start, $0.end, Transcript.twoLines($0.text)) }
+                continue
             }
             lines = lines.filter { $0.end > clip.start + 0.05 && $0.start < clip.end - 0.05 }
             for line in lines {
@@ -221,6 +251,14 @@ extension Project {
             }
         }
         return result
+    }
+
+    /// A transcript's lines as subtitles (in a translation, when one is chosen and there).
+    @MainActor static func transcriptLines(_ transcript: Transcript, language: String?) -> [(start: Double, end: Double, text: String)] {
+        if let language, !language.isEmpty, let translation = transcript.translations?[language] {
+            return translation.lines.map { ($0.s, $0.e, Transcript.twoLines($0.t)) }
+        }
+        return transcript.cues(maxCharacters: 84, maxDuration: 6).map { ($0.start, $0.end, Transcript.twoLines($0.text)) }
     }
 
     @MainActor var subtitleCues: [SubtitleCue] { subtitles().map { SubtitleCue(start: $0.start, end: $0.end, text: $0.text) } }
@@ -324,7 +362,7 @@ final class ProjectModel {
     var isPlaying: Bool { rate != 0 }
     var selected: Set<UUID> = []
     var selectedTitle: UUID?
-    var tool: EditorModel.Tool = .select
+    var tool: EditTool = .select
     var snapping = true
     /// The picture's size (from the first clip).
     private(set) var renderSize = CGSize(width: 1920, height: 1080)
@@ -345,6 +383,21 @@ final class ProjectModel {
 
     @ObservationIgnored private var history: [Project] = []
     @ObservationIgnored private var future: [Project] = []
+    /// The project as it was when a drag began (sliders, handles): what undo goes back to once
+    /// the drag ends, rather than its last step.
+    @ObservationIgnored private var beforeDrag: Project?
+    /// Each file seen in its own time (for the transcript and AI panels), kept while it's open.
+    @ObservationIgnored private var focuses: [String: FileFocus] = [:]
+
+    func focus(_ path: String) -> FileFocus {
+        if let focus = focuses[path] { return focus }
+        let focus = FileFocus(path: path, model: self)
+        focuses[path] = focus
+        return focus
+    }
+
+    /// A change while dragging: shown at once, remembered for undo when the drag ends.
+    private func dragging() { if beforeDrag == nil { beforeDrag = project } }
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var playable: [String: URL] = [:]
@@ -418,9 +471,27 @@ final class ProjectModel {
 
     /// Every change goes through here: remembered for undo, saved, and played back.
     func change(_ body: (inout Project) -> Void) {
-        history.append(project)
+        history.append(beforeDrag ?? project)
+        beforeDrag = nil
         if history.count > 100 { history.removeFirst() }
         future = []
+        body(&project)
+        Self.followLinks(&project)
+        project.modified = .now
+        save()
+        rebuild()
+    }
+
+    /// A step of a drag: shown at once, remembered for undo when the drag ends.
+    func changeWhileDragging(_ body: (inout Project) -> Void) {
+        dragging()
+        body(&project)
+        Self.followLinks(&project)
+        rebuildSoon()
+    }
+
+    /// Not an edit (setting a file's project up): not undoable.
+    func setUp(_ body: (inout Project) -> Void) {
         body(&project)
         project.modified = .now
         save()
@@ -590,12 +661,13 @@ final class ProjectModel {
         // Only the picture changed: shown straight away, without building the edit again.
         var same = new
         same.look = old.look
+        if !record { dragging() }
         if same == old, new.speed == old.speed {
-            if record { history.append(project); future = [] }
+            if record { history.append(beforeDrag ?? project); beforeDrag = nil; future = [] }
             project.clips[index] = new
             project.modified = .now
             if record { save() }
-            looks.set(index, new.look)
+            layers.setLook(new.id, new.look)
             redraw()
             return
         }
@@ -603,39 +675,8 @@ final class ProjectModel {
     }
 
     /// The looks the picture is drawn with, read while it plays (so a change shows at once).
-    final class Looks: @unchecked Sendable {
-        private var entries: [(start: Double, end: Double, look: ClipLook?)] = []
-        /// Each clip's dips: from the clip before it, and its own.
-        private var dips: [(in: ProjectDip?, out: ProjectDip?)] = []
-        private let lock = NSLock()
-
-        func replace(_ new: [(start: Double, end: Double, look: ClipLook?)], dips: [(in: ProjectDip?, out: ProjectDip?)] = []) {
-            lock.lock(); entries = new; self.dips = dips; lock.unlock()
-        }
-
-        /// How far into a dip's colour the picture is at a time, if it's in one.
-        func dip(_ seconds: Double) -> (amount: Double, white: Bool)? {
-            lock.lock(); defer { lock.unlock() }
-            guard let index = entries.lastIndex(where: { $0.start <= seconds + 0.0005 }), dips.indices.contains(index) else { return nil }
-            let entry = entries[index]
-            return ProjectDip.amount(at: seconds - entry.start, length: entry.end - entry.start, dipIn: dips[index].in, dipOut: dips[index].out)
-                .map { ($0.0, $0.1) }
-        }
-
-        func set(_ index: Int, _ look: ClipLook?) {
-            lock.lock()
-            if entries.indices.contains(index) { entries[index].look = look }
-            lock.unlock()
-        }
-
-        func at(_ seconds: Double) -> (look: ClipLook?, progress: Double) {
-            lock.lock(); defer { lock.unlock() }
-            guard let entry = entries.last(where: { $0.start <= seconds + 0.0005 }) ?? entries.first else { return (nil, 0) }
-            return (entry.look, (seconds - entry.start) / max(entry.end - entry.start, 0.001))
-        }
-    }
-
-    @ObservationIgnored let looks = Looks()
+    /// What's on screen when, read by the compositor while the edit plays.
+    @ObservationIgnored let layers = ProjectLayers()
 
     /// Draws the frame again (when paused, the player keeps the last one otherwise).
     private func redraw() {
@@ -651,6 +692,7 @@ final class ProjectModel {
 
     func setMusic(_ id: UUID, record: Bool = true, _ body: @escaping (inout ProjectMusic) -> Void) {
         guard let index = project.music.firstIndex(where: { $0.id == id }) else { return }
+        if !record { dragging() }
         if record { change { body(&$0.music[index]) } } else { body(&project.music[index]); rebuildSoon() }
     }
 
@@ -666,6 +708,7 @@ final class ProjectModel {
 
     func setTitle(_ id: UUID, record: Bool = true, _ body: @escaping (inout ProjectTitle) -> Void) {
         guard let index = project.titles.firstIndex(where: { $0.id == id }) else { return }
+        if !record { dragging() }
         if record { change { body(&$0.titles[index]) } } else { body(&project.titles[index]); save() }
     }
 
@@ -681,6 +724,7 @@ final class ProjectModel {
 
     var subtitles: [ProjectSubtitle] {
         if let cache = subtitleCache, cache.project.clips == project.clips, cache.project.subtitleEdits == project.subtitleEdits,
+           cache.project.fileSubtitles == project.fileSubtitles,
            cache.project.subtitleLanguage == project.subtitleLanguage {
             return cache.lines
         }
@@ -697,6 +741,18 @@ final class ProjectModel {
     func transcriptsChanged() { subtitleCache = nil }
 
     func setSubtitles(on: Bool) { change { $0.subtitlesOn = on } }
+
+    /// A file's own subtitle lines (its time). `record`: a step to undo (a line let go, not
+    /// each letter typed).
+    func setFileSubtitles(_ path: String, _ cues: [SubtitleCue], record: Bool) {
+        if record {
+            change { $0.fileSubtitles = ($0.fileSubtitles ?? [:]).merging([path: cues]) { $1 } }
+        } else {
+            dragging()
+            project.fileSubtitles = (project.fileSubtitles ?? [:]).merging([path: cues]) { $1 }
+        }
+        subtitleCache = nil
+    }
 
     func editSubtitle(_ key: String, text: String?) {
         change { project in
@@ -778,13 +834,14 @@ final class ProjectModel {
         seek(to: target ?? (forward ? duration : 0))
     }
 
-    func timecode(_ seconds: Double) -> String {
+    /// `full`: always hours:minutes:seconds:frames, as editors write it.
+    func timecode(_ seconds: Double, full: Bool = false) -> String {
         // Frames counted at the real rate (29.97 has 29.97 a second), labelled in whole seconds
         // of the nominal rate, as non-drop timecode is.
         let fps = max(Int(frameRate.rounded()), 1)
         let total = Int((seconds * max(frameRate, 1)).rounded())
         let f = total % fps, s = total / fps % 60, m = total / fps / 60 % 60, h = total / fps / 3600
-        return h > 0 ? String(format: "%d:%02d:%02d:%02d", h, m, s, f) : String(format: "%02d:%02d:%02d", m, s, f)
+        return full || h > 0 ? String(format: "%02d:%02d:%02d:%02d", h, m, s, f) : String(format: "%02d:%02d:%02d", m, s, f)
     }
 
     /// Snaps to clip edges, the playhead and the music's beats when close.
@@ -961,6 +1018,8 @@ final class ProjectModel {
         /// Upright.
         var size: CGSize?
         var fps: Double?
+        /// How its picture is turned (phones filmed upright).
+        var transform: CGAffineTransform = .identity
     }
 
     @ObservationIgnored private var media: [String: Media] = [:]
@@ -974,6 +1033,7 @@ final class ProjectModel {
         if let track = found.video, let natural = try? await track.load(.naturalSize), let turn = try? await track.load(.preferredTransform) {
             let turned = natural.applying(turn)
             found.size = CGSize(width: abs(turned.width), height: abs(turned.height))
+            found.transform = turn
             if let fps = try? await track.load(.nominalFrameRate), fps > 0 { found.fps = Double(fps) }
         }
         // Not kept while the file isn't there (it can come back).
@@ -988,82 +1048,118 @@ final class ProjectModel {
         rebuild()
     }
 
-    private func rebuild() {
+    func rebuild() {
         rebuildTask?.cancel()
         rebuildTask = Task { await build() }
     }
 
     private func build() async {
-        let clips = project.clips, music = project.music
+        let clips = project.clips, music = project.music, tracks = (project.tracks ?? []).filter { !$0.items.isEmpty }
         missing = Self.missingFiles(in: project)
         findBeats()
         loadPeaks()
         let composition = AVMutableComposition()
-        guard let video = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid),
-              let audio = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid) else { return }
-        let voice = AVMutableAudioMixInputParameters(track: audio)
-        var cursor = CMTime.zero
+        // The main line on two tracks of each, turn about: a dissolve has both pictures (and both
+        // sounds) at once.
+        func track(_ kind: AVMediaType) -> AVMutableCompositionTrack? {
+            composition.addMutableTrack(withMediaType: kind, preferredTrackID: kCMPersistentTrackID_Invalid)
+        }
+        guard let videoA = track(.video), let videoB = track(.video), let audioA = track(.audio), let audioB = track(.audio) else { return }
+        let voices = [AVMutableAudioMixInputParameters(track: audioA), AVMutableAudioMixInputParameters(track: audioB)]
+        for voice in voices { voice.setVolume(0, at: .zero) }
         var firstSize: CGSize?
-        // Where each clip is on the timeline, and how it looks.
-        var looks: [(start: Double, end: Double, look: ClipLook?)] = []
-        for clip in clips {
-            // A newer change is building already.
+        var spans: [ProjectLayers.Span] = []
+        var mainEntries: [(start: Double, end: Double)] = []
+        let offsets = project.clips.indices.map { index in clips[..<index].reduce(0) { $0 + $1.length } }
+        func cm(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 600) }
+
+        for clip in clips where clip.transitionIn != nil { _ = await length(of: clip.file) }
+        for index in clips.indices.dropFirst() where clips[index].transitionIn != nil { _ = await length(of: clips[index - 1].file) }
+        let overlap = Self.dissolveOverlaps(clips, lengths: fileLengths)
+
+        for (index, clip) in clips.enumerated() {
             if Task.isCancelled { return }
+            let video = index % 2 == 0 ? videoA : videoB, audio = index % 2 == 0 ? audioA : audioB, voice = voices[index % 2]
             let main = await loaded(await playableURL(for: clip.file))
-            // Stabilized: the picture from the steadied copy (same times), the sound as it was.
             var pictures = main
             if clip.look?.stabilize == true, let steadied = Stabilizer.copy(for: clip.path) { pictures = await loaded(steadied) }
-            let source = CMTimeRange(start: CMTime(seconds: clip.start, preferredTimescale: 600),
-                                     duration: CMTime(seconds: max(clip.end - clip.start, 0), preferredTimescale: 600))
-            let range = CMTimeRange(start: source.start, duration: CMTime(seconds: clip.length, preferredTimescale: 600))
-            looks.append((cursor.seconds, cursor.seconds + clip.length, clip.look))
-            if let track = pictures.video {
-                try? video.insertTimeRange(source, of: track, at: cursor)
-                if let size = pictures.size { pictureSizes[clip.path] = size }
-                if clip.speed != 1 { video.scaleTimeRange(CMTimeRange(start: cursor, duration: source.duration), toDuration: range.duration) }
-                if firstSize == nil, let size = pictures.size {
-                    firstSize = size
-                    if let fps = pictures.fps { frameRate = fps }
+            let at = offsets[index]
+            // With a dissolve's extra frames at either end.
+            let before = overlap[index], after = index + 1 < clips.count ? overlap[index + 1] : 0
+            let start = at - before, length = clip.length + before + after
+            mainEntries.append((at, at + clip.length))
+            if let picture = pictures.video {
+                if let freeze = clip.freeze {
+                    // One frame, held.
+                    let one = MediaFile.frameDuration(pictures.fps ?? frameRate)
+                    try? video.insertTimeRange(CMTimeRange(start: cm(freeze), duration: one), of: picture, at: cm(start))
+                    video.scaleTimeRange(CMTimeRange(start: cm(start), duration: one), toDuration: cm(length))
+                } else {
+                    let source = CMTimeRange(start: cm(clip.start - before * clip.speed), duration: cm(length * clip.speed))
+                    try? video.insertTimeRange(source, of: picture, at: cm(start))
+                    if clip.speed != 1 { video.scaleTimeRange(CMTimeRange(start: cm(start), duration: source.duration), toDuration: cm(length)) }
                 }
-            } else {
-                video.insertEmptyTimeRange(CMTimeRange(start: cursor, duration: range.duration))
+                if let size = pictures.size {
+                    pictureSizes[clip.path] = size
+                    if firstSize == nil {
+                        firstSize = size
+                        if let fps = pictures.fps { frameRate = fps }
+                    }
+                }
+                spans.append(ProjectLayers.Span(clip: clip.id, trackID: video.trackID, start: start, end: start + length,
+                                                clipStart: at, clipEnd: at + clip.length, look: clip.look,
+                                                orientation: CGImagePropertyOrientation(pictures.transform), main: true,
+                                                fadeIn: index > 0 && before > 0 ? before * 2 : 0))
             }
-            if let track = main.audio {
-                try? audio.insertTimeRange(source, of: track, at: cursor)
-                if clip.speed != 1 { audio.scaleTimeRange(CMTimeRange(start: cursor, duration: source.duration), toDuration: range.duration) }
-            } else if clip.speed != 1 {
-                audio.insertEmptyTimeRange(CMTimeRange(start: cursor, duration: range.duration))
+            // Its sound, unless it was taken off to an audio track or it's a held frame.
+            if clip.ownAudio != false, clip.freeze == nil, let sound = main.audio {
+                let source = CMTimeRange(start: cm(clip.start - before * clip.speed), duration: cm(length * clip.speed))
+                try? audio.insertTimeRange(source, of: sound, at: cm(start))
+                if clip.speed != 1 { audio.scaleTimeRange(CMTimeRange(start: cm(start), duration: source.duration), toDuration: cm(length)) }
+                let fade = fades(max(clip.fadeIn, before * 2), max(clip.fadeOut, after * 2), over: length)
+                Self.ramp(voice, volume: clip.volume, start: start, length: length, fadeIn: fade.in, fadeOut: fade.out)
             }
-            // The clip's volume, faded in and out.
-            let end = cursor + range.duration
-            let fade = fades(clip.fadeIn, clip.fadeOut, over: clip.length)
-            if fade.in > 0 {
-                voice.setVolumeRamp(fromStartVolume: 0, toEndVolume: Float(clip.volume),
-                                    timeRange: CMTimeRange(start: cursor, duration: CMTime(seconds: fade.in, preferredTimescale: 600)))
-            } else {
-                voice.setVolume(Float(clip.volume), at: cursor)
-            }
-            if fade.out > 0 {
-                let fade = CMTime(seconds: fade.out, preferredTimescale: 600)
-                voice.setVolumeRamp(fromStartVolume: Float(clip.volume), toEndVolume: 0, timeRange: CMTimeRange(start: end - fade, duration: fade))
-            }
-            cursor = end
         }
-        var mixes = [voice]
+
+        var mixes = voices
+        // The extra tracks: pictures laid over the main line, and sound beside it.
+        for lane in tracks where !lane.hidden {
+            let video = lane.kind == .video ? track(.video) : nil
+            let audio = lane.muted ? nil : track(.audio)
+            let voice = audio.map { AVMutableAudioMixInputParameters(track: $0) }
+            voice?.setVolume(0, at: .zero)
+            for item in lane.items.sorted(by: { ($0.at ?? 0) < ($1.at ?? 0) }) {
+                if Task.isCancelled { return }
+                let media = await loaded(await playableURL(for: item.file))
+                let at = item.at ?? 0
+                let source = CMTimeRange(start: cm(item.freeze ?? item.start), duration: cm(max(item.end - item.start, 0)))
+                if let video, let picture = media.video {
+                    try? video.insertTimeRange(source, of: picture, at: cm(at))
+                    if item.speed != 1 { video.scaleTimeRange(CMTimeRange(start: cm(at), duration: source.duration), toDuration: cm(item.length)) }
+                    spans.append(ProjectLayers.Span(clip: item.id, trackID: video.trackID, start: at, end: at + item.length,
+                                                    clipStart: at, clipEnd: at + item.length, look: item.look,
+                                                    orientation: CGImagePropertyOrientation(media.transform), main: false,
+                                                    fadeIn: item.fadeIn, fadeOut: item.fadeOut))
+                }
+                if let audio, let voice, item.ownAudio != false, let sound = media.audio {
+                    try? audio.insertTimeRange(source, of: sound, at: cm(at))
+                    if item.speed != 1 { audio.scaleTimeRange(CMTimeRange(start: cm(at), duration: source.duration), toDuration: cm(item.length)) }
+                    let fade = fades(item.fadeIn, item.fadeOut, over: item.length)
+                    Self.ramp(voice, volume: item.volume, start: at, length: item.length, fadeIn: fade.in, fadeOut: fade.out)
+                }
+            }
+            if let voice { mixes.append(voice) }
+        }
+
         for song in music {
-            guard let track = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid),
+            guard let track = track(.audio),
                   let source = try? await AVURLAsset(url: await playableURL(for: URL(fileURLWithPath: song.path))).loadTracks(withMediaType: .audio).first else { continue }
             let length = min(song.length, max(project.duration - song.at, 0))
             guard length > 0 else { continue }
-            let at = CMTime(seconds: song.at, preferredTimescale: 600)
-            try? track.insertTimeRange(CMTimeRange(start: CMTime(seconds: song.start, preferredTimescale: 600), duration: CMTime(seconds: length, preferredTimescale: 600)), of: source, at: at)
+            try? track.insertTimeRange(CMTimeRange(start: cm(song.start), duration: cm(length)), of: source, at: cm(song.at))
             let params = AVMutableAudioMixInputParameters(track: track)
             let songFade = fades(max(song.fadeIn, 0.01), max(song.fadeOut, 0.01), over: length)
-            params.setVolumeRamp(fromStartVolume: 0, toEndVolume: Float(song.volume),
-                                 timeRange: CMTimeRange(start: at, duration: CMTime(seconds: songFade.in, preferredTimescale: 600)))
-            let fade = CMTime(seconds: songFade.out, preferredTimescale: 600)
-            params.setVolumeRamp(fromStartVolume: Float(song.volume), toEndVolume: 0,
-                                 timeRange: CMTimeRange(start: at + CMTime(seconds: length, preferredTimescale: 600) - fade, duration: fade))
+            Self.ramp(params, volume: song.volume, start: song.at, length: length, fadeIn: songFade.in, fadeOut: songFade.out)
             mixes.append(params)
         }
         let mix = AVMutableAudioMix()
@@ -1075,29 +1171,20 @@ final class ProjectModel {
         item.audioMix = mix
         // Faster or slower clips keep their voices' pitch.
         item.audioTimePitchAlgorithm = .spectral
-        if !clips.isEmpty, (try? await composition.loadTracks(withMediaType: .video).first) != nil {
-            // Every clip fits the first one's frame, centred on black (different sizes and turned phones).
-            // Each clip is placed as its look says (by default, fitted and centred).
+        let total = max(composition.duration.seconds, project.duration)
+        if !spans.isEmpty, total > 0 {
             let dips = clips.indices.map { (index: Int) -> (in: ProjectDip?, out: ProjectDip?) in
                 (index > 0 ? clips[index - 1].dipOut : nil, clips[index].dipOut)
             }
-            self.looks.replace(looks, dips: dips)
-            let box = self.looks
-            let videoComposition = try? await AVMutableVideoComposition.videoComposition(with: composition) { request in
-                let seconds = request.compositionTime.seconds
-                let (look, progress) = box.at(seconds)
-                var picture = ClipLook.place(request.sourceImage, look: look, progress: progress, in: size)
-                if let dip = box.dip(seconds) {
-                    let colour = CIImage(color: dip.white ? .white : .black).cropped(to: picture.extent)
-                    picture = picture.applyingFilter("CIDissolveTransition", parameters: [kCIInputTargetImageKey: colour, kCIInputTimeKey: dip.amount])
-                }
-                request.finish(with: picture, context: nil)
-            }
-            if let videoComposition {
-                videoComposition.renderSize = size
-                videoComposition.frameDuration = EditorModel.frameDuration(frameRate)
-                item.videoComposition = videoComposition
-            }
+            layers.replace(spans, main: mainEntries, dips: dips)
+            let videoTracks = composition.tracks(withMediaType: .video).filter { !$0.segments.isEmpty }.map(\.trackID)
+            let videoComposition = AVMutableVideoComposition()
+            videoComposition.customVideoCompositorClass = ProjectCompositor.self
+            videoComposition.instructions = [ProjectInstruction(timeRange: CMTimeRange(start: .zero, duration: cm(total)),
+                                                                tracks: videoTracks, layers: layers, size: size)]
+            videoComposition.renderSize = size
+            videoComposition.frameDuration = MediaFile.frameDuration(frameRate)
+            item.videoComposition = videoComposition
         }
         guard !Task.isCancelled else { return }
         let keep = time, wasPlaying = isPlaying
@@ -1105,6 +1192,40 @@ final class ProjectModel {
         await player.seek(to: CMTime(seconds: min(keep, project.duration), preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
         if wasPlaying { player.play() }
         await loadThumbnails()
+    }
+
+    /// Each cut's dissolve: half its length taken from each side (centred on the cut, so the
+    /// timing stays), as far as the files reach. Per clip, how much of it comes before its start.
+    nonisolated static func dissolveOverlaps(_ clips: [ProjectClip], lengths: [String: Double]) -> [Double] {
+        var overlap = [Double](repeating: 0, count: clips.count)
+        for index in clips.indices.dropFirst() {
+            guard let transition = clips[index].transitionIn, transition.kind == .dissolve,
+                  clips[index].freeze == nil, clips[index - 1].freeze == nil else { continue }
+            let before = clips[index - 1], after = clips[index]
+            let tail = ((lengths[before.path] ?? before.end) - before.end) / before.speed, head = after.start / after.speed
+            overlap[index] = max(min(transition.length / 2, tail, head, before.length / 2, after.length / 2), 0)
+        }
+        return overlap
+    }
+
+    /// The files' lengths found so far.
+    var knownLengths: [String: Double] { fileLengths }
+
+    /// A sound's volume over a stretch of the timeline, faded in and out (silent elsewhere).
+    nonisolated private static func ramp(_ params: AVMutableAudioMixInputParameters, volume: Double, start: Double, length: Double,
+                                         fadeIn: Double, fadeOut: Double) {
+        func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 600) }
+        let level = Float(volume)
+        if fadeIn > 0 {
+            params.setVolumeRamp(fromStartVolume: 0, toEndVolume: level, timeRange: CMTimeRange(start: time(start), duration: time(fadeIn)))
+        } else {
+            params.setVolume(level, at: time(start))
+        }
+        if fadeOut > 0 {
+            params.setVolumeRamp(fromStartVolume: level, toEndVolume: 0, timeRange: CMTimeRange(start: time(start + length - fadeOut), duration: time(fadeOut)))
+        } else {
+            params.setVolume(0, at: time(start + length))
+        }
     }
 
     /// The file itself, or a copy macOS can play (WebM, MKV), made once like the Editor does.
@@ -1117,7 +1238,7 @@ final class ProjectModel {
            let ffmpeg = manager.tool("ffmpeg") {
             preparing = String(localized: "Making a copy Pluck can play…")
             let hasVideo = ((try? await asset.loadTracks(withMediaType: .video)) ?? []).isEmpty == false || Converting.isVideo(file)
-            if let copy = await EditorModel.playableCopy(of: file, video: hasVideo, ffmpeg: ffmpeg) { url = copy }
+            if let copy = await MediaFile.playableCopy(of: file, video: hasVideo, ffmpeg: ffmpeg) { url = copy }
             preparing = nil
         }
         playable[file.path] = url
@@ -1130,7 +1251,7 @@ final class ProjectModel {
         guard FileManager.default.fileExists(atPath: file.path) else { return 0 }
         var seconds = (try? await AVURLAsset(url: file).load(.duration).seconds) ?? 0
         if !(seconds > 0), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe"),
-           let probe = await EditorModel.probe(file, ffprobe: ffprobe) {
+           let probe = await MediaFile.probe(file, ffprobe: ffprobe) {
             seconds = probe.duration
         }
         let value = seconds.isFinite ? max(seconds, 0) : 0
@@ -1141,7 +1262,8 @@ final class ProjectModel {
     // MARK: - Missing files
 
     nonisolated static func missingFiles(in project: Project) -> Set<String> {
-        Set((project.clips.map(\.path) + project.music.map(\.path)).filter { !FileManager.default.fileExists(atPath: $0) })
+        let items = (project.tracks ?? []).flatMap(\.items).map(\.path)
+        return Set((project.clips.map(\.path) + project.music.map(\.path) + items).filter { !FileManager.default.fileExists(atPath: $0) })
     }
 
     /// Looks again for the missing files (a drive connected); plays them once they're back.
@@ -1193,7 +1315,7 @@ final class ProjectModel {
             loadingPeaks.insert(path)
             Task {
                 let length = await self.length(of: URL(fileURLWithPath: path))
-                let found = await EditorModel.peaks(of: URL(fileURLWithPath: path), duration: length, ffmpeg: ffmpeg)
+                let found = await MediaFile.peaks(of: URL(fileURLWithPath: path), duration: length, ffmpeg: ffmpeg)
                 loadingPeaks.remove(path)
                 peaks[path] = found
             }
@@ -1211,13 +1333,15 @@ final class ProjectModel {
     /// The pictures for a clip: from its own part of the file (in steps of 2 seconds, so trimming
     /// doesn't make them again on every move).
     nonisolated static func thumbnailKey(_ clip: ProjectClip) -> String {
+        if let freeze = clip.freeze { return "\(clip.path)#\(freeze)" }
         let a = (clip.start / 2).rounded(.down) * 2, b = (clip.end / 2).rounded(.up) * 2
         return "\(clip.path)@\(a)-\(b)"
     }
 
     /// A few pictures per clip, for the timeline.
     private func loadThumbnails() async {
-        for clip in project.clips where thumbnails[Self.thumbnailKey(clip)] == nil && !missing.contains(clip.path) {
+        let overlays = (project.tracks ?? []).filter { $0.kind == .video }.flatMap(\.items)
+        for clip in project.clips + overlays where thumbnails[Self.thumbnailKey(clip)] == nil && !missing.contains(clip.path) {
             let key = Self.thumbnailKey(clip)
             let file = await playableURL(for: clip.file)
             let length = await self.length(of: clip.file)
@@ -1229,8 +1353,9 @@ final class ProjectModel {
             let generator = AVAssetImageGenerator(asset: AVURLAsset(url: file))
             generator.appliesPreferredTrackTransform = true
             generator.maximumSize = CGSize(width: 200, height: 120)
-            let from = max((clip.start / 2).rounded(.down) * 2, 0), to = min((clip.end / 2).rounded(.up) * 2, length)
-            let count = min(max(Int((to - from) / 0.5), 1), 12)
+            // A held frame: that one frame.
+            let from = clip.freeze ?? max((clip.start / 2).rounded(.down) * 2, 0), to = clip.freeze ?? min((clip.end / 2).rounded(.up) * 2, length)
+            let count = clip.freeze == nil ? min(max(Int((to - from) / 0.5), 1), 12) : 1
             var images: [NSImage] = []
             for step in 0..<count {
                 let at = CMTime(seconds: from + (to - from) * (Double(step) + 0.5) / Double(count), preferredTimescale: 600)

@@ -7,12 +7,15 @@ struct ProjectInspector: View {
     @Binding var tab: Tab
 
     enum Tab: String, CaseIterable, Identifiable {
-        case clip, story, subtitles, titles, export
+        case clip, transcript, ai, story, subtitles, titles, marks, export
         var id: String { rawValue }
 
         var symbol: String {
             switch self {
             case .clip: "slider.horizontal.3"
+            case .transcript: "text.quote"
+            case .ai: "sparkles"
+            case .marks: "bookmark"
             case .story: "text.book.closed"
             case .subtitles: "captions.bubble"
             case .titles: "textformat"
@@ -23,6 +26,9 @@ struct ProjectInspector: View {
         var title: LocalizedStringKey {
             switch self {
             case .clip: "Clip"
+            case .transcript: "Transcript"
+            case .ai: "Local AI"
+            case .marks: "Marks"
             case .story: "Story"
             case .subtitles: "Subtitles"
             case .titles: "Titles"
@@ -44,6 +50,15 @@ struct ProjectInspector: View {
             Group {
                 switch tab {
                 case .clip: ProjectClipPanel(model: model)
+                case .transcript, .ai:
+                    // On the file at the playhead (or the clip chosen), in its own time.
+                    if let path = model.focusedPath {
+                        EditorAIPanel(model: model.focus(path), part: tab == .ai ? .ai : .transcript)
+                            .id(path)
+                    } else {
+                        Text("Add a clip to the timeline.").foregroundStyle(.secondary).padding(14)
+                    }
+                case .marks: ProjectMarksPanel(model: model)
                 case .story: ProjectStoryPanel(model: model)
                 case .subtitles: ProjectSubtitlesPanel(model: model)
                 case .titles: ProjectTitlesPanel(model: model)
@@ -59,7 +74,7 @@ struct ProjectInspector: View {
 /// A name on the left, its controls on the right.
 private func inspectorRow<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
     HStack(spacing: 8) {
-        Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 70, alignment: .leading)
+        Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: 96, alignment: .leading)
         HStack(spacing: 6) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
     }
     .font(.callout)
@@ -83,6 +98,12 @@ private struct ProjectClipPanel: View {
         return model.project.music.first { $0.id == id }
     }
 
+    /// A clip on one of the extra tracks (laid over the picture, or a sound).
+    private var item: ProjectClip? {
+        guard model.selected.count == 1, let id = model.selected.first else { return nil }
+        return (model.project.tracks ?? []).flatMap(\.items).first { $0.id == id }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
@@ -90,15 +111,50 @@ private struct ProjectClipPanel: View {
                     clipSettings(clip)
                 } else if let song {
                     musicSettings(song)
-                } else {
-                    Text(model.selected.count > 1 ? "^[\(model.selected.count) clip](inflect: true) selected" : "Select a clip on the timeline.")
+                } else if let item {
+                    itemSettings(item)
+                } else if model.selected.count > 1 {
+                    Text("^[\(model.selected.count) clip](inflect: true) selected")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal, 8)
+                } else {
+                    overview
                 }
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
+        }
+    }
+
+    /// Nothing chosen: the edit as a whole.
+    private var overview: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(model.project.name).font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8).padding(.bottom, 4)
+            inspectorRow("Length") { Text(verbatim: Format.duration(model.duration)).monospacedDigit() }
+            inspectorRow("Clips") { Text(verbatim: "\(model.project.clips.count)").monospacedDigit() }
+            inspectorRow("Frame") {
+                Text(verbatim: "\(Int(model.renderSize.width))×\(Int(model.renderSize.height)) · \(RawClipDetails.rate(model.frameRate)) fps").monospacedDigit()
+            }
+            let tracks = model.project.tracks ?? []
+            if !tracks.isEmpty {
+                inspectorRow("Tracks") {
+                    Text(verbatim: [tracks.filter { $0.kind == .video }.count, tracks.filter { $0.kind == .audio }.count]
+                        .enumerated().compactMap { $1 == 0 ? nil : ($0 == 0 ? String(localized: "\($1) over") : String(localized: "\($1) sound")) }
+                        .joined(separator: " · "))
+                }
+            }
+            if model.hasRange {
+                inspectorRow("In to Out") {
+                    Text(verbatim: "\(Format.duration(model.range.lowerBound))–\(Format.duration(model.range.upperBound))").monospacedDigit()
+                    Button { model.clearRange() } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain).foregroundStyle(.secondary)
+                        .help("Clear the in and out points (⌥X)")
+                }
+            }
+            Text("Select a clip on the timeline to change it.")
+                .font(.callout).foregroundStyle(.secondary)
+                .padding(.horizontal, 8).padding(.top, 8)
         }
     }
 
@@ -113,6 +169,14 @@ private struct ProjectClipPanel: View {
                 Spacer()
                 Menu {
                     Button("Duplicate") { model.duplicate([clip.id]) }
+                    Button("Freeze Frame") { model.freezeFrame() }
+                        .help("Holds the frame at the playhead for two seconds (⇧F)")
+                    if clip.ownAudio == false {
+                        Button("Attach Audio") { model.attachAudio([clip.id]) }
+                    } else if clip.freeze == nil {
+                        Button("Detach Audio") { model.detachAudio([clip.id]) }
+                            .help("Its sound on a track of its own, to move, trim or fade apart from the picture")
+                    }
                     Button("Open File") { StudioNavigator.shared.open(EditorTarget(path: clip.path), at: clip.start) }
                     Divider()
                     Button("Delete", role: .destructive) { model.delete([clip.id]) }
@@ -134,37 +198,100 @@ private struct ProjectClipPanel: View {
                     Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
                         if !editing { model.set(clip.id) { _ in } }
                     }
-                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
                 }
                 inspectorRow("Fade In") {
-                    Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3)
-                    Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                    Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
+                    if !editing { model.set(clip.id) { _ in } }
+                }
+                    Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
                 }
                 inspectorRow("Fade Out") {
-                    Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3)
-                    Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                    Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3) { editing in
+                    if !editing { model.set(clip.id) { _ in } }
+                }
+                    Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
                 }
             }
-            FoldSection(title: "Transition", key: "clip-transition") {
-                inspectorRow("At the End") {
-                    Picker("At the End", selection: Binding(get: { clip.dipOut.map { $0.white ? 2 : 1 } ?? 0 }, set: { value in
-                        model.set(clip.id) { clip in
-                            clip.dipOut = value == 0 ? nil : ProjectDip(white: value == 2, length: clip.dipOut?.length ?? 0.8)
+            if let index = model.project.clips.firstIndex(where: { $0.id == clip.id }), index + 1 < model.project.clips.count {
+                let transition = model.transition(into: index + 1)
+                FoldSection(title: "Transition", key: "clip-transition") {
+                    inspectorRow("At the End") {
+                        Picker("At the End", selection: Binding(get: { transition?.kind }, set: { kind in
+                            model.setTransition(into: index + 1, kind.map { ProjectTransition(kind: $0, length: transition?.length ?? 1) })
+                        })) {
+                            Text("Cut").tag(ProjectTransition.Kind?.none)
+                            ForEach(ProjectTransition.Kind.allCases, id: \.self) { kind in
+                                Text(ProjectTransition(kind: kind, length: 1).label).tag(ProjectTransition.Kind?.some(kind))
+                            }
                         }
-                    })) {
-                        Text("Cut").tag(0)
-                        Text("Dip to Black").tag(1)
-                        Text("Dip to White").tag(2)
+                        .labelsHidden()
                     }
-                    .labelsHidden()
+                    if let transition {
+                        inspectorRow("Length") {
+                            Slider(value: Binding(get: { transition.length }, set: { value in
+                                model.setTransition(into: index + 1, ProjectTransition(kind: transition.kind, length: value), record: false)
+                            }), in: 0.2...3) { editing in
+                                if !editing { model.setTransition(into: index + 1, model.transition(into: index + 1)) }
+                            }
+                            Text(String(format: "%.1f s", transition.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                .frame(minWidth: 38, alignment: .trailing).fixedSize()
+                        }
+                    }
                 }
-                if let dip = clip.dipOut {
-                    inspectorRow("Length") {
-                        Slider(value: Binding(get: { dip.length }, set: { value in model.set(clip.id, record: false) { $0.dipOut?.length = value } }), in: 0.2...3) { editing in
-                            if !editing { model.set(clip.id) { _ in } }
-                        }
-                        Text(String(format: "%.1f s", dip.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+            }
+        }
+    }
+
+    private func itemSettings(_ item: ProjectClip) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name).font(.callout.weight(.semibold)).lineLimit(2)
+                    Text(verbatim: "\(item.file.lastPathComponent) · \(Format.duration(item.length))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
+                Spacer()
+                Menu {
+                    Button("Open File") { StudioNavigator.shared.open(EditorTarget(path: item.path), at: item.start) }
+                    Divider()
+                    Button("Delete", role: .destructive) { model.removeItems([item.id]) }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            }
+            .padding(.horizontal, 8)
+            .padding(.bottom, 4)
+            if item.link != nil {
+                Label("The sound of a clip, linked: it moves with it.", systemImage: "link")
+                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+            }
+            if Converting.isVideo(item.file), model.project.tracks?.first(where: { $0.items.contains { $0.id == item.id } })?.kind == .video {
+                ClipLookEditor(look: item.look ?? ClipLook(), path: item.path) { record, body in
+                    model.setItem(item.id, record: record) { item in
+                        var look = item.look ?? ClipLook()
+                        body(&look)
+                        item.look = look.isDefault ? nil : look
                     }
+                }
+            }
+            FoldSection(title: "Audio", key: "item-audio") {
+                inspectorRow("Volume") {
+                    Slider(value: Binding(get: { item.volume }, set: { value in model.setItem(item.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
+                        if !editing { model.setItem(item.id) { _ in } }
+                    }
+                    Text(verbatim: "\(Int(item.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+                inspectorRow("Fade In") {
+                    Slider(value: Binding(get: { item.fadeIn }, set: { value in model.setItem(item.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
+                        if !editing { model.setItem(item.id) { _ in } }
+                    }
+                    Text(String(format: "%.1f s", item.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+                inspectorRow("Fade Out") {
+                    Slider(value: Binding(get: { item.fadeOut }, set: { value in model.setItem(item.id, record: false) { $0.fadeOut = value } }), in: 0...3) { editing in
+                        if !editing { model.setItem(item.id) { _ in } }
+                    }
+                    Text(String(format: "%.1f s", item.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
                 }
             }
         }
@@ -175,14 +302,20 @@ private struct ProjectClipPanel: View {
             Label(song.name, systemImage: "music.note").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8).padding(.bottom, 6)
             inspectorRow("Starts at") { Text(Format.duration(song.at)).monospacedDigit() }
             inspectorRow("Volume") {
-                Slider(value: Binding(get: { song.volume }, set: { value in model.setMusic(song.id, record: false) { $0.volume = value } }), in: 0...1.5)
-                Text(verbatim: "\(Int(song.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 38, alignment: .trailing)
+                Slider(value: Binding(get: { song.volume }, set: { value in model.setMusic(song.id, record: false) { $0.volume = value } }), in: 0...1.5) { editing in
+                    if !editing { model.setMusic(song.id) { _ in } }
+                }
+                Text(verbatim: "\(Int(song.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
             }
             inspectorRow("Fade In") {
-                Slider(value: Binding(get: { song.fadeIn }, set: { value in model.setMusic(song.id, record: false) { $0.fadeIn = value } }), in: 0...6)
+                Slider(value: Binding(get: { song.fadeIn }, set: { value in model.setMusic(song.id, record: false) { $0.fadeIn = value } }), in: 0...6) { editing in
+                    if !editing { model.setMusic(song.id) { _ in } }
+                }
             }
             inspectorRow("Fade Out") {
-                Slider(value: Binding(get: { song.fadeOut }, set: { value in model.setMusic(song.id, record: false) { $0.fadeOut = value } }), in: 0...8)
+                Slider(value: Binding(get: { song.fadeOut }, set: { value in model.setMusic(song.id, record: false) { $0.fadeOut = value } }), in: 0...8) { editing in
+                    if !editing { model.setMusic(song.id) { _ in } }
+                }
             }
             HStack {
                 Button("Fit to the Edit") {
@@ -397,6 +530,17 @@ private struct ProjectExportPanel: View {
     @Environment(DownloadManager.self) private var manager
     @AppStorage("projectExportAudio") private var audioOnly = false
     @AppStorage("editorRenderSettings") private var stored = ""
+    /// The whole edit, only the in to the out point, or each clip as a file of its own.
+    @AppStorage("projectExportPart") private var part = Part.whole
+
+    enum Part: String { case whole, range, each }
+
+    /// What's exported now (the in to the out point only with a range).
+    private var shown: Part { part == .range && !model.hasRange ? .whole : part }
+
+    private var exporting: Project {
+        shown == .whole ? model.project : model.project.cut(to: model.range)
+    }
 
     var body: some View {
         ScrollView {
@@ -408,18 +552,33 @@ private struct ProjectExportPanel: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .padding(.horizontal, 8)
+                Picker("Part", selection: Binding(get: { shown }, set: { part = $0 })) {
+                    Text("Whole Edit").tag(Part.whole)
+                    if model.hasRange { Text("In to Out").tag(Part.range) }
+                    Text("Each Clip").tag(Part.each)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(.horizontal, 8)
+                .help("The whole edit, only from the in to the out point (I and O), or each clip as a file of its own")
                 RenderSettingsForm(audioOnly: audioOnly)
                 VStack(alignment: .leading, spacing: 8) {
                     let settings = EditorRenderSettings(saved: stored)
                     let size = settings.outputSize(source: model.renderSize)
-                    Text(verbatim: "\(model.timecode(model.duration)) · \(Int(size.width))×\(Int(size.height)) · ≈ "
+                    let length = exporting.duration
+                    Text(verbatim: "\(Format.duration(length)) · \(Int(size.width))×\(Int(size.height)) · ≈ "
                          + ByteCountFormatter.string(fromByteCount: settings.estimatedBytes(source: model.renderSize, sourceFPS: model.frameRate,
-                                                                                             length: model.duration), countStyle: .file))
+                                                                                             length: length), countStyle: .file))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(.secondary)
                     Button {
-                        model.exports.run(model.project, settings: settings, audioOnly: audioOnly, size: model.renderSize,
-                                          fps: model.frameRate, manager: manager)
+                        if shown == .each {
+                            model.exports.runEach(model.project, range: model.hasRange ? model.range : nil, settings: settings, audioOnly: audioOnly,
+                                                  size: model.renderSize, fps: model.frameRate, lengths: model.knownLengths, manager: manager)
+                        } else {
+                        model.exports.run(exporting, settings: settings, audioOnly: audioOnly, size: model.renderSize,
+                                          fps: model.frameRate, lengths: model.knownLengths, manager: manager)
+                        }
                     } label: {
                         Label("Export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                     }
@@ -539,7 +698,7 @@ private struct ProjectSubtitlesPanel: View {
     private func row(_ line: ProjectSubtitle) -> some View {
         let playing = line.start <= model.time && model.time < line.end
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(Format.duration(line.start)).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).frame(width: 34, alignment: .leading)
+            Text(Format.duration(line.start)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 34, alignment: .leading).fixedSize()
             if editing == line.key {
                 TextField("Line", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)

@@ -13,10 +13,28 @@ struct ProjectTimeline: View {
     private var clipsHeight: CGFloat { 64 + grow * 0.7 }
     private var musicHeight: CGFloat { 26 + grow * 0.3 }
     private let titlesHeight: CGFloat = 22
-    private var height: CGFloat { ruler + 4 + clipsHeight + 4 + musicHeight + 4 + titlesHeight + 4 }
-    private var clipsTop: CGFloat { ruler + 4 }
-    private var musicTop: CGFloat { clipsTop + clipsHeight + 4 }
+    private let overlayHeight: CGFloat = 40
+    private let soundHeight: CGFloat = 30
+    /// The tracks laid over the main line (drawn above it, the first nearest), and the sound
+    /// tracks beside it (below it).
+    private var overlays: [ProjectTrack] { (model.project.tracks ?? []).filter { $0.kind == .video } }
+    private var sounds: [ProjectTrack] { (model.project.tracks ?? []).filter { $0.kind == .audio } }
+    private var clipsTop: CGFloat { ruler + 4 + CGFloat(overlays.count) * (overlayHeight + 4) }
+    private var soundsTop: CGFloat { clipsTop + clipsHeight + 4 }
+    private var musicTop: CGFloat { soundsTop + CGFloat(sounds.count) * (soundHeight + 4) }
     private var titlesTop: CGFloat { musicTop + musicHeight + 4 }
+    private var height: CGFloat { titlesTop + titlesHeight + 4 }
+
+    /// Where a track's lane is, and how tall.
+    private func laneTop(_ track: ProjectTrack) -> (top: CGFloat, height: CGFloat)? {
+        if let index = overlays.firstIndex(where: { $0.id == track.id }) {
+            return (clipsTop - CGFloat(index + 1) * (overlayHeight + 4), overlayHeight)
+        }
+        if let index = sounds.firstIndex(where: { $0.id == track.id }) {
+            return (soundsTop + CGFloat(index) * (soundHeight + 4), soundHeight)
+        }
+        return nil
+    }
 
     private enum Grab: Equatable {
         case playhead
@@ -24,6 +42,7 @@ struct ProjectTimeline: View {
         case clipStart(UUID), clipEnd(UUID)
         case music(UUID, offset: Double), musicStart(UUID), musicEnd(UUID)
         case title(UUID, offset: Double), titleStart(UUID), titleEnd(UUID)
+        case item(UUID, offset: Double), itemStart(UUID), itemEnd(UUID)
         case click
     }
 
@@ -70,12 +89,20 @@ struct ProjectTimeline: View {
             .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers, location in
                 let seconds = Double(location.x / width) * max(model.duration, 0.001)
                 let index = insertionIndex(at: seconds)
+                // Above the main line: laid over it; on a sound track: beside it; else into it.
+                let over = location.y < clipsTop, sound = location.y >= soundsTop && location.y < musicTop
                 Task { @MainActor in
                     var files: [URL] = []
                     for provider in providers {
                         if let url = await provider.load(URL.self), url.isFileURL { files.append(url) }
                     }
-                    await model.add(files, at: index)
+                    if over {
+                        for file in files { await model.addOverlay(file, at: seconds) }
+                    } else if sound {
+                        for file in files { await model.addAudio(file, at: seconds) }
+                    } else {
+                        await model.add(files, at: index)
+                    }
                     AppDelegate.shared?.ai.imported(files)
                 }
                 return true
@@ -123,6 +150,27 @@ struct ProjectTimeline: View {
             lane(top: clipsTop, height: clipsHeight, width: width)
             lane(top: musicTop, height: musicHeight, width: width, label: "music.note")
             lane(top: titlesTop, height: titlesHeight, width: width, label: "textformat")
+            ForEach(model.project.tracks ?? []) { track in
+                if let (top, laneHeight) = laneTop(track) {
+                    lane(top: top, height: laneHeight, width: width, label: track.kind == .video ? "square.on.square" : "waveform")
+                    ForEach(track.items) { item in
+                        let left = x(item.at ?? 0), w = max(x((item.at ?? 0) + item.length) - left, 2)
+                        Group {
+                            if track.kind == .video {
+                                ClipBlock(clip: item, thumbnails: model.thumbnails[ProjectModel.thumbnailKey(item)] ?? [],
+                                          selected: model.selected.contains(item.id), moving: false,
+                                          offline: model.missing.contains(item.path), peaks: [])
+                            } else {
+                                lengthBlock(item.name, symbol: item.link == nil ? "waveform" : "link", tint: Color(red: 0.16, green: 0.55, blue: 0.33),
+                                            selected: model.selected.contains(item.id))
+                            }
+                        }
+                        .frame(width: w, height: laneHeight)
+                        .offset(x: left, y: top)
+                        .opacity(track.hidden || track.muted ? 0.4 : 1)
+                    }
+                }
+            }
 
             ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, clip in
                 let left = x(offsets[index]), w = max(x(offsets[index] + clip.length) - left, 2)
@@ -143,6 +191,19 @@ struct ProjectTimeline: View {
                         .rotationEffect(.degrees(45))
                         .frame(width: 9, height: 9)
                         .offset(x: at - 4.5, y: clipsTop + clipsHeight - 14)
+                        .allowsHitTesting(false)
+                }
+            }
+            // Dissolves at the edits: two pictures blending.
+            ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, clip in
+                if clip.transitionIn != nil {
+                    Image(systemName: "square.on.square.intersection.dashed")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(3)
+                        .background(Circle().fill(Design.Brand.gradient))
+                        .offset(x: x(offsets[index]) - 9, y: clipsTop + clipsHeight - 20)
+                        .help(ProjectTransition(kind: .dissolve, length: 1).label)
                         .allowsHitTesting(false)
                 }
             }
@@ -174,6 +235,7 @@ struct ProjectTimeline: View {
                     .frame(width: w, height: titlesHeight)
                     .offset(x: left, y: titlesTop)
             }
+            marks(width: width, x: x)
             // The playhead.
             Rectangle().fill(Color.red).frame(width: 1.5, height: height)
                 .overlay(alignment: .top) {
@@ -187,6 +249,43 @@ struct ProjectTimeline: View {
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { value in changed(value, width: width, t: t, x: x) }
             .onEnded { value in ended(value, t: t) })
+    }
+
+    /// The in and out points (outside them dimmed), the markers on the ruler, and what's found
+    /// in the file at the playhead, where it falls in the edit.
+    @ViewBuilder private func marks(width: CGFloat, x: @escaping (Double) -> CGFloat) -> some View {
+        if model.hasRange {
+            let range = model.range
+            Color.black.opacity(0.16).frame(width: max(x(range.lowerBound), 0), height: height - ruler).offset(y: ruler).allowsHitTesting(false)
+            Color.black.opacity(0.16).frame(width: max(width - x(range.upperBound), 0), height: height - ruler)
+                .offset(x: x(range.upperBound), y: ruler).allowsHitTesting(false)
+            Capsule().fill(Design.Brand.gradient).frame(width: max(x(range.upperBound) - x(range.lowerBound), 2), height: 4)
+                .offset(x: x(range.lowerBound), y: ruler - 4)
+                .allowsHitTesting(false)
+        }
+        if let path = model.focusedPath {
+            let focus = model.focus(path)
+            Canvas { context, size in
+                for marker in focus.markers where focus.shownKinds.contains(marker.kind) {
+                    for at in model.timelineTimes(of: marker.start, in: path) {
+                        let px = x(at)
+                        context.fill(Path(CGRect(x: px - 0.5, y: 0, width: 1, height: size.height)), with: .color(marker.kind.tint.opacity(0.9)))
+                    }
+                }
+            }
+            .frame(width: width, height: 5)
+            .offset(y: clipsTop - 5)
+            .allowsHitTesting(false)
+        }
+        ForEach(model.project.markers ?? []) { marker in
+            Image(systemName: "bookmark.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(marker.color.swiftUI)
+                .shadow(color: .black.opacity(0.35), radius: 1)
+                .help(marker.title.isEmpty ? String(localized: "Marker") : marker.title)
+                .offset(x: x(marker.time) - 5, y: 2)
+                .allowsHitTesting(false)
+        }
     }
 
     /// The song's beats as ticks, bars taller (when they're far enough apart to see).
@@ -214,7 +313,7 @@ struct ProjectTimeline: View {
         RoundedRectangle(cornerRadius: 4)
             .fill(Color.primary.opacity(0.04))
             .overlay(alignment: .leading) {
-                if let label { Image(systemName: label).font(.system(size: 9)).foregroundStyle(.tertiary).padding(.leading, 4) }
+                if let label { Image(systemName: label).font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 4) }
             }
             .frame(width: width, height: height)
             .offset(y: top)
@@ -223,10 +322,10 @@ struct ProjectTimeline: View {
 
     private func lengthBlock(_ text: String, symbol: String, tint: Color, selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(tint.opacity(selected ? 0.85 : 0.55))
+            .fill(tint.opacity(selected ? 1 : 0.8))
             .overlay(alignment: .leading) {
                 Label(text, systemImage: symbol).labelStyle(.titleAndIcon)
-                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.white).lineLimit(1).padding(.horizontal, 6)
+                    .font(.system(size: 11, weight: .medium)).foregroundStyle(.white).lineLimit(1).padding(.horizontal, 6)
             }
             .overlay { RoundedRectangle(cornerRadius: 4).strokeBorder(.white.opacity(selected ? 0.9 : 0.15)) }
             .clipped()
@@ -236,14 +335,16 @@ struct ProjectTimeline: View {
     private func rulerView(width: CGFloat) -> some View {
         let seconds = max(model.duration, 0.001)
         let perSecond = width / seconds
-        let steps: [Double] = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800]
+        // Down to single frames when zoomed in far.
+        let frame = 1 / max(model.frameRate, 1)
+        let steps: [Double] = [frame, frame * 2, frame * 5, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800]
         let step = steps.first { $0 * perSecond >= 80 } ?? 3600
         return Canvas { context, size in
             var t = 0.0
             while t <= seconds {
                 let x = CGFloat(t) * perSecond
                 context.fill(Path(CGRect(x: x, y: size.height - 6, width: 1, height: 6)), with: .color(.secondary.opacity(0.6)))
-                context.draw(Text(Format.duration(t)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
+                context.draw(Text(step < 0.5 ? model.timecode(t) : Format.duration(t)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
                              at: CGPoint(x: x + 3, y: 1), anchor: .topLeading)
                 t += step
             }
@@ -307,7 +408,8 @@ struct ProjectTimeline: View {
         case .musicStart(let id):
             guard let song = before?.music.first(where: { $0.id == id }) else { return }
             let delta = Double(value.translation.width / width) * seconds
-            let moved = min(max(delta, -song.start), song.length - 0.5)
+            // Not before the start of the song, nor before the start of the edit.
+            let moved = min(max(delta, -song.start, -song.at), song.length - 0.5)
             model.setMusic(id, record: false) { $0.at = song.at + moved; $0.start = song.start + moved }
         case .musicEnd(let id):
             guard let song = before?.music.first(where: { $0.id == id }) else { return }
@@ -326,9 +428,26 @@ struct ProjectTimeline: View {
             guard let title = before?.titles.first(where: { $0.id == id }) else { return }
             let end = max(model.snapped(t(value.location.x), tolerance: tolerance), title.start + 0.3)
             model.setTitle(id, record: false) { $0.end = min(end, seconds) }
+        case .item(let id, let offset):
+            let at = max(model.snapped(t(value.location.x) - offset, tolerance: tolerance), 0)
+            model.setItem(id, record: false) { $0.at = at; $0.link = nil }
+        case .itemStart(let id):
+            guard let item = before.flatMap({ Self.item(id, in: $0) }) else { return }
+            let delta = Double(value.translation.width / width) * seconds
+            let moved = min(max(delta, -item.start / item.speed, -(item.at ?? 0)), item.length - 0.2)
+            model.setItem(id, record: false) { $0.at = (item.at ?? 0) + moved; $0.start = item.start + moved * item.speed }
+        case .itemEnd(let id):
+            guard let item = before.flatMap({ Self.item(id, in: $0) }) else { return }
+            let delta = Double(value.translation.width / width) * seconds
+            let end = model.snapped((item.at ?? 0) + item.length + delta, tolerance: tolerance)
+            model.setItem(id, record: false) { $0.end = max(item.start + (end - (item.at ?? 0)) * item.speed, item.start + 0.2) }
         default:
             break
         }
+    }
+
+    private static func item(_ id: UUID, in project: Project) -> ProjectClip? {
+        (project.tracks ?? []).flatMap(\.items).first { $0.id == id }
     }
 
     private func ended(_ value: DragGesture.Value, t: (CGFloat) -> Double) {
@@ -356,8 +475,18 @@ struct ProjectTimeline: View {
                 }
                 model.selectedTitle = nil
             }
-        case .clipStart, .clipEnd, .music, .musicStart, .musicEnd, .title, .titleStart, .titleEnd:
-            if let before, before.clips != model.project.clips || before.music != model.project.music || before.titles != model.project.titles {
+        case .item(let id, _) where abs(value.translation.width) <= 3:
+            // A click: chosen (with ⇧ or ⌘, one more).
+            if flags.contains(.shift) || flags.contains(.command) {
+                if model.selected.contains(id) { model.selected.remove(id) } else { model.selected.insert(id) }
+            } else {
+                model.selected = [id]
+            }
+            model.selectedTitle = nil
+            if let before, before.tracks != model.project.tracks { model.commit(from: before) }
+        case .clipStart, .clipEnd, .music, .musicStart, .musicEnd, .title, .titleStart, .titleEnd, .item, .itemStart, .itemEnd:
+            if let before, before.clips != model.project.clips || before.music != model.project.music || before.titles != model.project.titles
+                || before.tracks != model.project.tracks {
                 model.commit(from: before)
             }
         default:
@@ -379,6 +508,17 @@ struct ProjectTimeline: View {
                     if abs(point.x - right) <= edge, right - left > edge * 3 { return .clipEnd(clip.id) }
                 }
                 if point.x >= left, point.x <= right { return .clip(clip.id, offset: t(point.x) - offsets[index]) }
+            }
+        }
+        for track in model.project.tracks ?? [] where !track.locked {
+            guard let (top, laneHeight) = laneTop(track), point.y >= top, point.y <= top + laneHeight else { continue }
+            for item in track.items {
+                let left = x(item.at ?? 0), right = x((item.at ?? 0) + item.length)
+                if model.tool == .select, right - left > edge * 3 {
+                    if abs(point.x - left) <= edge { return .itemStart(item.id) }
+                    if abs(point.x - right) <= edge { return .itemEnd(item.id) }
+                }
+                if point.x >= left, point.x <= right { return .item(item.id, offset: t(point.x) - (item.at ?? 0)) }
             }
         }
         if point.y >= musicTop, point.y <= musicTop + musicHeight {
@@ -458,7 +598,7 @@ private struct ClipBlock: View {
                     if let role = clip.role {
                         Capsule().fill(role.color).frame(height: 3)
                     }
-                    Text(clip.name).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
+                    Text(clip.name).font(.system(size: 11, weight: .semibold)).foregroundStyle(.white).lineLimit(1)
                         .padding(.horizontal, 5)
                         .padding(.top, clip.role == nil ? 3 : 1)
                 }

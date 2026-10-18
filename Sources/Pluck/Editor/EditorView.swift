@@ -57,7 +57,7 @@ struct EditorView: View {
             }
             .padding(Design.Spacing.window)
         }
-        .frame(minWidth: (ownsModel ? 760 : 550) + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
+        .frame(minWidth: (ownsModel ? 760 : 460) + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
         .toolbar {
             ToolbarItem {
                 Button {
@@ -152,7 +152,7 @@ struct EditorView: View {
                         .help("Go to the end of the range (↓)")
                 }
             }
-            Text(model.timecode(model.time))
+            Text(model.timecode(model.time, full: true))
                 .font(.system(size: 20, weight: .medium).monospacedDigit())
                 .fixedSize()
                 .accessibilityLabel(Text("Playhead"))
@@ -165,7 +165,7 @@ struct EditorView: View {
         Button(action: go) {
             VStack(alignment: .leading, spacing: 1) {
                 title.font(.caption).foregroundStyle(.secondary)
-                Text(value.map(model.timecode) ?? "––:––:––").font(.callout.monospacedDigit())
+                Text(value.map { model.timecode($0) } ?? "––:––:––").font(.callout.monospacedDigit())
                     .lineLimit(1)
                     .fixedSize()
             }
@@ -188,7 +188,7 @@ struct EditorView: View {
                 } else if let output = exports.output {
                     DoneLabel(text: Text(output.lastPathComponent), file: output)
                 } else if let problem = exports.problem {
-                    ProblemLabel(text: problem).lineLimit(1)
+                    ProblemLabel(text: problem).lineLimit(3).help(problem)
                 } else if exports.handedOver {
                     Label("In the download list", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.caption)
                 }
@@ -211,15 +211,15 @@ struct EditorView: View {
         }
     }
 
-    /// "Edit 1:23:10 · 4 parts", "Range 0:12:24" or "Whole file 3:21:14".
+    /// "Edit 1:23 · 4 parts", "Range 0:12" or "Whole file 3:21".
     private var summary: String {
         if model.isEdited {
             let parts = model.keptParts.count
-            return String(AttributedString(localized: "Edit \(model.timecode(model.editLength)) · ^[\(parts) part](inflect: true)").characters)
+            return String(AttributedString(localized: "Edit \(Format.duration(model.editLength)) · ^[\(parts) part](inflect: true)").characters)
         }
         return model.hasRange
-            ? String(localized: "Range \(model.timecode(model.rangeEnd - model.rangeStart))")
-            : String(localized: "Whole file \(model.timecode(model.duration))")
+            ? String(localized: "Range \(Format.duration(model.rangeEnd - model.rangeStart))")
+            : String(localized: "Whole file \(Format.duration(model.duration))")
     }
 
     // MARK: - Keys
@@ -252,7 +252,9 @@ struct EditorView: View {
             default: break
             }
             #endif
-            switch press.characters.lowercased() {
+            // With ⌥ the typed character changes (⌥I is a dead key, ⌥O is ø): the key itself.
+            let key = (option ? NSApp.currentEvent?.charactersIgnoringModifiers : nil)?.lowercased() ?? press.characters.lowercased()
+            switch key {
             case "j": model.shuttle(-1)
             case "k": model.shuttle(0)
             case "l": model.shuttle(1)

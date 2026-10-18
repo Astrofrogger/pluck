@@ -128,8 +128,12 @@ enum ScreenshotMode {
                 // in seconds marks a range.
                 if let path = defaults.string(forKey: "PluckScreenshotFile") {
                     let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap { Double($0) }
+                    #if STUDIO
+                    StudioNavigator.shared.open(EditorTarget(path: path), range: range.flatMap { $0.count == 2 ? $0[0]...$0[1] : nil })
+                    #else
                     if let range, range.count == 2 { EditorModel.startRange = (range[0], range[1]) }
                     EditorTarget(path: path).open(openWindow)
+                    #endif
                 }
             case "clip":
                 // -PluckScreenshotLink <video> in the field, with the clip row open.
@@ -517,6 +521,10 @@ enum ScreenshotMode {
                         note("add \(problem ?? "ok")")
                     }
                 }
+            case "fileeditstest":
+                // -PluckScreenshotFile <video>, -PluckScreenshotLog <file>: editing a file's project
+                // by its own time (cut out, put back, keep only, undo), each step's clips written down.
+                Task { await FileEditsSelfTest.run(defaults: defaults) }
             case "deliverytest":
                 // Every file in -PluckScreenshotFile <folder> checked for -PluckScreenshotDestination; to -PluckScreenshotLog.
                 Task { await DeliveryCheck.selfTest(defaults: defaults) }
@@ -566,6 +574,10 @@ enum ScreenshotMode {
                         ProjectStore.save(project)
                         StudioNavigator.shared.open(project)
                     }
+                }
+                // -PluckScreenshotTime <seconds>: the playhead there once it's built.
+                if let seconds = Double(defaults.string(forKey: "PluckScreenshotTime") ?? "") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) { StudioNavigator.shared.current?.project?.seek(to: seconds) }
                 }
                 if let list = defaults.string(forKey: "PluckScreenshotFiles") {
                     StudioNavigator.shared.newProject(with: list.split(separator: "|").map { URL(fileURLWithPath: String($0)) },

@@ -779,8 +779,7 @@ enum VisualIndex {
     static func search(_ query: String, in indexes: [FileIndex], movement: Movement? = nil, framing: Framing? = nil,
                        limit: Int = 200) -> [Hit] {
         let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber && $0 != "-" }).map(String.init)
-        let embedding = NLEmbedding.sentenceEmbedding(for: .english)
-        let queryVector = words.isEmpty ? nil : embedding?.vector(for: query.lowercased())
+        let queryVector = words.isEmpty ? nil : sentenceVector(query.lowercased())
         var hits: [Hit] = []
         for index in indexes {
             for shot in index.shots {
@@ -795,7 +794,7 @@ enum VisualIndex {
                 let matched = words.filter { word in text.contains(word) }.count
                 var score = Double(matched) / Double(words.count)
                 if let queryVector, let vector = shot.embedding, vector.count == queryVector.count {
-                    score += cosine(queryVector, vector.map(Double.init)) * 1.2
+                    score += cosine(queryVector, vector) * 1.2
                 }
                 if score > 0.45 { hits.append(Hit(path: index.path, shot: shot, score: score)) }
             }
@@ -803,9 +802,23 @@ enum VisualIndex {
         return Array(hits.sorted { $0.score > $1.score }.prefix(limit))
     }
 
-    private static func cosine(_ a: [Double], _ b: [Double]) -> Double {
+    private static func cosine(_ a: [Double], _ b: [Float]) -> Double {
         var dot = 0.0, na = 0.0, nb = 0.0
-        for (x, y) in zip(a, b) { dot += x * y; na += x * x; nb += y * y }
+        for i in 0..<min(a.count, b.count) {
+            let x = a[i], y = Double(b[i])
+            dot += x * y; na += x * x; nb += y * y
+        }
         return na > 0 && nb > 0 ? dot / (na.squareRoot() * nb.squareRoot()) : 0
+    }
+
+    /// The sentence model, loaded once (it takes a moment), used from one search at a time.
+    nonisolated(unsafe) private static var sentenceModel: NLEmbedding??
+    private static let sentenceLock = NSLock()
+
+    private static func sentenceVector(_ text: String) -> [Double]? {
+        sentenceLock.withLock {
+            if sentenceModel == nil { sentenceModel = .some(NLEmbedding.sentenceEmbedding(for: .english)) }
+            return sentenceModel??.vector(for: text)
+        }
     }
 }

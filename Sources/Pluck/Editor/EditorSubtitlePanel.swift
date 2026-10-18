@@ -4,8 +4,8 @@ import SwiftUI
 /// The Editor's Subtitles tab: how they look (font, weight, size, colour, outline or box, shadow,
 /// italics and capitals, where they sit), the names to spell right, and the lines themselves,
 /// each with its words and its timing. The picked line is the one lit on the timeline.
-struct EditorSubtitlePanel: View {
-    @Bindable var model: EditorModel
+struct EditorSubtitlePanel<Model: FileEditing>: View {
+    @Bindable var model: Model
     /// Makes the lines again from the transcript (nil without one).
     let remake: (() -> Void)?
     @AppStorage("subtitleStyleOpen") private var styleOpen = true
@@ -193,7 +193,7 @@ struct SubtitleStyleEditor: View {
     /// A setting's name on the left, its controls on the right.
     private func row<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 58, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: 84, alignment: .leading)
             HStack(spacing: 6) { content() }
                 .labelsHidden()
                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -208,8 +208,8 @@ struct SubtitleStyleEditor: View {
 // MARK: - A line
 
 /// One subtitle line: its time and words; picked, its timing to adjust and what to do with it.
-private struct SubtitleLine: View {
-    @Bindable var model: EditorModel
+private struct SubtitleLine<Model: FileEditing>: View {
+    @Bindable var model: Model
     @Binding var cue: SubtitleCue
 
     private var picked: Bool { model.selectedSubtitle == cue.id }
