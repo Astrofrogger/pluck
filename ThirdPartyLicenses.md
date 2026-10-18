@@ -57,3 +57,22 @@ developers, GPL-3.0-or-later). Its source is in [Helpers/PluckSpektra](Helpers/P
 The film and paper data is downloaded on request from
 [darktable-spektrafilm](https://github.com/darktable-org/darktable-spektrafilm), CC BY-SA 4.0 ©
 Andrea Volpato, with its licence.
+
+## Depth Anything V2 Small (depth and sky masks, Pluck Studio; downloaded on request)
+
+Depth Anything V2 by Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiaogang Xu, Jiashi Feng and
+Hengshuang Zhao; the Small model and its Core ML conversion by Apple
+(https://huggingface.co/apple/coreml-depth-anything-v2-small), licensed under the Apache License 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). Pluck downloads the model only when asked, checks it,
+and runs it on the Mac; it is not part of Pluck's download.
+
+## RED R3D SDK (Raw Player, Pluck Studio)
+Pluck Studio's raw decoder, `pluck-raw`, uses the R3D SDK, © 2008-2026 RED Digital Cinema. All
+rights reserved. Its runtime libraries (REDR3D, REDMetal) are included unchanged in Pluck's own
+folder, for Pluck's use only, under RED's R3D SDK License Agreement. They may not be copied,
+reverse engineered or used by other programs. The SDK itself isn't part of this repository.
+
+## Blackmagic RAW SDK (Raw Player, Pluck Studio)
+`pluck-raw` uses the Blackmagic RAW SDK, © Blackmagic Design Pty. Ltd. Its API library
+(BlackmagicRawAPI.framework) is included unchanged under the Blackmagic RAW SDK License
+Agreement. The SDK itself isn't part of this repository.

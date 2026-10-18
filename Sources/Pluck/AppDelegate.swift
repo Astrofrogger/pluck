@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             ProxySync.shared.resume()
             SendSync.shared.resume()
+            // Offloads cut short (a crash, a restart, a power cut) carry on.
+            OffloadCenter.shared.resumeInterrupted()
         }
         #endif
         if ScreenshotMode.scene == nil {
@@ -92,7 +94,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls { URLScheme.handle(url, manager: manager) }
+        for url in urls {
+            #if STUDIO
+            // A camera raw clip opened from Finder (Pluck as its app): Raw Player.
+            if url.isFileURL, RawFormats.isRawVideo(url) || url.pathExtension.lowercased() == "rdc" {
+                RawFormats.show(url)
+                continue
+            }
+            #endif
+            URLScheme.handle(url, manager: manager)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

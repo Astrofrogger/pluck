@@ -42,6 +42,9 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 if [[ "$EDITION" == studio ]]; then
   /usr/libexec/PlistBuddy -c "Set :CFBundleName Pluck Studio" "$APP/Contents/Info.plist"
   /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Pluck Studio" "$APP/Contents/Info.plist"
+  # Camera raw clips open in Raw Player (and Finder's preview plays them): the types, declared for
+  # Macs where no other app does, and Pluck as an app that opens them.
+  /usr/libexec/PlistBuddy -c "Merge Resources/RawTypes.plist" "$APP/Contents/Info.plist"
 fi
 
 if [[ "$EDITION" == studio ]]; then
@@ -66,6 +69,35 @@ cp "$VBIN/pluck-vision" "$APP/Contents/Helpers/pluck-vision"
 cp -R "$VBIN/mlx-swift_Cmlx.bundle" "$APP/Contents/Helpers/"
 codesign --force --sign - "$APP/Contents/Helpers/mlx-swift_Cmlx.bundle"
 codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-vision"
+# The raw decoder (RED and Blackmagic RAW) with the camera makers' own libraries, from their SDKs
+# (which aren't in this repository: their licences don't allow sharing them). Without an SDK,
+# Pluck is built without that format. PLUCK_RAW_SDKS points at the folder with red/ and braw/.
+SDKS="${PLUCK_RAW_SDKS:-${0:A:h}/../../sdks}"
+RED_SDK=("$SDKS"/red/R3DSDK*(N/))
+BRAW_SDK="$SDKS/braw/SDK/Mac"
+RAW_FLAGS=() RAW_SOURCES=()
+if (( ${#RED_SDK} )); then
+  RAW_FLAGS+=(-DPLUCK_RED=1 -I"$RED_SDK[1]/Include")
+  RAW_SOURCES+=("$RED_SDK[1]/Lib/mac64/libR3DSDK-libcpp.a")
+  mkdir -p "$APP/Contents/Helpers/RED"
+  cp "$RED_SDK[1]"/Redistributable/mac/REDR3D.dylib "$RED_SDK[1]"/Redistributable/mac/REDMetal.dylib "$APP/Contents/Helpers/RED/"
+fi
+if [[ -d "$BRAW_SDK" ]]; then
+  RAW_FLAGS+=(-DPLUCK_BRAW=1 -I"$BRAW_SDK/Include")
+  RAW_SOURCES+=("$BRAW_SDK/Include/BlackmagicRawAPIDispatch.cpp")
+  mkdir -p "$APP/Contents/Helpers/BRAW"
+  cp -R "$BRAW_SDK/Libraries/BlackmagicRawAPI.framework" "$APP/Contents/Helpers/BRAW/"
+fi
+if (( ${#RAW_FLAGS} )); then
+  clang++ -O2 -std=c++17 -fobjc-arc -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 -w $RAW_FLAGS \
+    Helpers/PluckRaw/main.mm $RAW_SOURCES -framework Foundation -framework CoreFoundation -framework Metal -ldl \
+    -o "$APP/Contents/Helpers/pluck-raw"
+  codesign --force --options runtime --entitlements Helpers/PluckRaw/entitlements.plist --sign - "$APP/Contents/Helpers/pluck-raw"
+  # Finder's preview (the space bar) and thumbnails for the same clips, with the decoders built in.
+  Helpers/PluckQuickLook/make-appex.sh "$APP" $RAW_FLAGS $RAW_SOURCES
+else
+  echo "No camera raw SDKs in $SDKS: building without the raw decoder" >&2
+fi
 # The private network for Edit Anywhere (Tailscale's engine, in Go): both architectures, so it
 # runs on every Mac Pluck runs on. Without Go installed, Pluck is built without it.
 GO="$(command -v go || echo /opt/homebrew/bin/go)"

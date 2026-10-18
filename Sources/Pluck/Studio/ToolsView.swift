@@ -3,7 +3,7 @@ import SwiftUI
 /// Pluck's tools beyond downloading, in one place: the Tools button in the main window, the
 /// Tools menu and the menu bar. Each opens in its own window.
 enum PluckTool: String, CaseIterable, Identifiable {
-    case derush, findShots, liveRecorder, deliveryCheck, logoAnimator, brandPack, musicFit, library, officeRender
+    case derush, offload, rawPlayer, findShots, liveRecorder, deliveryCheck, logoAnimator, brandPack, musicFit, library, officeRender
 
     enum Group: CaseIterable {
         case editing, creating, sharing
@@ -28,7 +28,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .derush, .findShots, .liveRecorder, .deliveryCheck: .editing
+        case .derush, .offload, .rawPlayer, .findShots, .liveRecorder, .deliveryCheck: .editing
         case .logoAnimator, .brandPack, .musicFit: .creating
         case .library, .officeRender: .sharing
         }
@@ -37,6 +37,8 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var name: LocalizedStringKey {
         switch self {
         case .derush: "Derush Footage"
+        case .offload: "Offload"
+        case .rawPlayer: "Player"
         case .findShots: "Search"
         case .liveRecorder: "Live Recorder"
         case .deliveryCheck: "Delivery Check"
@@ -51,6 +53,8 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var detail: LocalizedStringKey {
         switch self {
         case .derush: "Sort a shoot into a timeline of usable takes, for DaVinci Resolve."
+        case .offload: "Copy a card to several drives, every file checked."
+        case .rawPlayer: "Play camera raw and pro formats, with timecode and LUTs."
         case .findShots: "Find a moment by what was said or what’s in the picture."
         case .liveRecorder: "Record a stream and mark the moments as it plays."
         case .deliveryCheck: "Look over a finished export before it goes to the client."
@@ -65,6 +69,8 @@ enum PluckTool: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .derush: "film.stack"
+        case .offload: "externaldrive.badge.checkmark"
+        case .rawPlayer: "play.rectangle"
         case .findShots: "sparkle.magnifyingglass"
         case .liveRecorder: "record.circle"
         case .deliveryCheck: "checkmark.seal"
