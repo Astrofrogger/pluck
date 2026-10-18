@@ -256,7 +256,7 @@ enum DeliveryCheck {
 
     private static func picture(_ file: URL, fps: Double, duration: Double, ffmpeg: String,
                                 progress: @escaping @Sendable (Double) -> Void) async -> [Issue] {
-        let filter = "scale=320:-2,blackdetect=d=0:pix_th=0.1:pic_th=0.98,freezedetect=n=0.001:d=2,scdet=threshold=100,metadata=print:file=-"
+        let filter = "scale=320:-2,blackdetect=d=0:pix_th=0.1:pic_th=0.98,freezedetect=n=0.001:d=2,scdet=threshold=100,signalstats,metadata=print:file=-"
         let output = await Self.output(ffmpeg, ["-nostdin", "-v", "error", "-i", file.path, "-an", "-vf", filter, "-f", "null", "-"]) { line in
             if line.hasPrefix("frame:"), let range = line.range(of: "pts_time:"), let t = Double(line[range.upperBound...].trimmingCharacters(in: .whitespaces)) {
                 progress(min(t / max(duration, 1), 1))
@@ -264,6 +264,8 @@ enum DeliveryCheck {
         }
         var times: [Double] = [], differences: [Double] = []
         var blacks: [(Double, Double?)] = [], freezes: [(Double, Double?)] = []
+        // Each frame's darkest, brightest and average brightness (a plain frame has almost no range).
+        var lows: [Double: Double] = [:], highs: [Double: Double] = [:], averages: [Double: Double] = [:]
         var time = 0.0
         for line in output.split(separator: "\n") {
             if line.hasPrefix("frame:") {
@@ -278,6 +280,9 @@ enum DeliveryCheck {
             case "lavfi.black_end": if !blacks.isEmpty { blacks[blacks.count - 1].1 = value }
             case "lavfi.freezedetect.freeze_start": freezes.append((value, nil))
             case "lavfi.freezedetect.freeze_end": if !freezes.isEmpty { freezes[freezes.count - 1].1 = value }
+            case "lavfi.signalstats.YLOW": lows[time] = value
+            case "lavfi.signalstats.YHIGH": highs[time] = value
+            case "lavfi.signalstats.YAVG": averages[time] = value
             default: break
             }
         }
@@ -296,9 +301,20 @@ enum DeliveryCheck {
             if jump(i) {
                 if jump(i + 1) || jump(i + 2) {
                     let frames = jump(i + 1) ? 1 : 2
-                    issues.append(Issue(severity: .problem, time: times[i], title: String(localized: "Flash frame"),
-                                        detail: frames == 1 ? String(localized: "A single frame between two shots, probably left over from an edit.")
-                                                            : String(localized: "Two frames between two shots, probably left over from an edit.")))
+                    // A plain frame (all white, or one colour) is usually a flash put there on purpose;
+                    // a frame of another shot is usually left over.
+                    let flash = times[i..<min(i + frames, times.count)]
+                    let plain = flash.allSatisfy { t in (highs[t] ?? 255) - (lows[t] ?? 0) < 24 }
+                    let white = plain && flash.allSatisfy { (averages[$0] ?? 0) > 200 }
+                    if plain {
+                        issues.append(Issue(severity: .warning, time: times[i], title: String(localized: "Flash frame"),
+                                            detail: white ? String(localized: "A white frame between two shots. Fine if it’s meant as a flash.")
+                                                          : String(localized: "A plain frame between two shots. Fine if it’s meant as a flash.")))
+                    } else {
+                        issues.append(Issue(severity: .problem, time: times[i], title: String(localized: "Flash frame"),
+                                            detail: frames == 1 ? String(localized: "A single frame between two shots, probably left over from an edit.")
+                                                                : String(localized: "Two frames between two shots, probably left over from an edit.")))
+                    }
                     i += frames + 1
                     continue
                 }
@@ -338,7 +354,10 @@ enum DeliveryCheck {
 
     private static func sound(_ file: URL, channels: Int, duration: Double, destination: Destination,
                               ffmpeg: String) async -> (issues: [Issue], facts: [(String, String)]) {
-        let filter = "ebur128=peak=true,silencedetect=n=-60dB:d=1,astats=measure_perchannel=RMS_level+Peak_level:measure_overall=none"
+        // Two kinds of silence: a quiet second or more, and a gap of nothing at all (digital
+        // silence, often a cut in the sound) as short as a tenth of a second.
+        let filter = "ebur128=peak=true,silencedetect@long=n=-60dB:d=1,silencedetect@gap=n=-90dB:d=0.1,"
+            + "astats=measure_perchannel=RMS_level+Peak_level:measure_overall=none"
         let output = await Self.output(ffmpeg, ["-nostdin", "-hide_banner", "-i", file.path, "-vn", "-af", filter, "-f", "null", "-"], stderr: true)
         func number(after label: String, in text: Substring) -> Double? {
             guard let range = text.range(of: label) else { return nil }
@@ -370,16 +389,25 @@ enum DeliveryCheck {
             }
         }
 
-        // Dropouts: silence in the middle.
-        var start: Double?
+        // Dropouts: silence in the middle (not at the start or the end).
+        var start: [String: Double] = [:]
+        var quiet: [(Double, Double)] = [], gaps: [(Double, Double)] = []
         for line in output.split(separator: "\n") {
-            if let value = number(after: "silence_start:", in: line) { start = value }
-            if let value = number(after: "silence_end:", in: line), let from = start {
-                start = nil
+            let kind = line.contains("silencedetect@gap") ? "gap" : "long"
+            if let value = number(after: "silence_start:", in: line) { start[kind] = value }
+            if let value = number(after: "silence_end:", in: line), let from = start.removeValue(forKey: kind) {
                 guard from > 0.5, value < duration - 0.5 else { continue }
-                issues.append(Issue(severity: .warning, time: from, end: value, title: String(localized: "Sound drops out"),
-                                    detail: String(localized: "\(String(format: "%.1f", value - from)) seconds of silence. Fine if it’s meant as a pause.")))
+                if kind == "gap" { gaps.append((from, value)) } else { quiet.append((from, value)) }
             }
+        }
+        for (from, to) in quiet {
+            issues.append(Issue(severity: .warning, time: from, end: to, title: String(localized: "Sound drops out"),
+                                detail: String(localized: "\(String(format: "%.1f", to - from)) seconds of silence. Fine if it’s meant as a pause.")))
+        }
+        // A short gap of nothing at all, not already part of a longer silence.
+        for (from, to) in gaps where !quiet.contains(where: { $0.0 <= to && from <= $0.1 }) {
+            issues.append(Issue(severity: .warning, time: from, end: to, title: String(localized: "Sound drops out"),
+                                detail: String(localized: "\(String(format: "%.1f", to - from)) seconds with no sound at all, often a gap left in the edit.")))
         }
 
         // A channel without anything on it (a mono mix on one side only).
@@ -580,5 +608,34 @@ enum DeliveryCheck {
             process.waitUntilExit()
             return String(decoding: data, as: UTF8.self)
         }.value
+    }
+}
+
+extension DeliveryCheck {
+    /// Tests: every video in a folder checked, each issue written as a line, then Pluck quits.
+    @MainActor static func selfTest(defaults: UserDefaults) async {
+        guard let folder = defaults.string(forKey: "PluckScreenshotFile"), let log = defaults.string(forKey: "PluckScreenshotLog"),
+              let manager = AppDelegate.shared?.manager, let ffmpeg = manager.tool("ffmpeg"), let ffprobe = manager.tool("ffprobe") else { return }
+        let destination = defaults.string(forKey: "PluckScreenshotDestination").flatMap(Destination.init(rawValue:)) ?? .online
+        let files = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: folder), includingPropertiesForKeys: nil)) ?? [])
+            .filter { !$0.lastPathComponent.hasPrefix(".") }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        var lines: [String] = []
+        for file in files {
+            do {
+                let report = try await run(file, destination: destination, ffmpeg: ffmpeg, ffprobe: ffprobe) { _, _ in }
+                lines.append("== \(file.lastPathComponent): \(report.issues.count) issues")
+                for issue in report.issues {
+                    let time = issue.time.map { String(format: "%.2f", $0) } ?? "-"
+                    let end = issue.end.map { String(format: "-%.2f", $0) } ?? ""
+                    lines.append("  \(issue.severity) \(time)\(end) \(issue.title) | \(issue.detail)")
+                }
+            } catch {
+                lines.append("== \(file.lastPathComponent): error \(error.localizedDescription)")
+            }
+            try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
+        }
+        lines.append("done")
+        try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
+        NSApp.terminate(nil)
     }
 }

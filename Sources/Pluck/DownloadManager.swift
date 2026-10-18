@@ -1088,12 +1088,27 @@ final class DownloadManager {
         return scored.max { $0.score < $1.score }?.url
     }
 
+    /// The name of the drive a folder is on (its last path part when that can't be told).
+    nonisolated static func driveName(of folder: String) -> String {
+        let parts = (folder as NSString).standardizingPath.split(separator: "/")
+        if parts.count >= 2, parts[0] == "Volumes" { return String(parts[1]) }
+        return (try? URL(fileURLWithPath: folder).resourceValues(forKeys: [.volumeLocalizedNameKey]))?.volumeLocalizedName
+            ?? (folder as NSString).lastPathComponent
+    }
+
     private nonisolated static func entries(_ data: Data) -> [[String: Any]]? {
         (try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["entries"] as? [[String: Any]]
     }
 
     private func launch(_ item: DownloadItem) {
         guard let exe = executableURL else { return }
+        // A folder on a drive that isn't connected: said so, not a "permission denied" from yt-dlp.
+        if LibraryStore.isOnDisconnectedDrive(item.folder) {
+            item.triedPageSearch = true
+            fail(item, String(localized: "The drive “\(Self.driveName(of: item.folder))” isn’t connected. Connect it, or choose another download folder in Settings."))
+            return
+        }
+        let folder = item.folder, drive = Self.driveName(of: item.folder)
         let process = Process()
         process.executableURL = exe
         process.arguments = arguments(for: item, url: item.resolvedURL ?? item.url)
@@ -1127,8 +1142,27 @@ final class DownloadManager {
                 } else if lower.contains("drm protected") {
                     message = String(localized: "This video is DRM-protected and can’t be downloaded.")
                 }
-                let final = message
-                await MainActor.run { item.errorMessage = final }
+                // Problems on this Mac or with the connection: in plain words, and no point looking
+                // for a video on the page instead.
+                var local = true
+                if lower.contains("errno 28") || lower.contains("no space left") {
+                    message = String(localized: "There’s no room left on “\(drive)”. Make some room and try again: the download carries on where it stopped.")
+                } else if lower.contains("errno 30") || lower.contains("read-only file system") {
+                    message = String(localized: "“\(drive)” can only be read, not written to. Choose another download folder in Settings.")
+                } else if (lower.contains("errno 13") || lower.contains("permission denied"))
+                            && (line.contains(folder) || lower.contains("for writing") || lower.contains("create directory") || lower.contains(".part")) {
+                    message = String(localized: "Pluck isn’t allowed to save in “\((folder as NSString).lastPathComponent)”. Choose another download folder in Settings.")
+                } else if ["connection refused", "connection reset", "timed out", "network is unreachable", "name resolution",
+                           "nodename nor servname", "incompleteread", "remote end closed", "connection aborted"].contains(where: lower.contains) {
+                    message = String(localized: "The site couldn’t be reached, or the connection dropped. Try again: the download carries on where it stopped.")
+                } else {
+                    local = false
+                }
+                let final = message, skip = local
+                await MainActor.run {
+                    item.errorMessage = final
+                    if skip { item.triedPageSearch = true }
+                }
             }
         }
         Task.detached {

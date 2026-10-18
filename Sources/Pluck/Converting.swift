@@ -125,6 +125,18 @@ enum Converting {
         var width: Int?
         var height: Int?
         var fps: Double?
+        /// The picture's pixel format (yuv420p…) and whether it's interlaced.
+        var pixelFormat: String?
+        var interlaced = false
+
+        /// H.264 that plays everywhere: 8-bit 4:2:0 (not 4:2:2, 4:4:4 or 10-bit, which phones,
+        /// browsers and QuickTime can't play).
+        var playableH264: Bool {
+            videoCodec == "h264" && (pixelFormat.map { ["yuv420p", "yuvj420p"].contains($0) } ?? true)
+        }
+
+        /// Filters that go first when the picture is re-encoded: interlaced video deinterlaced.
+        var cleanup: String? { interlaced ? "bwdif=mode=send_frame:deint=interlaced" : nil }
     }
 
     static func probe(_ file: URL, ffprobe: String) async -> MediaInfo? {
@@ -132,7 +144,7 @@ enum Converting {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: ffprobe)
             p.arguments = ["-v", "error", "-show_entries",
-                           "format=duration:stream=codec_type,codec_name,bit_rate,width,height,avg_frame_rate:stream_disposition=attached_pic",
+                           "format=duration:stream=codec_type,codec_name,bit_rate,width,height,avg_frame_rate,pix_fmt,field_order:stream_disposition=attached_pic",
                            "-of", "json", file.path]
             let pipe = Pipe()
             p.standardOutput = pipe
@@ -152,6 +164,8 @@ enum Converting {
                     info.videoCodec = codec
                     info.width = stream["width"] as? Int
                     info.height = stream["height"] as? Int
+                    info.pixelFormat = stream["pix_fmt"] as? String
+                    info.interlaced = ["tt", "bb", "tb", "bt"].contains(stream["field_order"] as? String ?? "")
                     // "30000/1001" → 29.97
                     let rate = (stream["avg_frame_rate"] as? String)?.split(separator: "/").compactMap { Double($0) }
                     if let rate, rate.count == 2, rate[1] > 0 { info.fps = rate[0] / rate[1] }
@@ -207,6 +221,7 @@ enum Converting {
             let container = ["mp4", "mov", "m4v"].contains(sourceExtension) ? sourceExtension : "mp4"
             return Plan(arguments: ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0",
                                     "-c:v", "libx264", "-preset", "fast", "-crf", "18", "-pix_fmt", "yuv420p"]
+                            + (info.cleanup.map { ["-vf", $0] } ?? [])
                             + (audioFits ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"])
                             + ["-movflags", "+faststart"],
                         fileExtension: container, suffix: suffix)
@@ -214,7 +229,7 @@ enum Converting {
             guard info.videoCodec != nil else { throw Failure.noVideo }
             let width = conversion.gifWidth ?? 480
             // One pass with its own palette, so colours stay clean instead of the 256-colour default.
-            let filter = "fps=\(gifFrameRate(width: width)),scale='min(\(width),iw)':-2:flags=lanczos,"
+            let filter = (info.cleanup.map { $0 + "," } ?? "") + "fps=\(gifFrameRate(width: width)),scale='min(\(width),iw)':-2:flags=lanczos,"
                 + "split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle"
             return Plan(arguments: ["-map", "0:v:0", "-an", "-vf", filter, "-loop", "0"], fileExtension: "gif", suffix: suffix)
         case .compress:
@@ -228,7 +243,8 @@ enum Converting {
                             fileExtension: "m4a", suffix: String(localized: " (compressed)") + suffix)
             }
             var video264 = ["-c:v", "libx264", "-preset", "medium", "-b:v", "\(video)k", "-pix_fmt", "yuv420p"]
-            if let height = target.height { video264 += ["-vf", "scale=-2:\(height)"] }
+            let filters = [info.cleanup, target.height.map { "scale=-2:\($0)" }].compactMap { $0 }
+            if !filters.isEmpty { video264 += ["-vf", filters.joined(separator: ",")] }
             let log = ["-passlogfile", passLog]
             return Plan(firstPass: ["-map", "0:v:0"] + video264 + ["-pass", "1"] + log + ["-an", "-f", "mp4"],
                         arguments: ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0"] + video264 + ["-pass", "2"] + log
@@ -241,10 +257,12 @@ enum Converting {
             return plan
         case .mp4:
             guard let video = info.videoCodec else { throw Failure.noVideo }
-            let videoFits = ["h264", "hevc"].contains(video) && conversion.clip == nil
+            // HEVC is kept as it is (iPhone HDR stays HDR); H.264 only when it plays everywhere.
+            let videoFits = (info.playableH264 || video == "hevc") && conversion.clip == nil
             let audioFits = info.audioCodec.map { ["aac", "alac", "mp3"].contains($0) } ?? true
             var args = ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0"]
             args += videoFits ? ["-c:v", "copy"] : ["-c:v", "libx264", "-preset", "medium", "-crf", "20", "-pix_fmt", "yuv420p"]
+                + (info.cleanup.map { ["-vf", $0] } ?? [])
             if video == "hevc" { args += ["-tag:v", "hvc1"] }   // so QuickTime and iPhone play it
             args += audioFits ? ["-c:a", "copy"] : ["-c:a", "aac", "-b:a", "192k"]
             args += ["-movflags", "+faststart"]
@@ -254,7 +272,7 @@ enum Converting {
             guard info.videoCodec != nil else { throw Failure.noVideo }
             let args = ["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0",
                         "-c:v", "libx264", "-preset", "medium", "-crf", "26", "-pix_fmt", "yuv420p",
-                        "-vf", "scale=-2:'min(720,trunc(ih/2)*2)'",
+                        "-vf", (info.cleanup.map { $0 + "," } ?? "") + "scale=-2:'min(720,trunc(ih/2)*2)'",
                         "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart"]
             return Plan(arguments: args, fileExtension: "mp4", suffix: String(localized: " (smaller)"))
         }

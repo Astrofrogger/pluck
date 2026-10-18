@@ -13,7 +13,9 @@ struct LibraryView: View {
     @AppStorage("librarySort") private var sort: Sort = .newest
     @State private var tagging: LibraryStore.Entry?
     @State private var newTag = ""
-    @State private var trashing: LibraryStore.Entry?
+    /// Tagging several at once (the highlighted ones).
+    @State private var taggingMany: [LibraryStore.Entry] = []
+    @State private var trashing: [LibraryStore.Entry] = []
     @State private var preview: URL?
     @State private var sharing = false
     @State private var sending: LibraryStore.Entry?
@@ -21,6 +23,10 @@ struct LibraryView: View {
     @State private var server = LibraryServer.shared
     /// The highlighted item (its path): Space shows it in Quick Look, arrow keys move it.
     @State private var selected: String?
+    /// Every highlighted item (Shift-click for a run, Command-click for one more), and where a
+    /// Shift-click run starts.
+    @State private var selection: Set<String> = []
+    @State private var anchor: String?
     @State private var columns = 1
     @FocusState private var gridFocused: Bool
     /// Checked when the window opens and on refresh, not on every redraw.
@@ -153,6 +159,11 @@ struct LibraryView: View {
         .onAppear {
             checkFiles()
             network.start()
+            // Tests: -PluckScreenshotSelect <n> highlights the first n.
+            if ScreenshotMode.scene == "library", case let n = UserDefaults.standard.integer(forKey: "PluckScreenshotSelect"), n > 0 {
+                selection = Set(shown.prefix(n).map(\.id))
+                selected = shown.first?.id
+            }
         }
         .onDisappear { network.stop() }
         .quickLookPreview($preview)
@@ -170,7 +181,9 @@ struct LibraryView: View {
                 Text("Your tags: \(library.allTags.formatted(.list(type: .and)))")
             }
         }
-        .confirmationDialog("Move “\(trashing?.title ?? "")” to the Trash?", isPresented: Binding(get: { trashing != nil }, set: { if !$0 { trashing = nil } })) {
+        .confirmationDialog(trashing.count == 1 ? String(localized: "Move “\(trashing[0].title)” to the Trash?")
+                                : String(localized: "Move \(trashing.count) items to the Trash?"),
+                            isPresented: Binding(get: { !trashing.isEmpty }, set: { if !$0 { trashing = [] } })) {
             Button("Move to Trash", role: .destructive) { moveToTrash() }
         } message: {
             Text("You can put it back from the Trash in Finder.")
@@ -260,13 +273,20 @@ struct LibraryView: View {
                     }
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)], spacing: 18) {
                         ForEach(list) { entry in
-                            LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selected == entry.id)
+                            LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id))
                                 .id(entry.id)
                                 // One click handler, so highlighting doesn't wait to see if a
                                 // double-click follows; the second click of one opens it.
                                 .onTapGesture {
-                                    select(entry)
-                                    if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { open(entry) }
+                                    let flags = NSApp.currentEvent?.modifierFlags ?? []
+                                    if flags.contains(.shift) {
+                                        extend(to: entry, in: list)
+                                    } else if flags.contains(.command) {
+                                        toggle(entry)
+                                    } else {
+                                        select(entry)
+                                        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { open(entry) }
+                                    }
                                 }
                                 .contextMenu { menu(for: entry) }
                         }
@@ -289,6 +309,23 @@ struct LibraryView: View {
                 .onKeyPress(.return) {
                     guard let entry = list.first(where: { $0.id == selected }) else { return .ignored }
                     open(entry)
+                    return .handled
+                }
+                // Delete takes them out of the Library; Command-Delete moves the files to the Trash.
+                .onKeyPress(keys: [.delete, .deleteForward]) { press in
+                    let chosen = list.filter { selection.contains($0.id) }
+                    guard !chosen.isEmpty else { return .ignored }
+                    if press.modifiers.contains(.command) {
+                        let present = chosen.filter { !missing.contains($0.path) }
+                        if present.isEmpty { NSSound.beep() } else { trashing = present }
+                    } else {
+                        removeFromLibrary(chosen)
+                    }
+                    return .handled
+                }
+                .onKeyPress(characters: ["a"]) { press in
+                    guard press.modifiers.contains(.command) else { return .ignored }
+                    selection = Set(list.map(\.id))
                     return .handled
                 }
             }
@@ -325,11 +362,37 @@ struct LibraryView: View {
 
     @ViewBuilder
     private func menu(for entry: LibraryStore.Entry) -> some View {
+        let chosen = selection.contains(entry.id) && selection.count > 1 ? shown.filter { selection.contains($0.id) } : []
+        if chosen.count > 1 {
+            menu(forMany: chosen)
+        } else {
+            menu(forOne: entry)
+        }
+    }
+
+    /// For several highlighted items at once.
+    @ViewBuilder
+    private func menu(forMany chosen: [LibraryStore.Entry]) -> some View {
+        let present = chosen.filter { !missing.contains($0.path) }
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(present.map(\.file)) }.disabled(present.isEmpty)
+        Button("Add Tag…") { newTag = ""; tagging = chosen.first; taggingMany = chosen }
+        Divider()
+        Button("Remove \(chosen.count) Items from Library") { removeFromLibrary(chosen) }
+        Button("Move \(present.count) Items to Trash…", role: .destructive) { trashing = present }.disabled(present.isEmpty)
+    }
+
+    @ViewBuilder
+    private func menu(forOne entry: LibraryStore.Entry) -> some View {
         let exists = !missing.contains(entry.path)
         Button("Open") { open(entry) }.disabled(!exists)
         if entry.kind == .video || entry.kind == .audio {
             Button("Open in Editor") { EditorTarget(path: entry.path).open(openWindow) }.disabled(!exists)
         }
+        #if STUDIO
+        if RawFormats.isRawVideo(entry.file) {
+            Button("Open in Player") { RawFormats.show(entry.file) }.disabled(!exists)
+        }
+        #endif
         Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) }.disabled(!exists)
         Button("Send to Phone…") { sending = entry }.disabled(!exists)
@@ -342,7 +405,7 @@ struct LibraryView: View {
             Button("Open Page in Browser") { NSWorkspace.shared.open(url) }
         }
         Divider()
-        Button("Add Tag…") { newTag = ""; tagging = entry }
+        Button("Add Tag…") { newTag = ""; tagging = entry; taggingMany = [] }
         if !entry.tags.isEmpty {
             Menu("Remove Tag") {
                 ForEach(entry.tags, id: \.self) { tag in
@@ -351,15 +414,41 @@ struct LibraryView: View {
             }
         }
         Divider()
-        Button("Remove from Library") { library.remove([entry]) }
-        Button("Move to Trash…", role: .destructive) { trashing = entry }.disabled(!exists)
+        Button("Remove from Library") { removeFromLibrary([entry]) }
+        Button("Move to Trash…", role: .destructive) { trashing = [entry] }.disabled(!exists)
     }
 
     private func select(_ entry: LibraryStore.Entry) {
         selected = entry.id
+        selection = [entry.id]
+        anchor = entry.id
         gridFocused = true
         // An open Quick Look follows the selection.
         if preview != nil { preview = missing.contains(entry.path) ? nil : entry.file }
+    }
+
+    /// Shift-click: everything from the last plain click to this one.
+    private func extend(to entry: LibraryStore.Entry, in list: [LibraryStore.Entry]) {
+        guard let anchor, let from = list.firstIndex(where: { $0.id == anchor }),
+              let to = list.firstIndex(where: { $0.id == entry.id }) else { return select(entry) }
+        selection = Set(list[min(from, to)...max(from, to)].map(\.id))
+        selected = entry.id
+        gridFocused = true
+    }
+
+    /// Command-click: one more, or one less.
+    private func toggle(_ entry: LibraryStore.Entry) {
+        if selection.contains(entry.id) { selection.remove(entry.id) } else { selection.insert(entry.id) }
+        selected = entry.id
+        anchor = entry.id
+        gridFocused = true
+    }
+
+    private func removeFromLibrary(_ entries: [LibraryStore.Entry]) {
+        library.remove(entries)
+        let gone = Set(entries.map(\.id))
+        selection.subtract(gone)
+        if let selected, gone.contains(selected) { self.selected = nil }
     }
 
     private func togglePreview() -> KeyPress.Result {
@@ -384,22 +473,32 @@ struct LibraryView: View {
     }
 
     private func open(_ entry: LibraryStore.Entry) {
+        #if STUDIO
+        // Raw clips play in Pluck (most Macs have nothing else that can).
+        if RawFormats.isRawVideo(entry.file) { return RawFormats.show(entry.file) }
+        #endif
         NSWorkspace.shared.open(entry.file)
     }
 
     private func addTag() {
         guard let entry = tagging else { return }
         let tag = newTag.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !tag.isEmpty, !entry.tags.contains(tag) { library.setTags(entry.tags + [tag], for: entry) }
+        for one in taggingMany.isEmpty ? [entry] : taggingMany where !tag.isEmpty && !one.tags.contains(tag) {
+            library.setTags(one.tags + [tag], for: one)
+        }
         tagging = nil
+        taggingMany = []
     }
 
     private func moveToTrash() {
-        guard let entry = trashing else { return }
-        trashing = nil
-        NSWorkspace.shared.recycle([entry.file]) { _, error in
+        let entries = trashing
+        guard !entries.isEmpty else { return }
+        trashing = []
+        NSWorkspace.shared.recycle(entries.map(\.file)) { moved, _ in
             Task { @MainActor in
-                if error == nil { library.remove([entry]) }
+                // Only the ones that went to the Trash leave the Library.
+                let trashed = Set(moved.keys.map(\.standardizedFileURL.path))
+                removeFromLibrary(entries.filter { trashed.contains($0.file.standardizedFileURL.path) })
             }
         }
     }
@@ -456,7 +555,10 @@ private struct LibraryCard: View {
                 .font(.callout.weight(.medium))
                 .lineLimit(2)
             HStack(spacing: 4) {
-                if isMissing {
+                if isMissing, LibraryStore.isOnDisconnectedDrive(entry.path) {
+                    // Not gone: its drive isn't connected.
+                    Label("Drive not connected", systemImage: "externaldrive.badge.xmark")
+                } else if isMissing {
                     Label("Missing", systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
                 } else {
                     Text(details)
