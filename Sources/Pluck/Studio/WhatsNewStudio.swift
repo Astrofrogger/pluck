@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.6", items: [
+                Item(symbol: "folder.badge.plus", title: String(localized: "Your bins in DaVinci"),
+                     detail: String(localized: "Pick the bin and sub-bin clips go in, from the project’s own or a new name. Clips already in the project are left out, and each clip’s Comments say the rate it was shot at.")),
+            ]),
             Release(version: "3.1.5", items: [
                 Item(symbol: "waveform.badge.plus", title: String(localized: "Every sound, in its own bin"),
                      detail: String(localized: "Send to DaVinci links every .wav the camera wrote for a clip (CinemaDNG folders too) and keeps the clip’s own sound. The sound files go in an Audio bin, so the clips stand on their own.")),

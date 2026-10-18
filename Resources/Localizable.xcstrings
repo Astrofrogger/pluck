@@ -16354,6 +16354,64 @@
         }
       }
     },
+    "Already in DaVinci Resolve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schon in DaVinci Resolve"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya está en DaVinci Resolve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déjà dans DaVinci Resolve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Già in DaVinci Resolve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すでに DaVinci Resolve にあります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이미 DaVinci Resolve에 있음"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al in DaVinci Resolve"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Já está no DaVinci Resolve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 DaVinci Resolve 中"
+          }
+        }
+      }
+    },
     "Also blur text": {
       "localizations": {
         "de": {
@@ -21583,6 +21641,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "胶片越大：同一画面颗粒更细、光晕更小"
+          }
+        }
+      }
+    },
+    "Bin": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chutier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raccoglitore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빈"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "素材箱"
           }
         }
       }
@@ -51205,6 +51321,64 @@
         }
       }
     },
+    "Every clip is in the project “%@” already, so nothing was imported again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Clip ist schon im Projekt „%@“, deshalb wurde nichts erneut importiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los clips ya están en el proyecto «%@», así que no se importó nada de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque plan est déjà dans le projet « %@ », rien n’a donc été réimporté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni clip è già nel progetto «%@», quindi non è stato importato nulla di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのクリップがプロジェクト「%@」にすでにあるため、何も読み込み直していません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 클립이 이미 프로젝트 “%@”에 있어 아무것도 다시 가져오지 않았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elke clip zit al in het project ‘%@’, dus er is niets opnieuw geïmporteerd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os clipes já estão no projeto “%@”, então nada foi importado de novo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个片段都已在项目“%@”中，因此没有再次导入。"
+          }
+        }
+      }
+    },
     "Every copy is read back and checked with xxHash64.": {
       "localizations": {
         "de": {
@@ -68564,6 +68738,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "采访"
+          }
+        }
+      }
+    },
+    "Into this bin of the open project. Use a slash for bins in bins, as in Shoot/Day 1. Clips already in the project are left out.": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesen Ordner des geöffneten Projekts. Mit einem Schrägstrich legst du Ordner in Ordnern an, etwa Dreh/Tag 1. Clips, die schon im Projekt sind, werden ausgelassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En esta carpeta del proyecto abierto. Usa una barra para carpetas dentro de carpetas, como Rodaje/Día 1. Los clips que ya están en el proyecto se omiten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans ce chutier du projet ouvert. Utilisez une barre oblique pour des chutiers imbriqués, comme Tournage/Jour 1. Les plans déjà dans le projet sont ignorés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In questo raccoglitore del progetto aperto. Usa una barra per raccoglitori annidati, come Riprese/Giorno 1. Le clip già nel progetto vengono saltate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプロジェクトのこのビンに入れます。スラッシュでビンの中にビンを作れます（例：撮影/1日目）。プロジェクトにすでにあるクリップは除きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 프로젝트의 이 빈에 넣습니다. 빈 안에 빈을 만들려면 촬영/1일차처럼 슬래시를 쓰세요. 이미 프로젝트에 있는 클립은 건너뜁니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In deze bin van het geopende project. Gebruik een schuine streep voor bins in bins, zoals Opname/Dag 1. Clips die al in het project zitten worden overgeslagen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nesta pasta do projeto aberto. Use uma barra para pastas dentro de pastas, como Filmagem/Dia 1. Clipes que já estão no projeto ficam de fora."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放入打开项目中的这个素材箱。用斜杠可建立嵌套素材箱，例如“拍摄/第 1 天”。已在项目中的片段会被跳过。"
           }
         }
       }
@@ -101134,6 +101367,64 @@
         }
       }
     },
+    "Pick a bin of the open project or type a new name, and a sub-bin in it if you like. Clips already in the project are left out.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen Ordner des geöffneten Projekts oder gib einen neuen Namen ein, und wenn du möchtest einen Unterordner darin. Clips, die schon im Projekt sind, werden ausgelassen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una carpeta del proyecto abierto o escribe un nombre nuevo, y si quieres una subcarpeta dentro. Los clips que ya están en el proyecto se omiten."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un chutier du projet ouvert ou saisissez un nouveau nom, et si vous voulez un sous-chutier dedans. Les plans déjà dans le projet sont ignorés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli un raccoglitore del progetto aperto o scrivi un nuovo nome, e se vuoi un sotto-raccoglitore al suo interno. Le clip già nel progetto vengono saltate."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開いているプロジェクトのビンを選ぶか新しい名前を入力し、必要ならその中のサブビンも指定します。プロジェクトにすでにあるクリップは除きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "열린 프로젝트의 빈을 고르거나 새 이름을 입력하고, 원하면 그 안의 하위 빈도 지정하세요. 이미 프로젝트에 있는 클립은 건너뜁니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies een bin van het geopende project of typ een nieuwe naam, en als je wilt een sub-bin erin. Clips die al in het project zitten worden overgeslagen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma pasta do projeto aberto ou digite um novo nome e, se quiser, uma subpasta dentro dela. Clipes que já estão no projeto ficam de fora."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择打开项目中的一个素材箱或输入新名称，如有需要再指定其中的子素材箱。已在项目中的片段会被跳过。"
+          }
+        }
+      }
+    },
     "Pick from playlists": {
       "localizations": {
         "de": {
@@ -101188,6 +101479,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "从播放列表中选择"
+          }
+        }
+      }
+    },
+    "Pick the bin and sub-bin clips go in, from the project’s own or a new name. Clips already in the project are left out, and each clip’s Comments say the rate it was shot at.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle Ordner und Unterordner für die Clips, aus dem Projekt oder mit neuem Namen. Clips, die schon im Projekt sind, werden ausgelassen, und in den Kommentaren jedes Clips steht seine Aufnahme-Bildrate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige la carpeta y la subcarpeta de los clips, del proyecto o con un nombre nuevo. Los clips que ya están en el proyecto se omiten, y los comentarios de cada clip indican a qué velocidad se grabó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez le chutier et le sous-chutier des plans, parmi ceux du projet ou avec un nouveau nom. Les plans déjà dans le projet sont ignorés, et les commentaires de chaque plan indiquent sa cadence de tournage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli il raccoglitore e il sotto-raccoglitore delle clip, tra quelli del progetto o con un nuovo nome. Le clip già nel progetto vengono saltate e i commenti di ogni clip indicano la frequenza di ripresa."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップを入れるビンとサブビンを、プロジェクトのものから選ぶか新しい名前で指定できます。プロジェクトにすでにあるクリップは除き、各クリップのコメントに撮影フレームレートを記します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립을 넣을 빈과 하위 빈을 프로젝트에 있는 것에서 고르거나 새 이름으로 정합니다. 이미 프로젝트에 있는 클립은 건너뛰고, 각 클립의 코멘트에 촬영 프레임 레이트를 적습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies de bin en sub-bin voor de clips, uit die van het project of met een nieuwe naam. Clips die al in het project zitten worden overgeslagen, en in de opmerkingen van elke clip staat met welke framerate hij gefilmd is."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha a pasta e a subpasta dos clipes, entre as do projeto ou com um novo nome. Clipes que já estão no projeto ficam de fora, e os comentários de cada clipe dizem a taxa em que foi gravado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可从项目已有的素材箱中选择，或输入新名称，指定片段放入的素材箱和子素材箱。已在项目中的片段会被跳过，并在每个片段的注释中写明拍摄帧率。"
           }
         }
       }
@@ -125280,6 +125629,136 @@
         }
       }
     },
+    "Send ^[%lld clip](inflect: true) to DaVinci Resolve": {
+      "localizations": {
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Clip an DaVinci Resolve senden"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld Clips an DaVinci Resolve senden"
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Enviar %lld clip a DaVinci Resolve"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Enviar %lld clips a DaVinci Resolve"
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Envoyer %lld plan à DaVinci Resolve"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Envoyer %lld plans à DaVinci Resolve"
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Invia %lld clip a DaVinci Resolve"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Invia %lld clip a DaVinci Resolve"
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld 個のクリップを DaVinci Resolve に送る"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 %lld개를 DaVinci Resolve로 보내기"
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld clip naar DaVinci Resolve sturen"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "%lld clips naar DaVinci Resolve sturen"
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Enviar %lld clipe para o DaVinci Resolve"
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Enviar %lld clipes para o DaVinci Resolve"
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 %lld 个片段发送到 DaVinci Resolve"
+          }
+        }
+      }
+    },
     "Send clips from the Player or a folder to DaVinci Resolve: the sound the camera recorded beside them comes along, linked by timecode.": {
       "localizations": {
         "de": {
@@ -136603,6 +137082,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "自定义字幕样式"
+          }
+        }
+      }
+    },
+    "Sub-bin": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unterordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subcarpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sous-chutier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sotto-raccoglitore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サブビン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 빈"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sub-bin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subpasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子素材箱"
           }
         }
       }
@@ -167345,6 +167882,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "你的标题"
+          }
+        }
+      }
+    },
+    "Your bins in DaVinci": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine Ordner in DaVinci"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus carpetas en DaVinci"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos chutiers dans DaVinci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi raccoglitori in DaVinci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci の自分のビン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci의 내 빈"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je eigen bins in DaVinci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suas pastas no DaVinci"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你在 DaVinci 中的素材箱"
           }
         }
       }

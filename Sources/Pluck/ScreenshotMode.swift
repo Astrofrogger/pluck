@@ -79,6 +79,10 @@ enum ScreenshotMode {
                     """)
             }
         }
+        // -PluckScreenshotBinChooser <file>: the dialog asking which bin of Resolve it goes in.
+        if let file = defaults.string(forKey: "PluckScreenshotBinChooser") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { Resolve.sendClipsAndShow([URL(fileURLWithPath: file)]) }
+        }
         // -PluckScreenshotUpdateReady YES: an update ready to go in when Pluck quits.
         if defaults.bool(forKey: "PluckScreenshotUpdateReady") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { AppDelegate.shared?.appUpdater.pretendReady("3.2.0") }
