@@ -59,6 +59,15 @@ struct RawClipSummary: Codable, Sendable {
     var width: Int
     var height: Int
     var format: String
+    /// The rate it was shot at, when that's not the rate it plays at (slow or fast motion).
+    var shotFps: Double?
+
+    init(_ info: RawClipInfo) {
+        frames = info.frames; fps = info.fps; width = info.width; height = info.height; format = info.format
+        shotFps = info.motion == nil ? nil : info.shotFps
+    }
+
+    var motion: Double? { shotFps.map { $0 / max(fps, 1) } }
 }
 
 /// Makes clips' thumbnails and the frames shown while skimming, on a few threads. Raw clips are
@@ -136,7 +145,7 @@ final class RawThumbnailer: @unchecked Sendable {
             }
             do {
                 let info = try decoder.open(url)
-                let summary = RawClipSummary(frames: info.frames, fps: info.fps, width: info.width, height: info.height, format: info.format)
+                let summary = RawClipSummary(info)
                 // A moment in (the first frame is often black or a slate).
                 let frame = min(info.frames / 10, Int(info.fps * 2), max(info.frames - 1, 0))
                 let image = try? decoder.frame(frame, info: info)
@@ -266,7 +275,7 @@ enum ThumbnailCache {
     /// Named for the clip's path, size and date, so a changed clip gets a new one.
     private static func key(_ url: URL) -> String? {
         let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-        let stamp = "\(url.standardizedFileURL.path)|\(values?.fileSize ?? 0)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
+        let stamp = "2|\(url.standardizedFileURL.path)|\(values?.fileSize ?? 0)|\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)"
         return SHA256.hash(data: Data(stamp.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -481,6 +490,13 @@ private struct RawClipTile: View {
                 }
             }
             .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay(alignment: .topLeading) {
+                if let motion = clip.summary?.motion, let shot = clip.summary?.shotFps {
+                    RawMotionBadge(motion: motion, compact: true)
+                        .help(Text("Shot at \(RawClipDetails.rate(shot)) fps"))
+                        .padding(6)
+                }
+            }
             .clipShape(.rect(cornerRadius: 6))
             .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(.white.opacity(skimAt == nil ? 0.08 : 0.35)))
             .onGeometryChange(for: Double.self) { $0.size.width } action: { width = max($0, 1) }
@@ -511,6 +527,7 @@ private struct RawClipTile: View {
         let length = String(format: "%d:%02d", seconds / 60, seconds % 60)
         let rate = summary.fps.rounded() == summary.fps ? "\(Int(summary.fps))" : summary.fps.formatted(.number.precision(.fractionLength(2)))
         let kind = ["r3d": "R3D", "braw": "BRAW", "crm": "CRM", "cdng": "DNG"][summary.format] ?? clip.url.pathExtension.uppercased()
-        return "\(length) · \(summary.width)×\(summary.height) · \(rate) fps · \(kind)"
+        let shot = summary.shotFps.map { " " + String(localized: "(shot \(RawClipDetails.rate($0)))") } ?? ""
+        return "\(length) · \(summary.width)×\(summary.height) · \(rate) fps\(shot) · \(kind)"
     }
 }

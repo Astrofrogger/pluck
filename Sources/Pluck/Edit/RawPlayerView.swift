@@ -244,8 +244,15 @@ struct RawPlayerView: View {
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(player.url?.lastPathComponent ?? "").font(.headline).lineLimit(1).truncationMode(.middle)
-                        Text("\(info.formatName) · \(info.width)×\(info.height) · \(info.fps.formatted(.number.precision(.fractionLength(0...3)))) fps")
+                        Text(verbatim: "\(info.formatName) · \(info.width)×\(info.height)")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    // The frame rate first: what it plays at, and how it was shot.
+                    VStack(alignment: .leading, spacing: 4) {
+                        RawFrameRateView(info: info)
+                        if player.isPlaying, player.playbackRate > 0 {
+                            row(Text("Playing"), String(localized: "\(Int(player.playbackRate.rounded())) of \(Int(info.fps.rounded())) fps")).font(.caption)
+                        }
                     }
                     if info.isRaw {
                     Picker("Look", selection: $player.settings.look) {
@@ -355,26 +362,7 @@ struct RawPlayerView: View {
     }
 
     @ViewBuilder private func clipInfo(_ info: RawClipInfo) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let camera = info.camera { row(Text("Camera"), camera) }
-            row(Text("Frames"), "\(info.frames)")
-            if player.isPlaying, player.playbackRate > 0 {
-                row(Text("Playing"), String(localized: "\(Int(player.playbackRate.rounded())) of \(Int(info.fps.rounded())) fps"))
-            }
-            if !info.meta.isEmpty {
-                DisclosureGroup(isExpanded: $showMeta) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(info.meta.keys.sorted(), id: \.self) { key in
-                            row(Text(verbatim: key), info.meta[key] ?? "")
-                        }
-                    }
-                    .padding(.top, 4)
-                } label: {
-                    Text("All Metadata").font(.callout)
-                }
-            }
-        }
-        .font(.caption)
+        RawClipDetailsView(info: info, showAll: $showMeta)
     }
 
     private func row(_ label: Text, _ value: String) -> some View {

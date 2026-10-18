@@ -1,36 +1,40 @@
 import AppKit
 import QuickLookUI
+import os
 
-/// Finder's preview (the space bar) of a RED or Blackmagic RAW clip: a sharp first picture, then it
-/// plays, looping, at a size that keeps up, with a line on what it is. Click to pause.
+private let trace = Logger(subsystem: "be.wideopen.pluck.quicklook", category: "preview")
+
+/// Finder's preview of a RED or Blackmagic RAW clip: a sharp picture a second in, with a line on
+/// what it is. In the Quick Look window (the space bar) it then plays, looping; in Finder's own
+/// preview pane (columns, gallery) it stays a still, like a thumbnail. Click to pause.
 final class PreviewViewController: NSViewController, QLPreviewingController {
-    private let picture = NSImageView()
+    private let screen = NSView()
     private let caption = NSTextField(labelWithString: "")
-    private var clips: [RawClip] = []
+    private var clip: RawClip?
+    private var poster = 0
     private var playing: Task<Void, Never>?
-    private var paused = false
+    private let state = PlayState()
+
+    /// Narrower than this, it's Finder's preview pane rather than the Quick Look window.
+    private static let playingWidth: CGFloat = 520
 
     override func loadView() {
         let root = NSView()
         root.wantsLayer = true
         root.layer?.backgroundColor = NSColor.black.cgColor
-        picture.imageScaling = .scaleProportionallyUpOrDown
-        picture.translatesAutoresizingMaskIntoConstraints = false
-        // Fitted in the window, never sizing it to the picture's pixels.
-        for orientation in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
-            picture.setContentCompressionResistancePriority(.fittingSizeCompression, for: orientation)
-            picture.setContentHuggingPriority(.defaultLow, for: orientation)
-        }
+        screen.wantsLayer = true
+        screen.layer?.contentsGravity = .resizeAspect
+        screen.translatesAutoresizingMaskIntoConstraints = false
         caption.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
         caption.textColor = .white
         caption.backgroundColor = NSColor.black.withAlphaComponent(0.5)
         caption.drawsBackground = true
         caption.translatesAutoresizingMaskIntoConstraints = false
-        root.addSubview(picture)
+        root.addSubview(screen)
         root.addSubview(caption)
         NSLayoutConstraint.activate([
-            picture.leadingAnchor.constraint(equalTo: root.leadingAnchor), picture.trailingAnchor.constraint(equalTo: root.trailingAnchor),
-            picture.topAnchor.constraint(equalTo: root.topAnchor), picture.bottomAnchor.constraint(equalTo: root.bottomAnchor),
+            screen.leadingAnchor.constraint(equalTo: root.leadingAnchor), screen.trailingAnchor.constraint(equalTo: root.trailingAnchor),
+            screen.topAnchor.constraint(equalTo: root.topAnchor), screen.bottomAnchor.constraint(equalTo: root.bottomAnchor),
             caption.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10),
             caption.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -10),
         ])
@@ -38,53 +42,80 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         view = root
     }
 
-    @objc private func togglePause() { paused.toggle() }
+    @objc private func togglePause() { state.paused.toggle() }
 
     func preparePreviewOfFile(at url: URL) async throws {
         let file = RawClip.clipFile(url)
-        let first = try await Task.detached { try RawClip(url: file) }.value
-        clips = [first]
-        preferredContentSize = CGSize(width: 960, height: 960 * Double(first.height) / Double(max(first.width, 1)))
+        let clip = try await Task.detached { try RawClip(url: file) }.value
+        self.clip = clip
+        preferredContentSize = CGSize(width: 960, height: 960 * Double(clip.height) / Double(max(clip.width, 1)))
         // The picture straight away: a frame a second in, at about the window's size.
-        let poster = min(Int(first.fps), max(first.frames - 1, 0))
-        let still = try await Task.detached { try first.frame(poster, scale: first.scale(forWidth: 1400)) }.value
-        picture.image = NSImage(cgImage: still, size: .zero)
-        update(poster, of: first)
-        guard first.frames > 1 else { return }
-        play(from: poster)
+        poster = min(Int(clip.fps), max(clip.frames - 1, 0))
+        let frame = poster
+        let still = try await Task.detached { try clip.frame(frame, scale: clip.scale(forWidth: 1400)) }.value
+        show(still, frame: poster)
+        updatePlaying()
     }
 
-    private func play(from start: Int) {
-        let pool = clips
-        guard let clip = pool.first else { return }
-        // Small enough to keep up on one decoder (Pluck's Raw Player uses several).
-        let scale = clip.scale(forWidth: 700)
-        playing = Task { @MainActor [weak self] in
-            var clock = Date.now, base = start
-            var inFlight: [Int: Task<CGImage?, Never>] = [:]
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        updatePlaying()
+    }
+
+    /// Plays in the Quick Look window, stays still in Finder's preview pane.
+    private func updatePlaying() {
+        guard let clip, clip.frames > 1 else { return }
+        let large = view.bounds.width >= Self.playingWidth
+        if large, playing == nil {
+            play(clip, from: poster)
+        } else if !large, let task = playing {
+            task.cancel()
+            playing = nil
+        }
+    }
+
+    private func play(_ clip: RawClip, from start: Int) {
+        // As sharp as the window, as long as the decoder keeps up: on the graphics chip up to
+        // full HD, on the processor about 700 wide.
+        let pixels = view.bounds.width * (view.window?.backingScaleFactor ?? 2)
+        let scale = clip.gpu ? clip.scale(forWidth: min(pixels, 1920)) : clip.scale(forWidth: 700)
+        let state = state
+        trace.log("playing \(clip.width / scale)×\(clip.height / scale) at \(clip.fps) fps, gpu \(clip.gpu)")
+        // Decoding runs on its own while the picture before it is on screen.
+        playing = Task.detached(priority: .userInitiated) { [weak self] in
+            var clock = Date.now, base = start, shown = start
+            var count = 0, since = Date.now
             while !Task.isCancelled {
-                guard let self else { return }
-                if self.paused {
+                if state.paused {
                     try? await Task.sleep(for: .milliseconds(100))
-                    clock = .now
+                    clock = .now; base = shown
                     continue
                 }
+                // The frame due now (frames the decoder fell behind on are skipped).
                 var due = base + Int(Date.now.timeIntervalSince(clock) * clip.fps)
-                if due >= clip.frames { clock = .now; base = 0; due = 0; inFlight = [:] }
-                for frame in due..<min(due + pool.count, clip.frames) where inFlight[frame] == nil {
-                    let decoder = pool[frame % pool.count]
-                    inFlight[frame] = Task.detached(priority: .userInitiated) { try? decoder.frame(frame, scale: scale) }
-                }
-                for late in inFlight.keys where late < due { inFlight[late] = nil }
-                if let image = await inFlight[due]?.value {
-                    self.picture.image = NSImage(cgImage: image, size: .zero)
-                    self.update(due, of: clip)
-                }
-                inFlight[due] = nil
-                let wait = clock.addingTimeInterval(Double(due - base + 1) / clip.fps).timeIntervalSinceNow
+                if due <= shown && shown != start { due = shown + 1 }
+                if due >= clip.frames { clock = .now; base = 0; due = 0 }
+                guard let image = try? clip.frame(due, scale: scale, eightBit: true), !Task.isCancelled else { continue }
+                // Not before its time.
+                let wait = clock.addingTimeInterval(Double(due - base) / clip.fps).timeIntervalSinceNow
                 if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                shown = due
+                await MainActor.run { self?.show(image, frame: due) }
+                count += 1
+                if count == 100 {
+                    trace.log("shown \(Double(count) / Date.now.timeIntervalSince(since), format: .fixed(precision: 1)) fps")
+                    count = 0; since = .now
+                }
             }
         }
+    }
+
+    private func show(_ image: CGImage, frame: Int) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        screen.layer?.contents = image
+        CATransaction.commit()
+        if let clip { update(frame, of: clip) }
     }
 
     private func update(_ frame: Int, of clip: RawClip) {
@@ -96,6 +127,16 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     deinit {
         playing?.cancel()
-        for clip in clips { clip.close() }
+        clip?.close()
+    }
+}
+
+/// Paused or not, read by the playing loop off the main thread.
+private final class PlayState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+    var paused: Bool {
+        get { lock.withLock { value } }
+        set { lock.withLock { value = newValue } }
     }
 }

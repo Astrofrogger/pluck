@@ -11,6 +11,8 @@ final class RawClip: @unchecked Sendable {
     let format: String
     let camera: String?
     let startTimecode: String?
+    /// Decoded on the graphics chip (several times quicker than without).
+    let gpu: Bool
 
     private let url: URL
     private let buffer: URL
@@ -36,6 +38,7 @@ final class RawClip: @unchecked Sendable {
         let meta = reply["meta"] as? [String: String] ?? [:]
         camera = meta["camera_type"] ?? meta["camera_model"] ?? meta["Camera Model"]
         startTimecode = meta["start_edge_timecode"] ?? meta["timecode"]
+        gpu = (reply["gpu"] as? Bool) ?? false
         mappedSize = max(width * height * 8, 8)
         buffer = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-ql-\(UUID().uuidString).frame")
         FileManager.default.createFile(atPath: buffer.path, contents: nil)
@@ -65,18 +68,22 @@ final class RawClip: @unchecked Sendable {
         return reply
     }
 
-    /// One frame at 1/scale of the size, ready to watch (Rec.709).
-    func frame(_ index: Int, scale: Int) throws -> CGImage {
+    /// One frame at 1/scale of the size, ready to watch (Rec.709): 16-bit for stills, 8-bit (quicker
+    /// to draw) for playing.
+    func frame(_ index: Int, scale: Int, eightBit: Bool = false) throws -> CGImage {
         try Self.lock.withLock {
             if Self.openPath != url.path { _ = try Self.openClip(url) }
-            let reply = try Self.ask(["op": "frame", "index": index, "scale": scale, "look": "display",
+            let reply = try Self.ask(["op": "frame", "index": index, "scale": scale, "look": "display", "depth": eightBit ? 8 : 16,
                                       "buffer": buffer.path, "size": mappedSize])
             let w = (reply["width"] as? NSNumber)?.intValue ?? 0, h = (reply["height"] as? NSNumber)?.intValue ?? 0
-            guard w > 0, h > 0, w * h * 8 <= mappedSize,
-                  let provider = CGDataProvider(data: Data(bytes: mapped, count: w * h * 8) as CFData),
-                  let image = CGImage(width: w, height: h, bitsPerComponent: 16, bitsPerPixel: 64, bytesPerRow: w * 8,
-                                      space: CGColorSpace(name: CGColorSpace.itur_709)!,
-                                      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue),
+            let eight = (reply["depth"] as? NSNumber)?.intValue == 8
+            let bytes = eight ? 4 : 8
+            let info: CGBitmapInfo = eight ? CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+                : CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue)
+            guard w > 0, h > 0, w * h * bytes <= mappedSize,
+                  let provider = CGDataProvider(data: Data(bytes: mapped, count: w * h * bytes) as CFData),
+                  let image = CGImage(width: w, height: h, bitsPerComponent: eight ? 8 : 16, bitsPerPixel: bytes * 8, bytesPerRow: w * bytes,
+                                      space: CGColorSpace(name: CGColorSpace.itur_709)!, bitmapInfo: info,
                                       provider: provider, decode: nil, shouldInterpolate: true, intent: .defaultIntent) else {
                 throw NSError(domain: "Pluck", code: 2)
             }

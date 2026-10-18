@@ -107,7 +107,8 @@ static bool redReady = false;
 static Clip *redClip = nullptr;
 
 // The GPU path: the decoder unpacks frames on the CPU and Metal develops them on the GPU,
-// much faster for large frames. Not in the Quick Look extensions, and off with PLUCK_RAW_CPU.
+// much faster for large frames (Quick Look's too, when its sandbox lets Metal start). Off with
+// PLUCK_RAW_CPU.
 static id<MTLDevice> redDevice;
 static id<MTLCommandQueue> redQueue;
 static REDMetal *redMetal = nullptr;
@@ -118,7 +119,7 @@ static bool startRed() {
     if (redReady) return true;
     std::string folder = helperFolder() + "/RED";
     InitializeStatus status = ISLibraryNotLoaded;
-    if (!libraryMode && !getenv("PLUCK_RAW_CPU")) {
+    if (!getenv("PLUCK_RAW_CPU")) {
         status = InitializeSdk(folder.c_str(), OPTION_RED_METAL);
         if (status == ISInitializeOK) {
             redDevice = MTLCreateSystemDefaultDevice();
@@ -177,6 +178,7 @@ static void openRed(NSString *path) {
             @"ipp2": @(shot.Version == ColorVersion3),
             @"timecode": meta[@"start_edge_timecode"] ?: @"", @"absoluteTimecode": meta[@"start_absolute_timecode"] ?: @"",
             @"audioChannels": @(redClip->AudioChannelCount()),
+            @"gpu": @(redGpu != nullptr && GpuDecoder::DecodeSupportedForClip(*redClip) == DSDecodeOK),
             @"meta": meta});
 }
 

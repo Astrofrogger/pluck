@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.0.2", items: [
+                Item(symbol: "slowmo", title: String(localized: "Frame rates at a glance"),
+                     detail: String(localized: "The Player shows the rate a clip plays at and was shot at, with slow motion marked, and the camera, lens and recording in plain words. Clips in a folder show it too.")),
+                Item(symbol: "eye", title: String(localized: "Smoother Quick Look"),
+                     detail: String(localized: "Raw clips play smoothly when you press Space in Finder, decoded on the graphics chip, and stay a still in Finder’s preview pane.")),
+            ]),
             Release(version: "3.0.1", items: [
                 Item(symbol: "computermouse", title: String(localized: "Back and forward"),
                      detail: String(localized: "Your mouse’s side buttons go back and forward, as in a browser. In the Player, back takes a clip to its folder, with a clearer button for it too.")),
