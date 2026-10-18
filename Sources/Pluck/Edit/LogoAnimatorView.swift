@@ -10,13 +10,25 @@ struct LogoAnimatorView: View {
     @AppStorage("logoStyle") private var style: LogoAnimation.Style = .automatic
     @AppStorage("logoFormat") private var format: Deliverables.Format = .landscape
     @AppStorage("logoBackground") private var background: Background = .transparent
-    @State private var colour = Color.black
+    /// The custom background colour, kept as hex.
+    @AppStorage("logoColour") private var colourHex = "000000"
+    private var colour: Binding<Color> {
+        Binding {
+            let value = Int(colourHex, radix: 16) ?? 0
+            return Color(.sRGB, red: Double(value >> 16 & 255) / 255, green: Double(value >> 8 & 255) / 255, blue: Double(value & 255) / 255)
+        } set: { new in
+            let c = NSColor(new).usingColorSpace(.sRGB) ?? .black
+            colourHex = String(format: "%02X%02X%02X", Int((c.redComponent * 255).rounded()), Int((c.greenComponent * 255).rounded()),
+                               Int((c.blueComponent * 255).rounded()))
+        }
+    }
     @AppStorage("logoFrameRate") private var frameRate = 60
     @AppStorage("logoOutro") private var outro: LogoAnimation.Outro = .none
     /// The video's length in seconds; 0 is automatic (as long as the animation needs).
     @AppStorage("logoLength") private var length = 0.0
     @State private var started = Date.now
     @State private var exporting: Double?
+    @State private var exportTask: Task<Void, Never>?
     @State private var done: URL?
     @State private var dropTargeted = false
     /// Why Automatic plays what it plays (the director's reason).
@@ -42,12 +54,20 @@ struct LogoAnimatorView: View {
         }
     }
 
+    /// For SVG and PDF: whether the logo is drawn from the file's own shapes.
+    private var sourceNote: String {
+        guard let file, ["svg", "pdf"].contains(file.pathExtension.lowercased()), let animation else { return "" }
+        return animation.vectorLogo != nil
+            ? String(localized: "Drawn from the file’s own shapes: sharp at any size.")
+            : String(localized: "Drawn from a picture of the file: it uses text, gradients or effects Pluck doesn’t read as shapes.")
+    }
+
     private var backgroundColour: CGColor? {
         switch background {
         case .transparent: nil
         case .black: CGColor(gray: 0, alpha: 1)
         case .white: CGColor(gray: 1, alpha: 1)
-        case .colour: NSColor(colour).usingColorSpace(.sRGB)?.cgColor ?? CGColor(gray: 0, alpha: 1)
+        case .colour: NSColor(colour.wrappedValue).usingColorSpace(.sRGB)?.cgColor ?? CGColor(gray: 0, alpha: 1)
         }
     }
 
@@ -100,6 +120,7 @@ struct LogoAnimatorView: View {
             GlassGroup(spacing: Design.Spacing.controls) {
                 HStack(spacing: Design.Spacing.controls) {
                     FileCapsule(file: file, symbol: "photo")
+                        .help(sourceNote)
                     Button("Change…", action: choose)
                         .buttonStyle(GlassCapsuleButtonStyle())
                     Button("Save as SVG", action: saveVector)
@@ -112,7 +133,12 @@ struct LogoAnimatorView: View {
                 }
             }
             if let exporting {
-                ProgressView(value: exporting)
+                HStack(spacing: Design.Spacing.controls) {
+                    ProgressView(value: exporting)
+                    Button("Stop") { exportTask?.cancel() }
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                        .keyboardShortcut(.cancelAction)
+                }
             } else if let done {
                 DoneLabel(text: Text(done.lastPathComponent), file: done)
             }
@@ -162,7 +188,7 @@ struct LogoAnimatorView: View {
             CardField(label: Text("Background")) {
                 HStack {
                     if background == .colour {
-                        ColorPicker("Colour", selection: $colour, supportsOpacity: false)
+                        ColorPicker("Colour", selection: colour, supportsOpacity: false)
                     }
                     Picker("Background", selection: $background) {
                         ForEach(Background.allCases) { Text($0.label).tag($0) }
@@ -311,16 +337,23 @@ struct LogoAnimatorView: View {
         let rate = frameRate, colour = backgroundColour
         exporting = 0
         done = nil
-        Task {
+        exportTask = Task {
             do {
                 try await animation.export(to: output, plan: plan, size: size, frameRate: rate, background: colour, ffmpeg: ffmpeg) { value in
                     Task { @MainActor in exporting = value }
                 }
                 done = output
+            } catch is CancellationError {
             } catch {
                 problem = error.localizedDescription
             }
             exporting = nil
+            exportTask = nil
+        }
+        // Screenshot mode: -PluckScreenshotExportStop <seconds> presses Stop that long into the export.
+        let stop = UserDefaults.standard.double(forKey: "PluckScreenshotExportStop")
+        if stop > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + stop) { exportTask?.cancel() }
         }
     }
 }

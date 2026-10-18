@@ -198,7 +198,7 @@ extension LogoAnimation {
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.6)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: 0.7 + 0.3 * s, y: 0.7 + 0.3 * s)
                     context.setAlpha(min(local * 5, 1))
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else if element.hero {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if layout.symbols.contains(index) {
@@ -217,7 +217,7 @@ extension LogoAnimation {
                     // The letters ride with the symbol: what has appeared stays put, only the
                     // window opens wider.
                     context.translateBy(x: shift, y: 0)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 }
             case .hero(let lead):
                 if index == lead {
@@ -230,13 +230,13 @@ extension LogoAnimation {
                     let pose = heroPose(local, centre: CGPoint(x: whole.midX, y: whole.midY), home: rect, size: size, rise: rise)
                     context.translateBy(x: pose.centre.x - rect.midX, y: pose.centre.y - rect.midY + pose.lift)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY - rect.height / 2), x: size * pose.sx, y: size * pose.sy)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else if element.hero {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if element.kind == .plate {
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.65)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: s, y: s)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else {
                     // The landing pushes the name out of the hero's place to both sides.
                     let reach = max(heroCentre.x - whole.minX, whole.maxX - heroCentre.x) + 8
@@ -248,7 +248,7 @@ extension LogoAnimation {
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.9)
                     let gap = min(abs(heroCentre.x - rect.midX) * 0.12, rect.width * 0.6)
                     context.translateBy(x: (heroCentre.x < rect.midX ? -gap : gap) * (1 - s), y: 0)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 }
             case .plate:
                 if element.kind == .plate {
@@ -257,7 +257,7 @@ extension LogoAnimation {
                     let height = local < 0.4 ? 0 : Physics.spring(local - 0.4, frequency: 2.0, damping: 0.68)
                     let line = min(3 / max(rect.height, 1), 1)
                     scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: width, y: line + (1 - line) * height)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else if element.hero {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if let plate = element.plate {
@@ -267,7 +267,7 @@ extension LogoAnimation {
                     context.clip(to: CGRect(x: area.minX, y: floor, width: area.width, height: area.maxY - floor))
                     let s = Physics.spring(local, frequency: 1.9, damping: 0.66)
                     context.translateBy(x: 0, y: -(1 - s) * rect.height * 1.1)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else {
                     drawSpreading(element, local: local, length: timing[index].length, rect: rect, centreX: whole.midX, in: context)
                 }
@@ -276,7 +276,7 @@ extension LogoAnimation {
                     popIn(element, local: local, rect: rect, in: context)
                 } else if element.kind == .plate {
                     context.setAlpha(min(local * 4, 1))
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 } else {
                     // A window opens from the middle; the letters spread out from behind it.
                     let open = Easing.outQuint(min(max(t - act.start, 0) / (act.length * 0.85), 1)) * (whole.width / 2 + 8)
@@ -284,7 +284,7 @@ extension LogoAnimation {
                     context.clip(to: CGRect(x: whole.midX - open, y: whole.minY - whole.height, width: open * 2, height: whole.height * 3))
                     let s = Physics.spring(local, frequency: 1.6, damping: 0.88)
                     context.translateBy(x: (whole.midX - rect.midX) * (1 - s) * 0.22, y: 0)
-                    context.draw(element.image, in: rect)
+                    element.draw(in: rect, context)
                 }
             }
         }
@@ -305,7 +305,7 @@ extension LogoAnimation {
         context.setAlpha(min(local / 0.3, 1))
         context.translateBy(x: (centreX - rect.midX) * (1 - s) * 0.42, y: 0)
         scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: 0.9 + 0.1 * s, y: 0.9 + 0.1 * s)
-        context.draw(element.image, in: rect)
+        element.draw(in: rect, context)
     }
 
     /// A small shape popping in: a spring with a little turn (a sparkle twinkling in).
@@ -316,7 +316,7 @@ extension LogoAnimation {
         context.rotate(by: (1 - Easing.outCubic(min(local / 0.6, 1))) * -0.9)
         context.scaleBy(x: s, y: s)
         context.translateBy(x: -rect.midX, y: -rect.midY)
-        context.draw(element.image, in: rect)
+        element.draw(in: rect, context)
     }
 
     /// A shape flying in from away from `centre` (turned and smaller) and springing into place.
@@ -334,7 +334,7 @@ extension LogoAnimation {
         context.rotate(by: turn)
         context.scaleBy(x: scale, y: scale)
         context.translateBy(x: -rect.midX, y: -rect.midY)
-        context.draw(element.image, in: rect)
+        element.draw(in: rect, context)
     }
 
     private func scaleContext(_ context: CGContext, around anchor: CGPoint, x: Double, y: Double) {
@@ -394,7 +394,7 @@ extension LogoAnimation {
             let s = Physics.spring(local, frequency: 1.9, damping: 0.6)
             scaleContext(context, around: CGPoint(x: rect.midX, y: rect.midY), x: 0.7 + 0.3 * s, y: 0.7 + 0.3 * s)
             context.setAlpha(min(local * 5, 1))
-            context.draw(elements[i].image, in: rect)
+            elements[i].draw(in: rect, context)
             context.restoreGState()
         }
         let reveal = Easing.inOutCubic(min(max((t - plan.settle + 0.3) / 0.3, 0), 1))
@@ -438,7 +438,7 @@ extension LogoAnimation {
                         layer.translateBy(x: -rect.midX, y: -rect.midY)
                         // The shape's silhouette, in white.
                         layer.beginTransparencyLayer(auxiliaryInfo: nil)
-                        layer.draw(elements[i].image, in: rect)
+                        elements[i].draw(in: rect, layer)
                         layer.setBlendMode(.sourceIn)
                         layer.fill(rect.insetBy(dx: -2, dy: -2))
                         layer.endTransparencyLayer()
@@ -476,7 +476,7 @@ extension LogoAnimation {
             context.saveGState()
             context.setAlpha(a)
             if small { context.translateBy(x: 0, y: -(1 - a) * rect.height * 0.5) }
-            context.draw(element.image, in: rect)
+            element.draw(in: rect, context)
             context.restoreGState()
         }
     }

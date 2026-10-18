@@ -131,7 +131,7 @@ extension LogoAnimation {
                 // The plate stretches open from its middle like rubber.
                 let s = Physics.spring(local, frequency: 1.8, damping: 0.4)
                 scale(context, around: CGPoint(x: rect.midX, y: rect.midY), x: 1 + (1 - min(s, 1)) * 0.12, y: max(s, 0))
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 return
             }
             if let plate = element.plate { context.clip(to: plateRect(plate)) }
@@ -144,7 +144,7 @@ extension LogoAnimation {
             let downward = lineCount > 1 && element.box.midY > size.height / 2 && element.plate == nil
             let anchor = CGPoint(x: rect.midX, y: downward ? rect.maxY : rect.minY)
             scale(context, around: anchor, x: sx, y: max(s, 0.001))
-            context.draw(element.image, in: rect)
+            element.draw(in: rect, context)
         case .lineDraw:
             if element.hero {
                 popIn(element, local: local, rect: rect, in: context)
@@ -156,7 +156,7 @@ extension LogoAnimation {
                 context.saveGState()
                 context.setAlpha(e)
                 context.translateBy(x: 0, y: -(1 - e) * rect.height * 0.6)
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 context.restoreGState()
                 return
             }
@@ -172,7 +172,7 @@ extension LogoAnimation {
                 let grow = 0.94 + 0.06 * Physics.spring(max(local - length * 0.42, 0), frequency: 2.6, damping: 0.45)
                 scale(context, around: CGPoint(x: rect.midX, y: rect.midY), x: grow, y: grow)
                 context.setAlpha(fill)
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 context.restoreGState()
             }
             if head > tail {
@@ -193,7 +193,7 @@ extension LogoAnimation {
                 context.saveGState()
                 scale(context, around: CGPoint(x: rect.midX, y: rect.minY), x: 0.6 + 0.4 * s, y: s)
                 context.setAlpha(min(local * 6, 1))
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 context.restoreGState()
                 return
             }
@@ -208,7 +208,7 @@ extension LogoAnimation {
                 context.translateBy(x: 0, y: -(1 - s) * rect.height * 1.1)
                 let squash = Physics.squash(since: local - 0.32, strength: 0.35)
                 scale(context, around: CGPoint(x: rect.midX, y: rect.minY), x: 1 + squash * 0.6, y: 1 - squash)
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 context.restoreGState()
                 return
             }
@@ -224,7 +224,7 @@ extension LogoAnimation {
                 context.saveGState()
                 context.translateBy(x: 0, y: hop)
                 scale(context, around: CGPoint(x: rect.midX, y: rect.minY), x: sx, y: max(sy, 0))
-                context.draw(element.image, in: rect)
+                element.draw(in: rect, context)
                 context.restoreGState()
                 return
             }
@@ -250,10 +250,10 @@ extension LogoAnimation {
             context.saveGState()
             context.translateBy(x: 0, y: drop.height * height)
             scale(context, around: CGPoint(x: rect.midX, y: rect.minY), x: sx, y: sy)
-            context.draw(element.image, in: rect)
+            element.draw(in: rect, context)
             context.restoreGState()
         default:
-            context.draw(element.image, in: rect)
+            element.draw(in: rect, context)
         }
     }
 
@@ -266,7 +266,7 @@ extension LogoAnimation {
         context.rotate(by: (1 - Easing.outCubic(min(local / 0.6, 1))) * -0.9)
         context.scaleBy(x: s, y: s)
         context.translateBy(x: -rect.midX, y: -rect.midY)
-        context.draw(element.image, in: rect)
+        element.draw(in: rect, context)
         context.restoreGState()
     }
 

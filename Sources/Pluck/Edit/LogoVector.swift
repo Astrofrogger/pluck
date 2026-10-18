@@ -7,6 +7,7 @@ import Vision
 /// once so small text is as sharp as the rest.
 extension LogoAnimation {
     func svg() -> String {
+        if let vectorLogo { return Self.svg(vectorLogo, size: size) }
         let w = logo.width, h = logo.height
         var pixels = [UInt8](repeating: 0, count: w * h * 4)
         guard let context = CGContext(data: &pixels, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
@@ -76,6 +77,35 @@ extension LogoAnimation {
             let c = centres[n] / 255
             paths.append("  <path fill=\"\(Self.hex(CGColor(srgbRed: c.x, green: c.y, blue: c.z, alpha: 1)))\" fill-rule=\"evenodd\" d=\"\(d)\"/>")
         }
+        return """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <svg xmlns="http://www.w3.org/2000/svg" width="\(w)" height="\(h)" viewBox="0 0 \(w) \(h)">
+            \(paths.joined(separator: "\n"))
+            </svg>
+
+            """
+    }
+
+    /// The logo file's own shapes (as the animation draws them), written out as they are.
+    static func svg(_ shapes: [VectorArt.Shape], size: CGSize) -> String {
+        func f(_ v: CGFloat) -> String { String(format: "%.2f", v) }
+        let paths = shapes.map { shape -> String in
+            var d = ""
+            shape.path.applyWithBlock { element in
+                let p = element.pointee.points
+                switch element.pointee.type {
+                case .moveToPoint: d += "M\(f(p[0].x)) \(f(p[0].y))"
+                case .addLineToPoint: d += "L\(f(p[0].x)) \(f(p[0].y))"
+                case .addQuadCurveToPoint: d += "Q\(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y))"
+                case .addCurveToPoint: d += "C\(f(p[0].x)) \(f(p[0].y)) \(f(p[1].x)) \(f(p[1].y)) \(f(p[2].x)) \(f(p[2].y))"
+                case .closeSubpath: d += "Z"
+                @unknown default: break
+                }
+            }
+            let opacity = shape.colour.alpha < 0.999 ? " fill-opacity=\"\(f(shape.colour.alpha))\"" : ""
+            return "  <path fill=\"\(hex(shape.colour))\"\(opacity)\(shape.evenOdd ? " fill-rule=\"evenodd\"" : "") d=\"\(d)\"/>"
+        }
+        let w = Int(size.width.rounded()), h = Int(size.height.rounded())
         return """
             <?xml version="1.0" encoding="UTF-8"?>
             <svg xmlns="http://www.w3.org/2000/svg" width="\(w)" height="\(h)" viewBox="0 0 \(w) \(h)">

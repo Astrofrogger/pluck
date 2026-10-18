@@ -154,7 +154,7 @@ struct BrandPack {
             let rect = CGRect(x: x, y: origin.y + (role.isEmpty ? 0 : roleBox.height), width: width, height: mark)
             context.translateBy(x: rect.midX, y: rect.midY)
             context.scaleBy(x: grow, y: grow)
-            context.draw(logo.logo, in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height))
+            logo.drawLogo(in: CGRect(x: -rect.width / 2, y: -rect.height / 2, width: rect.width, height: rect.height), context)
             context.restoreGState()
             x += width + 16 * u
         }
@@ -252,7 +252,7 @@ struct BrandPack {
                               width: markWidth, height: markWidth * logo.size.height / logo.size.width)
         context.saveGState()
         context.setAlpha(phase(t, 0.9, 0.6) * leaving)
-        context.draw(logo.logo, in: markRect)
+        logo.drawLogo(in: markRect, context)
         context.restoreGState()
     }
 

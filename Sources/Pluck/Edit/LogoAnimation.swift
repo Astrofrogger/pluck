@@ -35,6 +35,9 @@ struct LogoAnimation: @unchecked Sendable {
         var hero = false
         /// How much ink (logo pixels).
         var area: Double = 0
+        /// The shape as drawn in the logo file (logo pixels, origin top left), for SVG and PDF
+        /// logos: drawn sharp at any size instead of `image`.
+        var vector: [VectorArt.Shape]?
         /// While analysing: its id, its plate's and its base letter's.
         fileprivate var id = 0, plateID: Int?, baseID: Int?
     }
@@ -63,7 +66,7 @@ struct LogoAnimation: @unchecked Sendable {
 
         var detail: String {
             switch self {
-            case .automatic: String(localized: "Chosen from the logo’s shapes.")
+            case .automatic: String(localized: "Pluck picks the style that suits the logo.")
             case .elegant: String(localized: "Each shape fades up out of a soft focus, one after another. Calm and refined.")
             case .rise: String(localized: "The letters rise from behind an invisible line; the symbol grows into focus.")
             case .wipe: String(localized: "A soft-edged reveal moves across the logo, the shapes easing into place behind it.")
@@ -83,6 +86,12 @@ struct LogoAnimation: @unchecked Sendable {
     let logo: CGImage
     let size: CGSize
     let elements: [Element]
+    /// The whole logo from its file's shapes (logo pixels, origin top left), when every part could
+    /// be drawn from them.
+    let vectorLogo: [VectorArt.Shape]?
+    /// For SVG and PDF: how much the file's shapes, as read, differ from the system's picture of
+    /// the file (a share of the inked pixels; 1% or more and they aren't used).
+    let artDifference: Double?
 
     var symbolCount: Int { elements.filter { $0.kind == .symbol }.count }
     /// Boxes and badges other shapes sit on.
@@ -158,10 +167,11 @@ struct LogoAnimation: @unchecked Sendable {
             return
         }
         guard let image = NSImage(contentsOf: url) else { throw Failure() }
-        try self.init(image: image)
+        // The file's own shapes, when they can be read, are drawn instead of a picture of them.
+        try self.init(image: image, art: VectorArt(contentsOf: url))
     }
 
-    init(image: NSImage) throws {
+    init(image: NSImage, art: VectorArt? = nil) throws {
         // Rendered at a working size (SVG and PDF logos are drawn sharp at any size).
         let natural = image.size
         guard natural.width > 0, natural.height > 0 else { throw Failure() }
@@ -175,6 +185,15 @@ struct LogoAnimation: @unchecked Sendable {
         NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
         image.draw(in: NSRect(x: 0, y: 0, width: width, height: height))
         NSGraphicsContext.restoreGraphicsState()
+        var art = art
+        if let read = art {
+            let difference = abs(read.size.width - natural.width) < 0.5 && abs(read.size.height - natural.height) < 0.5
+                ? Self.artDifference(read, picture: pixels, width: width, height: height, scale: scale) : 1
+            artDifference = difference
+            if difference >= 0.01 { art = nil }
+        } else {
+            artDifference = nil
+        }
         // Row 0 of the context's memory is the top of the picture; the analysis works that way round.
         // A logo on a photo or a pattern can't be lifted off: said so, rather than animating
         // the whole picture as if it were the logo.
@@ -200,8 +219,12 @@ struct LogoAnimation: @unchecked Sendable {
         let alpha = (0..<(w * h)).map { trimmed[$0 * 4 + 3] }
         self.logo = logo
         self.size = CGSize(width: w, height: h)
-        self.elements = Self.elements(trimmed, alpha: alpha, width: w, height: h, logo: logo)
+        var elements = Self.elements(trimmed, alpha: alpha, width: w, height: h, logo: logo)
         guard !elements.isEmpty else { throw Failure() }
+        self.vectorLogo = art.flatMap {
+            Self.attach($0, scale: scale, offset: CGPoint(x: minX, y: minY), to: &elements, logo: trimmed, width: w, height: h)
+        }
+        self.elements = elements
     }
 
     /// Logos without transparency (a JPG on white): the background colour, taken from the
@@ -966,7 +989,7 @@ struct LogoAnimation: @unchecked Sendable {
     /// The whole video in time: intro, hold and outro. When the chosen length is shorter than
     /// the moves need, intro and outro are sped up together so everything fits.
     struct Plan: Sendable {
-        var style: Style
+        var source: Source
         var outro: Outro
         /// The video's length.
         var total: Double
@@ -979,31 +1002,43 @@ struct LogoAnimation: @unchecked Sendable {
         var outroStart: Double { total - outroLength }
     }
 
+    /// When everything has landed, for either kind of source.
+    func settled(_ source: Source) -> Double {
+        switch source {
+        case .template(let style): settled(style)
+        case .custom(let spec): max(spec.duration, 0.1)
+        }
+    }
+
     /// The outro's natural length: a reversed intro is a little quicker than the intro.
-    private func naturalOutro(_ style: Style, _ outro: Outro) -> Double {
+    private func naturalOutro(_ source: Source, _ outro: Outro) -> Double {
         switch outro {
         case .none: 0
-        case .reverse: settled(style) * 0.75
+        case .reverse: settled(source) * 0.75
         case .fade: 0.7
         }
     }
 
     /// The plan for a video of `length` seconds (nil: the natural length).
     func plan(_ style: Style, outro: Outro, length: Double? = nil) -> Plan {
-        let intro = settled(style), out = naturalOutro(style, outro)
+        plan(.template(style), outro: outro, length: length)
+    }
+
+    func plan(_ source: Source, outro: Outro, length: Double? = nil) -> Plan {
+        let intro = settled(source), out = naturalOutro(source, outro)
         let hold = outro == .none ? 1.2 : 1.6
         let natural = intro + hold + out
         let total = max(length ?? natural, 1)
         // Keep at least a short hold on the finished logo; squeeze the moves if needed.
         let minimumHold = min(0.5, total * 0.2)
         let speed = max(1, (intro + out) / max(total - minimumHold, 0.3))
-        return Plan(style: style, outro: outro, total: total, speed: speed, intro: intro / speed, outroLength: out / speed)
+        return Plan(source: source, outro: outro, total: total, speed: speed, intro: intro / speed, outroLength: out / speed)
     }
 
     /// Draws the frame at video time `t` of a plan: the intro (sped up if needed), the hold, and
     /// the outro (the intro played backwards, or a fade).
     func draw(at t: Double, plan: Plan, in context: CGContext, canvas: CGSize) {
-        let settledAt = settled(plan.style)
+        let settledAt = settled(plan.source)
         var moment = min(t * plan.speed, settledAt + 10)
         var alpha = 1.0
         if plan.outroLength > 0, t > plan.outroStart {
@@ -1024,8 +1059,13 @@ struct LogoAnimation: @unchecked Sendable {
         // Settled: the logo itself, exactly as in the file (shapes drawn one by one round their
         // soft edges very slightly differently).
         func frame(_ moment: Double) {
-            if moment >= settledAt { context.draw(logo, in: logoRect(canvas: canvas)) }
-            else { draw(at: moment, style: plan.style, in: context, canvas: canvas) }
+            if moment >= settledAt { drawLogo(in: logoRect(canvas: canvas), context) }
+            else {
+                switch plan.source {
+                case .template(let style): draw(at: moment, style: style, in: context, canvas: canvas)
+                case .custom(let spec): draw(at: moment, spec: spec, in: context, canvas: canvas)
+                }
+            }
         }
         if alpha < 1 {
             context.saveGState()
@@ -1079,7 +1119,7 @@ struct LogoAnimation: @unchecked Sendable {
                 guard local > 0 else { continue }
                 // Its time is up: exactly in place (no leftover wobble frozen into the hold).
                 if local >= timing[index].length {
-                    context.draw(element.image, in: place(element.box))
+                    element.draw(in: place(element.box), context)
                     continue
                 }
                 drawExpressive(index, local: local, length: timing[index].length, style: style, rect: place(element.box), fit: fit,
@@ -1087,127 +1127,26 @@ struct LogoAnimation: @unchecked Sendable {
             }
             return
         }
-        let whole = place(CGRect(origin: .zero, size: size))
-        if style == .wipe { context.beginTransparencyLayer(auxiliaryInfo: nil) }
-        for (index, element) in elements.enumerated() {
-            let (start, length) = timing[index]
-            let p = min(max((t - start) / length, 0), 1)
-            guard p > 0 || style == .wipe else { continue }
-            let rect = place(element.box)
-            context.saveGState()
-            switch style {
-            case .elegant:
-                // Up a little, out of a soft focus, without any bounce.
-                let e = Easing.outQuint(p)
-                context.translateBy(x: 0, y: -(1 - e) * drawn.height * 0.09)
-                let scale = 1 + (1 - e) * 0.03
-                context.translateBy(x: rect.midX, y: rect.midY)
-                context.scaleBy(x: scale, y: scale)
-                context.translateBy(x: -rect.midX, y: -rect.midY)
-                drawSoft(element, in: rect, focus: 1 - Easing.outCubic(min(p * 1.15, 1)), alpha: Easing.outCubic(min(p * 1.6, 1)),
-                         scale: fit, context: context)
-            case .rise:
-                let e = Easing.outQuint(p)
-                if element.kind == .letter || element.kind == .accent {
-                    // From behind the line the letter stands on.
-                    context.clip(to: CGRect(x: rect.minX - rect.width, y: rect.minY - 0.5, width: rect.width * 3, height: canvas.height))
-                    context.translateBy(x: 0, y: -(1 - e) * rect.height * 1.05)
-                    context.setAlpha(min(p * 4, 1))
-                    context.draw(element.image, in: rect)
-                } else {
-                    let scale = 0.86 + 0.14 * Easing.outExpo(p)
-                    context.translateBy(x: rect.midX, y: rect.midY)
-                    context.scaleBy(x: scale, y: scale)
-                    context.translateBy(x: -rect.midX, y: -rect.midY)
-                    drawSoft(element, in: rect, focus: 1 - e, alpha: Easing.outCubic(min(p * 1.8, 1)), scale: fit, context: context)
-                }
-            case .wipe:
-                // Behind the edge, a slight drift into place and out of focus.
-                let e = Easing.outCubic(p)
-                context.translateBy(x: -(1 - e) * drawn.width * 0.025, y: 0)
-                drawSoft(element, in: rect, focus: (1 - e) * 0.6, alpha: 1, scale: fit, context: context)
-            case .build, .automatic:
-                if element.kind == .symbol || element.kind == .plate {
-                    // The outline draws itself, then the shape fills in and the line fades.
-                    let line = Easing.inOutCubic(min(p / 0.7, 1))
-                    let fill = Easing.outCubic(min(max((p - 0.55) / 0.45, 0), 1))
-                    let grow = 0.92 + 0.08 * Easing.outBack(min(p / 0.8, 1))
-                    context.translateBy(x: rect.midX, y: rect.midY)
-                    context.scaleBy(x: grow, y: grow)
-                    context.translateBy(x: -rect.midX, y: -rect.midY)
-                    if fill < 1 {
-                        context.setStrokeColor(element.colour)
-                        context.setAlpha(1 - fill)
-                        context.setLineWidth(max(1.5, min(drawn.width, drawn.height) * 0.012))
-                        context.setLineJoin(.round)
-                        context.setLineCap(.round)
-                        for outline in element.outlines { strokePart(of: outline.map(point), fraction: line, in: context) }
-                    }
-                    context.setAlpha(fill)
-                    context.draw(element.image, in: rect)
-                } else {
-                    // Letters roll up into place with a little overshoot.
-                    let e = Easing.outBack(p)
-                    let lift = (1 - e) * rect.height * 0.7
-                    context.setAlpha(Easing.outCubic(min(p * 1.6, 1)))
-                    context.translateBy(x: 0, y: -lift)
-                    let tilt = (1 - e) * -0.18
-                    context.translateBy(x: rect.midX, y: rect.minY)
-                    context.rotate(by: tilt)
-                    context.translateBy(x: -rect.midX, y: -rect.minY)
-                    context.draw(element.image, in: rect)
-                }
-            case .pop:
-                let s = Easing.spring(p)
-                context.setAlpha(Easing.outCubic(min(p * 2.5, 1)))
-                context.translateBy(x: rect.midX, y: rect.midY)
-                context.scaleBy(x: s, y: s)
-                context.rotate(by: (1 - Easing.outCubic(p)) * 0.25)
-                context.translateBy(x: -rect.midX, y: -rect.midY)
-                context.draw(element.image, in: rect)
-            case .cascade:
-                let e = Easing.outExpo(p)
-                context.setAlpha(Easing.outCubic(min(p * 2, 1)))
-                context.translateBy(x: (1 - e) * drawn.width * 0.12, y: 0)
-                let squash = 1 + (1 - Easing.outCubic(p)) * 0.25
-                context.translateBy(x: rect.midX, y: rect.midY)
-                context.scaleBy(x: 1 / squash, y: squash)
-                context.translateBy(x: -rect.midX, y: -rect.midY)
-                context.draw(element.image, in: rect)
-            case .lineDraw, .bounce, .stretch, .assemble, .liquid:
-                break
-            case .reveal:
-                let e = Easing.outCubic(p)
-                context.setAlpha(e)
-                context.translateBy(x: 0, y: (1 - e) * -rect.height * 0.25)
-                let blurFree = 0.94 + 0.06 * e
-                context.translateBy(x: rect.midX, y: rect.midY)
-                context.scaleBy(x: blurFree, y: blurFree)
-                context.translateBy(x: -rect.midX, y: -rect.midY)
-                context.draw(element.image, in: rect)
-            }
-            context.restoreGState()
+        if let spec = motionSpec(for: style) {
+            draw(spec, at: t, fit: fit, drawn: drawn, canvas: canvas, place: place, point: point, in: context)
         }
+    }
 
-        if style == .wipe {
-            // The reveal: everything left of the soft edge shows.
-            let w = Easing.inOutCubic(min(max(t / Self.wipeLength, 0), 1))
-            let soft = whole.width * 0.28
-            let edge = whole.minX - 2 + (whole.width + soft + 4) * w
-            let colours = [CGColor(gray: 1, alpha: 1), CGColor(gray: 1, alpha: 0)] as CFArray
-            if let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colours, locations: [0, 1]) {
-                context.setBlendMode(.destinationIn)
-                context.drawLinearGradient(gradient, start: CGPoint(x: edge - soft, y: 0), end: CGPoint(x: edge, y: 0),
-                                           options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
-                context.setBlendMode(.normal)
-            }
-            context.endTransparencyLayer()
+    /// Draws a spec at time `t`, placed as `draw(at:style:)` places the logo.
+    func draw(at t: Double, spec: MotionSpec, in context: CGContext, canvas: CGSize, logoScale: Double = 0.62) {
+        let fit = min(canvas.width * logoScale / size.width, canvas.height * 0.5 / size.height)
+        let drawn = CGSize(width: size.width * fit, height: size.height * fit)
+        let origin = CGPoint(x: (canvas.width - drawn.width) / 2, y: (canvas.height - drawn.height) / 2)
+        func place(_ r: CGRect) -> CGRect {
+            CGRect(x: origin.x + r.minX * fit, y: origin.y + (size.height - r.maxY) * fit, width: r.width * fit, height: r.height * fit)
         }
+        func point(_ p: CGPoint) -> CGPoint { CGPoint(x: origin.x + p.x * fit, y: origin.y + (size.height - p.y) * fit) }
+        draw(spec, at: t, fit: fit, drawn: drawn, canvas: canvas, place: place, point: point, in: context)
     }
 
     /// Draws a shape out of focus: `focus` 0 is sharp, 1 the softest copy; in between, the two
     /// nearest copies are mixed exactly (added in a layer), so the focus pull is smooth.
-    private func drawSoft(_ element: Element, in rect: CGRect, focus: Double, alpha: Double, scale: Double, context: CGContext) {
+    func drawSoft(_ element: Element, in rect: CGRect, focus: Double, alpha: Double, scale: Double, context: CGContext) {
         let levels = [(image: element.image, pad: CGFloat(0))] + element.blurred
         let position = min(max(focus, 0), 1) * Double(levels.count - 1)
         let lower = Int(position.rounded(.down)), upper = min(lower + 1, levels.count - 1)
@@ -1215,22 +1154,26 @@ struct LogoAnimation: @unchecked Sendable {
         func frame(_ level: (image: CGImage, pad: CGFloat)) -> CGRect { rect.insetBy(dx: -level.pad * scale, dy: -level.pad * scale) }
         context.saveGState()
         context.setAlpha(alpha)
+        // The sharp level is the shape itself (from the file's vectors, when it has them).
+        func draw(_ n: Int) {
+            if n == 0 { element.draw(in: rect, context) } else { context.draw(levels[n].image, in: frame(levels[n])) }
+        }
         if mix < 0.01 || lower == upper {
-            context.draw(levels[lower].image, in: frame(levels[lower]))
+            draw(lower)
         } else {
             context.beginTransparencyLayer(auxiliaryInfo: nil)
             context.setAlpha(1 - mix)
-            context.draw(levels[lower].image, in: frame(levels[lower]))
+            draw(lower)
             context.setBlendMode(.plusLighter)
             context.setAlpha(mix)
-            context.draw(levels[upper].image, in: frame(levels[upper]))
+            draw(upper)
             context.endTransparencyLayer()
         }
         context.restoreGState()
     }
 
     /// Strokes the first `fraction` of a closed outline.
-    private func strokePart(of points: [CGPoint], fraction: Double, in context: CGContext) {
+    func strokePart(of points: [CGPoint], fraction: Double, in context: CGContext) {
         guard points.count > 1, fraction > 0 else { return }
         let closed = points + [points[0]]
         var lengths: [Double] = [0]
@@ -1284,7 +1227,13 @@ struct LogoAnimation: @unchecked Sendable {
                 progress: @escaping @Sendable (Double) -> Void) async throws {
         let animation = self
         // Motion blur where shapes fly (the expressive styles and Assemble).
-        let samples = Self.expressive.contains(plan.style) || plan.style == .assemble ? 5 : 1
+        let samples: Int
+        if case .template(let chosen) = plan.source {
+            let style = chosen == .automatic ? suggestedStyle : chosen
+            samples = Self.expressive.contains(style) || style == .assemble ? 5 : 1
+        } else {
+            samples = 1
+        }
         try await Self.writeVideo(to: output, size: canvas, frameRate: frameRate, length: plan.total, transparent: background == nil,
                                   motionBlur: samples, ffmpeg: ffmpeg, progress: progress) { t, context in
             if let background {
@@ -1313,7 +1262,8 @@ struct LogoAnimation: @unchecked Sendable {
         args.append(output.path)
         // If ffmpeg stops early, writing to it must fail, not end the app.
         signal(SIGPIPE, SIG_IGN)
-        try await Task.detached {
+        // Stopping (the caller's task cancelled) ends ffmpeg and removes the unfinished file.
+        let work = Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = args
@@ -1322,60 +1272,70 @@ struct LogoAnimation: @unchecked Sendable {
             process.standardError = errors
             process.standardOutput = FileHandle.nullDevice
             try process.run()
-            guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
-                  let base = context.data else { throw Failure() }
-            context.interpolationQuality = .high
-            var straight = [UInt8](repeating: 0, count: width * height * 4)
-            var sum = [Float](repeating: 0, count: samples > 1 ? width * height * 4 : 0)
-            var previous: [UInt8]?
-            for frame in 0..<frames {
-                try Task.checkCancellation()
-                let time = Double(frame) / Double(frameRate)
-                func render(_ t: Double) {
-                    context.clear(CGRect(x: 0, y: 0, width: width, height: height))
-                    context.saveGState()
-                    draw(t, context)
-                    context.restoreGState()
-                }
-                render(time)
-                if samples > 1 {
-                    let bytes = base.assumingMemoryBound(to: UInt8.self)
-                    let current = Array(UnsafeBufferPointer(start: bytes, count: width * height * 4))
-                    // Nothing moved since the last frame's moment: no blur to add.
-                    let moving = previous.map { $0 != current } ?? true
-                    previous = current
-                    if moving {
-                        vDSP.convertElements(of: current, to: &sum)
-                        var layer = [Float](repeating: 0, count: width * height * 4)
-                        for k in 1..<samples {
-                            render(time + 0.5 / Double(frameRate) * (Double(k) / Double(samples - 1) - 0.5))
-                            vDSP.convertElements(of: UnsafeBufferPointer(start: bytes, count: width * height * 4), to: &layer)
-                            vDSP.add(sum, layer, result: &sum)
-                        }
-                        vDSP.multiply(1 / Float(samples), sum, result: &sum)
-                        sum.withUnsafeBufferPointer { values in
-                            for i in 0..<(width * height * 4) { bytes[i] = UInt8(min(max(values[i].rounded(), 0), 255)) }
+            do {
+                guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                                              space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                              bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue),
+                      let base = context.data else { throw Failure() }
+                context.interpolationQuality = .high
+                var straight = [UInt8](repeating: 0, count: width * height * 4)
+                var sum = [Float](repeating: 0, count: samples > 1 ? width * height * 4 : 0)
+                var previous: [UInt8]?
+                for frame in 0..<frames {
+                    try Task.checkCancellation()
+                    let time = Double(frame) / Double(frameRate)
+                    func render(_ t: Double) {
+                        context.clear(CGRect(x: 0, y: 0, width: width, height: height))
+                        context.saveGState()
+                        draw(t, context)
+                        context.restoreGState()
+                    }
+                    render(time)
+                    if samples > 1 {
+                        let bytes = base.assumingMemoryBound(to: UInt8.self)
+                        let current = Array(UnsafeBufferPointer(start: bytes, count: width * height * 4))
+                        // Nothing moved since the last frame's moment: no blur to add.
+                        let moving = previous.map { $0 != current } ?? true
+                        previous = current
+                        if moving {
+                            vDSP.convertElements(of: current, to: &sum)
+                            var layer = [Float](repeating: 0, count: width * height * 4)
+                            for k in 1..<samples {
+                                render(time + 0.5 / Double(frameRate) * (Double(k) / Double(samples - 1) - 0.5))
+                                vDSP.convertElements(of: UnsafeBufferPointer(start: bytes, count: width * height * 4), to: &layer)
+                                vDSP.add(sum, layer, result: &sum)
+                            }
+                            vDSP.multiply(1 / Float(samples), sum, result: &sum)
+                            sum.withUnsafeBufferPointer { values in
+                                for i in 0..<(width * height * 4) { bytes[i] = UInt8(min(max(values[i].rounded(), 0), 255)) }
+                            }
                         }
                     }
+                    // ffmpeg wants straight (not premultiplied) alpha.
+                    var source = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * 4)
+                    straight.withUnsafeMutableBytes { bytes in
+                        var destination = vImage_Buffer(data: bytes.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * 4)
+                        _ = vImageUnpremultiplyData_RGBA8888(&source, &destination, vImage_Flags(kvImageNoFlags))
+                    }
+                    try input.fileHandleForWriting.write(contentsOf: straight)
+                    if frame % 10 == 0 { progress(Double(frame) / Double(max(frames, 1))) }
                 }
-                // ffmpeg wants straight (not premultiplied) alpha.
-                var source = vImage_Buffer(data: base, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * 4)
-                straight.withUnsafeMutableBytes { bytes in
-                    var destination = vImage_Buffer(data: bytes.baseAddress, height: vImagePixelCount(height), width: vImagePixelCount(width), rowBytes: width * 4)
-                    _ = vImageUnpremultiplyData_RGBA8888(&source, &destination, vImage_Flags(kvImageNoFlags))
-                }
-                try input.fileHandleForWriting.write(contentsOf: straight)
-                if frame % 10 == 0 { progress(Double(frame) / Double(max(frames, 1))) }
+                try input.fileHandleForWriting.close()
+            } catch {
+                // ffmpeg waits on its input until that closes, so close it before ending ffmpeg.
+                try? input.fileHandleForWriting.close()
+                process.terminate()
+                process.waitUntilExit()
+                try? FileManager.default.removeItem(at: output)
+                throw error
             }
-            try input.fileHandleForWriting.close()
             process.waitUntilExit()
             guard process.terminationStatus == 0 else {
                 let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
                 throw FrameRewriter.Failure.writing(message.trimmingCharacters(in: .whitespacesAndNewlines))
             }
-        }.value
+        }
+        try await withTaskCancellationHandler { try await work.value } onCancel: { work.cancel() }
         progress(1)
     }
 }
