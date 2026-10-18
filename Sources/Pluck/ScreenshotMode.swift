@@ -65,6 +65,12 @@ enum ScreenshotMode {
 
         // -PluckScreenshotSeed <folder>: its videos, songs and photos added as finished items (once),
         // so the list, Home and the Library have something to show.
+        // -PluckScreenshotUpdateBar <0…1>: an update shown as installing, that far downloaded.
+        if let fraction = Double(defaults.string(forKey: "PluckScreenshotUpdateBar") ?? "") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                AppDelegate.shared?.appUpdater.pretendInstalling("\(Edition.name) 3.2.0", received: Int64(fraction * 114_000_000), of: 114_000_000)
+            }
+        }
         if let seed = defaults.string(forKey: "PluckScreenshotSeed") {
             let files = ((try? FileManager.default.contentsOfDirectory(at: URL(fileURLWithPath: seed), includingPropertiesForKeys: nil)) ?? [])
                 .filter { !$0.lastPathComponent.hasPrefix(".") && !$0.hasDirectoryPath }

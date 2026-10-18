@@ -33,6 +33,32 @@ final class AppUpdater {
     var release: Release?
     var dismissedVersion: String?
 
+    /// While installing: where it's got to, and what's coming ("Pluck 3.1.0", "Pluck Studio").
+    enum Step: Equatable { case downloading, checking, unpacking, relaunching }
+    private(set) var step: Step?
+    private(set) var installing: String?
+    private(set) var received: Int64 = 0
+    private(set) var expected: Int64 = 0
+    @ObservationIgnored private var installTask: Task<URL, Error>?
+
+    /// How far the download is (0…1), once its size is known.
+    var downloaded: Double? {
+        guard step == .downloading, expected > 0 else { return nil }
+        return min(Double(received) / Double(expected), 1)
+    }
+
+    /// Screenshots: the bar as if this much of an update had come in.
+    func pretendInstalling(_ name: String, received: Int64, of expected: Int64) {
+        status = .installing
+        installing = name
+        step = .downloading
+        self.received = received
+        self.expected = expected
+    }
+
+    /// Stops the download (what came in so far is kept, so the next try carries on from there).
+    func cancelInstall() { installTask?.cancel() }
+
     @ObservationIgnored private var timer: Timer?
 
     var currentVersion: String {
@@ -171,13 +197,9 @@ final class AppUpdater {
             status = .failed(Failure.notWritable.localizedDescription)
             return
         }
-        status = .installing
-        do {
-            let other = try await fetchLatest(studio: !Edition.isStudio)
-            let newApp = try await download(other)
-            relaunch(replacing: target, with: newApp)
-        } catch {
-            status = .failed(error.localizedDescription)
+        await install(Edition.isStudio ? "Pluck" : "Pluck Studio", target: target) {
+            let other = try await self.fetchLatest(studio: !Edition.isStudio)
+            return try await self.download(other)
         }
     }
 
@@ -189,18 +211,45 @@ final class AppUpdater {
             return
         }
 
+        await install("\(Edition.name) \(release.version)", target: target) { try await self.download(release) }
+    }
+
+    /// Gets the new app (downloaded, checked, unpacked), then swaps it in and relaunches. A
+    /// cancelled download goes back to where it was.
+    private func install(_ name: String, target: URL, get: @escaping @MainActor () async throws -> URL) async {
         status = .installing
+        installing = name
+        step = .downloading
+        received = 0
+        expected = 0
+        let task = Task { try await get() }
+        installTask = task
+        defer { installTask = nil }
         do {
-            let newApp = try await download(release)
+            let newApp = try await task.value
+            step = .relaunching
             relaunch(replacing: target, with: newApp)
         } catch {
-            status = .failed(error.localizedDescription)
+            step = nil
+            installing = nil
+            if task.isCancelled || (error as? URLError)?.code == .cancelled || error is CancellationError {
+                status = release != nil ? .available : .idle
+            } else {
+                status = .failed(error.localizedDescription)
+            }
         }
     }
 
     func download(_ release: Release) async throws -> URL {
-        let downloaded = try await ToolDownloads.download(release.file, limit: 2 * 3600) { _, _ in }
+        let downloaded = try await ToolDownloads.download(release.file, limit: 2 * 3600) { received, total in
+            Task { @MainActor in
+                self.received = received
+                self.expected = total
+            }
+        }
         defer { try? FileManager.default.removeItem(at: downloaded) }
+        try Task.checkCancellation()
+        step = .checking
 
         let expected: String
         if let digest = release.digest {
@@ -215,6 +264,7 @@ final class AppUpdater {
             .map { String(format: "%02x", $0) }.joined()
         guard !expected.isEmpty, actual == expected else { throw Failure.checksumMismatch }
 
+        step = .unpacking
         let staging = FileManager.default.temporaryDirectory.appendingPathComponent("PluckUpdate-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         if release.isDiskImage {
@@ -252,6 +302,8 @@ final class AppUpdater {
             try p.run()
             NSApp.terminate(nil)
         } catch {
+            step = nil
+            installing = nil
             status = .failed(error.localizedDescription)
         }
     }

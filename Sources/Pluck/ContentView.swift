@@ -50,7 +50,12 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if appUpdater.showsBanner, let release = appUpdater.release {
+            if appUpdater.status == .installing {
+                UpdateBar()
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            } else if appUpdater.showsBanner, let release = appUpdater.release {
                 updateBanner(release)
             }
             // First launch (or a tool gone): what's being set up, as it goes, or what went wrong.
@@ -146,10 +151,7 @@ struct ContentView: View {
                 Text("You have \(appUpdater.currentVersion).").font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
-            if appUpdater.status == .installing {
-                ProgressView().controlSize(.small)
-                Text("Installing…").foregroundStyle(.secondary)
-            } else {
+            Group {
                 Button("What’s New") { NSWorkspace.shared.open(release.page) }
                     .buttonStyle(.borderless)
                 Button("Later") { withAnimation { appUpdater.dismissedVersion = release.version } }

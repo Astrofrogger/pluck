@@ -7,6 +7,7 @@ import SwiftUI
 struct StudioWindow: View {
     @Environment(DownloadManager.self) private var manager
     @Environment(AIStudio.self) private var ai
+    @Environment(AppUpdater.self) private var appUpdater
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openPluckSettings) private var openSettings
     @State private var nav = StudioNavigator.shared
@@ -16,6 +17,17 @@ struct StudioWindow: View {
         VStack(spacing: 0) {
             page
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // An update installing, over every page (Home shows it at its top).
+                .overlay(alignment: .bottom) {
+                    if appUpdater.status == .installing, nav.page != .home {
+                        UpdateBar()
+                            .frame(maxWidth: 560)
+                            .shadow(color: .black.opacity(0.18), radius: 12, y: 4)
+                            .padding(Design.Spacing.inset)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+                }
+                .animation(.snappy, value: appUpdater.status == .installing)
             PageBar(nav: nav)
         }
         // Home's glow runs under the whole window: title bar, page and page bar.

@@ -263,7 +263,8 @@ private struct GeneralSettings: View {
                 LabeledContent("Version \(appUpdater.currentVersion)") {
                     HStack(spacing: 8) {
                         switch appUpdater.status {
-                        case .checking, .installing: ProgressView().controlSize(.small)
+                        case .checking: ProgressView().controlSize(.small)
+                        case .installing: EmptyView()
                         case .upToDate: Text("Up to date").foregroundStyle(.secondary)
                         case .available: Text("\(appUpdater.release?.version ?? "") available").foregroundStyle(.tint)
                         case .failed(let message):
@@ -271,7 +272,9 @@ private struct GeneralSettings: View {
                                 .accessibilityLabel("Update check failed: \(message)")
                         case .idle: EmptyView()
                         }
-                        if appUpdater.status == .available {
+                        if appUpdater.status == .installing {
+                            EmptyView()
+                        } else if appUpdater.status == .available {
                             Button("Install & Relaunch") { Task { await appUpdater.installAndRelaunch() } }
                         } else {
                             Button("Check Now") {
@@ -282,6 +285,7 @@ private struct GeneralSettings: View {
                         }
                     }
                 }
+                if appUpdater.status == .installing { UpdateBar(card: false) }
                 LabeledContent {
                     Button(Edition.isStudio ? "Switch to Pluck…" : "Switch to Pluck Studio…") { confirmSwitch = true }
                         .disabled(appUpdater.status == .installing)

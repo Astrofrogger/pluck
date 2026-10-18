@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.1.1", items: [
+                Item(symbol: "arrow.down.circle", title: String(localized: "See updates install"),
+                     detail: String(localized: "Installing an update shows how far the download is, then checking, installing and relaunching. Cancel it any time; what came in is kept for the next try.")),
+            ]),
             Release(version: "3.0.0", items: [
                 Item(symbol: "checklist", title: String(localized: "Choose several in the Library"),
                      detail: String(localized: "Shift-click or Command-click to pick several, then delete them all at once. File ▸ Remove Missing Files from Library clears out what’s no longer on your Mac.")),
