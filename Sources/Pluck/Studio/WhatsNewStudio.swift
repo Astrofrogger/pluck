@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.3", items: [
+                Item(symbol: "speaker.wave.2", title: String(localized: "Whole RED takes, with sound"),
+                     detail: String(localized: "Quick Look plays a take the camera split into several files from start to end, with its sound. In Settings, RED clips can show as one item in Finder.")),
+                Item(symbol: "arrow.up.forward.app", title: String(localized: "Camera clips to DaVinci, with sound"),
+                     detail: String(localized: "Send clips from the Player or a folder to DaVinci Resolve: the sound the camera recorded beside them comes along, linked by timecode.")),
+            ]),
             Release(version: "3.1.2", items: [
                 Item(symbol: "slider.horizontal.below.rectangle", title: String(localized: "Scrub in Quick Look"),
                      detail: String(localized: "Press Space on a RED or Blackmagic RAW clip in Finder and drag the bar to go anywhere in it; it plays on from there.")),

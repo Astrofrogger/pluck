@@ -449,6 +449,26 @@ enum RawFormats {
     /// The extensions Pluck plays as raw (with the decoders this Pluck has).
     static var extensions: Set<String> { RawHelperSource.formats.union(["dng"]) }
 
+
+    /// A RED take the camera split into several files (…_001.R3D, …_002.R3D): opened from its
+    /// first, the whole take plays. For a later file: the first, and how far into the take that
+    /// file starts (by size: REDCODE runs at a steady rate).
+    nonisolated static func spanned(_ url: URL) -> (first: URL, start: Double)? {
+        guard url.pathExtension.lowercased() == "r3d" else { return nil }
+        let name = url.deletingPathExtension().lastPathComponent
+        guard let mark = name.range(of: "_[0-9]{3}$", options: .regularExpression), name[mark] != "_001" else { return nil }
+        let stem = String(name[..<mark.lowerBound])
+        let folder = url.deletingLastPathComponent()
+        let parts = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
+            .filter { $0.pathExtension.lowercased() == "r3d" && $0.deletingPathExtension().lastPathComponent.range(of: "^" + NSRegularExpression.escapedPattern(for: stem) + "_[0-9]{3}$", options: .regularExpression) != nil }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard let first = parts.first, first != url else { return nil }
+        func size(_ file: URL) -> Double { Double((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        let total = parts.map(size).reduce(0, +)
+        let before = parts.prefix { $0 != url }.map(size).reduce(0, +)
+        return (first, total > 0 ? before / total : 0)
+    }
+
     /// The clip at a URL: a file, or a folder (an .RDC folder, a CinemaDNG folder, an image
     /// sequence).
     static func open(_ url: URL) throws -> RawSource {
@@ -634,6 +654,9 @@ final class RawPlayer {
         currentImage = nil
         problem = nil
         opening = true
+        // A later file of a RED take: the whole take, from where that file starts.
+        let spanned = RawFormats.spanned(url)
+        let url = spanned?.first ?? url
         self.url = url
         Self.trace("open")
         RawTools.prepare()
@@ -650,8 +673,8 @@ final class RawPlayer {
                 autoFloor = 1
                 autoScale = initialScale
                 stillScale = 1
-                index = 0
-                show(0)
+                index = min(Int((spanned?.start ?? 0) * Double(source.info.frames)), max(source.info.frames - 1, 0))
+                show(index)
                 loadAudio(source)
                 prepareDecoders(source)
             case .failure(let error):

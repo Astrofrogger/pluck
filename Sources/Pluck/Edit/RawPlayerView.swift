@@ -344,6 +344,10 @@ struct RawPlayerView: View {
                 Button("Export Movie…", systemImage: "square.and.arrow.up") { exportMovie() }
                     .help("Writes the clip as an ordinary movie with these raw settings, for the Editor, DaVinci Resolve or Final Cut Pro")
             }
+            if Resolve.isInstalled, let url = player.url {
+                Button("Send to DaVinci", systemImage: "arrow.up.forward.app") { Resolve.sendClipsAndShow([url]) }
+                    .help("Imports the clip itself into the project open in DaVinci Resolve, with the sound the camera recorded beside it linked to it")
+            }
             if let file = player.exported {
                 DoneLabel(text: Text(file.lastPathComponent), file: file).font(.caption)
             } else if let problem = player.exportProblem {

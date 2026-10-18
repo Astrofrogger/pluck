@@ -419,6 +419,14 @@ struct RawBrowserView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
+                if Resolve.isInstalled, folder.clipCount > 0 {
+                    // The clips shown (all, or what the search found), each with its sound.
+                    Button("Send to DaVinci", systemImage: "arrow.up.forward.app") {
+                        Resolve.sendClipsAndShow(folder.shown.flatMap(\.clips).map(\.url))
+                    }
+                    .buttonStyle(GlassCapsuleButtonStyle())
+                    .help("Imports the clips shown into the project open in DaVinci Resolve, each with the sound the camera recorded beside it linked to it")
+                }
                 TextField("Search", text: $folder.search)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 180)
@@ -513,6 +521,13 @@ private struct RawClipTile: View {
             }
             .contentShape(.rect)
             .onTapGesture { open(clip.url) }
+            .contextMenu {
+                Button("Open") { open(clip.url) }
+                if Resolve.isInstalled {
+                    Button("Send to DaVinci Resolve") { Resolve.sendClipsAndShow([clip.url]) }
+                }
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clip.url]) }
+            }
             .help(clip.url.path)
             Text(clip.name).font(.callout).lineLimit(1).truncationMode(.middle)
             Text(caption).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)

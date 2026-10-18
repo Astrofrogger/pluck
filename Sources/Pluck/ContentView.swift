@@ -55,6 +55,8 @@ struct ContentView: View {
                     .padding(.horizontal, 20)
                     .padding(.top, 12)
                     .transition(.move(edge: .top).combined(with: .opacity))
+            } else if let version = appUpdater.readyForQuit {
+                readyBanner(version)
             } else if appUpdater.showsBanner, let release = appUpdater.release {
                 updateBanner(release)
             }
@@ -172,6 +174,22 @@ struct ContentView: View {
         } message: {
             Text("Updating now quits Pluck and stops \(manager.activeCount) download(s).")
         }
+    }
+
+    /// An update made ready: it goes in when Pluck quits (or now).
+    private func readyBanner(_ version: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(.green).accessibilityHidden(true)
+            Text("\(Edition.name) \(version) installs when you quit").font(.headline)
+            Spacer()
+            Button("Install Now") { install() }
+                .glassButtonStyle()
+        }
+        .padding(12)
+        .glassBackground(in: .rect(cornerRadius: Design.Radius.card))
+        .padding(.horizontal, 20)
+        .padding(.top, 12)
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private func install() {

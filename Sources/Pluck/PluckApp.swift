@@ -21,6 +21,7 @@ struct PluckApp: App {
                 .environment(toolsUpdater)
             #else
             ContentView()
+                .updatePrompt(appUpdater)
                 .environment(manager)
                 .studio(app)
                 .environment(updater)

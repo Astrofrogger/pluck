@@ -17,7 +17,8 @@ struct UpdateBar: View {
             }
             VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Installing \(updater.installing ?? Edition.name)").font(card ? .headline : .callout.weight(.medium)).lineLimit(1)
+                    Text(updater.forQuit ? "Getting \(updater.installing ?? Edition.name) ready" : "Installing \(updater.installing ?? Edition.name)")
+                        .font(card ? .headline : .callout.weight(.medium)).lineLimit(1)
                     Spacer(minLength: 8)
                     Text(step).font(.callout.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
                 }

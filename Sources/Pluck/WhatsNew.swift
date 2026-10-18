@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.1.3", items: [
+                Item(symbol: "bell.badge", title: String(localized: "Updates you won’t miss"),
+                     detail: String(localized: "A new version is offered in a window of its own. Install it now, or let it go in when you quit Pluck.")),
+            ]),
             Release(version: "3.1.1", items: [
                 Item(symbol: "arrow.down.circle", title: String(localized: "See updates install"),
                      detail: String(localized: "Installing an update shows how far the download is, then checking, installing and relaunching. Cancel it any time; what came in is kept for the next try.")),

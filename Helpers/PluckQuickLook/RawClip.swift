@@ -13,6 +13,8 @@ final class RawClip: @unchecked Sendable {
     let startTimecode: String?
     /// Decoded on the graphics chip (several times quicker than without).
     let gpu: Bool
+    /// Sound recorded in the clip itself.
+    let audioChannels: Int
 
     private let url: URL
     private let buffer: URL
@@ -39,6 +41,7 @@ final class RawClip: @unchecked Sendable {
         camera = meta["camera_type"] ?? meta["camera_model"] ?? meta["Camera Model"]
         startTimecode = meta["start_edge_timecode"] ?? meta["timecode"]
         gpu = (reply["gpu"] as? Bool) ?? false
+        audioChannels = (reply["audioChannels"] as? NSNumber)?.intValue ?? 0
         mappedSize = max(width * height * 8, 8)
         buffer = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-ql-\(UUID().uuidString).frame")
         FileManager.default.createFile(atPath: buffer.path, contents: nil)
@@ -91,6 +94,22 @@ final class RawClip: @unchecked Sendable {
         }
     }
 
+    /// The clip's sound as a file to play: what's recorded in it, or the .wav the camera wrote
+    /// next to it (when Quick Look lets the extension read it). Nil without sound.
+    func audio() -> URL? {
+        if audioChannels > 0 {
+            let to = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-ql-\(UUID().uuidString).wav")
+            let made: Bool = Self.lock.withLock {
+                if Self.openPath != url.path { guard (try? Self.openClip(url)) != nil else { return false } }
+                return (try? Self.ask(["op": "audio", "to": to.path])) != nil
+            }
+            if made { return to }
+        }
+        let base = url.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_001", with: "")
+        let files = (try? FileManager.default.contentsOfDirectory(at: url.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
+        return files.first { $0.pathExtension.lowercased() == "wav" && $0.deletingPathExtension().lastPathComponent.hasPrefix(base) && FileManager.default.isReadableFile(atPath: $0.path) }
+    }
+
     /// The smallest decode that's still at least this wide.
     func scale(forWidth wanted: Double) -> Int {
         for scale in [16, 8, 4, 2] where Double(width / scale) >= wanted { return scale }
@@ -109,8 +128,29 @@ final class RawClip: @unchecked Sendable {
         return reply
     }
 
+
+    /// A RED take the camera split into several files (…_001.R3D, …_002.R3D): opened from its
+    /// first, the whole take plays. For a later file: the first, and how far into the take that
+    /// file starts (by size: REDCODE runs at a steady rate).
+    static func spanned(_ url: URL) -> (first: URL, start: Double)? {
+        guard url.pathExtension.lowercased() == "r3d" else { return nil }
+        let name = url.deletingPathExtension().lastPathComponent
+        guard let mark = name.range(of: "_[0-9]{3}$", options: .regularExpression), name[mark] != "_001" else { return nil }
+        let stem = String(name[..<mark.lowerBound])
+        let folder = url.deletingLastPathComponent()
+        let parts = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
+            .filter { $0.pathExtension.lowercased() == "r3d" && $0.deletingPathExtension().lastPathComponent.range(of: "^" + NSRegularExpression.escapedPattern(for: stem) + "_[0-9]{3}$", options: .regularExpression) != nil }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard let first = parts.first, first != url else { return nil }
+        func size(_ file: URL) -> Double { Double((try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+        let total = parts.map(size).reduce(0, +)
+        let before = parts.prefix { $0 != url }.map(size).reduce(0, +)
+        return (first, total > 0 ? before / total : 0)
+    }
+
     /// The clip's file: an .RDC folder's first R3D, or the file itself.
     static func clipFile(_ url: URL) -> URL {
+        if let spanned = spanned(url) { return spanned.first }
         guard url.hasDirectoryPath else { return url }
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
         return files.filter { $0.pathExtension.lowercased() == "r3d" }.sorted { $0.lastPathComponent < $1.lastPathComponent }.first ?? url

@@ -1104,6 +1104,122 @@
         }
       }
     },
+    "%@ %@ installs when you quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ wird beim Beenden installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ se instala al salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ s’installe quand vous quittez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ si installa quando esci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ は終了時にインストールされます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ 은(는) 종료할 때 설치됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ wordt geïnstalleerd als je stopt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ será instalado ao sair"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ 将在退出时安装"
+          }
+        }
+      }
+    },
+    "%@ %@ is available": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ ist verfügbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ está disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ est disponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ è disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ を利用できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ 사용 가능"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ is beschikbaar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ está disponível"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ %2$@ 现已推出"
+          }
+        }
+      }
+    },
     "%@ (%lld)": {
       "extractionState": "stale",
       "localizations": {
@@ -1803,6 +1919,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 的像素数为奇数，许多播放器和平台会拒绝。"
+          }
+        }
+      }
+    },
+    "%@ installs when you quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird beim Beenden installiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ se instala al salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ s’installe quand vous quittez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ si installa quando esci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ は終了時にインストールされます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 은(는) 종료할 때 설치됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wordt geïnstalleerd als je stopt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ será instalado ao sair"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 将在退出时安装"
           }
         }
       }
@@ -9843,6 +10017,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 DaVinci Resolve 中打开的项目里新建一条带字幕的时间线（已有的文件不会重复导入）"
+          }
+        }
+      }
+    },
+    "A new version is offered in a window of its own. Install it now, or let it go in when you quit Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine neue Version erscheint in einem eigenen Fenster. Installiere sie sofort oder lass sie beim Beenden von Pluck einspielen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una nueva versión aparece en su propia ventana. Instálala ahora o deja que se instale al salir de Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une nouvelle version est proposée dans sa propre fenêtre. Installez-la maintenant, ou laissez-la se mettre en place quand vous quittez Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una nuova versione viene proposta in una finestra a sé. Installala subito o lasciala installare quando esci da Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいバージョンは専用のウインドウで知らせます。今すぐインストールするか、Pluck の終了時にインストールできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 버전은 별도의 창으로 알려 줍니다. 지금 설치하거나 Pluck을 종료할 때 설치되게 할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een nieuwe versie verschijnt in een eigen venster. Installeer hem meteen, of laat hem erin gaan als je Pluck stopt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma nova versão aparece numa janela própria. Instale agora ou deixe que seja instalada ao sair do Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新版本会在单独的窗口中提示。可以立即安装，或在退出 Pluck 时安装。"
           }
         }
       }
@@ -25196,6 +25428,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "相机"
+          }
+        }
+      }
+    },
+    "Camera Raw": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kamera-Raw"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW de cámara"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw de caméra"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Raw della camera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラ RAW"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 RAW"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Camera-raw"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW de câmera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机 RAW"
+          }
+        }
+      }
+    },
+    "Camera clips to DaVinci, with sound": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kamera-Clips zu DaVinci, mit Ton"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips de cámara a DaVinci, con sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plans de caméra vers DaVinci, avec le son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clip della camera in DaVinci, con l’audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラのクリップを音声付きで DaVinci へ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 클립을 소리와 함께 DaVinci로"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cameraclips naar DaVinci, met geluid"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipes da câmera para o DaVinci, com som"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "带声音将摄影机片段送到 DaVinci"
           }
         }
       }
@@ -45218,6 +45566,64 @@
         }
       }
     },
+    "Downloads it now, and puts it in place when you quit Pluck: nothing stops for it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt es jetzt und setzt es ein, wenn du Pluck beendest: Nichts wird dafür unterbrochen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo descarga ahora y lo instala cuando salgas de Pluck: nada se detiene"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le télécharge maintenant et le met en place quand vous quittez Pluck : rien ne s’arrête"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo scarica ora e lo installa quando esci da Pluck: non si interrompe nulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今ダウンロードし、Pluck を終了したときに置き換えます。作業は止まりません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 다운로드하고 Pluck을 종료할 때 설치합니다. 작업이 멈추지 않습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloadt het nu en zet het op zijn plaats als je Pluck stopt: niets wordt onderbroken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixa agora e coloca no lugar quando você sair do Pluck: nada para"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在下载，并在退出 Pluck 时安装：不会打断任何工作"
+          }
+        }
+      }
+    },
     "Downloads keep working on macOS 27": {
       "localizations": {
         "de": {
@@ -47539,6 +47945,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "动态缩放"
+          }
+        }
+      }
+    },
+    "Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click opens it in the Player. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder .RDC-Ordner erscheint als ein Clip mit Miniatur: Die Leertaste spielt die ganze Aufnahme mit Ton, ein Doppelklick öffnet sie im Player. Um die Dateien darin zu sehen, klicke mit der rechten Maustaste und wähle „Paketinhalt zeigen“. Der Finder braucht dafür eventuell einen Moment oder eine neue Anmeldung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada carpeta .RDC aparece como un clip con miniatura: la barra espaciadora reproduce la toma entera con su sonido y un doble clic la abre en el Reproductor. Para ver sus archivos, haz clic derecho y elige «Mostrar contenido del paquete». El Finder puede tardar un momento o necesitar un nuevo inicio de sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque dossier .RDC apparaît comme un plan avec une vignette : la barre d’espace lit la prise entière avec son son, un double-clic l’ouvre dans le Lecteur. Pour voir ses fichiers, faites un clic droit et choisissez « Afficher le contenu du paquet ». Le Finder peut demander un instant, ou une nouvelle ouverture de session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni cartella .RDC appare come una clip con miniatura: la barra spaziatrice riproduce l’intera ripresa con l’audio e un doppio clic la apre nel Player. Per vedere i file, fai clic destro e scegli «Mostra contenuto pacchetto». Il Finder può richiedere un momento o un nuovo accesso."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 .RDC フォルダがサムネール付きのひとつのクリップとして表示されます。スペースキーでテイク全体を音声付きで再生し、ダブルクリックでプレーヤーで開きます。中のファイルを見るには、右クリックして「パッケージの内容を表示」を選びます。Finder に反映されるまで少しかかるか、再ログインが必要な場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 .RDC 폴더가 썸네일이 있는 하나의 클립으로 보입니다. 스페이스 바로 테이크 전체를 소리와 함께 재생하고, 더블 클릭하면 플레이어에서 엽니다. 안의 파일을 보려면 오른쪽 클릭 후 '패키지 내용 보기'를 선택하세요. Finder에 반영되기까지 잠시 걸리거나 다시 로그인해야 할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elke .RDC-map verschijnt als één clip met een miniatuur: de spatiebalk speelt de hele take met geluid af, een dubbelklik opent hem in de Player. Om de bestanden erin te zien, klik je met de rechtermuisknop en kies je ‘Toon pakketinhoud’. De Finder heeft er misschien even of een nieuwe aanmelding voor nodig."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada pasta .RDC aparece como um clipe com miniatura: a barra de espaço reproduz a tomada inteira com o som, e um clique duplo a abre no Player. Para ver os arquivos, clique com o botão direito e escolha “Mostrar Conteúdo do Pacote”. O Finder pode levar um momento ou precisar de um novo login."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 .RDC 文件夹会显示为一个带缩略图的片段：按空格键播放整条带声音的镜头，双击在播放器中打开。要查看其中的文件，请右键点按并选择“显示包内容”。Finder 可能需要片刻或重新登录才会显示。"
           }
         }
       }
@@ -62042,6 +62506,64 @@
         }
       }
     },
+    "Getting %@ ready": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wird vorbereitet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparation de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparazione di %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ を準備中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 준비 중"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wordt klaargezet"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在准备 %@"
+          }
+        }
+      }
+    },
     "Getting the AI denoiser…": {
       "localizations": {
         "de": {
@@ -66290,6 +66812,122 @@
         }
       }
     },
+    "Imports the clip itself into the project open in DaVinci Resolve, with the sound the camera recorded beside it linked to it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importiert den Clip selbst in das in DaVinci Resolve geöffnete Projekt, mit dem daneben aufgenommenen Ton der Kamera verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa el clip en sí al proyecto abierto en DaVinci Resolve, con el sonido que grabó la cámara a su lado vinculado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importe le plan lui-même dans le projet ouvert dans DaVinci Resolve, avec le son enregistré à côté par la caméra lié à lui"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa la clip stessa nel progetto aperto in DaVinci Resolve, con l’audio registrato accanto dalla camera collegato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップそのものを DaVinci Resolve で開いているプロジェクトに読み込み、カメラが横に記録した音声をリンクします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 원본을 DaVinci Resolve에 열려 있는 프로젝트로 가져오고, 카메라가 옆에 녹음한 소리를 연결합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importeert de clip zelf in het project dat in DaVinci Resolve open staat, met het geluid dat de camera ernaast opnam eraan gekoppeld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa o próprio clipe no projeto aberto no DaVinci Resolve, com o som que a câmera gravou ao lado vinculado a ele"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将片段本身导入 DaVinci Resolve 中打开的项目，并链接摄影机在旁录制的声音"
+          }
+        }
+      }
+    },
+    "Imports the clips shown into the project open in DaVinci Resolve, each with the sound the camera recorded beside it linked to it": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importiert die angezeigten Clips in das in DaVinci Resolve geöffnete Projekt, jeweils mit dem daneben aufgenommenen Ton der Kamera verbunden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa los clips mostrados al proyecto abierto en DaVinci Resolve, cada uno con el sonido que grabó la cámara a su lado vinculado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importe les plans affichés dans le projet ouvert dans DaVinci Resolve, chacun avec le son enregistré à côté par la caméra lié à lui"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa le clip mostrate nel progetto aperto in DaVinci Resolve, ognuna con l’audio registrato accanto dalla camera collegato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示中のクリップを DaVinci Resolve で開いているプロジェクトに読み込み、それぞれにカメラが横に記録した音声をリンクします"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "표시된 클립을 DaVinci Resolve에 열려 있는 프로젝트로 가져오고, 각각 카메라가 옆에 녹음한 소리를 연결합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importeert de getoonde clips in het project dat in DaVinci Resolve open staat, elk met het geluid dat de camera ernaast opnam eraan gekoppeld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa os clipes mostrados no projeto aberto no DaVinci Resolve, cada um com o som que a câmera gravou ao lado vinculado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将显示的片段导入 DaVinci Resolve 中打开的项目，每个片段都链接摄影机在旁录制的声音"
+          }
+        }
+      }
+    },
     "Import…": {
       "localizations": {
         "de": {
@@ -67277,6 +67915,64 @@
         }
       }
     },
+    "Install Now": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt installieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar ahora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer maintenant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa ora"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今すぐインストール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 설치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nu installeren"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar agora"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "立即安装"
+          }
+        }
+      }
+    },
     "Installed": {
       "localizations": {
         "de": {
@@ -67505,6 +68201,136 @@
           "stringUnit": {
             "state": "translated",
             "value": "安装更新时会显示下载进度，以及检查、安装和重新启动的过程。可随时取消，已下载的部分会保留，下次继续。"
+          }
+        }
+      }
+    },
+    "Installing now stops ^[%lld download](inflect: true).": {
+      "localizations": {
+        "de": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Jetzt installieren stoppt %lld Download."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Jetzt installieren stoppt %lld Downloads."
+                }
+              }
+            }
+          }
+        },
+        "es": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Instalar ahora detiene %lld descarga."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Instalar ahora detiene %lld descargas."
+                }
+              }
+            }
+          }
+        },
+        "fr": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installer maintenant arrête %lld téléchargement."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installer maintenant arrête %lld téléchargements."
+                }
+              }
+            }
+          }
+        },
+        "it": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installare ora interrompe %lld download."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Installare ora interrompe %lld download."
+                }
+              }
+            }
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "今インストールすると %lld 件のダウンロードが止まります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금 설치하면 다운로드 %lld개가 중지됩니다."
+          }
+        },
+        "nl": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nu installeren stopt %lld download."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Nu installeren stopt %lld downloads."
+                }
+              }
+            }
+          }
+        },
+        "pt-BR": {
+          "variations": {
+            "plural": {
+              "one": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Instalar agora interrompe %lld download."
+                }
+              },
+              "other": {
+                "stringUnit": {
+                  "state": "translated",
+                  "value": "Instalar agora interrompe %lld downloads."
+                }
+              }
+            }
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "现在安装会停止 %lld 个下载。"
           }
         }
       }
@@ -109555,6 +110381,64 @@
         }
       }
     },
+    "Quick Look plays a take the camera split into several files from start to end, with its sound. In Settings, RED clips can show as one item in Finder.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Übersicht spielt eine Aufnahme, die die Kamera auf mehrere Dateien verteilt hat, von Anfang bis Ende mit Ton ab. In den Einstellungen können RED-Clips im Finder als ein Objekt erscheinen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista rápida reproduce de principio a fin, con sonido, una toma que la cámara dividió en varios archivos. En Ajustes, los clips RED pueden mostrarse como un solo elemento en el Finder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coup d’œil lit du début à la fin, avec le son, une prise que la caméra a répartie en plusieurs fichiers. Dans les Réglages, les plans RED peuvent apparaître comme un seul élément dans le Finder."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizzazione rapida riproduce dall’inizio alla fine, con l’audio, una ripresa che la camera ha diviso in più file. Nelle Impostazioni, le clip RED possono apparire come un unico elemento nel Finder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラが複数ファイルに分けたテイクを、クイックルックで音声付きで最初から最後まで再生します。設定で、RED クリップを Finder でひとつの項目として表示できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라가 여러 파일로 나눈 테이크를 훑어보기에서 소리와 함께 처음부터 끝까지 재생합니다. 설정에서 RED 클립을 Finder에 하나의 항목으로 표시할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snelle weergave speelt een take die de camera over meerdere bestanden verdeelde van begin tot eind af, met geluid. In de instellingen kunnen RED-clips als één item in de Finder verschijnen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Visualização Rápida reproduz do início ao fim, com som, uma tomada que a câmera dividiu em vários arquivos. Nos Ajustes, os clipes RED podem aparecer como um só item no Finder."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速查看可从头到尾带声音播放被摄影机拆成多个文件的镜头。在设置中，可让 RED 片段在 Finder 中显示为单个项目。"
+          }
+        }
+      }
+    },
     "Quick and springy, a little bounce": {
       "localizations": {
         "de": {
@@ -112751,6 +113635,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "舒缓"
+          }
+        }
+      }
+    },
+    "Release Page": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release-Seite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Página de la versión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Page de la version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pagina della versione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "リリースページ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "릴리스 페이지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Releasepagina"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Página da versão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "发布页面"
           }
         }
       }
@@ -124280,6 +125222,64 @@
         }
       }
     },
+    "Send clips from the Player or a folder to DaVinci Resolve: the sound the camera recorded beside them comes along, linked by timecode.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sende Clips aus dem Player oder einem Ordner an DaVinci Resolve: Der daneben aufgenommene Ton der Kamera kommt mit, per Timecode verbunden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envía clips desde el Reproductor o una carpeta a DaVinci Resolve: el sonido que grabó la cámara a su lado va con ellos, vinculado por código de tiempo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyez des plans du Lecteur ou d’un dossier vers DaVinci Resolve : le son enregistré à côté par la caméra les accompagne, lié par le timecode."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia clip dal Player o da una cartella a DaVinci Resolve: l’audio registrato accanto dalla camera le accompagna, collegato tramite timecode."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレーヤーやフォルダから DaVinci Resolve にクリップを送ると、カメラが横に記録した音声もタイムコードでリンクされて一緒に送られます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플레이어나 폴더에서 DaVinci Resolve로 클립을 보내면, 카메라가 옆에 녹음한 소리가 타임코드로 연결되어 함께 갑니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stuur clips vanuit de Player of een map naar DaVinci Resolve: het geluid dat de camera ernaast opnam gaat mee, gekoppeld op timecode."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envie clipes do Player ou de uma pasta para o DaVinci Resolve: o som que a câmera gravou ao lado vai junto, vinculado por timecode."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从播放器或文件夹把片段发送到 DaVinci Resolve：摄影机在旁录制的声音会一起带过去，并按时间码链接。"
+          }
+        }
+      }
+    },
     "Send this link to the Mac you want to connect. When it’s clicked there, Pluck joins this Mac’s private network and pairs with it.": {
       "localizations": {
         "de": {
@@ -127989,6 +128989,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在菜单栏中显示 Pluck"
+          }
+        }
+      }
+    },
+    "Show RED clips as one item in Finder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RED-Clips im Finder als ein Objekt zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar los clips RED como un solo elemento en el Finder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les plans RED comme un seul élément dans le Finder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra le clip RED come un unico elemento nel Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder で RED クリップをひとつの項目として表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 RED 클립을 하나의 항목으로 표시"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RED-clips als één item in de Finder tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar clipes RED como um item no Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中将 RED 片段显示为单个项目"
           }
         }
       }
@@ -158214,6 +159272,64 @@
         }
       }
     },
+    "Updates you won’t miss": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates, die du nicht verpasst"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizaciones que no te perderás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des mises à jour qu’on ne rate plus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiornamenti da non perdere"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見逃さないアップデート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "놓치지 않는 업데이트"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates die je niet mist"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizações que você não perde"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不会错过的更新"
+          }
+        }
+      }
+    },
     "Updating now quits Pluck and stops %lld download(s).": {
       "localizations": {
         "de": {
@@ -162626,6 +163742,64 @@
         }
       }
     },
+    "When I Quit": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Beenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al salir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En quittant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "All’uscita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "終了時"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종료할 때"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als ik stop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao sair"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "退出时"
+          }
+        }
+      }
+    },
     "When clipping a download, pick one of the video’s chapters instead of typing times. Links with a start time fill it in.": {
       "localizations": {
         "de": {
@@ -163666,6 +164840,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "整个剪辑"
+          }
+        }
+      }
+    },
+    "Whole RED takes, with sound": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganze RED-Aufnahmen, mit Ton"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tomas RED completas, con sonido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des prises RED entières, avec le son"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprese RED intere, con l’audio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RED のテイク全体を音声付きで"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "소리와 함께 RED 테이크 전체를"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hele RED-takes, met geluid"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tomadas RED inteiras, com som"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "完整的 RED 镜头，带声音"
           }
         }
       }

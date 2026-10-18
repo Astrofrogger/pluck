@@ -1,3 +1,4 @@
+import AVFoundation
 import AppKit
 import QuickLookUI
 import os
@@ -72,8 +73,10 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         let clip = try await Task.detached { try RawClip(url: file) }.value
         self.clip = clip
         preferredContentSize = CGSize(width: 960, height: 960 * Double(clip.height) / Double(max(clip.width, 1)))
-        // The picture straight away: a frame a second in, at about the window's size.
+        // The picture straight away: a frame a second in (or where the file chosen starts, for a
+        // take in several files), at about the window's size.
         poster = min(Int(clip.fps), max(clip.frames - 1, 0))
+        if let start = RawClip.spanned(url)?.start { poster = min(Int(start * Double(clip.frames)), max(clip.frames - 1, 0)) }
         let frame = poster
         let still = try await Task.detached { try clip.frame(frame, scale: clip.scale(forWidth: 1400)) }.value
         show(still, frame: poster)
@@ -101,6 +104,15 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
         // As sharp as the window, as long as the decoder keeps up: on the graphics chip up to
         // full HD, on the processor about 700 wide (the window can change size).
         func scale() -> Int { clip.gpu ? clip.scale(forWidth: min(state.width, 1920)) : clip.scale(forWidth: min(state.width, 700)) }
+        // The sound, found once the picture's there (it sets the pace while it plays).
+        Task.detached(priority: .utility) {
+            if let file = clip.audio() {
+                state.sound = Sound(file)
+                trace.log("sound \(file.lastPathComponent, privacy: .public), \(state.sound?.duration ?? 0) s")
+            } else {
+                trace.log("no sound")
+            }
+        }
         // Decoding runs on its own while the picture before it is on screen.
         playing = Task.detached(priority: .userInitiated) { [weak self] in
             var clock = Date.now, base = start, shown = start
@@ -108,6 +120,7 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
             while !Task.isCancelled {
                 // Scrubbed to a frame: that one now, and on from there.
                 if let target = state.takeRequest() {
+                    state.sound?.pause()
                     if let image = try? clip.frame(target, scale: scale(), eightBit: true), !Task.isCancelled {
                         await MainActor.run { self?.show(image, frame: target, scrubbing: true) }
                     }
@@ -115,18 +128,36 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
                     continue
                 }
                 if state.paused || state.scrubbing || !state.autoplay {
+                    state.sound?.pause()
                     try? await Task.sleep(for: .milliseconds(15))
                     clock = .now; base = shown
                     continue
                 }
-                // The frame due now (frames the decoder fell behind on are skipped).
-                var due = base + Int(Date.now.timeIntervalSince(clock) * clip.fps)
-                if due <= shown { due = shown + 1 }
-                if due >= clip.frames { clock = .now; base = 0; due = 0 }
+                // (Past the end of the sound, the picture keeps its own time.)
+                let sound = state.sound.flatMap { Double(shown + 1) / clip.fps < $0.duration - 0.02 ? $0 : nil }
+                if sound == nil { state.sound?.pause() }
+                // The frame due now (frames the decoder fell behind on are skipped): by the
+                // sound's clock while it plays, so picture and sound stay together.
+                var due: Int
+                if let sound {
+                    if !sound.playing { sound.play(from: Double(shown + 1) / clip.fps) }
+                    due = Int(sound.time * clip.fps)
+                    // Not there yet: the next frame's time.
+                    if due <= shown {
+                        try? await Task.sleep(for: .seconds(max(Double(shown + 1) / clip.fps - sound.time, 0.002)))
+                        continue
+                    }
+                } else {
+                    due = base + Int(Date.now.timeIntervalSince(clock) * clip.fps)
+                    if due <= shown { due = shown + 1 }
+                }
+                if due >= clip.frames { clock = .now; base = 0; due = 0; sound?.play(from: 0) }
                 guard let image = try? clip.frame(due, scale: scale(), eightBit: true), !Task.isCancelled else { continue }
                 // Not before its time.
-                let wait = clock.addingTimeInterval(Double(due - base) / clip.fps).timeIntervalSinceNow
-                if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                if sound == nil {
+                    let wait = clock.addingTimeInterval(Double(due - base) / clip.fps).timeIntervalSinceNow
+                    if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+                }
                 shown = due
                 await MainActor.run { self?.show(image, frame: due) }
                 count += 1
@@ -158,13 +189,54 @@ final class PreviewViewController: NSViewController, QLPreviewingController {
 
     deinit {
         playing?.cancel()
+        state.sound?.stop()
         clip?.close()
+    }
+}
+
+/// The clip's sound, played in step with the picture (the loop reads its clock).
+private final class Sound: @unchecked Sendable {
+    private let player: AVAudioPlayer
+    private let file: URL
+    private let lock = NSLock()
+
+    init?(_ file: URL) {
+        guard let player = try? AVAudioPlayer(contentsOf: file) else { return nil }
+        player.prepareToPlay()
+        self.player = player
+        self.file = file
+        duration = player.duration
+    }
+
+    var playing: Bool { lock.withLock { player.isPlaying } }
+    let duration: Double
+    var time: Double { lock.withLock { player.currentTime } }
+
+    func play(from seconds: Double) {
+        lock.withLock {
+            player.currentTime = max(min(seconds, player.duration), 0)
+            player.play()
+        }
+    }
+
+    func pause() { lock.withLock { if player.isPlaying { player.pause() } } }
+
+    func stop() {
+        lock.withLock { player.stop() }
+        // A copy made from the clip goes (not the camera's own .wav).
+        if file.lastPathComponent.hasPrefix("pluck-ql-") { try? FileManager.default.removeItem(at: file) }
     }
 }
 
 /// What the frame loop is told from the window: paused, playing at all, a frame scrubbed to.
 private final class PlayState: @unchecked Sendable {
     private let lock = NSLock()
+    private var _sound: Sound?
+    /// The clip's sound, once it's ready.
+    var sound: Sound? {
+        get { lock.withLock { _sound } }
+        set { lock.withLock { _sound = newValue } }
+    }
     private var _paused = false, _autoplay = false, _scrubbing = false, _width: CGFloat = 1400
     private var requested: Int?
 

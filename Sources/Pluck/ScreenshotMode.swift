@@ -65,6 +65,24 @@ enum ScreenshotMode {
 
         // -PluckScreenshotSeed <folder>: its videos, songs and photos added as finished items (once),
         // so the list, Home and the Library have something to show.
+        // -PluckScreenshotUpdatePrompt YES: a new version offered in its window.
+        if defaults.bool(forKey: "PluckScreenshotUpdatePrompt") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                AppDelegate.shared?.appUpdater.pretendAvailable("3.2.0", notes: """
+                    ## Pluck Studio 3.2
+
+                    - **Whole RED takes in Quick Look:** a take the camera split into several files plays from start to end.
+                    - **Updates you won't miss:** a new version is offered in a window of its own.
+
+                    ### Download
+                    Pick one of the two files below.
+                    """)
+            }
+        }
+        // -PluckScreenshotUpdateReady YES: an update ready to go in when Pluck quits.
+        if defaults.bool(forKey: "PluckScreenshotUpdateReady") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { AppDelegate.shared?.appUpdater.pretendReady("3.2.0") }
+        }
         // -PluckScreenshotUpdateBar <0…1>: an update shown as installing, that far downloaded.
         if let fraction = Double(defaults.string(forKey: "PluckScreenshotUpdateBar") ?? "") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {

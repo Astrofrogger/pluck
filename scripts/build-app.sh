@@ -45,6 +45,13 @@ if [[ "$EDITION" == studio ]]; then
   # Camera raw clips open in Raw Player (and Finder's preview plays them): the types, declared for
   # Macs where no other app does, and Pluck as an app that opens them.
   /usr/libexec/PlistBuddy -c "Merge Resources/RawTypes.plist" "$APP/Contents/Info.plist"
+  # RED clip folders as one item in Finder (a Settings choice): the type, in an app of its own
+  # that Pluck registers with macOS only when asked. Kept in Resources so it isn't found by itself.
+  TYPES_APP="$APP/Contents/Resources/RedClipTypes.app"
+  mkdir -p "$TYPES_APP/Contents/MacOS"
+  cp Helpers/RedClipTypes/Info.plist "$TYPES_APP/Contents/Info.plist"
+  clang -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 Helpers/RedClipTypes/main.c -o "$TYPES_APP/Contents/MacOS/RedClipTypes"
+  codesign --force --options runtime --sign - "$TYPES_APP"
 fi
 
 if [[ "$EDITION" == studio ]]; then

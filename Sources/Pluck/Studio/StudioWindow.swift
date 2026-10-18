@@ -46,6 +46,7 @@ struct StudioWindow: View {
             }
         }
         .modifier(DownloadSheets())
+        .updatePrompt(appUpdater)
         .onAppear {
             // Screenshots: -PluckScreenshotPage <page> shows that page.
             if ScreenshotMode.scene != nil, let name = UserDefaults.standard.string(forKey: "PluckScreenshotPage"),

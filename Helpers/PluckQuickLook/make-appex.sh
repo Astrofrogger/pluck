@@ -10,7 +10,7 @@ HERE=${0:A:h}
 ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Contents/Info.plist")
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")
 BUILD=$(/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Contents/Info.plist")
-TYPES='<array><string>com.red.r3d</string><string>com.blackmagic-design.braw-movie</string></array>'
+TYPES='<array><string>com.red.r3d</string><string>com.red.rdc</string><string>com.blackmagic-design.braw-movie</string></array>'
 make() {   # name, principal class, extension point, source file, frameworks
   local name=$1 class=$2 point=$3 source=$4 frameworks=$5
   local appex="$APP/Contents/PlugIns/$name.appex"

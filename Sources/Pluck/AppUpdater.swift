@@ -32,6 +32,9 @@ final class AppUpdater {
     var status: Status = .idle
     var release: Release?
     var dismissedVersion: String?
+    /// A new version to offer in a window of its own (once per version).
+    var prompt: Release?
+    private static let promptedKey = "updatePromptedVersion"
 
     /// While installing: where it's got to, and what's coming ("Pluck 3.1.0", "Pluck Studio").
     enum Step: Equatable { case downloading, checking, unpacking, relaunching }
@@ -40,11 +43,39 @@ final class AppUpdater {
     private(set) var received: Int64 = 0
     private(set) var expected: Int64 = 0
     @ObservationIgnored private var installTask: Task<URL, Error>?
+    /// Being made ready to swap in when Pluck quits (not now).
+    private(set) var forQuit = false
+    /// Ready: the version that's swapped in when Pluck quits.
+    private(set) var readyForQuit: String?
+    @ObservationIgnored private var pending: (target: URL, app: URL)?
 
     /// How far the download is (0…1), once its size is known.
     var downloaded: Double? {
         guard step == .downloading, expected > 0 else { return nil }
         return min(Double(received) / Double(expected), 1)
+    }
+
+    /// What's new in it, without the release page's download table and headings.
+    static func whatsNew(_ notes: String) -> String {
+        let part = notes.components(separatedBy: "### Download").first ?? notes
+        return part.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("#") }
+            .joined(separator: "\n")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Screenshots: an update made ready to go in when Pluck quits.
+    func pretendReady(_ version: String) {
+        status = .available
+        readyForQuit = version
+    }
+
+    /// Screenshots: a new version offered, as if just found.
+    func pretendAvailable(_ version: String, notes: String) {
+        let page = URL(string: "https://github.com/\(Self.repo)/releases")!
+        release = Release(version: version, notes: notes, file: page, digest: nil, checksum: nil, page: page)
+        status = .available
+        prompt = release
     }
 
     /// Screenshots: the bar as if this much of an update had come in.
@@ -88,6 +119,11 @@ final class AppUpdater {
             if Self.isNewer(latest.version, than: currentVersion) {
                 release = latest
                 status = .available
+                // Offered in a window the first time it's found (the banner stays until it's in).
+                if UserDefaults.standard.string(forKey: Self.promptedKey) != latest.version, latest.version != dismissedVersion {
+                    UserDefaults.standard.set(latest.version, forKey: Self.promptedKey)
+                    prompt = latest
+                }
             } else {
                 release = nil
                 status = .upToDate
@@ -204,6 +240,13 @@ final class AppUpdater {
     }
 
     func installAndRelaunch() async {
+        if let pending {
+            step = .relaunching
+            status = .installing
+            installing = readyForQuit.map { "\(Edition.name) \($0)" }
+            relaunch(replacing: pending.target, with: pending.app)
+            return
+        }
         guard let release, status != .installing else { return }
         let target = Bundle.main.bundleURL
         guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
@@ -214,9 +257,30 @@ final class AppUpdater {
         await install("\(Edition.name) \(release.version)", target: target) { try await self.download(release) }
     }
 
+    /// Downloads and checks the update now, and swaps it in when Pluck quits (without opening it
+    /// again): nothing stops for it.
+    func installWhenQuitting() async {
+        guard let release, status != .installing else { return }
+        let target = Bundle.main.bundleURL
+        guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
+            status = .failed(Failure.notWritable.localizedDescription)
+            return
+        }
+        forQuit = true
+        defer { forQuit = false }
+        await install("\(Edition.name) \(release.version)", target: target, later: release.version) { try await self.download(release) }
+    }
+
+    /// Pluck quitting: the update made ready, swapped in (Pluck isn't opened again).
+    func installPendingOnQuit() {
+        guard let pending else { return }
+        self.pending = nil
+        swap(pending.target, with: pending.app, reopen: false)
+    }
+
     /// Gets the new app (downloaded, checked, unpacked), then swaps it in and relaunches. A
     /// cancelled download goes back to where it was.
-    private func install(_ name: String, target: URL, get: @escaping @MainActor () async throws -> URL) async {
+    private func install(_ name: String, target: URL, later: String? = nil, get: @escaping @MainActor () async throws -> URL) async {
         status = .installing
         installing = name
         step = .downloading
@@ -227,6 +291,15 @@ final class AppUpdater {
         defer { installTask = nil }
         do {
             let newApp = try await task.value
+            if let later {
+                // Kept until Pluck quits.
+                pending = (target, newApp)
+                readyForQuit = later
+                step = nil
+                installing = nil
+                status = .available
+                return
+            }
             step = .relaunching
             relaunch(replacing: target, with: newApp)
         } catch {
@@ -290,22 +363,32 @@ final class AppUpdater {
 
     /// Hands off to a tiny shell script that waits for Pluck to quit, swaps the bundles and reopens it.
     private func relaunch(replacing target: URL, with newApp: URL) {
-        let script = """
-        while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
-        rm -rf "$2.old" && mv "$2" "$2.old" && mv "$3" "$2" && rm -rf "$2.old"
-        open "$2"
-        """
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", script, "pluck-update", "\(ProcessInfo.processInfo.processIdentifier)", target.path, newApp.path]
+        pending = nil
         do {
-            try p.run()
+            try startSwap(target, with: newApp, reopen: true)
             NSApp.terminate(nil)
         } catch {
             step = nil
             installing = nil
             status = .failed(error.localizedDescription)
         }
+    }
+
+    private func swap(_ target: URL, with newApp: URL, reopen: Bool) {
+        try? startSwap(target, with: newApp, reopen: reopen)
+    }
+
+    /// The script that swaps the bundles once this Pluck has gone (and opens the new one if asked).
+    private func startSwap(_ target: URL, with newApp: URL, reopen: Bool) throws {
+        let script = """
+        while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+        rm -rf "$2.old" && mv "$2" "$2.old" && mv "$3" "$2" && rm -rf "$2.old"
+        \(reopen ? "open \"$2\"" : "true")
+        """
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script, "pluck-update", "\(ProcessInfo.processInfo.processIdentifier)", target.path, newApp.path]
+        try p.run()
     }
 
     private static func run(_ tool: String, _ args: [String]) async throws {

@@ -74,6 +74,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         updater.startAutomaticChecks()
         toolsUpdater.startAutomaticChecks()
         appUpdater.startAutomaticChecks()
+        #if STUDIO
+        // RED clip folders as one item, when chosen (again for a moved or updated Pluck).
+        if RedClipFolders.isOn { RedClipFolders.apply(true) }
+        #endif
 
         if Self.startsHidden { NSApp.setActivationPolicy(.accessory) }
         // After the main window, so the notes open on top of it.
@@ -108,6 +112,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         manager.shutDown()
+        // An update made ready for now: swapped in once Pluck has quit.
+        appUpdater.installPendingOnQuit()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

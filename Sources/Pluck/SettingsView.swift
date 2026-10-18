@@ -148,6 +148,7 @@ private struct GeneralSettings: View {
     @State private var loginError: String?
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
     @AppStorage("photoWriteXMP") private var writeXMP = false
+    @AppStorage("redClipsAsItems") private var redClipsAsItems = false
     @Environment(AppUpdater.self) private var appUpdater
 
     var body: some View {
@@ -226,6 +227,16 @@ private struct GeneralSettings: View {
                 Text("A small .xmp file next to each photo, which Lightroom, Capture One and darktable read. Ratings and labels from those apps are always read.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+
+            Section {
+                Toggle("Show RED clips as one item in Finder", isOn: $redClipsAsItems)
+                    .onChange(of: redClipsAsItems) { _, on in RedClipFolders.apply(on) }
+            } header: {
+                Text("Camera Raw")
+            } footer: {
+                Text("Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click opens it in the Player. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
             #endif
 
             Section {
@@ -266,6 +277,8 @@ private struct GeneralSettings: View {
                         case .checking: ProgressView().controlSize(.small)
                         case .installing: EmptyView()
                         case .upToDate: Text("Up to date").foregroundStyle(.secondary)
+                        case .available where appUpdater.readyForQuit != nil:
+                            Text("\(appUpdater.readyForQuit ?? "") installs when you quit").foregroundStyle(.secondary)
                         case .available: Text("\(appUpdater.release?.version ?? "") available").foregroundStyle(.tint)
                         case .failed(let message):
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).help(message)

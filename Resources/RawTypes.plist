@@ -14,6 +14,7 @@
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>com.red.r3d</string>
+				<string>com.red.rdc</string>
 			</array>
 		</dict>
 		<dict>
