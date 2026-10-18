@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.2", items: [
+                Item(symbol: "slider.horizontal.below.rectangle", title: String(localized: "Scrub in Quick Look"),
+                     detail: String(localized: "Press Space on a RED or Blackmagic RAW clip in Finder and drag the bar to go anywhere in it; it plays on from there.")),
+            ]),
             Release(version: "3.1.0", items: [
                 Item(symbol: "film.stack", title: String(localized: "One editor"),
                      detail: String(localized: "A file you open is edited like a project, with the transcript and Local AI. New: overlay and sound tracks, cross dissolves, freeze frames, detached audio, markers, in and out points, copy and paste.")),

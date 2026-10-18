@@ -107287,6 +107287,64 @@
         }
       }
     },
+    "Press Space on a RED or Blackmagic RAW clip in Finder and drag the bar to go anywhere in it; it plays on from there.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Drücke im Finder die Leertaste auf einem RED- oder Blackmagic-RAW-Clip und ziehe den Balken an jede Stelle; von dort läuft er weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsa Espacio sobre un clip RED o Blackmagic RAW en el Finder y arrastra la barra a cualquier punto; sigue reproduciéndose desde ahí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appuyez sur Espace sur un plan RED ou Blackmagic RAW dans le Finder et faites glisser la barre n’importe où ; la lecture reprend de là."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premi Spazio su una clip RED o Blackmagic RAW nel Finder e trascina la barra in qualsiasi punto; la riproduzione riprende da lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder で RED や Blackmagic RAW のクリップを選んでスペースキーを押し、バーをドラッグすると好きな位置へ移動でき、そこから再生が続きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 RED 또는 Blackmagic RAW 클립에 스페이스 바를 누르고 막대를 끌어 원하는 곳으로 이동하면 거기서부터 재생됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Druk in de Finder op de spatiebalk bij een RED- of Blackmagic RAW-clip en sleep de balk naar elk punt; hij speelt verder vanaf daar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pressione Espaço num clipe RED ou Blackmagic RAW no Finder e arraste a barra para qualquer ponto; ele continua a tocar dali."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Finder 中对 RED 或 Blackmagic RAW 片段按空格键，拖动进度条即可跳到任意位置，并从那里继续播放。"
+          }
+        }
+      }
+    },
     "Preview": {
       "localizations": {
         "de": {
@@ -120837,6 +120895,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "场景"
+          }
+        }
+      }
+    },
+    "Scrub in Quick Look": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Übersicht spulen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recorrer en Vista rápida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcourir dans Coup d’œil"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorri in Visualizzazione rapida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クイックルックでスクラブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "훑어보기에서 탐색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scrubben in Snelle weergave"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Percorrer na Visualização Rápida"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在快速查看中拖动浏览"
           }
         }
       }
