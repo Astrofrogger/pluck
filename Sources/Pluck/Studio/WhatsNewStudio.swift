@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.1.5", items: [
+                Item(symbol: "waveform.badge.plus", title: String(localized: "Every sound, in its own bin"),
+                     detail: String(localized: "Send to DaVinci links every .wav the camera wrote for a clip (CinemaDNG folders too) and keeps the clip’s own sound. The sound files go in an Audio bin, so the clips stand on their own.")),
+            ]),
             Release(version: "3.1.4", items: [
                 Item(symbol: "photo.on.rectangle", title: String(localized: "Thumbnails for RED clips shown as one item"),
                      detail: String(localized: "With RED clips shown as one item in Finder, each now gets a picture from its take. Log out and back in once for Finder to pick it up.")),

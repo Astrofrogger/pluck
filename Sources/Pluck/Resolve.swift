@@ -49,7 +49,9 @@ enum Resolve {
 
     /// Camera clips with the sound the camera wrote beside them: both imported (each once), and
     /// the sound linked to the clip by timecode (or from their starts, which the camera keeps
-    /// together), so the clip plays with it in Resolve.
+    /// together), so the clip plays with it in Resolve. Several files for one clip are all linked,
+    /// each adding its channels, and the clip's own sound stays. The sound files go in an "Audio"
+    /// bin in the Pluck bin (the link needs them in the project), out of the way of the clips.
     private static let clipsScript = """
     import sys, json
     sys.path.append(sys.argv[1])
@@ -63,19 +65,38 @@ enum Resolve {
     pool = project.GetMediaPool()
     root = pool.GetRootFolder()
     bin = next((f for f in root.GetSubFolderList() if f.GetName() == "Pluck"), None) or pool.AddSubFolder(root, "Pluck")
+    audio = None
     if bin:
+        audio = next((f for f in bin.GetSubFolderList() if f.GetName() == "Audio"), None)
         pool.SetCurrentFolder(bin)
-    def find(path):
-        for item in (bin.GetClipList() if bin else []) or []:
-            if item.GetClipProperty("File Path") == path:
-                return item
+    def find(path, folders):
+        for folder in folders:
+            for item in (folder.GetClipList() if folder else []) or []:
+                if item.GetClipProperty("File Path") == path:
+                    return item
         return None
     def bring(path):
-        item = find(path)
+        item = find(path, [bin])
         if item:
             return item
         items = pool.ImportMedia([path]) or []
-        return items[0] if items else find(path)
+        return items[0] if items else find(path, [bin])
+    def bring_sound(path):
+        global audio
+        if bin and not audio:
+            audio = pool.AddSubFolder(bin, "Audio")
+        item = find(path, [audio, bin])
+        if item:
+            # Brought in before, among the clips: moved to the Audio bin.
+            if audio and find(path, [bin]):
+                pool.MoveClips([item], audio)
+            return item
+        if audio:
+            pool.SetCurrentFolder(audio)
+        items = pool.ImportMedia([path]) or []
+        if bin:
+            pool.SetCurrentFolder(bin)
+        return items[0] if items else find(path, [audio, bin])
     clips = 0
     linked = 0
     for pair in json.loads(sys.argv[2]):
@@ -83,16 +104,21 @@ enum Resolve {
         if not video:
             continue
         clips += 1
-        if not pair.get("audio"):
+        sounds = [s for s in (bring_sound(path) for path in pair.get("audio", [])) if s]
+        # Sent before and linked then: as it is (linking again would add the sound twice).
+        if not sounds or video.GetClipProperty("Synced Audio"):
             continue
-        sound = bring(pair["audio"])
-        if not sound:
-            continue
-        for mode in (resolve.AUDIO_SYNC_TIMECODE, resolve.AUDIO_SYNC_IN):
-            if pool.AutoSyncAudio([video, sound], {resolve.AUDIO_SYNC_MODE: mode, resolve.AUDIO_SYNC_RETAIN_EMBEDDED_AUDIO: False,
-                                                   resolve.AUDIO_SYNC_RETAIN_VIDEO_METADATA: False}):
-                linked += 1
-                break
+        done = False
+        for sound in sounds:
+            for mode in (resolve.AUDIO_SYNC_TIMECODE, resolve.AUDIO_SYNC_IN):
+                # Kept: the clip's own sound and what was linked before it.
+                if pool.AutoSyncAudio([video, sound], {resolve.AUDIO_SYNC_MODE: mode, resolve.AUDIO_SYNC_RETAIN_EMBEDDED_AUDIO: True,
+                                                       resolve.AUDIO_SYNC_RETAIN_VIDEO_METADATA: False}):
+                    done = True
+                    break
+        linked += 1 if done else 0
+    if bin:
+        pool.SetCurrentFolder(bin)
     print("PLUCK:imported:%d:%d:%s" % (clips, linked, project.GetName()))
     """
 
@@ -100,11 +126,9 @@ enum Resolve {
     /// the open project with their sound linked; returns the project name and how many clips got
     /// their sound.
     static func sendClips(_ clips: [URL]) async throws -> (project: String, linked: Int) {
-        let pairs: [[String: String]] = clips.map { clip in
+        let pairs: [[String: Any]] = clips.map { clip in
             let video = cameraFile(clip)
-            var pair = ["video": video.path]
-            if let sound = cameraSound(for: video) { pair["audio"] = sound.path }
-            return pair
+            return ["video": video.path, "audio": cameraSounds(for: clip, video: video).map(\.path)]
         }
         let data = try JSONSerialization.data(withJSONObject: pairs)
         let output = await run(clipsScript, [String(decoding: data, as: UTF8.self)])
@@ -135,11 +159,19 @@ enum Resolve {
         return clip
     }
 
-    /// The .wav the camera wrote next to a clip (a RED clip's in its folder), if there is one.
-    private static func cameraSound(for video: URL) -> URL? {
+    /// The .wav files the camera wrote for a clip: in a clip's folder (a RED .RDC, a CinemaDNG
+    /// folder) all of them, else those next to it named after it.
+    private static func cameraSounds(for clip: URL, video: URL) -> [URL] {
+        func wavs(in folder: URL) -> [URL] {
+            ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension.lowercased() == "wav" }
+                .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        }
+        if clip.hasDirectoryPath { return wavs(in: clip) }
+        let folder = video.deletingLastPathComponent()
+        if folder.pathExtension.lowercased() == "rdc" { return wavs(in: folder) }
         let base = video.deletingPathExtension().lastPathComponent.replacingOccurrences(of: "_001", with: "")
-        let files = (try? FileManager.default.contentsOfDirectory(at: video.deletingLastPathComponent(), includingPropertiesForKeys: nil)) ?? []
-        return files.first { $0.pathExtension.lowercased() == "wav" && $0.deletingPathExtension().lastPathComponent.hasPrefix(base) }
+        return wavs(in: folder).filter { $0.deletingPathExtension().lastPathComponent.hasPrefix(base) }
     }
 
     /// Imports the files; returns the project name.

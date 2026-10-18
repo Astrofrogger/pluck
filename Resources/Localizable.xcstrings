@@ -51611,6 +51611,64 @@
         }
       }
     },
+    "Every sound, in its own bin": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Ton, in eigenem Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada sonido, en su propia carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque son, dans son propre chutier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni audio, nel suo raccoglitore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての音声を専用のビンに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 소리를 전용 빈에"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elk geluid, in een eigen bin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada som, na sua própria pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有声音，放进专属素材箱"
+          }
+        }
+      }
+    },
     "Every video clip in the open project gets a description, keywords (shot size, camera move, what’s in it) and a marker per shot. Clips Pluck hasn’t looked at yet are analysed first, which can take a while. Your own descriptions are kept; running it again replaces only Pluck’s markers.": {
       "localizations": {
         "de": {
@@ -125508,6 +125566,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "发送到 DaVinci Resolve：在那里打开的项目中新建一条带字幕的时间线（已有的文件不会再次导入）"
+          }
+        }
+      }
+    },
+    "Send to DaVinci links every .wav the camera wrote for a clip (CinemaDNG folders too) and keeps the clip’s own sound. The sound files go in an Audio bin, so the clips stand on their own.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„An DaVinci senden“ verbindet jede .wav, die die Kamera für einen Clip geschrieben hat (auch in CinemaDNG-Ordnern), und behält den eigenen Ton des Clips. Die Tondateien kommen in einen Ordner „Audio“, sodass die Clips für sich stehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar a DaVinci vincula cada .wav que la cámara escribió para un clip (también en carpetas CinemaDNG) y conserva el sonido propio del clip. Los archivos de sonido van a una carpeta Audio, para que los clips queden solos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Envoyer à DaVinci lie chaque .wav écrit par la caméra pour un plan (dossiers CinemaDNG compris) et garde le son propre du plan. Les fichiers son vont dans un chutier Audio, pour que les plans restent seuls."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invia a DaVinci collega ogni .wav che la camera ha scritto per una clip (anche nelle cartelle CinemaDNG) e mantiene l’audio della clip. I file audio vanno in un raccoglitore Audio, così le clip restano da sole."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「DaVinci に送る」は、カメラがクリップ用に書き出したすべての .wav（CinemaDNG フォルダ内も）をリンクし、クリップ本来の音声も残します。音声ファイルは Audio ビンに入るので、クリップだけが並びます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci로 보내기는 카메라가 클립용으로 기록한 모든 .wav(CinemaDNG 폴더 포함)를 연결하고 클립 자체의 소리도 유지합니다. 소리 파일은 Audio 빈에 들어가 클립만 보이게 됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naar DaVinci sturen koppelt elke .wav die de camera voor een clip schreef (ook in CinemaDNG-mappen) en houdt het eigen geluid van de clip. De geluidsbestanden gaan in een Audio-bin, zodat de clips op zichzelf staan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enviar para o DaVinci vincula cada .wav que a câmera gravou para um clipe (pastas CinemaDNG também) e mantém o som do próprio clipe. Os arquivos de som vão para uma pasta Audio, para os clipes ficarem sozinhos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“发送到 DaVinci”会链接摄影机为片段写出的每个 .wav（包括 CinemaDNG 文件夹中的），并保留片段本身的声音。声音文件会放进 Audio 素材箱，让片段单独呈现。"
           }
         }
       }
