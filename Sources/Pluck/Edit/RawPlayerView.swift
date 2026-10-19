@@ -16,6 +16,8 @@ struct RawPlayerView: View {
     let source: Source
     /// The Library's search field, looking through the folder's clips.
     var search = ""
+    /// Which side of the Library it's on (copies go to the other).
+    var pane = 0
 
     @State private var player = RawPlayer()
     /// A folder of footage being browsed (clips open from it, and Esc goes back to it).
@@ -55,7 +57,7 @@ struct RawPlayerView: View {
                 }
             }
         }
-        .frame(minWidth: 860, minHeight: 560)
+        .frame(minWidth: 320, minHeight: 360)
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -96,19 +98,22 @@ struct RawPlayerView: View {
 
     var body: some View {
         keyed
-        // While a clip of a folder plays, the window's back button goes back to the folder.
-        .onChange(of: folder != nil && player.info != nil, initial: true) { _, inClip in
-            StudioNavigator.shared.toolBack = inClip ? (folder?.url.lastPathComponent ?? "", { player.eject() }) : upStep
-        }
-        // Inside a folder, it goes up one.
-        .onChange(of: folder?.url) { if player.info == nil { StudioNavigator.shared.toolBack = upStep } }
+        // The window's back and forward buttons: from a clip to its folder, up a folder, and on
+        // to the clip again (the side the sidebar chooses for, when the Library is split).
+        .onChange(of: navigationKey, initial: true) { claimNavigation() }
         .onChange(of: everyClip) { if let url = folder?.url, root != nil { browse(url) } }
+        // The folder this side shows, for copies from the other side.
+        .onChange(of: folder?.url, initial: true) { _, url in LibraryPanes.shared.here[pane] = root == nil ? nil : url }
+        // A copy into what's shown is done: shown again, with it.
+        .onReceive(NotificationCenter.default.publisher(for: OffloadCenter.finishedNotification)) { note in
+            guard let here = folder?.url.standardizedFileURL.path, player.info == nil, root != nil,
+                  let targets = note.object as? [String] else { return }
+            if targets.contains(where: { $0 == here || ($0 as NSString).deletingLastPathComponent == here }) { browse(folder!.url) }
+        }
         // ...and forward again to the clip that was open.
         .onChange(of: player.url) { old, new in if new == nil, folder != nil, let old { lastClip = old } }
         .onChange(of: folder?.url) { lastClip = nil }
-        .onChange(of: "\(folder != nil && player.info == nil)\(lastClip?.path ?? "")", initial: true) {
-            StudioNavigator.shared.toolForward = folder != nil && player.info == nil ? lastClip.map { clip in { player.open(clip) } } : nil
-        }
+
         // Now Playing and the keyboard's media keys; the clip in File ▸ Open Recent and the Dock.
         .modifier(PlayerSystemState(player: player, nowPlaying: nowPlaying))
         .onChange(of: search) { _, words in folder?.search = words }
@@ -465,9 +470,12 @@ struct RawPlayerView: View {
     private func browser(_ folder: RawFolder) -> some View {
         let browsing = root != nil
         let inLibrary: Bool? = browsing ? FootageFolders.shared.folder(containing: folder.url.path) != nil : nil
+        let panes = LibraryPanes.shared
+        let across: (() -> Void)? = browsing ? panes.other(pane).map { other in { panes.copy([folder.url], into: other) } } : nil
         return RawBrowserView(folder: folder, open: { player.open($0) },
                               enter: browsing ? { browse($0) } : nil, crumbs: crumbs, everyClip: browsing ? $everyClip : nil,
-                              inLibrary: inLibrary, addToLibrary: { FootageFolders.shared.add(folder.url) })
+                              inLibrary: inLibrary, addToLibrary: { FootageFolders.shared.add(folder.url) },
+                              copyAcross: across, copyIn: browsing ? { panes.copy($0, into: $1) } : nil)
     }
 
     /// Shows a folder (in the Library: a folder at a time, as Finder does, or every clip under it).
@@ -483,6 +491,19 @@ struct RawPlayerView: View {
         guard let root, url.standardizedFileURL.path != root.standardizedFileURL.path,
               url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path) else { return nil }
         return url.deletingLastPathComponent()
+    }
+
+    private var navigationKey: String {
+        let panes = LibraryPanes.shared
+        return "\(folder?.url.path ?? "")|\(player.info != nil)|\(lastClip?.path ?? "")|\(panes.split)|\(panes.active)"
+    }
+
+    private func claimNavigation() {
+        let panes = LibraryPanes.shared
+        guard !panes.split || panes.active == pane else { return }
+        let inClip = folder != nil && player.info != nil
+        StudioNavigator.shared.toolBack = inClip ? (folder?.url.lastPathComponent ?? "", { player.eject() }) : upStep
+        StudioNavigator.shared.toolForward = folder != nil && player.info == nil ? lastClip.map { clip in { player.open(clip) } } : nil
     }
 
     private var upStep: (title: String, action: () -> Void)? {

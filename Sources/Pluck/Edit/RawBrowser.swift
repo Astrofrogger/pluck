@@ -449,7 +449,12 @@ struct RawBrowserView: View {
     /// Put in the Library (indexed for Search): whether it is, and doing it.
     var inLibrary: Bool?
     var addToLibrary: (() -> Void)?
+    /// Copying, checked like an offload: this folder to the other pane (when the Library is
+    /// split), and what's dropped here (into this folder, or onto a folder in it).
+    var copyAcross: (() -> Void)?
+    var copyIn: (([URL], URL) -> Void)?
     @AppStorage("rawBrowserTileWidth") private var tileWidth = 220.0
+    @State private var dropping = false
 
     var body: some View {
         @Bindable var folder = folder
@@ -458,31 +463,39 @@ struct RawBrowserView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     // (The window's title names it; the Library's search field looks through it.)
                     if crumbs.count > 1, let enter { PathCrumbs(crumbs: crumbs, go: enter) }
+                    // Split in two: each side names its folder (the window's title names only one).
+                    else if copyAcross != nil { Text(folder.url.lastPathComponent).font(.subheadline.weight(.semibold)).lineLimit(1) }
                     if folder.scanning || folder.clipCount > 0 || folder.subfolders.isEmpty {
-                        Text(folder.scanning ? String(localized: "Looking for clips…") : String(localized: "\(folder.clipCount) clips"))
+                        Text(folder.scanning ? String(localized: "Looking for clips…") : String(AttributedString(localized: "^[\(folder.clipCount) clip](inflect: true)").characters))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 Spacer()
-                if let everyClip {
-                    Toggle(isOn: everyClip) { Label("Clips in Folders Inside", systemImage: "square.stack.3d.down.right") }
-                        .toggleStyle(.button)
-                        .labelStyle(.iconOnly)
-                        .help("Every clip in the folders inside, at once")
-                }
-                if let addToLibrary, inLibrary == false {
-                    Button("Add to Library", systemImage: "plus", action: addToLibrary)
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                        .help("Keep it in the sidebar and index it, so Search and Photo find what’s in it. Nothing is copied.")
-                }
-                if Resolve.isInstalled, folder.clipCount > 0 {
-                    // The clips shown (all, or what the search found), each with its sound.
-                    Button("Send to DaVinci", systemImage: "arrow.up.forward.app") {
-                        Resolve.sendClipsAndShow(folder.shown.flatMap(\.clips).map(\.url))
+                // Small, so two sides fit: what each does is in its tooltip.
+                HStack(spacing: 4) {
+                    if let copyAcross {
+                        Button("Copy to Other Side", systemImage: "arrow.right.doc.on.clipboard", action: copyAcross)
+                            .help("Copy this folder to the other side, every file read back and checked")
                     }
-                    .buttonStyle(GlassCapsuleButtonStyle())
-                    .help("Imports the clips shown into the project open in DaVinci Resolve, each with the sound the camera recorded beside it linked to it")
+                    if let everyClip {
+                        Toggle(isOn: everyClip) { Label("Clips in Folders Inside", systemImage: "square.stack.3d.down.right") }
+                            .toggleStyle(.button)
+                            .help("Every clip in the folders inside, at once")
+                    }
+                    if let addToLibrary, inLibrary == false {
+                        Button("Add to Library", systemImage: "plus.rectangle.on.folder", action: addToLibrary)
+                            .help("Keep it in the sidebar and index it, so Search and Photo find what’s in it. Nothing is copied.")
+                    }
+                    if Resolve.isInstalled, folder.clipCount > 0 {
+                        Button("Send to DaVinci", systemImage: "arrow.up.forward.app") {
+                            Resolve.sendClipsAndShow(folder.shown.flatMap(\.clips).map(\.url))
+                        }
+                        .help("Imports the clips shown into the project open in DaVinci Resolve, each with the sound the camera recorded beside it linked to it")
+                    }
                 }
+                .labelStyle(.iconOnly)
+                .buttonStyle(.borderless)
+                .controlSize(.large)
                 Slider(value: $tileWidth, in: 140...420)
                     .controlSize(.small)
                     .frame(width: 90)
@@ -500,7 +513,7 @@ struct RawBrowserView: View {
                         if let enter, !folder.shownFolders.isEmpty {
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 10)], spacing: 10) {
                                 ForEach(folder.shownFolders, id: \.self) { inside in
-                                    FolderTile(url: inside) { enter(inside) }
+                                    FolderTile(url: inside, copyIn: copyIn) { enter(inside) }
                                 }
                             }
                         }
@@ -532,6 +545,17 @@ struct RawBrowserView: View {
                     }
                     .padding(Design.Spacing.window)
                 }
+            }
+        }
+        // Dropped here (from the other pane, or Finder): copied into this folder.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let copyIn, !urls.isEmpty else { return false }
+            copyIn(urls, folder.url)
+            return true
+        } isTargeted: { dropping = $0 }
+        .overlay {
+            if dropping, copyIn != nil {
+                RoundedRectangle(cornerRadius: Design.Radius.card).strokeBorder(Color.accentColor, lineWidth: 3).padding(4).allowsHitTesting(false)
             }
         }
     }
@@ -590,6 +614,7 @@ private struct RawClipTile: View {
             }
             .contentShape(.rect)
             .onTapGesture { open(clip.url) }
+            .draggable(clip.url)
             .contextMenu {
                 Button("Open") { open(clip.url) }
                 if Resolve.isInstalled {
@@ -619,8 +644,11 @@ private struct RawClipTile: View {
 /// A folder to go into: its Finder icon and name.
 private struct FolderTile: View {
     let url: URL
+    /// Dropped onto it: copied into it.
+    var copyIn: (([URL], URL) -> Void)?
     let open: () -> Void
     @State private var hovering = false
+    @State private var targeted = false
 
     var body: some View {
         Button(action: open) {
@@ -630,11 +658,18 @@ private struct FolderTile: View {
                 Spacer(minLength: 0)
             }
             .padding(.horizontal, 10).padding(.vertical, 8)
-            .background(Color.primary.opacity(hovering ? 0.09 : 0.04), in: .rect(cornerRadius: Design.Radius.control))
+            .background(targeted ? AnyShapeStyle(Color.accentColor.opacity(0.3)) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.09 : 0.04)),
+                        in: .rect(cornerRadius: Design.Radius.control))
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
+        .draggable(url)
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let copyIn, !urls.isEmpty else { return false }
+            copyIn(urls, url)
+            return true
+        } isTargeted: { targeted = $0 }
         .contextMenu { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
         .help(url.path)
     }

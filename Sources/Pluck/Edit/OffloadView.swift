@@ -224,7 +224,7 @@ private struct OffloadRow: View {
         let state = center.state(job)
         let live = center.live[job.id]
         Card {
-            CardHeader(symbol: "externaldrive.badge.checkmark", title: Text(job.name),
+            CardHeader(symbol: job.quick == true ? "doc.on.doc" : "externaldrive.badge.checkmark", title: Text(job.displayName),
                        subtitle: Text("\(job.sourceVolume) → \(job.rootVolumes.formatted(.list(type: .and)))"),
                        tint: tint(state)) {
                 buttons(state)

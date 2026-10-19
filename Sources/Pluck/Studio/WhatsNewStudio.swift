@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.3.0", items: [
+                Item(symbol: "rectangle.split.2x1", title: String(localized: "Two folders side by side"),
+                     detail: String(localized: "Split the Library (⌘\\) and drag clips or folders across to copy them. Every file is read back and checked, as Offload does, and a copy carries on if a drive comes back.")),
+            ]),
             Release(version: "3.2.0", items: [
                 Item(symbol: "books.vertical", title: String(localized: "Library and Player in one"),
                      detail: String(localized: "Browse your Mac and its drives folder by folder, and play any clip where it is. Add the folders you want Search to know; nothing is copied.")),

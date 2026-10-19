@@ -165,6 +165,17 @@ enum ScreenshotMode {
             case "footage":
                 // The Library on a folder or clip put in it: -PluckScreenshotFile <path>
                 // (-PluckScreenshotOpen YES: opened as from Finder instead).
+                // -PluckScreenshotSplit <folder>: split, that folder on the right.
+                // -PluckScreenshotCopy <a|b> -PluckScreenshotCopyTo <folder>: copied there as the panes do.
+                if let right = defaults.string(forKey: "PluckScreenshotSplit") {
+                    LibraryPanes.shared.split = true
+                    LibraryView.startSecond = .location(right)
+                }
+                if let items = defaults.string(forKey: "PluckScreenshotCopy"), let into = defaults.string(forKey: "PluckScreenshotCopyTo") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        LibraryPanes.shared.copy(items.split(separator: "|").map { URL(fileURLWithPath: String($0)) }, into: URL(fileURLWithPath: into))
+                    }
+                }
                 if let path = defaults.string(forKey: "PluckScreenshotFile") {
                     if defaults.bool(forKey: "PluckScreenshotOpen") {
                         RawFormats.show(URL(fileURLWithPath: path))

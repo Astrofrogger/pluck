@@ -20,6 +20,10 @@ struct LibraryView: View {
     }
     #endif
     @State private var search = LibraryView.startSearch
+    /// The Library split in two: what the right side shows.
+    @State private var secondCollection: Collection? = LibraryView.startSecond
+    /// What the right side opens on (screenshots).
+    @MainActor static var startSecond: Collection?
     /// A search to start with (screenshots).
     @MainActor static var startSearch = ""
     /// The search field to be typed in as the Library shows (⇧⌘F).
@@ -103,7 +107,7 @@ struct LibraryView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: $collection) {
+            List(selection: sidebarSelection) {
                 #if STUDIO
                 footageSection
                 locationsSection
@@ -153,20 +157,11 @@ struct LibraryView: View {
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 210)
         } detail: {
-            if case .network(let name) = collection, let peer = network.peers.first(where: { $0.name == name }) {
-                RemoteLibraryView(peer: peer, search: search)
-            } else if let scope = contentScope {
-                #if STUDIO
-                // Names, and what's said and seen inside: one search.
-                VisualSearchView(text: search, scope: scope)
-                #endif
-            } else if isFootage {
-                #if STUDIO
-                footageDetail
-                #endif
-            } else {
-                detail
-            }
+            #if STUDIO
+            splitDetail
+            #else
+            primaryDetail
+            #endif
         }
         .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
         .modifier(SearchFocus(focused: $searchFocused))
@@ -183,6 +178,16 @@ struct LibraryView: View {
         #endif
         .toolbar {
             #if STUDIO
+            ToolbarItem {
+                Toggle(isOn: Binding(get: { LibraryPanes.shared.split }, set: { on in
+                    LibraryPanes.shared.split = on
+                    if on, secondCollection == nil { secondCollection = .location(FileManager.default.homeDirectoryForCurrentUser.path) }
+                })) {
+                    Label("Split", systemImage: "rectangle.split.2x1")
+                }
+                .keyboardShortcut("\\", modifiers: .command)
+                .help("Two folders side by side: drag between them to copy, every file checked (⌘\\)")
+            }
             ToolbarItem(placement: .navigation) {
                 if isFootage, let back = StudioNavigator.shared.toolBack {
                     Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
@@ -273,6 +278,51 @@ struct LibraryView: View {
         }
     }
 
+    /// What the sidebar chose (on the left, when the Library is split).
+    @ViewBuilder private var primaryDetail: some View {
+        if case .network(let name) = collection, let peer = network.peers.first(where: { $0.name == name }) {
+            RemoteLibraryView(peer: peer, search: search)
+        } else if let scope = contentScope {
+            #if STUDIO
+            // Names, and what's said and seen inside: one search.
+            VisualSearchView(text: search, scope: scope)
+            #endif
+        } else if isFootage {
+            #if STUDIO
+            footageDetail
+            #endif
+        } else {
+            detail
+        }
+    }
+
+    /// The sidebar chooses for the side last clicked when the Library is split (the right side
+    /// shows folders and places; anything else goes left).
+    private var sidebarSelection: Binding<Collection?> {
+        #if STUDIO
+        Binding(get: { LibraryPanes.shared.split && LibraryPanes.shared.active == 1 ? secondCollection : collection },
+                set: { chosen in
+                    let panes = LibraryPanes.shared
+                    if panes.split, panes.active == 1, let chosen, Self.isPlace(chosen) {
+                        secondCollection = chosen
+                    } else {
+                        collection = chosen
+                        panes.active = 0
+                    }
+                })
+        #else
+        $collection
+        #endif
+    }
+
+    /// A folder or a place on disk (what the Player shows), rather than the downloads.
+    static func isPlace(_ collection: Collection) -> Bool {
+        switch collection {
+        case .footage, .clips, .opened, .location: true
+        default: false
+        }
+    }
+
     /// While searching everything or a Library folder: where the search looks inside clips too
     /// ("all", or the folder's id). Elsewhere (a place browsed, a site, a tag) names only.
     private var contentScope: String? {
@@ -299,12 +349,7 @@ struct LibraryView: View {
     }
 
     /// A folder or clip on disk is shown (the Player), not Pluck's downloads.
-    private var isFootage: Bool {
-        switch collection {
-        case .footage, .clips, .opened, .location: true
-        default: false
-        }
-    }
+    private var isFootage: Bool { collection.map(Self.isPlace) ?? false }
 
     private func row(_ collection: Collection, _ symbol: String) -> some View {
         Label(collection.title, systemImage: symbol)
@@ -793,13 +838,55 @@ extension LibraryView {
         Button("Remove from Library") { FootageFolders.shared.remove(folder.id) }
     }
 
-    @ViewBuilder var footageDetail: some View {
+    @ViewBuilder var footageDetail: some View { footageView(collection, pane: 0, search: search) }
+
+    /// The Library split in two, as Tilde and other file managers do: drag between the sides,
+    /// or "Copy to Other Side", to copy (checked like an offload). Copies under way at the foot.
+    @ViewBuilder var splitDetail: some View {
+        let panes = LibraryPanes.shared
+        VStack(spacing: 0) {
+            if panes.split {
+                HSplitView {
+                    side(0) { primaryDetail }
+                    side(1) {
+                        if let secondCollection {
+                            footageView(secondCollection, pane: 1, search: "")
+                        } else {
+                            ContentUnavailableView("Choose a Folder", systemImage: "sidebar.left",
+                                                   description: Text("Click this side, then a folder or a place in the sidebar."))
+                        }
+                    }
+                }
+            } else {
+                primaryDetail
+            }
+            LibraryTransfers()
+        }
+        .alert("Can’t Copy", isPresented: Binding(get: { panes.problem != nil }, set: { if !$0 { panes.problem = nil } })) {
+            Button("OK") { panes.problem = nil }
+        } message: {
+            Text(panes.problem ?? "")
+        }
+    }
+
+    /// One side: clicking it makes it the one the sidebar chooses for (a line marks it).
+    private func side<Content: View>(_ index: Int, @ViewBuilder content: () -> Content) -> some View {
+        let panes = LibraryPanes.shared
+        return content()
+            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .top) {
+                Rectangle().fill(panes.active == index ? Color.accentColor : .clear).frame(height: 2)
+            }
+            .simultaneousGesture(TapGesture().onEnded { panes.active = index })
+    }
+
+    @ViewBuilder func footageView(_ collection: Collection?, pane: Int, search: String) -> some View {
         let footage = FootageFolders.shared
         switch collection {
         case .footage(let id, _):
             if let folder = footage.folders.first(where: { $0.id == id }) {
                 if folder.isThere {
-                    RawPlayerView(source: .folder(folder.url), search: search).id(folder.path)
+                    RawPlayerView(source: .folder(folder.url), search: search, pane: pane).id(folder.path)
                 } else {
                     ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
                                            description: Text("Connect the drive \(folder.name) is on to play it."))
@@ -807,14 +894,14 @@ extension LibraryView {
             }
         case .clips:
             let clips = footage.clipItems.filter(\.isThere).map(\.url)
-            RawPlayerView(source: .clips(String(localized: "Clips"), clips), search: search).id(clips)
+            RawPlayerView(source: .clips(String(localized: "Clips"), clips), search: search, pane: pane).id(clips)
         case .location(let path):
-            RawPlayerView(source: .folder(URL(fileURLWithPath: path, isDirectory: true)), search: search).id(path)
+            RawPlayerView(source: .folder(URL(fileURLWithPath: path, isDirectory: true)), search: search, pane: pane).id(path)
         case .opened(let path):
             // A clip, played with its folder behind it; or a folder, its clips.
             let url = URL(fileURLWithPath: path)
             let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && !RawFolderScan.isClipFolder(url)
-            RawPlayerView(source: isFolder ? .folder(url) : .file(url), search: search).id(path)
+            RawPlayerView(source: isFolder ? .folder(url) : .file(url), search: search, pane: pane).id(path)
         default:
             EmptyView()
         }

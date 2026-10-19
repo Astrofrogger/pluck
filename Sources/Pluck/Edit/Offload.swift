@@ -40,7 +40,12 @@ struct OffloadJob: Codable, Identifiable, Hashable {
     /// It was copying, or waiting for a drive, when Pluck last stopped: it carries on when Pluck
     /// opens again (after a crash, a restart or a power cut), unless it was paused.
     var running: Bool?
+    /// A copy made in the Library (dragged between its panes): checked the same, but without
+    /// the reports a card's offload leaves, and shown by this name.
+    var quick: Bool?
+    var title: String?
 
+    var displayName: String { title ?? name }
     var cascades: Bool { cascade == true && roots.count > 1 }
     var targets: [String] { roots.map { ($0 as NSString).appendingPathComponent(name) } }
     var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
@@ -122,7 +127,7 @@ final class OffloadRunner: @unchecked Sendable {
             } else {
                 try pass(from: job.source, to: Array(job.roots.indices), buffer: buffer)
             }
-            for target in job.targets.indices { writeReport(target) }
+            if job.quick != true { for target in job.targets.indices { writeReport(target) } }
             send(.finished)
         } catch Halt.waiting(let drive) {
             send(.waiting(drive))
@@ -544,16 +549,62 @@ final class OffloadCenter {
 
     func state(_ job: OffloadJob) -> State { states[job.id] ?? .paused }
 
+    /// A job's copies are done (object: the folders they went into).
+    static let finishedNotification = Notification.Name("PluckOffloadFinished")
+
+    /// Files and folders copied into a folder, as the Library's panes do it (dragged across, or
+    /// "Copy to Other Side"): each read back and checked like an offload, carrying on if a drive
+    /// comes and goes. Something already there isn't copied over.
+    func copy(_ items: [URL], into folder: URL) async -> String? {
+        let folder = folder.standardizedFileURL
+        for item in items.map(\.standardizedFileURL) {
+            let target = folder.appendingPathComponent(item.lastPathComponent)
+            if item.deletingLastPathComponent().path == folder.path || FileManager.default.fileExists(atPath: target.path) {
+                return String(localized: "\(item.lastPathComponent) is already in \(folder.lastPathComponent).")
+            }
+        }
+        var loose: [URL] = []
+        for item in items.map(\.standardizedFileURL) {
+            let isFolder = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+            if isFolder {
+                if let problem = await add(source: item, roots: [folder], name: item.lastPathComponent, quick: true) { return problem }
+            } else {
+                loose.append(item)
+            }
+        }
+        // Loose files, a job per folder they're in.
+        for (parent, files) in Dictionary(grouping: loose, by: { $0.deletingLastPathComponent() }) {
+            let list = files.compactMap { file -> (path: String, size: Int64, modified: Date)? in
+                guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+                return (file.lastPathComponent, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .now)
+            }
+            if let problem = Self.problem(files: list, roots: [folder]) { return problem }
+            let total = list.reduce(Int64(0)) { $0 + $1.size }
+            let free = (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage) ?? .max
+            if free < total { return String(localized: "There isn’t enough room on \(Self.volumeName(folder)).") }
+            var job = OffloadJob(name: "", source: parent.path, sourceVolume: Self.volumeName(parent), roots: [folder.path],
+                                 rootVolumes: [Self.volumeName(folder)],
+                                 files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: [false]) })
+            job.quick = true
+            job.title = files.count == 1 ? files[0].lastPathComponent : String(localized: "\(files.count) files")
+            jobs.insert(job, at: 0)
+            save(job)
+            resume(job.id)
+        }
+        return nil
+    }
+
     /// A new offload: the files in the source, to a folder named `name` in each of the roots.
-    func add(source: URL, roots: [URL], name: String, cascade: Bool = false, eject: Bool = false) async -> String? {
-        if let problem = Self.problem(source: source, roots: roots) { return problem }
+    func add(source: URL, roots: [URL], name: String, cascade: Bool = false, eject: Bool = false, quick: Bool = false) async -> String? {
+        if let problem = Self.problem(source: source, roots: roots, quick: quick) { return problem }
         let list = await Task.detached(priority: .userInitiated) { Self.files(in: source) }.value
         guard !list.isEmpty else { return String(localized: "There are no files there.") }
         if let problem = Self.problem(files: list, roots: roots) { return problem }
-        let job = OffloadJob(name: name, source: source.path, sourceVolume: Self.volumeName(source), roots: roots.map(\.path),
+        var job = OffloadJob(name: name, source: source.path, sourceVolume: Self.volumeName(source), roots: roots.map(\.path),
                              rootVolumes: roots.map(Self.volumeName),
                              files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: roots.map { _ in false }) },
                              cascade: cascade, ejectSource: eject)
+        if quick { job.quick = true }
         // Room for it everywhere.
         for root in roots {
             let free = (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage) ?? .max
@@ -567,14 +618,15 @@ final class OffloadCenter {
 
     /// Why the source and drives can't be used together, if they can't: a copy inside the card
     /// (it would copy itself), the card inside a copy, or the same place twice.
-    nonisolated static func problem(source: URL, roots: [URL]) -> String? {
+    /// (`quick`: a copy within the Library, where a folder can go to the folder it's in.)
+    nonisolated static func problem(source: URL, roots: [URL], quick: Bool = false) -> String? {
         let card = source.standardizedFileURL.resolvingSymlinksInPath().path
         func inside(_ a: String, _ b: String) -> Bool { a == b || a.hasPrefix(b.hasSuffix("/") ? b : b + "/") }
         var seen: Set<String> = []
         for root in roots {
             let place = root.standardizedFileURL.resolvingSymlinksInPath().path
-            if inside(place, card) { return String(localized: "A copy can’t go inside the card it comes from.") }
-            if inside(card, place) { return String(localized: "The card is inside \(volumeName(root)): choose another place for the copy.") }
+            if inside(place, card) { return quick ? String(localized: "A folder can’t be copied into itself.") : String(localized: "A copy can’t go inside the card it comes from.") }
+            if !quick, inside(card, place) { return String(localized: "The card is inside \(volumeName(root)): choose another place for the copy.") }
             if !seen.insert(place).inserted { return String(localized: "\(volumeName(root)) is chosen twice.") }
         }
         return nil
@@ -703,6 +755,15 @@ final class OffloadCenter {
             jobs[index].finished = .now
             finish(id, .done)
             let job = jobs[index]
+            NotificationCenter.default.post(name: Self.finishedNotification, object: job.targets)
+            if job.quick == true {
+                // A copy in the Library: a word only when something went wrong (its bar shows the rest).
+                if !job.problems.isEmpty {
+                    AppDelegate.shared?.manager.notify(title: String(localized: "Copy done, with problems"),
+                                                       body: String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied."))
+                }
+                return
+            }
             OffloadReport.write(job)
             if job.ejectSource == true, !job.cascades { Self.eject(job.source) }
             let problems = job.problems.count
