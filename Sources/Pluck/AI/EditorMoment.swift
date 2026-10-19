@@ -1,9 +1,8 @@
 import AVKit
 import SwiftUI
 
-/// What the Pluck Player window shows: a file, its transcript, and where to start.
 /// A file to open at a moment, on a part of the Editor's sidebar: what used to open Pluck Player.
-struct PlayerTarget: Codable, Hashable {
+struct EditorMoment: Codable, Hashable {
     var filePath: String
     var transcriptID: String?
     var start: Double?
@@ -11,7 +10,7 @@ struct PlayerTarget: Codable, Hashable {
     var tab: String?
 }
 
-extension PlayerTarget {
+extension EditorMoment {
     /// Opens the file in the Editor at the moment, showing the transcript, summary or chapters.
     @MainActor func open(_ openWindow: OpenWindowAction) {
         let defaults = UserDefaults.standard

@@ -9,6 +9,8 @@ final class ProjectLayers: @unchecked Sendable {
     struct Span {
         var clip: UUID
         var trackID: CMPersistentTrackID
+        /// The file (for its camera's log).
+        var path = ""
         /// Where it's on screen (with a dissolve's extra frames), and the clip itself (its look's
         /// progress runs over that).
         var start: Double
@@ -111,7 +113,13 @@ final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
             var picture = CIImage(color: .black).cropped(to: frame)
             for (span, alpha) in instruction.layers.layers(at: seconds) where alpha > 0.001 {
                 guard let buffer = request.sourceFrame(byTrackID: span.trackID) else { continue }
-                let source = CIImage(cvPixelBuffer: buffer).oriented(span.orientation)
+                // A camera's log made normal, from the file's own numbers.
+                let source: CIImage
+                if let camera = CameraLog.resolve(span.look?.color.camera, path: span.path) {
+                    source = camera.apply(CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])).oriented(span.orientation)
+                } else {
+                    source = CIImage(cvPixelBuffer: buffer).oriented(span.orientation)
+                }
                 let progress = (seconds - span.clipStart) / max(span.clipEnd - span.clipStart, 0.001)
                 var placed = ClipLook.place(source, look: span.look, progress: min(max(progress, 0), 1), in: size, onBlack: span.main)
                 if alpha < 0.999 {

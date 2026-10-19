@@ -2,9 +2,10 @@ import CoreServices
 import Foundation
 import UniformTypeIdentifiers
 
-/// Folders Pluck keeps an eye on: every video, song and photo in them (and in their folders) is
-/// indexed so Search finds it, and new files are picked up as they arrive. Search can look in
-/// one of them only, like a project.
+/// Folders (and single clips) the user put in the Library: every video, song and photo in them
+/// (and in their folders) is indexed so Search finds it, and new files are picked up as they
+/// arrive. Nothing is copied: the files stay where they are. Search can look in one of them only,
+/// like a project.
 @MainActor
 @Observable
 final class FootageFolders {
@@ -14,7 +15,13 @@ final class FootageFolders {
         var id = UUID()
         var path: String
         var name: String { URL(fileURLWithPath: path).lastPathComponent }
-        var url: URL { URL(fileURLWithPath: path, isDirectory: true) }
+        var url: URL { URL(fileURLWithPath: path, isDirectory: !isFile) }
+        /// One clip rather than a folder (a camera's clip folder, .RDC, counts as a clip).
+        var isFile: Bool {
+            var directory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &directory) else { return URL(fileURLWithPath: path).pathExtension != "" }
+            return !directory.boolValue || RawFolderScan.isClipFolder(URL(fileURLWithPath: path))
+        }
         /// The drive it's on is plugged in.
         var isThere: Bool { FileManager.default.fileExists(atPath: path) }
     }
@@ -35,6 +42,10 @@ final class FootageFolders {
         }
     }
 
+    /// The folders, and the clips put in one by one.
+    var folderItems: [Folder] { folders.filter { !$0.isFile } }
+    var clipItems: [Folder] { folders.filter(\.isFile) }
+
     var allVideos: [String] { folders.flatMap { videos[$0.id] ?? [] } }
     var allPhotos: [String] { folders.flatMap { photos[$0.id] ?? [] } }
 
@@ -43,14 +54,18 @@ final class FootageFolders {
         for folder in folders where watchers[folder.id] == nil { watch(folder); scan(folder) }
     }
 
-    func add(_ url: URL) {
+    /// A folder or a clip (one already in, or in a folder that is, isn't added twice).
+    @discardableResult
+    func add(_ url: URL) -> Folder? {
         let path = url.standardizedFileURL.path
-        guard !folders.contains(where: { $0.path == path }) else { return }
+        if let known = folders.first(where: { $0.path == path }) { return known }
+        if let inside = folder(containing: path), !inside.isFile { return inside }
         let folder = Folder(path: path)
         folders.append(folder)
         save()
         watch(folder)
         scan(folder)
+        return folder
     }
 
     func remove(_ id: UUID) {
@@ -67,7 +82,7 @@ final class FootageFolders {
 
     /// The folder a file is in, if it's in one of them.
     func folder(containing path: String) -> Folder? {
-        folders.first { path.hasPrefix($0.path.hasSuffix("/") ? $0.path : $0.path + "/") }
+        folders.first { $0.path == path || path.hasPrefix($0.path.hasSuffix("/") ? $0.path : $0.path + "/") }
     }
 
     // MARK: - Looking through
@@ -75,9 +90,9 @@ final class FootageFolders {
     func scan(_ folder: Folder) {
         guard folder.isThere, !scanning.contains(folder.id) else { return }
         scanning.insert(folder.id)
-        let root = folder.url
+        let root = folder.url, single = folder.isFile
         Task {
-            let (found, pictures) = await Task.detached(priority: .utility) { Self.media(in: root) }.value
+            let (found, pictures) = await Task.detached(priority: .utility) { single ? ([root.path], []) : Self.media(in: root) }.value
             videos[folder.id] = found
             photos[folder.id] = pictures
             scanning.remove(folder.id)
@@ -112,7 +127,7 @@ final class FootageFolders {
     // MARK: - Watching
 
     private func watch(_ folder: Folder) {
-        guard folder.isThere else { return }
+        guard folder.isThere, !folder.isFile else { return }
         watchers[folder.id] = FolderWatcher(path: folder.path) { [weak self] in
             Task { @MainActor in self?.changed(folder.id) }
         }

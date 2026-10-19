@@ -59,13 +59,15 @@ final class EditorExports {
         var pictureChain: ((String, Double, Double, Int) -> [String])?
         var steadied: URL?
         #if STUDIO
-        if let look = model.look, !audioOnly {
+        // A look, or a camera's log to make normal.
+        if !audioOnly, model.look != nil || CameraLog.detect(file.path) != nil {
+            let look = model.look ?? ClipLook()
             let width = Int(source.width) / 2 * 2, height = Int(source.height) / 2 * 2, rate = String(format: "%.3f", max(fps, 1))
             steadied = look.stabilize ? Stabilizer.copy(for: file.path) : nil
             let isSteadied = steadied != nil
             pictureChain = { input, start, end, k in
                 ClipLook.ffmpegChain(input: input, start: start, end: end, length: end - start, look: look, k: k,
-                                     width: width, height: height, rate: rate, steadied: isSteadied)
+                                     width: width, height: height, rate: rate, steadied: isSteadied, path: file.path)
             }
         }
         #endif

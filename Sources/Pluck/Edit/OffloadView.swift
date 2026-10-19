@@ -14,6 +14,8 @@ struct OffloadView: View {
     @State private var problem: String?
     /// For screenshots: these instead of the cards plugged in.
     @MainActor static var cardsShown: [URL]?
+    /// A card to offload, chosen elsewhere (the Library's Locations).
+    @MainActor static var startSource: URL?
     @State private var starting = false
     @State private var dropping = false
 
@@ -36,7 +38,10 @@ struct OffloadView: View {
                      detail: Text("A report (MHL) is saved with each copy, for DaVinci Resolve, Silverstack and OffShoot."))
         }
         .frame(minWidth: 640, minHeight: 520)
-        .task { refreshCards() }
+        .task {
+            if let start = Self.startSource { Self.startSource = nil; choose(start) }
+            refreshCards()
+        }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshCards() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshCards() }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in

@@ -1337,6 +1337,64 @@
         }
       }
     },
+    "%@ (its drive isn’t connected)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (das Laufwerk ist nicht angeschlossen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (su disco no está conectado)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (son disque n’est pas connecté)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (il suo disco non è collegato)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（ドライブが接続されていません）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(드라이브가 연결되어 있지 않음)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (de schijf is niet aangesloten)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ (o disco não está conectado)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@（所在磁盘未连接）"
+          }
+        }
+      }
+    },
     "%@ LUFS; the target is %@. %@": {
       "localizations": {
         "de": {
@@ -8453,6 +8511,7 @@
       }
     },
     "A file’s name or title": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -11531,6 +11590,64 @@
         }
       }
     },
+    "A timeline of the selected shots, or a log of every clip in the open project": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Timeline aus den ausgewählten Einstellungen oder ein Log jedes Clips im geöffneten Projekt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una línea de tiempo con los planos elegidos, o un registro de cada clip del proyecto abierto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une timeline des plans choisis, ou un journal de chaque plan du projet ouvert"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una timeline delle inquadrature scelte, o un registro di ogni clip del progetto aperto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選んだショットのタイムライン、または開いているプロジェクトの全クリップのログ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 샷의 타임라인 또는 열린 프로젝트의 모든 클립 로그"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een tijdlijn van de gekozen shots, of een log van elke clip in het open project"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma timeline das tomadas escolhidas, ou um registro de cada clipe do projeto aberto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所选镜头的时间线，或打开项目中每个片段的记录"
+          }
+        }
+      }
+    },
     "A white frame between two shots. Fine if it’s meant as a flash.": {
       "localizations": {
         "de": {
@@ -12516,6 +12633,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加文件…"
+          }
+        }
+      }
+    },
+    "Add Folder or Clips…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner oder Clips hinzufügen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir carpeta o clips…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un dossier ou des plans…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi cartella o clip…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダまたはクリップを追加…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 또는 클립 추가…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Map of clips toevoegen…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar pasta ou clipes…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加文件夹或片段…"
           }
         }
       }
@@ -13625,6 +13800,7 @@
       }
     },
     "Add a folder and Pluck indexes all its footage and photos.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -13972,6 +14148,123 @@
         }
       }
     },
+    "Add folders in the Library. The films and the denoise engine are downloaded from the Photo page when you ask for them.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge Ordner in der Bibliothek hinzu. Die Filme und die Entrauschung werden auf der Fotoseite geladen, wenn du sie anforderst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade carpetas en la biblioteca. Las películas y el motor de reducción de ruido se descargan desde la página Foto cuando los pides."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez des dossiers dans la bibliothèque. Les films et le moteur de débruitage se téléchargent depuis la page Photo quand vous les demandez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi le cartelle nella libreria. Le pellicole e il motore di riduzione del rumore si scaricano dalla pagina Foto quando li chiedi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダはライブラリで追加します。フィルムとノイズ除去エンジンは、必要なときに写真ページからダウンロードされます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더는 보관함에서 추가합니다. 필름과 노이즈 제거 엔진은 요청할 때 사진 페이지에서 다운로드됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg mappen toe in de bibliotheek. De films en de ruisonderdrukking worden vanaf de Foto-pagina gedownload als je erom vraagt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione pastas na biblioteca. Os filmes e o motor de redução de ruído são baixados na página Foto quando você pede."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在资料库中添加文件夹。胶片与降噪引擎会在你需要时从“照片”页面下载。"
+          }
+        }
+      }
+    },
+    "Add its folder to the Library and Pluck indexes all its footage and photos.": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge den Ordner zur Bibliothek hinzu, und Pluck indexiert alle Aufnahmen und Fotos darin."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añade su carpeta a la biblioteca y Pluck indexará todo su material y sus fotos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez son dossier à la bibliothèque et Pluck indexe toutes ses images et photos."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi la sua cartella alla libreria e Pluck indicizza tutto il girato e le foto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダをライブラリに追加すると、Pluck が中の映像と写真をすべて索引します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더를 보관함에 추가하면 Pluck이 모든 영상과 사진의 색인을 만듭니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg de map toe aan de bibliotheek en Pluck indexeert alle beelden en foto’s erin."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicione a pasta à biblioteca e o Pluck indexa todas as imagens e fotos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将其文件夹添加到资料库，Pluck 会为其中所有素材和照片建立索引。"
+          }
+        }
+      }
+    },
     "Add names: Anna Berg, Northwind…": {
       "localizations": {
         "de": {
@@ -14204,6 +14497,64 @@
         }
       }
     },
+    "Add to Library": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zur Bibliothek hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a la biblioteca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter à la bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi alla libreria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリに追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함에 추가"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aan bibliotheek toevoegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar à biblioteca"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到资料库"
+          }
+        }
+      }
+    },
     "Add to Mask": {
       "localizations": {
         "de": {
@@ -14380,6 +14731,7 @@
       }
     },
     "Add watched folders on the Search page. The films and the denoise engine are downloaded from the Photo page when you ask for them.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -18625,6 +18977,64 @@
         }
       }
     },
+    "As Recorded": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie aufgenommen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tal como se grabó"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tel qu’enregistré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come registrato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "収録したまま"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "촬영한 그대로"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoals opgenomen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como gravado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按录制原样"
+          }
+        }
+      }
+    },
     "As Shot": {
       "localizations": {
         "de": {
@@ -20600,6 +21010,7 @@
       }
     },
     "Back to Player": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -24092,6 +24503,64 @@
         }
       }
     },
+    "Browse your Mac and its drives folder by folder, and play any clip where it is. Add the folders you want Search to know; nothing is copied.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchsuche deinen Mac und seine Laufwerke Ordner für Ordner und spiele jeden Clip dort ab, wo er liegt. Füge die Ordner hinzu, die die Suche kennen soll; nichts wird kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Explora tu Mac y sus discos carpeta a carpeta y reproduce cualquier clip donde está. Añade las carpetas que quieras que conozca Buscar; no se copia nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parcourez votre Mac et ses disques dossier par dossier et lisez chaque plan là où il se trouve. Ajoutez les dossiers que Recherche doit connaître ; rien n’est copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfoglia il Mac e i suoi dischi cartella per cartella e riproduci ogni clip dove si trova. Aggiungi le cartelle che Cerca deve conoscere; non viene copiato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac とドライブをフォルダごとにブラウズし、どのクリップもその場で再生できます。検索に含めたいフォルダを追加してください。何もコピーされません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac과 드라이브를 폴더별로 둘러보고 모든 클립을 있는 그대로 재생합니다. 검색에 포함할 폴더를 추가하세요. 아무것도 복사되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blader map voor map door je Mac en je schijven, en speel elke clip af waar hij staat. Voeg de mappen toe die Zoeken moet kennen; er wordt niets gekopieerd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Navegue pelo Mac e pelos discos pasta a pasta e reproduza qualquer clipe onde ele está. Adicione as pastas que a Busca deve conhecer; nada é copiado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "逐个文件夹浏览你的 Mac 及其磁盘，并在原位置播放任何片段。添加希望“搜索”了解的文件夹；不会复制任何内容。"
+          }
+        }
+      }
+    },
     "Browser cookies are never sent to videos found on web pages, and the tools Pluck downloads are checked for their developers’ signatures.": {
       "localizations": {
         "de": {
@@ -24267,6 +24736,7 @@
       }
     },
     "Build Derush in Resolve": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -24501,6 +24971,7 @@
       }
     },
     "Build Timeline in Resolve": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -24558,7 +25029,66 @@
         }
       }
     },
+    "Build in DaVinci": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In DaVinci erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear en DaVinci"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer dans DaVinci"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea in DaVinci"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci で作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci에서 만들기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maken in DaVinci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar no DaVinci"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 DaVinci 中生成"
+          }
+        }
+      }
+    },
     "Build in Resolve": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -26125,6 +26655,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "已从 %@ 取消"
+          }
+        }
+      }
+    },
+    "Can’t Play This": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kann nicht abgespielt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede reproducir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture impossible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile riprodurre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生できません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생할 수 없음"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kan dit niet afspelen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível reproduzir"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法播放"
           }
         }
       }
@@ -27931,6 +28519,7 @@
       }
     },
     "Choose Clip…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -32467,6 +33056,122 @@
         }
       }
     },
+    "Clips filmed in log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) play and export as a normal picture. Pluck reads which log from the file; choose another under Colour.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Log gefilmte Clips (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) werden als normales Bild abgespielt und exportiert. Pluck liest das Log-Format aus der Datei; ein anderes wählst du unter Farbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los clips grabados en log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) se reproducen y exportan como una imagen normal. Pluck lee el log del archivo; elige otro en Color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les plans filmés en log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) sont lus et exportés comme une image normale. Pluck lit le log dans le fichier ; choisissez-en un autre sous Couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le clip girate in log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) vengono riprodotte ed esportate come un’immagine normale. Pluck legge il log dal file; scegline un altro in Colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log で撮影したクリップ（Sony、Panasonic、Canon、ARRI、RED、Blackmagic、Fujifilm、Nikon）を通常の映像で再生・書き出しします。Pluck がファイルから Log の種類を読み取ります。「カラー」で別の種類も選べます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그로 촬영한 클립(Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon)을 일반 화면으로 재생하고 내보냅니다. Pluck이 파일에서 로그 종류를 읽어 오며, 색상에서 다른 종류를 선택할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips die in log zijn gefilmd (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) spelen en exporteren als een normaal beeld. Pluck leest uit het bestand welke log het is; kies een andere onder Kleur."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipes gravados em log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) são reproduzidos e exportados como imagem normal. O Pluck lê o tipo de log no arquivo; escolha outro em Cor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以 Log 拍摄的片段（Sony、Panasonic、Canon、ARRI、RED、Blackmagic、Fujifilm、Nikon）会以正常画面播放和导出。Pluck 会从文件读取 Log 类型；也可在“颜色”中选择其他类型。"
+          }
+        }
+      }
+    },
+    "Clips in Folders Inside": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips in Unterordnern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips de las subcarpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plans des sous-dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clip nelle sottocartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のフォルダのクリップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 폴더의 클립"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips in mappen hierin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clipes nas subpastas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "子文件夹中的片段"
+          }
+        }
+      }
+    },
     "Close": {
       "localizations": {
         "de": {
@@ -32526,6 +33231,7 @@
       }
     },
     "Close Folder": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -34559,6 +35265,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "连接"
+          }
+        }
+      }
+    },
+    "Connect the drive %@ is on to play it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe das Laufwerk an, auf dem %@ liegt, um es abzuspielen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta el disco en el que está %@ para reproducirlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez le disque où se trouve %@ pour le lire."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega il disco su cui si trova %@ per riprodurlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生するには、%@ があるドライブを接続してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생하려면 %@이(가) 있는 드라이브를 연결하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sluit de schijf aan waarop %@ staat om af te spelen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte o disco em que %@ está para reproduzir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接 %@ 所在的磁盘以播放。"
           }
         }
       }
@@ -39923,6 +40687,7 @@
       }
     },
     "Decoded on this Mac with the camera makers’ own decoders.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -41148,6 +41913,7 @@
       }
     },
     "Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -46494,6 +47260,64 @@
         }
       }
     },
+    "Drive Not Connected": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Laufwerk nicht angeschlossen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco no conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disque non connecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco non collegato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドライブが接続されていません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드라이브가 연결되지 않음"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schijf niet aangesloten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco não conectado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘未连接"
+          }
+        }
+      }
+    },
     "Drive not connected": {
       "localizations": {
         "de": {
@@ -46669,6 +47493,7 @@
       }
     },
     "Drop a clip or a folder: %@.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -48066,6 +48891,7 @@
       }
     },
     "Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click opens it in the Player. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -48119,6 +48945,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "每个 .RDC 文件夹会显示为一个带缩略图的片段：按空格键播放整条带声音的镜头，双击在播放器中打开。要查看其中的文件，请右键点按并选择“显示包内容”。Finder 可能需要片刻或重新登录才会显示。"
+          }
+        }
+      }
+    },
+    "Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click plays it in Pluck. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder .RDC-Ordner erscheint als ein Clip mit Vorschaubild: Die Leertaste spielt die ganze Aufnahme mit Ton ab, ein Doppelklick spielt sie in Pluck ab. Um die Dateien darin zu sehen, klicke mit der rechten Maustaste und wähle „Paketinhalt zeigen“. Der Finder braucht dafür eventuell einen Moment oder eine neue Anmeldung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada carpeta .RDC aparece como un clip con miniatura: la barra espaciadora reproduce la toma entera con su sonido y un doble clic la reproduce en Pluck. Para ver sus archivos, haz clic derecho y elige Mostrar contenido del paquete. El Finder puede necesitar un momento, o volver a iniciar sesión, para mostrarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque dossier .RDC apparaît comme un seul plan avec une vignette : la barre d’espace lit toute la prise avec son son, un double-clic la lit dans Pluck. Pour voir ses fichiers, faites un clic droit et choisissez Afficher le contenu du paquet. Le Finder peut avoir besoin d’un moment, ou d’une nouvelle session, pour l’afficher."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni cartella .RDC appare come una clip con miniatura: la barra spaziatrice riproduce l’intera ripresa con il suono e un doppio clic la riproduce in Pluck. Per vedere i file al suo interno, fai clic destro e scegli Mostra contenuto pacchetto. Il Finder potrebbe richiedere un momento, o un nuovo login, per mostrarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各 .RDC フォルダはサムネール付きの1つのクリップとして表示されます。スペースバーでテイク全体を音声付きで再生し、ダブルクリックで Pluck で再生します。中のファイルを見るには、右クリックして「パッケージの内容を表示」を選びます。Finder に反映されるまで少し時間がかかるか、再ログインが必要な場合があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 .RDC 폴더는 썸네일이 있는 하나의 클립으로 표시됩니다. 스페이스 바로 테이크 전체를 소리와 함께 재생하고, 이중 클릭하면 Pluck에서 재생합니다. 안의 파일을 보려면 오른쪽 클릭 후 ‘패키지 내용 보기’를 선택하세요. Finder에 표시되기까지 잠시 걸리거나 다시 로그인해야 할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elke .RDC-map verschijnt als één clip met een miniatuur: de spatiebalk speelt de hele take met geluid af en een dubbelklik speelt hem af in Pluck. Om de bestanden erin te zien, klik je met de rechtermuisknop en kies je ‘Toon pakketinhoud’. De Finder heeft misschien even nodig, of een nieuwe aanmelding, om het te tonen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada pasta .RDC aparece como um clipe com miniatura: a barra de espaço reproduz a tomada inteira com som e um clique duplo a reproduz no Pluck. Para ver os arquivos, clique com o botão direito e escolha Mostrar Conteúdo do Pacote. O Finder pode precisar de um momento, ou de um novo login, para mostrar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个 .RDC 文件夹显示为一个带缩略图的片段：按空格键播放整个镜次及其声音，双击则在 Pluck 中播放。要查看其中的文件，请右键点按并选择“显示包内容”。访达可能需要片刻或重新登录才能显示。"
           }
         }
       }
@@ -49867,6 +50751,64 @@
         }
       }
     },
+    "Eject": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auswerfen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expulsar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Éjecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Espelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取り出す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "추출"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwijder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejetar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推出"
+          }
+        }
+      }
+    },
     "Eject when done": {
       "localizations": {
         "de": {
@@ -51264,6 +52206,7 @@
       }
     },
     "Every clip in a folder and the folders in it, as thumbnails to skim": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -51317,6 +52260,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "文件夹及其子文件夹中的所有片段，以可快速浏览的缩略图显示"
+          }
+        }
+      }
+    },
+    "Every clip in the folders inside, at once": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Clips der Unterordner auf einmal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los clips de las subcarpetas a la vez"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les plans des sous-dossiers d’un coup"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le clip delle sottocartelle insieme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中のフォルダのクリップをすべて一度に"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하위 폴더의 모든 클립을 한 번에"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle clips in de mappen hierin tegelijk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os clipes das subpastas de uma vez"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一次显示子文件夹中的所有片段"
           }
         }
       }
@@ -52478,6 +53479,65 @@
           "stringUnit": {
             "state": "translated",
             "value": "用 Pluck 存储的所有内容集中在一处并长期保留：按类型和网站分类的合集、你的标签、搜索、重复项、缺失文件和占用空间（⇧⌘L）。"
+          }
+        }
+      }
+    },
+    "Everywhere": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überall"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En todas partes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Partout"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovunque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべての場所"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 곳"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Em todo lugar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有位置"
           }
         }
       }
@@ -67857,6 +68917,7 @@
       }
     },
     "Index %lld More": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -67974,6 +69035,7 @@
       }
     },
     "Index new downloads": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -70955,6 +72017,64 @@
         }
       }
     },
+    "Keep it in the sidebar and index it, so Search and Photo find what’s in it. Nothing is copied.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Seitenleiste behalten und indexieren, damit Suche und Foto finden, was darin ist. Nichts wird kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenerla en la barra lateral e indexarla, para que Buscar y Foto encuentren lo que contiene. No se copia nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le garder dans la barre latérale et l’indexer, pour que Recherche et Photo trouvent son contenu. Rien n’est copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tienila nella barra laterale e indicizzala, così Cerca e Foto trovano cosa contiene. Non viene copiato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーに残して索引を作成し、検索と写真で中身を見つけられるようにします。何もコピーされません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바에 두고 색인을 만들어 검색과 사진에서 내용을 찾을 수 있게 합니다. 아무것도 복사되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Houd hem in de navigatiekolom en indexeer hem, zodat Zoeken en Foto vinden wat erin zit. Er wordt niets gekopieerd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantê-la na barra lateral e indexá-la, para que Busca e Foto encontrem o conteúdo. Nada é copiado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留在边栏中并建立索引，让“搜索”和“照片”能找到其中内容。不会复制任何内容。"
+          }
+        }
+      }
+    },
     "Keep size": {
       "localizations": {
         "de": {
@@ -71705,6 +72825,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "按键"
+          }
+        }
+      }
+    },
+    "Kind": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Art"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "種類"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "종류"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soort"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tipo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "种类"
           }
         }
       }
@@ -73447,6 +74625,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "资料库与团队"
+          }
+        }
+      }
+    },
+    "Library and Player in one": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothek und Player in einem"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biblioteca y reproductor en uno"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothèque et lecteur réunis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libreria e player in uno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリとプレーヤーがひとつに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함과 플레이어를 하나로"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheek en speler in één"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biblioteca e player em um só"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料库与播放器合二为一"
+          }
+        }
+      }
+    },
+    "Library folders": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheksordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpetas de la biblioteca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossiers de la bibliothèque"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartelle della libreria"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリのフォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함 폴더"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheekmappen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastas da biblioteca"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料库文件夹"
           }
         }
       }
@@ -76126,6 +77420,64 @@
         }
       }
     },
+    "Locations": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Orte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ubicaciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Emplacements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "場所"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locaties"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Locais"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置"
+          }
+        }
+      }
+    },
     "Log": {
       "localizations": {
         "de": {
@@ -76242,6 +77594,122 @@
         }
       }
     },
+    "Log footage shown as a normal picture": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log-Material als normales Bild zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material en log mostrado como imagen normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Images en log affichées comme une image normale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprese in log mostrate come un’immagine normale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log 素材を通常の映像で表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 영상을 일반 화면으로 표시"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log-beelden als normaal beeld tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagens em log mostradas como imagem normal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将 Log 素材显示为正常画面"
+          }
+        }
+      }
+    },
+    "Log footage, shown normal": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log-Material, normal gezeigt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Material en log, con aspecto normal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Images en log, affichées normalement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riprese in log, mostrate normali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log 素材を通常の見た目で"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그 영상을 일반 화면으로"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log-beelden, normaal getoond"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Imagens em log, com aspeto normal"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log 素材，正常显示"
+          }
+        }
+      }
+    },
     "Log in Resolve": {
       "localizations": {
         "de": {
@@ -76301,6 +77769,7 @@
       }
     },
     "Log in Resolve…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -76354,6 +77823,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在 Resolve 中记录…"
+          }
+        }
+      }
+    },
+    "Log the Clips in the Project…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips im Projekt protokollieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar los clips del proyecto…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Journaliser les plans du projet…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registra le clip del progetto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトのクリップをログに記録…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트의 클립 기록…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips in het project loggen…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrar os clipes do projeto…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "记录项目中的片段…"
           }
         }
       }
@@ -76416,7 +77943,66 @@
         }
       }
     },
+    "Logged ^[%lld clip](inflect: true) with ^[%lld marker](inflect: true) in “%@”. In DaVinci, search the media pool or make smart bins on Keywords.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Clips mit %lld Markern in „%@“ protokolliert. Durchsuche in DaVinci den Media Pool oder erstelle intelligente Bins nach Schlüsselwörtern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se registraron %lld clips con %lld marcadores en «%@». En DaVinci, busca en el Media Pool o crea bins inteligentes por palabras clave."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld plans journalisés avec %lld marqueurs dans « %@ ». Dans DaVinci, cherchez dans le Media Pool ou créez des chutiers intelligents par mots-clés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrate %lld clip con %lld marker in “%@”. In DaVinci, cerca nel Media Pool o crea bin intelligenti per parole chiave."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%3$@」で %1$lld 個のクリップに %2$lld 個のマーカーを記録しました。DaVinci でメディアプールを検索するか、キーワードでスマートビンを作成してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%3$@”에서 %1$lld개 클립에 %2$lld개 마커를 기록했습니다. DaVinci에서 미디어 풀을 검색하거나 키워드로 스마트 빈을 만드세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld clips gelogd met %lld markers in ‘%@’. Zoek in DaVinci in de Media Pool of maak slimme bins op trefwoorden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld clipes registrados com %lld marcadores em “%@”. No DaVinci, busque no Media Pool ou crie bins inteligentes por palavras-chave."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在“%3$@”中记录 %1$lld 个片段和 %2$lld 个标记。在 DaVinci 中搜索媒体池，或按关键词创建智能素材箱。"
+          }
+        }
+      }
+    },
     "Logged ^[%lld clip](inflect: true) with ^[%lld marker](inflect: true) in “%@”. In Resolve, search the media pool or make smart bins on Keywords.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -76883,7 +78469,66 @@
         }
       }
     },
+    "Look For": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchen nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "探すもの"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "찾을 항목"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoeken naar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找内容"
+          }
+        }
+      }
+    },
     "Look In": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -76942,6 +78587,7 @@
       }
     },
     "Look Through Again": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -77053,6 +78699,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "分析我的视频"
+          }
+        }
+      }
+    },
+    "Look at new downloads": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Downloads ansehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analizar las descargas nuevas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyser les nouveaux téléchargements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analizza i nuovi download"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいダウンロードを解析"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 다운로드 분석"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieuwe downloads bekijken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analisar novos downloads"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分析新下载"
           }
         }
       }
@@ -77232,6 +78936,7 @@
       }
     },
     "Look in": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -85146,6 +86851,64 @@
         }
       }
     },
+    "Movement": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewegung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimiento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mouvement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "動き"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "움직임"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beweging"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movimento"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "运动"
+          }
+        }
+      }
+    },
     "Moves in": {
       "localizations": {
         "de": {
@@ -88334,6 +90097,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "还没有章节"
+          }
+        }
+      }
+    },
+    "No clip or folder to play was selected.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Es wurde kein Clip oder Ordner zum Abspielen ausgewählt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se ha seleccionado ningún clip ni carpeta para reproducir."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun plan ni dossier à lire n’est sélectionné."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stata selezionata nessuna clip o cartella da riprodurre."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再生するクリップまたはフォルダが選択されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "재생할 클립이나 폴더가 선택되지 않았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er is geen clip of map geselecteerd om af te spelen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum clipe ou pasta para reproduzir foi selecionado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未选择要播放的片段或文件夹。"
           }
         }
       }
@@ -91713,6 +93534,7 @@
       }
     },
     "Nothing in this folder or the folders in it plays in Player.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -91766,6 +93588,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "此文件夹及其子文件夹中没有可在播放器中播放的内容。"
+          }
+        }
+      }
+    },
+    "Nothing in this folder or the folders in it plays in Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts in diesem Ordner oder seinen Unterordnern lässt sich in Pluck abspielen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada de esta carpeta ni de sus subcarpetas se reproduce en Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien dans ce dossier ni dans ses sous-dossiers ne se lit dans Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niente in questa cartella o nelle sue sottocartelle si riproduce in Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダとその中のフォルダには Pluck で再生できるものがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더와 하위 폴더에는 Pluck에서 재생할 수 있는 항목이 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niets in deze map of de mappen erin speelt af in Pluck."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada nesta pasta ou nas subpastas é reproduzido no Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹及其子文件夹中没有可在 Pluck 中播放的内容。"
+          }
+        }
+      }
+    },
+    "Nothing in this folder plays in Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts in diesem Ordner lässt sich in Pluck abspielen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada de esta carpeta se reproduce en Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien dans ce dossier ne se lit dans Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niente in questa cartella si riproduce in Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダには Pluck で再生できるものがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더에는 Pluck에서 재생할 수 있는 항목이 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niets in deze map speelt af in Pluck."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada nesta pasta é reproduzido no Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹中没有可在 Pluck 中播放的内容。"
           }
         }
       }
@@ -92816,6 +94754,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "素材卸载完成，但有问题"
+          }
+        }
+      }
+    },
+    "Offload…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload…"
           }
         }
       }
@@ -94246,7 +96242,7 @@
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ひとつの検索"
+            "value": "検索をひとつに"
           }
         },
         "ko": {
@@ -94258,7 +96254,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eén zoekfunctie"
+            "value": "Eén zoekveld"
           }
         },
         "pt-BR": {
@@ -95613,6 +97609,7 @@
       }
     },
     "Open Folder…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -95960,6 +97957,64 @@
         }
       }
     },
+    "Open With, Play in Pluck under Quick Actions, a clip dropped on the Dock icon, and the keyboard's play keys.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnen mit, „Play in Pluck“ unter Schnellaktionen, ein auf das Dock-Symbol gezogener Clip und die Wiedergabetasten der Tastatur."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir con, Play in Pluck en Acciones rápidas, un clip soltado en el icono del Dock y las teclas de reproducción del teclado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir avec, Play in Pluck dans les actions rapides, un plan déposé sur l’icône du Dock et les touches de lecture du clavier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri con, Play in Pluck nelle Azioni rapide, una clip trascinata sull’icona nel Dock e i tasti di riproduzione della tastiera."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「このアプリケーションで開く」、クイックアクションの「Play in Pluck」、Dock アイコンへのドロップ、キーボードの再生キー。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음으로 열기, 빠른 동작의 Play in Pluck, Dock 아이콘에 놓은 클립, 키보드의 재생 키."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open met, Play in Pluck bij Snelle acties, een clip op het Dock-symbool slepen en de afspeeltoetsen van je toetsenbord."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir com, Play in Pluck em Ações Rápidas, um clipe solto no ícone do Dock e as teclas de reprodução do teclado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“打开方式”、快速操作中的“Play in Pluck”、拖到程序坞图标上的片段，以及键盘的播放键。"
+          }
+        }
+      }
+    },
     "Open a project in DaVinci Resolve first.": {
       "localizations": {
         "de": {
@@ -96193,6 +98248,7 @@
       }
     },
     "Open in Player": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -96654,6 +98710,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在打开…"
+          }
+        }
+      }
+    },
+    "Opens Full Disk Access in System Settings: turn Pluck on there, and macOS stops asking about each folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet „Festplattenvollzugriff“ in den Systemeinstellungen: Schalte Pluck dort ein, dann fragt macOS nicht mehr bei jedem Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre Acceso total al disco en Ajustes del Sistema: activa Pluck ahí y macOS dejará de preguntar por cada carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvre Accès complet au disque dans Réglages Système : activez Pluck et macOS cessera de demander pour chaque dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apre Accesso completo al disco in Impostazioni di Sistema: attiva Pluck lì e macOS smetterà di chiedere per ogni cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "システム設定の「フルディスクアクセス」を開きます。そこで Pluck をオンにすると、macOS がフォルダごとに確認しなくなります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시스템 설정에서 전체 디스크 접근 권한을 엽니다. 여기서 Pluck을 켜면 macOS가 폴더마다 묻지 않습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opent Volledige schijftoegang in Systeeminstellingen: zet Pluck daar aan, dan vraagt macOS het niet meer per map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abre o Acesso Total ao Disco nos Ajustes do Sistema: ative o Pluck ali e o macOS deixa de perguntar sobre cada pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在系统设置中打开“完全磁盘访问权限”：在那里打开 Pluck，macOS 就不再为每个文件夹询问"
           }
         }
       }
@@ -101130,6 +103244,7 @@
       }
     },
     "Photos: %@ (%lld more)": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -102470,6 +104585,64 @@
         }
       }
     },
+    "Play Clip or Folder…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clip oder Ordner abspielen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir clip o carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire un plan ou un dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduci clip o cartella…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップまたはフォルダを再生…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 또는 폴더 재생…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clip of map afspelen…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduzir clipe ou pasta…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "播放片段或文件夹…"
+          }
+        }
+      }
+    },
     "Play a finished download or show it in Finder straight from the notification.": {
       "localizations": {
         "de": {
@@ -102524,6 +104697,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "直接从通知中播放已完成的下载，或在“访达”中显示。"
+          }
+        }
+      }
+    },
+    "Play and search them in Pluck, where they are: nothing is copied": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Pluck abspielen und durchsuchen, wo sie liegen: nichts wird kopiert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reprodúcelos y búscalos en Pluck donde están: no se copia nada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lisez-les et cherchez-les dans Pluck, là où ils sont : rien n’est copié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproducili e cercali in Pluck dove si trovano: non viene copiato nulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その場所のまま Pluck で再生・検索できます。何もコピーされません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "있는 위치 그대로 Pluck에서 재생하고 검색합니다. 아무것도 복사되지 않습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Speel en doorzoek ze in Pluck waar ze staan: er wordt niets gekopieerd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduza e busque no Pluck onde eles estão: nada é copiado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在原位置用 Pluck 播放和搜索：不会复制任何内容"
           }
         }
       }
@@ -102995,6 +105226,7 @@
       }
     },
     "Play camera raw, pro formats and image sequences, with timecode, LUTs and sound. Raw clips take ISO, white balance and exposure from the raw data.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -103048,6 +105280,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "播放相机 RAW、专业格式和图像序列，支持时间码、LUT 和声音。RAW 片段可直接基于 RAW 数据调整 ISO、白平衡和曝光。"
+          }
+        }
+      }
+    },
+    "Play from Finder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus dem Finder abspielen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproducir desde el Finder"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lire depuis le Finder"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riproduci dal Finder"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder から再生"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finder에서 재생"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afspelen vanuit de Finder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reproduzir pelo Finder"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从访达播放"
           }
         }
       }
@@ -105850,6 +108140,7 @@
       }
     },
     "Pluck indexes every video and photo in it, and keeps watching it for new ones": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -105908,6 +108199,7 @@
       }
     },
     "Pluck indexes every video and photo in the folders you choose, and keeps watching them for new ones.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -107006,6 +109298,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 会选择适合该标志的风格。"
+          }
+        }
+      }
+    },
+    "Pluck plays and searches them where they are. Nothing is copied.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck spielt und durchsucht sie dort, wo sie liegen. Nichts wird kopiert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck los reproduce y busca donde están. No se copia nada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck les lit et les cherche là où ils sont. Rien n’est copié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck li riproduce e li cerca dove si trovano. Non viene copiato nulla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck はその場所のまま再生・検索します。何もコピーされません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck은 있는 위치 그대로 재생하고 검색합니다. 아무것도 복사되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck speelt en doorzoekt ze waar ze staan. Er wordt niets gekopieerd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck reproduz e busca onde eles estão. Nada é copiado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 在原位置播放和搜索它们。不会复制任何内容。"
           }
         }
       }
@@ -110441,6 +112791,7 @@
       }
     },
     "Puts the speaker’s name where it changes. Up to four speakers; rename them in Pluck Player.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -110494,6 +112845,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在说话人变化处加上名字。最多四人；可在 Pluck Player 中重命名。"
+          }
+        }
+      }
+    },
+    "Puts the speaker’s name where it changes. Up to four speakers; rename them in the Editor’s transcript.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Setzt den Namen des Sprechers, wo er wechselt. Bis zu vier Sprecher; benenne sie im Transkript des Editors um."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pone el nombre de quien habla donde cambia. Hasta cuatro personas; cámbiales el nombre en la transcripción del editor."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoute le nom de la personne qui parle à chaque changement. Jusqu’à quatre personnes ; renommez-les dans la transcription de l’éditeur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisce il nome di chi parla dove cambia. Fino a quattro persone; rinominale nella trascrizione dell’editor."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "話者が変わるところに名前を入れます。最大4人まで。名前はエディタの文字起こしで変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "화자가 바뀌는 곳에 이름을 넣습니다. 최대 네 명까지이며, 이름은 편집기의 대본에서 바꿀 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet de naam van de spreker waar die wisselt. Tot vier sprekers; geef ze een andere naam in het transcript van de editor."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coloca o nome de quem fala onde muda. Até quatro pessoas; renomeie na transcrição do editor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在说话人变化处加上其名字。最多四位说话人；可在编辑器的转写中重命名。"
           }
         }
       }
@@ -112764,6 +115173,7 @@
       }
     },
     "Recent": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -112880,6 +115290,7 @@
       }
     },
     "Record a Stream": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -122599,6 +125010,7 @@
       }
     },
     "Search My Library": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -122833,6 +125245,7 @@
       }
     },
     "Search a whole drive or project": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -122886,6 +125299,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索整个驱动器或项目"
+          }
+        }
+      }
+    },
+    "Search clips": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar clips"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher des plans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca clip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 검색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clips zoeken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar clipes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索片段"
           }
         }
       }
@@ -123240,6 +125711,65 @@
         }
       }
     },
+    "Search inside clips for “%@”": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In Clips nach „%@“ suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar «%@» dentro de los clips"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chercher « %@ » dans les plans"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca “%@” nelle clip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップ内で「%@」を検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립 안에서 “%@” 검색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In clips zoeken naar ‘%@’"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar “%@” dentro dos clipes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在片段中搜索“%@”"
+          }
+        }
+      }
+    },
     "Search inside downloads": {
       "localizations": {
         "de": {
@@ -123468,6 +125998,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "搜索更强大"
+          }
+        }
+      }
+    },
+    "Search names, what’s said and what’s seen": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Namen, Gesagtes und Gesehenes suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar nombres, lo que se dice y lo que se ve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chercher des noms, ce qui est dit et ce qui se voit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca nomi, cosa si dice e cosa si vede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前、話された内容、映っているものを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름, 말한 내용, 보이는 내용 검색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek op namen, wat er gezegd en gezien wordt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar nomes, o que é dito e o que se vê"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索名称、所说内容和画面内容"
           }
         }
       }
@@ -124291,6 +126879,64 @@
         }
       }
     },
+    "See Every Folder…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Ordner sehen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver todas las carpetas…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voir tous les dossiers…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vedi tutte le cartelle…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのフォルダを表示…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 폴더 보기…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle mappen zien…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ver todas as pastas…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查看所有文件夹…"
+          }
+        }
+      }
+    },
     "See updates install": {
       "localizations": {
         "de": {
@@ -124932,6 +127578,7 @@
       }
     },
     "Select shots with ⌘-click": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -124985,6 +127632,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "按住 ⌘ 点按以选择镜头"
+          }
+        }
+      }
+    },
+    "Select shots with ⌘-click for a timeline, or log every clip in the open project with what Pluck saw": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle Einstellungen mit ⌘-Klick für eine Timeline, oder protokolliere jeden Clip im geöffneten Projekt mit dem, was Pluck gesehen hat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige planos con ⌘-clic para una línea de tiempo, o registra cada clip del proyecto abierto con lo que Pluck vio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez des plans avec ⌘-clic pour une timeline, ou journalisez chaque plan du projet ouvert avec ce que Pluck a vu"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli le inquadrature con ⌘-clic per una timeline, o registra ogni clip del progetto aperto con ciò che Pluck ha visto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-クリックでショットを選んでタイムラインを作るか、開いているプロジェクトの全クリップを Pluck が見た内容で記録します"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⌘-클릭으로 샷을 선택해 타임라인을 만들거나, 열린 프로젝트의 모든 클립을 Pluck이 본 내용으로 기록하세요"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies shots met ⌘-klik voor een tijdlijn, of log elke clip in het open project met wat Pluck zag"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha tomadas com ⌘-clique para uma timeline, ou registre cada clipe do projeto aberto com o que o Pluck viu"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 ⌘-点按选择镜头以生成时间线，或用 Pluck 看到的内容记录打开项目中的每个片段"
           }
         }
       }
@@ -129009,6 +131714,7 @@
       }
     },
     "Shots: %@": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -129414,6 +132120,64 @@
         }
       }
     },
+    "Show Duplicates": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplikate zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar duplicados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les doublons"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra duplicati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重複を表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중복 항목 보기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dubbele tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar duplicados"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示重复项"
+          }
+        }
+      }
+    },
     "Show Fewer": {
       "localizations": {
         "de": {
@@ -129584,6 +132348,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "收起"
+          }
+        }
+      }
+    },
+    "Show Missing Files": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fehlende Dateien zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar archivos que faltan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher les fichiers manquants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra file mancanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "見つからないファイルを表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "누락된 파일 보기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontbrekende bestanden tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar arquivos ausentes"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示缺失的文件"
           }
         }
       }
@@ -130106,6 +132928,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在资料库中显示"
+          }
+        }
+      }
+    },
+    "Show one kind": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur eine Art zeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar un solo tipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher un seul type"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra un solo tipo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1種類だけ表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "한 종류만 보기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eén soort tonen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar um só tipo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只显示一种"
           }
         }
       }
@@ -132610,6 +135490,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "快照"
+          }
+        }
+      }
+    },
+    "So searches find what’s in their pictures": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Damit die Suche findet, was in ihren Bildern ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para que las búsquedas encuentren lo que hay en sus imágenes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour que les recherches trouvent ce qu’il y a dans leurs images"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Così le ricerche trovano cosa c’è nelle loro immagini"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索で映像の中身が見つかるように"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색에서 화면 속 내용을 찾을 수 있도록"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zodat zoekopdrachten vinden wat er in hun beeld staat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para que as buscas encontrem o que há nas imagens"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让搜索能找到画面中的内容"
           }
         }
       }
@@ -136507,6 +139445,7 @@
       }
     },
     "Stop Watching": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -142551,6 +145490,64 @@
         }
       }
     },
+    "The Library's search field finds names, what was said and what's in the picture. Fewer buttons all round.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Suchfeld der Bibliothek findet Namen, Gesagtes und was im Bild ist. Überall weniger Knöpfe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El campo de búsqueda de la biblioteca encuentra nombres, lo que se dijo y lo que hay en la imagen. Menos botones en todas partes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le champ de recherche de la bibliothèque trouve les noms, ce qui a été dit et ce qu’il y a à l’image. Moins de boutons partout."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il campo di ricerca della libreria trova nomi, cosa è stato detto e cosa c’è nell’immagine. Meno pulsanti ovunque."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリの検索フィールドで、名前、話された内容、映っているものを見つけられます。ボタンも全体的に減りました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함의 검색 필드에서 이름, 말한 내용, 화면 속 내용을 찾습니다. 버튼도 전반적으로 줄었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het zoekveld van de bibliotheek vindt namen, wat er gezegd is en wat er in beeld is. Overal minder knoppen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O campo de busca da biblioteca encontra nomes, o que foi dito e o que está na imagem. Menos botões em todo lugar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资料库的搜索栏可查找名称、所说内容和画面内容。各处按钮也更少了。"
+          }
+        }
+      }
+    },
     "The Logo Animator reads your logo like a motion designer and makes an animation from its own shapes. Change its feel or any part, export a reveal, intro, sting, loop or still in 4K, with transparency and a sound on the landing.": {
       "localizations": {
         "de": {
@@ -143361,6 +146358,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "拷贝两次都与源文件不一致。"
+          }
+        }
+      }
+    },
+    "The copy of “%@” didn’t match the original. Check the card and the drive, then import again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kopie von „%@“ stimmt nicht mit dem Original überein. Prüfe Karte und Laufwerk und importiere erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copia de «%@» no coincide con el original. Revisa la tarjeta y el disco, y vuelve a importar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copie de « %@ » ne correspond pas à l’original. Vérifiez la carte et le disque, puis importez de nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La copia di “%@” non corrisponde all’originale. Controlla la scheda e il disco, poi importa di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」のコピーが元のファイルと一致しません。カードとドライブを確認してから、もう一度読み込んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”의 사본이 원본과 일치하지 않습니다. 카드와 드라이브를 확인한 다음 다시 가져오세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De kopie van ‘%@’ komt niet overeen met het origineel. Controleer de kaart en de schijf en importeer opnieuw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cópia de “%@” não corresponde ao original. Verifique o cartão e o disco e importe de novo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”的副本与原件不一致。请检查存储卡和磁盘，然后重新导入。"
           }
         }
       }
@@ -153298,6 +156353,64 @@
         }
       }
     },
+    "Tidy up: what's saved twice, and what's no longer there": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufräumen: was doppelt gespeichert ist und was nicht mehr da ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar: lo guardado dos veces y lo que ya no está"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ranger : ce qui est enregistré deux fois et ce qui n’est plus là"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riordina: ciò che è salvato due volte e ciò che non c’è più"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理：重複して保存されたものと、もう存在しないもの"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정리: 두 번 저장된 항목과 더 이상 없는 항목"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opruimen: wat dubbel bewaard is en wat er niet meer is"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrumar: o que foi salvo duas vezes e o que não está mais lá"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整理：重复保存的内容和已不存在的内容"
+          }
+        }
+      }
+    },
     "Tight": {
       "localizations": {
         "de": {
@@ -153704,6 +156817,64 @@
         }
       }
     },
+    "Timeline from Selected Shots": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeline aus ausgewählten Einstellungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Línea de tiempo con los planos elegidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeline des plans choisis"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeline dalle inquadrature scelte"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選んだショットからタイムライン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 샷으로 타임라인"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tijdlijn van gekozen shots"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Timeline das tomadas escolhidas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用所选镜头生成时间线"
+          }
+        }
+      }
+    },
     "Timeline name": {
       "extractionState": "stale",
       "localizations": {
@@ -153763,7 +156934,66 @@
         }
       }
     },
+    "Timeline “%@” is in DaVinci.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Timeline „%@“ ist in DaVinci."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La línea de tiempo «%@» está en DaVinci."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La timeline « %@ » est dans DaVinci."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La timeline “%@” è in DaVinci."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン「%@」は DaVinci にあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인 “%@”이(가) DaVinci에 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tijdlijn ‘%@’ staat in DaVinci."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A timeline “%@” está no DaVinci."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "时间线“%@”已在 DaVinci 中。"
+          }
+        }
+      }
+    },
     "Timeline “%@” is in Resolve.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -156210,6 +159440,7 @@
       }
     },
     "Transcripts": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -157602,6 +160833,7 @@
       }
     },
     "Try": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -162132,6 +165364,7 @@
       }
     },
     "Videos looked at": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -163177,6 +166410,7 @@
       }
     },
     "Watch": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -163293,6 +166527,7 @@
       }
     },
     "Watched folders": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -163930,7 +167165,67 @@
         }
       }
     },
+    "What to look for, and where": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wonach und wo gesucht wird"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Qué buscar y dónde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quoi chercher, et où"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cosa cercare e dove"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "何をどこで探すか"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무엇을 어디에서 찾을지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waarnaar en waar zoeken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O que procurar e onde"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找什么，以及在哪里查找"
+          }
+        }
+      }
+    },
     "What was said or seen: “the part about lighting”, “drone over a forest”": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -163989,6 +167284,7 @@
       }
     },
     "What was said: “the part about lighting”": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -164512,6 +167808,7 @@
       }
     },
     "What’s in the photo: “beach at sunset”, “a menu”": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -167127,6 +170424,7 @@
       }
     },
     "Write shot descriptions, keywords and a marker per shot into the open DaVinci Resolve project": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -170757,6 +174055,7 @@
       }
     },
     "close-up of hands": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -170877,6 +174176,7 @@
       "shouldTranslate": false
     },
     "drone shot over water": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -172507,6 +175807,7 @@
       }
     },
     "people outside at night": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -172858,6 +176159,7 @@
       }
     },
     "someone laughing": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -173558,6 +176860,7 @@
       }
     },
     "the part about the budget": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {

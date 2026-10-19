@@ -35,9 +35,12 @@ struct AISettings: View {
             }
             }
             Section {
-                LabeledContent("Watched folders") {
+                LabeledContent("Library folders") {
                     Text(verbatim: "\(FootageFolders.shared.folders.count)").monospacedDigit().foregroundStyle(.secondary)
                 }
+                Toggle("Look at new downloads", isOn: Binding(get: { UserDefaults.standard.object(forKey: VisualIndexer.autoKey) as? Bool ?? true },
+                                                               set: { UserDefaults.standard.set($0, forKey: VisualIndexer.autoKey) }))
+                    .help("So searches find what’s in their pictures")
                 LabeledContent("Films (spektrafilm)") {
                     HStack {
                         switch FilmEngine.shared.state {
@@ -54,7 +57,7 @@ struct AISettings: View {
             } header: {
                 Text("Search & photos")
             } footer: {
-                Text("Add watched folders on the Search page. The films and the denoise engine are downloaded from the Photo page when you ask for them.")
+                Text("Add folders in the Library. The films and the denoise engine are downloaded from the Photo page when you ask for them.")
             }
 
             Section("On this Mac") {

@@ -166,7 +166,7 @@ struct ConvertSheet: View {
     /// Lists the files (as local files, not copies) and starts the AI action on them.
     private func run(_ action: AIAction) {
         let items = manager.addLocalFiles(files.filter(Converting.isMedia))
-        let open: (PlayerTarget) -> Void = { $0.open(openWindow) }
+        let open: (EditorMoment) -> Void = { $0.open(openWindow) }
         dismiss()
         switch action {
         case .shorts, .deliverables, .subtitles, .tighten, .cleanup, .enhance, .background, .blur:
@@ -188,7 +188,7 @@ struct ConvertSheet: View {
             let kind: AIStudio.LanguageAsk.Action = action == .summarize ? .summarize : .chapters
             if items.count == 1, let item = items.first {
                 // May ask for the spoken language, after this sheet has closed.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ai.start(kind, item, openPlayer: open) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { ai.start(kind, item, openMoment: open) }
             } else {
                 for item in items {
                     if kind == .summarize { ai.summarize(item) { _ in } } else { ai.addChapters(item) { _ in } }

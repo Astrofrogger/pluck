@@ -8,7 +8,7 @@ final class StudioNavigator {
     static let shared = StudioNavigator()
 
     enum Page: String, CaseIterable, Identifiable {
-        case home, library, edit, photo, search, tools
+        case home, library, edit, photo, tools
         var id: String { rawValue }
 
         var title: LocalizedStringKey {
@@ -17,7 +17,6 @@ final class StudioNavigator {
             case .library: "Library"
             case .edit: "Edit"
             case .photo: "Photo"
-            case .search: "Search"
             case .tools: "Tools"
             }
         }
@@ -28,7 +27,6 @@ final class StudioNavigator {
             case .library: "books.vertical"
             case .edit: "film"
             case .photo: "camera.aperture"
-            case .search: "sparkle.magnifyingglass"
             case .tools: "square.grid.2x2"
             }
         }
@@ -96,7 +94,7 @@ final class StudioNavigator {
 
     /// One step back: inside the tool first, then where the window was before.
     func goBack() {
-        if page == .tools, tool != nil, let back = toolBack { back.action(); return }
+        if page == .library || (page == .tools && tool != nil), let back = toolBack { back.action(); return }
         while let place = backward.popLast() {
             guard place != here else { continue }
             forward.append(here)
@@ -106,7 +104,7 @@ final class StudioNavigator {
     }
 
     func goForward() {
-        if page == .tools, tool != nil, let next = toolForward { next(); return }
+        if page == .library || (page == .tools && tool != nil), let next = toolForward { next(); return }
         while let place = forward.popLast() {
             guard place != here else { continue }
             backward.append(here)
@@ -223,7 +221,12 @@ final class StudioNavigator {
     func open(_ tool: PluckTool) {
         switch tool {
         case .library: page = .library
-        case .findShots: page = .search
+        case .findShots:
+            // (Search is the Library's search field.)
+            LibraryView.focusSearch = true
+            page = .library
+            NotificationCenter.default.post(name: LibraryView.focusNotification, object: nil)
+        case .rawPlayer: page = .library
         default:
             self.tool = tool
             page = .tools

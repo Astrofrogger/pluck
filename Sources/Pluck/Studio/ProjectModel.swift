@@ -1106,7 +1106,7 @@ final class ProjectModel {
                         if let fps = pictures.fps { frameRate = fps }
                     }
                 }
-                spans.append(ProjectLayers.Span(clip: clip.id, trackID: video.trackID, start: start, end: start + length,
+                spans.append(ProjectLayers.Span(clip: clip.id, trackID: video.trackID, path: clip.path, start: start, end: start + length,
                                                 clipStart: at, clipEnd: at + clip.length, look: clip.look,
                                                 orientation: CGImagePropertyOrientation(pictures.transform), main: true,
                                                 fadeIn: index > 0 && before > 0 ? before * 2 : 0))
@@ -1136,7 +1136,7 @@ final class ProjectModel {
                 if let video, let picture = media.video {
                     try? video.insertTimeRange(source, of: picture, at: cm(at))
                     if item.speed != 1 { video.scaleTimeRange(CMTimeRange(start: cm(at), duration: source.duration), toDuration: cm(item.length)) }
-                    spans.append(ProjectLayers.Span(clip: item.id, trackID: video.trackID, start: at, end: at + item.length,
+                    spans.append(ProjectLayers.Span(clip: item.id, trackID: video.trackID, path: item.path, start: at, end: at + item.length,
                                                     clipStart: at, clipEnd: at + item.length, look: item.look,
                                                     orientation: CGImagePropertyOrientation(media.transform), main: false,
                                                     fadeIn: item.fadeIn, fadeOut: item.fadeOut))
@@ -1333,9 +1333,11 @@ final class ProjectModel {
     /// The pictures for a clip: from its own part of the file (in steps of 2 seconds, so trimming
     /// doesn't make them again on every move).
     nonisolated static func thumbnailKey(_ clip: ProjectClip) -> String {
-        if let freeze = clip.freeze { return "\(clip.path)#\(freeze)" }
+        // (Made again when the camera's log is chosen otherwise.)
+        let camera = clip.look?.color.camera.map { "~\($0)" } ?? ""
+        if let freeze = clip.freeze { return "\(clip.path)#\(freeze)\(camera)" }
         let a = (clip.start / 2).rounded(.down) * 2, b = (clip.end / 2).rounded(.up) * 2
-        return "\(clip.path)@\(a)-\(b)"
+        return "\(clip.path)@\(a)-\(b)\(camera)"
     }
 
     /// A few pictures per clip, for the timeline.
@@ -1356,10 +1358,11 @@ final class ProjectModel {
             // A held frame: that one frame.
             let from = clip.freeze ?? max((clip.start / 2).rounded(.down) * 2, 0), to = clip.freeze ?? min((clip.end / 2).rounded(.up) * 2, length)
             let count = clip.freeze == nil ? min(max(Int((to - from) / 0.5), 1), 12) : 1
+            let camera = CameraLog.resolve(clip.look?.color.camera, path: clip.path)
             var images: [NSImage] = []
             for step in 0..<count {
                 let at = CMTime(seconds: from + (to - from) * (Double(step) + 0.5) / Double(count), preferredTimescale: 600)
-                if let image = try? await generator.image(at: at).image { images.append(NSImage(cgImage: image, size: .zero)) }
+                if let image = try? await generator.image(at: at).image { images.append(NSImage(cgImage: camera?.apply(image) ?? image, size: .zero)) }
             }
             thumbnails[key] = images
         }

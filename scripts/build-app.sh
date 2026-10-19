@@ -45,6 +45,14 @@ if [[ "$EDITION" == studio ]]; then
   # Camera raw clips open in Raw Player (and Finder's preview plays them): the types, declared for
   # Macs where no other app does, and Pluck as an app that opens them.
   /usr/libexec/PlistBuddy -c "Merge Resources/RawTypes.plist" "$APP/Contents/Info.plist"
+  # "Play in Pluck" on clips and folders in Finder.
+  /usr/libexec/PlistBuddy -c "Add :NSServices:1 dict" \
+    -c "Add :NSServices:1:NSMenuItem dict" -c "Add :NSServices:1:NSMenuItem:default string Play in Pluck" \
+    -c "Add :NSServices:1:NSMessage string playInPluck" -c "Add :NSServices:1:NSPortName string Pluck" \
+    -c "Add :NSServices:1:NSRequiredContext dict" \
+    -c "Add :NSServices:1:NSSendFileTypes array" -c "Add :NSServices:1:NSSendFileTypes:0 string public.movie" \
+    -c "Add :NSServices:1:NSSendFileTypes:1 string public.folder" -c "Add :NSServices:1:NSSendFileTypes:2 string com.red.r3d" \
+    -c "Add :NSServices:1:NSSendFileTypes:3 string com.blackmagic-design.braw-movie" "$APP/Contents/Info.plist"
   # RED clip folders as one item in Finder (a Settings choice): the type, in an app of its own
   # that Pluck registers with macOS only when asked. Kept in Resources so it isn't found by itself.
   TYPES_APP="$APP/Contents/Resources/RedClipTypes.app"

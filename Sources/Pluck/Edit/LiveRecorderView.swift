@@ -170,7 +170,7 @@ struct LiveRecorderView: View {
             if let file = session.file, !session.isRunning {
                 RowButton(symbol: "magnifyingglass", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
             }
-            Button("Build in Resolve", systemImage: "film.stack", action: build)
+            Button("Build in DaVinci", systemImage: "film.stack", action: build)
                 .buttonStyle(GlassCapsuleButtonStyle())
                 .disabled(session.state != .finished || !Resolve.isInstalled)
         }
@@ -193,7 +193,7 @@ struct LiveRecorderView: View {
         Task {
             do {
                 let name = try await session.buildInResolve()
-                status = String(localized: "Timeline “\(name)” is in Resolve.")
+                status = String(localized: "Timeline “\(name)” is in DaVinci.")
             } catch {
                 status = error.localizedDescription
             }

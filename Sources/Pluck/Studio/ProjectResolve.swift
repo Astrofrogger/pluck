@@ -133,7 +133,7 @@ struct SendToResolveCommand: View {
 
     var body: some View {
         if ProjectResolve.isAvailable {
-            Button("Send to DaVinci Resolve") {
+            Button("Send to DaVinci") {
                 if let project = nav.current?.project { ProjectResolve.sendAndShow(project) }
             }
             .keyboardShortcut("r", modifiers: [.command, .option])

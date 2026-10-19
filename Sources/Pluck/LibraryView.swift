@@ -7,10 +7,28 @@ struct LibraryView: View {
     @Environment(\.openWindow) private var openWindow
     @State private var library = LibraryStore.shared
     @State private var collection: Collection? = LibraryView.startCollection ?? .all
-    /// The collection to open on (screenshots).
+    /// The collection to open on (screenshots, a clip opened from Finder).
     @MainActor static var startCollection: Collection?
-    @State private var search = ""
+    private static let showNotification = Notification.Name("PluckLibraryShow")
+
+    #if STUDIO
+    /// The Library page, on this collection.
+    @MainActor static func show(_ collection: Collection) {
+        startCollection = collection
+        StudioNavigator.shared.show(.library)
+        NotificationCenter.default.post(name: showNotification, object: nil)
+    }
+    #endif
+    @State private var search = LibraryView.startSearch
+    /// A search to start with (screenshots).
+    @MainActor static var startSearch = ""
+    /// The search field to be typed in as the Library shows (⇧⌘F).
+    @MainActor static var focusSearch = false
+    static let focusNotification = Notification.Name("PluckLibraryFocusSearch")
+    @FocusState private var searchFocused: Bool
     @AppStorage("librarySort") private var sort: Sort = .newest
+    /// Only one kind of download shown (nil: all).
+    @AppStorage("libraryKind") private var kindFilter = ""
     @State private var tagging: LibraryStore.Entry?
     @State private var newTag = ""
     /// Tagging several at once (the highlighted ones).
@@ -41,6 +59,13 @@ struct LibraryView: View {
         case subscription(UUID, String)
         /// Another Mac's shared Library, by its name.
         case network(String)
+        /// Pluck Studio: a folder put in the Library (its id and name), the clips put in one by
+        /// one, and a clip opened from Finder (its path). They stay where they are on disk.
+        case footage(UUID, String)
+        case clips
+        case opened(String)
+        /// A place on this Mac to browse (a folder of the home folder, a drive), by its path.
+        case location(String)
 
         var title: String {
             switch self {
@@ -56,6 +81,9 @@ struct LibraryView: View {
             case .tag(let name): name
             case .subscription(_, let name): name
             case .network(let name): name
+            case .footage(_, let name): name
+            case .clips: String(localized: "Clips")
+            case .opened(let path), .location(let path): FileManager.default.displayName(atPath: path)
             }
         }
     }
@@ -76,12 +104,15 @@ struct LibraryView: View {
     var body: some View {
         NavigationSplitView {
             List(selection: $collection) {
-                Section("Library") {
-                    row(.all, "square.grid.2x2")
-                    row(.videos, "film")
-                    row(.audio, "music.note")
-                    row(.photos, "photo")
-                    row(.recent, "clock")
+                #if STUDIO
+                footageSection
+                locationsSection
+                #endif
+                // (Kinds and the order are chosen above the items; tidying up is in the toolbar.)
+                Section(Edition.isStudio ? "Downloads" : "Library") {
+                    Label(String(localized: "Everything"), systemImage: "square.grid.2x2")
+                        .badge(count(.all))
+                        .tag(Collection.all)
                 }
                 if !library.sites.isEmpty {
                     Section("Sites") {
@@ -112,11 +143,6 @@ struct LibraryView: View {
                         ForEach(library.allTags, id: \.self) { row(.tag($0), "tag") }
                     }
                 }
-                Section("Tidy Up") {
-                    row(.duplicates, "square.on.square")
-                    row(.missing, "questionmark.folder")
-                    row(.largest, "externaldrive")
-                }
                 if !network.peers.isEmpty {
                     Section("On This Network") {
                         ForEach(network.peers) { peer in
@@ -129,12 +155,42 @@ struct LibraryView: View {
         } detail: {
             if case .network(let name) = collection, let peer = network.peers.first(where: { $0.name == name }) {
                 RemoteLibraryView(peer: peer, search: search)
+            } else if let scope = contentScope {
+                #if STUDIO
+                // Names, and what's said and seen inside: one search.
+                VisualSearchView(text: search, scope: scope)
+                #endif
+            } else if isFootage {
+                #if STUDIO
+                footageDetail
+                #endif
             } else {
                 detail
             }
         }
-        .searchable(text: $search, placement: .toolbar, prompt: "Search titles, channels and tags")
+        .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
+        .modifier(SearchFocus(focused: $searchFocused))
+        .onReceive(NotificationCenter.default.publisher(for: Self.focusNotification)) { _ in takeFocus() }
+        #if STUDIO
+        // The last searches, to run again.
+        .searchSuggestions {
+            if search.isEmpty {
+                ForEach(VisualSearchView.recentSearches, id: \.self) { recent in
+                    Label(recent, systemImage: "clock.arrow.circlepath").searchCompletion(recent)
+                }
+            }
+        }
+        #endif
         .toolbar {
+            #if STUDIO
+            ToolbarItem(placement: .navigation) {
+                if isFootage, let back = StudioNavigator.shared.toolBack {
+                    Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
+                        .help("Back to the folder (Esc)")
+                }
+            }
+            #endif
+            if !isFootage && contentScope == nil {
             ToolbarItem {
                 Button {
                     sharing.toggle()
@@ -146,17 +202,41 @@ struct LibraryView: View {
                 .popover(isPresented: $sharing, arrowEdge: .bottom) { LibrarySharingView() }
             }
             ToolbarItem {
+                Picker("Kind", selection: $kindFilter) {
+                    Image(systemName: "square.grid.2x2").help("Everything").tag("")
+                    Image(systemName: "film").help("Videos").tag(LibraryStore.Entry.Kind.video.rawValue)
+                    Image(systemName: "music.note").help("Music & Audio").tag(LibraryStore.Entry.Kind.audio.rawValue)
+                    Image(systemName: "photo").help("Photos").tag(LibraryStore.Entry.Kind.photo.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .help("Show one kind")
+            }
+            ToolbarItem {
+                Menu {
+                    Button("Show Duplicates", systemImage: "square.on.square") { collection = .duplicates }
+                    Button("Show Missing Files", systemImage: "questionmark.folder") { collection = .missing }
+                    Divider()
+                    RemoveMissingCommand()
+                } label: {
+                    Label("Tidy Up", systemImage: "wand.and.sparkles")
+                }
+                .help("Tidy up: what's saved twice, and what's no longer there")
+            }
+            ToolbarItem {
                 Picker("Sort", selection: $sort) {
                     ForEach(Sort.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
                 .help("Sort")
             }
+            }
         }
         .navigationTitle(collection?.title ?? String(localized: "Library"))
-        .navigationSubtitle(summary)
+        .navigationSubtitle(isFootage || contentScope != nil ? "" : summary)
         .frame(minWidth: 760, minHeight: 460)
         .onAppear {
+            Self.startCollection = nil
+            takeFocus()
             checkFiles()
             network.start()
             // Tests: -PluckScreenshotSelect <n> highlights the first n.
@@ -166,6 +246,9 @@ struct LibraryView: View {
             }
         }
         .onDisappear { network.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: Self.showNotification)) { _ in
+            if let start = Self.startCollection { Self.startCollection = nil; collection = start }
+        }
         .quickLookPreview($preview)
         .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
         .sheet(item: $sending) { entry in
@@ -190,6 +273,39 @@ struct LibraryView: View {
         }
     }
 
+    /// While searching everything or a Library folder: where the search looks inside clips too
+    /// ("all", or the folder's id). Elsewhere (a place browsed, a site, a tag) names only.
+    private var contentScope: String? {
+        guard Edition.isStudio, !search.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        switch collection ?? .all {
+        case .all, .clips: return "all"
+        case .footage(let id, _): return id.uuidString
+        default: return nil
+        }
+    }
+
+    private var searchPrompt: LocalizedStringKey {
+        switch collection ?? .all {
+        case .all, .clips, .footage: Edition.isStudio ? "Search names, what’s said and what’s seen" : "Search titles, channels and tags"
+        case .location, .opened: "Search clips"
+        default: "Search titles, channels and tags"
+        }
+    }
+
+    private func takeFocus() {
+        guard Self.focusSearch else { return }
+        Self.focusSearch = false
+        DispatchQueue.main.async { searchFocused = true }
+    }
+
+    /// A folder or clip on disk is shown (the Player), not Pluck's downloads.
+    private var isFootage: Bool {
+        switch collection {
+        case .footage, .clips, .opened, .location: true
+        default: false
+        }
+    }
+
     private func row(_ collection: Collection, _ symbol: String) -> some View {
         Label(collection.title, systemImage: symbol)
             .badge(count(collection))
@@ -211,7 +327,7 @@ struct LibraryView: View {
         case .site(let name): library.entries.filter { $0.site == name }
         case .tag(let name): library.entries.filter { $0.tags.contains(name) }
         case .subscription(let id, _): subscriptionEntries(id)
-        case .network: []
+        case .network, .footage, .clips, .opened, .location: []
         }
     }
 
@@ -224,13 +340,14 @@ struct LibraryView: View {
     private func count(_ collection: Collection) -> Int {
         switch collection {
         case .duplicates, .missing, .largest, .all, .videos, .audio, .photos, .recent, .site, .tag, .subscription: entries(in: collection).count
-        case .network: 0
+        case .network, .footage, .clips, .opened, .location: 0
         }
     }
 
     private var shown: [LibraryStore.Entry] {
         let selected = collection ?? .all
         var list = entries(in: selected)
+        if let kind = LibraryStore.Entry.Kind(rawValue: kindFilter) { list = list.filter { $0.kind == kind } }
         let query = search.trimmingCharacters(in: .whitespaces)
         if !query.isEmpty {
             list = list.filter { entry in
@@ -390,7 +507,7 @@ struct LibraryView: View {
         }
         #if STUDIO
         if RawFormats.isRawVideo(entry.file) {
-            Button("Open in Player") { RawFormats.show(entry.file) }.disabled(!exists)
+            Button("Play") { RawFormats.show(entry.file) }.disabled(!exists)
         }
         #endif
         Button("Quick Look") { selected = entry.id; preview = entry.file }.disabled(!exists)
@@ -398,7 +515,7 @@ struct LibraryView: View {
         Button("Send to Phone…") { sending = entry }.disabled(!exists)
         #if STUDIO
         if Resolve.isInstalled, entry.kind != .other {
-            Button("Send to DaVinci Resolve") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
+            Button("Send to DaVinci") { Resolve.sendAndShow([entry.file]) }.disabled(!exists)
         }
         #endif
         if let source = entry.source, let url = URL(string: source) {
@@ -597,5 +714,130 @@ private struct LibraryCard: View {
         if let size = entry.size, size > 0 { parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
         parts.append(entry.added.formatted(date: .abbreviated, time: .omitted))
         return parts.joined(separator: " · ")
+    }
+}
+
+#if STUDIO
+// MARK: - Folders and clips on disk
+
+extension LibraryView {
+    /// The folders and clips put in the Library: indexed for Search and Photo, played here, left
+    /// where they are.
+    @ViewBuilder var footageSection: some View {
+        let footage = FootageFolders.shared
+        Section("Folders") {
+            ForEach(footage.folderItems) { folder in
+                Label(folder.name, systemImage: folder.isThere ? "folder" : "externaldrive.badge.xmark")
+                    .foregroundStyle(folder.isThere ? .primary : .secondary)
+                    .tag(Collection.footage(folder.id, folder.name))
+                    .help(folder.isThere ? folder.path : String(localized: "\(folder.path) (its drive isn’t connected)"))
+                    .contextMenu { footageMenu(folder) }
+            }
+            if !footage.clipItems.isEmpty {
+                Label("Clips", systemImage: "film.stack")
+                    .badge(footage.clipItems.count)
+                    .tag(Collection.clips)
+            }
+            Button {
+                LibraryView.chooseFootage()
+            } label: {
+                Label("Add Folder or Clips…", systemImage: "plus")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Play and search them in Pluck, where they are: nothing is copied")
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            for url in urls where url.isFileURL { footage.add(url) }
+            return !urls.isEmpty
+        }
+    }
+
+    /// This Mac's places, as in Finder's sidebar: the home folder's own folders and the drives
+    /// plugged in (cards, disks, the network's). Browsed a folder at a time; nothing is indexed
+    /// until it's added.
+    @ViewBuilder var locationsSection: some View {
+        Section("Locations") {
+            ForEach(Locations.shared.places, id: \.self) { url in
+                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.symbol(url))
+                    .tag(Collection.location(url.path))
+                    .contextMenu {
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                        Button("Add to Library") { FootageFolders.shared.add(url) }
+                        if Locations.isDrive(url) {
+                            Button("Offload…") {
+                                OffloadView.startSource = url
+                                StudioNavigator.shared.open(.offload)
+                            }
+                            Divider()
+                            Button("Eject") { Locations.eject(url) }
+                        }
+                    }
+            }
+            if !Locations.shared.seesEverything {
+                Button {
+                    Locations.askForEverything()
+                } label: {
+                    Label("See Every Folder…", systemImage: "lock.open")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Opens Full Disk Access in System Settings: turn Pluck on there, and macOS stops asking about each folder")
+            }
+        }
+    }
+
+    @ViewBuilder func footageMenu(_ folder: FootageFolders.Folder) -> some View {
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
+        Divider()
+        Button("Remove from Library") { FootageFolders.shared.remove(folder.id) }
+    }
+
+    @ViewBuilder var footageDetail: some View {
+        let footage = FootageFolders.shared
+        switch collection {
+        case .footage(let id, _):
+            if let folder = footage.folders.first(where: { $0.id == id }) {
+                if folder.isThere {
+                    RawPlayerView(source: .folder(folder.url), search: search).id(folder.path)
+                } else {
+                    ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
+                                           description: Text("Connect the drive \(folder.name) is on to play it."))
+                }
+            }
+        case .clips:
+            let clips = footage.clipItems.filter(\.isThere).map(\.url)
+            RawPlayerView(source: .clips(String(localized: "Clips"), clips), search: search).id(clips)
+        case .location(let path):
+            RawPlayerView(source: .folder(URL(fileURLWithPath: path, isDirectory: true)), search: search).id(path)
+        case .opened(let path):
+            // A clip, played with its folder behind it; or a folder, its clips.
+            let url = URL(fileURLWithPath: path)
+            let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && !RawFolderScan.isClipFolder(url)
+            RawPlayerView(source: isFolder ? .folder(url) : .file(url), search: search).id(path)
+        default:
+            EmptyView()
+        }
+    }
+
+    /// Folders or clips chosen to put in the Library.
+    @MainActor static func chooseFootage() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Add")
+        panel.message = String(localized: "Pluck plays and searches them where they are. Nothing is copied.")
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls { FootageFolders.shared.add(url) }
+    }
+}
+#endif
+
+/// The search field typed in when asked (macOS 15 and later).
+private struct SearchFocus: ViewModifier {
+    var focused: FocusState<Bool>.Binding
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) { content.searchFocused(focused) } else { content }
     }
 }

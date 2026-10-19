@@ -125,6 +125,13 @@ struct ProjectView: View {
             }
         }
         .task {
+            // Tests: -PluckScreenshotSelectClip YES selects the first clip (its inspector shown).
+            if ScreenshotMode.scene == "project", UserDefaults.standard.bool(forKey: "PluckScreenshotSelectClip") {
+                try? await Task.sleep(for: .seconds(4))
+                if let first = model.project.clips.first { model.selected = [first.id] }
+            }
+        }
+        .task {
             // Tests: -PluckScreenshotSaveFrame <file.png> saves the frame at the playhead there.
             if ScreenshotMode.scene == "project", let file = UserDefaults.standard.string(forKey: "PluckScreenshotSaveFrame") {
                 try? await Task.sleep(for: .seconds(8))

@@ -472,12 +472,12 @@ struct DownloadRow: View {
             }
         }
         Divider()
-        Button("Transcript in the Editor", systemImage: "text.quote") { openPlayer(tab: "transcript") }
+        Button("Transcript in the Editor", systemImage: "text.quote") { openMoment(tab: "transcript") }
     }
 
-    private func openPlayer(at start: Double? = nil, tab: String? = nil) {
+    private func openMoment(at start: Double? = nil, tab: String? = nil) {
         guard let file = item.existingFile else { return }
-        PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: start, tab: tab).open(openWindow)
+        EditorMoment(filePath: file.path, transcriptID: item.transcriptID, start: start, tab: tab).open(openWindow)
     }
     #endif
 

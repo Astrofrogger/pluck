@@ -48,6 +48,29 @@ enum RawFolderScan {
             inRoot($0) != inRoot($1) ? inRoot($0) : $0.path.localizedStandardCompare($1.path) == .orderedAscending
         }
     }
+
+    /// One folder as Finder shows it: the folders in it (not a clip themselves, nor an app or a
+    /// library) and the clips right in it.
+    static func contents(of root: URL) -> (folders: [URL], clips: [URL]) {
+        let playable = RawFormats.extensions.subtracting(["dng"]).union(movieExtensions)
+        let keys: [URLResourceKey] = [.isDirectoryKey, .isPackageKey]
+        let items = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])) ?? []
+        var folders: [URL] = [], clips: [URL] = []
+        for url in items {
+            let values = try? url.resourceValues(forKeys: Set(keys))
+            if values?.isDirectory == true {
+                if isClipFolder(url) { clips.append(url) } else if values?.isPackage != true { folders.append(url) }
+                continue
+            }
+            let kind = url.pathExtension.lowercased()
+            guard playable.contains(kind) else { continue }
+            if kind == "r3d", let part = url.deletingPathExtension().lastPathComponent.split(separator: "_").last, part.count == 3,
+               let number = Int(part), number > 1 { continue }
+            clips.append(url)
+        }
+        func order(_ a: URL, _ b: URL) -> Bool { a.lastPathComponent.localizedStandardCompare(b.lastPathComponent) == .orderedAscending }
+        return (folders.sorted(by: order), clips.sorted(by: order))
+    }
 }
 
 // MARK: - Thumbnails
@@ -267,7 +290,7 @@ private final class ThumbnailDecoder {
 enum ThumbnailCache {
     private static let folder: URL? = {
         guard let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else { return nil }
-        let url = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Pluck").appendingPathComponent("Player Thumbnails")
+        let url = caches.appendingPathComponent(Bundle.main.bundleIdentifier ?? "Pluck").appendingPathComponent("Player Thumbnails 2")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
@@ -321,13 +344,20 @@ final class RawBrowserClip: Identifiable {
 final class RawFolder {
     let url: URL
     private(set) var groups: [(name: String, clips: [RawBrowserClip])] = []
+    /// Shown a folder at a time (as Finder does): the folders in it, to go into.
+    let oneLevel: Bool
+    private(set) var subfolders: [URL] = []
     private(set) var scanning = true
     var search = ""
     @ObservationIgnored private var byURL: [URL: RawBrowserClip] = [:]
     @ObservationIgnored private var thumbnailer: RawThumbnailer?
 
-    init(url: URL) {
+    /// `clips`: these, rather than what's in the folder (the clips put in the Library one by one).
+    /// `oneLevel`: only what's right in the folder, and the folders in it (else every clip
+    /// under it, by folder).
+    init(url: URL, clips: [URL]? = nil, oneLevel: Bool = false) {
         self.url = url
+        self.oneLevel = oneLevel && clips == nil
         RawTools.prepare()
         thumbnailer = RawThumbnailer { url, summary, image in
             Task { @MainActor [weak self] in
@@ -339,9 +369,12 @@ final class RawFolder {
         } skimmed: { url, _, image in
             Task { @MainActor [weak self] in self?.byURL[url]?.skimmed = image }
         }
-        let root = url
+        let root = url, single = self.oneLevel
         Task {
-            let found = await Task.detached(priority: .userInitiated) { RawFolderScan.clips(in: root) }.value
+            let (inside, found) = await Task.detached(priority: .userInitiated) {
+                single ? RawFolderScan.contents(of: root) : ([], clips ?? RawFolderScan.clips(in: root))
+            }.value
+            subfolders = inside
             var groups: [(name: String, clips: [RawBrowserClip])] = []
             for clipURL in found {
                 let clip = RawBrowserClip(url: clipURL)
@@ -374,6 +407,12 @@ final class RawFolder {
         }
     }
 
+    /// The folders in it whose names match the search.
+    var shownFolders: [URL] {
+        let words = search.trimmingCharacters(in: .whitespaces)
+        return words.isEmpty ? subfolders : subfolders.filter { $0.lastPathComponent.localizedCaseInsensitiveContains(words) }
+    }
+
     /// All clips in order (for the next and previous clip).
     var allClips: [RawBrowserClip] { groups.flatMap(\.clips) }
 
@@ -402,23 +441,40 @@ final class RawFolder {
 struct RawBrowserView: View {
     let folder: RawFolder
     let open: (URL) -> Void
-    let close: () -> Void
+    /// Browsing as Finder does: into a folder, the folders from where it began to here, and
+    /// whether every clip under here shows at once.
+    var enter: ((URL) -> Void)?
+    var crumbs: [URL] = []
+    var everyClip: Binding<Bool>?
+    /// Put in the Library (indexed for Search): whether it is, and doing it.
+    var inLibrary: Bool?
+    var addToLibrary: (() -> Void)?
     @AppStorage("rawBrowserTileWidth") private var tileWidth = 220.0
 
     var body: some View {
         @Bindable var folder = folder
         VStack(spacing: 0) {
             HStack(spacing: Design.Spacing.controls) {
-                Button("Close Folder", systemImage: "chevron.backward", action: close)
-                    .labelStyle(.iconOnly)
-                    .buttonStyle(.borderless)
-                    .help("Back to Player")
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(folder.url.lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle)
-                    Text(folder.scanning ? String(localized: "Looking for clips…") : String(localized: "\(folder.clipCount) clips"))
-                        .font(.caption).foregroundStyle(.secondary)
+                    // (The window's title names it; the Library's search field looks through it.)
+                    if crumbs.count > 1, let enter { PathCrumbs(crumbs: crumbs, go: enter) }
+                    if folder.scanning || folder.clipCount > 0 || folder.subfolders.isEmpty {
+                        Text(folder.scanning ? String(localized: "Looking for clips…") : String(localized: "\(folder.clipCount) clips"))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
+                if let everyClip {
+                    Toggle(isOn: everyClip) { Label("Clips in Folders Inside", systemImage: "square.stack.3d.down.right") }
+                        .toggleStyle(.button)
+                        .labelStyle(.iconOnly)
+                        .help("Every clip in the folders inside, at once")
+                }
+                if let addToLibrary, inLibrary == false {
+                    Button("Add to Library", systemImage: "plus", action: addToLibrary)
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                        .help("Keep it in the sidebar and index it, so Search and Photo find what’s in it. Nothing is copied.")
+                }
                 if Resolve.isInstalled, folder.clipCount > 0 {
                     // The clips shown (all, or what the search found), each with its sound.
                     Button("Send to DaVinci", systemImage: "arrow.up.forward.app") {
@@ -427,9 +483,6 @@ struct RawBrowserView: View {
                     .buttonStyle(GlassCapsuleButtonStyle())
                     .help("Imports the clips shown into the project open in DaVinci Resolve, each with the sound the camera recorded beside it linked to it")
                 }
-                TextField("Search", text: $folder.search)
-                    .textFieldStyle(.roundedBorder)
-                    .frame(width: 180)
                 Slider(value: $tileWidth, in: 140...420)
                     .controlSize(.small)
                     .frame(width: 90)
@@ -438,12 +491,27 @@ struct RawBrowserView: View {
             .padding(.horizontal, Design.Spacing.window)
             .padding(.vertical, 10)
             Divider()
-            if !folder.scanning && folder.clipCount == 0 {
+            if !folder.scanning && folder.clipCount == 0 && folder.subfolders.isEmpty {
                 ContentUnavailableView("No Clips", systemImage: "film.stack",
-                                       description: Text("Nothing in this folder or the folders in it plays in Player."))
+                                       description: Text(folder.oneLevel ? "Nothing in this folder plays in Pluck." : "Nothing in this folder or the folders in it plays in Pluck."))
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Design.Spacing.section, pinnedViews: [.sectionHeaders]) {
+                        if let enter, !folder.shownFolders.isEmpty {
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: 150, maximum: 220), spacing: 10)], spacing: 10) {
+                                ForEach(folder.shownFolders, id: \.self) { inside in
+                                    FolderTile(url: inside) { enter(inside) }
+                                }
+                            }
+                        }
+                        if folder.oneLevel {
+                            // A folder at a time: its clips, under its folders, with no heading.
+                            LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth * 1.6), spacing: 14)], spacing: 16) {
+                                ForEach(folder.shown.flatMap(\.clips)) { clip in
+                                    RawClipTile(clip: clip, folder: folder, open: open)
+                                }
+                            }
+                        } else {
                         ForEach(folder.shown, id: \.name) { group in
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth * 1.6), spacing: 14)], spacing: 16) {
@@ -459,6 +527,7 @@ struct RawBrowserView: View {
                                     .padding(.vertical, 4)
                                     .background(.background)
                             }
+                        }
                         }
                     }
                     .padding(Design.Spacing.window)
@@ -524,7 +593,7 @@ private struct RawClipTile: View {
             .contextMenu {
                 Button("Open") { open(clip.url) }
                 if Resolve.isInstalled {
-                    Button("Send to DaVinci Resolve") { Resolve.sendClipsAndShow([clip.url]) }
+                    Button("Send to DaVinci") { Resolve.sendClipsAndShow([clip.url]) }
                 }
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clip.url]) }
             }
@@ -544,5 +613,50 @@ private struct RawClipTile: View {
         let kind = ["r3d": "R3D", "braw": "BRAW", "crm": "CRM", "cdng": "DNG"][summary.format] ?? clip.url.pathExtension.uppercased()
         let shot = summary.shotFps.map { " " + String(localized: "(shot \(RawClipDetails.rate($0)))") } ?? ""
         return "\(length) · \(summary.width)×\(summary.height) · \(rate) fps\(shot) · \(kind)"
+    }
+}
+
+/// A folder to go into: its Finder icon and name.
+private struct FolderTile: View {
+    let url: URL
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 8) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 28, height: 28)
+                Text(url.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 8)
+            .background(Color.primary.opacity(hovering ? 0.09 : 0.04), in: .rect(cornerRadius: Design.Radius.control))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .contextMenu { Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
+        .help(url.path)
+    }
+}
+
+/// Where the folder is, from where browsing began: each part goes back there.
+private struct PathCrumbs: View {
+    let crumbs: [URL]
+    let go: (URL) -> Void
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(Array(crumbs.enumerated()), id: \.offset) { index, url in
+                if index > 0 { Image(systemName: "chevron.compact.right").foregroundStyle(.tertiary) }
+                if index == crumbs.count - 1 {
+                    Text(url.lastPathComponent).fontWeight(.semibold)
+                } else {
+                    Button(url.lastPathComponent) { go(url) }.buttonStyle(.plain).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .font(.subheadline)
+        .lineLimit(1)
     }
 }

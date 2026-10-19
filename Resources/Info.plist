@@ -55,6 +55,16 @@
 	</array>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Pluck shows the videos on your Desktop when you browse it in the Library.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Pluck shows the videos in Documents when you browse it in the Library.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Pluck saves what it downloads in Downloads, and shows the videos there in the Library.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Pluck shows the clips on cards and drives you browse in the Library.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Pluck shows the clips on network drives you browse in the Library.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pluck shares your Library with phones and computers on this network when you turn on sharing, and finds the office Mac for Edit Anywhere.</string>
 	<key>NSPrincipalClass</key>

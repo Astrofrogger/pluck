@@ -19,6 +19,20 @@ final class ServiceProvider: NSObject {
         }
         manager.add(links)
     }
+
+    #if STUDIO
+    /// "Play in Pluck" on clips and folders in Finder (right-click, Quick Actions or Services).
+    @objc func playInPluck(_ pasteboard: NSPasteboard, userData: String?,
+                           error: AutoreleasingUnsafeMutablePointer<NSString?>) {
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL]) ?? []
+        guard let file = files.first(where: RawFormats.playable) else {
+            error.pointee = String(localized: "No clip or folder to play was selected.") as NSString
+            return
+        }
+        RawFormats.show(file)
+        NSApp.activate()
+    }
+    #endif
 }
 
 /// Handles pluck://download?url=… (for example from a browser bookmarklet). Any website can open

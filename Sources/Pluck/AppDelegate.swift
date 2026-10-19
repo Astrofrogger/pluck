@@ -100,8 +100,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func application(_ application: NSApplication, open urls: [URL]) {
         for url in urls {
             #if STUDIO
-            // A camera raw clip opened from Finder (Pluck as its app): Raw Player.
-            if url.isFileURL, RawFormats.isRawVideo(url) || url.pathExtension.lowercased() == "rdc" {
+            // A clip opened from Finder (Open With, Pluck as a raw clip's app) or dropped on the
+            // Dock icon, or a folder of footage dropped there: the Player.
+            if url.isFileURL, RawFormats.playable(url) {
                 RawFormats.show(url)
                 continue
             }

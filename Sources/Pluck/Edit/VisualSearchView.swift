@@ -77,10 +77,15 @@ final class VisualIndexer {
     }
 }
 
-/// Search: find a moment in your videos by what was said (the transcripts) or what's in the
-/// picture (each shot, its size and how the camera moves); play from it, or lay shots out in
-/// DaVinci Resolve.
+/// What a search in the Library finds: files by their names, and moments inside them by what was
+/// said (the transcripts) or what's in the picture (each shot, its size and how the camera
+/// moves); play from one, or lay shots out in DaVinci Resolve. Photos by what's in them.
 struct VisualSearchView: View {
+    /// What's typed in the Library's search field.
+    let text: String
+    /// Where: "all", "library" (the downloads) or a Library folder's id.
+    let scope: String
+
     /// Where to look: both, what was said, or what's in the picture.
     enum Look: String, CaseIterable, Identifiable {
         case everything, said, seen, files, photos
@@ -109,14 +114,12 @@ struct VisualSearchView: View {
     @Environment(DownloadManager.self) private var manager
     @Environment(\.openWindow) private var openWindow
     @AppStorage("searchLook") private var look = Look.everything
-    /// A search to start with (screenshots).
-    @MainActor static var startQuery = ""
     @State private var said: [TranscriptSearch.Hit] = []
     @State private var searchingSaid = false
     @State private var transcriptCount = 0
     @State private var allSaid = false
     @State private var indexer = VisualIndexer.shared
-    @State private var query = VisualSearchView.startQuery
+    @State private var query = ""
     @State private var movement: VisualIndex.Movement?
     @State private var framing: VisualIndex.Framing?
     @State private var selection: Set<VisualIndex.Hit.ID> = []
@@ -125,8 +128,8 @@ struct VisualSearchView: View {
     @State private var logger = ResolveLogger.shared
     @State private var confirmLog = false
     @AppStorage(VisualIndexer.autoKey) private var automatic = true
-    /// Where to look: "all", "library" or a watched folder's id.
-    @AppStorage("searchScope") private var scopeID = "all"
+    /// The Library's search field is in use: the filters show.
+    @Environment(\.isSearching) private var isSearching
     /// The last searches, newest first, one per line.
     @AppStorage("recentSearches") private var recentText = ""
     @State private var folders = FootageFolders.shared
@@ -142,11 +145,11 @@ struct VisualSearchView: View {
 
     /// The files in the chosen scope (nil: everywhere).
     private var scopePaths: Set<String>? {
-        switch scopeID {
+        switch scope {
         case "all": return nil
         case "library": return Set(LibraryStore.shared.entries.map(\.path))
         default:
-            guard let folder = folders.folders.first(where: { $0.id.uuidString == scopeID }) else { return nil }
+            guard let folder = folders.folders.first(where: { $0.id.uuidString == scope }) else { return nil }
             return Set((folders.videos[folder.id] ?? []) + (folders.photos[folder.id] ?? []))
         }
     }
@@ -164,20 +167,22 @@ struct VisualSearchView: View {
 
     private var recent: [String] { recentText.split(separator: "\n").map(String.init) }
 
+    /// The last searches, newest first (the Library offers them in its search field).
+    static var recentSearches: [String] {
+        (UserDefaults.standard.string(forKey: "recentSearches") ?? "").split(separator: "\n").map(String.init)
+    }
+
     var body: some View {
-        HStack(spacing: 0) {
-            scopeList
-                .frame(width: 220)
-            Divider()
-            VStack(alignment: .leading, spacing: 0) {
-                header
-                results
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                logBar
-                footer
-            }
+        VStack(alignment: .leading, spacing: 0) {
+            if isSearching { header.transition(.move(edge: .top).combined(with: .opacity)) }
+            results
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            logBar
+            // Only while there's something to show: shots to send, or looking at videos.
+            if !hits.isEmpty || indexer.working != nil || photoIndex.working != nil || !said.isEmpty { footer }
         }
-        .frame(minWidth: 860, idealWidth: 960, minHeight: 600, idealHeight: 680)
+        .animation(.snappy(duration: 0.2), value: isSearching)
+        .onChange(of: text, initial: true) { query = text }
         .onAppear {
             folders.start()
             indexer.reload()
@@ -199,45 +204,41 @@ struct VisualSearchView: View {
         }
         // Names and photos as you type, from what's already known.
         .onChange(of: query) { findFilesAndPhotos() }
-        .onChange(of: scopeID) { findFilesAndPhotos(); Task { await searchSaid(now: true) } }
+        .onChange(of: scope) { findFilesAndPhotos(); Task { await searchSaid(now: true) } }
         .onChange(of: look) { findFilesAndPhotos() }
         // What was said, a moment after typing stops (the picture is searched as you type).
         .task(id: look == .seen || look == .files || look == .photos ? "" : query) { await searchSaid() }
         .sheet(item: $playing) { hit in ShotPlayer(hit: hit) }
     }
 
+    /// What to look for, and for shots how they're filmed (the field is the Library's).
     private var header: some View {
-        InputBar(symbol: "magnifyingglass", prompt: prompt, text: $query, onSubmit: { Task { await searchSaid(now: true) } }) {
-            BarPicker(symbol: look.symbol, label: Text("Look in"), selection: $look, current: Text(look.label)) {
+        HStack(spacing: Design.Spacing.controls) {
+            Picker("Look For", selection: $look) {
                 ForEach(Look.allCases) { Label($0.label, systemImage: $0.symbol).tag($0) }
             }
-            if look == .everything || look == .seen { shotFilters }
-        }
-        .help("Find a moment by what was said or what’s in the picture.")
-        .padding(Design.Spacing.window)
-    }
-
-    private var prompt: Text {
-        switch look {
-        case .everything: Text("What was said or seen: “the part about lighting”, “drone over a forest”")
-        case .said: Text("What was said: “the part about lighting”")
-        case .seen: Text("Describe a shot: “drone shot of a forest”, “two people talking”, “whip pan”")
-        case .files: Text("A file’s name or title")
-        case .photos: Text("What’s in the photo: “beach at sunset”, “a menu”")
-        }
-    }
-
-    @ViewBuilder private var shotFilters: some View {
-            filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
-                Button("Any Movement") { movement = nil }
-                Divider()
-                ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
+            .fixedSize()
+            if look == .everything || look == .seen {
+                Picker("Movement", selection: $movement) {
+                    Text("Any Movement").tag(VisualIndex.Movement?.none)
+                    Divider()
+                    ForEach(VisualIndex.Movement.allCases, id: \.self) { Text($0.label).tag(Optional($0)) }
+                }
+                .fixedSize()
+                Picker("Framing", selection: $framing) {
+                    Text("Any Framing").tag(VisualIndex.Framing?.none)
+                    Divider()
+                    ForEach(VisualIndex.Framing.allCases, id: \.self) { Text($0.label).tag(Optional($0)) }
+                }
+                .fixedSize()
             }
-            filter(framing?.label ?? String(localized: "Any Framing"), symbol: "viewfinder", active: framing != nil) {
-                Button("Any Framing") { framing = nil }
-                Divider()
-                ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
-            }
+            Spacer()
+        }
+        .labelsHidden()
+        .pickerStyle(.menu)
+        .controlSize(.small)
+        .padding(.horizontal, Design.Spacing.window)
+        .padding(.vertical, 10)
     }
 
     private func searchSaid(now: Bool = false) async {
@@ -248,9 +249,9 @@ struct VisualSearchView: View {
             guard !Task.isCancelled else { return }
         }
         searchingSaid = true
-        let folder = folders.folders.first { $0.id.uuidString == scopeID }
+        let folder = folders.folders.first { $0.id.uuidString == scope }
         var found = await studio.search.search(question, within: folder.map { [$0.path] } ?? [])
-        if scopeID == "library" {
+        if scope == "library" {
             let library = Set(LibraryStore.shared.entries.map(\.path))
             found = found.filter { library.contains($0.filePath) }
         }
@@ -280,28 +281,8 @@ struct VisualSearchView: View {
         recentText = list.prefix(8).joined(separator: "\n")
     }
 
-    /// A filter menu with the search field's height and look.
-    private func filter<Items: View>(_ title: String, symbol: String, active: Bool, @ViewBuilder items: () -> Items) -> some View {
-        Menu {
-            items()
-        } label: {
-            HStack(spacing: 6) {
-                Label(title, systemImage: symbol)
-                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            }
-            .font(Design.Typography.control)
-            .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
-        }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .focusEffectDisabled()
-        .fixedSize()
-        .barControl()
-    }
-
     @ViewBuilder private var results: some View {
-        if indexer.indexes.isEmpty && transcriptCount == 0 {
+        if indexer.indexes.isEmpty && transcriptCount == 0 && files.isEmpty && photoHits.isEmpty {
             ToolPage(maxWidth: 680) {
                 ToolWelcome(symbol: "sparkle.magnifyingglass", title: Text("Nothing to Search Yet"),
                             subtitle: Text("Pluck looks at every shot in your videos and writes down what’s said in them. Then you can find any moment in your own words."))
@@ -317,8 +298,6 @@ struct VisualSearchView: View {
                 .frame(maxWidth: .infinity)
                 PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
             }
-        } else if !asking {
-            dashboard
         } else if said.isEmpty && hits.isEmpty && files.isEmpty && photoHits.isEmpty {
             if searchingSaid {
                 ProgressView()
@@ -339,168 +318,6 @@ struct VisualSearchView: View {
     }
 
     // MARK: - Where to look
-
-    private var scopeList: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    SidebarSection(title: Text("Look In")) {
-                        scopeRow(id: "all", symbol: "square.stack.3d.up", title: Text("Everything"), detail: nil)
-                        scopeRow(id: "library", symbol: "books.vertical", title: Text("Library"),
-                                 detail: Text(verbatim: "\(LibraryStore.shared.entries.count)"))
-                    }
-                    SidebarSection(title: Text("Folders")) {
-                        ForEach(folders.folders) { folder in
-                            let count = (folders.videos[folder.id]?.count ?? 0) + (folders.photos[folder.id]?.count ?? 0)
-                            scopeRow(id: folder.id.uuidString, symbol: folder.isThere ? "folder" : "externaldrive.badge.xmark",
-                                     title: Text(folder.name), detail: folders.scanning.contains(folder.id) ? nil : Text(verbatim: "\(count)"),
-                                     busy: folders.scanning.contains(folder.id))
-                                .help(folder.path)
-                                .contextMenu {
-                                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
-                                    Button("Look Through Again") { folders.scan(folder) }
-                                    Divider()
-                                    Button("Stop Watching", role: .destructive) {
-                                        if scopeID == folder.id.uuidString { scopeID = "all" }
-                                        folders.remove(folder.id)
-                                    }
-                                }
-                        }
-                        Button(action: addFolder) {
-                            Label("Add Folder…", systemImage: "plus")
-                                .font(.callout)
-                                .padding(.horizontal, 8)
-                                .frame(minHeight: 26)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Pluck indexes every video and photo in it, and keeps watching it for new ones")
-                    }
-                }
-                .padding(.horizontal, 6)
-                .padding(.vertical, 12)
-            }
-            indexingStatus
-        }
-        .background(.background.secondary)
-    }
-
-    private func scopeRow(id: String, symbol: String, title: Text, detail: Text?, busy: Bool = false) -> some View {
-        SidebarRow(symbol: symbol, title: title, detail: detail, selected: scopeID == id) {
-            if busy { ProgressView().controlSize(.mini) }
-        }
-        .onTapGesture { scopeID = id }
-    }
-
-    /// What's being indexed right now, at the foot of the list.
-    @ViewBuilder private var indexingStatus: some View {
-        if indexer.working != nil || photoIndex.working != nil {
-            VStack(alignment: .leading, spacing: 4) {
-                if let working = indexer.working {
-                    Text("Shots: \(working)").lineLimit(1).truncationMode(.middle)
-                    ProgressView(value: indexer.progress).controlSize(.small)
-                }
-                if let working = photoIndex.working {
-                    Text("Photos: \(working) (\(photoIndex.queued) more)").lineLimit(1).truncationMode(.middle)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(12)
-        }
-    }
-
-    private func addFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = String(localized: "Watch")
-        panel.message = String(localized: "Pluck indexes every video and photo in the folders you choose, and keeps watching them for new ones.")
-        guard panel.runModal() == .OK else { return }
-        for url in panel.urls { folders.add(url) }
-        if let last = panel.urls.last, let folder = folders.folders.first(where: { $0.path == last.standardizedFileURL.path }) {
-            scopeID = folder.id.uuidString
-        }
-    }
-
-    // MARK: - Before searching
-
-    private var dashboard: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 28) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 12)], spacing: 12) {
-                    stat(Text("Videos looked at"), value: indexer.indexes.count, symbol: "eye", tint: .blue)
-                    stat(Text("Shots"), value: indexer.indexes.reduce(0) { $0 + $1.shots.count }, symbol: "film.stack", tint: .purple)
-                    stat(Text("Transcripts"), value: transcriptCount, symbol: "waveform", tint: Design.Brand.pink)
-                    stat(Text("Photos"), value: photoIndex.count, symbol: "photo.on.rectangle", tint: .orange)
-                }
-                if !recent.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("Recent").font(.headline)
-                        FlowLayout(spacing: 8) {
-                            ForEach(recent, id: \.self) { search in suggestion(search, symbol: "clock.arrow.circlepath") }
-                        }
-                    }
-                }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Try").font(.headline)
-                    FlowLayout(spacing: 8) {
-                        ForEach([String(localized: "someone laughing"), String(localized: "drone shot over water"),
-                                 String(localized: "the part about the budget"), String(localized: "close-up of hands"),
-                                 String(localized: "people outside at night")], id: \.self) { suggestion($0, symbol: "sparkles") }
-                    }
-                }
-                if folders.folders.isEmpty {
-                    HStack(spacing: 12) {
-                        Image(systemName: "folder.badge.plus").font(.title2).foregroundStyle(Design.Brand.gradient)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Search a whole drive or project").font(.callout.weight(.semibold))
-                            Text("Add a folder and Pluck indexes all its footage and photos.").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("Add Folder…", action: addFolder).buttonStyle(BrandButtonStyle(large: false))
-                    }
-                    .padding(14)
-                    .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
-                }
-            }
-            .padding(Design.Spacing.window)
-            .frame(maxWidth: 820, alignment: .leading)
-            .frame(maxWidth: .infinity)
-        }
-    }
-
-    private func stat(_ title: Text, value: Int, symbol: String, tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(tint.gradient, in: .rect(cornerRadius: 9))
-            Text(value, format: .number).font(.title2.weight(.semibold)).monospacedDigit()
-            title.font(.caption).foregroundStyle(.secondary)
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(tint.opacity(0.08)))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(tint.opacity(0.18)))
-    }
-
-    private func suggestion(_ text: String, symbol: String) -> some View {
-        Button {
-            query = text
-            Task { await searchSaid(now: true) }
-        } label: {
-            Label(text, systemImage: symbol)
-                .font(.callout)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-                .background(Capsule().fill(Color.primary.opacity(0.06)))
-                .contentShape(.capsule)
-        }
-        .buttonStyle(.plain)
-    }
 
     // MARK: - Files and photos
 
@@ -576,7 +393,7 @@ struct VisualSearchView: View {
         VStack(alignment: .leading, spacing: 8) {
             sectionTitle(Text("Said"), symbol: "waveform", count: said.count)
             ForEach(allSaid ? said : Array(said.prefix(5))) { hit in
-                Button { PlayerTarget(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start).open(openWindow) } label: {
+                Button { EditorMoment(filePath: hit.filePath, transcriptID: hit.transcriptID, start: hit.start).open(openWindow) } label: {
                     ItemRow(symbol: "waveform", title: Text(hit.title), subtitle: Text(highlighted(hit))) {
                         if !hit.available {
                             StatusChip(text: Text("Drive not connected"), colour: .orange)
@@ -675,31 +492,32 @@ struct VisualSearchView: View {
                                         : String(localized: "Looking at “\(working)”…"))
                     .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
                 RowButton(symbol: "stop.fill", label: "Stop") { indexer.stop() }
-            } else {
-                Toggle("Index new downloads", isOn: $automatic)
-                    .toggleStyle(.switch)
-                    .controlSize(.small)
-                if !indexer.unindexed.isEmpty, !indexer.indexes.isEmpty {
-                    Button("Index \(indexer.unindexed.count) More") { indexer.enqueue(indexer.unindexed) }
-                        .buttonStyle(.link)
-                }
+            } else if let working = photoIndex.working {
+                ProgressView().controlSize(.small)
+                Text("Looking at “\(working)” (\(photoIndex.queued) more)…").lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
             }
             Spacer()
             if let status { Text(status).foregroundStyle(.secondary).lineLimit(1) }
 
-            Button("Log in Resolve…") { confirmLog = true }
-                .buttonStyle(GlassCapsuleButtonStyle())
-                .disabled(!Resolve.isInstalled || logger.isRunning)
-                .help("Write shot descriptions, keywords and a marker per shot into the open DaVinci Resolve project")
-                .confirmationDialog("Log the clips in DaVinci Resolve?", isPresented: $confirmLog) {
+            Menu {
+                Button("Timeline from Selected Shots", systemImage: "film.stack", action: buildTimeline)
+                    .disabled(selected.isEmpty)
+                Button("Log the Clips in the Project…", systemImage: "text.badge.star") { confirmLog = true }
+                    .disabled(logger.isRunning)
+            } label: {
+                Label("Send to DaVinci", systemImage: "arrow.up.forward.app")
+            }
+            .menuStyle(.button)
+            .buttonStyle(GlassCapsuleButtonStyle())
+            .fixedSize()
+            .disabled(!Resolve.isInstalled)
+            .help(selected.isEmpty ? "Select shots with ⌘-click for a timeline, or log every clip in the open project with what Pluck saw"
+                                   : "A timeline of the selected shots, or a log of every clip in the open project")
+            .confirmationDialog("Log the clips in DaVinci Resolve?", isPresented: $confirmLog) {
                     Button("Log Clips") { logger.start() }
                 } message: {
                     Text("Every video clip in the open project gets a description, keywords (shot size, camera move, what’s in it) and a marker per shot. Clips Pluck hasn’t looked at yet are analysed first, which can take a while. Your own descriptions are kept; running it again replaces only Pluck’s markers.")
                 }
-            Button("Build Timeline in Resolve", systemImage: "film.stack", action: buildTimeline)
-                .buttonStyle(BarCapsuleButtonStyle())
-                .disabled(selected.isEmpty || !Resolve.isInstalled)
-                .help("Select shots with ⌘-click")
         }
         .padding(.horizontal, Design.Spacing.window)
         .padding(.vertical, 12)
@@ -732,7 +550,7 @@ struct VisualSearchView: View {
             .logBarStyle()
         case .finished(let clips, let markers, let project):
             HStack(spacing: 12) {
-                Label("Logged ^[\(clips) clip](inflect: true) with ^[\(markers) marker](inflect: true) in “\(project)”. In Resolve, search the media pool or make smart bins on Keywords.",
+                Label("Logged ^[\(clips) clip](inflect: true) with ^[\(markers) marker](inflect: true) in “\(project)”. In DaVinci, search the media pool or make smart bins on Keywords.",
                       systemImage: "checkmark.circle")
                 Spacer()
                 Button("Done") { logger.cancel() }
@@ -781,7 +599,7 @@ struct VisualSearchView: View {
                     record += frames
                 }
                 _ = try await ResolveBridge.run(["action": "buildTimeline", "name": name, "videoTracks": 1, "items": items, "markers": markers])
-                status = String(localized: "Timeline “\(name)” is in Resolve.")
+                status = String(localized: "Timeline “\(name)” is in DaVinci.")
             } catch {
                 status = error.localizedDescription
             }

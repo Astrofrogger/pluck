@@ -1,18 +1,27 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Raw Player's page: drop a camera raw clip, watch it, and change its raw settings as it plays.
+/// The Library's player: what the sidebar chose (a folder's clips to skim, or a clip playing with
+/// its folder to go back to), and a clip's raw settings changed as it plays.
 struct RawPlayerView: View {
-    /// A clip to open as soon as the page appears (screenshots, the Library, Offload).
-    @MainActor static var openFile: URL?
-    static let openNotification = Notification.Name("PluckRawPlayerOpen")
+    enum Source: Hashable {
+        /// A folder of the Library (or any folder): its clips.
+        case folder(URL)
+        /// These clips, under a name.
+        case clips(String, [URL])
+        /// A clip opened from Finder or the Dock: playing, its folder behind it.
+        case file(URL)
+    }
+
+    let source: Source
+    /// The Library's search field, looking through the folder's clips.
+    var search = ""
 
     @State private var player = RawPlayer()
     /// A folder of footage being browsed (clips open from it, and Esc goes back to it).
     @State private var folder: RawFolder?
     /// The clip last open from the folder, for going forward to it again.
     @State private var lastClip: URL?
-    @State private var dropping = false
     @State private var showMeta = false
     @AppStorage("rawExportCodec") private var exportCodec = RawExport.Codec.proresHQ.rawValue
     @AppStorage("rawExportScale") private var exportScale = 1
@@ -22,31 +31,19 @@ struct RawPlayerView: View {
     @State private var goTo = ""
     @State private var lutGroups: [(group: String, files: [URL])] = []
     @FocusState private var focused: Bool
+    @State private var nowPlaying: PlayerNowPlaying?
+    /// In the Library: the folder browsing began at (going up stops there), and whether every
+    /// clip in the folders inside shows at once.
+    @State private var root: URL?
+    @AppStorage("browserEveryClip") private var everyClip = false
 
-    var body: some View {
+    private var keyed: some View {
         Group {
             if player.info == nil, let folder {
-                RawBrowserView(folder: folder, open: { player.open($0) }) {
-                    folder.close()
-                    self.folder = nil
-                    player.eject()
-                }
+                browser(folder)
             } else if player.info == nil {
-                ToolPage {
-                    ToolWelcome(symbol: "play.rectangle", title: Text("Player"),
-                                subtitle: Text("Play camera raw, pro formats and image sequences, with timecode, LUTs and sound. Raw clips take ISO, white balance and exposure from the raw data."))
-                    DropZone(symbol: "film", text: Text(dropText), targeted: dropping, busy: player.opening)
-                    HStack {
-                        if let problem = player.problem { ProblemLabel(text: problem) }
-                        Spacer()
-                        Button("Open Folder…", systemImage: "square.grid.2x2") { chooseFolder() }
-                            .buttonStyle(GlassCapsuleButtonStyle())
-                            .help("Every clip in a folder and the folders in it, as thumbnails to skim")
-                        Button("Choose Clip…", systemImage: "folder") { choose() }
-                            .buttonStyle(GlassCapsuleButtonStyle())
-                    }
-                    PageNote(text: Text("Decoded on this Mac with the camera makers’ own decoders."), symbol: "desktopcomputer")
-                }
+                if let problem = player.problem { ContentUnavailableView("Can’t Play This", systemImage: "exclamationmark.triangle", description: Text(problem)) }
+                else { ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity) }
             } else {
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
@@ -64,19 +61,17 @@ struct RawPlayerView: View {
         .focusEffectDisabled()
         .onKeyPress(.space) { player.togglePlay(); return .handled }
         .onKeyPress(.escape) {
-            guard folder != nil, player.info != nil else { return .ignored }
-            player.eject()
+            guard let folder else { return .ignored }
+            if player.info != nil { player.eject(); return .handled }
+            // A folder up, as far as where browsing began.
+            guard let up = parent(of: folder.url) else { return .ignored }
+            browse(up)
             return .handled
         }
         // The previous and next clip of the folder.
         .onKeyPress(keys: [.upArrow, .downArrow]) { press in
-            guard let folder, let url = player.url, press.modifiers.contains(.command) else { return .ignored }
-            let clips = folder.allClips.map(\.url)
-            guard let at = clips.firstIndex(of: url) else { return .ignored }
-            let to = at + (press.key == .downArrow ? 1 : -1)
-            guard clips.indices.contains(to) else { return .ignored }
-            player.open(clips[to])
-            return .handled
+            guard press.modifiers.contains(.command) else { return .ignored }
+            return neighbour(press.key == .downArrow ? 1 : -1) ? .handled : .ignored
         }
         .onKeyPress(.leftArrow) { player.step(-1); return .handled }
         .onKeyPress(.rightArrow) { player.step(1); return .handled }
@@ -97,110 +92,41 @@ struct RawPlayerView: View {
             }
             return .handled
         }
+    }
+
+    var body: some View {
+        keyed
         // While a clip of a folder plays, the window's back button goes back to the folder.
         .onChange(of: folder != nil && player.info != nil, initial: true) { _, inClip in
-            StudioNavigator.shared.toolBack = inClip ? (folder?.url.lastPathComponent ?? "", { player.eject() }) : nil
+            StudioNavigator.shared.toolBack = inClip ? (folder?.url.lastPathComponent ?? "", { player.eject() }) : upStep
         }
+        // Inside a folder, it goes up one.
+        .onChange(of: folder?.url) { if player.info == nil { StudioNavigator.shared.toolBack = upStep } }
+        .onChange(of: everyClip) { if let url = folder?.url, root != nil { browse(url) } }
         // ...and forward again to the clip that was open.
         .onChange(of: player.url) { old, new in if new == nil, folder != nil, let old { lastClip = old } }
         .onChange(of: folder?.url) { lastClip = nil }
         .onChange(of: "\(folder != nil && player.info == nil)\(lastClip?.path ?? "")", initial: true) {
             StudioNavigator.shared.toolForward = folder != nil && player.info == nil ? lastClip.map { clip in { player.open(clip) } } : nil
         }
+        // Now Playing and the keyboard's media keys; the clip in File ▸ Open Recent and the Dock.
+        .modifier(PlayerSystemState(player: player, nowPlaying: nowPlaying))
+        .onChange(of: search) { _, words in folder?.search = words }
         .onChange(of: timecodeMode, initial: true) { _, mode in player.timecodeMode = RawPlayer.TimecodeMode(rawValue: mode) ?? .source }
         .task(id: lutFoldersText) { loadLUTs() }
-        .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
+        .onDrop(of: [.fileURL], isTargeted: nil) { providers in
             Task { if let url = await providers.first?.load(URL.self) { openAny(url) } }
             return true
         }
-        .onAppear {
-            focused = true
-            if let url = Self.openFile { Self.openFile = nil; openAny(url) }
-            // Tests: -PluckScreenshotExport <file.mov> exports it once it's open.
-            if ScreenshotMode.scene == "raw", let out = UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") {
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    let url = URL(fileURLWithPath: out)
-                    player.export(to: url, codec: url.pathExtension == "mp4" ? .h264 : .proresHQ, scale: 1)
-                }
-            }
-            // Tests: -PluckScreenshotLook <log>, -PluckScreenshotLUT <file.cube>, -PluckScreenshotRange <in>-<out>.
-            if ScreenshotMode.scene == "raw" {
-                let defaults = UserDefaults.standard
-                Task {
-                    for _ in 0..<40 where player.info == nil { try? await Task.sleep(for: .milliseconds(250)) }
-                    if let look = defaults.string(forKey: "PluckScreenshotLook").flatMap(RawLook.init(rawValue:)) { player.settings.look = look }
-                    if let lut = defaults.string(forKey: "PluckScreenshotLUT") { player.settings.lut = lut }
-                    // -PluckScreenshotPlayScale <1|2|4|8>: plays at that size.
-                    if defaults.integer(forKey: "PluckScreenshotPlayScale") > 0 { player.playScale = defaults.integer(forKey: "PluckScreenshotPlayScale") }
-                    if let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap({ Int($0) }), range.count == 2 {
-                        player.show(range[0]); player.markIn(); player.show(range[1]); player.markOut(); player.show(range[0])
-                    }
-                }
-            }
-            // Tests: -PluckScreenshotOpenFirst YES opens a browsed folder's first clip (and with
-            // -PluckScreenshotBack YES goes back to the folder 3 seconds later, as the back button).
-            if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotOpenFirst") {
-                Task {
-                    for _ in 0..<40 where (folder?.allClips.isEmpty ?? true) { try? await Task.sleep(for: .milliseconds(250)) }
-                    guard let first = folder?.allClips.dropFirst().first else { return }
-                    player.open(first.url)
-                    guard UserDefaults.standard.bool(forKey: "PluckScreenshotBack") else { return }
-                    try? await Task.sleep(for: .seconds(3))
-                    // As the window's back button does.
-                    StudioNavigator.shared.goBack()
-                    // -PluckScreenshotForward YES: and forward to the clip again 3 seconds later.
-                    guard UserDefaults.standard.bool(forKey: "PluckScreenshotForward") else { return }
-                    try? await Task.sleep(for: .seconds(3))
-                    StudioNavigator.shared.goForward()
-                }
-            }
-            // Tests: -PluckScreenshotLog <file>: what opened (or why not), the first picture, an export's end.
-            if ScreenshotMode.scene == "raw", let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
-                Task {
-                    func note(_ line: String) {
-                        let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
-                        try? (old + line + "\n").write(toFile: log, atomically: true, encoding: .utf8)
-                    }
-                    for _ in 0..<240 where player.info == nil && player.problem == nil { try? await Task.sleep(for: .milliseconds(250)) }
-                    if let info = player.info {
-                        note("open \(info.format) \(info.width)x\(info.height) fps \(info.fps) frames \(info.frames) tc \(info.timecode ?? "-") codec \(info.codecName ?? "-") audio \(info.audioChannels)")
-                    } else {
-                        note("problem \(player.problem ?? "timed out")")
-                        return
-                    }
-                    for _ in 0..<80 where player.currentImage == nil && player.problem == nil { try? await Task.sleep(for: .milliseconds(250)) }
-                    note(player.currentImage.map { "picture \($0.width)x\($0.height)" } ?? "no picture \(player.problem ?? "")")
-                    guard UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") != nil else { return }
-                    for _ in 0..<40 where player.exportProgress == nil && player.exported == nil && player.exportProblem == nil {
-                        try? await Task.sleep(for: .milliseconds(250))
-                    }
-                    for _ in 0..<2400 where player.exportProgress != nil { try? await Task.sleep(for: .milliseconds(250)) }
-                    note(player.exported.map { "exported \($0.lastPathComponent)" } ?? "export problem \(player.exportProblem ?? "none started")")
-                }
-            }
-            // Tests: -PluckScreenshotPlay YES plays once it's open.
-            if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotPlay") {
-                Task {
-                    try? await Task.sleep(for: .seconds(2))
-                    player.play()
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
-            if let url = note.object as? URL { Self.openFile = nil; openAny(url) }
-        }
+        .onAppear { appeared() }
         .onDisappear {
+            nowPlaying?.stop()
+            nowPlaying = nil
             StudioNavigator.shared.toolBack = nil
             StudioNavigator.shared.toolForward = nil
             player.close()
             folder?.close()
         }
-    }
-
-    private var dropText: String {
-        let names = ["r3d": "R3D", "braw": "BRAW", "crm": "CRM"].filter { RawHelperSource.formats.contains($0.key) }.map(\.value).sorted()
-        return String(localized: "Drop a clip or a folder: \((names + ["CinemaDNG", "ProRes RAW", "ProRes", "H.264", "MXF", "DPX", "EXR"]).formatted(.list(type: .or))).")
     }
 
     // MARK: - The picture
@@ -442,20 +368,147 @@ struct RawPlayerView: View {
         }
     }
 
-    private func choose() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.allowedContentTypes = [.item]
-        panel.prompt = String(localized: "Play")
-        if panel.runModal() == .OK, let url = panel.url { openAny(url) }
+    /// The page shown: Now Playing, and what to show (the source, a clip asked for, or where it was left).
+    private func appeared() {
+        focused = true
+        let media = PlayerNowPlaying(player: player)
+        media.neighbour = { _ = neighbour($0) }
+        media.start()
+        nowPlaying = media
+        switch source {
+        case .folder(let url):
+            root = url
+            browse(url)
+            // Tests: -PluckScreenshotEnter <folder> goes into a folder in it.
+            if ScreenshotMode.scene == "footage", let name = UserDefaults.standard.string(forKey: "PluckScreenshotEnter") {
+                Task { try? await Task.sleep(for: .seconds(2)); browse(url.appendingPathComponent(name, isDirectory: true)) }
+            }
+        case .clips(let name, let urls): folder = RawFolder(url: URL(fileURLWithPath: "/" + name), clips: urls)
+        case .file(let url):
+            root = url.deletingLastPathComponent()
+            browse(url.deletingLastPathComponent())
+            player.open(url)
+        }
+        folder?.search = search
+        // Tests: -PluckScreenshotExport <file.mov> exports it once it's open.
+        if ScreenshotMode.scene == "raw", let out = UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                let url = URL(fileURLWithPath: out)
+                player.export(to: url, codec: url.pathExtension == "mp4" ? .h264 : .proresHQ, scale: 1)
+            }
+        }
+        // Tests: -PluckScreenshotLook <log>, -PluckScreenshotLUT <file.cube>, -PluckScreenshotRange <in>-<out>.
+        if ScreenshotMode.scene == "raw" {
+            let defaults = UserDefaults.standard
+            Task {
+                for _ in 0..<40 where player.info == nil { try? await Task.sleep(for: .milliseconds(250)) }
+                if let look = defaults.string(forKey: "PluckScreenshotLook").flatMap(RawLook.init(rawValue:)) { player.settings.look = look }
+                if let lut = defaults.string(forKey: "PluckScreenshotLUT") { player.settings.lut = lut }
+                // -PluckScreenshotPlayScale <1|2|4|8>: plays at that size.
+                if defaults.integer(forKey: "PluckScreenshotPlayScale") > 0 { player.playScale = defaults.integer(forKey: "PluckScreenshotPlayScale") }
+                if let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap({ Int($0) }), range.count == 2 {
+                    player.show(range[0]); player.markIn(); player.show(range[1]); player.markOut(); player.show(range[0])
+                }
+            }
+        }
+        // Tests: -PluckScreenshotOpenFirst YES opens a browsed folder's first clip (and with
+        // -PluckScreenshotBack YES goes back to the folder 3 seconds later, as the back button).
+        if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotOpenFirst") {
+            Task {
+                for _ in 0..<40 where (folder?.allClips.isEmpty ?? true) { try? await Task.sleep(for: .milliseconds(250)) }
+                guard let first = folder?.allClips.dropFirst().first else { return }
+                player.open(first.url)
+                guard UserDefaults.standard.bool(forKey: "PluckScreenshotBack") else { return }
+                try? await Task.sleep(for: .seconds(3))
+                // As the window's back button does.
+                StudioNavigator.shared.goBack()
+                // -PluckScreenshotForward YES: and forward to the clip again 3 seconds later.
+                guard UserDefaults.standard.bool(forKey: "PluckScreenshotForward") else { return }
+                try? await Task.sleep(for: .seconds(3))
+                StudioNavigator.shared.goForward()
+            }
+        }
+        // Tests: -PluckScreenshotLog <file>: what opened (or why not), the first picture, an export's end.
+        if ScreenshotMode.scene == "raw", let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
+            Task {
+                func note(_ line: String) {
+                    let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
+                    try? (old + line + "\n").write(toFile: log, atomically: true, encoding: .utf8)
+                }
+                for _ in 0..<240 where player.info == nil && player.problem == nil { try? await Task.sleep(for: .milliseconds(250)) }
+                if let info = player.info {
+                    note("open \(info.format) \(info.width)x\(info.height) fps \(info.fps) frames \(info.frames) tc \(info.timecode ?? "-") codec \(info.codecName ?? "-") audio \(info.audioChannels)")
+                } else {
+                    note("problem \(player.problem ?? "timed out")")
+                    return
+                }
+                for _ in 0..<80 where player.currentImage == nil && player.problem == nil { try? await Task.sleep(for: .milliseconds(250)) }
+                note(player.currentImage.map { "picture \($0.width)x\($0.height)" } ?? "no picture \(player.problem ?? "")")
+                guard UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") != nil else { return }
+                for _ in 0..<40 where player.exportProgress == nil && player.exported == nil && player.exportProblem == nil {
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+                for _ in 0..<2400 where player.exportProgress != nil { try? await Task.sleep(for: .milliseconds(250)) }
+                note(player.exported.map { "exported \($0.lastPathComponent)" } ?? "export problem \(player.exportProblem ?? "none started")")
+            }
+        }
+        // Tests: -PluckScreenshotPlay YES plays once it's open.
+        if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotPlay") {
+            Task {
+                try? await Task.sleep(for: .seconds(2))
+                player.play()
+            }
+        }
+        }
+
+    private func browser(_ folder: RawFolder) -> some View {
+        let browsing = root != nil
+        let inLibrary: Bool? = browsing ? FootageFolders.shared.folder(containing: folder.url.path) != nil : nil
+        return RawBrowserView(folder: folder, open: { player.open($0) },
+                              enter: browsing ? { browse($0) } : nil, crumbs: crumbs, everyClip: browsing ? $everyClip : nil,
+                              inLibrary: inLibrary, addToLibrary: { FootageFolders.shared.add(folder.url) })
     }
 
-    private func chooseFolder() {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.prompt = String(localized: "Open")
-        if panel.runModal() == .OK, let url = panel.url { openAny(url) }
+    /// Shows a folder (in the Library: a folder at a time, as Finder does, or every clip under it).
+    private func browse(_ url: URL) {
+        folder?.close()
+        let opened = RawFolder(url: url, oneLevel: !everyClip)
+        opened.search = search
+        folder = opened
+    }
+
+    /// The folder above, while that's still inside where browsing began.
+    private func parent(of url: URL) -> URL? {
+        guard let root, url.standardizedFileURL.path != root.standardizedFileURL.path,
+              url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path) else { return nil }
+        return url.deletingLastPathComponent()
+    }
+
+    private var upStep: (title: String, action: () -> Void)? {
+        guard let here = folder?.url, let up = parent(of: here) else { return nil }
+        return (up.lastPathComponent, { browse(up) })
+    }
+
+    /// From where browsing began to here.
+    private var crumbs: [URL] {
+        guard let root, var at = folder?.url else { return [] }
+        var list: [URL] = []
+        while true {
+            list.insert(at, at: 0)
+            guard let up = parent(of: at) else { break }
+            at = up
+        }
+        return list.first?.standardizedFileURL.path == root.standardizedFileURL.path ? list : []
+    }
+
+    /// The clip before or after the one playing, in the folder being browsed.
+    private func neighbour(_ by: Int) -> Bool {
+        guard let folder, let url = player.url else { return false }
+        let clips = folder.allClips.map(\.url)
+        guard let at = clips.firstIndex(of: url), clips.indices.contains(at + by) else { return false }
+        player.open(clips[at + by])
+        return true
     }
 
     /// A clip plays; a folder of clips opens as thumbnails.
@@ -579,5 +632,18 @@ private struct RawTransportBar: View {
         case 8: "⅛"
         default: "1/\(scale)"
         }
+    }
+}
+
+/// What macOS is told as the clip changes: Now Playing, and the clip among the recent files.
+private struct PlayerSystemState: ViewModifier {
+    let player: RawPlayer
+    let nowPlaying: PlayerNowPlaying?
+
+    func body(content: Content) -> some View {
+        content
+            .onChange(of: "\(player.url?.path ?? "")\(player.isPlaying)\(player.info?.frames ?? 0)") { nowPlaying?.update() }
+            .onChange(of: player.index) { if !player.isPlaying { nowPlaying?.update() } }
+            .onChange(of: player.url) { _, url in if let url { NSDocumentController.shared.noteNewRecentDocumentURL(url) } }
     }
 }

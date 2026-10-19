@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import ImageIO
 import SwiftUI
 
@@ -224,9 +225,11 @@ struct PhotoImportSheet: View {
                         // Another photo with this name: keep both.
                         let other = place.appendingPathComponent(target.deletingPathExtension().lastPathComponent + "-2." + target.pathExtension)
                         try FileManager.default.copyItem(at: photo, to: other)
+                        try checked(photo, other)
                         if i == 0 { main = other.path }
                     } else {
                         try FileManager.default.copyItem(at: photo, to: target)
+                        try checked(photo, target)
                         if i == 0 { main = target.path }
                     }
                 } else if i == 0 {
@@ -243,6 +246,23 @@ struct PhotoImportSheet: View {
             }
         }
         return .success(main)
+    }
+
+    /// The copy read back and compared with the card's (as Offload does): a bad one is removed
+    /// and the import stops, so nothing is filed that isn't the photo.
+    nonisolated private static func checked(_ photo: URL, _ copy: URL) throws {
+        func digest(_ url: URL) throws -> SHA256.Digest {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            var hash = SHA256()
+            while let chunk = try handle.read(upToCount: 8 << 20), !chunk.isEmpty { hash.update(data: chunk) }
+            return hash.finalize()
+        }
+        guard try digest(photo) == digest(copy) else {
+            try? FileManager.default.removeItem(at: copy)
+            throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey:
+                String(localized: "The copy of “\(photo.lastPathComponent)” didn’t match the original. Check the card and the drive, then import again.")])
+        }
     }
 
     nonisolated private static func sameFile(_ a: URL, _ b: URL) -> Bool {

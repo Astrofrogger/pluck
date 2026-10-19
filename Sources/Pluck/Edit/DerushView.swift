@@ -519,7 +519,7 @@ struct DerushView: View {
                 }
                 .buttonStyle(GlassCapsuleButtonStyle())
             }
-            Button("Build Derush in Resolve", systemImage: "film.stack", action: build)
+            Button("Build in DaVinci", systemImage: "film.stack", action: build)
                 .buttonStyle(BarCapsuleButtonStyle())
                 .disabled(done.isEmpty || session.running || !Resolve.isInstalled)
         }
@@ -618,7 +618,7 @@ struct DerushView: View {
                 if !selects.isEmpty {
                     try await MarkedTimeline.buildCuts(name: made + " – " + String(localized: "selects"), bin: bin, cuts: selects)
                 }
-                status = String(localized: "Timeline “\(made)” is in Resolve.")
+                status = String(localized: "Timeline “\(made)” is in DaVinci.")
             } catch {
                 status = error.localizedDescription
             }

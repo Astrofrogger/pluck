@@ -234,7 +234,7 @@ private struct GeneralSettings: View {
             } header: {
                 Text("Camera Raw")
             } footer: {
-                Text("Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click opens it in the Player. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.")
+                Text("Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click plays it in Pluck. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             #endif

@@ -39,21 +39,21 @@ final class AIStudio {
         let id = UUID()
         let item: DownloadItem
         let action: Action
-        let openPlayer: (PlayerTarget) -> Void
+        let openMoment: (EditorMoment) -> Void
     }
 
     /// Summarize or Add Chapters: straight away when there's a transcript, otherwise after asking
     /// which language is spoken (a guess from the title is often wrong for files from this Mac).
-    func start(_ action: LanguageAsk.Action, _ item: DownloadItem, openPlayer: @escaping (PlayerTarget) -> Void) {
+    func start(_ action: LanguageAsk.Action, _ item: DownloadItem, openMoment: @escaping (EditorMoment) -> Void) {
         let hasTranscript = item.transcriptID.flatMap(TranscriptStore.load)?.filePath == item.existingFile?.path
         guard !hasTranscript, LocalAI.canTranscribe else {
             switch action {
-            case .summarize: summarize(item, openPlayer: openPlayer)
-            case .chapters: addChapters(item, openPlayer: openPlayer)
+            case .summarize: summarize(item, openMoment: openMoment)
+            case .chapters: addChapters(item, openMoment: openMoment)
             }
             return
         }
-        languageAsk = LanguageAsk(item: item, action: action, openPlayer: openPlayer)
+        languageAsk = LanguageAsk(item: item, action: action, openMoment: openMoment)
     }
 
     /// A file waiting for Remove Silences & Fillers options.
@@ -221,7 +221,7 @@ final class AIStudio {
 
     // MARK: - Summaries and chapters
 
-    func summarize(_ item: DownloadItem, language: Locale? = nil, openPlayer: @escaping (PlayerTarget) -> Void) {
+    func summarize(_ item: DownloadItem, language: Locale? = nil, openMoment: @escaping (EditorMoment) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
         enqueue(item) { [self] in
             item.aiStatus = String(localized: "Preparing…")
@@ -237,14 +237,14 @@ final class AIStudio {
                 transcript.keyPoints = points
                 TranscriptStore.save(transcript)
                 finishJob(item)
-                openPlayer(PlayerTarget(filePath: file.path, transcriptID: transcript.id, start: nil, tab: "summary"))
+                openMoment(EditorMoment(filePath: file.path, transcriptID: transcript.id, start: nil, tab: "summary"))
             } catch {
                 failJob(item, error)
             }
         }
     }
 
-    func addChapters(_ item: DownloadItem, language: Locale? = nil, openPlayer: @escaping (PlayerTarget) -> Void) {
+    func addChapters(_ item: DownloadItem, language: Locale? = nil, openMoment: @escaping (EditorMoment) -> Void) {
         guard #available(macOS 26, *), LocalAI.canSummarize, let file = item.existingFile, item.aiStatus == nil else { return }
         enqueue(item) { [self] in
             item.aiStatus = String(localized: "Preparing…")
@@ -264,7 +264,7 @@ final class AIStudio {
                     try await write(chapters, into: file, duration: transcript.duration ?? item.duration)
                 }
                 finishJob(item)
-                openPlayer(PlayerTarget(filePath: file.path, transcriptID: transcript.id, start: nil, tab: "chapters"))
+                openMoment(EditorMoment(filePath: file.path, transcriptID: transcript.id, start: nil, tab: "chapters"))
             } catch {
                 failJob(item, error)
             }

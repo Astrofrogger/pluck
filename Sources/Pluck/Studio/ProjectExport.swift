@@ -173,7 +173,7 @@ final class ProjectExports {
 
     nonisolated static func videoChain(input: String, clip: ProjectClip, k: Int, width: Int, height: Int, rate: String) -> [String] {
         ClipLook.ffmpegChain(input: input, start: clip.start, end: clip.end, length: clip.length, look: clip.look, k: k,
-                             width: width, height: height, rate: rate)
+                             width: width, height: height, rate: rate, path: clip.path)
     }
 
     nonisolated static func arguments(_ project: Project, streams: [String: Set<String>], lengths: [String: Double] = [:], settings: EditorRenderSettings,
@@ -224,12 +224,12 @@ final class ProjectExports {
                         let (v, from) = input(copy ?? clip.path, freeze, freeze + 1)
                         graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: freeze - from, end: freeze - from + 1, length: length,
                                                       look: clip.look, k: k, width: width, height: height, rate: rate,
-                                                      steadied: copy != nil, finish: finish, hold: length)
+                                                      steadied: copy != nil, finish: finish, hold: length, path: clip.path)
                     } else {
                         let (v, from) = input(copy ?? clip.path, max(start, 0), end)
                         graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: start - from, end: end - from,
                                                       length: length, look: clip.look, k: k, width: width, height: height, rate: rate,
-                                                      steadied: copy != nil, finish: finish)
+                                                      steadied: copy != nil, finish: finish, path: clip.path)
                     }
                 } else {
                     graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(length)),format=yuv420p[v\(k)]")
@@ -292,7 +292,7 @@ final class ProjectExports {
                     if item.fadeOut > 0 { finish.append("fade=t=out:st=\(number(max(item.length - item.fadeOut, 0))):d=\(number(item.fadeOut)):alpha=1") }
                     let (v, from) = input(item.path, item.start, item.end)
                     graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: item.start - from, end: item.end - from, length: item.length,
-                                                  look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true)
+                                                  look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true, path: item.path)
                     graph.append("[v\(k)]setpts=PTS+\(number(at))/TB[o\(layer)]")
                     graph.append("\(picture)[o\(layer)]overlay=x=0:y=0:eof_action=pass:enable='between(t,\(number(at)),\(number(at + item.length)))'[l\(layer)]")
                     picture = "[l\(layer)]"

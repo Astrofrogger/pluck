@@ -46,8 +46,15 @@ struct PluckApp: App {
                 Button("Convert Files…") { manager.chooseFilesToConvert() }
                     .keyboardShortcut("o")
                 OpenInEditorCommand()
-                Divider()
-                RemoveMissingCommand()
+                #if STUDIO
+                Button("Play Clip or Folder…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.prompt = String(localized: "Play")
+                    if panel.runModal() == .OK, let url = panel.url { RawFormats.show(url) }
+                }
+                .keyboardShortcut("o", modifiers: [.command, .shift])
+                #endif
                 #if STUDIO
                 Divider()
                 ExportSubtitlesCommand()

@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.2.0", items: [
+                Item(symbol: "books.vertical", title: String(localized: "Library and Player in one"),
+                     detail: String(localized: "Browse your Mac and its drives folder by folder, and play any clip where it is. Add the folders you want Search to know; nothing is copied.")),
+                Item(symbol: "magnifyingglass", title: String(localized: "One search"),
+                     detail: String(localized: "The Library's search field finds names, what was said and what's in the picture. Fewer buttons all round.")),
+                Item(symbol: "play.rectangle", title: String(localized: "Play from Finder"),
+                     detail: String(localized: "Open With, Play in Pluck under Quick Actions, a clip dropped on the Dock icon, and the keyboard's play keys.")),
+                Item(symbol: "camera.filters", title: String(localized: "Log footage, shown normal"),
+                     detail: String(localized: "Clips filmed in log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) play and export as a normal picture. Pluck reads which log from the file; choose another under Colour.")),
+            ]),
             Release(version: "3.1.7", items: [
                 Item(symbol: "wrench.and.screwdriver", title: String(localized: "Send to DaVinci works again"),
                      detail: String(localized: "Sending camera clips to DaVinci Resolve stopped with an error in 3.1.6. It's fixed.")),

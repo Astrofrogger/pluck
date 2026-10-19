@@ -71,7 +71,7 @@ struct StudioWindow: View {
         // A link handed over (pluck://, the Share menu) goes to Home's field.
         .onChange(of: manager.pendingLink) { if manager.pendingLink != nil { nav.show(.home) } }
         .onChange(of: ai.searchShown) {
-            if ai.searchShown { ai.searchShown = false; nav.show(.search) }
+            if ai.searchShown { ai.searchShown = false; nav.show(.library) }
         }
     }
 
@@ -81,7 +81,6 @@ struct StudioWindow: View {
         case .library: LibraryView()
         case .edit: EditPage(nav: nav)
         case .photo: PhotoPage()
-        case .search: VisualSearchView()
         case .tools: ToolsPage(nav: nav)
         }
     }
@@ -744,7 +743,10 @@ struct FileThumbnail: View {
             if let remote, remote.isFileURL, let saved = NSImage(contentsOf: remote) { image = saved; return }
             let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: 160, height: 90),
                                                        scale: 2, representationTypes: .thumbnail)
-            image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage
+            let still = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).cgImage
+            // Log footage, as the normal picture.
+            let path = file.path
+            image = await Task.detached { still.map { CameraLog.detect(path)?.apply($0) ?? $0 } }.value.map { NSImage(cgImage: $0, size: .zero) }
         }
         .accessibilityHidden(true)
     }
@@ -756,7 +758,8 @@ struct FileThumbnail: View {
 private struct ToolsPage: View {
     @Bindable var nav: StudioNavigator
 
-    private var tools: [PluckTool] { PluckTool.allCases.filter { $0 != .library && $0 != .findShots } }
+    /// (Library, Search and the Player are pages of their own.)
+    private var tools: [PluckTool] { PluckTool.allCases.filter { ![.library, .findShots, .rawPlayer].contains($0) } }
 
     var body: some View {
         if let tool = nav.tool {
@@ -793,14 +796,13 @@ private struct ToolsPage: View {
         switch tool {
         case .derush: DerushView()
         case .offload: OffloadView()
-        case .rawPlayer: RawPlayerView()
         case .liveRecorder: LiveRecorderView()
         case .deliveryCheck: DeliveryCheckView()
         case .logoAnimator: LogoAnimatorView()
         case .brandPack: BrandPackView()
         case .musicFit: MusicFitView()
         case .officeRender: OfficeRenderView()
-        case .library, .findShots: EmptyView()
+        case .library, .findShots, .rawPlayer: EmptyView()
         }
     }
 }

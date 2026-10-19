@@ -37,8 +37,8 @@ struct SpokenLanguageSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Button(actionTitle) {
                     switch ask.action {
-                    case .summarize: studio.summarize(ask.item, language: language, openPlayer: ask.openPlayer)
-                    case .chapters: studio.addChapters(ask.item, language: language, openPlayer: ask.openPlayer)
+                    case .summarize: studio.summarize(ask.item, language: language, openMoment: ask.openMoment)
+                    case .chapters: studio.addChapters(ask.item, language: language, openMoment: ask.openMoment)
                     }
                     dismiss()
                 }

@@ -282,7 +282,6 @@ struct ContentView: View {
                     if clipping {
                         clipBar.transition(.move(edge: .top).combined(with: .opacity))
                     }
-                    HomeShortcuts()
                 }
                 .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity)

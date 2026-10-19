@@ -49,7 +49,7 @@ struct SubtitleSheet: View {
                 if Speakers.isSupported {
                     Toggle(isOn: $labelSpeakers) {
                         Text("Label who’s speaking")
-                        Text("Puts the speaker’s name where it changes. Up to four speakers; rename them in Pluck Player.")
+                        Text("Puts the speaker’s name where it changes. Up to four speakers; rename them in the Editor’s transcript.")
                     }
                 }
                 Toggle("Save a subtitle file (.srt) next to it", isOn: $saveFile)

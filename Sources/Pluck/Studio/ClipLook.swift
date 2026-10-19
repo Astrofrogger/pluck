@@ -207,7 +207,7 @@ extension ClipLook {
     /// than black, keeping what's around the picture see-through (laid over another).
     static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
                             width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = [],
-                            hold: Double? = nil, clear: Bool = false) -> [String] {
+                            hold: Double? = nil, clear: Bool = false, path: String? = nil) -> [String] {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
@@ -215,6 +215,10 @@ extension ClipLook {
         if let hold { steps.append("trim=end_frame=1,tpad=stop_mode=clone:stop_duration=\(number(hold))") }
         // Not steadied yet: ffmpeg's own (rougher) stabilizer.
         if look.stabilize, !steadied { steps.append("deshake") }
+        // A camera's log to a normal picture, from 16-bit (log in 8 bits bands).
+        if let path, let camera = CameraLog.resolve(look.color.camera, path: path), let cube = camera.cubeFile() {
+            steps.append("format=rgb48le,lut3d=file='\(cube.path.replacingOccurrences(of: "'", with: "\\'"))'")
+        }
         if !look.color.isDefault, let cube = look.color.cubeFile() {
             steps.append("format=rgb24,lut3d=file='\(cube.path.replacingOccurrences(of: "'", with: "\\'"))'")
         }
@@ -362,6 +366,17 @@ struct ClipLookEditor: View {
                 }
             }
             FoldSection(title: "Colour", key: "clip-colour", open: false) {
+                row("Camera") {
+                    Picker("Camera", selection: binding(\.color.camera)) {
+                        Text(path.flatMap(CameraLog.detect).map { "\(String(localized: "Auto")) · \($0.title)" } ?? String(localized: "Automatic"))
+                            .tag(String?.none)
+                        Text("As Recorded").tag(String?.some("none"))
+                        Divider()
+                        ForEach(CameraLog.allCases) { Text($0.title).tag(String?.some($0.rawValue)) }
+                    }
+                    .labelsHidden()
+                    .help("Log footage shown as a normal picture")
+                }
                 colourSlider("Exposure", \.exposure, -3...3, "%+.2f")
                 colourSlider("Contrast", \.contrast, -100...100, "%+.0f")
                 colourSlider("Saturation", \.saturation, -100...100, "%+.0f")
@@ -478,8 +493,12 @@ struct ClipColor: Codable, Hashable {
     /// A .cube file, and how much of it (0…1).
     var lut: String?
     var lutAmount = 1.0
+    /// The camera's log to a normal picture: nil as the file's metadata says, "none" as
+    /// recorded, else a `CameraLog` (done before the rest, on the file's own numbers).
+    var camera: String?
 
-    var isDefault: Bool { self == ClipColor() }
+    /// No grading (the camera's log is a step of its own).
+    var isDefault: Bool { var plain = self; plain.camera = nil; return plain == ClipColor() }
 
     static let size = 33
 

@@ -35,35 +35,6 @@ private struct HomeCard<Content: View, Trailing: View>: View {
     }
 }
 
-/// The quick ways in under Home's field.
-struct HomeShortcuts: View {
-    @State private var nav = StudioNavigator.shared
-
-    var body: some View {
-        HStack(spacing: 20) {
-            link("Open File…", symbol: "doc") {
-                let panel = NSOpenPanel()
-                panel.allowedContentTypes = [.movie, .audio]
-                panel.allowsMultipleSelection = true
-                panel.prompt = String(localized: "Open")
-                guard panel.runModal() == .OK else { return }
-                for url in panel.urls { nav.open(EditorTarget(path: url.path)) }
-            }
-            link("Search My Library", symbol: "sparkle.magnifyingglass") { nav.show(.search) }
-            link("Record a Stream", symbol: "record.circle") { nav.open(.liveRecorder) }
-        }
-        .font(.callout)
-    }
-
-    private func link(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(title, systemImage: symbol)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(.secondary)
-    }
-}
-
 // MARK: - Continue editing
 
 /// Home's files edited lately, as big cards: click one to carry on where you left off.

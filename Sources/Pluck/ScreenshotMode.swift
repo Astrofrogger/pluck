@@ -161,6 +161,18 @@ enum ScreenshotMode {
                 // The Library on the first subscription of the test list (subscriptions-test.json).
                 LibraryView.startCollection = Subscriptions.shared.list.first.map { .subscription($0.id, $0.title) }
                 openLibrary(openWindow)
+            #if STUDIO
+            case "footage":
+                // The Library on a folder or clip put in it: -PluckScreenshotFile <path>
+                // (-PluckScreenshotOpen YES: opened as from Finder instead).
+                if let path = defaults.string(forKey: "PluckScreenshotFile") {
+                    if defaults.bool(forKey: "PluckScreenshotOpen") {
+                        RawFormats.show(URL(fileURLWithPath: path))
+                    } else if let item = FootageFolders.shared.add(URL(fileURLWithPath: path)) {
+                        LibraryView.show(item.isFile ? .clips : .footage(item.id, item.name))
+                    }
+                }
+            #endif
             case "remotelibrary":
                 // The Library on another Mac's shared Library: -PluckScreenshotLink <its name>.
                 LibraryView.startCollection = defaults.string(forKey: "PluckScreenshotLink").map { .network($0) }
@@ -431,13 +443,14 @@ enum ScreenshotMode {
                 }
             case "findshots":
                 // -PluckScreenshotLink <words> is searched for.
-                VisualSearchView.startQuery = defaults.string(forKey: "PluckScreenshotLink") ?? ""
-                ai.searchShown = true
+                LibraryView.startSearch = defaults.string(forKey: "PluckScreenshotLink") ?? ""
+                LibraryView.show(.all)
             case "musicfit":
                 StudioNavigator.shared.open(windowID: "musicFit")
             case "resolvelog":
-                // Logs the open DaVinci Resolve project (with Search open to show it).
-                ai.searchShown = true
+                // Logs the open DaVinci Resolve project (with a search open to show it).
+                LibraryView.startSearch = "shot"
+                LibraryView.show(.all)
                 ResolveLogger.shared.start()
             case "office":
                 StudioNavigator.shared.open(windowID: "officeRender")
@@ -520,9 +533,8 @@ enum ScreenshotMode {
                     }
                 }
             case "raw":
-                // -PluckScreenshotFile <clip>: opened in Raw Player.
-                RawPlayerView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
-                StudioNavigator.shared.open(windowID: "rawPlayer")
+                // -PluckScreenshotFile <clip or folder>: played in the Library.
+                if let path = defaults.string(forKey: "PluckScreenshotFile") { RawFormats.show(URL(fileURLWithPath: path)) }
             case "offload":
                 // -PluckScreenshotOffloadFrom <folder> -PluckScreenshotOffloadTo <a|b>: offloaded at once.
                 // -PluckScreenshotOffloadCard <folder>: shown as the only card plugged in.
@@ -627,7 +639,7 @@ enum ScreenshotMode {
                 }
             case "player":
                 if let item, let file = item.existingFile {
-                    PlayerTarget(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript").open(openWindow)
+                    EditorMoment(filePath: file.path, transcriptID: item.transcriptID, start: 6, tab: "transcript").open(openWindow)
                 }
             default: break
         }

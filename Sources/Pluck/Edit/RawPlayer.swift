@@ -1,6 +1,7 @@
 import AVFoundation
 import CoreImage
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Raw Player: camera raw clips played natively, with their raw settings (ISO, white balance,
 /// exposure) applied from the raw data, not baked in. RED (.R3D) and Blackmagic RAW go through
@@ -438,12 +439,17 @@ enum RawFormats {
     /// Raw video files (not photos), which Pluck opens in Raw Player.
     static func isRawVideo(_ url: URL) -> Bool { ["r3d", "braw", "crm"].contains(url.pathExtension.lowercased()) }
 
-    /// Shows a clip in Raw Player.
+    /// What the Player opens from Finder and the Dock: clips (raw or not), and folders of them.
+    static func playable(_ url: URL) -> Bool {
+        let kind = url.pathExtension.lowercased()
+        if isRawVideo(url) || ["rdc", "mxf"].contains(kind) || url.hasDirectoryPath { return true }
+        return UTType(filenameExtension: kind)?.conforms(to: .movie) == true
+    }
+
+    /// Plays a clip (or shows a folder's clips) in the Library, where it is on disk.
     @MainActor static func show(_ url: URL) {
-        RawPlayerView.openFile = url
-        StudioNavigator.shared.open(.rawPlayer)
+        LibraryView.show(.opened(url.path))
         AppDelegate.openMainWindow?()
-        NotificationCenter.default.post(name: RawPlayerView.openNotification, object: url)
     }
 
     /// The extensions Pluck plays as raw (with the decoders this Pluck has).
@@ -499,14 +505,21 @@ enum RawFormats {
             return try sequence(ImageSequenceSource.files(in: url.deletingLastPathComponent(), chosen: url), from: url)
         default:
             if kind == "mov", ProResRawSource.isProResRaw(url) { return try ProResRawSource(url: url) }
-            if MovieSource.canDecode(url), let movie = try? MovieSource(url: url) {
-                // macOS says it can, but some it can't after all (H.264 4:4:4): tried on the
-                // first frame, else ffmpeg.
-                if RawTools.ffmpeg == nil || (try? movie.frame(0, scale: 8, settings: RawSettings())) != nil { return movie }
-                movie.close()
-            }
-            return try FFmpegSource(url: url)
+            let source = try movie(url)
+            // Filmed in log: shown as the normal picture.
+            if let camera = CameraLog.detect(url.path) { return LogSource(source, camera: camera) }
+            return source
         }
+    }
+
+    private static func movie(_ url: URL) throws -> RawSource {
+        if MovieSource.canDecode(url), let movie = try? MovieSource(url: url) {
+            // macOS says it can, but some it can't after all (H.264 4:4:4): tried on the
+            // first frame, else ffmpeg.
+            if RawTools.ffmpeg == nil || (try? movie.frame(0, scale: 8, settings: RawSettings())) != nil { return movie }
+            movie.close()
+        }
+        return try FFmpegSource(url: url)
     }
 
     /// Numbered images: macOS reads TIFF, EXR, PNG and JPEG; ffmpeg reads DPX.
@@ -1177,4 +1190,27 @@ enum RawExport {
         if writer.status != .completed { throw writer.error ?? RawProblem(text: String(localized: "The export couldn’t be written.")) }
         return true
     }
+}
+
+/// A movie filmed in a camera's log, its frames as the normal picture (unless a LUT is chosen:
+/// LUTs for log footage start from the log).
+final class LogSource: RawSource, @unchecked Sendable {
+    private let inner: RawSource
+    private let camera: CameraLog
+
+    init(_ inner: RawSource, camera: CameraLog) {
+        self.inner = inner
+        self.camera = camera
+    }
+
+    var info: RawClipInfo { inner.info }
+
+    func frame(_ index: Int, scale: Int, settings: RawSettings) throws -> CGImage {
+        let picture = try inner.frame(index, scale: scale, settings: settings)
+        return settings.lut == nil ? camera.apply(picture) : picture
+    }
+
+    func close() { inner.close() }
+    func another() throws -> RawSource? { try inner.another().map { LogSource($0, camera: camera) } }
+    func audio() throws -> URL? { try inner.audio() }
 }
