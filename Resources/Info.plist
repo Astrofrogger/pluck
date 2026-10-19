@@ -30,7 +30,7 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>3.1.7</string>
+	<string>3.2.0</string>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>
@@ -43,7 +43,7 @@
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>
-	<string>126</string>
+	<string>128</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -53,22 +53,22 @@
 		<string>_pluck._tcp</string>
 		<string>_pluck-render._tcp</string>
 	</array>
-	<key>NSHighResolutionCapable</key>
-	<true/>
 	<key>NSDesktopFolderUsageDescription</key>
 	<string>Pluck shows the videos on your Desktop when you browse it in the Library.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
 	<string>Pluck shows the videos in Documents when you browse it in the Library.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
 	<string>Pluck saves what it downloads in Downloads, and shows the videos there in the Library.</string>
-	<key>NSRemovableVolumesUsageDescription</key>
-	<string>Pluck shows the clips on cards and drives you browse in the Library.</string>
-	<key>NSNetworkVolumesUsageDescription</key>
-	<string>Pluck shows the clips on network drives you browse in the Library.</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pluck shares your Library with phones and computers on this network when you turn on sharing, and finds the office Mac for Edit Anywhere.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Pluck shows the clips on network drives you browse in the Library.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Pluck shows the clips on cards and drives you browse in the Library.</string>
 	<key>NSServices</key>
 	<array>
 		<dict>
