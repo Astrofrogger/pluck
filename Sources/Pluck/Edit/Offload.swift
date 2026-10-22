@@ -549,6 +549,18 @@ final class OffloadCenter {
 
     func state(_ job: OffloadJob) -> State { states[job.id] ?? .paused }
 
+    /// The room left where a copy goes (nil when the drive won't say). macOS's "for important
+    /// use" figure is only kept for the Mac's own disks: a server (SMB, AFP, NFS) gives 0 there,
+    /// so then the plain figure, and else what the file system says.
+    nonisolated static func freeSpace(_ url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        if let plain = values?.volumeAvailableCapacity, plain > 0 { return Int64(plain) }
+        var info = statfs()
+        if statfs(url.path, &info) == 0, info.f_bavail > 0 { return Int64(info.f_bavail) * Int64(info.f_bsize) }
+        return nil
+    }
+
     /// A job's copies are done (object: the folders they went into).
     static let finishedNotification = Notification.Name("PluckOffloadFinished")
 
@@ -580,8 +592,7 @@ final class OffloadCenter {
             }
             if let problem = Self.problem(files: list, roots: [folder]) { return problem }
             let total = list.reduce(Int64(0)) { $0 + $1.size }
-            let free = (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage) ?? .max
-            if free < total { return String(localized: "There isn’t enough room on \(Self.volumeName(folder)).") }
+            if let free = Self.freeSpace(folder), free < total { return String(localized: "There isn’t enough room on \(Self.volumeName(folder)).") }
             var job = OffloadJob(name: "", source: parent.path, sourceVolume: Self.volumeName(parent), roots: [folder.path],
                                  rootVolumes: [Self.volumeName(folder)],
                                  files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: [false]) })
@@ -607,8 +618,7 @@ final class OffloadCenter {
         if quick { job.quick = true }
         // Room for it everywhere.
         for root in roots {
-            let free = (try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage) ?? .max
-            if free < job.totalBytes { return String(localized: "There isn’t enough room on \(Self.volumeName(root)).") }
+            if let free = Self.freeSpace(root), free < job.totalBytes { return String(localized: "There isn’t enough room on \(Self.volumeName(root)).") }
         }
         jobs.insert(job, at: 0)
         save(job)

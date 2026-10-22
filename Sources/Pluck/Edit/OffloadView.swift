@@ -132,7 +132,7 @@ struct OffloadView: View {
     }
 
     private func free(_ root: URL) -> String {
-        guard let bytes = try? root.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage else { return "" }
+        guard let bytes = OffloadCenter.freeSpace(root) else { return "" }
         return String(localized: "\(ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)) free")
     }
 

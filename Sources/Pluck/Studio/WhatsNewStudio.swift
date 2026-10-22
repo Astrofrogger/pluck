@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.3.1", items: [
+                Item(symbol: "server.rack", title: String(localized: "Copying to servers"),
+                     detail: String(localized: "Offload and the Library's copies saw no room on network servers and wouldn't start. They read the free space right now.")),
+            ]),
             Release(version: "3.3.0", items: [
                 Item(symbol: "rectangle.split.2x1", title: String(localized: "Two folders side by side"),
                      detail: String(localized: "Split the Library (⌘\\) and drag clips or folders across to copy them. Every file is read back and checked, as Offload does, and a copy carries on if a drive comes back.")),

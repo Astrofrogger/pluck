@@ -38010,6 +38010,64 @@
         }
       }
     },
+    "Copying to servers": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopieren auf Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copiar a servidores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copie vers les serveurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia sui server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバへのコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "서버로 복사"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopiëren naar servers"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cópia para servidores"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝到服务器"
+          }
+        }
+      }
+    },
     "Copying…": {
       "localizations": {
         "de": {
@@ -95219,6 +95277,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "素材卸载报告"
+          }
+        }
+      }
+    },
+    "Offload and the Library's copies saw no room on network servers and wouldn't start. They read the free space right now.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload und die Kopien der Bibliothek sahen auf Netzwerkservern keinen freien Platz und starteten nicht. Jetzt wird der freie Speicher richtig gelesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload y las copias de la biblioteca no veían espacio en los servidores de red y no empezaban. Ahora leen bien el espacio libre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload et les copies de la bibliothèque ne voyaient aucune place sur les serveurs réseau et ne démarraient pas. Ils lisent désormais correctement l’espace libre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload e le copie della libreria non vedevano spazio sui server di rete e non partivano. Ora leggono correttamente lo spazio libero."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload とライブラリのコピーでネットワークサーバの空き容量が 0 と表示され、開始できませんでした。空き容量を正しく読み取るようになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload와 보관함 복사에서 네트워크 서버의 여유 공간이 0으로 보여 시작되지 않았습니다. 이제 여유 공간을 올바르게 읽습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload en de kopieën van de bibliotheek zagen geen ruimte op netwerkservers en startten niet. Ze lezen de vrije ruimte nu goed."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Offload e as cópias da biblioteca não viam espaço nos servidores de rede e não começavam. Agora leem corretamente o espaço livre."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offload 和资料库拷贝在网络服务器上显示没有可用空间而无法开始。现在会正确读取可用空间。"
           }
         }
       }
