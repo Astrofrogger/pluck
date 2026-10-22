@@ -21,9 +21,8 @@ struct LibraryView: View {
     #endif
     @State private var search = LibraryView.startSearch
     /// The Library split in two: what the right side shows.
-    @State private var secondCollection: Collection? = LibraryView.startSecond
-    /// What the right side opens on (screenshots).
-    @MainActor static var startSecond: Collection?
+
+
     /// A search to start with (screenshots).
     @MainActor static var startSearch = ""
     /// The search field to be typed in as the Library shows (⇧⌘F).
@@ -179,19 +178,12 @@ struct LibraryView: View {
         .toolbar {
             #if STUDIO
             ToolbarItem {
-                Toggle(isOn: Binding(get: { LibraryPanes.shared.split }, set: { on in
-                    LibraryPanes.shared.split = on
-                    if on, secondCollection == nil { secondCollection = .location(FileManager.default.homeDirectoryForCurrentUser.path) }
-                })) {
-                    Label("Split", systemImage: "rectangle.split.2x1")
-                }
-                .keyboardShortcut("\\", modifiers: .command)
-                .help("Two folders side by side: drag between them to copy, every file checked (⌘\\)")
-            }
-            ToolbarItem(placement: .navigation) {
-                if isFootage, let back = StudioNavigator.shared.toolBack {
-                    Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
-                        .help("Back to the folder (Esc)")
+                if isFootage {
+                    Button { FinderWorkspace.shared.split(.horizontal) } label: {
+                        Label("Split", systemImage: "rectangle.split.2x1")
+                    }
+                    .disabled(FinderWorkspace.shared.panes.count >= FinderWorkspace.maxPanes)
+                    .help("Another pane beside this one (⌘\\, ⇧⌘\\ below). ⌥⌘ and the arrows move between panes, ⇧⌥⌘ and the arrows swap them, ⌥⌘W closes one. Drag between panes to copy, every file checked.")
                 }
             }
             #endif
@@ -236,7 +228,7 @@ struct LibraryView: View {
             }
             }
         }
-        .navigationTitle(collection?.title ?? String(localized: "Library"))
+        .navigationTitle(windowTitle)
         .navigationSubtitle(isFootage || contentScope != nil ? "" : summary)
         .frame(minWidth: 760, minHeight: 460)
         .onAppear {
@@ -254,6 +246,11 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: Self.showNotification)) { _ in
             if let start = Self.startCollection { Self.startCollection = nil; collection = start }
         }
+        #if STUDIO
+        // A folder or drive chosen: opened in the pane in front; the search field narrows it.
+        .onChange(of: collection, initial: true) { _, chosen in showInFinder(chosen) }
+        .onChange(of: search) { _, words in if isFootage { FinderWorkspace.shared.focused.filter = words } }
+        #endif
         .quickLookPreview($preview)
         .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
         .sheet(item: $sending) { entry in
@@ -298,21 +295,14 @@ struct LibraryView: View {
 
     /// The sidebar chooses for the side last clicked when the Library is split (the right side
     /// shows folders and places; anything else goes left).
-    private var sidebarSelection: Binding<Collection?> {
+    private var sidebarSelection: Binding<Collection?> { $collection }
+
+    /// The folder the pane in front is on, or the collection chosen.
+    private var windowTitle: String {
         #if STUDIO
-        Binding(get: { LibraryPanes.shared.split && LibraryPanes.shared.active == 1 ? secondCollection : collection },
-                set: { chosen in
-                    let panes = LibraryPanes.shared
-                    if panes.split, panes.active == 1, let chosen, Self.isPlace(chosen) {
-                        secondCollection = chosen
-                    } else {
-                        collection = chosen
-                        panes.active = 0
-                    }
-                })
-        #else
-        $collection
+        if isFootage, contentScope == nil { return FinderWorkspace.shared.focused.title }
         #endif
+        return collection?.title ?? String(localized: "Library")
     }
 
     /// A folder or a place on disk (what the Player shows), rather than the downloads.
@@ -766,16 +756,25 @@ private struct LibraryCard: View {
 // MARK: - Folders and clips on disk
 
 extension LibraryView {
-    /// The folders and clips put in the Library: indexed for Search and Photo, played here, left
-    /// where they are.
+    /// Finder's Favorites: the home folder and its own folders, then the folders (and clips) put
+    /// in the Library, which Search and Photo know (they stay where they are). A folder dropped
+    /// here is put in.
     @ViewBuilder var footageSection: some View {
         let footage = FootageFolders.shared
-        Section("Folders") {
+        Section("Favorites") {
+            ForEach(Locations.shared.favorites, id: \.self) { url in
+                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.symbol(url))
+                    .tag(Collection.location(url.path))
+                    .contextMenu {
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                        Button("Add to Library") { FootageFolders.shared.add(url) }
+                    }
+            }
             ForEach(footage.folderItems) { folder in
                 Label(folder.name, systemImage: folder.isThere ? "folder" : "externaldrive.badge.xmark")
                     .foregroundStyle(folder.isThere ? .primary : .secondary)
                     .tag(Collection.footage(folder.id, folder.name))
-                    .help(folder.isThere ? folder.path : String(localized: "\(folder.path) (its drive isn’t connected)"))
+                    .help(folder.isThere ? String(localized: "\(folder.path) (in the Library: searchable)") : String(localized: "\(folder.path) (its drive isn’t connected)"))
                     .contextMenu { footageMenu(folder) }
             }
             if !footage.clipItems.isEmpty {
@@ -786,11 +785,11 @@ extension LibraryView {
             Button {
                 LibraryView.chooseFootage()
             } label: {
-                Label("Add Folder or Clips…", systemImage: "plus")
+                Label("Add Folder…", systemImage: "plus")
             }
             .buttonStyle(.plain)
             .foregroundStyle(.secondary)
-            .help("Play and search them in Pluck, where they are: nothing is copied")
+            .help("Keep a folder here and make what's in it searchable: nothing is copied")
         }
         .dropDestination(for: URL.self) { urls, _ in
             for url in urls where url.isFileURL { footage.add(url) }
@@ -798,25 +797,21 @@ extension LibraryView {
         }
     }
 
-    /// This Mac's places, as in Finder's sidebar: the home folder's own folders and the drives
-    /// plugged in (cards, disks, the network's). Browsed a folder at a time; nothing is indexed
-    /// until it's added.
+    /// Finder's Locations: the drives plugged in (cards, disks, the network's).
     @ViewBuilder var locationsSection: some View {
         Section("Locations") {
-            ForEach(Locations.shared.places, id: \.self) { url in
+            ForEach(Locations.shared.drives, id: \.self) { url in
                 Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.symbol(url))
                     .tag(Collection.location(url.path))
                     .contextMenu {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                         Button("Add to Library") { FootageFolders.shared.add(url) }
-                        if Locations.isDrive(url) {
-                            Button("Offload…") {
-                                OffloadView.startSource = url
-                                StudioNavigator.shared.open(.offload)
-                            }
-                            Divider()
-                            Button("Eject") { Locations.eject(url) }
+                        Button("Offload…") {
+                            OffloadView.startSource = url
+                            StudioNavigator.shared.open(.offload)
                         }
+                        Divider()
+                        Button("Eject") { Locations.eject(url) }
                     }
             }
             if !Locations.shared.seesEverything {
@@ -838,28 +833,21 @@ extension LibraryView {
         Button("Remove from Library") { FootageFolders.shared.remove(folder.id) }
     }
 
-    @ViewBuilder var footageDetail: some View { footageView(collection, pane: 0, search: search) }
+    /// Folders and drives: the Library's own Finder, its panes tiled.
+    @ViewBuilder var footageDetail: some View {
+        if case .footage(let id, _) = collection, let folder = FootageFolders.shared.folders.first(where: { $0.id == id }), !folder.isThere {
+            ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
+                                   description: Text("Connect the drive \(folder.name) is on to play it."))
+        } else {
+            FinderWorkspaceView()
+        }
+    }
 
-    /// The Library split in two, as Tilde and other file managers do: drag between the sides,
-    /// or "Copy to Other Side", to copy (checked like an offload). Copies under way at the foot.
+    /// Copies under way at the foot, and why one couldn't start.
     @ViewBuilder var splitDetail: some View {
         let panes = LibraryPanes.shared
         VStack(spacing: 0) {
-            if panes.split {
-                HSplitView {
-                    side(0) { primaryDetail }
-                    side(1) {
-                        if let secondCollection {
-                            footageView(secondCollection, pane: 1, search: "")
-                        } else {
-                            ContentUnavailableView("Choose a Folder", systemImage: "sidebar.left",
-                                                   description: Text("Click this side, then a folder or a place in the sidebar."))
-                        }
-                    }
-                }
-            } else {
-                primaryDetail
-            }
+            primaryDetail
             LibraryTransfers()
         }
         .alert("Can’t Copy", isPresented: Binding(get: { panes.problem != nil }, set: { if !$0 { panes.problem = nil } })) {
@@ -869,41 +857,31 @@ extension LibraryView {
         }
     }
 
-    /// One side: clicking it makes it the one the sidebar chooses for (a line marks it).
-    private func side<Content: View>(_ index: Int, @ViewBuilder content: () -> Content) -> some View {
-        let panes = LibraryPanes.shared
-        return content()
-            .frame(minWidth: 320, maxWidth: .infinity, maxHeight: .infinity)
-            .overlay(alignment: .top) {
-                Rectangle().fill(panes.active == index ? Color.accentColor : .clear).frame(height: 2)
-            }
-            .simultaneousGesture(TapGesture().onEnded { panes.active = index })
-    }
-
-    @ViewBuilder func footageView(_ collection: Collection?, pane: Int, search: String) -> some View {
-        let footage = FootageFolders.shared
+    /// What the sidebar chose, in the pane in front.
+    func showInFinder(_ collection: Collection?) {
+        let pane = FinderWorkspace.shared.focused
         switch collection {
         case .footage(let id, _):
-            if let folder = footage.folders.first(where: { $0.id == id }) {
-                if folder.isThere {
-                    RawPlayerView(source: .folder(folder.url), search: search, pane: pane).id(folder.path)
-                } else {
-                    ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
-                                           description: Text("Connect the drive \(folder.name) is on to play it."))
-                }
-            }
+            guard let folder = FootageFolders.shared.folders.first(where: { $0.id == id }), folder.isThere else { return }
+            pane.go(to: folder.url, base: folder.url)
         case .clips:
-            let clips = footage.clipItems.filter(\.isThere).map(\.url)
-            RawPlayerView(source: .clips(String(localized: "Clips"), clips), search: search, pane: pane).id(clips)
+            pane.show(list: String(localized: "Clips"), urls: FootageFolders.shared.clipItems.filter(\.isThere).map(\.url))
         case .location(let path):
-            RawPlayerView(source: .folder(URL(fileURLWithPath: path, isDirectory: true)), search: search, pane: pane).id(path)
+            let url = URL(fileURLWithPath: path, isDirectory: true)
+            pane.go(to: url, base: url)
         case .opened(let path):
-            // A clip, played with its folder behind it; or a folder, its clips.
+            // A folder opens; a clip plays, its folder behind it.
             let url = URL(fileURLWithPath: path)
             let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true && !RawFolderScan.isClipFolder(url)
-            RawPlayerView(source: isFolder ? .folder(url) : .file(url), search: search, pane: pane).id(path)
+            if isFolder {
+                pane.go(to: url, base: url)
+            } else {
+                pane.go(to: url.deletingLastPathComponent())
+                pane.selection = [url]
+                pane.playing = url
+            }
         default:
-            EmptyView()
+            break
         }
     }
 

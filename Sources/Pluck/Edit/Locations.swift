@@ -8,6 +8,9 @@ final class Locations {
     static let shared = Locations()
 
     private(set) var places: [URL] = []
+    /// Finder's Favorites (the home folder and its own folders), and the drives plugged in.
+    private(set) var favorites: [URL] = []
+    private(set) var drives: [URL] = []
     /// Full Disk Access is on: no folder asks first.
     private(set) var seesEverything = false
 
@@ -32,6 +35,8 @@ final class Locations {
         let drives = (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: [.volumeIsBrowsableKey], options: [.skipHiddenVolumes]) ?? [])
             .filter { $0.path != "/" && (try? $0.resourceValues(forKeys: [.volumeIsBrowsableKey]).volumeIsBrowsable) != false }
         places = [home] + own + drives
+        favorites = [home] + own
+        self.drives = drives
         seesEverything = Self.hasFullDiskAccess()
     }
 

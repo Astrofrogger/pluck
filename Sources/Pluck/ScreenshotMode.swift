@@ -168,8 +168,41 @@ enum ScreenshotMode {
                 // -PluckScreenshotSplit <folder>: split, that folder on the right.
                 // -PluckScreenshotCopy <a|b> -PluckScreenshotCopyTo <folder>: copied there as the panes do.
                 if let right = defaults.string(forKey: "PluckScreenshotSplit") {
-                    LibraryPanes.shared.split = true
-                    LibraryView.startSecond = .location(right)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        FinderWorkspace.shared.split(.horizontal)
+                        FinderWorkspace.shared.focused.go(to: URL(fileURLWithPath: right))
+                    }
+                }
+                // -PluckScreenshotTiling YES -PluckScreenshotLog <file>: split, move, swap and close, as
+                // the keys do, each step written down.
+                if defaults.bool(forKey: "PluckScreenshotTiling"), let log = defaults.string(forKey: "PluckScreenshotLog") {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(3))
+                        let w = FinderWorkspace.shared
+                        var lines: [String] = []
+                        @MainActor func note(_ step: String) {
+                            let names = w.panes.map { ($0.id == w.focusedID ? "*" : "") + $0.title }
+                            lines.append("\(step): \(names.joined(separator: " | "))")
+                        }
+                        note("start")
+                        w.split(.horizontal); w.focused.go(to: URL(fileURLWithPath: NSTemporaryDirectory())); note("split right")
+                        try? await Task.sleep(for: .seconds(1))
+                        w.split(.vertical); w.focused.go(to: FileManager.default.homeDirectoryForCurrentUser); note("split below")
+                        try? await Task.sleep(for: .seconds(1))
+                        w.move(.up); note("focus up")
+                        w.move(.left); note("focus left")
+                        w.swap(.right); note("swap right")
+                        try? await Task.sleep(for: .seconds(1))
+                        w.split(.horizontal); w.split(.horizontal); note("split twice more (4 max)")
+                        try? await Task.sleep(for: .seconds(1))
+                        w.close(); note("close")
+                        w.close(); w.close(); w.close(); note("close all but one")
+                        try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
+                    }
+                }
+                // -PluckScreenshotFinderMode <icons|list|columns>: the pane shows it so.
+                if let mode = defaults.string(forKey: "PluckScreenshotFinderMode").flatMap(FinderViewMode.init(rawValue:)) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) { FinderWorkspace.shared.focused.mode = mode }
                 }
                 if let items = defaults.string(forKey: "PluckScreenshotCopy"), let into = defaults.string(forKey: "PluckScreenshotCopyTo") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {

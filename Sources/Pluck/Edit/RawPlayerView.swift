@@ -11,7 +11,14 @@ struct RawPlayerView: View {
         case clips(String, [URL])
         /// A clip opened from Finder or the Dock: playing, its folder behind it.
         case file(URL)
+        /// Only this clip (a Finder pane's: Esc goes back to the pane's folder).
+        case clip(URL)
     }
+
+    /// For `.clip`: back to the folder, and the clip before or after (the pane shows it).
+    var close: (() -> Void)?
+    var openClip: ((URL) -> Void)?
+    var playlist: [URL] = []
 
     let source: Source
     /// The Library's search field, looking through the folder's clips.
@@ -63,6 +70,7 @@ struct RawPlayerView: View {
         .focusEffectDisabled()
         .onKeyPress(.space) { player.togglePlay(); return .handled }
         .onKeyPress(.escape) {
+            if case .clip = source { close?(); return close == nil ? .ignored : .handled }
             guard let folder else { return .ignored }
             if player.info != nil { player.eject(); return .handled }
             // A folder up, as far as where browsing began.
@@ -169,6 +177,12 @@ struct RawPlayerView: View {
                     if let folder {
                         Button { player.eject() } label: {
                             Label(folder.url.lastPathComponent, systemImage: "square.grid.2x2")
+                        }
+                        .buttonStyle(GlassCapsuleButtonStyle())
+                        .help("Back to the folder (Esc). ⌘↑ and ⌘↓ go to the previous and next clip.")
+                    } else if case .clip(let url) = source, let close {
+                        Button(action: close) {
+                            Label(FileManager.default.displayName(atPath: url.deletingLastPathComponent().path), systemImage: "chevron.backward")
                         }
                         .buttonStyle(GlassCapsuleButtonStyle())
                         .help("Back to the folder (Esc). ⌘↑ and ⌘↓ go to the previous and next clip.")
@@ -389,6 +403,8 @@ struct RawPlayerView: View {
                 Task { try? await Task.sleep(for: .seconds(2)); browse(url.appendingPathComponent(name, isDirectory: true)) }
             }
         case .clips(let name, let urls): folder = RawFolder(url: URL(fileURLWithPath: "/" + name), clips: urls)
+        case .clip(let url):
+            player.open(url)
         case .file(let url):
             root = url.deletingLastPathComponent()
             browse(url.deletingLastPathComponent())
@@ -499,6 +515,8 @@ struct RawPlayerView: View {
     }
 
     private func claimNavigation() {
+        // A pane's clip: the pane's back button and history.
+        if case .clip = source { return }
         let panes = LibraryPanes.shared
         guard !panes.split || panes.active == pane else { return }
         let inClip = folder != nil && player.info != nil
@@ -525,6 +543,11 @@ struct RawPlayerView: View {
 
     /// The clip before or after the one playing, in the folder being browsed.
     private func neighbour(_ by: Int) -> Bool {
+        if case .clip = source, let url = player.url, let at = playlist.firstIndex(of: url) {
+            guard playlist.indices.contains(at + by) else { return false }
+            openClip?(playlist[at + by])
+            return true
+        }
         guard let folder, let url = player.url else { return false }
         let clips = folder.allClips.map(\.url)
         guard let at = clips.firstIndex(of: url), clips.indices.contains(at + by) else { return false }

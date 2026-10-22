@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.5.0", items: [
+                Item(symbol: "folder", title: String(localized: "A Finder that works with you"),
+                     detail: String(localized: "The Library looks and works like Finder: Favorites and Locations, icons, list and columns, a path bar, and the keys you know. Every file shows; clips play in place.")),
+                Item(symbol: "rectangle.split.2x2", title: String(localized: "Panes, tiled"),
+                     detail: String(localized: "Split a pane right (⌘\\) or below (⇧⌘\\), up to four. ⌥⌘ and the arrows move between them, ⇧⌥⌘ swaps them, ⌥⌘W closes one. Drag between panes to copy, every file checked.")),
+            ]),
             Release(version: "3.4.0", items: [
                 Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload, your way"),
                      detail: String(localized: "A simpler page: the card, the drives and one button. Copy into a new folder or only the contents, only the video if you like, skip what's already there, start by itself when a card goes in, and see when a card is safe to format.")),
