@@ -17,6 +17,15 @@ final class Updater {
     }
     @ObservationIgnored var onStatusChange: (() -> Void)?
     var installedVersion: String?
+    /// The yt-dlp before the latest update, kept to go back to if the update breaks downloads.
+    var previousVersion: String? {
+        didSet { UserDefaults.standard.set(previousVersion, forKey: "updaterPreviousVersion") }
+    }
+    /// A release gone back from: not installed again (a newer one is).
+    private var skippedVersion: String? {
+        didSet { UserDefaults.standard.set(skippedVersion, forKey: "updaterSkippedVersion") }
+    }
+    @ObservationIgnored private var lastRepair: Date?
     /// While downloading: bytes so far and the total (0 if unknown).
     var progress: (done: Int64, total: Int64)?
     var lastChecked: Date? {
@@ -32,6 +41,8 @@ final class Updater {
     }()
 
     static var binaryURL: URL { directory.appendingPathComponent("yt-dlp") }
+    static var previousURL: URL { directory.appendingPathComponent("yt-dlp.previous") }
+    var canGoBack: Bool { previousVersion != nil && FileManager.default.isExecutableFile(atPath: Self.previousURL.path) }
     static var isInstalled: Bool { FileManager.default.isExecutableFile(atPath: binaryURL.path) }
 
     private var useNightly: Bool { UserDefaults.standard.bool(forKey: Prefs.nightly) }
@@ -40,6 +51,34 @@ final class Updater {
     init() {
         lastChecked = UserDefaults.standard.object(forKey: "updaterLastChecked") as? Date
         installedVersion = UserDefaults.standard.string(forKey: "updaterVersion")
+        previousVersion = UserDefaults.standard.string(forKey: "updaterPreviousVersion")
+        skippedVersion = UserDefaults.standard.string(forKey: "updaterSkippedVersion")
+    }
+
+    /// Back to the yt-dlp from before the last update (it broke something): that release isn't
+    /// installed again, the next one is.
+    func goBack() {
+        guard canGoBack, let previous = previousVersion else { return }
+        let fm = FileManager.default
+        do {
+            _ = try fm.replaceItemAt(Self.binaryURL, withItemAt: Self.previousURL)
+            skippedVersion = installedVersion
+            installedVersion = previous
+            UserDefaults.standard.set(previous, forKey: "updaterVersion")
+            previousVersion = nil
+            status = .updated(previous)
+        } catch {
+            status = .failed(error.localizedDescription)
+        }
+    }
+
+    /// A site (YouTube, mostly) changed and downloads fail: the newest yt-dlp, straight away
+    /// rather than at the daily check (at most every half hour).
+    func repair() {
+        guard UserDefaults.standard.bool(forKey: Prefs.autoUpdate), !isBusy,
+              lastRepair.map({ Date.now.timeIntervalSince($0) > 30 * 60 }) ?? true else { return }
+        lastRepair = .now
+        Task { await check() }
     }
 
     /// Checks on launch and then daily while the app is open.
@@ -91,12 +130,15 @@ final class Updater {
         do {
             let latest = try await latestRelease()
             lastChecked = .now
-            if !force, Self.isInstalled, installedVersion == latest.tag {
+            if !force, Self.isInstalled, installedVersion == latest.tag || skippedVersion == latest.tag {
                 status = .upToDate
                 return
             }
+            let before = installedVersion
             status = .downloading
             try await install(latest)
+            if let before, before != latest.tag { previousVersion = before }
+            skippedVersion = nil
             installedVersion = latest.tag
             UserDefaults.standard.set(latest.tag, forKey: "updaterVersion")
             status = .updated(latest.tag)
@@ -177,6 +219,9 @@ final class Updater {
             throw Failure.badBinary
         }
         if fm.fileExists(atPath: Self.binaryURL.path) {
+            // The one in use now, kept to go back to.
+            try? fm.removeItem(at: Self.previousURL)
+            try? fm.copyItem(at: Self.binaryURL, to: Self.previousURL)
             _ = try fm.replaceItemAt(Self.binaryURL, withItemAt: staged)
         } else {
             try fm.moveItem(at: staged, to: Self.binaryURL)

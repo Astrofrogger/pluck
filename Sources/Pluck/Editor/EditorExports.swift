@@ -107,6 +107,13 @@ final class EditorExports {
             progress = nil
             task = nil
             manager.saveHistory()
+            if !Task.isCancelled {
+                if let problem {
+                    manager.notify(title: String(localized: "Export stopped"), body: problem)
+                } else if let output {
+                    manager.notify(title: String(localized: "Export done"), body: output.lastPathComponent, files: [output])
+                }
+            }
         }
     }
 

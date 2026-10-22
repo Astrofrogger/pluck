@@ -4,12 +4,22 @@ import SwiftUI
 /// far it is. A drive that disconnects only pauses one; it carries on when it's back.
 struct OffloadView: View {
     @AppStorage("offloadRoots") private var rootsText = ""
-    @AppStorage("offloadCascade") private var cascade = true
     @AppStorage("offloadEject") private var eject = false
+    /// Into a new folder in each place (named below), or straight into the places chosen.
+    @AppStorage("offloadNewFolder") private var newFolder = true
+    /// Only the clips (and what the camera wrote beside them).
+    @AppStorage("offloadOnlyVideo") private var onlyVideo = false
+    /// Started by itself when a camera card goes in (see OffloadCenter).
+    @AppStorage(OffloadCenter.autoKey) private var automatic = false
+    /// What would be copied, and how much of it is already on every drive chosen.
+    @State private var already: (count: Int, bytes: Int64)?
+    @State private var droppingFrom = false
+    @State private var droppingTo = false
     @State private var center = OffloadCenter.shared
     @State private var cards: [URL] = []
     @State private var source: URL?
     @State private var found: (count: Int, bytes: Int64)?
+    private var planKey: String { [source?.path ?? "", "\(onlyVideo)", rootsText, "\(newFolder)", name].joined(separator: "|") }
     @State private var name = ""
     @State private var problem: String?
     /// For screenshots: these instead of the cards plugged in.
@@ -42,6 +52,11 @@ struct OffloadView: View {
             if let start = Self.startSource { Self.startSource = nil; choose(start) }
             refreshCards()
         }
+        .task(id: planKey) {
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled else { return }
+            await plan()
+        }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in refreshCards() }
         .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didUnmountNotification)) { _ in refreshCards() }
         .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
@@ -58,77 +73,180 @@ struct OffloadView: View {
 
     private var setup: some View {
         Card {
-            CardField(label: Text("From")) {
-                HStack(spacing: 8) {
-                    ForEach(cards, id: \.self) { card in
-                        Button { choose(card) } label: {
-                            Label(OffloadCenter.volumeName(card), systemImage: "sdcard").lineLimit(1)
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(source == card ? .accentColor : nil)
-                    }
-                    Button("Choose…", systemImage: "folder") { pickSource() }
-                }
-            }
-            if let source {
-                HStack(spacing: 6) {
-                    Text(source.path).lineLimit(1).truncationMode(.middle)
-                    if let found {
-                        Text(verbatim: "·")
-                        Text("^[\(found.count) file](inflect: true), \(ByteCountFormatter.string(fromByteCount: found.bytes, countStyle: .file))")
-                    } else {
-                        ProgressView().controlSize(.mini)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            Divider()
-            CardField(label: Text("To")) {
-                VStack(alignment: .trailing, spacing: 6) {
-                    ForEach(roots, id: \.self) { root in
-                        HStack(spacing: 8) {
-                            Image(systemName: "externaldrive").foregroundStyle(.secondary)
-                            Text(OffloadCenter.volumeName(root)).fontWeight(.medium)
-                            Text(root.lastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                            Text(free(root)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                            Button("Remove", systemImage: "xmark.circle.fill") { removeRoot(root) }
-                                .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.secondary)
-                        }
-                        .help(root.path)
-                    }
-                    if roots.count < 4 {
-                        Button(roots.isEmpty ? "Choose a Drive…" : "Add a Drive…", systemImage: "plus") { addRoot() }
-                    }
-                }
-            }
-            Divider()
-            CardField(label: Text("Card")) {
-                HStack(spacing: 14) {
-                    if roots.count > 1 {
-                        Toggle("Free it first", isOn: $cascade)
-                            .help("Copies the card to the first drive, then that drive to the others, so the card can go back in the camera sooner")
-                    }
-                    Toggle("Eject when done", isOn: $eject)
-                }
-                .toggleStyle(.checkbox)
-            }
-            Divider()
-            CardField(label: Text("Folder")) {
-                TextField("Folder", text: $name).textFieldStyle(.roundedBorder).frame(maxWidth: 260)
-            }
+            // The card on the left, the drives on the right: click or drop on either side, and
+            // what's to know about each under it.
             HStack {
+                Spacer()
+                Toggle(isOn: $automatic) { Text("Start when a card goes in") }
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .help("Offloads a camera card like this by itself as soon as it goes in, wherever you are in Pluck")
+            }
+            .padding(.bottom, -18)
+            HStack(alignment: .top, spacing: 12) {
+                fromSide.frame(maxWidth: .infinity)
+                Image(systemName: "arrow.right")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 44)
+                toSide.frame(maxWidth: .infinity)
+            }
+            HStack(spacing: Design.Spacing.controls) {
                 if let problem { ProblemLabel(text: problem) }
                 Spacer()
-                Button("Check a Copy…", systemImage: "checkmark.shield") { pickCheck() }
-                    .help("Reads a copy back and compares it with its MHL, before a card is formatted or months later")
-                Button("Offload", systemImage: "arrow.down.doc") { start() }
+                Menu {
+                    Button("Check a Copy…", systemImage: "checkmark.shield") { pickCheck() }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Check a copy against its MHL, before a card is formatted or months later")
+                Button(action: start) { Label(actionTitle, systemImage: "arrow.down.doc") }
                     .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled(source == nil || roots.isEmpty || name.trimmingCharacters(in: .whitespaces).isEmpty || starting)
+                    .disabled(!canStart)
                     .keyboardShortcut(.defaultAction)
             }
         }
+    }
+
+    // MARK: From and to
+
+    private var fromSide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sideTitle("From")
+            ForEach(cards, id: \.self) { card in
+                tile(selected: source == card, symbol: "sdcard", title: OffloadCenter.volumeName(card),
+                     detail: source == card ? planText : Self.usedText(card)) { choose(card) }
+            }
+            // A folder chosen (not a card plugged in).
+            if let source, !cards.contains(source) {
+                tile(selected: true, symbol: "folder", title: source.lastPathComponent, detail: planText) {}
+                    .help(source.path)
+            }
+            addTile(source == nil && cards.isEmpty ? "Choose a card or folder…" : "Folder…", symbol: "folder") { pickSource() }
+            VStack(alignment: .leading, spacing: 6) {
+                Self.check("Only video files", $onlyVideo)
+                    .help("Only the clips, with the sound and files the camera wrote beside each one (XML, RED and BRAW sidecars); no photos or other files")
+                Self.check("Eject when done", $eject)
+                    .help("Ejects the card when it’s no longer needed")
+            }
+            .padding(.top, 4)
+        }
+        .dropZone(targeted: $droppingFrom) { urls in
+            guard let folder = urls.first(where: Self.isFolder) else { return false }
+            choose(folder)
+            return true
+        }
+    }
+
+    private var toSide: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sideTitle("To")
+            ForEach(roots, id: \.self) { root in
+                DriveTile(root: root, needed: neededBytes) { removeRoot(root) }
+            }
+            if roots.count < 4 {
+                addTile(roots.isEmpty ? "Choose a drive…" : "Add a drive…", symbol: "plus") { addRoot() }
+            }
+            HStack(spacing: 8) {
+                Self.check("In a new folder", $newFolder)
+                    .help("On: each drive gets a new folder with this name, the card’s files in it. Off: only the card’s contents go, straight into the places chosen.")
+                if newFolder {
+                    TextField("Folder", text: $name).textFieldStyle(.roundedBorder)
+                }
+            }
+            .padding(.top, 4)
+        }
+        .dropZone(targeted: $droppingTo) { urls in
+            let folders = urls.filter(Self.isFolder)
+            guard !folders.isEmpty else { return false }
+            for folder in folders { add(root: folder) }
+            return true
+        }
+    }
+
+    private func sideTitle(_ title: LocalizedStringKey) -> some View {
+        Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
+    }
+
+    private func tile(selected: Bool, symbol: String, title: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.title3).frame(width: 26)
+                    .foregroundStyle(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
+                    Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selected ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(Color.primary.opacity(0.04)),
+                        in: .rect(cornerRadius: Design.Radius.box))
+            .overlay(RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(selected ? Color.accentColor : .clear, lineWidth: 1.5))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func addTile(_ title: LocalizedStringKey, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .padding(.vertical, 8).padding(.horizontal, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .overlay(RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    .foregroundStyle(.quaternary))
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: What will happen
+
+    /// What the chosen card holds for this offload, and how much of it is already there.
+    private var planText: String {
+        guard let found else { return String(localized: "Looking…") }
+        let size = ByteCountFormatter.string(fromByteCount: found.bytes, countStyle: .file)
+        var text = String(AttributedString(localized: "^[\(found.count) file](inflect: true), \(size)").characters)
+        if let already, already.count > 0 { text += " · " + String(localized: "\(already.count) already there") }
+        return text
+    }
+
+    /// Bytes still to copy onto each drive.
+    private var neededBytes: Int64? {
+        guard let found else { return nil }
+        return found.bytes - (already?.bytes ?? 0)
+    }
+
+    private var remaining: Int? { found.map { $0.count - (already?.count ?? 0) } }
+
+    private var canStart: Bool {
+        source != nil && !roots.isEmpty && !starting && (!newFolder || !name.trimmingCharacters(in: .whitespaces).isEmpty)
+            && (remaining ?? 1) > 0
+    }
+
+    /// The button says what it'll do.
+    private var actionTitle: String {
+        if source == nil { return String(localized: "Choose a Card") }
+        if roots.isEmpty { return String(localized: "Choose a Drive") }
+        if remaining == 0 { return String(localized: "Nothing New to Copy") }
+        guard let bytes = neededBytes else { return String(localized: "Offload") }
+        let size = ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+        return roots.count == 1 ? String(localized: "Offload \(size)") : String(localized: "Offload \(size) to \(roots.count) Drives")
+    }
+
+    /// How full a card is, for one not chosen yet.
+    private static func usedText(_ volume: URL) -> String {
+        guard let values = try? volume.resourceValues(forKeys: [.volumeTotalCapacityKey]), let total = values.volumeTotalCapacity,
+              let free = OffloadCenter.freeSpace(volume) else { return "" }
+        return String(localized: "\(ByteCountFormatter.string(fromByteCount: Int64(total) - free, countStyle: .file)) used")
     }
 
     private func free(_ root: URL) -> String {
@@ -148,19 +266,23 @@ struct OffloadView: View {
         source = url
         found = nil
         problem = nil
-        name = Self.suggestedName(for: url)
-        Task {
-            let list = await Task.detached(priority: .userInitiated) { OffloadCenter.files(in: url) }.value
-            guard source == url else { return }
-            found = (list.count, list.reduce(0) { $0 + $1.size })
-        }
+        name = OffloadCenter.suggestedName(for: url)
     }
 
-    /// The card's name with the day, as offload folders usually are ("2026-10-17 A001").
-    private static func suggestedName(for url: URL) -> String {
-        let day = DateFormatter()
-        day.dateFormat = "yyyy-MM-dd"
-        return day.string(from: .now) + " " + OffloadCenter.volumeName(url)
+    /// What the offload would copy, worked out again when anything it depends on changes.
+    private func plan() async {
+        guard let source else { found = nil; already = nil; return }
+        let onlyVideo = onlyVideo, targets = roots.map { newFolder ? $0.appendingPathComponent(name).path : $0.path }
+        found = nil
+        already = nil
+        let (list, there) = await Task.detached(priority: .userInitiated) {
+            let list = OffloadCenter.files(in: source, onlyVideo: onlyVideo)
+            return (list, targets.isEmpty ? [] : OffloadCenter.alreadyThere(list, in: targets))
+        }.value
+        guard !Task.isCancelled else { return }
+        found = (list.count, list.reduce(0) { $0 + $1.size })
+        let skipped = list.indices.filter { there.indices.contains($0) && !there[$0].contains(false) }
+        already = (skipped.count, skipped.reduce(0) { $0 + list[$1].size })
     }
 
     private func pickCheck() {
@@ -186,9 +308,23 @@ struct OffloadView: View {
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
         panel.prompt = String(localized: "Choose")
-        guard panel.runModal() == .OK, let url = panel.url, !roots.contains(url) else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        add(root: url)
+    }
+
+    private func add(root url: URL) {
+        guard !roots.contains(url), roots.count < 4, url != source else { return }
         rootsText = (roots + [url]).map(\.path).joined(separator: "\n")
         refreshCards()
+    }
+
+    /// A checkbox and its words (clicking them ticks it too).
+    private static func check(_ title: LocalizedStringKey, _ on: Binding<Bool>) -> some View {
+        Toggle(title, isOn: on).toggleStyle(.checkbox).font(.callout)
+    }
+
+    private static func isFolder(_ url: URL) -> Bool {
+        url.isFileURL && (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
     }
 
     private func removeRoot(_ root: URL) {
@@ -206,9 +342,9 @@ struct OffloadView: View {
         }
         starting = true
         problem = nil
-        let folder = name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-")
+        let folder = newFolder ? name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-") : ""
         Task {
-            problem = await center.add(source: source, roots: targets, name: folder, cascade: cascade, eject: eject)
+            problem = await center.add(source: source, roots: targets, name: folder, eject: eject, onlyVideo: onlyVideo)
             starting = false
         }
     }
@@ -225,7 +361,8 @@ private struct OffloadRow: View {
         let live = center.live[job.id]
         Card {
             CardHeader(symbol: job.quick == true ? "doc.on.doc" : "externaldrive.badge.checkmark", title: Text(job.displayName),
-                       subtitle: Text("\(job.sourceVolume) → \(job.rootVolumes.formatted(.list(type: .and)))"),
+                       subtitle: Text("\(job.sourceVolume) → \(job.rootVolumes.formatted(.list(type: .and)))"
+                                      + ((job.skipped ?? 0) > 0 ? " · " + String(localized: "\(job.skipped ?? 0) already there") : "")),
                        tint: tint(state)) {
                 buttons(state)
             }
@@ -248,10 +385,23 @@ private struct OffloadRow: View {
                 .foregroundStyle(.secondary)
             } else {
                 HStack(spacing: Design.Spacing.controls) {
-                    Label("^[\(job.files.count - job.problems.count) file](inflect: true) checked on every drive", systemImage: "checkmark.circle.fill")
+                    let skipped = job.skipped ?? 0
+                    Label(skipped > 0
+                          ? String(localized: "\(job.files.count - job.problems.count - skipped) copied and checked, \(skipped) already there")
+                          : String(AttributedString(localized: "^[\(job.files.count - job.problems.count) file](inflect: true) checked on every drive").characters),
+                          systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                     Text(ByteCountFormatter.string(fromByteCount: job.totalBytes, countStyle: .file)).foregroundStyle(.secondary)
                     Spacer()
+                    // Every file on every drive and checked: the card can be formatted.
+                    if job.problems.isEmpty, job.quick != true, job.partial != true {
+                        Label("Safe to Format", systemImage: "checkmark.seal.fill")
+                            .font(.caption.weight(.semibold))
+                            .padding(.horizontal, 8).padding(.vertical, 3)
+                            .background(Color.green.opacity(0.18), in: .capsule)
+                            .foregroundStyle(.green)
+                            .help("Every file of the card is on \(job.roots.count == 1 ? String(localized: "the drive") : String(localized: "every drive")) and checked against it")
+                    }
                     if let finished = job.finished { Text(finished, style: .date).foregroundStyle(.secondary) }
                 }
                 .font(.callout)
@@ -385,5 +535,63 @@ private struct CheckRow: View {
     private var tint: Color {
         guard check.finished else { return .accentColor }
         return check.isGood ? .green : .orange
+    }
+}
+
+private extension View {
+    /// A part of the page that takes dropped folders, lit while they're over it.
+    func dropZone(targeted: Binding<Bool>, perform: @escaping ([URL]) -> Bool) -> some View {
+        self
+            .padding(6)
+            .background(RoundedRectangle(cornerRadius: Design.Radius.control)
+                .strokeBorder(Color.accentColor, lineWidth: 2)
+                .opacity(targeted.wrappedValue ? 1 : 0))
+            .contentShape(.rect)
+            .dropDestination(for: URL.self) { urls, _ in perform(urls) } isTargeted: { targeted.wrappedValue = $0 }
+            .padding(-6)
+    }
+}
+
+/// A drive the offload goes to: its name, the folder on it, and its room (orange when this
+/// offload won't fit).
+private struct DriveTile: View {
+    let root: URL
+    let needed: Int64?
+    let remove: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        let free = OffloadCenter.freeSpace(root)
+        let total = (try? root.resourceValues(forKeys: [.volumeTotalCapacityKey]).volumeTotalCapacity).flatMap { $0 }.map(Int64.init)
+        let tight = (needed ?? 0) > 0 && free.map { $0 < needed! } == true
+        HStack(spacing: 10) {
+            Image(systemName: root.path.hasPrefix("/Volumes/") ? "externaldrive" : "internaldrive")
+                .font(.title3).frame(width: 26).foregroundStyle(tight ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 4) {
+                    Text(OffloadCenter.volumeName(root)).fontWeight(.semibold).lineLimit(1)
+                    if root.lastPathComponent != OffloadCenter.volumeName(root) {
+                        Text(root.lastPathComponent).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                    }
+                }
+                if let free, let total, total > 0 {
+                    ProgressView(value: Double(total - free), total: Double(total))
+                        .progressViewStyle(.linear)
+                        .tint(tight ? .orange : .accentColor)
+                        .controlSize(.mini)
+                }
+                Text(tight ? String(localized: "Not enough room") : free.map { String(localized: "\(ByteCountFormatter.string(fromByteCount: $0, countStyle: .file)) free") } ?? "")
+                    .font(.caption).foregroundStyle(tight ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+            }
+            Spacer(minLength: 0)
+            Button("Remove", systemImage: "xmark.circle.fill", action: remove)
+                .labelStyle(.iconOnly).buttonStyle(.plain).foregroundStyle(.tertiary)
+                .opacity(hovering ? 1 : 0)
+        }
+        .padding(10)
+        .background(Color.primary.opacity(0.04), in: .rect(cornerRadius: Design.Radius.box))
+        .overlay(RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(tight ? Color.orange : .clear, lineWidth: 1.5))
+        .onHover { hovering = $0 }
+        .help(root.path)
     }
 }

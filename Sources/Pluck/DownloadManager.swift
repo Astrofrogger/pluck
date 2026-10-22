@@ -1142,6 +1142,20 @@ final class DownloadManager {
                 } else if lower.contains("drm protected") {
                     message = String(localized: "This video is DRM-protected and can’t be downloaded.")
                 }
+                // YouTube's checks: a person (cookies), or yt-dlp behind on how YouTube serves
+                // videos now (the newest one is fetched at once).
+                var repair: YouTubeRepair?
+                if lower.contains("not a bot") || lower.contains("confirm you") {
+                    message = String(localized: "YouTube wants to be sure you’re a person. Log in to YouTube in your browser, then choose that browser under Settings → Advanced → Use cookies from.")
+                } else if lower.contains("javascript runtime") || lower.contains("js runtime") || lower.contains("deno") {
+                    message = String(localized: "YouTube needs a small JavaScript helper that isn’t installed yet. Pluck is getting it now: try again in a minute.")
+                    repair = .helper
+                } else if lower.contains("po token") || lower.contains("po_token") || lower.contains("nsig") || lower.contains("signature")
+                            || lower.contains("n challenge") || lower.contains("sabr")
+                            || (lower.contains("requested format is not available") && line.contains("[youtube]")) {
+                    message = String(localized: "YouTube changed how it serves videos. Pluck is getting the newest yt-dlp: try again in a minute. If it keeps failing, choose your browser under Settings → Advanced → Use cookies from.")
+                    repair = .ytdlp
+                }
                 // Problems on this Mac or with the connection: in plain words, and no point looking
                 // for a video on the page instead.
                 var local = true
@@ -1158,10 +1172,15 @@ final class DownloadManager {
                 } else {
                     local = false
                 }
-                let final = message, skip = local
+                let final = message, skip = local, fix = repair
                 await MainActor.run {
                     item.errorMessage = final
                     if skip { item.triedPageSearch = true }
+                    switch fix {
+                    case .ytdlp: AppDelegate.shared?.updater.repair()
+                    case .helper: Task { await AppDelegate.shared?.toolsUpdater.check() }
+                    case nil: break
+                    }
                 }
             }
         }
@@ -1616,3 +1635,6 @@ enum PipeLines {
         }
     }
 }
+
+/// What fixes a YouTube failure: a newer yt-dlp, or the JavaScript helper (Deno) it needs.
+enum YouTubeRepair { case ytdlp, helper }

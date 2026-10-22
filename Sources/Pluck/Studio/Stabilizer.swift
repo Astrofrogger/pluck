@@ -43,6 +43,7 @@ final class Stabilizer {
             do {
                 try await Self.make(path) { value in Task { @MainActor in self.working[path] = value } }
                 finished += 1
+                AppDelegate.shared?.manager.notify(title: String(localized: "Steadied"), body: URL(fileURLWithPath: path).lastPathComponent)
             } catch {
                 problems[path] = error.localizedDescription
             }

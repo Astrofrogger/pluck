@@ -1022,9 +1022,11 @@ final class RawPlayer {
                 if FileManager.default.fileExists(atPath: url.path) {
                     exported = url
                     _ = AppDelegate.shared?.manager.addLocalFiles([url])
+                    AppDelegate.shared?.manager.notify(title: String(localized: "Export done"), body: url.lastPathComponent, files: [url])
                 }
             case .failure(let error):
                 exportProblem = error.localizedDescription
+                AppDelegate.shared?.manager.notify(title: String(localized: "Export stopped"), body: error.localizedDescription)
             }
         }
     }

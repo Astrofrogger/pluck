@@ -44,6 +44,10 @@ struct OffloadJob: Codable, Identifiable, Hashable {
     /// the reports a card's offload leaves, and shown by this name.
     var quick: Bool?
     var title: String?
+    /// Files already on every drive when it started (same name, size and date): not copied again.
+    var skipped: Int?
+    /// Only some of the card went (its video files): it isn't safe to format.
+    var partial: Bool?
 
     var displayName: String { title ?? name }
     var cascades: Bool { cascade == true && roots.count > 1 }
@@ -114,7 +118,7 @@ final class OffloadRunner: @unchecked Sendable {
         defer { buffer.deallocate() }
         // The Mac stays awake while it copies (an offload often runs unattended, overnight).
         let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiated, .idleSystemSleepDisabled],
-                                                             reason: "Offloading \(job.name)")
+                                                             reason: "Offloading \(job.displayName)")
         defer { ProcessInfo.processInfo.endActivity(activity) }
         do {
             if job.cascades {
@@ -496,7 +500,7 @@ final class OffloadRunner: @unchecked Sendable {
         xml += "</hashlist>\n"
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyy-MM-dd_HHmmss"
-        let report = (job.targets[target] as NSString).appendingPathComponent("\(job.name)_\(stamp.string(from: .now)).mhl")
+        let report = (job.targets[target] as NSString).appendingPathComponent("\(job.displayName)_\(stamp.string(from: .now)).mhl")
         try? xml.write(toFile: report, atomically: true, encoding: .utf8)
     }
 }
@@ -542,12 +546,59 @@ final class OffloadCenter {
         for job in jobs { states[job.id] = job.finished != nil ? .done : .paused }
         // A drive back: the jobs waiting for it carry on.
         let center = NSWorkspace.shared.notificationCenter
-        observers.append(center.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.drivesChanged() }
+        observers.append(center.addObserver(forName: NSWorkspace.didMountNotification, object: nil, queue: .main) { [weak self] note in
+            let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
+            MainActor.assumeIsolated {
+                self?.drivesChanged()
+                if let volume { self?.cardInserted(volume) }
+            }
         })
     }
 
     func state(_ job: OffloadJob) -> State { states[job.id] ?? .paused }
+
+    // MARK: - By itself
+
+    /// Offloads start by themselves when a camera card goes in (with Offload's last settings).
+    static let autoKey = "offloadAuto"
+
+    /// The name a card's folder gets ("2026-10-17 A001").
+    nonisolated static func suggestedName(for url: URL) -> String {
+        let day = DateFormatter()
+        day.dateFormat = "yyyy-MM-dd"
+        return day.string(from: .now) + " " + volumeName(url)
+    }
+
+    /// A camera's card, by what cameras put on it (not any drive plugged in: a backup drive
+    /// mustn't be offloaded onto the others).
+    nonisolated static func isCameraCard(_ volume: URL) -> Bool {
+        let marks: Set<String> = ["dcim", "private", "avchd", "xdroot", "contents", "clip", "clips", "mp_root", "m4root"]
+        let kinds: Set<String> = ["rdc", "r3d", "braw", "crm", "mxf"]
+        let top = (try? FileManager.default.contentsOfDirectory(at: volume, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+        if top.contains(where: { marks.contains($0.lastPathComponent.lowercased()) || kinds.contains($0.pathExtension.lowercased()) }) { return true }
+        // A level down (RED's card folder, Blackmagic's).
+        return top.contains { folder in
+            ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+                .contains { kinds.contains($0.pathExtension.lowercased()) }
+        }
+    }
+
+    private func cardInserted(_ volume: URL) {
+        let defaults = UserDefaults.standard
+        guard defaults.bool(forKey: Self.autoKey) else { return }
+        let roots = (defaults.string(forKey: "offloadRoots") ?? "").split(separator: "\n").map { URL(fileURLWithPath: String($0), isDirectory: true) }
+        guard !roots.isEmpty, roots.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
+              !roots.contains(where: { $0.path.hasPrefix(volume.path) }) else { return }
+        Task {
+            guard await Task.detached(operation: { Self.isCameraCard(volume) }).value else { return }
+            let newFolder = defaults.object(forKey: "offloadNewFolder") as? Bool ?? true
+            let problem = await add(source: volume, roots: roots, name: newFolder ? Self.suggestedName(for: volume) : "",
+                                    eject: defaults.bool(forKey: "offloadEject"), onlyVideo: defaults.bool(forKey: "offloadOnlyVideo"))
+            AppDelegate.shared?.manager.notify(
+                title: problem == nil ? String(localized: "Offloading \(Self.volumeName(volume))") : String(localized: "\(Self.volumeName(volume)) wasn’t offloaded"),
+                body: problem ?? String(localized: "To \(roots.map(Self.volumeName).formatted(.list(type: .and))), every file checked."))
+        }
+    }
 
     /// The room left where a copy goes (nil when the drive won't say). macOS's "for important
     /// use" figure is only kept for the Mac's own disks: a server (SMB, AFP, NFS) gives 0 there,
@@ -605,10 +656,12 @@ final class OffloadCenter {
         return nil
     }
 
-    /// A new offload: the files in the source, to a folder named `name` in each of the roots.
-    func add(source: URL, roots: [URL], name: String, cascade: Bool = false, eject: Bool = false, quick: Bool = false) async -> String? {
+    /// A new offload: the files in the source, to a folder named `name` in each of the roots (an
+    /// empty name: straight into the roots, when nothing there has the same name).
+    func add(source: URL, roots: [URL], name: String, cascade: Bool = false, eject: Bool = false, quick: Bool = false,
+             onlyVideo: Bool = false) async -> String? {
         if let problem = Self.problem(source: source, roots: roots, quick: quick) { return problem }
-        let list = await Task.detached(priority: .userInitiated) { Self.files(in: source) }.value
+        let list = await Task.detached(priority: .userInitiated) { Self.files(in: source, onlyVideo: onlyVideo) }.value
         guard !list.isEmpty else { return String(localized: "There are no files there.") }
         if let problem = Self.problem(files: list, roots: roots) { return problem }
         var job = OffloadJob(name: name, source: source.path, sourceVolume: Self.volumeName(source), roots: roots.map(\.path),
@@ -616,6 +669,13 @@ final class OffloadCenter {
                              files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: roots.map { _ in false }) },
                              cascade: cascade, ejectSource: eject)
         if quick { job.quick = true }
+        if onlyVideo { job.partial = true }
+        if name.isEmpty { job.title = Self.volumeName(source) }
+        // What's already on a drive (an earlier offload of the same card): skipped there.
+        let there = Self.alreadyThere(list, in: job.targets)
+        for (index, done) in there.enumerated() { job.files[index].done = done }
+        job.skipped = there.filter { !$0.contains(false) }.count
+        if job.files.allSatisfy({ !$0.done.contains(false) }) { return String(localized: "Everything is already there.") }
         // Room for it everywhere.
         for root in roots {
             if let free = Self.freeSpace(root), free < job.totalBytes { return String(localized: "There isn’t enough room on \(Self.volumeName(root)).") }
@@ -767,8 +827,12 @@ final class OffloadCenter {
             let job = jobs[index]
             NotificationCenter.default.post(name: Self.finishedNotification, object: job.targets)
             if job.quick == true {
-                // A copy in the Library: a word only when something went wrong (its bar shows the rest).
-                if !job.problems.isEmpty {
+                // A copy in the Library (shown by its bar while Pluck is in front).
+                let into = URL(fileURLWithPath: job.roots[0])
+                if job.problems.isEmpty {
+                    AppDelegate.shared?.manager.notify(title: String(localized: "Copied and checked"),
+                                                       body: "\(job.displayName) → \(into.lastPathComponent)", files: job.targets.map { URL(fileURLWithPath: $0) })
+                } else {
                     AppDelegate.shared?.manager.notify(title: String(localized: "Copy done, with problems"),
                                                        body: String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied."))
                 }
@@ -779,8 +843,8 @@ final class OffloadCenter {
             let problems = job.problems.count
             AppDelegate.shared?.manager.notify(
                 title: problems == 0 ? String(localized: "Offload done") : String(localized: "Offload done, with problems"),
-                body: problems == 0 ? String(localized: "\(job.name): every file checked on \(job.roots.count) drives.")
-                    : String(localized: "\(job.name): \(problems) files couldn’t be copied."),
+                body: problems == 0 ? String(localized: "\(job.displayName): every file checked on \(job.roots.count) drives.")
+                    : String(localized: "\(job.displayName): \(problems) files couldn’t be copied."),
                 files: job.targets.map { URL(fileURLWithPath: $0) })
         }
     }
@@ -911,6 +975,44 @@ final class OffloadCenter {
 
     /// Every file in a folder, in order: hidden ones too (some cameras hide files a card needs),
     /// but not what macOS itself leaves on a drive.
+    /// The files to offload; `onlyVideo`: the clips and what the camera wrote beside each (its
+    /// sound, XML, RED and BRAW sidecars), not photos or anything else on the card.
+    nonisolated static func files(in folder: URL, onlyVideo: Bool) -> [(path: String, size: Int64, modified: Date)] {
+        let all = files(in: folder)
+        guard onlyVideo else { return all }
+        let videoKinds: Set<String> = ["mov", "mp4", "m4v", "mxf", "avi", "mkv", "mts", "m2ts", "r3d", "braw", "crm", "insv", "lrv"]
+        func folderOf(_ path: String) -> String { (path as NSString).deletingLastPathComponent.lowercased() }
+        func stem(_ path: String) -> String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased() }
+        // A clip that's a folder (a RED .RDC, a CinemaDNG sequence): all of it.
+        var dngs: [String: Int] = [:]
+        for file in all where (file.path as NSString).pathExtension.lowercased() == "dng" { dngs[folderOf(file.path), default: 0] += 1 }
+        let clipFolders = Set(all.map { folderOf($0.path) }.filter { $0.hasSuffix(".rdc") || (dngs[$0] ?? 0) > 1 })
+        let videos = all.filter { videoKinds.contains(($0.path as NSString).pathExtension.lowercased()) }
+        var stems: [String: [String]] = [:]
+        for video in videos { stems[folderOf(video.path), default: []].append(stem(video.path)) }
+        return all.filter { file in
+            let kind = (file.path as NSString).pathExtension.lowercased()
+            if videoKinds.contains(kind) { return true }
+            let folder = folderOf(file.path)
+            if clipFolders.contains(where: { folder == $0 || folder.hasPrefix($0 + "/") }) { return true }
+            // Beside a clip, named after it (C0001.MP4 → C0001M01.XML, A001.MOV → A001.WAV).
+            let name = stem(file.path)
+            return (stems[folder] ?? []).contains { name.hasPrefix($0) }
+        }
+    }
+
+    /// For each file, whether it's already in each target (the same name, size and date).
+    nonisolated static func alreadyThere(_ list: [(path: String, size: Int64, modified: Date)], in targets: [String]) -> [[Bool]] {
+        list.map { file in
+            targets.map { target in
+                let place = (target as NSString).appendingPathComponent(file.path)
+                guard let values = try? URL(fileURLWithPath: place).resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]),
+                      Int64(values.fileSize ?? -1) == file.size, let date = values.contentModificationDate else { return false }
+                return abs(date.timeIntervalSince(file.modified)) < 2
+            }
+        }
+    }
+
     nonisolated static func files(in folder: URL) -> [(path: String, size: Int64, modified: Date)] {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .nameKey]
         guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys)) else { return [] }

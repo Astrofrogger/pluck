@@ -578,6 +578,15 @@ private struct AdvancedSettings: View {
                         } else {
                             Text("Not found").foregroundStyle(.red)
                         }
+                        // An update that broke downloads: the one before, until a newer one comes.
+                        if autoUpdate, updater.canGoBack, !updater.isBusy, let previous = updater.previousVersion {
+                            Button("Use \(previous)") {
+                                updater.goBack()
+                                manager.refreshVersion()
+                            }
+                            .controlSize(.small)
+                            .help("Go back to the yt-dlp from before the last update. This release is skipped; the next one installs as usual.")
+                        }
                     }
                 }
                 LabeledContent("ffmpeg") {

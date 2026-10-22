@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.4.0", items: [
+                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload, your way"),
+                     detail: String(localized: "A simpler page: the card, the drives and one button. Copy into a new folder or only the contents, only the video if you like, skip what's already there, start by itself when a card goes in, and see when a card is safe to format.")),
+                Item(symbol: "bell.badge", title: String(localized: "Word when it's done"),
+                     detail: String(localized: "A notification when an export, a copy, a raw export, a photo export or steadying finishes while you're in another app.")),
+            ]),
             Release(version: "3.3.1", items: [
                 Item(symbol: "server.rack", title: String(localized: "Copying to servers"),
                      detail: String(localized: "Offload and the Library's copies saw no room on network servers and wouldn't start. They read the free space right now.")),

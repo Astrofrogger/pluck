@@ -1191,6 +1191,10 @@ private struct PhotoExportPanel: View {
             }
             editing.exporting = false
             editing.exportFolder = folder
+            AppDelegate.shared?.manager.notify(
+                title: editing.exportProblem == nil ? String(localized: "Photos exported") : String(localized: "Photos exported, with problems"),
+                body: editing.exportProblem ?? String(AttributedString(localized: "^[\(targets.count) photo](inflect: true) in \(folder.lastPathComponent)").characters),
+                files: [folder])
             if ScreenshotMode.scene != nil {
                 // Tests: how long it took.
                 try? "\(targets.count) photos in \(Int(Date.now.timeIntervalSince(started))) s".write(

@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.4.0", items: [
+                Item(symbol: "stethoscope", title: String(localized: "Downloads that mend themselves"),
+                     detail: String(localized: "When YouTube changes, Pluck fetches the newest yt-dlp at once and says what happened in plain words. An update that breaks downloads can be undone in Settings.")),
+            ]),
             Release(version: "3.1.3", items: [
                 Item(symbol: "bell.badge", title: String(localized: "Updates you won’t miss"),
                      detail: String(localized: "A new version is offered in a window of its own. Install it now, or let it go in when you quit Pluck.")),

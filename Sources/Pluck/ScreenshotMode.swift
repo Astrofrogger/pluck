@@ -582,7 +582,8 @@ enum ScreenshotMode {
                                                            roots: to.split(separator: "|").map { URL(fileURLWithPath: String($0)) },
                                                            name: defaults.string(forKey: "PluckScreenshotName") ?? "Card",
                                                            cascade: defaults.bool(forKey: "PluckScreenshotOffloadCascade"),
-                                                           eject: defaults.bool(forKey: "PluckScreenshotOffloadEject"))
+                                                           eject: defaults.bool(forKey: "PluckScreenshotOffloadEject"),
+                                                           onlyVideo: defaults.bool(forKey: "PluckScreenshotOffloadOnlyVideo"))
                         note("add \(problem ?? "ok")")
                     }
                 }

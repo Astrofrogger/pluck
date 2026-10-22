@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// The PDF next to each copy when an offload is done, for production: what was copied, where
 /// to, how long it took, and every file with its picture, size and checksum.
 enum OffloadReport {
-    static func fileName(_ job: OffloadJob) -> String { "\(job.name) Report.pdf" }
+    static func fileName(_ job: OffloadJob) -> String { "\(job.displayName) Report.pdf" }
 
     /// Written into every copy that's still connected.
     @MainActor static func write(_ job: OffloadJob) {
@@ -61,7 +61,7 @@ enum OffloadReport {
             text.append(NSAttributedString(string: string + "\n", attributes: [.font: font, .foregroundColor: colour, .paragraphStyle: style]))
         }
         add(String(localized: "Offload Report"), .systemFont(ofSize: 11, weight: .medium), .gray, after: 2)
-        add(job.name, .systemFont(ofSize: 22, weight: .bold), after: 14)
+        add(job.displayName, .systemFont(ofSize: 22, weight: .bold), after: 14)
 
         let finished = job.finished ?? .now
         let seconds = max(job.busy ?? finished.timeIntervalSince(job.started), 1)

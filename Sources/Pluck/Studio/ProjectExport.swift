@@ -65,6 +65,8 @@ final class ProjectExports {
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         task = Task {
+            var made: [URL] = []
+            defer { Self.announce(made, total: jobs.count, problem: problem, cancelled: Task.isCancelled, manager: manager) }
             for (number, job) in jobs.enumerated() {
                 guard !Task.isCancelled else { break }
                 let output = Converting.outputURL(folder: folder, name: job.name,
@@ -76,11 +78,23 @@ final class ProjectExports {
                 guard done else { break }
                 self.output = output
                 finished.insert(output, at: 0)
+                made.append(output)
                 _ = manager.addLocalFiles([output])
             }
             manager.saveHistory()
             progress = nil
             task = nil
+        }
+    }
+
+    /// Word that an export is done (or why not), for when Pluck is in the background.
+    static func announce(_ made: [URL], total: Int, problem: String?, cancelled: Bool, manager: DownloadManager) {
+        guard !cancelled else { return }
+        if made.count == total, let first = made.first {
+            manager.notify(title: String(localized: "Export done"),
+                           body: made.count == 1 ? first.lastPathComponent : String(localized: "\(made.count) files"), files: made)
+        } else {
+            manager.notify(title: String(localized: "Export stopped"), body: problem ?? String(localized: "\(made.count) of \(total) files were made."), files: made)
         }
     }
 
