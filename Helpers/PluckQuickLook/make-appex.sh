@@ -52,7 +52,7 @@ PLIST
   for folder in RED BRAW; do
     [[ -d "$APP/Contents/Helpers/$folder" ]] && cp -R "$APP/Contents/Helpers/$folder" "$appex/Contents/Resources/Decoders/"
   done
-  codesign --force --options runtime --entitlements "$HERE/extension.entitlements" --sign - "$appex"
+  codesign --force --options runtime --entitlements "$HERE/extension.entitlements" --sign "${PLUCK_SIGN_ID:--}" "$appex"
 }
 # The decoders, as a library: sources (.mm/.cpp) compiled here, libraries (.a) linked.
 WORK=$(mktemp -d)

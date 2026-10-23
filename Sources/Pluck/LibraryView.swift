@@ -52,6 +52,8 @@ struct LibraryView: View {
     @FocusState private var gridFocused: Bool
     /// Checked when the window opens and on refresh, not on every redraw.
     @State private var missing: Set<String> = []
+    /// What's shown, worked out once per change (it's read several times a redraw).
+    @State private var shownCache = ShownCache()
     @State private var subscriptions = Subscriptions.shared
     @State private var addingSubscription = false
 
@@ -395,14 +397,35 @@ struct LibraryView: View {
         return library.entries.filter { $0.source.map { downloaded.contains(Links.identity($0)) } ?? false }
     }
 
+    /// The sidebar's numbers, from counts kept by the library (not each row filtering it all).
     private func count(_ collection: Collection) -> Int {
+        let counts = library.counts
         switch collection {
-        case .duplicates, .missing, .largest, .all, .videos, .audio, .photos, .recent, .site, .tag, .subscription: entries(in: collection).count
-        case .network, .footage, .clips, .opened, .location: 0
+        case .all: return library.entries.count
+        case .videos: return counts.kinds[.video] ?? 0
+        case .audio: return counts.kinds[.audio] ?? 0
+        case .photos: return counts.kinds[.photo] ?? 0
+        case .recent: return counts.recent
+        case .duplicates: return library.duplicates.count
+        case .missing: return missing.count
+        case .largest: return min(counts.sized, 100)
+        case .site(let name): return counts.sites[name] ?? 0
+        case .tag(let name): return counts.tags[name] ?? 0
+        case .subscription: return entries(in: collection).count
+        case .network, .footage, .clips, .opened, .location: return 0
         }
     }
 
     private var shown: [LibraryStore.Entry] {
+        let key = ShownCache.Key(version: library.version, duplicates: library.duplicates.count, missing: missing.count,
+                                 collection: collection ?? .all, kind: kindFilter, search: search, sort: sort.rawValue)
+        if let list = shownCache.list(for: key) { return list }
+        let list = workOutShown()
+        shownCache.keep(list, for: key)
+        return list
+    }
+
+    private func workOutShown() -> [LibraryStore.Entry] {
         let selected = collection ?? .all
         var list = entries(in: selected)
         if let kind = LibraryStore.Entry.Kind(rawValue: kindFilter) { list = list.filter { $0.kind == kind } }
@@ -786,7 +809,7 @@ extension LibraryView {
         let footage = FootageFolders.shared
         Section("Favorites") {
             ForEach(Locations.shared.favorites, id: \.self) { url in
-                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.symbol(url))
+                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.shared.symbol(for: url))
                     .tag(Collection.location(url.path))
                     .contextMenu {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -794,10 +817,11 @@ extension LibraryView {
                     }
             }
             ForEach(footage.folderItems) { folder in
-                Label(folder.name, systemImage: folder.isThere ? "folder" : "externaldrive.badge.xmark")
-                    .foregroundStyle(folder.isThere ? .primary : .secondary)
+                let there = footage.isThere(folder)
+                Label(folder.name, systemImage: there ? "folder" : "externaldrive.badge.xmark")
+                    .foregroundStyle(there ? .primary : .secondary)
                     .tag(Collection.footage(folder.id, folder.name))
-                    .help(folder.isThere ? String(localized: "\(folder.path) (in the Library: searchable)") : String(localized: "\(folder.path) (its drive isn’t connected)"))
+                    .help(there ? String(localized: "\(folder.path) (in the Library: searchable)") : String(localized: "\(folder.path) (its drive isn’t connected)"))
                     .contextMenu { footageMenu(folder) }
             }
             if !footage.clipItems.isEmpty {
@@ -824,7 +848,7 @@ extension LibraryView {
     @ViewBuilder var locationsSection: some View {
         Section("Locations") {
             ForEach(Locations.shared.drives, id: \.self) { url in
-                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.symbol(url))
+                Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.shared.symbol(for: url))
                     .tag(Collection.location(url.path))
                     .contextMenu {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
@@ -858,7 +882,7 @@ extension LibraryView {
 
     /// Folders and drives: the Library's own Finder, its panes tiled.
     @ViewBuilder var footageDetail: some View {
-        if case .footage(let id, _) = collection, let folder = FootageFolders.shared.folders.first(where: { $0.id == id }), !folder.isThere {
+        if case .footage(let id, _) = collection, let folder = FootageFolders.shared.folders.first(where: { $0.id == id }), !FootageFolders.shared.isThere(folder) {
             ContentUnavailableView("Drive Not Connected", systemImage: "externaldrive.badge.xmark",
                                    description: Text("Connect the drive \(folder.name) is on to play it."))
         } else {
@@ -927,5 +951,25 @@ private struct SearchFocus: ViewModifier {
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) { content.searchFocused(focused) } else { content }
+    }
+}
+
+/// The Library's last worked-out list, and what it was worked out for.
+@MainActor
+final class ShownCache {
+    struct Key: Equatable {
+        var version: Int, duplicates: Int, missing: Int
+        var collection: LibraryView.Collection
+        var kind: String, search: String, sort: String
+    }
+
+    private var key: Key?
+    private var list: [LibraryStore.Entry] = []
+
+    func list(for key: Key) -> [LibraryStore.Entry]? { key == self.key ? list : nil }
+
+    func keep(_ list: [LibraryStore.Entry], for key: Key) {
+        self.key = key
+        self.list = list
     }
 }

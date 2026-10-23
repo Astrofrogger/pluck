@@ -26,7 +26,13 @@ final class FootageFolders {
         var isThere: Bool { FileManager.default.fileExists(atPath: path) }
     }
 
-    private(set) var folders: [Folder] = []
+    private(set) var folders: [Folder] = [] {
+        didSet { refreshPresence() }
+    }
+    /// Which folders' drives are plugged in, and which are single clips: read off the main
+    /// thread (a drive or server that's slow to answer doesn't hold up the sidebar). Nil: not yet read.
+    private(set) var present: Set<UUID>?
+    private(set) var singles: Set<UUID>?
     /// What's in each folder, by folder: videos (and songs) and photos.
     private(set) var videos: [UUID: [String]] = [:]
     private(set) var photos: [UUID: [String]] = [:]
@@ -40,11 +46,30 @@ final class FootageFolders {
         if let data = UserDefaults.standard.data(forKey: Self.key), let saved = try? JSONDecoder().decode([Folder].self, from: data) {
             folders = saved
         }
+        refreshPresence()
     }
 
+    /// Read again which folders are there (after a drive comes or goes).
+    func refreshPresence() {
+        let all = folders
+        Task {
+            let (there, files) = await Task.detached(priority: .userInitiated) { () -> (Set<UUID>, Set<UUID>) in
+                (Set(all.filter(\.isThere).map(\.id)), Set(all.filter(\.isFile).map(\.id)))
+            }.value
+            present = there
+            singles = files
+        }
+    }
+
+    /// Whether a folder's drive is plugged in (as last read; until then, yes).
+    func isThere(_ folder: Folder) -> Bool { present?.contains(folder.id) ?? true }
+
+    /// A single clip rather than a folder (as last read; until then, by its name).
+    private func isSingle(_ folder: Folder) -> Bool { singles?.contains(folder.id) ?? (URL(fileURLWithPath: folder.path).pathExtension != "") }
+
     /// The folders, and the clips put in one by one.
-    var folderItems: [Folder] { folders.filter { !$0.isFile } }
-    var clipItems: [Folder] { folders.filter(\.isFile) }
+    var folderItems: [Folder] { folders.filter { !isSingle($0) } }
+    var clipItems: [Folder] { folders.filter { isSingle($0) } }
 
     var allVideos: [String] { folders.flatMap { videos[$0.id] ?? [] } }
     var allPhotos: [String] { folders.flatMap { photos[$0.id] ?? [] } }

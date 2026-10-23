@@ -15,6 +15,11 @@ while (( $# )); do
 done
 [[ "$EDITION" == studio || "$EDITION" == basic ]] || { echo "Unknown edition $EDITION" >&2; exit 1; }
 export PLUCK_EDITION=$EDITION
+# Signed with the "Pluck Code Signing" certificate when this Mac has it: macOS then knows each
+# update as the same app and keeps what it was allowed (Full Disk Access, folders). Else ad hoc.
+SIGN_ID="-"
+security find-certificate -c "Pluck Code Signing" >/dev/null 2>&1 && SIGN_ID="Pluck Code Signing"
+export PLUCK_SIGN_ID="$SIGN_ID"
 # Each edition builds in its own folder (they're different builds of the same code).
 SCRATCH=.build
 [[ "$EDITION" == basic ]] && SCRATCH=.build-basic
@@ -59,7 +64,7 @@ if [[ "$EDITION" == studio ]]; then
   mkdir -p "$TYPES_APP/Contents/MacOS"
   cp Helpers/RedClipTypes/Info.plist "$TYPES_APP/Contents/Info.plist"
   clang -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 Helpers/RedClipTypes/main.c -o "$TYPES_APP/Contents/MacOS/RedClipTypes"
-  codesign --force --options runtime --sign - "$TYPES_APP"
+  codesign --force --options runtime --sign "$SIGN_ID" "$TYPES_APP"
 fi
 
 if [[ "$EDITION" == studio ]]; then
@@ -78,12 +83,12 @@ if [[ "$EDITION" != "basic" ]]; then
     -I$SPK/shim -I$SPK/darktable -I$SPK/shim/common -w \
     $SPK/main.c $SPK/darktable/spektra_sim.c $SPK/darktable/spektra_core.c $SPK/shim/shim.c \
     -o "$APP/Contents/Helpers/pluck-spektra"
-  codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-spektra"
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-spektra"
 fi
 cp "$VBIN/pluck-vision" "$APP/Contents/Helpers/pluck-vision"
 cp -R "$VBIN/mlx-swift_Cmlx.bundle" "$APP/Contents/Helpers/"
-codesign --force --sign - "$APP/Contents/Helpers/mlx-swift_Cmlx.bundle"
-codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-vision"
+codesign --force --sign "$SIGN_ID" "$APP/Contents/Helpers/mlx-swift_Cmlx.bundle"
+codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-vision"
 # The raw decoder (RED and Blackmagic RAW) with the camera makers' own libraries, from their SDKs
 # (which aren't in this repository: their licences don't allow sharing them). Without an SDK,
 # Pluck is built without that format. PLUCK_RAW_SDKS points at the folder with red/ and braw/.
@@ -107,7 +112,7 @@ if (( ${#RAW_FLAGS} )); then
   clang++ -O2 -std=c++17 -fobjc-arc -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 -w $RAW_FLAGS \
     Helpers/PluckRaw/main.mm $RAW_SOURCES -framework Foundation -framework CoreFoundation -framework Metal -ldl \
     -o "$APP/Contents/Helpers/pluck-raw"
-  codesign --force --options runtime --entitlements Helpers/PluckRaw/entitlements.plist --sign - "$APP/Contents/Helpers/pluck-raw"
+  codesign --force --options runtime --entitlements Helpers/PluckRaw/entitlements.plist --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-raw"
   # Finder's preview (the space bar) and thumbnails for the same clips, with the decoders built in.
   Helpers/PluckQuickLook/make-appex.sh "$APP" $RAW_FLAGS $RAW_SOURCES
 else
@@ -123,7 +128,7 @@ if [[ -x "$GO" ]]; then
      CGO_ENABLED=0 GOOS=darwin GOARCH=$arch "$GO" build -trimpath -ldflags "-s -w" -o ../../$TUN/pluck-tunnel-$arch . || exit 1
    done)
   lipo -create $TUN/pluck-tunnel-arm64 $TUN/pluck-tunnel-amd64 -output "$APP/Contents/Helpers/pluck-tunnel"
-  codesign --force --options runtime --sign - "$APP/Contents/Helpers/pluck-tunnel"
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-tunnel"
 else
   echo "Go isn't installed: building without Edit Anywhere's private network" >&2
 fi
@@ -139,7 +144,7 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
 # Hardened runtime: blocks code injection (DYLD_* variables, unsigned libraries) into Pluck.
-codesign --force --options runtime --sign - "$APP"
+codesign --force --options runtime --sign "$SIGN_ID" "$APP"
 echo "Built $APP"
 
 if [[ -n "$INSTALL" ]]; then

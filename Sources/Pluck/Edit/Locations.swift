@@ -11,6 +11,8 @@ final class Locations {
     /// Finder's Favorites (the home folder and its own folders), and the drives plugged in.
     private(set) var favorites: [URL] = []
     private(set) var drives: [URL] = []
+    /// Each drive's symbol (card, disk, network), read when drives come and go, not on every redraw.
+    private(set) var driveSymbols: [URL: String] = [:]
     /// Full Disk Access is on: no folder asks first.
     private(set) var seesEverything = false
 
@@ -37,10 +39,15 @@ final class Locations {
         places = [home] + own + drives
         favorites = [home] + own
         self.drives = drives
+        driveSymbols = Dictionary(uniqueKeysWithValues: drives.map { ($0, Self.symbol($0)) })
         seesEverything = Self.hasFullDiskAccess()
+        FootageFolders.shared.refreshPresence()
     }
 
     static func isDrive(_ url: URL) -> Bool { url.path.hasPrefix("/Volumes/") }
+
+    /// A place's symbol, for the sidebar (a drive's as read when it came).
+    func symbol(for url: URL) -> String { driveSymbols[url] ?? (Self.isDrive(url) ? "externaldrive" : Self.symbol(url)) }
 
     static func symbol(_ url: URL) -> String {
         if isDrive(url) {

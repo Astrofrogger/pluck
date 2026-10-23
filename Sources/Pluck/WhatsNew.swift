@@ -106,6 +106,12 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.6.2", items: [
+                Item(symbol: "lock.shield", title: String(localized: "Permissions that stay"),
+                     detail: String(localized: "Pluck now has a signature of its own, so macOS knows each update as the same app. Allow it once more after this update, and it keeps Full Disk Access and your folders from then on.")),
+                Item(symbol: "gauge.with.dots.needle.67percent", title: String(localized: "A quicker Library"),
+                     detail: String(localized: "Big libraries open and scroll without waiting: counts, duplicates and drives are worked out once, not on every redraw.")),
+            ]),
             Release(version: "3.4.0", items: [
                 Item(symbol: "stethoscope", title: String(localized: "Downloads that mend themselves"),
                      detail: String(localized: "When YouTube changes, Pluck fetches the newest yt-dlp at once and says what happened in plain words. An update that breaks downloads can be undone in Settings.")),

@@ -21,6 +21,8 @@ for option in "${@:3}"; do
 done
 [[ -z "$(git status --porcelain)" ]] || { echo "Commit or stash your changes first." >&2; exit 1; }
 git rev-parse "v$VERSION" >/dev/null 2>&1 && { echo "v$VERSION already exists." >&2; exit 1; }
+# (Ad hoc, an update would be a new app to macOS: everyone's permissions would reset.)
+security find-certificate -c "Pluck Code Signing" >/dev/null 2>&1 || { echo "The Pluck Code Signing certificate isn't in the keychain." >&2; exit 1; }
 grep -q "version: \"$VERSION\"" Sources/Pluck/WhatsNew.swift Sources/Pluck/Studio/WhatsNewStudio.swift \
   || { echo "Add the notes for $VERSION to Sources/Pluck/WhatsNew.swift (or Studio/WhatsNewStudio.swift for Studio-only) first; people see them after updating." >&2; exit 1; }
 

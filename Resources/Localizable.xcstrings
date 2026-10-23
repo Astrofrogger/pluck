@@ -11535,6 +11535,64 @@
         }
       }
     },
+    "A quicker Library": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine schnellere Mediathek"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una biblioteca más rápida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une bibliothèque plus rapide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una libreria più veloce"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より速いライブラリ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 빨라진 보관함"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een snellere bibliotheek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma biblioteca mais rápida"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更快的资料库"
+          }
+        }
+      }
+    },
     "A real RAW developer": {
       "localizations": {
         "de": {
@@ -23449,6 +23507,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "更好的短视频"
+          }
+        }
+      }
+    },
+    "Big libraries open and scroll without waiting: counts, duplicates and drives are worked out once, not on every redraw.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Große Mediatheken öffnen und scrollen ohne Warten: Zählungen, Duplikate und Laufwerke werden einmal ermittelt, nicht bei jedem Neuzeichnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las bibliotecas grandes se abren y se desplazan sin esperas: los recuentos, los duplicados y los discos se calculan una vez, no en cada redibujado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les grandes bibliothèques s'ouvrent et défilent sans attendre : les comptes, les doublons et les disques sont calculés une fois, pas à chaque affichage."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le librerie grandi si aprono e scorrono senza attese: conteggi, duplicati e dischi vengono calcolati una volta, non a ogni ridisegno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大きなライブラリも待たずに開いてスクロールできます。件数、重複、ドライブは再描画のたびではなく一度だけ計算されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "큰 보관함도 기다림 없이 열리고 스크롤됩니다. 개수, 중복 항목, 드라이브를 다시 그릴 때마다가 아니라 한 번만 계산합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grote bibliotheken openen en scrollen zonder wachten: aantallen, dubbels en schijven worden één keer bepaald, niet bij elke hertekening."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotecas grandes abrem e rolam sem espera: contagens, duplicatas e discos são calculados uma vez, não a cada redesenho."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大型资料库打开和滚动都无需等待：数量、重复项和驱动器只计算一次，而不是每次重绘都计算。"
           }
         }
       }
@@ -110233,6 +110349,64 @@
         }
       }
     },
+    "Permissions that stay": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Berechtigungen, die bleiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permisos que se mantienen"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des autorisations qui restent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autorizzazioni che restano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持される許可"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "유지되는 권한"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toestemmingen die blijven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões que ficam"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留的权限"
+          }
+        }
+      }
+    },
     "Phones and computers on the same network can browse, play and download your Library in a browser.": {
       "localizations": {
         "de": {
@@ -116811,6 +116985,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Pluck 现在有两个版本"
+          }
+        }
+      }
+    },
+    "Pluck now has a signature of its own, so macOS knows each update as the same app. Allow it once more after this update, and it keeps Full Disk Access and your folders from then on.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck hat jetzt eine eigene Signatur, sodass macOS jedes Update als dieselbe App erkennt. Erlaube den Zugriff nach diesem Update noch einmal, danach behält Pluck den Festplattenvollzugriff und deine Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ahora tiene firma propia, así que macOS reconoce cada actualización como la misma app. Da permiso una vez más tras esta actualización y, a partir de ahí, conservará el acceso total al disco y tus carpetas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck a désormais sa propre signature : macOS reconnaît chaque mise à jour comme la même app. Autorisez-la encore une fois après cette mise à jour, puis elle garde l'accès complet au disque et vos dossiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ora ha una firma propria, così macOS riconosce ogni aggiornamento come la stessa app. Concedi l'accesso ancora una volta dopo questo aggiornamento e da lì in poi manterrà l'accesso completo al disco e le tue cartelle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluckに独自の署名が付き、macOSがアップデートごとに同じアプリだと認識するようになりました。このアップデートの後にもう一度許可すれば、以後はフルディスクアクセスとフォルダへのアクセスが保たれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이제 Pluck에 고유한 서명이 있어 macOS가 업데이트마다 같은 앱으로 인식합니다. 이번 업데이트 후 한 번 더 허용하면 이후로는 전체 디스크 접근 권한과 폴더 접근이 유지됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck heeft nu een eigen handtekening, zodat macOS elke update als dezelfde app herkent. Geef na deze update nog één keer toestemming, daarna houdt Pluck volledige schijftoegang en je mappen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Pluck agora tem uma assinatura própria, então o macOS reconhece cada atualização como o mesmo app. Permita mais uma vez após esta atualização e, daí em diante, ele mantém o acesso total ao disco e suas pastas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 现在有了自己的签名，macOS 会把每次更新识别为同一个应用。此次更新后再允许一次，之后 Pluck 会一直保留完全磁盘访问权限和你的文件夹访问。"
           }
         }
       }

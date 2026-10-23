@@ -55,7 +55,16 @@ final class LibraryStore {
         }
     }
 
-    private(set) var entries: [Entry] = []
+    private(set) var entries: [Entry] = [] {
+        didSet { changed() }
+    }
+    /// Goes up whenever the entries change (what the views keep worked-out lists by).
+    private(set) var version = 0
+    /// Entries saved more than once (worked out off the main thread after a change: it looks
+    /// at every file).
+    private(set) var duplicates: [Entry] = []
+    @ObservationIgnored private var duplicatesTask: Task<Void, Never>?
+    @ObservationIgnored private var countsCache: (version: Int, counts: Counts)?
     @ObservationIgnored private var saveScheduled = false
     /// Files taken out of the Library, and when: the download list doesn't put them back (only
     /// downloading them again does).
@@ -135,9 +144,46 @@ final class LibraryStore {
         Array(Set(entries.compactMap(\.site))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }
 
+    /// How many entries of each kind, site and tag (for the sidebar), counted once per change.
+    struct Counts {
+        var kinds: [Entry.Kind: Int] = [:]
+        var sites: [String: Int] = [:]
+        var tags: [String: Int] = [:]
+        var recent = 0
+        var sized = 0
+    }
+
+    var counts: Counts {
+        if let cache = countsCache, cache.version == version { return cache.counts }
+        var counts = Counts()
+        let week = Date.now.addingTimeInterval(-7 * 86_400)
+        for entry in entries {
+            counts.kinds[entry.kind, default: 0] += 1
+            if let site = entry.site { counts.sites[site, default: 0] += 1 }
+            for tag in entry.tags { counts.tags[tag, default: 0] += 1 }
+            if entry.added > week { counts.recent += 1 }
+            if (entry.size ?? 0) > 0 { counts.sized += 1 }
+        }
+        countsCache = (version, counts)
+        return counts
+    }
+
+    private func changed() {
+        version += 1
+        duplicatesTask?.cancel()
+        let all = entries
+        duplicatesTask = Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            let found = await Task.detached(priority: .utility) { Self.findDuplicates(all) }.value
+            guard !Task.isCancelled else { return }
+            duplicates = found
+        }
+    }
+
     /// Entries that look like the same thing saved more than once: the same page, or the same
     /// size and length. Grouped together, newest first within a group.
-    var duplicates: [Entry] {
+    nonisolated private static func findDuplicates(_ entries: [Entry]) -> [Entry] {
         var groups: [String: [Entry]] = [:]
         for entry in entries where FileManager.default.fileExists(atPath: entry.path) {
             let key: String
