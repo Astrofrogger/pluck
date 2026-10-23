@@ -200,6 +200,18 @@ enum ScreenshotMode {
                         try? lines.joined(separator: "\n").write(toFile: log, atomically: true, encoding: .utf8)
                     }
                 }
+                // -PluckScreenshotWalk <a,b,…>: into those folders one after another, as clicks in the
+                // columns do (each inside the last).
+                if let walk = defaults.string(forKey: "PluckScreenshotWalk") {
+                    Task { @MainActor in
+                        try? await Task.sleep(for: .seconds(2.5))
+                        for name in walk.split(separator: ",") {
+                            let pane = FinderWorkspace.shared.focused
+                            pane.go(to: pane.url.appendingPathComponent(String(name)))
+                            try? await Task.sleep(for: .seconds(0.8))
+                        }
+                    }
+                }
                 // -PluckScreenshotFinderMode <icons|list|columns>: the pane shows it so.
                 if let mode = defaults.string(forKey: "PluckScreenshotFinderMode").flatMap(FinderViewMode.init(rawValue:)) {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1) { FinderWorkspace.shared.focused.mode = mode }
@@ -571,6 +583,13 @@ enum ScreenshotMode {
                 if let output = defaults.string(forKey: "PluckScreenshotOutput") {
                     MotionSheet.write(to: URL(fileURLWithPath: output))
                     try? MotionSheet.timing().write(to: URL(fileURLWithPath: output).appendingPathComponent("timing.txt"), atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                }
+            case "fusionsheet":
+                // -PluckScreenshotOutput <folder>: each template as a Fusion title (.setting) and drawn by Pluck
+                // at a few moments (PNGs to compare against Resolve's render), then quit.
+                if let output = defaults.string(forKey: "PluckScreenshotOutput") {
+                    FusionSheet.write(to: URL(fileURLWithPath: output))
                     NSApp.terminate(nil)
                 }
             case "motionexport":

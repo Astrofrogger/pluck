@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.6.1", items: [
+                Item(symbol: "wand.and.rays", title: String(localized: "Brand Pack in DaVinci Resolve"),
+                     detail: String(localized: "Every template as a Fusion title, built from Resolve's own nodes. Add them to Resolve's Titles in one click, then change the words, fonts, colours, place and size right there.")),
+                Item(symbol: "rectangle.split.3x1", title: String(localized: "Columns that stay"),
+                     detail: String(localized: "In the Library's columns, the folders before the one you open stay put, as in Finder, and the left and right arrows go out of and into folders. Search narrows every pane, clicking a place again goes back to it, and a drive plugged back in opens where it was.")),
+            ]),
             Release(version: "3.6.0", items: [
                 Item(symbol: "sparkles.rectangle.stack", title: String(localized: "A new Brand Pack"),
                      detail: String(localized: "18 animated templates (lower thirds, titles and chapters, logo stings, end cards, social overlays) that spring, glow and come into focus. Change the words, fonts, colours, size, place and timing, and watch it play as you do.")),

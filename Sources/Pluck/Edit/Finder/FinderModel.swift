@@ -184,13 +184,20 @@ final class FinderPane: Identifiable {
     /// Shows a folder. `base`: where the Columns view starts (a sidebar choice resets it).
     func go(to folder: URL, base newBase: URL? = nil, record: Bool = true) {
         let folder = folder.standardizedFileURL
-        guard folder != url || list != nil || playing != nil else { return }
-        if record { backStack.append(url); forwardStack = [] }
+        guard folder != url || list != nil || playing != nil else {
+            // Already here: the Columns view starts where asked.
+            if let newBase { base = newBase.standardizedFileURL }
+            return
+        }
+        // (A list of clips isn't a place to go back to.)
+        if record { if list == nil { backStack.append(url) }; forwardStack = [] }
         playing = nil
         list = nil
         url = folder
-        if let newBase { base = newBase.standardizedFileURL } else if !folder.path.hasPrefix(base.path) { base = folder }
+        if let newBase { base = newBase.standardizedFileURL } else if !Self.isInside(folder, base) { base = folder }
         selection = []
+        // (Not the last folder's things while this one's read.)
+        items = []
         load()
     }
 
@@ -235,6 +242,30 @@ final class FinderPane: Identifiable {
         if item.isFolder { go(to: item.url) }
         else if item.isClip { playing = item.url; selection = [item.url] }
         else { NSWorkspace.shared.open(item.url) }
+    }
+
+    /// A file from a folder before this one in the columns: that folder becomes the pane's
+    /// first (so a clip plays with its own folder's clips around it).
+    func open(_ item: FinderItem, in folder: URL) {
+        go(to: folder)
+        selection = [item.url]
+        anchor = item.url
+        if item.isClip {
+            Task {
+                while loading { try? await Task.sleep(for: .milliseconds(30)) }
+                playing = item.url
+            }
+        } else {
+            open(item)
+        }
+    }
+
+    /// The first thing in the folder, once it's read (after going into it with the keys).
+    func selectFirst() {
+        Task {
+            while loading { try? await Task.sleep(for: .milliseconds(30)) }
+            if selection.isEmpty, let first = shown.first { selection = [first.url]; anchor = first.url }
+        }
     }
 
     func openSelection() {
@@ -301,22 +332,22 @@ final class FinderPane: Identifiable {
             // Changes on disk (a copy arriving, a file renamed) show by themselves.
             if listed == nil {
                 watcher = FolderWatcher(path: folder.path) { [weak self] in
-                    Task { @MainActor in
-                        try? await Task.sleep(for: .milliseconds(400))
-                        self?.refreshQuietly()
-                    }
+                    Task { @MainActor in self?.refreshQuietly() }
                 }
             }
         }
     }
 
-    @ObservationIgnored private var lastQuiet = Date.distantPast
+    @ObservationIgnored private var quietTask: Task<Void, Never>?
 
-    /// Read again after a change on disk, without starting over (at most twice a second).
+    /// Read again after changes on disk settle (the last of a burst is never missed).
     private func refreshQuietly() {
-        guard Date.now.timeIntervalSince(lastQuiet) > 0.5 else { return }
-        lastQuiet = .now
-        load()
+        quietTask?.cancel()
+        quietTask = Task {
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            load()
+        }
     }
 
     // MARK: Files
@@ -348,11 +379,17 @@ final class FinderPane: Identifiable {
         guard list == nil else { return [url] }
         var chain: [URL] = [url]
         var at = url
-        while at.path != base.path, at.path.hasPrefix(base.path), at.path != "/" {
+        while at.path != base.path, Self.isInside(at, base), at.path != "/" {
             at = at.deletingLastPathComponent()
             chain.insert(at, at: 0)
         }
         return chain
+    }
+
+    /// Whether a folder is the other or inside it (by whole folder names: /Volumes/A isn't in /Volumes/AB).
+    nonisolated static func isInside(_ url: URL, _ folder: URL) -> Bool {
+        let path = url.standardizedFileURL.path, base = folder.standardizedFileURL.path
+        return path == base || path.hasPrefix(base == "/" ? "/" : base + "/")
     }
 
     /// The whole path, for the path bar (from the drive, or the home folder).

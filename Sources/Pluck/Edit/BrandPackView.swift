@@ -62,6 +62,8 @@ struct BrandPackView: View {
     @State private var scrub = 0.0
     @State private var exporting: Double?
     @State private var done: URL?
+    /// Where the last Fusion title went (in Resolve's titles, or saved).
+    @State private var fusionDone: URL?
     @State private var problem: String?
 
     /// What's behind the graphics that go over a picture, in the preview only.
@@ -323,9 +325,13 @@ struct BrandPackView: View {
                     .buttonStyle(GlassCapsuleButtonStyle())
                     .disabled(exporting != nil)
                     .help("Every template, each as its own file")
+                fusionMenu
             }
             if let exporting {
                 ProgressView(value: exporting)
+            } else if let fusionDone {
+                DoneLabel(text: fusionDone.path.hasPrefix(FusionExport.resolveTitles.path)
+                          ? Text("In Resolve’s Titles, under Pluck") : Text("Saved \(fusionDone.lastPathComponent)"), file: fusionDone)
             } else if let done {
                 DoneLabel(text: Text("Saved \(done.lastPathComponent)"), file: done)
             }
@@ -333,6 +339,23 @@ struct BrandPackView: View {
             Text(template.fullFrame && kit.style.background != nil ? "MP4 with its background." : "ProRes 4444 with transparency, for over the picture.")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+
+    /// The templates as Fusion titles: built from Resolve's own nodes, so text, fonts, colours,
+    /// place and size stay editable there.
+    private var fusionMenu: some View {
+        Menu("Fusion") {
+            Button("Add to DaVinci Resolve") { addToResolve([template]) }
+                .disabled(!FusionExport.hasResolve)
+            Button("Add All to DaVinci Resolve") { addToResolve(MotionTemplate.all) }
+                .disabled(!FusionExport.hasResolve)
+            Divider()
+            Button("Save as Fusion Title…") { saveFusion() }
+        }
+        .menuStyle(.button)
+        .buttonStyle(GlassCapsuleButtonStyle())
+        .fixedSize()
+        .help("As a Fusion title for DaVinci Resolve: text, fonts, colours, place and size stay editable there")
     }
 
     /// Nine places: the corners, the edges' middles and the centre.
@@ -452,6 +475,33 @@ struct BrandPackView: View {
     }
 
     // MARK: - Export
+
+    private func addToResolve(_ templates: [MotionTemplate]) {
+        problem = nil
+        do {
+            var last: URL?
+            for template in templates where FusionExport.supports(template) {
+                last = try FusionExport.install(template, style: kit.style, placement: kit.placement(template), canvas: canvas, fps: Double(frameRate))
+            }
+            fusionDone = templates.count == 1 ? last : FusionExport.resolveTitles
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
+
+    private func saveFusion() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "Pluck \(template.name).setting"
+        panel.allowedContentTypes = [UTType(filenameExtension: "setting") ?? .data]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        problem = nil
+        do {
+            try FusionExport.write(template, style: kit.style, placement: kit.placement(template), canvas: canvas, fps: Double(frameRate), to: url)
+            fusionDone = url
+        } catch {
+            problem = error.localizedDescription
+        }
+    }
 
     private func export(_ templates: [MotionTemplate]) {
         guard let ffmpeg = manager.tool("ffmpeg") else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }

@@ -207,7 +207,8 @@ struct FinderPaneView: View {
     }
 
     @ViewBuilder private var content: some View {
-        if pane.items.isEmpty, !pane.loading {
+        // (In columns, an empty folder is an empty column: the folders before it stay.)
+        if pane.items.isEmpty, !pane.loading, pane.mode != .columns {
             ContentUnavailableView("Empty Folder", systemImage: "folder")
         } else {
             switch pane.mode {
@@ -235,6 +236,16 @@ private struct FinderKeys: ViewModifier {
                 }
                 guard pane.mode != .list else { return .ignored }
                 let extend = press.modifiers.contains(.shift)
+                // Columns, as Finder: left to the folder before, right into the one chosen.
+                if pane.mode == .columns, press.key == .leftArrow || press.key == .rightArrow {
+                    if press.key == .leftArrow {
+                        if pane.trail.count > 1 { pane.goUp() }
+                    } else if let chosen = pane.shown.first(where: { pane.selection.contains($0.url) && $0.isFolder }) {
+                        pane.go(to: chosen.url)
+                        pane.selectFirst()
+                    }
+                    return .handled
+                }
                 switch press.key {
                 case .leftArrow: pane.move(by: -1, extend: extend)
                 case .rightArrow: pane.move(by: 1, extend: extend)
@@ -561,7 +572,8 @@ private struct FinderColumn: View {
         ScrollView {
             LazyVStack(spacing: 1) {
                 ForEach(list) { item in
-                    let on = item.url == chosen || (current && pane.selection.contains(item.url))
+                    // (By path: a folder's URL may end in a slash or not.)
+                    let on = item.url.standardizedFileURL.path == chosen?.standardizedFileURL.path || (current && pane.selection.contains(item.url))
                     HStack(spacing: 6) {
                         Image(nsImage: item.icon).resizable().frame(width: 16, height: 16)
                         Text(item.name).lineLimit(1).truncationMode(.middle)
@@ -573,7 +585,7 @@ private struct FinderColumn: View {
                     .foregroundStyle(on ? Color.white : Color.primary)
                     .background(on ? Color.accentColor : Color.clear, in: .rect(cornerRadius: 4))
                     .contentShape(.rect)
-                    .onTapGesture(count: 2) { pane.open(item) }
+                    .onTapGesture(count: 2) { if item.isFolder || current { pane.open(item) } else { pane.open(item, in: folder) } }
                     .simultaneousGesture(TapGesture().onEnded {
                         if item.isFolder { pane.go(to: item.url) } else {
                             if !current { pane.go(to: folder) }
@@ -587,7 +599,8 @@ private struct FinderColumn: View {
             }
             .padding(4)
         }
-        .task(id: folder) {
+        // (Again when it stops being the live column: it then shows its own copy.)
+        .task(id: "\(folder.path)|\(current)") {
             guard !current else { return }
             let url = folder
             let read = await Task.detached(priority: .userInitiated) {

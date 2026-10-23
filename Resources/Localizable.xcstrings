@@ -13451,6 +13451,64 @@
         }
       }
     },
+    "Add All to DaVinci Resolve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle zu DaVinci Resolve hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir todas a DaVinci Resolve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout ajouter à DaVinci Resolve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi tutti a DaVinci Resolve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてをDaVinci Resolveに追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 DaVinci Resolve에 추가"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles aan DaVinci Resolve toevoegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar todos ao DaVinci Resolve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部添加到 DaVinci Resolve"
+          }
+        }
+      }
+    },
     "Add Chapters": {
       "localizations": {
         "de": {
@@ -15542,6 +15600,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "添加到 Apple Music"
+          }
+        }
+      }
+    },
+    "Add to DaVinci Resolve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu DaVinci Resolve hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a DaVinci Resolve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter à DaVinci Resolve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi a DaVinci Resolve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci Resolveに追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci Resolve에 추가"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aan DaVinci Resolve toevoegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar ao DaVinci Resolve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到 DaVinci Resolve"
           }
         }
       }
@@ -20490,6 +20606,64 @@
         }
       }
     },
+    "As a Fusion title for DaVinci Resolve: text, fonts, colours, place and size stay editable there": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Fusion-Titel für DaVinci Resolve: Text, Schriften, Farben, Position und Größe bleiben dort bearbeitbar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como título de Fusion para DaVinci Resolve: el texto, las fuentes, los colores, la posición y el tamaño siguen siendo editables allí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En titre Fusion pour DaVinci Resolve : texte, polices, couleurs, position et taille y restent modifiables"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come titolo Fusion per DaVinci Resolve: testo, font, colori, posizione e dimensione restano modificabili lì"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci Resolve用のFusionタイトルとして：テキスト、フォント、カラー、位置、サイズはそこで編集できます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci Resolve용 Fusion 타이틀로: 텍스트, 글꼴, 색상, 위치, 크기를 그곳에서 편집할 수 있습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Fusion-titel voor DaVinci Resolve: tekst, lettertypes, kleuren, plaats en grootte blijven daar aanpasbaar"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como título do Fusion para o DaVinci Resolve: texto, fontes, cores, posição e tamanho continuam editáveis lá"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作为 DaVinci Resolve 的 Fusion 字幕：文字、字体、颜色、位置和大小都可在那里编辑"
+          }
+        }
+      }
+    },
     "As close to the original as possible.": {
       "extractionState": "stale",
       "localizations": {
@@ -24444,6 +24618,64 @@
         }
       }
     },
+    "Body Font": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fließtext-Schrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police du texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font del testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本文フォント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본문 글꼴"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettertype tekst"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do texto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正文字体"
+          }
+        }
+      }
+    },
     "Bold": {
       "localizations": {
         "de": {
@@ -24788,6 +25020,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "品牌包"
+          }
+        }
+      }
+    },
+    "Brand Pack in DaVinci Resolve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack in DaVinci Resolve"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack en DaVinci Resolve"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack dans DaVinci Resolve"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack in DaVinci Resolve"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci ResolveでBrand Pack"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DaVinci Resolve에서 Brand Pack"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack in DaVinci Resolve"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brand Pack no DaVinci Resolve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 DaVinci Resolve 中使用 Brand Pack"
           }
         }
       }
@@ -27303,6 +27593,64 @@
         }
       }
     },
+    "Button Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breite der Schaltfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho del botón"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur du bouton"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza del pulsante"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ボタンの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "버튼 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte knop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura do botão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按钮宽度"
+          }
+        }
+      }
+    },
     "Buttons in notifications": {
       "localizations": {
         "de": {
@@ -28519,6 +28867,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "存储卡"
+          }
+        }
+      }
+    },
+    "Card %lld": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte %lld"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カード%lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드 %lld"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaart %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片 %lld"
+          }
+        }
+      }
+    },
+    "Card %lld line": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Karte %lld, Zeile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tarjeta %lld, línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carte %lld, ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda %lld, riga"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カード%lldの行"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카드 %lld 줄"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kaart %lld, regel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartão %lld, linha"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卡片 %lld 文字行"
           }
         }
       }
@@ -36605,6 +37069,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "分栏"
+          }
+        }
+      }
+    },
+    "Columns that stay": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spalten, die bleiben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Columnas que se quedan"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des colonnes qui restent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colonne che restano"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "残る列表示"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그대로 있는 열"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kolommen die blijven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colunas que ficam"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持不动的分栏"
           }
         }
       }
@@ -56342,6 +56864,64 @@
         }
       }
     },
+    "Every template as a Fusion title, built from Resolve's own nodes. Add them to Resolve's Titles in one click, then change the words, fonts, colours, place and size right there.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jede Vorlage als Fusion-Titel, gebaut aus Resolves eigenen Nodes. Mit einem Klick zu den Titeln in Resolve hinzufügen und Text, Schriften, Farben, Position und Größe direkt dort ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada plantilla como título de Fusion, hecha con los nodos de Resolve. Añádelas a los títulos de Resolve con un clic y cambia el texto, las fuentes, los colores, la posición y el tamaño allí mismo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chaque modèle en titre Fusion, construit avec les nœuds de Resolve. Ajoutez-les aux titres de Resolve en un clic, puis modifiez le texte, les polices, les couleurs, la position et la taille directement là."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ogni modello come titolo Fusion, costruito con i nodi di Resolve. Aggiungili ai titoli di Resolve con un clic, poi cambia testo, font, colori, posizione e dimensione direttamente lì."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのテンプレートを、Resolve自身のノードで作られたFusionタイトルに。ワンクリックでResolveのタイトルに追加し、テキスト、フォント、カラー、位置、サイズをその場で変更できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 템플릿을 Resolve 자체 노드로 만든 Fusion 타이틀로. 한 번의 클릭으로 Resolve의 타이틀에 추가하고, 그곳에서 바로 텍스트, 글꼴, 색상, 위치, 크기를 바꾸세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elke template als Fusion-titel, gebouwd met Resolve's eigen nodes. Voeg ze met één klik toe aan de titels in Resolve en pas daar meteen tekst, lettertypes, kleuren, plaats en grootte aan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cada modelo como título do Fusion, feito com os próprios nós do Resolve. Adicione aos títulos do Resolve com um clique e altere texto, fontes, cores, posição e tamanho ali mesmo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每个模板都可作为 Fusion 字幕，由 Resolve 自己的节点构成。一键添加到 Resolve 的字幕中，然后直接在那里更改文字、字体、颜色、位置和大小。"
+          }
+        }
+      }
+    },
     "Every template, each as its own file": {
       "localizations": {
         "de": {
@@ -67412,6 +67992,64 @@
         }
       }
     },
+    "Fusion": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion"
+          }
+        }
+      }
+    },
     "GIF": {
       "localizations": {
         "de": {
@@ -69330,6 +69968,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Google 的模型：准确度相近，速度快约四倍。"
+          }
+        }
+      }
+    },
+    "Gradient": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Degradado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dégradé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sfumatura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グラデーション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그라디언트"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verloop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gradiente"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渐变"
           }
         }
       }
@@ -73053,6 +73749,64 @@
         }
       }
     },
+    "In Resolve’s Titles, under Pluck": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Titeln von Resolve, unter Pluck"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En los títulos de Resolve, en Pluck"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans les titres de Resolve, sous Pluck"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nei titoli di Resolve, sotto Pluck"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolveのタイトルの「Pluck」内"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resolve 타이틀의 Pluck 아래"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In de titels van Resolve, onder Pluck"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nos títulos do Resolve, em Pluck"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在 Resolve 字幕的 Pluck 下"
+          }
+        }
+      }
+    },
     "In a folder per day": {
       "localizations": {
         "de": {
@@ -73223,6 +73977,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "入点和出点（I 和 O；⌥I 和 ⌥O 清除）"
+          }
+        }
+      }
+    },
+    "In the Library's columns, the folders before the one you open stay put, as in Finder, and the left and right arrows go out of and into folders. Search narrows every pane, clicking a place again goes back to it, and a drive plugged back in opens where it was.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Spalten der Mediathek bleiben die Ordner vor dem geöffneten stehen, wie im Finder, und die Pfeiltasten links und rechts gehen aus Ordnern heraus und hinein. Die Suche grenzt jeden Bereich ein, ein erneuter Klick auf einen Ort kehrt dorthin zurück, und ein wieder angeschlossenes Laufwerk öffnet sich dort, wo es war."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En las columnas de la biblioteca, las carpetas anteriores a la que abres se quedan, como en el Finder, y las flechas izquierda y derecha salen y entran en carpetas. La búsqueda filtra todos los paneles, volver a hacer clic en un lugar te lleva de nuevo a él y un disco que vuelves a conectar se abre donde estaba."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans les colonnes de la bibliothèque, les dossiers avant celui que vous ouvrez restent en place, comme dans le Finder, et les flèches gauche et droite sortent des dossiers et y entrent. La recherche filtre chaque volet, recliquer sur un emplacement y revient, et un disque rebranché s'ouvre là où il était."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nelle colonne della libreria, le cartelle prima di quella che apri restano al loro posto, come nel Finder, e le frecce sinistra e destra escono dalle cartelle ed entrano. La ricerca filtra ogni riquadro, cliccare di nuovo su un luogo ci riporta lì e un disco ricollegato si apre dove era."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリの列表示では、開いたフォルダより前のフォルダがFinderと同じように残り、左右の矢印キーでフォルダから出たり入ったりできます。検索はすべてのペインに効き、場所をもう一度クリックするとそこに戻り、再接続したドライブは前の場所で開きます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보관함의 열 보기에서 연 폴더 앞의 폴더들이 Finder처럼 그대로 남고, 왼쪽·오른쪽 화살표로 폴더를 나가고 들어갑니다. 검색은 모든 창에 적용되고, 장소를 다시 클릭하면 그곳으로 돌아가며, 다시 연결한 드라이브는 있던 곳에서 열립니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In de kolommen van de bibliotheek blijven de mappen vóór de map die je opent staan, zoals in de Finder, en de pijltjes links en rechts gaan mappen uit en in. Zoeken filtert elk paneel, nog eens op een plaats klikken brengt je er terug, en een opnieuw aangesloten schijf opent waar hij was."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nas colunas da biblioteca, as pastas antes da que você abre continuam no lugar, como no Finder, e as setas esquerda e direita saem e entram nas pastas. A busca filtra todos os painéis, clicar de novo num local volta para ele e um disco reconectado abre onde estava."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在资料库的分栏中，打开的文件夹之前的文件夹会像在“访达”中一样保留，左右方向键可进出文件夹。搜索会筛选每个窗格，再次点按某个位置会回到那里，重新接入的驱动器会在原来的位置打开。"
           }
         }
       }
@@ -79923,6 +80735,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "线条描绘"
+          }
+        }
+      }
+    },
+    "Line Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Linienbreite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de la línea"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur de la ligne"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza della linea"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ラインの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte lijn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da linha"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "线条宽度"
           }
         }
       }
@@ -92730,6 +93600,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称（无标志时）"
+          }
+        }
+      }
+    },
+    "Name Plate Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breite der Namensfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de la placa del nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur du cartouche du nom"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza della targa del nome"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前プレートの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 플레이트 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte naamvlak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da placa do nome"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名字底板宽度"
           }
         }
       }
@@ -110588,6 +111516,64 @@
         }
       }
     },
+    "Pill Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breite der Pille"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de la píldora"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur de la pastille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza della pillola"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ピルの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알약 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte pil"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da pílula"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶囊宽度"
+          }
+        }
+      }
+    },
     "Pixelate": {
       "localizations": {
         "de": {
@@ -110933,6 +111919,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在规划剪辑…"
+          }
+        }
+      }
+    },
+    "Plate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartouche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Targa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플레이트"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vlak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底板"
+          }
+        }
+      }
+    },
+    "Plate Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breite der Fläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de la placa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur du cartouche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza della targa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレートの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "플레이트 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte vlak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da placa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "底板宽度"
           }
         }
       }
@@ -116813,6 +117915,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "纵向（4:5）"
+          }
+        }
+      }
+    },
+    "Position": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Position"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posizione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plaats"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Posição"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "位置"
           }
         }
       }
@@ -127926,6 +129086,64 @@
         }
       }
     },
+    "Role Plate Width": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breite der Funktionsfläche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancho de la placa del cargo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largeur du cartouche du rôle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Larghezza della targa del ruolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "役職プレートの幅"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "직함 플레이트 너비"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Breedte functievlak"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Largura da placa do cargo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "职位底板宽度"
+          }
+        }
+      }
+    },
     "Roomier and quicker": {
       "localizations": {
         "de": {
@@ -129899,6 +131117,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存为"
+          }
+        }
+      }
+    },
+    "Save as Fusion Title…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Fusion-Titel sichern …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar como título de Fusion…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enregistrer en titre Fusion…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salva come titolo Fusion…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusionタイトルとして保存…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fusion 타이틀로 저장…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewaar als Fusion-titel…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Salvar como título do Fusion…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "存储为 Fusion 字幕…"
           }
         }
       }
@@ -166075,6 +167351,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "标题卡"
+          }
+        }
+      }
+    },
+    "Title Font": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titelschrift"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fuente del título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Police du titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Font del titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルフォント"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목 글꼴"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lettertype titel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fonte do título"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题字体"
           }
         }
       }

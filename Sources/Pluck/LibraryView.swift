@@ -248,8 +248,16 @@ struct LibraryView: View {
         }
         #if STUDIO
         // A folder or drive chosen: opened in the pane in front; the search field narrows it.
-        .onChange(of: collection, initial: true) { _, chosen in showInFinder(chosen) }
-        .onChange(of: search) { _, words in if isFootage { FinderWorkspace.shared.focused.filter = words } }
+        .onChange(of: collection, initial: true) { _, chosen in showInFinder(chosen); filterPanes() }
+        .onChange(of: search) { filterPanes() }
+        // A drive plugged in or out: a folder on it opens, a drive gone leaves for home.
+        .onChange(of: Locations.shared.drives) { _, drives in
+            if case .location(let path) = collection, path.hasPrefix("/Volumes/"), !drives.contains(where: { $0.path == path }) {
+                collection = .location(FileManager.default.homeDirectoryForCurrentUser.path)
+            } else {
+                showInFinder(collection)
+            }
+        }
         #endif
         .quickLookPreview($preview)
         .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
@@ -295,7 +303,22 @@ struct LibraryView: View {
 
     /// The sidebar chooses for the side last clicked when the Library is split (the right side
     /// shows folders and places; anything else goes left).
-    private var sidebarSelection: Binding<Collection?> { $collection }
+    private var sidebarSelection: Binding<Collection?> {
+        Binding(get: { collection }, set: { chosen in
+            #if STUDIO
+            // The same place clicked again: back to it (the pane may have gone elsewhere).
+            if chosen == collection { showInFinder(chosen); return }
+            #endif
+            collection = chosen
+        })
+    }
+
+    #if STUDIO
+    /// The search field narrows every pane's folder (and none outside the folders).
+    private func filterPanes() {
+        for pane in FinderWorkspace.shared.panes { pane.filter = isFootage ? search : "" }
+    }
+    #endif
 
     /// The folder the pane in front is on, or the collection chosen.
     private var windowTitle: String {
