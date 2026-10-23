@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.6.0", items: [
+                Item(symbol: "sparkles.rectangle.stack", title: String(localized: "A new Brand Pack"),
+                     detail: String(localized: "18 animated templates (lower thirds, titles and chapters, logo stings, end cards, social overlays) that spring, glow and come into focus. Change the words, fonts, colours, size, place and timing, and watch it play as you do.")),
+            ]),
             Release(version: "3.5.0", items: [
                 Item(symbol: "folder", title: String(localized: "A Finder that works with you"),
                      detail: String(localized: "The Library looks and works like Finder: Favorites and Locations, icons, list and columns, a path bar, and the keys you know. Every file shows; clips play in place.")),

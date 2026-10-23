@@ -566,6 +566,29 @@ enum ScreenshotMode {
                     await LogoAnimation.checkBrandPack(URL(fileURLWithPath: logo), to: URL(fileURLWithPath: output), ffmpeg: ffmpeg)
                     await MainActor.run { NSApp.terminate(nil) }
                 }
+            case "motionsheet":
+                // -PluckScreenshotOutput <folder>: every motion template drawn there, then quit.
+                if let output = defaults.string(forKey: "PluckScreenshotOutput") {
+                    MotionSheet.write(to: URL(fileURLWithPath: output))
+                    try? MotionSheet.timing().write(to: URL(fileURLWithPath: output).appendingPathComponent("timing.txt"), atomically: true, encoding: .utf8)
+                    NSApp.terminate(nil)
+                }
+            case "motionexport":
+                // -PluckScreenshotOutput <folder>: Slab (see-through) and Headline (a card) written as video, then quit.
+                if let output = defaults.string(forKey: "PluckScreenshotOutput"), let ffmpeg = manager.tool("ffmpeg") {
+                    Task {
+                        for template in [MotionTemplate.slab, MotionTemplate.headline] {
+                            let url = URL(fileURLWithPath: output).appendingPathComponent(template.id + (template.fullFrame ? ".mp4" : ".mov"))
+                            try? FileManager.default.createDirectory(atPath: output, withIntermediateDirectories: true)
+                            let size = CGSize(width: 1920, height: 1080)
+                            try? await LogoAnimation.writeVideo(to: url, size: size, frameRate: 25, length: template.placement.duration,
+                                                                transparent: !template.fullFrame, motionBlur: 3, ffmpeg: ffmpeg, progress: { _ in }) { t, context in
+                                template.render(t: t, in: context, canvas: size, style: MotionStyle(), placement: template.placement)
+                            }
+                        }
+                        NSApp.terminate(nil)
+                    }
+                }
             case "brandpack":
                 // -PluckScreenshotFile <logo> is loaded.
                 let logo = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
