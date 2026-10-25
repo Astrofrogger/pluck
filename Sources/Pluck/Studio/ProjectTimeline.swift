@@ -8,6 +8,9 @@ struct ProjectTimeline: View {
     @Binding var zoom: Double
     /// Extra height, shared by the clips and the music.
     var grow: Double = 0
+    @AppStorage("projectPacing") private var pacing = false
+    @AppStorage("projectPacingLong") private var pacingLong = 8.0
+    @AppStorage("projectPacingShort") private var pacingShort = 10
 
     private let ruler: CGFloat = 20
     private var clipsHeight: CGFloat { 64 + grow * 0.7 }
@@ -19,7 +22,11 @@ struct ProjectTimeline: View {
     /// tracks beside it (below it).
     private var overlays: [ProjectTrack] { (model.project.tracks ?? []).filter { $0.kind == .video } }
     private var sounds: [ProjectTrack] { (model.project.tracks ?? []).filter { $0.kind == .audio } }
-    private var clipsTop: CGFloat { ruler + 4 + CGFloat(overlays.count) * (overlayHeight + 4) }
+    /// Looks over parts of the timeline: a thin lane on top, once there's one.
+    private let looksHeight: CGFloat = 18
+    private var looksTop: CGFloat { ruler + 4 }
+    private var hasLooks: Bool { !(model.project.adjustments ?? []).isEmpty }
+    private var clipsTop: CGFloat { looksTop + (hasLooks ? looksHeight + 4 : 0) + CGFloat(overlays.count) * (overlayHeight + 4) }
     private var soundsTop: CGFloat { clipsTop + clipsHeight + 4 }
     private var musicTop: CGFloat { soundsTop + CGFloat(sounds.count) * (soundHeight + 4) }
     private var titlesTop: CGFloat { musicTop + musicHeight + 4 }
@@ -40,8 +47,11 @@ struct ProjectTimeline: View {
         case playhead
         case clip(UUID, offset: Double)
         case clipStart(UUID), clipEnd(UUID)
+        /// The cut after a clip (by index), moved between it and the next; a clip slipped.
+        case roll(Int), slip(UUID)
         case music(UUID, offset: Double), musicStart(UUID), musicEnd(UUID)
         case title(UUID, offset: Double), titleStart(UUID), titleEnd(UUID)
+        case look(UUID, offset: Double), lookStart(UUID), lookEnd(UUID)
         case item(UUID, offset: Double), itemStart(UUID), itemEnd(UUID)
         case click
     }
@@ -56,6 +66,8 @@ struct ProjectTimeline: View {
     @State private var inside = false
     @State private var scrollMonitor: Any?
     @State private var zoomAtStart: Double?
+    /// A trim pointer is shown (pushed, to pop when it leaves).
+    @State private var trimCursor = false
 
     /// Spots along the timeline to scroll to, fine enough to centre on the playhead.
     private static let slots = 400
@@ -90,7 +102,7 @@ struct ProjectTimeline: View {
                 let seconds = Double(location.x / width) * max(model.duration, 0.001)
                 let index = insertionIndex(at: seconds)
                 // Above the main line: laid over it; on a sound track: beside it; else into it.
-                let over = location.y < clipsTop, sound = location.y >= soundsTop && location.y < musicTop
+                let over = location.y < clipsTop && !(hasLooks && location.y < looksTop + looksHeight + 4), sound = location.y >= soundsTop && location.y < musicTop
                 Task { @MainActor in
                     var files: [URL] = []
                     for provider in providers {
@@ -122,6 +134,7 @@ struct ProjectTimeline: View {
         .onDisappear {
             if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
             scrollMonitor = nil
+            if trimCursor { NSCursor.pop(); trimCursor = false }
         }
         .simultaneousGesture(MagnifyGesture()
             .onChanged { value in
@@ -143,6 +156,7 @@ struct ProjectTimeline: View {
         func x(_ t: Double) -> CGFloat { CGFloat(t / seconds) * width }
         func t(_ x: CGFloat) -> Double { min(max(Double(x / width) * seconds, 0), seconds) }
         let offsets = model.offsets
+        let flags = pacing ? Pacing.flags(model.project.clips, frameRate: model.frameRate, longAfter: pacingLong, shortUnder: pacingShort) : []
 
         return ZStack(alignment: .topLeading) {
             rulerView(width: width)
@@ -181,6 +195,29 @@ struct ProjectTimeline: View {
                     .offset(x: left, y: clipsTop)
                     .opacity(isMoving(clip.id) ? 0.35 : 1)
             }
+            // Pacing (when on): a tint over long shots, a red tick on very short clips, a mark on each jump cut.
+            ForEach(Array(flags.enumerated()), id: \.offset) { _, flag in
+                let clip = model.project.clips[flag.index]
+                let left = x(offsets[flag.index]), w = max(x(offsets[flag.index] + clip.length) - left, 2)
+                switch flag.kind {
+                case .long:
+                    Rectangle().fill(Color.orange.opacity(0.22))
+                        .frame(width: w, height: clipsHeight)
+                        .offset(x: left, y: clipsTop)
+                case .short:
+                    Rectangle().fill(Color.red)
+                        .frame(width: 3, height: 10)
+                        .offset(x: left + w / 2 - 1.5, y: clipsTop)
+                case .jumpCut:
+                    VStack(spacing: 1) {
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundStyle(.yellow)
+                        Rectangle().fill(Color.yellow).frame(width: 2, height: clipsHeight - 12)
+                    }
+                    .frame(width: 12, height: clipsHeight, alignment: .top)
+                    .offset(x: left - 6, y: clipsTop)
+                }
+            }
+            .allowsHitTesting(false)
             // Dips at the edits: a small black or white mark on the cut.
             ForEach(Array(model.project.clips.enumerated()), id: \.element.id) { index, clip in
                 if let dip = clip.dipOut {
@@ -226,8 +263,16 @@ struct ProjectTimeline: View {
                 lengthBlock(song.name, symbol: model.missing.contains(song.path) ? "exclamationmark.triangle.fill" : "music.note",
                             tint: model.missing.contains(song.path) ? .red : .teal, selected: model.selected.contains(song.id))
                     .overlay { beatGrid(song, left: left, x: x) }
+                    .overlay { duckBand(song, left: left, x: x) }
                     .frame(width: w, height: musicHeight)
                     .offset(x: left, y: musicTop)
+            }
+            if hasLooks { lane(top: looksTop, height: looksHeight, width: width, label: "camera.filters") }
+            ForEach(model.project.adjustments ?? []) { look in
+                let left = x(look.start), w = max(x(look.end) - left, 2)
+                lengthBlock(String(localized: "Look"), symbol: "camera.filters", tint: .orange, selected: model.selected.contains(look.id))
+                    .frame(width: w, height: looksHeight)
+                    .offset(x: left, y: looksTop)
             }
             ForEach(model.project.titles) { title in
                 let left = x(title.start), w = max(x(title.end) - left, 2)
@@ -246,6 +291,7 @@ struct ProjectTimeline: View {
         }
         .frame(width: width, height: height, alignment: .topLeading)
         .contentShape(.rect)
+        .onContinuousHover { phase in hovered(phase, x: x) }
         .gesture(DragGesture(minimumDistance: 0)
             .onChanged { value in changed(value, width: width, t: t, x: x) }
             .onEnded { value in ended(value, t: t) })
@@ -307,6 +353,29 @@ struct ProjectTimeline: View {
             }
         }
         .allowsHitTesting(false)
+    }
+
+    /// Where the song is lowered under speech: a darker band from the top, as deep as the drop.
+    @ViewBuilder private func duckBand(_ song: ProjectMusic, left: CGFloat, x: @escaping (Double) -> CGFloat) -> some View {
+        if let duck = song.duck {
+            let env = Ducking.envelope(model.speech, amountDB: duck)
+            Canvas { context, size in
+                guard env.count > 1 else { return }
+                var path = Path()
+                for index in 1..<env.count where env[index - 1].gain < 1 || env[index].gain < 1 {
+                    let a = env[index - 1], b = env[index]
+                    let x0 = x(a.time) - left, x1 = x(b.time) - left
+                    guard x1 >= 0, x0 <= size.width else { continue }
+                    path.move(to: CGPoint(x: x0, y: 0))
+                    path.addLine(to: CGPoint(x: x1, y: 0))
+                    path.addLine(to: CGPoint(x: x1, y: size.height * (1 - b.gain)))
+                    path.addLine(to: CGPoint(x: x0, y: size.height * (1 - a.gain)))
+                    path.closeSubpath()
+                }
+                context.fill(path, with: .color(.black.opacity(0.35)))
+            }
+            .allowsHitTesting(false)
+        }
     }
 
     private func lane(top: CGFloat, height: CGFloat, width: CGFloat, label: String? = nil) -> some View {
@@ -402,6 +471,21 @@ struct ProjectTimeline: View {
             let at = before.clips[..<index].reduce(0) { $0 + $1.length }
             let cut = model.snappedToBeat(at + clip.length + delta, tolerance: tolerance)
             model.trim(id, end: clip.start + (cut - at) * clip.speed, record: false)
+        case .roll(let index):
+            guard let before, index + 1 < before.clips.count else { return }
+            let delta = Double(value.translation.width / width) * seconds
+            let at = before.clips[...index].reduce(0) { $0 + $1.length }
+            let cut = model.snappedToBeat(at + delta, tolerance: tolerance)
+            model.roll(cutAfter: index, from: before, by: cut - at, record: false)
+            // The viewer shows the first frame after the cut.
+            let offsets = model.offsets
+            if index + 1 < offsets.count { model.seek(to: offsets[index + 1]) }
+        case .slip(let id):
+            guard let before, let index = before.clips.firstIndex(where: { $0.id == id }) else { return }
+            // Dragged right, the clip shows an earlier part of its file (as in other editors).
+            model.slip(id, from: before, by: -Double(value.translation.width / width) * seconds, record: false)
+            let offsets = model.offsets
+            if index < offsets.count { model.seek(to: offsets[index]) }
         case .music(let id, let offset):
             let at = max(model.snapped(t(value.location.x) - offset, tolerance: tolerance), 0)
             model.setMusic(id, record: false) { $0.at = at }
@@ -428,6 +512,20 @@ struct ProjectTimeline: View {
             guard let title = before?.titles.first(where: { $0.id == id }) else { return }
             let end = max(model.snapped(t(value.location.x), tolerance: tolerance), title.start + 0.3)
             model.setTitle(id, record: false) { $0.end = min(end, seconds) }
+        case .look(let id, let offset):
+            guard let look = before?.adjustments?.first(where: { $0.id == id }) else { return }
+            let length = look.end - look.start
+            let start = min(max(model.snapped(t(value.location.x) - offset, tolerance: tolerance), 0), max(seconds - length, 0))
+            model.setAdjustment(id, record: false) { $0.start = start; $0.end = start + length }
+        case .lookStart(let id):
+            guard let look = before?.adjustments?.first(where: { $0.id == id }) else { return }
+            let start = min(model.snapped(t(value.location.x), tolerance: tolerance), look.end - 0.3)
+            model.setAdjustment(id, record: false) { $0.start = max(start, 0) }
+        case .lookEnd(let id):
+            guard let look = before?.adjustments?.first(where: { $0.id == id }) else { return }
+            let end = max(model.snapped(t(value.location.x), tolerance: tolerance), look.start + 0.3)
+            // Never before its start (a look left past the end of a shortened edit).
+            model.setAdjustment(id, record: false) { $0.end = min(end, max(seconds, look.start + 0.3)) }
         case .item(let id, let offset):
             let at = max(model.snapped(t(value.location.x) - offset, tolerance: tolerance), 0)
             model.setItem(id, record: false) { $0.at = at; $0.link = nil }
@@ -452,6 +550,8 @@ struct ProjectTimeline: View {
 
     private func ended(_ value: DragGesture.Value, t: (CGFloat) -> Double) {
         defer {
+            // Clicked, or dragged back where it was: no undo step waiting.
+            model.endDrag()
             grab = nil
             before = nil
             dragX = nil
@@ -484,14 +584,39 @@ struct ProjectTimeline: View {
             }
             model.selectedTitle = nil
             if let before, before.tracks != model.project.tracks { model.commit(from: before) }
-        case .clipStart, .clipEnd, .music, .musicStart, .musicEnd, .title, .titleStart, .titleEnd, .item, .itemStart, .itemEnd:
+        case .clipStart, .clipEnd, .roll, .slip, .music, .musicStart, .musicEnd, .title, .titleStart, .titleEnd, .item, .itemStart, .itemEnd,
+             .look, .lookStart, .lookEnd:
             if let before, before.clips != model.project.clips || before.music != model.project.music || before.titles != model.project.titles
-                || before.tracks != model.project.tracks {
+                || before.tracks != model.project.tracks || before.adjustments != model.project.adjustments {
                 model.commit(from: before)
             }
         default:
             break
         }
+    }
+
+    /// The cut (by the index of the clip before it) a drag here would roll: with the Trim tool,
+    /// or the Selection tool and ⌥, close to where two clips meet.
+    private func rollCut(_ index: Int, at pointX: CGFloat, left: CGFloat, right: CGFloat, edge: CGFloat) -> Int? {
+        guard model.tool == .trim || (model.tool == .select && NSEvent.modifierFlags.contains(.option)) else { return nil }
+        if index > 0, abs(pointX - left) <= edge { return index - 1 }
+        if index + 1 < model.project.clips.count, abs(pointX - right) <= edge { return index }
+        return nil
+    }
+
+    /// The pointer shows the trim a drag would make.
+    private func hovered(_ phase: HoverPhase, x: (Double) -> CGFloat) {
+        guard case .active(let point) = phase, model.tool == .trim || (model.tool == .select && NSEvent.modifierFlags.contains(.option)),
+              point.y >= clipsTop, point.y <= clipsTop + clipsHeight else {
+            if trimCursor { NSCursor.pop(); trimCursor = false }
+            return
+        }
+        let offsets = model.offsets
+        let atCut = offsets.dropFirst().contains { abs(x($0) - point.x) <= 6 }
+        let cursor: NSCursor = atCut ? .resizeLeftRight : (model.tool == .trim ? .openHand : .arrow)
+        if trimCursor { NSCursor.pop() }
+        cursor.push()
+        trimCursor = true
     }
 
     /// What's under the pointer where a drag starts.
@@ -503,6 +628,8 @@ struct ProjectTimeline: View {
             for (index, clip) in model.project.clips.enumerated() {
                 let left = x(offsets[index]), right = x(offsets[index] + clip.length)
                 guard point.x >= left - edge, point.x <= right + edge else { continue }
+                if let cut = rollCut(index, at: point.x, left: left, right: right, edge: edge) { return .roll(cut) }
+                if model.tool == .trim, point.x >= left, point.x <= right { return .slip(clip.id) }
                 if model.tool == .select {
                     if abs(point.x - left) <= edge, right - left > edge * 3 { return .clipStart(clip.id) }
                     if abs(point.x - right) <= edge, right - left > edge * 3 { return .clipEnd(clip.id) }
@@ -527,6 +654,14 @@ struct ProjectTimeline: View {
                 if abs(point.x - left) <= edge { model.selected = [song.id]; return .musicStart(song.id) }
                 if abs(point.x - right) <= edge { model.selected = [song.id]; return .musicEnd(song.id) }
                 if point.x > left, point.x < right { model.selected = [song.id]; return .music(song.id, offset: t(point.x) - song.at) }
+            }
+        }
+        if hasLooks, point.y >= looksTop, point.y <= looksTop + looksHeight {
+            for look in (model.project.adjustments ?? []).reversed() {
+                let left = x(look.start), right = x(look.end)
+                if abs(point.x - left) <= edge { model.selected = [look.id]; return .lookStart(look.id) }
+                if abs(point.x - right) <= edge { model.selected = [look.id]; return .lookEnd(look.id) }
+                if point.x > left, point.x < right { model.selected = [look.id]; return .look(look.id, offset: t(point.x) - look.start) }
             }
         }
         if point.y >= titlesTop, point.y <= titlesTop + titlesHeight {

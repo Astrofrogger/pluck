@@ -26,6 +26,8 @@ struct ProjectClip: Codable, Identifiable, Hashable {
     var at: Double?
     /// Clips that move together (a picture and the sound taken off it).
     var link: UUID?
+    /// How far after the start of its linked clip an item on a track sits (nil: at its start).
+    var linkOffset: Double?
     /// false: its sound was taken off to an audio track (nil: it plays its own).
     var ownAudio: Bool?
     /// A held frame: the file's picture at this time, for the clip's length.
@@ -49,7 +51,7 @@ extension ProjectClip {
         start = value(.start, 0); end = value(.end, 0); volume = value(.volume, 1); fadeIn = value(.fadeIn, 0); fadeOut = value(.fadeOut, 0)
         title = value(.title, nil as String?); role = value(.role, nil as StoryBeat.Role?); look = value(.look, nil as ClipLook?)
         dipOut = value(.dipOut, nil as ProjectDip?)
-        at = value(.at, nil as Double?); link = value(.link, nil as UUID?); ownAudio = value(.ownAudio, nil as Bool?)
+        at = value(.at, nil as Double?); link = value(.link, nil as UUID?); linkOffset = value(.linkOffset, nil as Double?); ownAudio = value(.ownAudio, nil as Bool?)
         freeze = value(.freeze, nil as Double?); transitionIn = value(.transitionIn, nil as ProjectTransition?)
     }
 }
@@ -86,6 +88,8 @@ struct ProjectMusic: Codable, Identifiable, Hashable {
     var volume = 0.35
     var fadeIn = 1.0
     var fadeOut = 2.0
+    /// How far the song drops while someone speaks, in dB (negative). nil: it doesn't.
+    var duck: Double?
 
     var length: Double { max(end - start, 0) }
     var name: String { URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent }
@@ -98,6 +102,7 @@ extension ProjectMusic {
         id = value(.id, UUID()); path = try c.decode(String.self, forKey: .path)
         at = value(.at, 0); start = value(.start, 0); end = value(.end, 0)
         volume = value(.volume, 0.35); fadeIn = value(.fadeIn, 1); fadeOut = value(.fadeOut, 2)
+        duck = value(.duck, nil as Double?)
     }
 }
 
@@ -153,6 +158,10 @@ struct Project: Codable, Identifiable {
     /// Subtitles written or timed by hand, per file in the file's own time (they then replace
     /// the transcript's lines for that file).
     var fileSubtitles: [String: [SubtitleCue]]?
+    /// Looks over parts of the timeline, applied in order over everything under them.
+    var adjustments: [ProjectAdjustment]?
+    /// The DaVinci Resolve timeline it was last sent to (to bring the edit back from).
+    var resolveTimeline: ResolveLink?
     var titleStyle: SubtitleStyle = {
         var style = SubtitleStyle()
         style.y = 0.5
@@ -191,6 +200,8 @@ extension Project {
         markers = value(.markers, nil as [ProjectMarker]?)
         inPoint = value(.inPoint, nil as Double?); outPoint = value(.outPoint, nil as Double?)
         fileSubtitles = value(.fileSubtitles, nil as [String: [SubtitleCue]]?)
+        adjustments = value(.adjustments, nil as [ProjectAdjustment]?)
+        resolveTimeline = value(.resolveTimeline, nil as ResolveLink?)
         if let style = value(.titleStyle, nil as SubtitleStyle?) { titleStyle = style }
     }
 }
@@ -380,6 +391,11 @@ final class ProjectModel {
     /// Each song's beats and bars (by path), found in the background.
     private(set) var beatMaps: [String: MusicMap] = [:]
     @ObservationIgnored private var findingBeats: Set<String> = []
+    /// Speech on the timeline, while a song is set to lower under it (for the preview and the lane).
+    private(set) var speech: [ClosedRange<Double>] = []
+    /// Speech found from the sound of files without a transcript (by path, in the file's seconds).
+    @ObservationIgnored private var speechInFiles: [String: [ClosedRange<Double>]] = [:]
+    @ObservationIgnored private var findingSpeech: Set<String> = []
 
     @ObservationIgnored private var history: [Project] = []
     @ObservationIgnored private var future: [Project] = []
@@ -397,7 +413,9 @@ final class ProjectModel {
     }
 
     /// A change while dragging: shown at once, remembered for undo when the drag ends.
-    private func dragging() { if beforeDrag == nil { beforeDrag = project } }
+    func dragging() { if beforeDrag == nil { beforeDrag = project } }
+    /// A drag ended without changing anything: nothing to remember for undo.
+    func endDrag() { beforeDrag = nil }
     @ObservationIgnored private var rebuildTask: Task<Void, Never>?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private var playable: [String: URL] = [:]
@@ -500,16 +518,23 @@ final class ProjectModel {
 
     func undo() {
         guard let last = history.popLast() else { return }
+        beforeDrag = nil
         future.append(project)
+        // The DaVinci timeline it was sent to isn't an edit: undo keeps it.
+        let link = project.resolveTimeline
         project = last
+        project.resolveTimeline = link
         save()
         rebuild()
     }
 
     func redo() {
         guard let next = future.popLast() else { return }
+        beforeDrag = nil
         history.append(project)
+        let link = project.resolveTimeline
         project = next
+        project.resolveTimeline = link
         save()
         rebuild()
     }
@@ -609,22 +634,18 @@ final class ProjectModel {
     /// Splits the clip under a time in two.
     func split(at seconds: Double) {
         guard let (index, into) = clip(at: seconds), into > frame, into < project.clips[index].length - frame else { return }
-        change { project in
-            var first = project.clips[index], second = project.clips[index]
-            first.end = first.start + into * first.speed
-            first.fadeOut = 0
-            second.id = UUID()
-            second.start = first.end
-            second.fadeIn = 0
-            project.clips[index] = first
-            project.clips.insert(second, at: index + 1)
-        }
+        change { $0.splitClip(index, into: into) }
     }
 
     /// Takes clips out; the ones after move up (nothing is left empty).
     func delete(_ ids: Set<UUID>) {
-        guard !ids.isEmpty else { return }
-        change { $0.clips.removeAll { ids.contains($0.id) } }
+        guard project.clips.contains(where: { ids.contains($0.id) }) || project.adjustments?.contains(where: { ids.contains($0.id) }) == true else { return }
+        change { project in
+            project.clips.removeAll { ids.contains($0.id) }
+            // Looks over the timeline go with them.
+            project.adjustments?.removeAll { ids.contains($0.id) }
+            if project.adjustments?.isEmpty == true { project.adjustments = nil }
+        }
         selected = []
     }
 
@@ -633,7 +654,7 @@ final class ProjectModel {
             var result: [ProjectClip] = []
             for clip in project.clips {
                 result.append(clip)
-                if ids.contains(clip.id) { var copy = clip; copy.id = UUID(); result.append(copy) }
+                if ids.contains(clip.id) { result.append(project.copyWithLinks(clip)) }
             }
             project.clips = result
         }
@@ -647,7 +668,17 @@ final class ProjectModel {
             let fileLength = self.fileLengths[clip.path] ?? clip.end
             if let start { clip.start = min(max(start, 0), clip.end - self.frame) }
             if let end { clip.end = max(min(end, fileLength), clip.start + self.frame) }
-            project.clips[index] = clip
+            project.setClip(clip)
+            Self.followLinks(&project)
+        }
+        if record { change(apply) } else { apply(&project); rebuildSoon() }
+    }
+
+    /// Puts these versions of main-line clips in place of the ones with their ids (trims).
+    func replace(_ clips: [ProjectClip], record: Bool) {
+        let apply: (inout Project) -> Void = { project in
+            for clip in clips { project.setClip(clip) }
+            Self.followLinks(&project)
         }
         if record { change(apply) } else { apply(&project); rebuildSoon() }
     }
@@ -674,12 +705,32 @@ final class ProjectModel {
         if record { change { body(&$0.clips[index]) } } else { body(&project.clips[index]); rebuildSoon() }
     }
 
+    /// Changes a look; `record` false while a slider or drag moves (only the picture is drawn again).
+    func setAdjustment(_ id: UUID, record: Bool, _ body: (inout ProjectAdjustment) -> Void) {
+        guard let index = project.adjustments?.firstIndex(where: { $0.id == id }) else { return }
+        // Only the picture changes: drawn again, without building the edit again.
+        if !record { dragging() }
+        let start = beforeDrag ?? project
+        body(&project.adjustments![index])
+        layers.setAdjustments(project.adjustments ?? [])
+        redraw()
+        guard record else { return }
+        beforeDrag = nil
+        // A slider let go where it was: no step.
+        guard start.adjustments != project.adjustments else { return }
+        history.append(start)
+        if history.count > 100 { history.removeFirst() }
+        future = []
+        project.modified = .now
+        save()
+    }
+
     /// The looks the picture is drawn with, read while it plays (so a change shows at once).
     /// What's on screen when, read by the compositor while the edit plays.
     @ObservationIgnored let layers = ProjectLayers()
 
     /// Draws the frame again (when paused, the player keeps the last one otherwise).
-    private func redraw() {
+    func redraw() {
         guard let item = player.currentItem, let composition = item.videoComposition?.mutableCopy() as? AVMutableVideoComposition else { return }
         item.videoComposition = composition
     }
@@ -779,6 +830,7 @@ final class ProjectModel {
     /// Saves changes made a little at a time (a drag), as one step to undo.
     func commit(from before: Project) {
         history.append(before)
+        beforeDrag = nil
         future = []
         project.modified = .now
         save()
@@ -968,6 +1020,23 @@ final class ProjectModel {
         }
     }
 
+    /// Finds speech in the sound of files that have no transcript, then builds again with it.
+    private func findSpeech() {
+        guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg") else { return }
+        let paths = Set(project.clips.map(\.path) + (project.tracks ?? []).flatMap(\.items).map(\.path))
+        for path in paths where speechInFiles[path] == nil && !findingSpeech.contains(path) && !missing.contains(path)
+            && TranscriptStore.find(forFile: path) == nil {
+            findingSpeech.insert(path)
+            Task {
+                let found = await SpeechFinder.shared.spans(of: path, ffmpeg: ffmpeg)
+                findingSpeech.remove(path)
+                speechInFiles[path] = found ?? []
+                // Several files finishing close together build once.
+                rebuildSoon()
+            }
+        }
+    }
+
     /// Moves every cut between clips onto the nearest bar (or beat) of the music, trimming the clip
     /// before it; one undo step. How many cuts moved.
     @discardableResult
@@ -1002,6 +1071,7 @@ final class ProjectModel {
     // MARK: - The composition
 
     private func rebuildSoon() {
+        guard !holdingBuilds else { buildWaiting = true; return }
         rebuildTask?.cancel()
         rebuildTask = Task {
             try? await Task.sleep(for: .milliseconds(180))
@@ -1049,15 +1119,36 @@ final class ProjectModel {
     }
 
     func rebuild() {
+        guard !holdingBuilds else { buildWaiting = true; return }
         rebuildTask?.cancel()
         rebuildTask = Task { await build() }
     }
+
+    /// While a voice-over is recorded: builds wait, and one happens after.
+    @ObservationIgnored var holdingBuilds = false {
+        didSet { if !holdingBuilds, buildWaiting { buildWaiting = false; rebuild() } }
+    }
+    @ObservationIgnored private var buildWaiting = false
 
     private func build() async {
         let clips = project.clips, music = project.music, tracks = (project.tracks ?? []).filter { !$0.items.isEmpty }
         missing = Self.missingFiles(in: project)
         findBeats()
         loadPeaks()
+        // Where the music is lowered: from the transcripts, or the sound of clips without one.
+        if music.contains(where: { $0.duck != nil }) {
+            findSpeech()
+            // Once per file (a long talk is many clips of few files), its words joined into stretches.
+            var perFile: [String: [ClosedRange<Double>]?] = [:]
+            speech = Ducking.speech(in: project, fileSpans: { path in
+                if let known = perFile[path] { return known }
+                let found = TranscriptStore.find(forFile: path).map { Ducking.merged($0.words.map { $0.s...max($0.e, $0.s) }) } ?? speechInFiles[path]
+                perFile[path] = found
+                return found
+            })
+        } else if !speech.isEmpty {
+            speech = []
+        }
         let composition = AVMutableComposition()
         // The main line on two tracks of each, turn about: a dissolve has both pictures (and both
         // sounds) at once.
@@ -1159,7 +1250,12 @@ final class ProjectModel {
             try? track.insertTimeRange(CMTimeRange(start: cm(song.start), duration: cm(length)), of: source, at: cm(song.at))
             let params = AVMutableAudioMixInputParameters(track: track)
             let songFade = fades(max(song.fadeIn, 0.01), max(song.fadeOut, 0.01), over: length)
-            Self.ramp(params, volume: song.volume, start: song.at, length: length, fadeIn: songFade.in, fadeOut: songFade.out)
+            if let duck = song.duck {
+                let env = Ducking.envelope(Ducking.spans(speech, near: song.at, length: length), amountDB: duck)
+                Self.ramp(params, volume: song.volume, start: song.at, length: length, fadeIn: songFade.in, fadeOut: songFade.out, ducking: env)
+            } else {
+                Self.ramp(params, volume: song.volume, start: song.at, length: length, fadeIn: songFade.in, fadeOut: songFade.out)
+            }
             mixes.append(params)
         }
         let mix = AVMutableAudioMix()
@@ -1177,6 +1273,7 @@ final class ProjectModel {
                 (index > 0 ? clips[index - 1].dipOut : nil, clips[index].dipOut)
             }
             layers.replace(spans, main: mainEntries, dips: dips)
+            layers.setAdjustments(project.adjustments ?? [])
             let videoTracks = composition.tracks(withMediaType: .video).filter { !$0.segments.isEmpty }.map(\.trackID)
             let videoComposition = AVMutableVideoComposition()
             videoComposition.customVideoCompositorClass = ProjectCompositor.self
@@ -1213,8 +1310,25 @@ final class ProjectModel {
 
     /// A sound's volume over a stretch of the timeline, faded in and out (silent elsewhere).
     nonisolated private static func ramp(_ params: AVMutableAudioMixInputParameters, volume: Double, start: Double, length: Double,
-                                         fadeIn: Double, fadeOut: Double) {
+                                         fadeIn: Double, fadeOut: Double, ducking: [(time: Double, gain: Double)] = []) {
         func time(_ seconds: Double) -> CMTime { CMTime(seconds: seconds, preferredTimescale: 600) }
+        if !ducking.isEmpty {
+            // Straight pieces between the corners of the fades and of the ducking (no two overlap).
+            let end = start + length
+            func level(_ t: Double) -> Float {
+                let up = fadeIn > 0 ? min((t - start) / fadeIn, 1) : 1, down = fadeOut > 0 ? min((end - t) / fadeOut, 1) : 1
+                return Float(volume * max(min(up, down), 0) * Ducking.gain(at: t, in: ducking))
+            }
+            var corners = [start, start + fadeIn, end - fadeOut, end] + ducking.map(\.time)
+            corners = corners.filter { $0 >= start && $0 <= end }.sorted()
+            var points: [Double] = []
+            for corner in corners where points.last.map({ corner - $0 > 0.001 }) ?? true { points.append(corner) }
+            for (a, b) in zip(points, points.dropFirst()) {
+                params.setVolumeRamp(fromStartVolume: level(a), toEndVolume: level(b), timeRange: CMTimeRange(start: time(a), end: time(b)))
+            }
+            params.setVolume(0, at: time(end))
+            return
+        }
         let level = Float(volume)
         if fadeIn > 0 {
             params.setVolumeRamp(fromStartVolume: 0, toEndVolume: level, timeRange: CMTimeRange(start: time(start), duration: time(fadeIn)))

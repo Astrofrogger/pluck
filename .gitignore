@@ -3,3 +3,6 @@ build/
 .DS_Store
 dist/
 .build-basic/
+.build-*/
+# Plans and notes made while building (kept out of the public repo).
+docs/superpowers/

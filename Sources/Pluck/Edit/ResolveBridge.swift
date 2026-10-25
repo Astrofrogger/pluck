@@ -194,6 +194,8 @@ if action == "buildTimeline":
     project.SetCurrentTimeline(timeline)
     while timeline.GetTrackCount("video") < cmd.get("videoTracks", 1):
         timeline.AddTrack("video")
+    for track in cmd.get("disabledTracks", []):
+        timeline.SetTrackEnable("video", track, False)
     start = timeline.GetStartFrame()
     infos, wanted = [], []
     for item in cmd.get("items", []):
@@ -209,9 +211,15 @@ if action == "buildTimeline":
              "inOut": resolve.DYNAMIC_ZOOM_EASE_IN_AND_OUT, "linear": resolve.DYNAMIC_ZOOM_EASE_LINEAR}
     groups = {g.GetName(): g for g in (project.GetColorGroupsList() or [])}
     zoomed = graded = grouped = 0
+    # Where each picture really went (as Resolve counts), to read changes against later.
+    sent = []
     for timelineItem, item in zip(placed, wanted):
         if timelineItem is None:
             continue
+        if item.get("key"):
+            sent.append({"key": item["key"], "track": item.get("track", 1), "start": timelineItem.GetStart() - start,
+                         "end": timelineItem.GetEnd() - start, "sourceStart": timelineItem.GetSourceStartFrame(),
+                         "sourceEnd": timelineItem.GetSourceEndFrame()})
         zoom = item.get("zoom")
         if zoom and timelineItem.SetProperties({"DynamicZoomEnabled": True, "DynamicZoomEase": eases.get(zoom, resolve.DYNAMIC_ZOOM_EASE_IN_AND_OUT)}):
             zoomed += 1
@@ -228,8 +236,11 @@ if action == "buildTimeline":
         # The Inspector's settings (zoom, position, rotation, flips, cropping, opacity).
         for key, value in (item.get("properties") or {}).items():
             timelineItem.SetProperty(key, value)
+    missed = 0
     for marker in cmd.get("markers", []):
-        timeline.AddMarker(marker["frame"], marker.get("color", "Blue"), marker["name"], marker.get("note", ""), marker.get("duration", 1))
+        if not timeline.AddMarker(marker["frame"], marker.get("color", "Blue"), marker["name"], marker.get("note", ""), marker.get("duration", 1),
+                                  marker.get("customData", "")):
+            missed += 1
     # Subtitles: the .srt into the media pool, then onto a subtitle track from the start.
     subtitles = "none"
     if cmd.get("subtitles"):
@@ -243,7 +254,7 @@ if action == "buildTimeline":
                 subtitles = "added" if added else "imported"
         except Exception:
             pass
-    out({"timeline": timeline.GetName(), "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
+    out({"timeline": timeline.GetName(), "project": project.GetName(), "sent": sent, "missedMarkers": missed, "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
 
 if action == "renderAnalysis":
     # Small H.264 copies with sound of clips Pluck can't read itself (RED, BRAW), rendered from a
@@ -355,8 +366,28 @@ if action == "logClips":
         logged += 1
     out({"logged": logged, "markers": markers})
 
+def rate_of(timeline):
+    # "29.97 DF" and the like: the number before any words.
+    try:
+        return float(str(timeline.GetSetting("timelineFrameRate") or "0").split()[0])
+    except Exception:
+        return 0.0
+
 if action == "readTimeline":
-    timeline = project.GetCurrentTimeline()
+    # The timeline asked for (by name), else the one open: its markers and its picture items.
+    timeline = None
+    if cmd.get("timeline"):
+        if cmd.get("project") and project.GetName() != cmd["project"]:
+            out({"error": "wrongProject"})
+        for index in range(1, project.GetTimelineCount() + 1):
+            found = project.GetTimelineByIndex(index)
+            if found and found.GetName() == cmd["timeline"]:
+                timeline = found
+                break
+        if timeline is None:
+            out({"error": "noTimeline"})
+    else:
+        timeline = project.GetCurrentTimeline()
     if timeline is None:
         out({"error": "No timeline"})
     items = []
@@ -364,12 +395,29 @@ if action == "readTimeline":
         for i in timeline.GetItemListInTrack("video", track) or []:
             props = i.GetProperties() or {}
             group = i.GetColorGroup()
+            clip = i.GetMediaPoolItem()
+            path = clip.GetClipProperty("File Path") if clip else None
+            fps = None
+            try:
+                fps = float(str(clip.GetClipProperty("FPS")).split()[0]) if clip else None
+            except Exception:
+                fps = None
             items.append({"track": track, "name": i.GetName(), "start": i.GetStart(), "end": i.GetEnd(),
-                          "sourceStart": i.GetSourceStartFrame(), "dynamicZoom": bool(props.get("DynamicZoomEnabled")),
+                          "sourceStart": i.GetSourceStartFrame(), "sourceEnd": i.GetSourceEndFrame(),
+                          "path": path or None, "fps": fps,
+                          "dynamicZoom": bool(props.get("DynamicZoomEnabled")),
                           "colorGroup": group.GetName() if group else None})
-    audio = [{"track": t, "count": len(timeline.GetItemListInTrack("audio", t) or [])} for t in range(1, timeline.GetTrackCount("audio") + 1)]
-    out({"timeline": timeline.GetName(), "start": timeline.GetStartFrame(), "items": items, "audio": audio,
-         "markers": len(timeline.GetMarkers() or {})})
+    sounds = []
+    for track in range(1, timeline.GetTrackCount("audio") + 1):
+        for i in timeline.GetItemListInTrack("audio", track) or []:
+            sounds.append({"track": track, "start": i.GetStart(), "end": i.GetEnd()})
+    markers = []
+    for frame, m in (timeline.GetMarkers() or {}).items():
+        markers.append({"frame": int(frame), "color": m.get("color", "Blue"), "name": m.get("name", ""), "note": m.get("note", ""),
+                        "duration": int(m.get("duration", 1) or 1), "customData": m.get("customData", "")})
+    out({"timeline": timeline.GetName(), "project": project.GetName(), "start": timeline.GetStartFrame(),
+         "rate": rate_of(timeline), "items": items, "sounds": sounds, "markers": markers,
+         "audio": [{"track": t, "count": len(timeline.GetItemListInTrack("audio", t) or [])} for t in range(1, timeline.GetTrackCount("audio") + 1)]})
 
 out({"error": "Unknown action " + action})
 """#

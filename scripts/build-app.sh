@@ -144,7 +144,12 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
 # Hardened runtime: blocks code injection (DYLD_* variables, unsigned libraries) into Pluck.
-codesign --force --options runtime --sign "$SIGN_ID" "$APP"
+# (Studio records voice-overs: the microphone needs its entitlement under the hardened runtime.)
+if [[ "$EDITION" == studio ]]; then
+  codesign --force --options runtime --entitlements Resources/Pluck.entitlements --sign "$SIGN_ID" "$APP"
+else
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP"
+fi
 echo "Built $APP"
 
 if [[ -n "$INSTALL" ]]; then

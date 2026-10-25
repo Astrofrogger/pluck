@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The inspector next to a project: the selected clip (or music), the story across all its
 /// clips, the titles, and the export.
@@ -104,11 +105,19 @@ private struct ProjectClipPanel: View {
         return (model.project.tracks ?? []).flatMap(\.items).first { $0.id == id }
     }
 
+    /// A look over a part of the timeline.
+    private var look: ProjectAdjustment? {
+        guard model.selected.count == 1, let id = model.selected.first else { return nil }
+        return model.adjustment(id)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 if let clip {
                     clipSettings(clip)
+                } else if let look {
+                    lookSettings(look)
                 } else if let song {
                     musicSettings(song)
                 } else if let item {
@@ -318,12 +327,80 @@ private struct ProjectClipPanel: View {
                 }
             }
             HStack {
+                Toggle("Lower under speech", isOn: Binding(get: { song.duck != nil }, set: { on in model.setMusic(song.id) { $0.duck = on ? -12 : nil } }))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                    .help("The song drops while someone speaks in the clips, and comes back after")
+                Spacer()
+            }
+            .font(.callout)
+            .padding(.horizontal, 8)
+            .frame(minHeight: 28)
+            if let duck = song.duck {
+                inspectorRow("Lower by") {
+                    Slider(value: Binding(get: { duck }, set: { value in model.setMusic(song.id, record: false) { $0.duck = value.rounded() } }), in: -24 ... -6) { editing in
+                        if !editing { model.setMusic(song.id) { _ in } }
+                    }
+                    Text(verbatim: "\(Int(duck)) dB").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+            }
+            HStack {
                 Button("Fit to the Edit") {
                     model.setMusic(song.id) { $0.at = 0; $0.end = min($0.start + model.duration, $0.end + model.duration) }
                 }
                 .help("Start with the first clip and run to the end")
                 Spacer()
                 Button("Remove", role: .destructive) { model.removeMusic(song.id) }
+            }
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+            .padding(.top, 8)
+        }
+    }
+
+    private func lookSettings(_ look: ProjectAdjustment) -> some View {
+        func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ProjectAdjustment, Double>, _ range: ClosedRange<Double>,
+                    _ format: String, scale: Double = 1, reset: Double = 0) -> some View {
+            let value = look[keyPath: path]
+            return inspectorRow(title) {
+                Slider(value: Binding(get: { value }, set: { new in model.setAdjustment(look.id, record: false) { $0[keyPath: path] = new } }), in: range) { editing in
+                    if !editing { model.setAdjustment(look.id, record: true) { _ in } }
+                }
+                Text(String(format: format, value * scale)).font(.caption.monospacedDigit()).foregroundStyle(value == reset ? .tertiary : .secondary)
+                    .frame(minWidth: 46, alignment: .trailing)
+                    .fixedSize()
+                    .onTapGesture(count: 2) { model.setAdjustment(look.id, record: true) { $0[keyPath: path] = reset } }
+                    .help("Double-click to reset")
+            }
+        }
+        return VStack(alignment: .leading, spacing: 4) {
+            Label("Look", systemImage: "camera.filters").font(.callout.weight(.semibold)).padding(.horizontal, 8).padding(.bottom, 6)
+            inspectorRow("From") { Text(Format.duration(look.start)).monospacedDigit() }
+            inspectorRow("To") { Text(Format.duration(look.end)).monospacedDigit() }
+            slider("Amount", \.amount, 0...1, "%.0f%%", scale: 100, reset: 1)
+            slider("Exposure", \.color.exposure, -3...3, "%+.2f")
+            slider("Contrast", \.color.contrast, -100...100, "%+.0f")
+            slider("Saturation", \.color.saturation, -100...100, "%+.0f")
+            slider("Temperature", \.color.temperature, -100...100, "%+.0f")
+            slider("Tint", \.color.tint, -100...100, "%+.0f")
+            inspectorRow("LUT") {
+                Text(look.color.lut.map { URL(fileURLWithPath: $0).deletingPathExtension().lastPathComponent } ?? String(localized: "None"))
+                    .lineLimit(1).truncationMode(.middle).foregroundStyle(.secondary)
+                Spacer()
+                Button("Choose…") {
+                    let panel = NSOpenPanel()
+                    panel.allowedContentTypes = [UTType(filenameExtension: "cube")].compactMap { $0 }
+                    guard panel.runModal() == .OK, let url = panel.url, LUTFile.read(url.path) != nil else { return }
+                    model.setAdjustment(look.id, record: true) { $0.color.lut = url.path }
+                }
+                if look.color.lut != nil {
+                    Button { model.setAdjustment(look.id, record: true) { $0.color.lut = nil } } label: { Image(systemName: "xmark.circle.fill") }.buttonStyle(.plain)
+                }
+            }
+            if look.color.lut != nil { slider("LUT Amount", \.color.lutAmount, 0...1, "%.2f", reset: 1) }
+            HStack {
+                Spacer()
+                Button("Remove", role: .destructive) { model.removeAdjustment(look.id); model.selected = [] }
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
@@ -576,16 +653,15 @@ private struct ProjectExportPanel: View {
                             model.exports.runEach(model.project, range: model.hasRange ? model.range : nil, settings: settings, audioOnly: audioOnly,
                                                   size: model.renderSize, fps: model.frameRate, lengths: model.knownLengths, manager: manager)
                         } else {
-                        model.exports.run(exporting, settings: settings, audioOnly: audioOnly, size: model.renderSize,
-                                          fps: model.frameRate, lengths: model.knownLengths, manager: manager)
+                            model.exports.enqueue(ExportJob(model, project: exporting, settings: settings, audioOnly: audioOnly), manager: manager)
                         }
                     } label: {
                         Label("Export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
                     }
                     .buttonStyle(BrandButtonStyle())
-                    .disabled(model.project.clips.isEmpty || model.exports.isRunning)
+                    .disabled(model.project.clips.isEmpty || (shown == .each && model.exports.isRunning))
                     if let progress = model.exports.progress {
-                        ExportProgress(value: progress) { model.exports.stop() }
+                        ExportProgress(value: progress) { model.exports.stopAll() }
                     } else if let problem = model.exports.problem {
                         ProblemLabel(text: problem)
                     }

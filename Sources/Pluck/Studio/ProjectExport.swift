@@ -1,6 +1,40 @@
 import Foundation
 import SwiftUI
 
+/// One export, with everything it needs, as it was when asked for.
+struct ExportJob {
+    var project: Project
+    var settings: EditorRenderSettings
+    var audioOnly: Bool
+    var size: CGSize
+    var fps: Double
+    var lengths: [String: Double]
+
+    /// What the Export panel exports: `project` (the whole edit or the in to the out point) with
+    /// these settings. The edit is put together at its own size and rate; the settings' resolution
+    /// and frame rate are applied when it's encoded.
+    @MainActor
+    init(_ model: ProjectModel, project: Project, settings: EditorRenderSettings, audioOnly: Bool) {
+        self.project = project
+        self.settings = settings
+        self.audioOnly = audioOnly
+        size = model.renderSize
+        fps = model.frameRate
+        lengths = model.knownLengths
+    }
+}
+
+/// File ▸ Quick Export: the project with the settings last used in the Export panel, the in to
+/// the out point when there is one. Waits its turn behind an export already running.
+@MainActor
+func quickExport(_ model: ProjectModel, manager: DownloadManager) {
+    guard !model.project.clips.isEmpty else { return }
+    let defaults = UserDefaults.standard
+    let settings = EditorRenderSettings(saved: defaults.string(forKey: "editorRenderSettings") ?? "")
+    let project = model.hasRange ? model.project.cut(to: model.range) : model.project
+    model.exports.enqueue(ExportJob(model, project: project, settings: settings, audioOnly: defaults.bool(forKey: "projectExportAudio")), manager: manager)
+}
+
 /// A project's export: every clip in turn (each fitted to the project's frame), the music mixed
 /// under it, the titles drawn in, written with the render settings by ffmpeg from the original
 /// files.
@@ -12,12 +46,47 @@ final class ProjectExports {
     private(set) var problem: String?
     private(set) var finished: [URL] = []
 
+    /// Exports waiting for the one running.
+    private var pending: [(job: ExportJob, manager: DownloadManager)] = []
+    /// Exports of this batch that are done (back to none when the queue is empty).
+    private(set) var batchDone = 0
+
     @ObservationIgnored private var task: Task<Void, Never>?
+
+    /// How many exports wait behind the one running.
+    var queued: Int { pending.count }
+    /// The running one and those waiting.
+    var jobsLeft: Int { (isRunning ? 1 : 0) + pending.count }
 
     var isRunning: Bool { progress != nil }
 
-    /// Stops the export; what was written so far is thrown away.
+    /// Stops the export running; what was written so far is thrown away. The next one waiting starts.
     func stop() { task?.cancel() }
+
+    /// The Export panel's Stop: this one and those waiting.
+
+    func stopAll() {
+        pending = []
+        task?.cancel()
+    }
+
+    /// Exports it now, or when the ones before it are done. The project is as it is now: editing
+    /// afterwards doesn't change it.
+    func enqueue(_ job: ExportJob, manager: DownloadManager) {
+        pending.append((job, manager))
+        startNext()
+    }
+
+    private func startNext() {
+        while !isRunning, !pending.isEmpty {
+            let next = pending.removeFirst()
+            run(next.job.project, settings: next.job.settings, audioOnly: next.job.audioOnly, size: next.job.size, fps: next.job.fps,
+                lengths: next.job.lengths, manager: next.manager)
+            // It couldn't start (files offline, no ffmpeg): the reason stays shown, the rest wait
+            // for another go.
+            if !isRunning, problem != nil { pending = []; batchDone = 0; break }
+        }
+    }
 
     func run(_ project: Project, settings: EditorRenderSettings, audioOnly: Bool, size: CGSize, fps: Double, lengths: [String: Double] = [:],
              manager: DownloadManager) {
@@ -66,7 +135,6 @@ final class ProjectExports {
         try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
         task = Task {
             var made: [URL] = []
-            defer { Self.announce(made, total: jobs.count, problem: problem, cancelled: Task.isCancelled, manager: manager) }
             for (number, job) in jobs.enumerated() {
                 guard !Task.isCancelled else { break }
                 let output = Converting.outputURL(folder: folder, name: job.name,
@@ -82,8 +150,12 @@ final class ProjectExports {
                 _ = manager.addLocalFiles([output])
             }
             manager.saveHistory()
+            Self.announce(made, total: jobs.count, problem: problem, cancelled: Task.isCancelled, manager: manager)
             progress = nil
             task = nil
+            batchDone += 1
+            if pending.isEmpty { batchDone = 0 }
+            startNext()
         }
     }
 
@@ -121,9 +193,19 @@ final class ProjectExports {
             let text = EditorSubtitleFiles.ass(titles, style: project.titleStyle, width: Int(size.width), height: Int(size.height))
             if (try? text.write(to: ass, atomically: true, encoding: .utf8)) != nil { assFile = ass }
         }
+        // Where the music is lowered.
+        var speech: [ClosedRange<Double>] = []
+        if project.music.contains(where: { $0.duck != nil }) {
+            var found: [String: [ClosedRange<Double>]] = [:]
+            for path in Set(project.clips.map(\.path) + items) where streams[path]?.contains("audio") == true {
+                guard !Task.isCancelled else { return false }
+                if let spans = await SpeechFinder.shared.spans(of: path, ffmpeg: ffmpeg) { found[path] = spans }
+            }
+            speech = Ducking.speech(in: project, fileSpans: { found[$0] })
+        }
         let arguments = { (hardware: Bool) in
             Self.arguments(project, streams: streams, lengths: lengths, settings: settings, audioOnly: audioOnly, size: size, fps: fps,
-                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: output)
+                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: output, speech: speech)
         }
         let report: @Sendable (Double) -> Void = { value in Task { @MainActor in progress(value) } }
         let hardware = !audioOnly && settings.hardware && !settings.codec.isProRes
@@ -192,7 +274,7 @@ final class ProjectExports {
 
     nonisolated static func arguments(_ project: Project, streams: [String: Set<String>], lengths: [String: Double] = [:], settings: EditorRenderSettings,
                                               audioOnly: Bool, size: CGSize, fps: Double, titles: URL?, subtitles: URL?, hardware: Bool,
-                                              output: URL) -> [String] {
+                                              output: URL, speech: [ClosedRange<Double>] = []) -> [String] {
         let width = Int(size.width) / 2 * 2, height = Int(size.height) / 2 * 2
         let rate = String(format: "%.3f", max(fps, 1))
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
@@ -322,10 +404,16 @@ final class ProjectExports {
             let (i, from) = input(song.path, song.start, song.start + length)
             let delay = Int(song.at * 1000)
             let songFade = fades(max(song.fadeIn, 0.01), max(song.fadeOut, 0.01), over: length)
+            // Lowered under speech: after the delay, so the stream's time is the timeline's.
+            var ducked = ""
+            if let duck = song.duck {
+                let env = Ducking.envelope(Ducking.spans(speech, near: song.at, length: length), amountDB: duck)
+                if !env.isEmpty { ducked = "," + Ducking.smallFrames + "," + Ducking.ffmpegExpression(env.map { ($0.time, $0.gain) }) }
+            }
             graph.append("[\(i):a:0]atrim=start=\(number(song.start - from)):end=\(number(song.start + length - from)),asetpts=PTS-STARTPTS,"
                          + "volume=\(number(song.volume)),afade=t=in:d=\(number(songFade.in)),"
                          + "afade=t=out:st=\(number(max(length - songFade.out, 0))):d=\(number(songFade.out)),"
-                         + "adelay=\(delay)|\(delay),aformat=sample_rates=48000:channel_layouts=stereo[m\(m)]")
+                         + "adelay=\(delay)|\(delay),aformat=sample_rates=48000:channel_layouts=stereo\(ducked)[m\(m)]")
             mixed += "[m\(m)]"
         }
         var sound = 0
@@ -346,7 +434,8 @@ final class ProjectExports {
         let pieces = mixed.components(separatedBy: "][").count
         graph.append(pieces > 1 ? "\(mixed)amix=inputs=\(pieces):normalize=0:duration=first[aout]" : "[ac]anull[aout]")
         if !audioOnly {
-            var chain: [String] = []
+            // Looks over parts of the timeline, on everything under them (not the titles).
+            var chain = ProjectAdjustment.ffmpegSteps(project.adjustments ?? [])
             if let subtitles { chain.append("ass=\(EditorSubtitleFiles.filterPath(subtitles))") }
             if let titles { chain.append("ass=\(EditorSubtitleFiles.filterPath(titles))") }
             chain += settings.filters
@@ -359,7 +448,13 @@ final class ProjectExports {
             if file.from > 0 { inputs += ["-ss", number(file.from)] }
             inputs += ["-t", number(file.to - file.from + 1), "-i", file.path]
         }
-        var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1"] + inputs + ["-filter_complex", graph.joined(separator: ";")]
+        // A long graph (a long talk's ducking) goes in a file: the command line has a limit.
+        var filter = ["-filter_complex", graph.joined(separator: ";")]
+        if filter[1].utf8.count > 100_000 {
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-graph-\(UUID().uuidString).txt")
+            if (try? filter[1].write(to: file, atomically: true, encoding: .utf8)) != nil { filter = ["-/filter_complex", file.path] }
+        }
+        var arguments = ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1"] + inputs + filter
         if !audioOnly {
             arguments += ["-map", "[v]"] + settings.videoArguments(source: CGSize(width: width, height: height), sourceFPS: fps,
                                                                     length: project.duration, hardware: hardware)

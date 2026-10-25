@@ -16,6 +16,9 @@ struct ProjectView: View {
     /// How much taller than its least the timeline is (drag the line above it).
     @AppStorage("editTimelineGrow") private var timelineGrow = 30.0
     @FocusState private var focused: Bool
+    @State private var recorder = VoiceOverRecorder()
+    @State private var voiceOverShown = false
+    @AppStorage("voiceOverMuteTimeline") private var muteTimeline = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -24,6 +27,12 @@ struct ProjectView: View {
                 VStack(spacing: Design.Spacing.controls) {
                     picture.frame(maxWidth: .infinity, maxHeight: .infinity)
                     transport
+                    if voiceOverShown || recorder.isActive {
+                        VoiceOverBar(recorder: recorder, model: model, muteTimeline: $muteTimeline) {
+                            withAnimation(.snappy) { voiceOverShown = false }
+                            recorder.state = .idle
+                        }
+                    }
                 }
                 .padding([.horizontal, .top], Design.Spacing.window)
                 .padding(.bottom, Design.Spacing.controls)
@@ -54,17 +63,29 @@ struct ProjectView: View {
             // The edit going out: to DaVinci Resolve, or exported.
             ToolbarItemGroup(placement: .primaryAction) {
                 if ProjectResolve.isAvailable {
-                    Button {
-                        ProjectResolve.sendAndShow(model)
-                    } label: {
+                    let label = Group {
                         if model.sendingToResolve {
                             ProgressView().controlSize(.small)
                         } else {
                             Label("Send to DaVinci", systemImage: "arrow.up.forward.app")
                         }
                     }
-                    .disabled(model.project.clips.isEmpty || model.sendingToResolve)
-                    .help("Send to DaVinci Resolve: a new timeline in the project open there, with the subtitles (files already there aren’t imported again)")
+                    if model.project.resolveTimeline != nil {
+                        // Sent before: the edit can come back from that timeline too.
+                        Menu {
+                            Button("Update from DaVinci") { ProjectResolve.updateAndShow(model) }
+                        } label: {
+                            label
+                        } primaryAction: {
+                            ProjectResolve.sendAndShow(model)
+                        }
+                        .disabled(model.sendingToResolve)
+                        .help("Send to DaVinci Resolve as a new timeline; or bring back the markers, order and trims from the timeline it was sent to")
+                    } else {
+                        Button { ProjectResolve.sendAndShow(model) } label: { label }
+                            .disabled(model.project.clips.isEmpty || model.sendingToResolve)
+                            .help("Send to DaVinci Resolve: a new timeline in the project open there, with the subtitles (files already there aren’t imported again)")
+                    }
                 }
                 Button {
                     withAnimation(.snappy) { tab = .export; sidebarShown = true }
@@ -86,7 +107,11 @@ struct ProjectView: View {
         .focused($focused)
         .focusEffectDisabled()
         .onKeyPress(phases: .down, action: key)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            // The media panel beside it hands on the keys that put its media in (it keeps the focus).
+            Self.forward = key
+        }
         .task {
             // Tests: -PluckScreenshotAspect <9:16> reframes the project.
             if ScreenshotMode.scene == "project", let aspect = UserDefaults.standard.string(forKey: "PluckScreenshotAspect") {
@@ -97,6 +122,20 @@ struct ProjectView: View {
             if ScreenshotMode.scene == "project", UserDefaults.standard.bool(forKey: "PluckScreenshotFitBeat") {
                 for _ in 0..<60 where model.timelineBeats.isEmpty { try? await Task.sleep(for: .milliseconds(500)) }
                 model.fitToBeat()
+            }
+        }
+        .task {
+            // Screenshots: -PluckScreenshotVoiceOver bar|countdown|recording shows the bar in that
+            // state (the microphone stays off).
+            if ScreenshotMode.scene == "project", let state = UserDefaults.standard.string(forKey: "PluckScreenshotVoiceOver") {
+                try? await Task.sleep(for: .seconds(3))
+                voiceOverShown = true
+                recorder.refreshInputs()
+                recorder.level = 0.6
+                recorder.startedAt = Date().addingTimeInterval(-12)
+                if state == "countdown" { recorder.state = .countingDown(2) }
+                if state == "recording" { recorder.state = .recording(since: 0) }
+                if state == "denied" { recorder.state = .failed(String(localized: "Microphone is off for Pluck. Allow it in System Settings ▸ Privacy & Security ▸ Microphone.")) }
             }
         }
         .task {
@@ -217,10 +256,17 @@ struct ProjectView: View {
                         .buttonStyle(BarButtonStyle()).help("Back one frame (←)")
                     Button { model.togglePlay() } label: { Image(systemName: model.isPlaying ? "pause.fill" : "play.fill") }
                         .buttonStyle(BarButtonStyle(prominent: true)).help("Play or pause (Space)")
+                        .disabled(recorder.isActive)
                     Button { model.step(frames: 1) } label: { Image(systemName: "forward.frame.fill") }
                         .buttonStyle(BarButtonStyle()).help("Forward one frame (→)")
                     Button { model.seek(to: model.duration) } label: { Image(systemName: "forward.end.fill") }
                         .buttonStyle(BarButtonStyle()).help("To the end")
+                    Button {
+                        if recorder.isActive { Task { await recorder.stop() } } else { withAnimation(.snappy) { voiceOverShown.toggle() } }
+                    } label: {
+                        Image(systemName: "mic.fill").foregroundStyle(recorder.isActive ? AnyShapeStyle(Design.Brand.pink) : AnyShapeStyle(.primary))
+                    }
+                    .buttonStyle(BarButtonStyle()).help("Record a voice-over")
                 }
             }
             Text(model.timecode(model.time, full: true))
@@ -283,8 +329,16 @@ struct ProjectView: View {
 
     // MARK: - Keys
 
+    /// The shown project's keys, for the media panel.
+    @MainActor static var forward: ((KeyPress) -> KeyPress.Result)?
+
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
+        // Recording: Space or Esc ends the take, nothing else plays the timeline.
+        if recorder.isActive {
+            if press.key == .space || press.key == .escape { Task { await recorder.stop() } }
+            return .handled
+        }
         let shift = press.modifiers.contains(.shift)
         let option = press.modifiers.contains(.option), command = press.modifiers.contains(.command)
         // With ⌥ the typed character changes (⌥I is a dead key, ⌥O is ø): the key itself.
@@ -311,6 +365,13 @@ struct ProjectView: View {
         }
         // ⇧F: the frame at the playhead, held.
         if shift, !command, !option, letter == "f" { model.freezeFrame(); return .handled }
+        // ⌥← and ⌥→ nudge the selected items, songs and titles a frame (⇧: five frames). With none
+        // of those selected, the arrows step the playhead as before.
+        if option, !command, press.key == .leftArrow || press.key == .rightArrow {
+            let frames = (press.key == .leftArrow ? -1 : 1) * (shift ? 5 : 1)
+            let ids = model.selected.union(model.selectedTitle.map { [$0] } ?? [])
+            if model.nudge(ids, frames: frames) { return .handled }
+        }
         switch press.key {
         case .space: model.togglePlay()
         case .leftArrow: model.step(frames: shift ? -Int(model.frameRate) : -1)
@@ -333,6 +394,22 @@ struct ProjectView: View {
             case .editSplit: model.split(at: model.time)
             case .editBlade: model.tool = .blade
             case .editSelect: model.tool = .select
+            case .editTrim: model.tool = .trim
+            case .editAppend, .editInsert, .editOverwrite, .editPlaceOnTop, .editReplace:
+                // From what's chosen in the media panel.
+                guard let source = MediaSelection.shared.source else { NSSound.beep(); return .handled }
+                let action = Shortcuts.shared.action(for: press, in: .edit)
+                Task {
+                    switch action {
+                    case .editAppend: await model.append(source)
+                    case .editInsert: await model.insert(source)
+                    case .editOverwrite: await model.overwrite(source)
+                    case .editPlaceOnTop: await model.placeOnTop(source)
+                    default: await model.replace(source)
+                    }
+                }
+            case .editTrimStart: model.trimStartToPlayhead()
+            case .editTrimEnd: model.trimEndToPlayhead()
             case .editDuplicate: model.duplicate(model.selected)
             case .editRedo: model.redo()
             case .editUndo: model.undo()
@@ -341,6 +418,7 @@ struct ProjectView: View {
             case .editMarkIn: model.markIn()
             case .editMarkOut: model.markOut()
             case .editMarker: model.addMarker()
+            case .editFavourite: if !MediaFavourites.shared.toggleCurrent(in: model) { return .ignored }
             default: return .ignored
             }
         }
@@ -410,6 +488,9 @@ private struct ProjectToolbar: View {
     @Binding var zoom: Double
     let addMedia: () -> Void
     let addMusic: () -> Void
+    @AppStorage("projectPacing") private var pacing = false
+    @AppStorage("projectPacingLong") private var pacingLong = 8.0
+    @AppStorage("projectPacingShort") private var pacingShort = 10
 
     var body: some View {
         // With words beside the main tools when there's room, symbols alone when not.
@@ -427,6 +508,8 @@ private struct ProjectToolbar: View {
             HStack(spacing: 0) {
                 tool("cursorarrow", "Selection tool: click a clip to select it, drag to move it (A)", on: model.tool == .select) { model.tool = .select }
                 tool("scissors", "Blade tool: click a clip to cut it there (B)", on: model.tool == .blade) { model.tool = .blade }
+                tool("arrow.left.and.line.vertical.and.arrow.right", "Trim tool: drag a cut to move it between two clips, or the middle of a clip to show another part of it (T)",
+                     on: model.tool == .trim) { model.tool = .trim }
             }
             .padding(2)
             .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.black.opacity(0.25)))
@@ -445,8 +528,21 @@ private struct ProjectToolbar: View {
             tool("film.stack", "Add Videos…", words ? "Video" : nil) { addMedia() }
             tool("music.note", "Add Music…", words ? "Music" : nil) { addMusic() }
             tool("textformat", "Add a Title at the Playhead (⌘T)", words ? "Title" : nil) { model.addTitle(at: model.time) }
+            tool("camera.filters", "Add a look over the clips chosen, between in and out, or for 5 s from the playhead", words ? "Look" : nil) {
+                model.addAdjustmentHere()
+            }
             divider
             tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
+            // Right-click for the two thresholds.
+            tool("gauge.with.dots.needle.33percent", "Show long shots, very short clips and jump cuts", words ? "Pacing" : nil, on: pacing) { pacing.toggle() }
+                .contextMenu {
+                    Picker("Long shot after", selection: $pacingLong) {
+                        ForEach([4.0, 6, 8, 10, 12, 15, 20], id: \.self) { Text("\(Int($0)) s").tag($0) }
+                    }
+                    Picker("Short clip under", selection: $pacingShort) {
+                        ForEach([4, 6, 8, 10, 12, 16, 24], id: \.self) { Text("\($0) frames").tag($0) }
+                    }
+                }
             if !model.timelineBeats.isEmpty {
                 tool("metronome", "Fit the Cuts to the Beat") { model.fitToBeat() }
                     .disabled(model.project.clips.count < 2)

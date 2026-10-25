@@ -2,8 +2,9 @@ import AVFoundation
 import CryptoKit
 import Foundation
 
-/// The two ways of working on a timeline: choosing and moving, or cutting.
-enum EditTool { case select, blade }
+/// The ways of working on a timeline: choosing and moving, cutting, or trimming without changing
+/// the edit's length (rolling a cut, slipping a clip).
+enum EditTool { case select, blade, trim }
 
 /// Reading media for the editors (both editions): its length, a copy macOS plays, its sound's
 /// peaks, a frame's length.

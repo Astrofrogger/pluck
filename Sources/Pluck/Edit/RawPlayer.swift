@@ -549,6 +549,10 @@ final class RawPlayer {
     /// mustn't redraw the page).
     @ObservationIgnored private(set) var currentImage: CGImage?
     @ObservationIgnored var present: ((CGImage) -> Void)?
+    /// Tells the picture how to show the held still B (mode, the picture in false colour or not, the line).
+    @ObservationIgnored var presentCompare: ((CompareMode, CGImage?, Double) -> Void)?
+    /// The scopes' analysis of shown frames (does nothing while the panel is hidden).
+    let scopes = ScopeFeed()
     private(set) var index = 0
     private(set) var isPlaying = false
     private(set) var opening = false
@@ -584,6 +588,139 @@ final class RawPlayer {
     }
     var effectivePlayScale: Int { playScale == 0 ? autoScale : playScale }
     var stillScale = 1 { didSet { if !isPlaying { show(index) } } }
+    /// The picture shown in false colour (IRE bands, see FalseColour). A paused frame is redrawn when it changes.
+    var falseColour = false {
+        didSet {
+            guard falseColour != oldValue else { return }
+            refreshStill()
+            // (Playing frames are made in false colour by the decoders: start them again.)
+            if isPlaying { restartPlayback() } else { show(index) }
+        }
+    }
+
+    // MARK: A/B compare
+
+    /// The held still (B): a picture grabbed from this or another clip, real colours.
+    private(set) var stillB: CGImage? { didSet { shownB = nil; refreshStill() } }
+    /// What B is, for the sidebar ("Name 01:00:05:12").
+    private(set) var stillBName: String?
+    /// B being loaded from another clip.
+    private(set) var loadingStill = false
+    var compare = CompareMode.off { didSet { if compare != oldValue { pushCompare() } } }
+    /// Where the line is across the picture (0...1); B is on its left.
+    var splitAt = 0.5 { didSet { if splitAt != oldValue { pushCompare() } } }
+    /// B as shown (in false colour when that is on, as A is). The scopes only ever see A.
+    @ObservationIgnored private var shownB: CGImage?
+    /// Bumped whenever a B being made (grabbed or loaded from another clip) stops mattering.
+    @ObservationIgnored private var stillGeneration = 0
+    @ObservationIgnored private var falseStillTask: Task<Void, Never>?
+    /// What the screen shows: the frame, and the settings it was developed with (to tell a still at full size).
+    @ObservationIgnored private var shownStill: (frame: Int, settings: RawSettings)?
+    /// The clip last open and its frame and settings, for comparing it with a clip picked in the folder.
+    private(set) var reference: (url: URL, index: Int, settings: RawSettings)?
+    @ObservationIgnored private var stillTask: Task<Void, Never>?
+
+    /// B as it is shown: itself, or (with false colour on) its false colour copy, made off the main
+    /// thread and only while that is on (the copy goes when it's switched off).
+    private func refreshStill() {
+        falseStillTask?.cancel()
+        falseStillTask = nil
+        guard let b = stillB else { shownB = nil; pushCompare(); return }
+        guard falseColour else { shownB = b; pushCompare(); return }
+        falseStillTask = Task {
+            let made = await Task.detached(priority: .userInitiated) { FalseColour.apply(b) }.value
+            guard !Task.isCancelled, stillB === b, falseColour else { return }
+            shownB = made
+            pushCompare()
+        }
+    }
+
+    func pushCompare() { presentCompare?(compare, shownB, splitAt) }
+
+    /// A B being made no longer matters (another clip, or another B).
+    private func dropPendingStill() {
+        stillTask?.cancel()
+        stillTask = nil
+        stillGeneration += 1
+        loadingStill = false
+    }
+
+    /// Holds this frame (as it is, not in false colour) as B, at the size of a still. The picture on
+    /// screen is used when it is that already; otherwise the frame is developed off the main thread.
+    func grabStill() {
+        guard let source, info != nil else { return }
+        dropPendingStill()
+        let frame = index, settings = settings, scale = max(stillScale, 1)
+        let name = (url?.deletingPathExtension().lastPathComponent ?? "") + " " + label(frame)
+        if !isPlaying, let current = currentImage, let shownStill, shownStill.frame == frame, shownStill.settings == settings,
+           current.width * scale >= (info?.width ?? 0) - scale {
+            stillB = current
+            stillBName = name
+            return
+        }
+        loadingStill = true
+        let decoder = helpers.first ?? source
+        let mine = stillGeneration, clip = url
+        stillTask = Task {
+            let made = await Task.detached(priority: .userInitiated) { try? decoder.developed(frame, scale: scale, settings: settings) }.value
+            guard mine == stillGeneration, url == clip else { return }
+            loadingStill = false
+            guard let picture = made ?? currentImage else { return }
+            stillB = picture
+            stillBName = name
+        }
+    }
+
+    func clearStill() {
+        dropPendingStill()
+        stillB = nil
+        stillBName = nil
+        compare = .off
+    }
+
+    /// The frame of another clip that matches frame `index` of this one: the same timecode when that
+    /// is within the other clip, else the same distance from its start (kept inside the clip).
+    nonisolated static func matchingFrame(index: Int, startTimecode: String?, otherTimecode: String?, otherFrames: Int, rate: Int) -> Int {
+        let last = max(otherFrames - 1, 0)
+        if let startTimecode, let otherTimecode,
+           let mine = frames(in: startTimecode, rate: rate), let theirs = frames(in: otherTimecode, rate: rate) {
+            let target = mine + index - theirs
+            if (0...last).contains(target) { return target }
+        }
+        return min(max(index, 0), last)
+    }
+
+    /// Loads B from another clip: its frame at this frame's timecode (or the same offset), developed
+    /// as this one is. Off the main thread; shows as a split when it's ready.
+    func loadStill(from other: URL) {
+        guard info != nil else { return }
+        dropPendingStill()
+        loadingStill = true
+        let mine = stillGeneration, clip = url
+        let index = index, timecode = info?.timecode, rate = timecodeRate
+        var look = RawSettings()
+        look.look = settings.look
+        look.lut = settings.lut
+        let scale = max(bestScale, 1)
+        let name = other.deletingPathExtension().lastPathComponent
+        stillTask = Task {
+            let made: (CGImage, Int)? = await Task.detached(priority: .userInitiated) {
+                guard let source = try? RawFormats.open(other) else { return nil }
+                defer { source.close() }
+                let frame = Self.matchingFrame(index: index, startTimecode: timecode,
+                                               otherTimecode: source.info.timecode, otherFrames: source.info.frames, rate: rate)
+                guard let picture = try? source.developed(frame, scale: scale, settings: look) else { return nil }
+                return (picture, frame)
+            }.value
+            // (Dropped when another clip was opened, or B was grabbed or cleared, meanwhile.)
+            guard mine == stillGeneration, url == clip else { return }
+            loadingStill = false
+            guard let (picture, frame) = made else { return }
+            stillB = picture
+            stillBName = name + " " + Self.timecode(frame, rate: rate)
+            compare = .split
+        }
+    }
     var loops = true
 
     /// In and out points (frames), for playing a part over and exporting it.
@@ -625,6 +762,7 @@ final class RawPlayer {
     @ObservationIgnored private var helpers: [RawSource] = []
     @ObservationIgnored private var showTask: Task<Void, Never>?
     @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var openToken = 0
     @ObservationIgnored private var pipeline: RawFramePipeline?
     @ObservationIgnored private lazy var ticker = DisplayTicker { [weak self] in self?.tick() }
     /// Playback's state: where it started, its clock (nil while the first frames decode), the
@@ -652,8 +790,9 @@ final class RawPlayer {
     var frames: Int { info?.frames ?? 0 }
     var fps: Double { max(info?.fps ?? 24, 1) }
 
-    func open(_ url: URL) {
+    func open(_ url: URL, at start: Int? = nil, settings startSettings: RawSettings? = nil, compareWith other: URL? = nil) {
         stop()
+        leaveClip()
         source?.close()
         source = nil
         audioPlayer?.stop()
@@ -673,21 +812,29 @@ final class RawPlayer {
         self.url = url
         Self.trace("open")
         RawTools.prepare()
+        openToken += 1
+        let token = openToken
         Task {
             let result: Result<RawSource, Error> = await Task.detached(priority: .userInitiated) {
                 Result { try RawFormats.open(url) }
             }.value
+            // (Another clip was opened, or this one ejected, while it opened.)
+            guard token == openToken else {
+                if case .success(let stale) = result { stale.close() }
+                return
+            }
             opening = false
             switch result {
             case .success(let source):
                 self.source = source
                 info = source.info
-                settings = RawSettings()
+                settings = startSettings ?? RawSettings()
                 autoFloor = 1
                 autoScale = initialScale
                 stillScale = 1
-                index = min(Int((spanned?.start ?? 0) * Double(source.info.frames)), max(source.info.frames - 1, 0))
+                index = min(start ?? Int((spanned?.start ?? 0) * Double(source.info.frames)), max(source.info.frames - 1, 0))
                 show(index)
+                if let other { loadStill(from: other) }
                 loadAudio(source)
                 prepareDecoders(source)
             case .failure(let error):
@@ -698,7 +845,11 @@ final class RawPlayer {
 
     /// Closes the clip and goes back to no clip (the folder it came from, if any).
     func eject() {
+        if let url, info != nil { reference = (url, index, settings) }
         close()
+        leaveClip()
+        openToken += 1
+        opening = false
         info = nil
         url = nil
         currentImage = nil
@@ -706,6 +857,17 @@ final class RawPlayer {
         index = 0
         inPoint = nil
         outPoint = nil
+    }
+
+    /// Everything of the clip that was showing stops mattering: a frame still being decoded, a B
+    /// still loading, the held B itself (it belongs to that clip) and the scopes' last picture.
+    private func leaveClip() {
+        generation += 1
+        showTask?.cancel()
+        showTask = nil
+        shownStill = nil
+        clearStill()
+        scopes.clear()
     }
 
     func close() {
@@ -843,15 +1005,24 @@ final class RawPlayer {
         settings = RawSettings(look: settings.look)
     }
 
-    private func display(_ picture: CGImage) {
-        currentImage = picture
-        present?(picture)
-        Self.trace("shown \(index) \(picture.width)")
+    /// Shows a decoded frame. The scopes and `currentImage` keep the real picture; only what goes on
+    /// screen is in false colour (made by whoever decoded it, never here on the main thread).
+    private func display(_ decoded: RawFramePipeline.Decoded, frame: Int, settings: RawSettings) {
+        currentImage = decoded.picture
+        shownStill = (frame, settings)
+        present?(decoded.shown)
+        scopes.offer(decoded.picture, playing: isPlaying)
+        Self.trace("shown \(index) \(decoded.picture.width)")
+    }
+
+    /// A picture with its false colour version when that is on (for the decoding threads).
+    nonisolated private static func decoded(_ picture: CGImage, falseColour: Bool) -> RawFramePipeline.Decoded {
+        RawFramePipeline.Decoded(picture: picture, shown: falseColour ? FalseColour.apply(picture) : picture)
     }
 
     /// Tests (-PluckScreenshotTrace <file> in the raw scene): when each picture is shown.
     @ObservationIgnored private static let traceFile: FileHandle? = {
-        guard ScreenshotMode.scene == "raw", let path = UserDefaults.standard.string(forKey: "PluckScreenshotTrace") else { return nil }
+        guard ScreenshotMode.rawScene, let path = UserDefaults.standard.string(forKey: "PluckScreenshotTrace") else { return nil }
         FileManager.default.createFile(atPath: path, contents: nil)
         return FileHandle(forWritingAtPath: path)
     }()
@@ -867,20 +1038,24 @@ final class RawPlayer {
         let frame = min(max(frame, 0), frames - 1)
         index = frame
         generation += 1
-        let mine = generation, settings = settings, scale = scale ?? stillScale
+        let mine = generation, settings = settings, scale = scale ?? stillScale, falseColour = falseColour
         let quick = scale < effectivePlayScale && (info?.width ?? 0) > 2000 ? effectivePlayScale : nil
         let quickDecoder = helpers.first ?? source
         showTask?.cancel()
         showTask = Task {
             if let quick {
-                let fast = await Task.detached(priority: .userInitiated) { try? quickDecoder.developed(frame, scale: quick, settings: settings) }.value
+                let fast = await Task.detached(priority: .userInitiated) {
+                    (try? quickDecoder.developed(frame, scale: quick, settings: settings)).map { Self.decoded($0, falseColour: falseColour) }
+                }.value
                 guard mine == generation else { return }
-                if let fast { display(fast) }
+                if let fast { display(fast, frame: frame, settings: settings) }
             }
-            let made = await Task.detached(priority: .userInitiated) { Result { try source.developed(frame, scale: scale, settings: settings) } }.value
+            let made = await Task.detached(priority: .userInitiated) {
+                Result { Self.decoded(try source.developed(frame, scale: scale, settings: settings), falseColour: falseColour) }
+            }.value
             guard mine == generation else { return }
             switch made {
-            case .success(let picture): display(picture); problem = nil
+            case .success(let picture): display(picture, frame: frame, settings: settings); problem = nil
             case .failure(let error): problem = error.localizedDescription
             }
         }
@@ -924,7 +1099,7 @@ final class RawPlayer {
         let start = range.contains(index) && index < range.upperBound ? index : range.lowerBound
         if playScale == 0 { autoScale = bestScale }
         pipeline = RawFramePipeline(decoders: [source] + helpers, start: start, range: range, scale: effectivePlayScale,
-                                    settings: settings, loops: loops,
+                                    settings: settings, loops: loops, falseColour: falseColour,
                                     frameBytes: (info?.width ?? 0) * (info?.height ?? 0) * 4 / max(effectivePlayScale * effectivePlayScale, 1))
         audioPlayer?.pause()
         playStart = start
@@ -968,7 +1143,7 @@ final class RawPlayer {
         guard due > lastShown else { return }
         if let picture = pipeline.take(due) {
             index = pipeline.frame(at: due)
-            display(picture)
+            display(picture, frame: index, settings: pipeline.settings)
             lastShown = due
             shown += 1
         }

@@ -33,7 +33,7 @@ enum PhotoRender {
     }
 
     private static func readPortrait(_ path: String) -> Bool {
-        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil),
               let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
               let w = props[kCGImagePropertyPixelWidth] as? Double, let h = props[kCGImagePropertyPixelHeight] as? Double else { return false }
         let orientation = props[kCGImagePropertyOrientation] as? Int ?? 1
@@ -41,7 +41,7 @@ enum PhotoRender {
     }
 
     static func isRaw(_ path: String) -> Bool {
-        UTType(filenameExtension: URL(fileURLWithPath: path).pathExtension)?.conforms(to: .rawImage) == true
+        UTType(filenameExtension: URL(fileURLWithPath: PhotoCatalog.file(of: path)).pathExtension)?.conforms(to: .rawImage) == true
     }
 
     nonisolated(unsafe) private static var kelvins: [String: Double] = [:]
@@ -53,7 +53,7 @@ enum PhotoRender {
         kelvinLock.lock()
         if let known = kelvins[path] { kelvinLock.unlock(); return known }
         kelvinLock.unlock()
-        let value = CIRAWFilter(imageURL: URL(fileURLWithPath: path)).map { Double($0.neutralTemperature) } ?? 5500
+        let value = CIRAWFilter(imageURL: URL(fileURLWithPath: PhotoCatalog.file(of: path))).map { Double($0.neutralTemperature) } ?? 5500
         kelvinLock.lock(); kelvins[path] = value; kelvinLock.unlock()
         return value
     }
@@ -73,7 +73,7 @@ enum PhotoRender {
             }
             return image
         }
-        let url = URL(fileURLWithPath: path)
+        let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         if isRaw(path), let raw = CIRAWFilter(imageURL: url) {
             if maxSize > 0 {
                 let long = max(raw.nativeSize.width, raw.nativeSize.height)
@@ -126,7 +126,7 @@ enum PhotoRender {
         kelvinLock.lock()
         if let known = decoders[path] { kelvinLock.unlock(); return known }
         kelvinLock.unlock()
-        guard let version = CIRAWFilter(imageURL: URL(fileURLWithPath: path))?.decoderVersion.rawValue else { return nil }
+        guard let version = CIRAWFilter(imageURL: URL(fileURLWithPath: PhotoCatalog.file(of: path)))?.decoderVersion.rawValue else { return nil }
         kelvinLock.lock(); decoders[path] = version; kelvinLock.unlock()
         return version
     }
@@ -299,9 +299,9 @@ enum PhotoRender {
         if let known = longEdges[path] { kelvinLock.unlock(); return known }
         kelvinLock.unlock()
         var long = 0
-        if isRaw(path), let raw = CIRAWFilter(imageURL: URL(fileURLWithPath: path)) {
+        if isRaw(path), let raw = CIRAWFilter(imageURL: URL(fileURLWithPath: PhotoCatalog.file(of: path))) {
             long = Int(max(raw.nativeSize.width, raw.nativeSize.height))
-        } else if let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+        } else if let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil),
                   let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] {
             long = max(props[kCGImagePropertyPixelWidth] as? Int ?? 0, props[kCGImagePropertyPixelHeight] as? Int ?? 0)
         }
@@ -328,9 +328,9 @@ enum PhotoRender {
 
     /// The developed photo (the adjustments, no film), still to be drawn: for the screen.
     /// `maxSize` 0: full size, for looking closely (only the part on screen is worked out).
-    static func image(_ path: String, record: PhotoRecord, maxSize: Int, overlay: Int? = nil) -> CIImage? {
+    static func image(_ path: String, record: PhotoRecord, maxSize: Int, overlay: Int? = nil, peak: Double = 1) -> CIImage? {
         guard let kept = base(path, maxSize: maxSize, record: record) else { return nil }
-        return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key, overlay: overlay)
+        return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key, overlay: overlay, peak: peak)
     }
 
     /// The adjustments only (no film), straight away, as a picture.
@@ -420,7 +420,9 @@ enum PhotoRender {
     // MARK: - Denoising
 
     /// Where the denoised photo is kept (by the photo, when it was changed, and the strength).
-    static func denoised(_ path: String, strength: Int) -> URL? {
+    static func denoised(_ key: String, strength: Int) -> URL? {
+        // A copy shares its file's (denoising is of the file, not of an edit).
+        let path = PhotoCatalog.file(of: key)
         guard let modified = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return nil }
         let key = "\(path)|\(modified.timeIntervalSince1970)|\(strength)"
         let name = SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
@@ -537,14 +539,20 @@ enum PhotoRender {
             if let (amount, radius) = settings.sharpen.strength {
                 image = image.applyingFilter("CISharpenLuminance", parameters: ["inputSharpness": amount, "inputRadius": radius])
             }
+            // The mark goes on last, so it isn't sharpened.
+            if let mark = settings.watermark { image = PhotoWatermark.apply(image, mark) }
             let e = image.extent.integral
             return image.cropped(to: e).transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
         }
         picture = finish(picture)
         hdr = hdr.map(finish)
-        let properties = metadata(of: path, keeping: settings.metadata)
+        var properties = metadata(of: path, keeping: settings.metadata)
+        // Who made it goes along, unless no metadata does.
+        if settings.metadata != .none, let meta = record.meta { properties = meta.iptc(over: properties) }
         let name = settings.fileName(for: path, number: number)
-        let output = Converting.outputURL(folder: folder.path, name: name, fileExtension: settings.format.fileExtension)
+        let target = settings.outputFolder(in: folder)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        let output = Converting.outputURL(folder: target.path, name: name, fileExtension: settings.format.fileExtension)
         let space = CGColorSpace(name: settings.space == .p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
         if let hdr, #available(macOS 15, *) {
             var options: [CIImageRepresentationOption: Any] = [.hdrImage: hdr]
@@ -575,7 +583,7 @@ enum PhotoRender {
 
     /// The camera's metadata for the exported file (upright: the turn is in the pixels now).
     private static func metadata(of path: String, keeping: PhotoExportSettings.Metadata) -> [String: Any] {
-        guard keeping != .none, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
+        guard keeping != .none, let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil),
               var properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any] else { return [:] }
         for key in [kCGImagePropertyPixelWidth, kCGImagePropertyPixelHeight, kCGImagePropertyDepth, kCGImagePropertyColorModel,
                     kCGImagePropertyProfileName, kCGImagePropertyOrientation] {
@@ -620,13 +628,56 @@ struct PhotoExportSettings: Codable, Hashable {
     var metadata = Metadata.all
     var naming = Naming.original
     var name = ""
+    /// Added to every file's name, before the extension ("-web").
+    var suffix = ""
+    /// A folder inside the export folder for these files.
+    var subfolder = ""
+    var watermark: PhotoWatermark?
 
-    /// The file's name (no extension): as the photo, or the name given and its number.
+    /// The file's name (no extension): as the photo, or the name given and its number, then the suffix.
     func fileName(for path: String, number: Int) -> String {
-        let original = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        // A copy: the file's name and "-copy2".
+        let original = URL(fileURLWithPath: PhotoCatalog.file(of: path)).deletingPathExtension().lastPathComponent
+            + (PhotoCatalog.copyNumber(path).map { "-copy\($0)" } ?? "")
         let base = name.trimmingCharacters(in: .whitespaces)
-        guard naming == .custom, !base.isEmpty else { return original }
-        return base + "-" + String(format: "%03d", number + 1)
+        let tail = Self.safe(suffix)
+        guard naming == .custom, !base.isEmpty else { return original + tail }
+        return base + "-" + String(format: "%03d", number + 1) + tail
+    }
+
+    /// Where the files go: the export folder, or its subfolder.
+    func outputFolder(in folder: URL) -> URL {
+        let sub = Self.safe(subfolder).trimmingCharacters(in: .whitespaces)
+        return sub.isEmpty ? folder : folder.appendingPathComponent(sub, isDirectory: true)
+    }
+
+    /// Nothing that would climb out of a folder or end a name early.
+    private static func safe(_ text: String) -> String {
+        text.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-").replacingOccurrences(of: "..", with: ".")
+    }
+}
+
+extension PhotoExportSettings {
+    private enum CodingKeys: String, CodingKey {
+        case format, quality, longSide, space, sharpen, hdr, metadata, naming, name, suffix, subfolder, watermark
+    }
+
+    /// Settings saved before a key existed read with its default (a 3.6.2 preset has no suffix, subfolder or watermark).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = PhotoExportSettings()
+        format = try c.decodeIfPresent(PhotoRender.Format.self, forKey: .format) ?? d.format
+        quality = try c.decodeIfPresent(Double.self, forKey: .quality) ?? d.quality
+        longSide = try c.decodeIfPresent(Int.self, forKey: .longSide) ?? d.longSide
+        space = try c.decodeIfPresent(Space.self, forKey: .space) ?? d.space
+        sharpen = try c.decodeIfPresent(Sharpen.self, forKey: .sharpen) ?? d.sharpen
+        hdr = try c.decodeIfPresent(Bool.self, forKey: .hdr) ?? d.hdr
+        metadata = try c.decodeIfPresent(Metadata.self, forKey: .metadata) ?? d.metadata
+        naming = try c.decodeIfPresent(Naming.self, forKey: .naming) ?? d.naming
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? d.name
+        suffix = try c.decodeIfPresent(String.self, forKey: .suffix) ?? d.suffix
+        subfolder = try c.decodeIfPresent(String.self, forKey: .subfolder) ?? d.subfolder
+        watermark = try c.decodeIfPresent(PhotoWatermark.self, forKey: .watermark)
     }
 }
 

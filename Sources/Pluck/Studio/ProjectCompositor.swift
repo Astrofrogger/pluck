@@ -29,10 +29,20 @@ final class ProjectLayers: @unchecked Sendable {
     private var spans: [Span] = []
     private var mainEntries: [(start: Double, end: Double)] = []
     private var dips: [(in: ProjectDip?, out: ProjectDip?)] = []
+    private var adjustments: [ProjectAdjustment] = []
     private let lock = NSLock()
 
     func replace(_ new: [Span], main: [(start: Double, end: Double)], dips: [(in: ProjectDip?, out: ProjectDip?)]) {
         lock.withLock { spans = new; mainEntries = main; self.dips = dips }
+    }
+
+    func setAdjustments(_ new: [ProjectAdjustment]) {
+        lock.withLock { adjustments = new.filter(\.isVisible) }
+    }
+
+    /// The looks over the timeline at a time, in order.
+    func adjustments(at seconds: Double) -> [ProjectAdjustment] {
+        lock.withLock { adjustments.filter { $0.contains(seconds) } }
     }
 
     func setLook(_ clip: UUID, _ look: ClipLook?) {
@@ -93,6 +103,8 @@ final class ProjectInstruction: NSObject, AVVideoCompositionInstructionProtocol 
 /// a dissolve blending two, a dip fading to a colour.
 final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable {
     private static let context = CIContext(options: [.cacheIntermediates: false])
+    /// Video's 709 as Core Media reads it (by name: the constant is macOS 15's).
+    static let video = CGColorSpace(name: "kCGColorSpaceCoreMedia709" as CFString) ?? CGColorSpace(name: CGColorSpace.itur_709)!
     private let queue = DispatchQueue(label: "be.wideopen.pluck.compositor")
 
     let sourcePixelBufferAttributes: [String: any Sendable]? = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
@@ -131,11 +143,15 @@ final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
                 }
                 picture = placed.composited(over: picture)
             }
+            // Looks over this part of the timeline, on everything under them.
+            for look in instruction.layers.adjustments(at: seconds) { picture = look.apply(picture).cropped(to: frame) }
             if let dip = instruction.layers.dip(seconds) {
                 let colour = CIImage(color: dip.white ? .white : .black).cropped(to: frame)
                 picture = picture.applyingFilter("CIDissolveTransition", parameters: [kCIInputTargetImageKey: colour, kCIInputTimeKey: dip.amount])
             }
-            Self.context.render(picture.cropped(to: frame), to: output, bounds: frame, colorSpace: CGColorSpace(name: CGColorSpace.itur_709))
+            // Video's own 709 (as the player reads the frame): Core Graphics' "ITU-R 709" has another
+            // curve, which made the viewer's midtones lighter than the file and the export.
+            Self.context.render(picture.cropped(to: frame), to: output, bounds: frame, colorSpace: Self.video)
             request.finish(withComposedVideoFrame: output)
         }
     }

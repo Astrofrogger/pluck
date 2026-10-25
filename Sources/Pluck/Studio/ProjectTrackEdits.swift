@@ -7,10 +7,13 @@ import Foundation
 extension ProjectModel {
     // MARK: - Tracks
 
-    /// The first track of a kind, made when there's none.
-    private static func track(_ kind: ProjectTrack.Kind, in project: inout Project) -> Int {
+    /// The track the voice-over takes go on.
+    static let voiceOverTrack = "Voice-over"
+
+    /// The first track of a kind (not the voice-over one), made when there's none.
+    static func track(_ kind: ProjectTrack.Kind, in project: inout Project) -> Int {
         var tracks = project.tracks ?? []
-        if let index = tracks.firstIndex(where: { $0.kind == kind }) { return index }
+        if let index = tracks.firstIndex(where: { $0.kind == kind && $0.name != voiceOverTrack }) { return index }
         tracks.append(ProjectTrack(kind: kind))
         project.tracks = tracks
         return tracks.count - 1
@@ -43,6 +46,25 @@ extension ProjectModel {
         }
     }
 
+    /// A voice-over take on the audio track named "Voice-over" (made when there's none), from a
+    /// moment: one undo step.
+    func addVoiceOver(_ file: URL, at seconds: Double) async {
+        let length = await self.length(of: file)
+        guard length > 0 else { return }
+        change { project in
+            var tracks = project.tracks ?? []
+            var index = tracks.firstIndex { $0.kind == .audio && $0.name == Self.voiceOverTrack }
+            if index == nil {
+                tracks.append(ProjectTrack(kind: .audio, name: Self.voiceOverTrack))
+                index = tracks.count - 1
+            }
+            var item = ProjectClip(path: file.path, start: 0, end: length)
+            item.at = seconds
+            tracks[index!].items.append(item)
+            project.tracks = tracks
+        }
+    }
+
     /// A clip's sound on an audio track of its own (to move, trim or fade apart from the
     /// picture); it stays linked, so it follows when the clip moves.
     func detachAudio(_ ids: Set<UUID>) {
@@ -71,7 +93,8 @@ extension ProjectModel {
             for position in project.clips.indices where ids.contains(project.clips[position].id) {
                 guard let link = project.clips[position].link else { continue }
                 project.clips[position].ownAudio = nil
-                for track in (project.tracks ?? []).indices {
+                // Only its sound: pictures placed on top ride on the same link.
+                for track in (project.tracks ?? []).indices where project.tracks![track].kind == .audio {
                     project.tracks![track].items.removeAll { $0.link == link }
                 }
             }
@@ -95,7 +118,7 @@ extension ProjectModel {
                 // Its clip was taken out: so is its sound.
                 guard let start = starts[link] else { return nil }
                 var item = item
-                item.at = start
+                item.at = start + (item.linkOffset ?? 0)
                 return item
             }
         }
@@ -127,12 +150,13 @@ extension ProjectModel {
                 let gone = project.tracks![t].items.filter { ids.contains($0.id) }
                 project.tracks![t].items.removeAll { ids.contains($0.id) }
                 // A detached sound taken out: the clip plays its own again.
-                for item in gone {
+                for item in gone where project.tracks![t].kind == .audio {
                     if let link = item.link, let index = project.clips.firstIndex(where: { $0.link == link }) { project.clips[index].ownAudio = nil }
                 }
             }
             project.tracks?.removeAll { $0.items.isEmpty }
         }
+        selected.subtract(ids)
     }
 
     // MARK: - Held frames
@@ -236,7 +260,16 @@ extension ProjectModel {
             return clip
         }
         let clips = board.clips.map(fresh)
-        let items = board.items.map { (fresh($0), board.videoItems.contains($0.id)) }
+        // An item pasted without the clip it was linked to stands on its own (else it'd vanish).
+        let pastedLinks = Set(clips.compactMap(\.link))
+        let items = board.items.map { original -> (ProjectClip, Bool) in
+            var item = fresh(original)
+            if let link = item.link, !pastedLinks.contains(link) {
+                item.link = nil
+                item.linkOffset = nil
+            }
+            return (item, board.videoItems.contains(original.id))
+        }
         change { project in
             project.clips.insert(contentsOf: clips, at: min(insertAt, project.clips.count))
             for (item, picture) in items {

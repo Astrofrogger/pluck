@@ -17,6 +17,8 @@ enum PhotoXMP {
         var rejected = false
         /// Pluck's own edit, when it wrote one.
         var record: PhotoRecord?
+        /// Lightroom's edit in a sidecar (its `crs:` settings), if any.
+        var lightroom: [String: String]?
     }
 
     /// The sidecars a photo may have, the one Pluck writes first.
@@ -28,10 +30,14 @@ enum PhotoXMP {
     /// What the sidecar (or else the photo itself) says; nil when nothing.
     static func read(_ path: String) -> Found? {
         for sidecar in sidecars(for: path) {
-            if let data = try? Data(contentsOf: sidecar), let metadata = CGImageMetadataCreateFromXMPData(data as CFData),
-               let found = found(in: metadata) {
-                return found
+            guard let data = try? Data(contentsOf: sidecar) else { continue }
+            let crs = LightroomPresets.settings(fromXMP: data).filter { $0.key != "Version" && $0.key != "ProcessVersion" }
+            var found = CGImageMetadataCreateFromXMPData(data as CFData).flatMap { found(in: $0) }
+            if !crs.isEmpty {
+                if found == nil { found = Found() }
+                found?.lightroom = crs
             }
+            if let found { return found }
         }
         guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil),
               let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return nil }
@@ -82,11 +88,14 @@ enum PhotoXMP {
         } else {
             CGImageMetadataRemoveTagWithPath(metadata, nil, "xmp:Label" as CFString)
         }
-        if record.isEdited || record.flag == .pick, let data = try? JSONEncoder().encode(record) {
+        // What Pluck wrote last time (its recipe), so a field taken away here goes there too.
+        let previous = recipeTag(in: metadata).flatMap { Data(base64Encoded: $0) }.flatMap { try? JSONDecoder().decode(PhotoRecord.self, from: $0) }?.meta
+        if record.isEdited || record.flag == .pick || record.meta != nil, let data = try? JSONEncoder().encode(record) {
             CGImageMetadataSetValueWithPath(metadata, nil, "pluck:Recipe" as CFString, data.base64EncodedString() as CFString)
         } else {
             CGImageMetadataRemoveTagWithPath(metadata, nil, "pluck:Recipe" as CFString)
         }
+        if record.meta != nil || previous != nil { (record.meta ?? PhotoMeta()).write(into: metadata, previous: previous) }
         guard let xmp = CGImageMetadataCreateXMPData(metadata, nil) as Data? else {
             throw NSError(domain: "Pluck", code: 20, userInfo: [NSLocalizedDescriptionKey: "The XMP couldn’t be made."])
         }

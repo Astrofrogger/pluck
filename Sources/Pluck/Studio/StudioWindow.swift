@@ -117,6 +117,7 @@ private struct PageBar: View {
         }
         .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
+        .overlay(alignment: .trailing) { ExportChip(nav: nav).padding(.trailing, Design.Spacing.inset) }
         .background(nav.page == .home ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
         .overlay(alignment: .top) { if nav.page != .home { Divider() } }
     }
@@ -148,6 +149,28 @@ private struct PageBar: View {
         }
         .contentShape(.rect)
         .animation(.snappy(duration: 0.2), value: on)
+    }
+}
+
+/// "Exporting 1 of 2" while a project export runs or waits; a click goes to its Export tab.
+private struct ExportChip: View {
+    let nav: StudioNavigator
+
+    var body: some View {
+        let busy = nav.tabs.compactMap { tab in tab.project.map { (tab, $0.exports) } }.filter { $0.1.jobsLeft > 0 }
+        if let (tab, _) = busy.first {
+            let total = busy.reduce(0) { $0 + $1.1.batchDone + $1.1.jobsLeft }
+            let done = busy.reduce(0) { $0 + $1.1.batchDone }
+            Button {
+                UserDefaults.standard.set(ProjectInspector.Tab.export.rawValue, forKey: "projectSidebarTab")
+                nav.currentID = tab.id
+                nav.show(.edit)
+            } label: {
+                StatusChip(text: Text("Exporting \(done + 1) of \(total)"), colour: .gray, busy: true)
+            }
+            .buttonStyle(.plain)
+            .help("Show the export")
+        }
     }
 }
 
@@ -368,13 +391,19 @@ private struct MediaPanel: View {
     /// What the search finds inside the media: what's said and what's seen.
     @State private var moments: [Moment] = []
     @State private var searchingMoments = false
+    @State private var selection = MediaSelection.shared
+    @State private var favourites = MediaFavourites.shared
+    @State private var favouritesOnly = false
+    @FocusState private var listFocused: Bool
 
     struct Moment: Identifiable {
         var path: String
         var span: ClosedRange<Double>
         var text: String
         var said: Bool
-        var id: String { path + "@\(span.lowerBound)" }
+        /// A favourite range (listed under Favourites).
+        var favourite = false
+        var id: String { path + "@\(span.lowerBound)-\(span.upperBound)" }
     }
 
     struct Indexed: Sendable {
@@ -390,13 +419,36 @@ private struct MediaPanel: View {
     /// What the search finds: every word typed, in any order.
     private var media: [LibraryStore.Entry] {
         let terms = Self.fold(search).split(whereSeparator: \.isWhitespace).map(String.init)
-        guard !terms.isEmpty else { return catalog.map(\.entry) }
-        return catalog.filter { item in terms.allSatisfy { item.words.contains($0) } }.map(\.entry)
+        let items = favouritesOnly ? catalog.filter { favourites.contains(path: $0.entry.path) } : catalog
+        guard !terms.isEmpty else { return items.map(\.entry) }
+        return items.filter { item in terms.allSatisfy { item.words.contains($0) } }.map(\.entry)
+    }
+
+    /// The favourite ranges (not whole files), shown as moments.
+    private var favouriteRanges: [Moment] {
+        favourites.all.compactMap { source in
+            guard let span = source.span else { return nil }
+            let title = catalog.first { $0.entry.path == source.path }?.entry.title ?? URL(fileURLWithPath: source.path).deletingPathExtension().lastPathComponent
+            return Moment(path: source.path, span: span, text: title, said: true, favourite: true)
+        }
+    }
+
+    private func open(_ source: MediaSource) {
+        nav.open(EditorTarget(path: source.path), range: source.span)
     }
 
     var body: some View {
         VStack(spacing: 0) {
             PaneSearchField(prompt: "Search media", text: $search)
+                .overlay(alignment: .trailing) {
+                    Button { favouritesOnly.toggle() } label: {
+                        Image(systemName: favouritesOnly ? "star.fill" : "star")
+                            .foregroundStyle(favouritesOnly ? AnyShapeStyle(Design.Brand.pink) : AnyShapeStyle(.secondary))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 14)
+                    .help("Show only favourites")
+                }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 2) {
                     // (Its own view: progress ticks redraw it alone, not the whole list.)
@@ -444,15 +496,25 @@ private struct MediaPanel: View {
                         }
                         .padding(.bottom, 8)
                     }
+                    if favouritesOnly, !favouriteRanges.isEmpty {
+                        SidebarSection(title: Text("Favourites")) {
+                            ForEach(favouriteRanges) { momentRow($0) }
+                        }
+                        .padding(.bottom, 8)
+                    }
                     SidebarSection(title: Text("Media")) {
                         ForEach(media) { entry in
-                            MediaRow(entry: entry, on: nav.current?.project?.project.origin == entry.path)
+                            let source = MediaSource(path: entry.path, span: nil)
+                            MediaRow(entry: entry, on: nav.current?.project?.project.origin == entry.path,
+                                     selected: selection.source == source, favourite: favourites.contains(path: entry.path))
+                                // A click selects; a double-click opens; ⌥-click adds it at the end of a project.
+                                .onTapGesture(count: 2) { open(source) }
                                 .onTapGesture {
-                                    // In a project, a click adds the file at the end; elsewhere it opens it.
                                     if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
                                         Task { await project.add([entry.file]) }
                                     } else {
-                                        nav.open(EditorTarget(path: entry.path))
+                                        selection.source = source
+                                        listFocused = true
                                     }
                                 }
                                 .onDrag { NSItemProvider(object: entry.file as NSURL) }
@@ -469,11 +531,37 @@ private struct MediaPanel: View {
                                             .help("On a sound track from the playhead (a voice-over, a sound)")
                                     }
                                 }
-                                .help("Click to open; drag onto a project’s timeline to add it (⌥-click adds it at the end)")
+                                .help("Click to select, double-click to open; drag onto a project’s timeline to add it (⌥-click adds it at the end)")
                         }
                     }
                 }
                 .padding(6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background { Color.clear.contentShape(.rect).onTapGesture { selection.source = nil } }
+            }
+            .focusable()
+            .focusEffectDisabled()
+            .focused($listFocused)
+            .onKeyPress(.return) {
+                guard let source = selection.source else { return .ignored }
+                open(source)
+                return .handled
+            }
+            .onKeyPress(.escape) {
+                guard selection.source != nil else { return .ignored }
+                selection.source = nil
+                return .handled
+            }
+            .onKeyPress { press in
+                let action = Shortcuts.shared.action(for: press, in: .edit)
+                if action == .editFavourite { return favourites.toggleCurrent(in: nav.current?.project) ? .handled : .ignored }
+                // Putting the chosen media in, and playing: the open project's, though the list has the focus.
+                let assembly: Set<ShortcutAction> = [.editAppend, .editInsert, .editOverwrite, .editPlaceOnTop, .editReplace]
+                if let action, assembly.contains(action) || press.key == .space, nav.current?.project != nil {
+                    return ProjectView.forward?(press) ?? .ignored
+                }
+                if press.key == .space, nav.current?.project != nil { return ProjectView.forward?(press) ?? .ignored }
+                return .ignored
             }
         }
         .background(.background.secondary)
@@ -612,8 +700,9 @@ extension MediaPanel {
 
     func momentRow(_ moment: Moment) -> some View {
         let name = URL(fileURLWithPath: moment.path).deletingPathExtension().lastPathComponent
+        let source = MediaSource(path: moment.path, span: moment.span)
         return HStack(alignment: .top, spacing: 8) {
-            Image(systemName: moment.said ? "quote.bubble" : "eye")
+            Image(systemName: moment.favourite ? "star.fill" : moment.said ? "quote.bubble" : "eye")
                 .foregroundStyle(.secondary)
                 .frame(width: 16)
             VStack(alignment: .leading, spacing: 2) {
@@ -624,17 +713,21 @@ extension MediaPanel {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
+        .background(RoundedRectangle(cornerRadius: Design.Radius.small, style: .continuous)
+            .fill(selection.source == source ? AnyShapeStyle(Design.Brand.gradient.opacity(0.28)) : AnyShapeStyle(Color.clear)))
         .contentShape(.rect)
+        // A click selects; a double-click opens it there; ⌥-click adds it at the end of a project.
+        .onTapGesture(count: 2) { open(source) }
         .onTapGesture {
-            // In a project, ⌥-click adds the moment at the end; otherwise it opens there.
             if let project = nav.current?.project, NSApp.currentEvent?.modifierFlags.contains(.option) == true {
                 Task { await project.add([ProjectModel.moment(moment.path, moment.span)]) }
             } else {
-                nav.open(EditorTarget(path: moment.path), range: moment.span)
+                selection.source = source
+                listFocused = true
             }
         }
         .onDrag { NSItemProvider(object: ProjectModel.moment(moment.path, moment.span) as NSURL) }
-        .help("Click to open it there; drag onto a project’s timeline to add just this moment (⌥-click adds it at the end)")
+        .help("Click to select, double-click to open it there; drag onto a project’s timeline to add just this moment (⌥-click adds it at the end)")
     }
 
     func projectRow(_ project: Project) -> some View {
@@ -696,7 +789,10 @@ private struct DownloadingSection: View {
 
 private struct MediaRow: View {
     let entry: LibraryStore.Entry
+    /// Open in the tab that is shown.
     let on: Bool
+    var selected = false
+    var favourite = false
     @State private var hovering = false
 
     var body: some View {
@@ -711,10 +807,14 @@ private struct MediaRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if favourite {
+                Image(systemName: "star.fill").font(.caption).foregroundStyle(Design.Brand.pink).accessibilityLabel("Favourite")
+            }
         }
         .padding(4)
         .background(RoundedRectangle(cornerRadius: Design.Radius.small, style: .continuous)
-            .fill(on ? AnyShapeStyle(Design.Brand.gradient.opacity(0.28)) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.06 : 0))))
+            .fill(selected ? AnyShapeStyle(Design.Brand.gradient.opacity(0.28))
+                  : on ? AnyShapeStyle(Design.Brand.gradient.opacity(0.14)) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.06 : 0))))
         .contentShape(.rect)
         .onHover { hovering = $0 }
         .help(entry.title)

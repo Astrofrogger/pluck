@@ -10,7 +10,12 @@ import QuartzCore
 final class RawFramePipeline: @unchecked Sendable {
     private let decoders: [RawSource]
     private let condition = NSCondition()
-    private var ready: [Int: CGImage] = [:]
+    /// A decoded frame: the picture, and what goes on the screen when that is another one (false colour).
+    struct Decoded: @unchecked Sendable {
+        let picture: CGImage
+        let shown: CGImage
+    }
+    private var ready: [Int: Decoded] = [:]
     private var busy = Set<Int>()
     private var next: Int
     private var playhead: Int
@@ -21,20 +26,24 @@ final class RawFramePipeline: @unchecked Sendable {
     let scale: Int
     let settings: RawSettings
     let loops: Bool
+    /// Frames come out in false colour for the screen (made here, on the decoding threads, not on the main thread).
+    let falseColour: Bool
     /// Frames decoded or decoding ahead of the playhead, at most.
     let ahead: Int
 
-    init(decoders: [RawSource], start: Int, range: ClosedRange<Int>, scale: Int, settings: RawSettings, loops: Bool, frameBytes: Int) {
+    init(decoders: [RawSource], start: Int, range: ClosedRange<Int>, scale: Int, settings: RawSettings, loops: Bool, falseColour: Bool = false, frameBytes: Int) {
         // Very large frames: four decoders are plenty (and each holds a lot of memory).
         self.decoders = frameBytes > 20 << 20 ? Array(decoders.prefix(4)) : decoders
         self.range = range
         self.scale = scale
         self.settings = settings
         self.loops = loops
+        self.falseColour = falseColour
         next = start
         playhead = start
         // Enough to ride out a slow frame, in at most about 400 MB (a full-size 6K frame is 75 MB).
-        ahead = max(3, min(max(self.decoders.count * 2, 6), (400 << 20) / max(frameBytes, 1)))
+        // (With false colour each frame is held twice: as it is and coloured.)
+        ahead = max(3, min(max(self.decoders.count * 2, 6), (400 << 20) / max(frameBytes * (falseColour ? 2 : 1), 1)))
         for decoder in self.decoders {
             let thread = Thread { [weak self] in self?.work(decoder) }
             thread.qualityOfService = .userInteractive
@@ -63,12 +72,14 @@ final class RawFramePipeline: @unchecked Sendable {
 
             let began = Date.now
             let image = try? decoder.displayFrame(frame(at: position), scale: scale, settings: settings)
+            // False colour is part of the frame's cost: the automatic size adapts to it.
+            let shown = image.map { falseColour ? FalseColour.apply($0) : $0 }
             let took = Date.now.timeIntervalSince(began)
 
             condition.lock()
             busy.remove(position)
             decodeTime = decodeTime == 0 ? took : decodeTime * 0.8 + took * 0.2
-            if let image, position >= playhead { ready[position] = image }
+            if let image, position >= playhead { ready[position] = Decoded(picture: image, shown: shown ?? image) }
             condition.broadcast()
             condition.unlock()
         }
@@ -76,7 +87,7 @@ final class RawFramePipeline: @unchecked Sendable {
 
     /// The frame for a position if it's decoded, moving the playhead there (frames before it are
     /// let go).
-    func take(_ position: Int) -> CGImage? {
+    func take(_ position: Int) -> Decoded? {
         condition.lock()
         defer { condition.unlock() }
         if position > playhead {
@@ -155,19 +166,12 @@ struct RawFrameView: NSViewRepresentable {
         let view = PictureView()
         view.resized = { [weak player] pixels in MainActor.assumeIsolated { player?.viewPixels = pixels } }
         view.wantsLayer = true
-        let layer = CALayer()
-        layer.contentsGravity = .resizeAspect
-        layer.magnificationFilter = .linear
-        layer.minificationFilter = .trilinear
-        layer.backgroundColor = NSColor.black.cgColor
+        let layer = ComparePictureLayer()
         view.layer = layer
-        player.present = { [weak layer] image in
-            CATransaction.begin()
-            CATransaction.setDisableActions(true)
-            layer?.contents = image
-            CATransaction.commit()
-        }
-        layer.contents = player.currentImage
+        player.present = { [weak layer] image in layer?.setA(image) }
+        player.presentCompare = { [weak layer] mode, b, split in layer?.setCompare(mode: mode, b: b, splitAt: split) }
+        layer.setA(player.currentImage)
+        player.pushCompare()
         return view
     }
 

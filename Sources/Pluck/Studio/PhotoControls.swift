@@ -1,14 +1,44 @@
 import SwiftUI
 
+/// How "before" shows next to "after".
+enum BeforeAfter: String, CaseIterable {
+    case off, split, sideBySide
+    var next: BeforeAfter { self == .off ? .split : self == .split ? .sideBySide : .off }
+}
+
 /// What the Photo page is doing right now, shared between the inspector and the picture.
 @MainActor
 @Observable
 final class PhotoEditing {
     static let shared = PhotoEditing()
+    /// With several photos selected, a change goes to all of them (on); off, only to the one shown.
+    /// Switches back on when the selection changes to a different set.
+    var syncAll = true
+    /// The room above white the photo's screen has now (1: none, an SDR screen).
+    var headroom = 1.0
+    /// The photos a change reaches: all selected while syncing, else only the one shown.
+    func targets(_ paths: [String], shown: String?) -> [String] {
+        if syncAll || paths.count < 2 { return paths }
+        return shown.map { [$0] } ?? Array(paths.prefix(1))
+    }
+    /// One change to the photos it reaches (one undo step).
+    func edit(_ paths: [String], shown: String?, _ body: (inout PhotoRecord) -> Void) {
+        PhotoCatalog.shared.update(targets(paths, shown: shown)) { record in
+            body(&record)
+            record.edited = .now
+        }
+    }
     /// The crop frame is shown on the picture.
     var cropping = false
     /// The photo is shown as shot while \ is held.
     var asShot = false
+    /// Before and after on the loupe: off, one picture split by a line, or two side by side (B cycles).
+    var beforeAfter: BeforeAfter = .off
+    /// Where the line stands, as a share of the photo that shows (0 left, 1 right).
+    var split = 0.5
+    /// The snapshot "before" shows; nil is the photo as shot.
+    var beforeSnapshot: UUID?
+    func cycleBeforeAfter() { beforeAfter = beforeAfter.next }
     /// How far in the photo is shown: nil fits it in the view; 1 is 100% (one photo pixel per
     /// screen pixel). Z toggles fit and 100%, ⌘+ and ⌘− step, pinching goes anywhere between.
     var zoom: Double?

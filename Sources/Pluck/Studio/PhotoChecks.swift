@@ -109,7 +109,7 @@ final class PhotoChecks {
     nonisolated private static let context = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
 
     nonisolated static func look(at path: String) -> PhotoCheck? {
-        let url = URL(fileURLWithPath: path)
+        let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
         let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: 1024,
                                         kCGImageSourceCreateThumbnailWithTransform: true]

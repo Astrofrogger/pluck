@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 // MARK: - Slider
 
@@ -314,7 +315,8 @@ extension PhotoRecord {
 struct PhotoLooks: View {
     let path: String
     let record: PhotoRecord
-    let apply: (PhotoRecord) -> Void
+    /// The look chosen; with a Lightroom preset's own settings, which go on top of each photo's edit.
+    let apply: (PhotoRecord, [String: String]?) -> Void
     let save: () -> Void
     @State private var catalog = PhotoCatalog.shared
     @State private var editing = PhotoEditing.shared
@@ -326,6 +328,7 @@ struct PhotoLooks: View {
         let title: String
         let record: PhotoRecord
         var preset: UUID?
+        var lightroom: [String: String]?
         var film = false
     }
 
@@ -341,6 +344,11 @@ struct PhotoLooks: View {
     private var presets: [Look] {
         catalog.presets.map { preset in
             var r = record
+            if let crs = preset.lightroom {
+                // Only what the Lightroom preset sets, on this photo's own edit.
+                r.adjust = LightroomPresets.adjustments(crs, base: record.adjust).0
+                return Look(id: preset.id.uuidString, title: preset.name, record: r, preset: preset.id, lightroom: crs)
+            }
             r.adjust = preset.adjust.keepingDecoder(of: record.adjust)
             r.filmOn = preset.filmOn
             r.film = preset.film
@@ -368,6 +376,9 @@ struct PhotoLooks: View {
                     Text("Save a look you like to use it on other photos.").font(.caption).foregroundStyle(.secondary)
                 }
                 Button("Save This Look as a Preset…", systemImage: "plus", action: save).buttonStyle(.link).font(.callout)
+                Button("Import Lightroom Presets…", systemImage: "square.and.arrow.down", action: importLightroom)
+                    .buttonStyle(.link).font(.callout)
+                    .help("Lightroom and Camera Raw presets (.xmp, .lrtemplate) as looks here: close to Lightroom’s, not the same")
             }
             .padding(12)
         }
@@ -387,7 +398,7 @@ struct PhotoLooks: View {
 
     private func tile(_ look: Look) -> some View {
         let current = look.record.adjust == record.adjust && look.record.filmOn == record.filmOn && look.record.film == record.film
-        return Button { apply(look.record) } label: {
+        return Button { apply(look.record, look.lightroom) } label: {
             VStack(spacing: 4) {
                 ZStack {
                     Design.Photo.surround
@@ -413,6 +424,26 @@ struct PhotoLooks: View {
             if let id = look.preset { Button("Delete Preset", role: .destructive) { catalog.deletePreset(id) } }
         }
         .accessibilityLabel(Text(look.title))
+    }
+
+    /// Lightroom presets, files or folders (Lightroom's own folder offered first), as presets here.
+    private func importLightroom() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = ["xmp", "lrtemplate"].compactMap { UTType(filenameExtension: $0) }
+        if FileManager.default.fileExists(atPath: LightroomPresets.folder.path) { panel.directoryURL = LightroomPresets.folder }
+        panel.prompt = String(localized: "Import")
+        guard panel.runModal() == .OK else { return }
+        let result = LightroomPresets.importPresets(from: panel.urls)
+        let alert = NSAlert()
+        alert.messageText = String(localized: "^[\(result.imported) preset](inflect: true) imported")
+        var lines = [String(localized: "They come close to Lightroom’s look; the two engines differ.")]
+        if !result.skipped.isEmpty {
+            lines.append(String(localized: "Not brought over: \(result.skipped.prefix(12).joined(separator: ", "))\(result.skipped.count > 12 ? "…" : "")."))
+        }
+        alert.informativeText = lines.joined(separator: "\n")
+        alert.runModal()
     }
 
     /// The small pictures, one after the other: the profiles and presets first (presets without
@@ -519,7 +550,9 @@ struct PhotoKeysSheet: View {
         [("1–5", String(localized: "Rate")), ("0", String(localized: "Clear the rating")), ("6–9", String(localized: "Red, yellow, green or blue label")),
          ("← →", String(localized: "Previous and next photo")), ("Space", String(localized: "Browse or edit")),
          ("\\", String(localized: "Hold to see it as shot")), ("⌘+  ⌘−  ⌘0", String(localized: "Zoom (in Browse: the grid's size)")),
-         ("⌘Z  ⇧⌘Z", String(localized: "Undo and redo")), ("Tab", String(localized: "Show or hide the inspector")),
+         ("⌘Z  ⇧⌘Z", String(localized: "Undo and redo")),
+         ("⌘C  ⇧⌘C", String(localized: "Copy the settings (choose what)")), ("⌘V  ⇧⌘V", String(localized: "Paste the settings (choose what)")),
+         ("⌥⌘V", String(localized: "Paste the previous photo's settings")), ("Tab", String(localized: "Show or hide the inspector")),
          ("⇧Tab", String(localized: "Show or hide both panels")), ("Esc", String(localized: "Back")), ("?", String(localized: "These keys"))]
     }
 

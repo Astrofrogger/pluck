@@ -5,6 +5,26 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.7.0", items: [
+                Item(symbol: "arrow.left.and.right", title: String(localized: "Trim like an editor"),
+                     detail: String(localized: "The Trim tool (T) rolls a cut between two clips or slips a clip to show another part. Q and W trim to the playhead, ⌥ and the arrows nudge by a frame.")),
+                Item(symbol: "keyboard", title: String(localized: "Cut with the keyboard"),
+                     detail: String(localized: "Choose in the media panel, then E appends, comma inserts, full stop overwrites, P places on top and R replaces. F marks a favourite moment. Quick Export (⌃⌘E) queues exports with your saved settings.")),
+                Item(symbol: "waveform.badge.mic", title: String(localized: "Voice-over and music that makes room"),
+                     detail: String(localized: "Record a voice-over while the timeline plays. Songs can lower themselves while someone speaks, and come back after.")),
+                Item(symbol: "camera.filters", title: String(localized: "A look over part of the edit"),
+                     detail: String(localized: "Colour, a LUT and an amount over any stretch of the timeline, on everything under it: the same in the viewer and the export. The viewer's colours now match the export too.")),
+                Item(symbol: "arrow.down.forward.app", title: String(localized: "Back from DaVinci Resolve"),
+                     detail: String(localized: "After sending an edit, bring back its markers, order and trims from Resolve. What can't come back is named.")),
+                Item(symbol: "chart.bar.xaxis", title: String(localized: "Scopes and A/B in the player"),
+                     detail: String(localized: "Waveform, RGB parade and vectorscope, false colour (⌥F), and a still to compare with, split or side by side (⌥G, ⌥C).")),
+                Item(symbol: "photo.stack", title: String(localized: "Faster photo editing"),
+                     detail: String(localized: "Copy and paste settings with ⌘C and ⌘V, or from the previous photo (⌥⌘V). Edit all selected photos or just one. Hold Q, W, A, S, D, F, T, Y or V and scroll to change a setting.")),
+                Item(symbol: "square.and.arrow.up.on.square", title: String(localized: "Export in every size at once"),
+                     detail: String(localized: "Tick several export presets for a file of each, add a text or logo watermark, and give photos a creator, copyright and keywords as they're imported.")),
+                Item(symbol: "plus.square.on.square", title: String(localized: "Lightroom presets, virtual copies, before and after"),
+                     detail: String(localized: "Bring in your Lightroom presets and edits. Make a virtual copy (⌘') to try another look. Compare before and after (B), and edit in HDR on a screen that shows it.")),
+            ]),
             Release(version: "3.6.1", items: [
                 Item(symbol: "wand.and.rays", title: String(localized: "Brand Pack in DaVinci Resolve"),
                      detail: String(localized: "Every template as a Fusion title, built from Resolve's own nodes. Add them to Resolve's Titles in one click, then change the words, fonts, colours, place and size right there.")),

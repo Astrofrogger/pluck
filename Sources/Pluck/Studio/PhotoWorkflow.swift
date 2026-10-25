@@ -63,16 +63,61 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// Choose What to Paste: which parts of the copied settings go onto the selected photos.
+/// The copied settings and what the keys do with them (⌘C, ⇧⌘C, ⌘V, ⇧⌘V, ⌥⌘V).
+@MainActor
+enum PhotoPasteboard {
+    /// A key or menu command on the Photo page.
+    enum Action { case copy, copyChoosing, paste, pasteChoosing, pastePrevious }
+
+    static var copied: PhotoRecord?
+    /// The photo that was shown before the one shown now.
+    static var lastViewed: String?
+    /// Set by the Photo page while it is open; the Edit menu's items call it.
+    static var perform: ((Action) -> Void)?
+
+    static func copy(_ path: String) { copied = PhotoCatalog.shared.record(path) }
+
+    /// The focus moved: the photo left becomes the previous one.
+    static func focusMoved(from old: String?, to new: String?) {
+        if let old, old != new { lastViewed = old }
+    }
+
+    /// The chosen parts of the copied settings onto the photos, as one undo step.
+    static func paste(_ groups: Set<PasteGroup>, to paths: [String]) {
+        guard let copied else { return }
+        apply(copied, groups, to: paths)
+    }
+
+    /// The previous photo's settings (its chosen parts) onto the photos.
+    static func pastePrevious(to paths: [String]) {
+        // (A copy taken away since isn't anything to paste.)
+        guard let last = lastViewed, !PhotoCatalog.isCopy(last) || PhotoCatalog.shared.records[last] != nil else { NSSound.beep(); return }
+        apply(PhotoCatalog.shared.record(last), PasteGroup.chosen, to: paths.filter { $0 != last })
+    }
+
+    private static func apply(_ source: PhotoRecord, _ groups: Set<PasteGroup>, to paths: [String]) {
+        guard !paths.isEmpty else { return }
+        let catalog = PhotoCatalog.shared
+        catalog.endStep()
+        catalog.update(paths) { record in
+            for group in PasteGroup.allCases where groups.contains(group) { group.apply(source, to: &record) }
+            record.edited = .now
+        }
+        catalog.endStep()
+    }
+}
+
+/// Choose What to Paste (or to copy): which parts of the settings go onto the selected photos.
 struct PasteChooser: View {
     let count: Int
+    var copying = false
     let paste: (Set<PasteGroup>) -> Void
     @State private var groups = PasteGroup.chosen
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Paste").font(.headline)
+            Text(copying ? "Copy" : "Paste").font(.headline)
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(PasteGroup.allCases) { group in
                     Toggle(group.title, isOn: Binding(get: { groups.contains(group) },
@@ -84,10 +129,12 @@ struct PasteChooser: View {
                 Button("None") { groups = [] }.buttonStyle(.link)
                 Spacer()
                 Button("Cancel", role: .cancel) { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Paste to ^[\(count) photo](inflect: true)") {
+                Button {
                     PasteGroup.chosen = groups
                     paste(groups)
                     dismiss()
+                } label: {
+                    if copying { Text("Copy") } else { Text("Paste to ^[\(count) photo](inflect: true)") }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(groups.isEmpty)

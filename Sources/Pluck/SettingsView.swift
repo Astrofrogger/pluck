@@ -148,6 +148,9 @@ private struct GeneralSettings: View {
     @State private var loginError: String?
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
     @AppStorage("photoWriteXMP") private var writeXMP = false
+    #if STUDIO
+    @AppStorage("photoUseLightroomEdits") private var useLightroomEdits = false
+    #endif
     @AppStorage("redClipsAsItems") private var redClipsAsItems = false
     @Environment(AppUpdater.self) private var appUpdater
 
@@ -221,6 +224,8 @@ private struct GeneralSettings: View {
             Section {
                 Toggle("Write ratings and edits to XMP sidecars", isOn: $writeXMP)
                     .onChange(of: writeXMP) { _, on in if on { PhotoCatalog.shared.writeAllSidecars() } }
+                Toggle("Use Lightroom edits", isOn: $useLightroomEdits)
+                    .help("A photo Pluck hasn’t edited starts from the Lightroom edit in its sidecar (close, not the same: the engines differ)")
             } header: {
                 Text("Photos")
             } footer: {

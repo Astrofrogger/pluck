@@ -441,6 +441,9 @@ final class RawFolder {
 struct RawBrowserView: View {
     let folder: RawFolder
     let open: (URL) -> Void
+    /// The clip left last, and opening it with the clip picked as B (at the same timecode).
+    var compareName: String?
+    var compareWith: ((URL) -> Void)?
     /// Browsing as Finder does: into a folder, the folders from where it began to here, and
     /// whether every clip under here shows at once.
     var enter: ((URL) -> Void)?
@@ -521,7 +524,7 @@ struct RawBrowserView: View {
                             // A folder at a time: its clips, under its folders, with no heading.
                             LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth * 1.6), spacing: 14)], spacing: 16) {
                                 ForEach(folder.shown.flatMap(\.clips)) { clip in
-                                    RawClipTile(clip: clip, folder: folder, open: open)
+                                    RawClipTile(clip: clip, folder: folder, open: open, compareName: compareName, compareWith: compareWith)
                                 }
                             }
                         } else {
@@ -529,7 +532,7 @@ struct RawBrowserView: View {
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: tileWidth, maximum: tileWidth * 1.6), spacing: 14)], spacing: 16) {
                                     ForEach(group.clips) { clip in
-                                        RawClipTile(clip: clip, folder: folder, open: open)
+                                        RawClipTile(clip: clip, folder: folder, open: open, compareName: compareName, compareWith: compareWith)
                                     }
                                 }
                             } header: {
@@ -566,6 +569,8 @@ private struct RawClipTile: View {
     let clip: RawBrowserClip
     let folder: RawFolder
     let open: (URL) -> Void
+    var compareName: String?
+    var compareWith: ((URL) -> Void)?
     @State private var skimAt: Double?
     @State private var width = 1.0
 
@@ -617,6 +622,9 @@ private struct RawClipTile: View {
             .draggable(clip.url)
             .contextMenu {
                 Button("Open") { open(clip.url) }
+                if let compareName, let compareWith {
+                    Button("Compare with “\(compareName)”") { compareWith(clip.url) }
+                }
                 if Resolve.isInstalled {
                     Button("Send to DaVinci") { Resolve.sendClipsAndShow([clip.url]) }
                 }

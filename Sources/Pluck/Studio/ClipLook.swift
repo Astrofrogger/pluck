@@ -557,7 +557,7 @@ struct ClipColor: Codable, Hashable {
     func apply(_ image: CIImage) -> CIImage {
         guard !isDefault else { return image }
         return image.applyingFilter("CIColorCubeWithColorSpace", parameters: ["inputCubeDimension": Self.size, "inputCubeData": cube(),
-                                                                               "inputColorSpace": CGColorSpace(name: CGColorSpace.sRGB)!])
+                                                                               "inputColorSpace": ProjectCompositor.video])
     }
 }
 

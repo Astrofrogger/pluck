@@ -19,6 +19,9 @@ struct PhotoImportSheet: View {
     @AppStorage("photoImportBackupFolder") private var backupPath = ""
     @AppStorage("photoImportByDate") private var byDate = true
     @AppStorage("photoImportRename") private var rename = false
+    @AppStorage("photoImportTemplate") private var templateID = ""
+    @State private var templates = PhotoMetadataTemplate.saved
+    @State private var editingTemplate: PhotoMetadataTemplate?
     @State private var sources: [URL] = []
     @State private var cards: [URL] = []
     @State private var found: [URL] = []
@@ -90,6 +93,21 @@ struct PhotoImportSheet: View {
                 TextField("Album", text: $album).textFieldStyle(.roundedBorder)
             }
             .font(.callout)
+            HStack {
+                Text("Metadata").foregroundStyle(.secondary)
+                Menu(template?.name ?? String(localized: "None")) {
+                    Button("None") { templateID = "" }
+                    if !templates.isEmpty { Divider() }
+                    ForEach(templates) { item in Button(item.name) { templateID = item.id.uuidString } }
+                    Divider()
+                    Button("New Template…") { editingTemplate = PhotoMetadataTemplate(name: "") }
+                    if let template { Button("Edit “\(template.name)”…") { editingTemplate = template } }
+                }
+                .fixedSize()
+                .help("Creator, copyright, keywords and more, given to each photo as it comes in")
+                Spacer()
+            }
+            .font(.callout)
             if copying {
                 ProgressView(value: Double(progress), total: Double(max(found.count, 1)))
                 Text("Copying \(progress) of \(found.count)…").font(.caption).foregroundStyle(.secondary)
@@ -105,6 +123,21 @@ struct PhotoImportSheet: View {
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 520)
+        .sheet(item: $editingTemplate) { item in
+            PhotoTemplateSheet(template: item) { saved in
+                var all = PhotoMetadataTemplate.saved
+                all.removeAll { $0.id == item.id }
+                if let saved {
+                    all.append(saved)
+                    all.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+                    templateID = saved.id.uuidString
+                } else if templateID == item.id.uuidString {
+                    templateID = ""
+                }
+                PhotoMetadataTemplate.saved = all
+                templates = all
+            }
+        }
         .task {
             // (Not in tests: looking at drives can make macOS ask for access.)
             if ScreenshotMode.scene == nil { cards = Self.memoryCards() }
@@ -166,12 +199,30 @@ struct PhotoImportSheet: View {
 
     // MARK: - Copying
 
+    private var template: PhotoMetadataTemplate? { templates.first { $0.id.uuidString == templateID } }
+
+    /// The template's fields on each photo (its tokens from that photo and the card it came from).
+    /// What the photos' sidecars say (ratings from another app) is read first, so it isn't lost.
+    private func applyTemplate(_ photos: [(source: URL, path: String)]) async {
+        guard let template, !template.meta.isEmpty else { return }
+        let catalog = PhotoCatalog.shared
+        await catalog.adoptSidecars(of: photos.map(\.path))
+        let filled = await Task.detached(priority: .userInitiated) {
+            photos.map { ($0.path, PhotoMetadataTemplate.expand(template.meta, file: URL(fileURLWithPath: $0.path), card: PhotoMetadataTemplate.card(of: $0.source))) }
+        }.value
+        catalog.setMeta(Dictionary(filled.map { ($0.0, $0.1.over(catalog.record($0.0).meta)) }, uniquingKeysWith: { a, _ in a }))
+    }
+
     private func start() {
         guard !found.isEmpty else { return }
         let name = album.trimmingCharacters(in: .whitespaces).isEmpty ? (sources.first?.lastPathComponent ?? "Import") : album
         guard copy else {
-            done(found.map(\.path), name)
-            dismiss()
+            let photos = found.map { (source: $0, path: $0.path) }
+            Task {
+                await applyTemplate(photos)
+                done(photos.map(\.path), name)
+                dismiss()
+            }
             return
         }
         copying = true
@@ -180,16 +231,18 @@ struct PhotoImportSheet: View {
         let photos = found, folder = self.folder, backup = self.backup, byDate = self.byDate, rename = self.rename
         Task {
             var imported: [String] = []
+            var pairs: [(source: URL, path: String)] = []
             for photo in photos {
                 let result = await Task.detached(priority: .userInitiated) {
                     Self.copy(photo, to: folder, backup: backup, byDate: byDate, rename: rename)
                 }.value
                 switch result {
-                case .success(let path): imported.append(path)
+                case .success(let path): imported.append(path); pairs.append((photo, path))
                 case .failure(let error): problem = error.localizedDescription
                 }
                 progress += 1
             }
+            await applyTemplate(pairs)
             copying = false
             if !imported.isEmpty {
                 done(imported, name)

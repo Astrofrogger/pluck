@@ -65,7 +65,7 @@ struct PhotoPage: View {
         let words = search.split(separator: " ").map(String.init)
         if !words.isEmpty {
             let found = photoIndex.search(words, within: Set(list)).map(\.path)
-            let byName = list.filter { path in words.allSatisfy { URL(fileURLWithPath: path).lastPathComponent.localizedCaseInsensitiveContains($0) } }
+            let byName = list.filter { path in words.allSatisfy { PhotoCatalog.displayName(path).localizedCaseInsensitiveContains($0) } }
             var seen: Set<String> = []
             list = (found + byName).filter { seen.insert($0).inserted }
         }
@@ -142,11 +142,24 @@ struct PhotoPage: View {
         .focused($focused)
         .focusEffectDisabled()
         .onKeyPress(phases: .down, action: key)
+        .onChange(of: focus) { old, new in PhotoPasteboard.focusMoved(from: old, to: new) }
+        .onChange(of: selection) { old, new in if old != new { editing.syncAll = true } }
+        .sheet(item: $copySheet) { mode in
+            PasteChooser(count: pasteTargets.count, copying: mode == .copy) { _ in
+                if mode == .copy { if let focus { PhotoPasteboard.copy(focus) } } else { PhotoPasteboard.paste(PasteGroup.chosen, to: pasteTargets) }
+            }
+        }
         .onKeyPress("\\", phases: [.down, .up]) { press in
             editing.asShot = press.phase == .down
             return .handled
         }
         .onAppear {
+            PhotoPasteboard.perform = { perform($0) }
+            SpeedEditor.shared.context = {
+                guard view == .edit, let focus else { return nil }
+                return ((selection.isEmpty ? [focus] : Array(selection)).sorted(), focus)
+            }
+            SpeedEditor.shared.start()
             focused = true
             // Back in Edit (or one at a time) from last time: with the first photo.
             if view != .grid, focus == nil { focus = photos.first }
@@ -192,6 +205,23 @@ struct PhotoPage: View {
                 view = .edit
                 editing.zoomed = true
             }
+            // Scene photosync: the first three photos selected in Edit, the "Editing 3" chip showing.
+            if ScreenshotMode.scene == "photosync" {
+                focus = photos.first
+                selection = Set(photos.prefix(3))
+                view = .edit
+                if UserDefaults.standard.string(forKey: "PluckScreenshotPhotoTab") == nil { tab = .adjust }
+            }
+            // Scene photobeforeafter: the first photo large, edited, with the split line over it
+            // (-PluckScreenshotBeforeAfter side: side by side).
+            if ScreenshotMode.scene == "photobeforeafter" {
+                focus = photos.first
+                view = .edit
+                if let first = photos.first {
+                    catalog.update([first]) { $0.adjust.exposure = 1.2; $0.adjust.contrast = 25; $0.adjust.saturation = 30 }
+                }
+                editing.beforeAfter = UserDefaults.standard.string(forKey: "PluckScreenshotBeforeAfter") == "side" ? .sideBySide : .split
+            }
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotPhotoExport") {
                 selection = Set(photos)
             }
@@ -204,7 +234,7 @@ struct PhotoPage: View {
             if focus == nil { editing.cropping = false }
         }
         .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
-        .onDisappear { editing.cropping = false }
+        .onDisappear { editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop() }
         .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
         .sheet(isPresented: $importing) {
             PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
@@ -371,6 +401,8 @@ struct PhotoPage: View {
                     .help("Hold to see it as shot (or hold \\)")
                     .accessibilityLabel(Text("Hold to see it as shot"))
                     .accessibilityAddTraits(.isButton)
+                beforeAfterMenu
+                hdrToggle
             } else {
                 Toggle(isOn: Binding(get: { view == .cull }, set: { one in
                     if one, focus == nil { focus = photos.first }
@@ -495,7 +527,7 @@ struct PhotoPage: View {
                             .onTapGesture(count: 2) { focus = path; selection = [path]; view = .edit }
                             .onTapGesture { click(path) }
                             .contextMenu { menu(for: path) }
-                            .onDrag { NSItemProvider(object: URL(fileURLWithPath: path) as NSURL) }
+                            .onDrag { NSItemProvider(object: URL(fileURLWithPath: PhotoCatalog.file(of: path)) as NSURL) }
                     }
                 }
                 .padding(14)
@@ -521,10 +553,10 @@ struct PhotoPage: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 6) {
                     ForEach(photos, id: \.self) { path in
-                        PhotoCell(path: path, record: catalog.record(path), selected: focus == path, compact: true)
+                        PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || focus == path, compact: true)
                             .frame(width: 96, height: 72)
                             .id(path)
-                            .onTapGesture { focus = path; selection = [path] }
+                            .onTapGesture { click(path) }
                     }
                 }
                 .padding(.horizontal, 10)
@@ -542,7 +574,13 @@ struct PhotoPage: View {
     private func click(_ path: String) {
         let flags = NSApp.currentEvent?.modifierFlags ?? []
         if flags.contains(.command) {
-            if selection.contains(path) { selection.remove(path) } else { selection.insert(path) }
+            if selection.contains(path) {
+                selection.remove(path)
+                // The photo shown leaves the selection: another one in it takes over.
+                if path == focus, let other = photos.first(where: selection.contains) { focus = other; return }
+            } else {
+                selection.insert(path)
+            }
         } else if flags.contains(.shift), let focus, let from = photos.firstIndex(of: focus), let to = photos.firstIndex(of: path) {
             selection = Set(photos[min(from, to)...max(from, to)])
         } else {
@@ -566,7 +604,31 @@ struct PhotoPage: View {
             Button("Remove from Album") { catalog.remove(targets, from: id) }
         }
         Divider()
-        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: $0) }) }
+        Button("Make Virtual Copy") { makeCopy(of: path) }
+        if PhotoCatalog.isCopy(path) {
+            Button("Remove Virtual Copy") { removeCopies(targets.filter(PhotoCatalog.isCopy)) }
+        }
+        Divider()
+        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(targets.map { URL(fileURLWithPath: PhotoCatalog.file(of: $0)) }) }
+    }
+
+    /// A copy of the photo with its edit, shown next (to try another look on the same file).
+    private func makeCopy(of path: String) {
+        let copy = catalog.makeCopy(of: path)
+        selection = [copy]
+        focus = copy
+    }
+
+    /// After undo: a copy that's gone isn't shown or chosen any more (an edit would bring it back).
+    private func dropGoneCopies() {
+        if let focus, PhotoCatalog.isCopy(focus), catalog.records[focus] == nil { self.focus = PhotoCatalog.file(of: focus) }
+        selection = selection.filter { !PhotoCatalog.isCopy($0) || catalog.records[$0] != nil }
+    }
+
+    private func removeCopies(_ keys: [String]) {
+        catalog.removeCopies(keys)
+        if let focus, keys.contains(focus) { self.focus = PhotoCatalog.file(of: focus) }
+        selection.subtract(keys)
     }
 
     // MARK: - Importing
@@ -616,6 +678,24 @@ struct PhotoPage: View {
 
     // MARK: - Keys (culling)
 
+    private enum CopySheet: Identifiable { case copy, paste; var id: Int { self == .copy ? 0 : 1 } }
+    @State private var copySheet: CopySheet?
+
+    private var pasteTargets: [String] { selection.isEmpty ? (focus.map { [$0] } ?? []) : Array(selection).sorted() }
+
+    /// Copy and paste of settings (keys and the Edit menu).
+    private func perform(_ action: PhotoPasteboard.Action) {
+        switch action {
+        case .copy: if let focus { PhotoPasteboard.copy(focus) } else { NSSound.beep() }
+        case .copyChoosing: if focus != nil { copySheet = .copy } else { NSSound.beep() }
+        case .paste:
+            if PhotoPasteboard.copied != nil { PhotoPasteboard.paste(PasteGroup.chosen, to: pasteTargets) } else { NSSound.beep() }
+        case .pasteChoosing: if PhotoPasteboard.copied != nil { copySheet = .paste } else { NSSound.beep() }
+        case .pastePrevious:
+            if PhotoPasteboard.lastViewed != nil { PhotoPasteboard.pastePrevious(to: pasteTargets) } else { NSSound.beep() }
+        }
+    }
+
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
         let targets = selection.isEmpty ? (focus.map { [$0] } ?? []) : Array(selection)
@@ -629,10 +709,10 @@ struct PhotoPage: View {
             } else {
                 inspectorHidden.toggle()
             }
-        case .leftArrow where !editing.cropping: move(-1)
-        case .rightArrow where !editing.cropping: move(1)
-        case .upArrow where !loupe: move(-columns)
-        case .downArrow where !loupe: move(columns)
+        case .leftArrow where !editing.cropping: move(-1, extending: press.modifiers.contains(.shift))
+        case .rightArrow where !editing.cropping: move(1, extending: press.modifiers.contains(.shift))
+        case .upArrow where !loupe: move(-columns, extending: press.modifiers.contains(.shift))
+        case .downArrow where !loupe: move(columns, extending: press.modifiers.contains(.shift))
         case .space, .return: if editing.cropping { editing.cropping = false } else if focus != nil { view = view == .grid ? .edit : .grid }
         case .escape:
             if editing.cropping { editing.cropping = false } else if editing.zoomed { editing.zoomed = false } else { view = .grid }
@@ -651,8 +731,17 @@ struct PhotoPage: View {
                 return .handled
             }
             if character == "?" { editing.showingKeys = true; return .handled }
-            if character == "z", press.modifiers == .command { catalog.undo(); return .handled }
-            if character == "z", press.modifiers == [.command, .shift] { catalog.redo(); return .handled }
+            if press.key == "c" || press.key == "v" {
+                let copy = press.key == "c"
+                switch press.modifiers {
+                case .command: perform(copy ? .copy : .paste); return .handled
+                case [.command, .shift]: perform(copy ? .copyChoosing : .pasteChoosing); return .handled
+                case [.command, .option] where !copy: perform(.pastePrevious); return .handled
+                default: break
+                }
+            }
+            if character == "z", press.modifiers == .command { catalog.undo(); dropGoneCopies(); return .handled }
+            if character == "z", press.modifiers == [.command, .shift] { catalog.redo(); dropGoneCopies(); return .handled }
             if character == "a", press.modifiers.contains(.command) {
                 selection = Set(photos)
                 return .handled
@@ -686,6 +775,14 @@ struct PhotoPage: View {
                 catalog.update(targets) { $0.flag = .reject }
                 advance(targets)
             case .photoUnflag: catalog.update(targets) { $0.flag = .none }
+            case .photoVirtualCopy:
+                guard let focus else { return .ignored }
+                makeCopy(of: focus)
+            case .photoBeforeAfter:
+                guard view == .edit, focus != nil, !editing.cropping else { return .ignored }
+                editing.cycleBeforeAfter()
+            // Speed Edit works by holding the key and scrolling (PhotoSpeedEdit); a tap does nothing.
+            case .some(let speed) where SpeedEdit.targets[speed] != nil: break
             default: return .ignored
             }
         }
@@ -693,6 +790,50 @@ struct PhotoPage: View {
     }
 
     private var columns: Int { 4 }
+
+    /// Next to the half-circle (hold: as shot): before and after, and what "before" is.
+    /// HDR: only on a screen that can show it (macOS 15 and later). Each photo remembers it.
+    @ViewBuilder private var hdrToggle: some View {
+        if PhotoEditing.canShowHDR(NSApp.keyWindow?.screen ?? NSScreen.main), let focus {
+            let on = catalog.record(focus).hdr == true
+            Toggle(isOn: Binding(get: { on }, set: { value in
+                catalog.update(editing.targets(selection.isEmpty ? [focus] : Array(selection), shown: focus)) { $0.hdr = value ? true : nil }
+            })) {
+                Text("HDR").font(.caption.weight(.semibold))
+            }
+            .toggleStyle(.button)
+            .help("Edit in HDR: highlights brighter than white, on this screen and in an HDR export")
+        }
+    }
+
+    private var beforeAfterMenu: some View {
+        let snapshots = focus.map { catalog.record($0).snapshots } ?? []
+        let chosen = snapshots.first { $0.id == editing.beforeSnapshot }?.id
+        return Menu {
+            Picker("Before and After", selection: $editing.beforeAfter) {
+                Text("Off").tag(BeforeAfter.off)
+                Text("Split View").tag(BeforeAfter.split)
+                Text("Side by Side").tag(BeforeAfter.sideBySide)
+            }
+            .pickerStyle(.inline)
+            Divider()
+            Picker("Before", selection: Binding(get: { chosen }, set: { id in
+                editing.beforeSnapshot = id
+                if editing.beforeAfter == .off, !editing.cropping { editing.beforeAfter = .split }
+            })) {
+                Text("Before: As Shot").tag(UUID?.none)
+                ForEach(snapshots) { snapshot in Text("Before: \(snapshot.name)").tag(UUID?.some(snapshot.id)) }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Before and after (\(Shortcuts.shared.shortcut(.photoBeforeAfter).label)): what “before” is")
+        .accessibilityLabel(Text("Before and after"))
+    }
 
     /// The photo Compare puts next to the selected one: the other of two selected, else the next.
     private func compared(with focus: String) -> String? {
@@ -707,12 +848,18 @@ struct PhotoPage: View {
         return [index + 1, index - 1, index + 2].compactMap { photos.indices.contains($0) ? photos[$0] : nil }
     }
 
-    private func move(_ step: Int) {
+    /// To the photo `step` away; with ⇧ the selection grows to take it in (the photos passed too).
+    private func move(_ step: Int, extending: Bool = false) {
         guard !photos.isEmpty else { return }
         let index = focus.flatMap { photos.firstIndex(of: $0) } ?? -1
-        let next = photos[min(max(index + step, 0), photos.count - 1)]
+        let target = min(max(index + step, 0), photos.count - 1)
+        let next = photos[target]
+        if extending, index >= 0 {
+            selection.formUnion(photos[min(index, target)...max(index, target)])
+        } else {
+            selection = [next]
+        }
         focus = next
-        selection = [next]
     }
 
     private func advance(_ targets: [String]) {
@@ -791,6 +938,18 @@ private struct PhotoCell: View {
                             in: .capsule)
                 .padding(6)
             }
+            .overlay(alignment: .topLeading) {
+                // A virtual copy: its number.
+                if let number = PhotoCatalog.copyNumber(path) {
+                    Text(verbatim: "\(number)")
+                        .font(compact ? .caption2.weight(.semibold) : .caption.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(.black.opacity(0.55), in: .capsule)
+                        .padding(compact ? 3 : 6)
+                        .help("Virtual copy: its own edit of the same file")
+                }
+            }
             .opacity(record.flag == .reject ? 0.45 : 1)
             .clipShape(RoundedRectangle(cornerRadius: compact ? 4 : 8, style: .continuous))
             .overlay {
@@ -800,9 +959,9 @@ private struct PhotoCell: View {
             }
             .contentShape(.rect)
             .onHover { hovering = $0 }
-            .help(URL(fileURLWithPath: path).lastPathComponent)
+            .help(PhotoCatalog.displayName(path))
             .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(verbatim: URL(fileURLWithPath: path).lastPathComponent))
+            .accessibilityLabel(Text(verbatim: PhotoCatalog.displayName(path)))
             .accessibilityValue(Text(Self.describe(record)))
             .accessibilityAddTraits(selected ? [.isImage, .isSelected] : .isImage)
             .task(id: record) { await load() }
@@ -820,7 +979,7 @@ private struct PhotoCell: View {
         }
         let path = self.path
         let thumbnail = image != nil ? nil : await Task.detached(priority: .utility) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil) else { return nil }
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: 480,
                                             kCGImageSourceCreateThumbnailWithTransform: true]
             return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
@@ -857,6 +1016,8 @@ struct PhotoLoupe: View {
     @State private var fullKey: FullKey?
     @State private var fullLong = 0.0
     @State private var developing = false
+    /// "Before" while the comparison is on (at full size once zoomed in past the preview).
+    @State private var beforePicture: CIImage?
     @State private var problem: String?
     @State private var editing = PhotoEditing.shared
     @State private var catalog = PhotoCatalog.shared
@@ -871,20 +1032,28 @@ struct PhotoLoupe: View {
             Design.Photo.surround
             if let picture {
                 GeometryReader { geo in
-                    let frame = pictureFrame(in: geo.size)
+                    let sideBySide = comparing && editing.beforeAfter == .sideBySide
+                    // Side by side, each photo has half the view (zoom and place are the same in both).
+                    let area = sideBySide ? CGSize(width: geo.size.width / 2, height: geo.size.height) : geo.size
+                    let own = pictureFrame(in: area)
+                    let frame = sideBySide ? own.offsetBy(dx: area.width, dy: 0) : own
                     ZStack {
-                        PhotoCanvas(image: editing.showClipping ? PhotoEngine.clipping(shownImage ?? picture) : shownImage ?? picture, frame: frame)
+                        PhotoCanvas(image: shaped(shownImage ?? picture), frame: frame,
+                                    before: comparing ? beforePicture.map(shaped) : nil,
+                                    mode: comparing ? editing.beforeAfter : .off, split: editing.split)
                         if let zoom = editing.zoom, !editing.cropping {
-                            zoomGestures(zoom: zoom, area: geo.size, frame: frame)
+                            zoomGestures(zoom: zoom, area: area, frame: own)
                         } else {
-                            fitGestures(frame: frame)
+                            fitGestures(frame: own, offset: sideBySide ? area.width : 0)
                         }
-                        if shapingMask, !editing.cropping, !original {
+                        if shapingMask, !editing.cropping, !original, !sideBySide {
                             PhotoMaskHandles(path: path, record: record, frame: frame)
-                        } else if editing.mixerTargeting, primary, !editing.cropping, !original {
+                        } else if editing.mixerTargeting, primary, !editing.cropping, !original, !sideBySide {
                             MixerTarget(path: path, record: record, frame: frame)
                         }
+                        if comparing { beforeAfterMarks(frame: frame, area: geo.size) }
                     }
+                    .coordinateSpace(name: "loupe")
                     if editing.cropping, !original {
                         let size = picture.extent.size
                         let ratio = size.width / max(size.height, 1)
@@ -916,15 +1085,18 @@ struct PhotoLoupe: View {
             .padding(14)
         }
         .overlay(alignment: .bottom) { if editing.cropping, primary, !original { cropBar.padding(14) } }
+        .overlay(alignment: .bottom) { if primary { SpeedEditHUD().padding(.bottom, 18) } }
+        .onHover { if primary { SpeedEditor.shared.overLoupe = $0 } }
         .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
-        .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay)) { await develop() }
+        .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay, peak: peak)) { await develop() }
+        .task(id: BeforeKey(path: path, record: beforeRecord, on: comparing, full: wantedFull != nil)) { await developBefore() }
         .task(id: wantedFull) {
             // The photo at full size once zoomed in past the preview (decoded once, then only the
             // adjustments are redone).
             guard let key = wantedFull else { return }
             if full == nil || fullKey?.path != key.path { developing = true }
-            let path = key.path, record = key.record, marked = key.overlay
-            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0, overlay: marked) }.value
+            let path = key.path, record = key.record, marked = key.overlay, peak = key.peak
+            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0, overlay: marked, peak: peak) }.value
             guard !Task.isCancelled else { return }
             full = made
             fullKey = key
@@ -944,8 +1116,11 @@ struct PhotoLoupe: View {
         .onChange(of: path) { _, _ in
             if !linked { editing.zoom = nil }
             full = nil; fullKey = nil
-            if primary { editing.selectedMask = nil }
+            beforePicture = nil
+            if primary { editing.selectedMask = nil; editing.beforeSnapshot = nil }
         }
+        // (Cropping shows the whole picture with its frame: no comparison then.)
+        .onChange(of: editing.cropping) { _, cropping in if cropping, primary { editing.beforeAfter = .off } }
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
     }
 
@@ -1001,15 +1176,99 @@ struct PhotoLoupe: View {
         let record: PhotoRecord
         let original: Bool
         let overlay: Int?
+        var peak = 1.0
+    }
+
+    /// How bright the edit may go on this screen (1 unless the photo is edited in HDR).
+    /// (Film makes its own SDR picture.)
+    private var peak: Double {
+        original || shownRecord.filmOn ? 1 : PhotoEditing.peak(hdr: shownRecord.hdr == true, headroom: editing.headroom)
+    }
+
+    private struct BeforeKey: Hashable {
+        let path: String
+        let record: PhotoRecord
+        let on: Bool
+        let full: Bool
     }
 
     private struct FullKey: Hashable {
         let path: String
         let record: PhotoRecord
         let overlay: Int?
+        var peak = 1.0
     }
 
     private var original: Bool { editing.asShot }
+
+    /// Before and after shows: on the photo being edited (not in Compare, not while cropping or
+    /// when the photo is held as shot).
+    private var comparing: Bool {
+        primary && !linked && editing.beforeAfter != .off && !editing.cropping && !original
+    }
+
+    /// What "before" is: the photo as shot, or a snapshot's settings (both without film: that takes
+    /// seconds), with the crop that shows now so the two line up.
+    private var beforeRecord: PhotoRecord {
+        var before = PhotoRecord()
+        if let id = editing.beforeSnapshot, let snapshot = record.snapshots.first(where: { $0.id == id }) { before.adjust = snapshot.adjust }
+        let now = shownRecord.adjust
+        before.adjust.crop = now.crop
+        before.adjust.cropRect = now.cropRect
+        before.adjust.cropPortrait = now.cropPortrait
+        before.adjust.straighten = now.straighten
+        // Compared as bright as the edit, so HDR itself isn't what looks different.
+        before.hdr = shownRecord.hdr
+        return before
+    }
+
+    /// The picture as shown: with clipping marked when that's on.
+    private func shaped(_ image: CIImage) -> CIImage { editing.showClipping ? PhotoEngine.clipping(image, peak: peak) : image }
+
+    private func developBefore() async {
+        guard comparing else { beforePicture = nil; return }
+        let path = self.path, rec = beforeRecord, size = wantedFull == nil ? PhotoRender.previewSize : 0, peak = self.peak
+        let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: rec, maxSize: size, peak: peak) }.value
+        if !Task.isCancelled, let made { beforePicture = made }
+    }
+
+    /// The line to drag (the resize cursor over it), and "Before" and "After" in the corners.
+    @ViewBuilder
+    private func beforeAfterMarks(frame: CGRect, area: CGSize) -> some View {
+        let sideBySide = editing.beforeAfter == .sideBySide
+        let shown = PhotoComposite.visible(frame: frame, view: area)
+        let x = sideBySide ? area.width / 2 : PhotoComposite.splitX(frame: frame, view: area, split: editing.split)
+        let left = sideBySide ? 0 : shown.minX, right = sideBySide ? area.width : shown.maxX
+        ZStack(alignment: .topLeading) {
+            HStack {
+                Text("Before").modifier(CornerLabel())
+                Spacer(minLength: 0)
+                Text("After").modifier(CornerLabel())
+            }
+            .padding(.leading, left + 10).padding(.trailing, max(area.width - right, 0) + 10).padding(.top, shown.minY + 10)
+            Rectangle().fill(.white).frame(width: 1.5, height: shown.height).shadow(color: .black.opacity(0.5), radius: 1.5)
+                .offset(x: x - 0.75, y: shown.minY)
+                .allowsHitTesting(false)
+            if !sideBySide {
+                Circle().fill(.white).frame(width: 22, height: 22)
+                    .overlay(Image(systemName: "arrow.left.and.right").font(.system(size: 10, weight: .bold)).foregroundStyle(.black.opacity(0.7)))
+                    .shadow(color: .black.opacity(0.4), radius: 2)
+                    .offset(x: x - 11, y: shown.midY - 11)
+                    .allowsHitTesting(false)
+                Color.clear
+                    .frame(width: 26, height: shown.height)
+                    .contentShape(.rect)
+                    .onHover { inside in if inside { NSCursor.resizeLeftRight.set() } else { NSCursor.arrow.set() } }
+                    .onDisappear { NSCursor.arrow.set() }
+                    .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("loupe")).onChanged { value in
+                        editing.split = min(max((value.location.x - shown.minX) / max(shown.width, 1), 0.02), 0.98)
+                    })
+                    .offset(x: x - 13, y: shown.minY)
+                    .help("Drag to move the line")
+            }
+        }
+        .frame(width: area.width, height: area.height, alignment: .topLeading)
+    }
 
     /// A mask of this photo is being shaped (version 2).
     private var shapingMask: Bool {
@@ -1046,7 +1305,7 @@ struct PhotoLoupe: View {
         guard let zoom = editing.zoom, !editing.cropping, zoom * scaleToFull > 1.05 else { return nil }
         var shown = original ? PhotoRecord() : shownRecord
         shown.filmOn = false
-        return FullKey(path: path, record: shown, overlay: original ? nil : overlay)
+        return FullKey(path: path, record: shown, overlay: original ? nil : overlay, peak: peak)
     }
 
     /// The full size when it's made for what's showing now.
@@ -1065,7 +1324,8 @@ struct PhotoLoupe: View {
     /// The zoom at which the photo just fits.
     private func fitZoom() -> Double {
         guard let picture else { return 1 }
-        let fitted = Self.fitted(picture.extent.size, in: viewSize, inset: 14)
+        let area = comparing && editing.beforeAfter == .sideBySide ? CGSize(width: viewSize.width / 2, height: viewSize.height) : viewSize
+        let fitted = Self.fitted(picture.extent.size, in: area, inset: 14)
         return Double(fitted.width) * displayScale / max(Double(picture.extent.width) * scaleToFull, 1)
     }
 
@@ -1086,12 +1346,14 @@ struct PhotoLoupe: View {
     }
 
     /// Fitted: click to look at that place at 100%, pinch to zoom in.
-    private func fitGestures(frame: CGRect) -> some View {
+    private func fitGestures(frame: CGRect, offset: Double = 0) -> some View {
         Color.clear
             .contentShape(.rect)
             .onTapGesture { location in
                 guard !editing.cropping, frame.width > 0 else { return }
-                center = CGPoint(x: min(max((location.x - frame.minX) / frame.width, 0), 1),
+                // (Side by side, the right half is the same picture shifted over.)
+                let x = location.x >= offset && offset > 0 ? location.x - offset : location.x
+                center = CGPoint(x: min(max((x - frame.minX) / frame.width, 0), 1),
                                  y: min(max((location.y - frame.minY) / frame.height, 0), 1))
                 editing.zoom = 1
             }
@@ -1172,8 +1434,8 @@ struct PhotoLoupe: View {
             developing = false
             return
         }
-        let marked = original ? nil : overlay
-        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked) }.value
+        let marked = original ? nil : overlay, peak = self.peak
+        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked, peak: peak) }.value
         guard !Task.isCancelled else { return }
         if shown.filmOn, FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
             // The film's look from last time while it's developed again at this size.
@@ -1188,12 +1450,18 @@ struct PhotoLoupe: View {
             developing = false
             try? await Task.sleep(for: .milliseconds(150))
             // (Not while a mask shows in red.)
-            guard !Task.isCancelled, let quick, marked == nil else { return }
-            if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(quick) }.value }
+            guard !Task.isCancelled, var quick, marked == nil else { return }
+            // The histogram and the grid's copy are the SDR picture (an HDR one would clip in them).
+            if peak > 1, let sdr = await Task.detached(priority: .utility, operation: { PhotoRender.image(path, record: shown, maxSize: size) }).value {
+                guard !Task.isCancelled else { return }
+                quick = sdr
+            }
+            let measured = quick
+            if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(measured) }.value }
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled, shown.isEdited else { return }
             await Task.detached(priority: .utility) {
-                if let small = PhotoRender.picture(quick, maxSize: 1200) { PhotoRender.savePreview(small, to: cached) }
+                if let small = PhotoRender.picture(measured, maxSize: 1200) { PhotoRender.savePreview(small, to: cached) }
             }.value
             return
         }
@@ -1262,7 +1530,7 @@ struct PhotoCullView: View {
                         Image(systemName: record.flag == .pick ? "flag.fill" : "xmark.circle.fill")
                             .foregroundStyle(record.flag == .pick ? .white : .red)
                     }
-                    Text(URL(fileURLWithPath: path).lastPathComponent).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
+                    Text(PhotoCatalog.displayName(path)).foregroundStyle(.white.opacity(0.7)).lineLimit(1)
                 }
                 .font(.callout)
                 .padding(.horizontal, 14).padding(.vertical, 7)
@@ -1325,7 +1593,7 @@ final class CullCache {
         if let known = images[path] { return known }
         let size = PhotoRender.previewSize
         let made = await Task.detached(priority: .userInitiated) { () -> CGImage? in
-            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+            guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil) else { return nil }
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: size,
                                             kCGImageSourceCreateThumbnailWithTransform: true]
             return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
@@ -1336,5 +1604,16 @@ final class CullCache {
         order.append(path)
         if order.count > 12 { images[order.removeFirst()] = nil }
         return image
+    }
+}
+
+/// "Before" and "After", small, in a photo's corners.
+private struct CornerLabel: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 7).padding(.vertical, 3)
+            .background(.ultraThinMaterial, in: .capsule)
+            .allowsHitTesting(false)
     }
 }

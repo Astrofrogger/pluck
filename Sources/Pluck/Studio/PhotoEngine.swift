@@ -1056,11 +1056,12 @@ extension PhotoEngine {
     }
 
     /// The developed picture with what's clipped marked, as Lightroom's J: highlights at white in
-    /// any channel red, shadows at black in all of them blue.
-    static func clipping(_ image: CIImage) -> CIImage {
+    /// any channel red, shadows at black in all of them blue. `peak`: the brightest an HDR edit
+    /// goes (clipped is at that, not at white).
+    static func clipping(_ image: CIImage, peak: Double = 1) -> CIImage {
         let extent = image.extent
         let brightest = image.applyingFilter("CIMaximumComponent")
-        let highlights = brightest.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.997])
+        let highlights = brightest.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.997 * max(peak, 1)])
         let shadows = brightest.applyingFilter("CIColorThreshold", parameters: ["inputThreshold": 0.0004]).applyingFilter("CIColorInvert")
         let red = CIImage(color: CIColor(red: 1, green: 0.1, blue: 0.1)).cropped(to: extent)
         let blue = CIImage(color: CIColor(red: 0.15, green: 0.35, blue: 1)).cropped(to: extent)

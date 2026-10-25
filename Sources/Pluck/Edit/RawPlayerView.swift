@@ -36,6 +36,8 @@ struct RawPlayerView: View {
     @AppStorage("rawExportScale") private var exportScale = 1
     @AppStorage("rawTimecodeMode") private var timecodeMode = RawPlayer.TimecodeMode.source.rawValue
     @AppStorage("rawLUTFolders") private var lutFoldersText = ""
+    @AppStorage("rawScopesShown") private var scopesShown = false
+    @AppStorage("rawScopeKind") private var scopeKind = ScopeKind.waveform.rawValue
     @State private var goingTo = false
     @State private var goTo = ""
     @State private var lutGroups: [(group: String, files: [URL])] = []
@@ -57,6 +59,7 @@ struct RawPlayerView: View {
                 HStack(spacing: 0) {
                     VStack(spacing: 0) {
                         viewer
+                        if player.falseColour { FalseColourLegend().padding(.vertical, 6) }
                         RawTransportBar(player: player, goingTo: $goingTo, goTo: $goTo, timecodeMode: $timecodeMode, saveFrame: saveFrame)
                     }
                     Divider()
@@ -88,9 +91,10 @@ struct RawPlayerView: View {
         .onKeyPress(.home) { player.stop(); player.show(0); return .handled }
         .onKeyPress(.end) { player.stop(); player.show(player.frames - 1); return .handled }
         // In and out (⌥ clears), J K L, ⌘J to go to a time.
-        .onKeyPress(keys: ["i", "o", "j", "k", "l", "m"]) { press in
+        // (Not filtered by `keys`: with ⌥ the typed character is another one, so the key itself is looked at.)
+        .onKeyPress { press in
             let option = press.modifiers.contains(.option)
-            switch press.characters.lowercased() {
+            switch Shortcut.typedKey(press) {
             case "i": option ? player.clearIn() : player.markIn()
             case "o": option ? player.clearOut() : player.markOut()
             case "j" where press.modifiers.contains(.command): goTo = player.label(player.index); goingTo = true
@@ -101,6 +105,18 @@ struct RawPlayerView: View {
             default: return .ignored
             }
             return .handled
+        }
+        // False colour (⌥F, or the key chosen in Settings ▸ Keys).
+        .onKeyPress { press in
+            guard Shortcuts.shared.shortcut(.rawFalseColour).matches(press) else { return .ignored }
+            player.falseColour.toggle()
+            return .handled
+        }
+        // Grab Still and Compare (⌥G, ⌥C, or the keys chosen in Settings ▸ Keys).
+        .onKeyPress { press in
+            if Shortcuts.shared.shortcut(.rawGrabStill).matches(press) { player.grabStill(); return .handled }
+            if Shortcuts.shared.shortcut(.rawCompare).matches(press), player.stillB != nil { player.compare = player.compare.next; return .handled }
+            return .ignored
         }
     }
 
@@ -146,26 +162,30 @@ struct RawPlayerView: View {
 
     private var viewer: some View {
         ZStack {
-            RawFrameView(player: player)
-            RawProblemOverlay(player: player)
-        }
-        .contentShape(.rect)
-        .onTapGesture(count: 2) { player.togglePlay() }
-        .onTapGesture { focused = true }
-        // Drag the picture out: this frame as a full-size PNG, named for the clip and its time.
-        .onDrag {
-            let provider = NSItemProvider()
-            let name = (player.url?.deletingPathExtension().lastPathComponent ?? "Frame") + " " + player.label(player.index).replacingOccurrences(of: ":", with: "-")
-            provider.suggestedName = name
-            provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { done in
-                Task { @MainActor in
-                    do { done(try await player.frameFile(), false, nil) } catch { done(nil, false, error) }
-                }
-                return nil
+            ZStack {
+                RawFrameView(player: player)
+                RawProblemOverlay(player: player)
             }
-            return provider
+            .contentShape(.rect)
+            .onTapGesture(count: 2) { player.togglePlay() }
+            .onTapGesture { focused = true }
+            // Drag the picture out: this frame as a full-size PNG, named for the clip and its time.
+            .onDrag {
+                let provider = NSItemProvider()
+                let name = (player.url?.deletingPathExtension().lastPathComponent ?? "Frame") + " " + player.label(player.index).replacingOccurrences(of: ":", with: "-")
+                provider.suggestedName = name
+                provider.registerFileRepresentation(forTypeIdentifier: UTType.png.identifier, fileOptions: [], visibility: .all) { done in
+                    Task { @MainActor in
+                        do { done(try await player.frameFile(), false, nil) } catch { done(nil, false, error) }
+                    }
+                    return nil
+                }
+                return provider
+            }
+            .help("Drag the picture out to save this frame (full size, PNG)")
+            // Over the picture, so dragging the line isn't dragging the picture out.
+            CompareSplitStrip(player: player)
         }
-        .help("Drag the picture out to save this frame (full size, PNG)")
     }
 
     // MARK: - Settings
@@ -199,6 +219,7 @@ struct RawPlayerView: View {
                             row(Text("Playing"), String(localized: "\(Int(player.playbackRate.rounded())) of \(Int(info.fps.rounded())) fps")).font(.caption)
                         }
                     }
+                    scopesPanel
                     if info.isRaw {
                     Picker("Look", selection: $player.settings.look) {
                         ForEach(RawLook.allCases) { Text($0.label).tag($0) }
@@ -207,6 +228,13 @@ struct RawPlayerView: View {
                     .labelsHidden()
                     .help("Video: ready to watch (Rec.709). As Shot: as the camera was set. Log: flat, for grading.")
                     }
+                    CardField(label: Text("False Colour")) {
+                        Toggle("False Colour", isOn: $player.falseColour)
+                            .toggleStyle(.switch)
+                            .controlSize(.small)
+                    }
+                    .help("Shows the picture in colours by brightness (IRE): purple crushed, blue shadows, green 18 % grey, pink skin, yellow near clip, red clipped. The scopes still measure the real picture (⌥F).")
+                    compareControls
                     lutMenu
                     settings(info)
                     Button("Back to As Shot") { player.resetSettings() }
@@ -220,6 +248,34 @@ struct RawPlayerView: View {
             }
             .padding(Design.Spacing.inset)
         }
+    }
+
+    /// Waveform, parade or vectorscope of the picture; nothing is analysed while it's hidden.
+    private var scopesPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Scopes").font(.headline)
+                Spacer()
+                Button { scopesShown.toggle() } label: {
+                    Image(systemName: scopesShown ? "chevron.down" : "chevron.right").frame(width: 16)
+                }
+                .buttonStyle(.plain)
+                .help("Waveform, RGB parade and vectorscope of the picture (Rec.709). Nothing is measured while hidden.")
+            }
+            if scopesShown {
+                Picker("Scope", selection: $scopeKind) {
+                    ForEach(ScopeKind.allCases) { Text($0.label).tag($0.rawValue) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                LiveScopesView(feed: player.scopes, kind: ScopeKind(rawValue: scopeKind) ?? .waveform)
+            }
+        }
+        .onChange(of: scopesShown, initial: true) { _, shown in
+            player.scopes.enabled = shown
+            if shown { if let image = player.currentImage { player.scopes.offer(image, playing: false) } } else { player.scopes.clear() }
+        }
+        .onDisappear { player.scopes.enabled = false }
     }
 
     @ViewBuilder private func settings(_ info: RawClipInfo) -> some View {
@@ -360,6 +416,33 @@ struct RawPlayerView: View {
         }
     }
 
+    /// Hold this frame as B (also from another clip, in the folder's menu) and look at it against A.
+    private var compareControls: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            CardField(label: Text("Compare")) {
+                Picker("Compare", selection: $player.compare) {
+                    ForEach(CompareMode.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.menu)
+                .disabled(player.stillB == nil)
+            }
+            .help("Compares this picture (A) with a held still (B): a line to drag (B on its left), or side by side. Grab a still from this clip, or right-click another clip in the folder to compare with the one you left (⌥C).")
+            HStack(spacing: 8) {
+                Button("Grab Still") { player.grabStill() }
+                    .buttonStyle(.link)
+                    .help("Holds the picture now as B, in its real colours, to compare with (⌥G).")
+                if player.loadingStill { ProgressView().controlSize(.small) }
+                Spacer(minLength: 0)
+                if player.stillB != nil {
+                    Button("Clear") { player.clearStill() }.buttonStyle(.link)
+                }
+            }
+            if let name = player.stillBName, player.stillB != nil {
+                Text(verbatim: "B · " + name).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        }
+    }
+
     private func chooseLUT() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [UTType(filenameExtension: "cube") ?? .data]
@@ -412,7 +495,7 @@ struct RawPlayerView: View {
         }
         folder?.search = search
         // Tests: -PluckScreenshotExport <file.mov> exports it once it's open.
-        if ScreenshotMode.scene == "raw", let out = UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") {
+        if ScreenshotMode.rawScene, let out = UserDefaults.standard.string(forKey: "PluckScreenshotExportTo") {
             Task {
                 try? await Task.sleep(for: .seconds(2))
                 let url = URL(fileURLWithPath: out)
@@ -420,12 +503,27 @@ struct RawPlayerView: View {
             }
         }
         // Tests: -PluckScreenshotLook <log>, -PluckScreenshotLUT <file.cube>, -PluckScreenshotRange <in>-<out>.
-        if ScreenshotMode.scene == "raw" {
+        if ScreenshotMode.rawScene {
             let defaults = UserDefaults.standard
             Task {
                 for _ in 0..<40 where player.info == nil { try? await Task.sleep(for: .milliseconds(250)) }
                 if let look = defaults.string(forKey: "PluckScreenshotLook").flatMap(RawLook.init(rawValue:)) { player.settings.look = look }
                 if let lut = defaults.string(forKey: "PluckScreenshotLUT") { player.settings.lut = lut }
+                // -PluckScreenshotFalseColour YES: the picture in false colour.
+                if defaults.bool(forKey: "PluckScreenshotFalseColour") { player.falseColour = true }
+                // -PluckScreenshotCompare split|sideBySide: a still grabbed with the Log look from the first frame, against the clip as shot later.
+                if let mode = defaults.string(forKey: "PluckScreenshotCompare").flatMap(CompareMode.init(rawValue:)) {
+                    player.settings.look = .log
+                    player.show(0)
+                    for _ in 0..<80 where player.currentImage == nil { try? await Task.sleep(for: .milliseconds(250)) }
+                    try? await Task.sleep(for: .seconds(2))
+                    player.grabStill()
+                    player.settings.look = .video
+                    player.show(min(60, max(player.frames - 1, 0)))
+                    try? await Task.sleep(for: .milliseconds(300))
+                    player.compare = mode
+                    player.splitAt = 0.45
+                }
                 // -PluckScreenshotPlayScale <1|2|4|8>: plays at that size.
                 if defaults.integer(forKey: "PluckScreenshotPlayScale") > 0 { player.playScale = defaults.integer(forKey: "PluckScreenshotPlayScale") }
                 if let range = defaults.string(forKey: "PluckScreenshotRange")?.split(separator: "-").compactMap({ Int($0) }), range.count == 2 {
@@ -435,7 +533,7 @@ struct RawPlayerView: View {
         }
         // Tests: -PluckScreenshotOpenFirst YES opens a browsed folder's first clip (and with
         // -PluckScreenshotBack YES goes back to the folder 3 seconds later, as the back button).
-        if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotOpenFirst") {
+        if ScreenshotMode.rawScene, UserDefaults.standard.bool(forKey: "PluckScreenshotOpenFirst") {
             Task {
                 for _ in 0..<40 where (folder?.allClips.isEmpty ?? true) { try? await Task.sleep(for: .milliseconds(250)) }
                 guard let first = folder?.allClips.dropFirst().first else { return }
@@ -451,7 +549,7 @@ struct RawPlayerView: View {
             }
         }
         // Tests: -PluckScreenshotLog <file>: what opened (or why not), the first picture, an export's end.
-        if ScreenshotMode.scene == "raw", let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
+        if ScreenshotMode.rawScene, let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
             Task {
                 func note(_ line: String) {
                     let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
@@ -475,10 +573,21 @@ struct RawPlayerView: View {
             }
         }
         // Tests: -PluckScreenshotPlay YES plays once it's open.
-        if ScreenshotMode.scene == "raw", UserDefaults.standard.bool(forKey: "PluckScreenshotPlay") {
+        if ScreenshotMode.rawScene, UserDefaults.standard.bool(forKey: "PluckScreenshotPlay") {
             Task {
                 try? await Task.sleep(for: .seconds(2))
                 player.play()
+                // -PluckScreenshotLog <file> too: the frames shown a second over 8 seconds of playback (after 4 to settle).
+                if let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
+                    try? await Task.sleep(for: .seconds(4))
+                    var rates: [Double] = []
+                    for _ in 0..<8 { try? await Task.sleep(for: .seconds(1)); rates.append(player.playbackRate) }
+                    let line = String(format: "playing rate %.2f of %.2f fps (scopes %@, analysed %d, %.0f ms each)\n", rates.reduce(0, +) / 8, player.info?.fps ?? 0,
+                                      player.scopes.enabled ? "on" : "off", player.scopes.analysed,
+                                      player.scopes.spent / Double(max(player.scopes.analysed, 1)) * 1000)
+                    let old = (try? String(contentsOfFile: log, encoding: .utf8)) ?? ""
+                    try? (old + line).write(toFile: log, atomically: true, encoding: .utf8)
+                }
             }
         }
         }
@@ -488,7 +597,10 @@ struct RawPlayerView: View {
         let inLibrary: Bool? = browsing ? FootageFolders.shared.folder(containing: folder.url.path) != nil : nil
         let panes = LibraryPanes.shared
         let across: (() -> Void)? = browsing ? panes.other(pane).map { other in { panes.copy([folder.url], into: other) } } : nil
+        let reference = player.reference
         return RawBrowserView(folder: folder, open: { player.open($0) },
+                              compareName: reference?.url.deletingPathExtension().lastPathComponent,
+                              compareWith: reference.map { ref in { player.open(ref.url, at: ref.index, settings: ref.settings, compareWith: $0) } },
                               enter: browsing ? { browse($0) } : nil, crumbs: crumbs, everyClip: browsing ? $everyClip : nil,
                               inLibrary: inLibrary, addToLibrary: { FootageFolders.shared.add(folder.url) },
                               copyAcross: across, copyIn: browsing ? { panes.copy($0, into: $1) } : nil)
@@ -564,6 +676,31 @@ struct RawPlayerView: View {
         } else {
             player.open(url)
         }
+    }
+}
+
+/// The false colour bands under the picture: a swatch and a short name each.
+private struct FalseColourLegend: View {
+    /// The band (an index into FalseColour.bands) and its name.
+    private static let items: [(name: LocalizedStringKey, band: Int)] = [
+        ("Crushed", 0), ("Shadows", 1), ("Low", 2), ("18 % grey", 3), ("Skin +1", 4), ("Bright", 5), ("Near clip", 6), ("Clipped", 7),
+    ]
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Array(Self.items.enumerated()), id: \.offset) { _, item in
+                HStack(spacing: 4) {
+                    RoundedRectangle(cornerRadius: Design.Radius.badge)
+                        .fill(Color(cgColor: FalseColour.bands[item.band].color))
+                        .frame(width: 12, height: 12)
+                    Text(item.name).font(.caption2).lineLimit(1)
+                }
+            }
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, Design.Spacing.window)
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
     }
 }
 

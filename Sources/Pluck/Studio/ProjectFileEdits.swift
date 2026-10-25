@@ -237,6 +237,42 @@ extension Project {
             part.end = to - range.lowerBound
             return part
         }
+        copy.adjustments = adjustments?.compactMap { look in
+            let from = max(range.lowerBound, look.start), to = min(range.upperBound, look.end)
+            guard to - from > 0.001 else { return nil }
+            var part = look
+            part.start = from - range.lowerBound
+            part.end = to - range.lowerBound
+            return part
+        }
+        if copy.adjustments?.isEmpty == true { copy.adjustments = nil }
+        // Pictures and sounds on the tracks: cut to it and moved with it; they stand on their own
+        // in the export (the clips they were linked to may now start elsewhere).
+        copy.tracks = tracks?.map { track in
+            var track = track
+            track.items = track.items.compactMap { item in
+                let at = item.at ?? 0
+                let from = max(range.lowerBound, at), to = min(range.upperBound, at + item.length)
+                guard to - from > 0.001 else { return nil }
+                var part = item
+                if item.freeze == nil {
+                    part.start = item.start + (from - at) * item.speed
+                    part.end = item.start + (to - at) * item.speed
+                } else {
+                    part.end = part.start + (to - from) * item.speed
+                }
+                if from > at { part.fadeIn = 0 }
+                if to < at + item.length { part.fadeOut = 0 }
+                part.at = from - range.lowerBound
+                part.link = nil
+                part.linkOffset = nil
+                return part
+            }
+            return track
+        }.filter { !$0.items.isEmpty }
+        if copy.tracks?.isEmpty == true { copy.tracks = nil }
+        // Clips whose sound is on a track keep it there (it isn't linked any more).
+        for index in copy.clips.indices { copy.clips[index].link = nil }
         copy.inPoint = nil
         copy.outPoint = nil
         copy.markers = nil

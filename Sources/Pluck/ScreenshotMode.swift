@@ -25,6 +25,9 @@ enum ScreenshotMode {
     static var scene: String? { UserDefaults.standard.string(forKey: "PluckScreenshot") }
 
     #if STUDIO
+    /// The scenes that play a clip in the Raw Player ("playerscopes" is "raw" with the scopes shown).
+    static var rawScene: Bool { scene == "raw" || scene == "playerscopes" || scene == "playercompare" }
+
     @MainActor
     static func run(manager: DownloadManager, ai: AIStudio, openWindow: OpenWindowAction, openSettings: @escaping () -> Void) {
         run(manager: manager, openWindow: openWindow, openSettings: openSettings, studio: { scene, item in
@@ -515,6 +518,18 @@ enum ScreenshotMode {
                 // folder> is indexed, a pairing over this Mac's own network, a search and a clip
                 // fetched; what happens goes to -PluckScreenshotLog <file>.
                 Task { @MainActor in await archiveSelfTest(defaults: defaults) }
+            case "playertest":
+                // The Raw Player's checks (scopes), -PluckScreenshotLog <file>.
+                Task { @MainActor in await PlayerSelfTest.run(defaults: defaults) }
+            case "edittest":
+                // The Edit page's checks: -PluckScreenshotFile <media folder>, -PluckScreenshotLog <file>.
+                Task { @MainActor in await EditSelfTest.run(defaults: defaults, manager: manager) }
+            case "resolvetest":
+                // A round trip through DaVinci Resolve (see ResolveSelfTest).
+                Task { @MainActor in await ResolveSelfTest.run(defaults: defaults) }
+            case "phototest":
+                // The Photo page's checks: -PluckScreenshotCatalog <file>, -PluckScreenshotPhotos <folder>, -PluckScreenshotLog <file>.
+                Task { @MainActor in await PhotoSelfTest.run(defaults: defaults) }
             case "sendtest":
                 Task { @MainActor in await sendSelfTest(defaults: defaults) }
             case "proxytest":
@@ -618,8 +633,13 @@ enum ScreenshotMode {
                         NotificationCenter.default.post(name: BrandPackView.openNotification, object: logo)
                     }
                 }
-            case "raw":
-                // -PluckScreenshotFile <clip or folder>: played in the Library.
+            case "raw", "playerscopes", "playercompare":
+                // -PluckScreenshotFile <clip or folder>: played in the Library ("playerscopes": with the scopes shown;
+                // -PluckScreenshotScope waveform|parade|vectorscope).
+                if defaults.string(forKey: "PluckScreenshot") == "playerscopes" {
+                    defaults.set(true, forKey: "rawScopesShown")
+                    defaults.set(defaults.string(forKey: "PluckScreenshotScope") ?? "waveform", forKey: "rawScopeKind")
+                }
                 if let path = defaults.string(forKey: "PluckScreenshotFile") { RawFormats.show(URL(fileURLWithPath: path)) }
             case "offload":
                 // -PluckScreenshotOffloadFrom <folder> -PluckScreenshotOffloadTo <a|b>: offloaded at once.
@@ -693,7 +713,7 @@ enum ScreenshotMode {
                     derush.start(language: Locale(identifier: defaults.string(forKey: "PluckScreenshotLanguage") ?? "en-US"),
                                  lookAtPicture: true, kind: ShootPlan.Kind(rawValue: defaults.string(forKey: "derushKind") ?? "") ?? .corporate)
                 }
-            case "photo":
+            case "photo", "photosync", "photobeforeafter":
                 // -PluckScreenshotPhotos <folder>: an album of its photos on the Photo page.
                 if let folder = defaults.string(forKey: "PluckScreenshotPhotos") {
                     let catalog = PhotoCatalog.shared
@@ -702,11 +722,24 @@ enum ScreenshotMode {
                                          with: PhotoCatalog.photos(in: [URL(fileURLWithPath: folder)]))
                     }
                 }
+                // -PluckScreenshotPhotoTab export: that inspector tab; -PluckScreenshotPhotoPresets "Web,Social": those export presets ticked,
+                // and -PluckScreenshotPhotoWatermark YES: the watermark on.
+                if let tab = defaults.string(forKey: "PluckScreenshotPhotoTab") { defaults.set(tab, forKey: "photoInspectorTab") }
+                if let names = defaults.string(forKey: "PluckScreenshotPhotoPresets") {
+                    defaults.set(String(data: (try? JSONEncoder().encode(names.split(separator: ",").map(String.init))) ?? Data(), encoding: .utf8), forKey: "photoExportChosenPresets")
+                }
+                if defaults.bool(forKey: "PluckScreenshotPhotoWatermark") {
+                    var settings = PhotoExportSettings()
+                    settings.watermark = PhotoWatermark()
+                    defaults.set(try? JSONEncoder().encode(settings), forKey: "photoExportSettings")
+                }
                 StudioNavigator.shared.show(.photo)
             case "project":
                 // -PluckScreenshotFiles <a|b|c>: a project with these files.
                 // -PluckScreenshotStabilize <file>: steadies it.
                 if let file = defaults.string(forKey: "PluckScreenshotStabilize") { Stabilizer.shared.start(file) }
+                // -PluckScreenshotPacing YES: the timeline's pacing marks on.
+                if defaults.bool(forKey: "PluckScreenshotPacing") { defaults.set(true, forKey: "projectPacing") }
                 // -PluckScreenshotProject <file.json>: this project, opened.
                 if let file = defaults.string(forKey: "PluckScreenshotProject"), let data = try? Data(contentsOf: URL(fileURLWithPath: file)) {
                     let decoder = JSONDecoder()
@@ -719,6 +752,42 @@ enum ScreenshotMode {
                 // -PluckScreenshotTime <seconds>: the playhead there once it's built.
                 if let seconds = Double(defaults.string(forKey: "PluckScreenshotTime") ?? "") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 5) { StudioNavigator.shared.current?.project?.seek(to: seconds) }
+                }
+                // -PluckScreenshotTool trim|blade: that tool chosen.
+                if let tool = defaults.string(forKey: "PluckScreenshotTool") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        StudioNavigator.shared.current?.project?.tool = tool == "trim" ? .trim : tool == "blade" ? .blade : .select
+                    }
+                }
+                // -PluckScreenshotSong YES: the first song selected (its settings in the inspector).
+                if defaults.bool(forKey: "PluckScreenshotSong") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                        if let model = StudioNavigator.shared.current?.project, let song = model.project.music.first { model.selected = [song.id] }
+                    }
+                }
+                // -PluckScreenshotLook YES: a black-and-white look over 1–4 s, chosen (the lane and the inspector).
+                if defaults.bool(forKey: "PluckScreenshotLook") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        guard let model = StudioNavigator.shared.current?.project else { return }
+                        let id = model.addAdjustment(over: 1...4)
+                        model.setAdjustment(id, record: true) { $0.color.saturation = -100 }
+                        model.selected = [id]
+                        model.seek(to: 2)
+                    }
+                }
+                // -PluckScreenshotQuickExport YES: a quick export of the open project after 5 s (the page bar's chip shows).
+                if defaults.bool(forKey: "PluckScreenshotQuickExport") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        if let model = StudioNavigator.shared.current?.project { quickExport(model, manager: manager) }
+                    }
+                }
+                // -PluckScreenshotFavourite <file>: that file a favourite, and selected in the media panel.
+                if let path = defaults.string(forKey: "PluckScreenshotFavourite") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                        let source = MediaSource(path: path, span: nil)
+                        if !MediaFavourites.shared.all.contains(source) { MediaFavourites.shared.toggle(source) }
+                        MediaSelection.shared.source = source
+                    }
                 }
                 if let list = defaults.string(forKey: "PluckScreenshotFiles") {
                     StudioNavigator.shared.newProject(with: list.split(separator: "|").map { URL(fileURLWithPath: String($0)) },

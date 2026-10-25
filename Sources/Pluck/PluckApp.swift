@@ -57,8 +57,10 @@ struct PluckApp: App {
                 #endif
                 #if STUDIO
                 Divider()
+                QuickExportCommand(manager: manager)
                 ExportSubtitlesCommand()
                 SendToResolveCommand()
+                UpdateFromResolveCommand()
                 #endif
             }
             #if STUDIO
@@ -71,6 +73,9 @@ struct PluckApp: App {
             }
             #endif
             CommandGroup(after: .pasteboard) {
+                #if STUDIO
+                PhotoSettingsCommands()
+                #endif
                 Divider()
                 Button("Download Link from Clipboard") {
                     let links = Links.extract(from: NSPasteboard.general)

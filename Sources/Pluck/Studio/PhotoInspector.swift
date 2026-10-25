@@ -1,3 +1,4 @@
+import CoreImage
 import ImageIO
 import SwiftUI
 
@@ -89,11 +90,7 @@ struct PhotoInspector: View {
             HStack {
                 Text(tab.title).font(.headline)
                 Spacer()
-                if paths.count > 1 {
-                    Text("^[\(paths.count) photo](inflect: true)").font(.caption.weight(.semibold))
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Design.Brand.gradient)).foregroundStyle(.white)
-                }
+                if paths.count > 1 { syncChip }
             }
             .padding(.horizontal, 14)
             .padding(.top, 12)
@@ -102,18 +99,26 @@ struct PhotoInspector: View {
                 Text("Select a photo.").font(.callout).foregroundStyle(.secondary).padding(14)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
+                ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
                         switch tab {
                         case .info: info
                         case .adjust: adjust
                         case .masks: masks
-                        case .film: PhotoFilmPanel(paths: paths, record: record)
+                        case .film: PhotoFilmPanel(paths: editTargets, record: record)
                         case .export: PhotoExportPanel(paths: paths)
                         }
                     }
                     .padding(.horizontal, 6)
                     .padding(.bottom, 14)
+                }
+                // Screenshots: -PluckScreenshotPhotoWatermark YES scrolls to the watermark.
+                .task {
+                    guard ScreenshotMode.scene != nil, UserDefaults.standard.bool(forKey: "PluckScreenshotPhotoWatermark") else { return }
+                    try? await Task.sleep(for: .seconds(3))
+                    proxy.scrollTo("watermark", anchor: .top)
+                }
                 }
             }
         }
@@ -124,12 +129,29 @@ struct PhotoInspector: View {
         }
     }
 
-    private func change(_ body: @escaping (inout PhotoRecord) -> Void) {
-        catalog.update(paths) { record in
-            body(&record)
-            record.edited = .now
+    /// "Editing 12": changes reach all selected photos; click to change only the one shown.
+    private var syncChip: some View {
+        let on = editing.syncAll
+        return Button { editing.syncAll.toggle() } label: {
+            Text(on ? "Editing \(paths.count)" : "Editing 1")
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(on ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(.quaternary)))
+                .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
+                .contentShape(.capsule)
         }
+        .buttonStyle(.plain)
+        .help(on ? Text("Changes reach all \(paths.count) selected photos. Click to change only the photo shown.")
+                 : Text("Changes reach only the photo shown. Click to change all \(paths.count) selected photos."))
+        .accessibilityValue(Text(on ? "All selected photos" : "Only the photo shown"))
     }
+
+    private func change(_ body: @escaping (inout PhotoRecord) -> Void) {
+        editing.edit(paths, shown: shown, body)
+    }
+
+    /// The photos an edit reaches (all selected, or only the one shown while sync is off).
+    private var editTargets: [String] { editing.targets(paths, shown: shown) }
 
     // MARK: - Info
 
@@ -174,17 +196,18 @@ struct PhotoInspector: View {
                 .padding(.horizontal, 8)
             }
             if let shown { PhotoDetails(path: shown) }
+            PhotoMetaSection(paths: paths, record: record)
             SidebarSection(title: Text("Settings")) {
                 HStack(spacing: 8) {
-                    Button("Copy") { PhotoInspector.clipboard = record }
+                    Button("Copy") { PhotoPasteboard.copied = record }
                         .help("Copy this photo’s adjustments and film")
                     Menu("Paste") {
                         Button("Choose What to Paste…") { choosingPaste = true }
                     } primaryAction: {
-                        paste(Set(PasteGroup.allCases))
+                        paste(PasteGroup.chosen)
                     }
                     .fixedSize()
-                    .disabled(PhotoInspector.clipboard == nil)
+                    .disabled(PhotoPasteboard.copied == nil)
                     .help("Give the selected photos the copied adjustments and film (or choose which)")
                     Spacer()
                     Button("Reset", role: .destructive) { change { $0.adjust = PhotoAdjustments(); $0.filmOn = false; $0.film = FilmSettings() } }
@@ -231,8 +254,7 @@ struct PhotoInspector: View {
 
     /// Part (or all) of the copied settings onto the selected photos.
     private func paste(_ groups: Set<PasteGroup>) {
-        guard let copied = PhotoInspector.clipboard else { return }
-        change { record in for group in PasteGroup.allCases where groups.contains(group) { group.apply(copied, to: &record) } }
+        PhotoPasteboard.paste(groups, to: paths)
     }
 
     /// The selected photos as bright as the one shown: each one's middle (faces weighed most)
@@ -262,8 +284,6 @@ struct PhotoInspector: View {
 
     @State private var choosingPaste = false
     @State private var matching = false
-
-    @MainActor static var clipboard: PhotoRecord?
 
     // MARK: - Adjust
 
@@ -425,7 +445,7 @@ struct PhotoInspector: View {
 
     /// Lightroom's Auto, from the photo developed plain, for each photo being edited.
     private func autoTone() {
-        let targets = paths
+        let targets = editTargets
         Task {
             for path in targets {
                 let record = catalog.record(path)
@@ -498,7 +518,7 @@ struct PhotoInspector: View {
                         Slider(value: $denoiseStrength, in: 10...100, step: 5)
                         Text(verbatim: "\(Int(denoiseStrength))").font(.caption.monospacedDigit()).frame(width: 26, alignment: .trailing)
                         Button(record.denoise > 0 ? "Redo" : "Denoise") {
-                            editing.denoise(paths, strength: Int(denoiseStrength), ai: denoiseAI)
+                            editing.denoise(editTargets, strength: Int(denoiseStrength), ai: denoiseAI)
                         }
                     }
                 }
@@ -557,8 +577,12 @@ struct PhotoInspector: View {
             .onAppear { if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLooks") { showingLooks = true } }
             .popover(isPresented: $showingLooks, arrowEdge: .leading) {
                 if let shown {
-                    PhotoLooks(path: shown, record: record) { look in
-                        change { $0.adjust = look.adjust; $0.filmOn = look.filmOn; $0.film = look.film }
+                    PhotoLooks(path: shown, record: record) { look, lightroom in
+                        if let lightroom {
+                            change { $0.adjust = LightroomPresets.adjustments(lightroom, base: $0.adjust).0 }
+                        } else {
+                            change { $0.adjust = look.adjust; $0.filmOn = look.filmOn; $0.film = look.film }
+                        }
                     } save: {
                         showingLooks = false
                         presetName = ""
@@ -628,7 +652,7 @@ private struct PhotoDetails: View {
     }
 
     static func read(_ path: String) -> [(String, String)] {
-        let url = URL(fileURLWithPath: path)
+        let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         var lines: [(String, String)] = [(String(localized: "File"), url.lastPathComponent)]
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return lines }
@@ -974,6 +998,8 @@ private struct PhotoExportPanel: View {
     @State private var saved = PhotoExportPreset.saved
     @State private var naming = false
     @State private var presetName = ""
+    /// The ticked presets' names (a JSON list): one Export makes a file per photo for each.
+    @AppStorage("photoExportChosenPresets") private var chosenStored = ""
     private var done: Int { editing.exportDone }
     private var running: Bool { editing.exporting }
     private var total: Int { editing.exportTotal }
@@ -990,6 +1016,37 @@ private struct PhotoExportPanel: View {
     private var folder: URL {
         folderPath.isEmpty ? FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck", isDirectory: true)
             : URL(fileURLWithPath: folderPath, isDirectory: true)
+    }
+
+    private var chosen: [String] {
+        get { (try? JSONDecoder().decode([String].self, from: Data(chosenStored.utf8))) ?? [] }
+        nonmutating set { chosenStored = (try? String(data: JSONEncoder().encode(newValue), encoding: .utf8)) ?? "" }
+    }
+
+    /// The ticked presets that still exist, in the menu's order.
+    private var ticked: [PhotoExportPreset] {
+        let names = chosen
+        var seen = Set<String>()
+        return (PhotoExportPreset.builtIn + saved).filter { names.contains($0.name) && seen.insert($0.name).inserted }
+    }
+
+    private func tick(_ preset: PhotoExportPreset) -> Binding<Bool> {
+        Binding(get: { chosen.contains(preset.name) },
+                set: { on in var names = chosen.filter { $0 != preset.name }; if on { names.append(preset.name) }; chosen = names })
+    }
+
+    private func size(_ settings: PhotoExportSettings) -> String {
+        settings.longSide > 0 ? "\(settings.longSide) px" : String(localized: "Full Size")
+    }
+
+    private var watermark: Binding<PhotoWatermark> {
+        Binding(get: { settings.watermark ?? PhotoWatermark() },
+                set: { value in var s = settings; s.watermark = value; settings = s })
+    }
+
+    private func mark<T>(_ path: WritableKeyPath<PhotoWatermark, T>) -> Binding<T> {
+        Binding(get: { watermark.wrappedValue[keyPath: path] },
+                set: { value in var m = watermark.wrappedValue; m[keyPath: path] = value; watermark.wrappedValue = m })
     }
 
     private var presetTitle: String {
@@ -1024,6 +1081,15 @@ private struct PhotoExportPanel: View {
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
+            SidebarSection(title: Text("Presets")) {
+                ForEach(PhotoExportPreset.builtIn + saved) { preset in
+                    row(LocalizedStringKey(preset.name)) {
+                        Text(verbatim: size(preset.settings)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                        Toggle(preset.name, isOn: tick(preset)).labelsHidden().toggleStyle(.checkbox)
+                    }
+                }
+                .help("Tick presets to make a file per photo for each, in one go. With none ticked, the settings below are used.")
+            }
             SidebarSection(title: Text("File")) {
                 row("Format") {
                     Picker("Format", selection: binding(\.format)) { ForEach(PhotoRender.Format.allCases) { Text($0.title).tag($0) } }.labelsHidden()
@@ -1092,6 +1158,14 @@ private struct PhotoExportPanel: View {
                     }
                     .labelsHidden()
                 }
+                row("Suffix") {
+                    TextField("-web", text: binding(\.suffix)).textFieldStyle(.roundedBorder)
+                        .help("Added to every file name, before the extension")
+                }
+                row("Subfolder") {
+                    TextField("Web", text: binding(\.subfolder)).textFieldStyle(.roundedBorder)
+                        .help("A folder inside the export folder for these files. With several presets ticked, a preset without one uses its own name.")
+                }
                 row("Folder") {
                     Button(folder.lastPathComponent) {
                         let panel = NSOpenPanel()
@@ -1103,6 +1177,7 @@ private struct PhotoExportPanel: View {
                     .help(folder.path)
                 }
             }
+            watermarkSection(s).id("watermark")
             VStack(alignment: .leading, spacing: 8) {
                 Button {
                     export()
@@ -1111,6 +1186,9 @@ private struct PhotoExportPanel: View {
                 }
                 .buttonStyle(BrandButtonStyle())
                 .disabled(running)
+                if ticked.count > 1 {
+                    Text("^[\(paths.count * ticked.count) file](inflect: true)").font(.caption).foregroundStyle(.secondary)
+                }
                 if running {
                     ProgressView(value: Double(done), total: Double(max(total, 1))).controlSize(.small)
                     Text("\(done) of \(total)").font(.caption).foregroundStyle(.secondary)
@@ -1142,6 +1220,72 @@ private struct PhotoExportPanel: View {
         }
     }
 
+    @ViewBuilder private func watermarkSection(_ s: PhotoExportSettings) -> some View {
+        SidebarSection(title: Text("Watermark")) {
+            row("Watermark") {
+                Toggle("Watermark", isOn: Binding(get: { s.watermark != nil }, set: { on in var n = settings; n.watermark = on ? PhotoWatermark() : nil; settings = n }))
+                    .labelsHidden().toggleStyle(.switch).controlSize(.mini)
+                    .help("A line of text or a logo over every exported photo")
+            }
+            if let m = s.watermark {
+                row("Mark") {
+                    Picker("Mark", selection: mark(\.kind)) {
+                        Text("Text").tag(PhotoWatermark.Kind.text)
+                        Text("Logo").tag(PhotoWatermark.Kind.image)
+                    }
+                    .labelsHidden().pickerStyle(.segmented)
+                }
+                if m.kind == .text {
+                    row("Text") { TextField("© Northwind", text: mark(\.text)).textFieldStyle(.roundedBorder) }
+                    row("Font") {
+                        Picker("Font", selection: mark(\.font)) { ForEach(PhotoWatermark.fonts, id: \.self) { Text($0).tag($0) } }.labelsHidden()
+                    }
+                } else {
+                    row("Logo") {
+                        Button(m.imagePath.map { URL(fileURLWithPath: $0).lastPathComponent } ?? String(localized: "Choose…")) {
+                            let panel = NSOpenPanel()
+                            panel.allowedContentTypes = [.image]
+                            panel.allowsMultipleSelection = false
+                            if panel.runModal() == .OK, let url = panel.url { mark(\.imagePath).wrappedValue = url.path }
+                        }
+                        .help(m.imagePath ?? "")
+                    }
+                }
+                row("Place") {
+                    positionGrid(mark(\.position))
+                }
+                row("Size") { Slider(value: mark(\.size), in: 0.02...0.12) }
+                row("Opacity") { Slider(value: mark(\.opacity), in: 0.1...1) }
+                if let path = paths.first {
+                    WatermarkPreview(path: path, mark: m)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 8)
+                        .padding(.top, 4)
+                }
+            }
+        }
+    }
+
+    /// Nine places to pick from, like the photo.
+    private func positionGrid(_ place: Binding<PhotoWatermark.Position>) -> some View {
+        let order: [[PhotoWatermark.Position]] = [[.topLeft, .top, .topRight], [.left, .center, .right], [.bottomLeft, .bottom, .bottomRight]]
+        return VStack(spacing: 3) {
+            ForEach(order, id: \.first) { line in
+                HStack(spacing: 3) {
+                    ForEach(line) { spot in
+                        Button { place.wrappedValue = spot } label: {
+                            RoundedRectangle(cornerRadius: 2)
+                                .fill(place.wrappedValue == spot ? Color.accentColor : Color.secondary.opacity(0.25))
+                                .frame(width: 16, height: 11)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(Text(verbatim: spot.rawValue))
+                    }
+                }
+            }
+        }
+    }
+
     private func row<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
             Text(title).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
@@ -1155,26 +1299,39 @@ private struct PhotoExportPanel: View {
 
     private func export() {
         let started = Date.now
-        let targets = paths, folder = self.folder, settings = self.settings
+        let targets = paths, folder = self.folder
+        // One job per photo and ticked preset, photo by photo. The mark in the panel goes on every preset; a
+        // preset without a subfolder gets its own name when several are ticked.
+        let current = self.settings
+        let presets = ticked
+        var variants = [current]
+        if !presets.isEmpty {
+            variants = presets.map { preset in
+                var s = preset.settings
+                if let mark = current.watermark { s.watermark = mark }
+                if presets.count > 1, s.subfolder.isEmpty, s.suffix.isEmpty { s.subfolder = preset.name }
+                return s
+            }
+        }
+        let jobs = targets.enumerated().flatMap { index, path in variants.map { (path: path, settings: $0, number: index) } }
         let editing = editing
         editing.exporting = true
         editing.exportDone = 0
-        editing.exportTotal = targets.count
+        editing.exportTotal = jobs.count
         editing.exportProblem = nil
         let records = Dictionary(uniqueKeysWithValues: targets.map { ($0, catalog.record($0)) })
-        let numbers = Dictionary(uniqueKeysWithValues: targets.enumerated().map { ($1, $0) })
         // Several at a time, each on its own film engine process (previews keep the first one).
-        let lanes = min(FilmEngine.exportWorkers, targets.count)
+        let lanes = min(FilmEngine.exportWorkers, jobs.count)
         Task {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             await withTaskGroup(of: (lane: Int, failure: String?).self) { group in
-                var queue = targets[...]
+                var queue = jobs[...]
                 func next(_ lane: Int) {
-                    guard let path = queue.popFirst() else { return }
+                    guard let job = queue.popFirst() else { return }
                     group.addTask {
                         do {
-                            _ = try await PhotoRender.export(path, record: records[path] ?? PhotoRecord(), to: folder, settings: settings,
-                                                             number: numbers[path] ?? 0, worker: lane + 1)
+                            _ = try await PhotoRender.export(job.path, record: records[job.path] ?? PhotoRecord(), to: folder, settings: job.settings,
+                                                             number: job.number, worker: lane + 1)
                             return (lane, nil)
                         } catch {
                             return (lane, error.localizedDescription)
@@ -1193,13 +1350,46 @@ private struct PhotoExportPanel: View {
             editing.exportFolder = folder
             AppDelegate.shared?.manager.notify(
                 title: editing.exportProblem == nil ? String(localized: "Photos exported") : String(localized: "Photos exported, with problems"),
-                body: editing.exportProblem ?? String(AttributedString(localized: "^[\(targets.count) photo](inflect: true) in \(folder.lastPathComponent)").characters),
+                body: editing.exportProblem ?? String(AttributedString(localized: "^[\(jobs.count) file](inflect: true) in \(folder.lastPathComponent)").characters),
                 files: [folder])
             if ScreenshotMode.scene != nil {
                 // Tests: how long it took.
-                try? "\(targets.count) photos in \(Int(Date.now.timeIntervalSince(started))) s".write(
+                try? "\(jobs.count) photos in \(Int(Date.now.timeIntervalSince(started))) s".write(
                     to: folder.appendingPathComponent("export-time.txt"), atomically: true, encoding: .utf8)
             }
         }
+    }
+}
+
+/// The shown photo (small) with the watermark over it, as it will come out.
+private struct WatermarkPreview: View {
+    let path: String
+    let mark: PhotoWatermark
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().scaledToFit()
+            } else {
+                Rectangle().fill(.quaternary)
+            }
+        }
+        .frame(height: 120)
+        .clipShape(.rect(cornerRadius: Design.Radius.small))
+        .task(id: "\(path)|\(mark.hashValue)") {
+            let path = path, mark = mark
+            image = await Task.detached(priority: .userInitiated) { Self.render(path, mark) }.value
+        }
+    }
+
+    private nonisolated static func render(_ path: String, _ mark: PhotoWatermark) -> NSImage? {
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: 640,
+                                        kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let thumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        let marked = PhotoWatermark.apply(CIImage(cgImage: thumb), mark)
+        guard let out = PhotoEngine.context.createCGImage(marked, from: marked.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) else { return nil }
+        return NSImage(cgImage: out, size: NSSize(width: out.width, height: out.height))
     }
 }

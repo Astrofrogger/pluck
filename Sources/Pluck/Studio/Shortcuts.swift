@@ -13,10 +13,22 @@ struct Shortcut: Codable, Hashable {
         (control ? "⌃" : "") + (option ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "") + key.uppercased()
     }
 
+    /// The key a press is for. With ⌥ held the typed character changes (ƒ for ⌥F, © for ⌥G), so then it is
+    /// the key itself; without, the character as typed (shifted symbols like "?" stay as they are).
+    @MainActor
+    static func typedKey(_ press: KeyPress) -> String {
+        if press.modifiers.contains(.option), let event = NSApp.currentEvent, event.type == .keyDown,
+           let base = event.charactersIgnoringModifiers?.lowercased(), !base.isEmpty {
+            return base
+        }
+        return press.characters.lowercased()
+    }
+
+    @MainActor
     func matches(_ press: KeyPress) -> Bool {
         let m = press.modifiers
-        return press.characters.lowercased() == key && m.contains(.command) == command && m.contains(.shift) == shift
-            && m.contains(.option) == option && m.contains(.control) == control
+        return m.contains(.command) == command && m.contains(.shift) == shift
+            && m.contains(.option) == option && m.contains(.control) == control && Self.typedKey(press) == key
     }
 
     init(_ key: String, command: Bool = false, shift: Bool = false, option: Bool = false) {
@@ -40,7 +52,12 @@ struct Shortcut: Codable, Hashable {
 /// Everything that has a key on the Photo and Edit pages. The keys can be changed in Settings.
 enum ShortcutAction: String, CaseIterable, Identifiable {
     case photoGrid, photoCull, photoEdit, photoCompare, photoCrop, photoZoom, photoClipping, photoMaskOverlay, photoTurnCrop, photoPick, photoReject, photoUnflag
-    case editSelect, editBlade, editSplit, editDuplicate, editUndo, editRedo, editSnapping, editMarkIn, editMarkOut, editTitle, editMarker
+    // Newer ones after the older: a key someone gave an older action stays with it.
+    case editSelect, editBlade, editSplit, editDuplicate, editUndo, editRedo, editSnapping, editMarkIn, editMarkOut, editTitle, editMarker, editTrim, editTrimStart, editTrimEnd, editFavourite, editAppend, editInsert, editOverwrite, editPlaceOnTop, editReplace, rawFalseColour, rawGrabStill, rawCompare
+    // Speed Edit: hold the key and scroll over the photo.
+    case photoSpeedExposure, photoSpeedContrast, photoSpeedHighlights, photoSpeedShadows, photoSpeedWhites, photoSpeedBlacks, photoSpeedTemperature, photoSpeedTint, photoSpeedSaturation
+    case photoVirtualCopy
+    case photoBeforeAfter
 
     var id: String { rawValue }
 
@@ -65,8 +82,30 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoPick: String(localized: "Pick")
         case .photoReject: String(localized: "Reject")
         case .photoUnflag: String(localized: "Unflag")
+        case .photoSpeedExposure: String(localized: "Exposure (hold and scroll)")
+        case .photoSpeedContrast: String(localized: "Contrast (hold and scroll)")
+        case .photoSpeedHighlights: String(localized: "Highlights (hold and scroll)")
+        case .photoSpeedShadows: String(localized: "Shadows (hold and scroll)")
+        case .photoSpeedWhites: String(localized: "Whites (hold and scroll)")
+        case .photoSpeedBlacks: String(localized: "Blacks (hold and scroll)")
+        case .photoSpeedTemperature: String(localized: "Temperature (hold and scroll)")
+        case .photoSpeedTint: String(localized: "Tint (hold and scroll)")
+        case .photoSpeedSaturation: String(localized: "Saturation (hold and scroll)")
+        case .photoVirtualCopy: String(localized: "Make a virtual copy")
+        case .photoBeforeAfter: String(localized: "Before and after")
         case .editSelect: String(localized: "Selection tool")
         case .editBlade: String(localized: "Blade tool")
+        case .editTrim: String(localized: "Trim tool")
+        case .editAppend: String(localized: "Add the chosen media at the end")
+        case .editInsert: String(localized: "Insert the chosen media at the playhead")
+        case .editOverwrite: String(localized: "Overwrite at the playhead with the chosen media")
+        case .editPlaceOnTop: String(localized: "Place the chosen media on top")
+        case .editReplace: String(localized: "Replace the clip with the chosen media")
+        case .rawFalseColour: String(localized: "False colour in the Library player")
+        case .rawGrabStill: String(localized: "Grab a still in the Library player")
+        case .rawCompare: String(localized: "Compare in the Library player")
+        case .editTrimStart: String(localized: "Trim the start to the playhead")
+        case .editTrimEnd: String(localized: "Trim the end to the playhead")
         case .editSplit: String(localized: "Split at the playhead")
         case .editDuplicate: String(localized: "Duplicate")
         case .editUndo: String(localized: "Undo")
@@ -76,6 +115,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .editMarkOut: String(localized: "Mark out")
         case .editTitle: String(localized: "Add a title")
         case .editMarker: String(localized: "Add a marker")
+        case .editFavourite: String(localized: "Favourite")
         }
     }
 
@@ -94,8 +134,30 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoPick: Shortcut("p")
         case .photoReject: Shortcut("x")
         case .photoUnflag: Shortcut("u")
+        case .photoSpeedExposure: Shortcut("q")
+        case .photoSpeedContrast: Shortcut("w")
+        case .photoSpeedHighlights: Shortcut("a")
+        case .photoSpeedShadows: Shortcut("s")
+        case .photoSpeedWhites: Shortcut("d")
+        case .photoSpeedBlacks: Shortcut("f")
+        case .photoSpeedTemperature: Shortcut("t")
+        case .photoSpeedTint: Shortcut("y")
+        case .photoSpeedSaturation: Shortcut("v")
+        case .photoVirtualCopy: Shortcut("'", command: true)
+        case .photoBeforeAfter: Shortcut("b")
         case .editSelect: Shortcut("a")
         case .editBlade: Shortcut("b")
+        case .editTrim: Shortcut("t")
+        case .editAppend: Shortcut("e")
+        case .editInsert: Shortcut(",")
+        case .editOverwrite: Shortcut(".")
+        case .editPlaceOnTop: Shortcut("p")
+        case .editReplace: Shortcut("r")
+        case .rawFalseColour: Shortcut("f", option: true)
+        case .rawGrabStill: Shortcut("g", option: true)
+        case .rawCompare: Shortcut("c", option: true)
+        case .editTrimStart: Shortcut("q")
+        case .editTrimEnd: Shortcut("w")
         case .editSplit: Shortcut("b", command: true)
         case .editDuplicate: Shortcut("d", command: true)
         case .editUndo: Shortcut("z", command: true)
@@ -105,6 +167,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .editMarkOut: Shortcut("o")
         case .editTitle: Shortcut("t", command: true)
         case .editMarker: Shortcut("m")
+        case .editFavourite: Shortcut("f")
         }
     }
 }
