@@ -7,6 +7,8 @@ struct ResolveLink: Codable, Hashable {
     var timeline: String
     var rate: Double
     var sent: [Sent]?
+    /// New with each send; a merge keeps it (so undo can tell the two apart). Nil in older projects.
+    var id: UUID? = UUID()
 
     struct Sent: Codable, Hashable {
         /// The clip or track item.

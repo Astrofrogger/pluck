@@ -78,12 +78,23 @@ struct PhotoWatermark: Codable, Hashable {
         case .text:
             let trimmed = mark.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return nil }
-            let font = NSFont(name: mark.font, size: height) ?? NSFont.systemFont(ofSize: height, weight: .medium)
-            let shadow = NSShadow()
-            shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
-            shadow.shadowBlurRadius = height * 0.12
-            shadow.shadowOffset = NSSize(width: 0, height: -height * 0.05)
-            let string = NSAttributedString(string: trimmed, attributes: [.font: font, .foregroundColor: NSColor.white, .shadow: shadow])
+            func styled(_ size: CGFloat) -> NSAttributedString {
+                let font = NSFont(name: mark.font, size: size) ?? NSFont.systemFont(ofSize: size, weight: .medium)
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.55)
+                shadow.shadowBlurRadius = size * 0.12
+                shadow.shadowOffset = NSSize(width: 0, height: -size * 0.05)
+                return NSAttributedString(string: trimmed, attributes: [.font: font, .foregroundColor: NSColor.white, .shadow: shadow])
+            }
+            // A long line on a small photo is made smaller to fit inside its margins.
+            var height = height
+            var string = styled(height)
+            let room = bounds.width - 2 * (mark.margin * long).rounded()
+            let wanted = string.size().width + 2 * ceil(height * 0.2)
+            if room > 0, wanted > room {
+                height = max(4, (height * room / wanted).rounded(.down))
+                string = styled(height)
+            }
             let text = string.size()
             let pad = ceil(height * 0.2)
             let size = CGSize(width: ceil(text.width) + 2 * pad, height: ceil(text.height) + 2 * pad)

@@ -106,6 +106,10 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
+            Release(version: "3.7.1", items: [
+                Item(symbol: "square.grid.2x2", title: String(localized: "A tidier Library grid"),
+                     detail: String(localized: "Cards in the Library's grid line up at the top, even when some have tags or a longer title.")),
+            ]),
             Release(version: "3.6.2", items: [
                 Item(symbol: "lock.shield", title: String(localized: "Permissions that stay"),
                      detail: String(localized: "Pluck now has a signature of its own, so macOS knows each update as the same app. Allow it once more after this update, and it keeps Full Disk Access and your folders from then on.")),

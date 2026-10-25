@@ -526,7 +526,7 @@ enum PhotoRender {
             let noise = isRaw(path) ? record.adjust.noise : 0
             guard let decoded = source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust)) else { throw unreadable }
             picture = adjusted(decoded, record.adjust, path: path)
-            if settings.hdr, settings.format.canBeHDR, record.adjust.process >= 2 {
+            if settings.savesHDR(record) {
                 hdr = adjusted(decoded, record.adjust, path: path, peak: PhotoExportSettings.hdrPeak)
             }
         }
@@ -633,6 +633,12 @@ struct PhotoExportSettings: Codable, Hashable {
     /// A folder inside the export folder for these files.
     var subfolder = ""
     var watermark: PhotoWatermark?
+
+    /// Whether this photo is saved with HDR: when asked here, or when it was edited in HDR (so its
+    /// bright highlights aren't lost), in a format that carries it. Photos on film are saved in SDR.
+    func savesHDR(_ record: PhotoRecord) -> Bool {
+        (hdr || record.hdr == true) && format.canBeHDR && !record.filmOn && record.adjust.process >= 2
+    }
 
     /// The file's name (no extension): as the photo, or the name given and its number, then the suffix.
     func fileName(for path: String, number: Int) -> String {

@@ -13,11 +13,12 @@ struct Shortcut: Codable, Hashable {
         (control ? "⌃" : "") + (option ? "⌥" : "") + (shift ? "⇧" : "") + (command ? "⌘" : "") + key.uppercased()
     }
 
-    /// The key a press is for. With ⌥ held the typed character changes (ƒ for ⌥F, © for ⌥G), so then it is
-    /// the key itself; without, the character as typed (shifted symbols like "?" stay as they are).
+    /// The key a press is for. With ⌥ or ⌃ held the typed character changes (ƒ for ⌥F, a control
+    /// character for ⌃F), so then it is the key itself; without, the character as typed (shifted
+    /// symbols like "?" stay as they are).
     @MainActor
     static func typedKey(_ press: KeyPress) -> String {
-        if press.modifiers.contains(.option), let event = NSApp.currentEvent, event.type == .keyDown,
+        if !press.modifiers.isDisjoint(with: [.option, .control]), let event = NSApp.currentEvent, event.type == .keyDown,
            let base = event.charactersIgnoringModifiers?.lowercased(), !base.isEmpty {
             return base
         }

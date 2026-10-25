@@ -1,3 +1,4 @@
+import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -76,6 +77,20 @@ extension PhotoSelfTest {
         }
         check("watermark lands bottom right", box.map { $0.x0 >= width * 2 / 3 && $0.y0 >= height * 2 / 3 } ?? false,
               "bright pixels inside x >= \(width * 2 / 3), y >= \(height * 2 / 3); got \(String(describing: box))")
+
+        // A long line on a small photo is made smaller, so it stays inside the picture's margins.
+        var long = PhotoWatermark()
+        long.text = "© 2026 Northwind Photography and Film Studio"
+        long.size = 0.1
+        long.opacity = 1
+        long.position = .bottom
+        let small = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 200, height: 150))
+        let placed = PhotoWatermark.apply(small, long)
+        var dots = [UInt8](repeating: 0, count: 200 * 150 * 4)
+        CIContext().render(placed, toBitmap: &dots, rowBytes: 800, bounds: small.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+        let lit = (0..<200).filter { x in (0..<150).contains { y in dots[(y * 200 + x) * 4] > 100 } }
+        check("long watermark fits a small photo", (lit.first ?? 0) >= 3 && (lit.last ?? 199) <= 196 && !lit.isEmpty,
+              "text inside 3…196; got \(lit.first ?? -1)…\(lit.last ?? -1)")
 
         // Settings saved by 3.6.2 have none of the new keys.
         let json = #"{"format":"jpeg","quality":0.85,"longSide":2048,"space":"srgb","sharpen":"screen","hdr":false,"metadata":"noLocation","naming":"original","name":""}"#

@@ -469,7 +469,8 @@ struct LibraryView: View {
                         subscriptionHeader
                             .padding([.horizontal, .top], Design.Spacing.window)
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16)], spacing: 18) {
+                    // Top-aligned: a card with tags or a two-line title doesn't push its picture down.
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16, alignment: .top)], spacing: 18) {
                         ForEach(list) { entry in
                             LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id))
                                 .id(entry.id)

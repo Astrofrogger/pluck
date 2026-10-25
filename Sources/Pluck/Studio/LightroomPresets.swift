@@ -244,7 +244,8 @@ enum LightroomPresets {
     /// Turns the presets in these files (and folders) into Pluck's looks. How many came in, and
     /// what didn't: files that can't be read, and settings Pluck has nothing for (once each).
     @MainActor
-    static func importPresets(from urls: [URL], into catalog: PhotoCatalog = .shared) -> (imported: Int, skipped: [String]) {
+    static func importPresets(from urls: [URL], into target: PhotoCatalog? = nil) -> (imported: Int, skipped: [String]) {
+        let catalog = target ?? .shared
         var files: [URL] = []
         for url in urls {
             var folder: ObjCBool = false

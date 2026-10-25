@@ -21,5 +21,18 @@ extension PhotoSelfTest {
         check("hdr off is the SDR render", brightest(1) == sdr && PhotoEditing.peak(hdr: false, headroom: 8) == 1
               && PhotoEditing.peak(hdr: true, headroom: 8) == 4 && PhotoEditing.peak(hdr: true, headroom: 1) == 1,
               "peak 1 without HDR, the headroom up to 4 with it")
+
+        // A photo edited in HDR keeps it when saved, even with HDR off here; PNG and film can't carry it.
+        var edited = PhotoRecord()
+        edited.adjust.process = 2
+        edited.hdr = true
+        var plain = edited
+        plain.hdr = nil
+        var jpeg = PhotoExportSettings(), png = PhotoExportSettings()
+        png.format = .png
+        check("hdr edit saves as hdr", jpeg.savesHDR(edited) && !jpeg.savesHDR(plain) && !png.savesHDR(edited),
+              "edited in HDR: yes in JPEG, not in PNG; not edited in HDR: no")
+        jpeg.hdr = true
+        check("hdr export still asks", jpeg.savesHDR(plain), "HDR on here saves HDR")
     }
 }

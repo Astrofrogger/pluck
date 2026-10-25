@@ -875,7 +875,8 @@ final class OffloadCenter {
     /// Copies being checked again, or checked (newest first; not kept after quitting).
     private(set) var checks: [OffloadCheck] = []
     /// Checks taken off the list: they stop, even partway through a file.
-    private static let stoppedChecks = StoppedChecks()
+    // (Locked inside, so the checks' own threads can read it.)
+    nonisolated private static let stoppedChecks = StoppedChecks()
 
     final class StoppedChecks: @unchecked Sendable {
         private let lock = NSLock()

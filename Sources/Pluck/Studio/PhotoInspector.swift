@@ -1306,10 +1306,17 @@ private struct PhotoExportPanel: View {
         let presets = ticked
         var variants = [current]
         if !presets.isEmpty {
-            variants = presets.map { preset in
+            // Two presets never write the same file (they'd run at once and one would be lost):
+            // the later gets its name as a folder, or a number after its suffix.
+            var used: Set<String> = []
+            variants = presets.enumerated().map { number, preset in
                 var s = preset.settings
                 if let mark = current.watermark { s.watermark = mark }
                 if presets.count > 1, s.subfolder.isEmpty, s.suffix.isEmpty { s.subfolder = preset.name }
+                func key() -> String { "\(s.subfolder.lowercased())|\(s.suffix.lowercased())|\(s.format.fileExtension)" }
+                if used.contains(key()), s.subfolder.isEmpty { s.subfolder = preset.name }
+                if used.contains(key()) { s.suffix += "-\(number + 1)" }
+                used.insert(key())
                 return s
             }
         }

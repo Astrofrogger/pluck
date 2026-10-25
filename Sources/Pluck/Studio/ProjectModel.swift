@@ -520,8 +520,7 @@ final class ProjectModel {
         guard let last = history.popLast() else { return }
         beforeDrag = nil
         future.append(project)
-        // The DaVinci timeline it was sent to isn't an edit: undo keeps it.
-        let link = project.resolveTimeline
+        let link = Self.link(keeping: project.resolveTimeline, stepping: last.resolveTimeline)
         project = last
         project.resolveTimeline = link
         save()
@@ -532,11 +531,18 @@ final class ProjectModel {
         guard let next = future.popLast() else { return }
         beforeDrag = nil
         history.append(project)
-        let link = project.resolveTimeline
+        let link = Self.link(keeping: project.resolveTimeline, stepping: next.resolveTimeline)
         project = next
         project.resolveTimeline = link
         save()
         rebuild()
+    }
+
+    /// Sending to DaVinci isn't an edit: undo and redo keep the timeline it went to. What came back
+    /// from that same timeline is part of the merge, though, so it steps with it.
+    private static func link(keeping current: ResolveLink?, stepping other: ResolveLink?) -> ResolveLink? {
+        guard let current, let other, other.id == current.id else { return current }
+        return other
     }
 
     func rename(_ name: String) {

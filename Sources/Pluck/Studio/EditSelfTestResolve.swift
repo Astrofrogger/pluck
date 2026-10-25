@@ -85,6 +85,10 @@ extension EditSelfTest {
               "first 1 trim, second none; got \(firstUpdate.trimmed), then \(secondUpdate)")
         model.undo()
         model.undo()
+        check("undo brings back what was sent", model.project.resolveTimeline?.sent == link.sent
+              && model.apply(changed, link: model.project.resolveTimeline ?? link).trimmed == 1,
+              "the sent clips before the update, so updating again trims again")
+        model.undo()
 
         // A clip's sound taken off follows a trim there; a clip added here since stays.
         model.detachAudio([ids[1]])

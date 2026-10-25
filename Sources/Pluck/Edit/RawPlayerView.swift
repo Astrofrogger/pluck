@@ -90,33 +90,33 @@ struct RawPlayerView: View {
         .onKeyPress(.rightArrow) { player.step(1); return .handled }
         .onKeyPress(.home) { player.stop(); player.show(0); return .handled }
         .onKeyPress(.end) { player.stop(); player.show(player.frames - 1); return .handled }
-        // In and out (⌥ clears), J K L, ⌘J to go to a time.
         // (Not filtered by `keys`: with ⌥ the typed character is another one, so the key itself is looked at.)
+        // False colour, Grab Still and Compare first (⌥F, ⌥G, ⌥C, or the keys chosen in Settings ▸
+        // Keys: a key chosen there wins over the player's own letters below).
         .onKeyPress { press in
-            let option = press.modifiers.contains(.option)
+            let keys = Shortcuts.shared
+            if keys.shortcut(.rawFalseColour).matches(press) { player.falseColour.toggle(); return .handled }
+            if keys.shortcut(.rawGrabStill).matches(press) { player.grabStill(); return .handled }
+            if keys.shortcut(.rawCompare).matches(press) {
+                guard player.stillB != nil else { return .ignored }
+                player.compare = player.compare.next
+                return .handled
+            }
+            // The player's own: I and O (⌥ clears), J K L, M, ⌘J to go to a time. Only with those
+            // modifiers (⌥K or ⌃L are someone else's).
+            let modifiers = press.modifiers.subtracting(.capsLock)
+            let option = modifiers == .option
             switch Shortcut.typedKey(press) {
-            case "i": option ? player.clearIn() : player.markIn()
-            case "o": option ? player.clearOut() : player.markOut()
-            case "j" where press.modifiers.contains(.command): goTo = player.label(player.index); goingTo = true
-            case "j": player.step(-1)
-            case "k": player.stop()
-            case "l": player.play()
-            case "m": player.muted.toggle()
+            case "i" where modifiers.isEmpty || option: option ? player.clearIn() : player.markIn()
+            case "o" where modifiers.isEmpty || option: option ? player.clearOut() : player.markOut()
+            case "j" where modifiers == .command: goTo = player.label(player.index); goingTo = true
+            case "j" where modifiers.isEmpty: player.step(-1)
+            case "k" where modifiers.isEmpty: player.stop()
+            case "l" where modifiers.isEmpty: player.play()
+            case "m" where modifiers.isEmpty: player.muted.toggle()
             default: return .ignored
             }
             return .handled
-        }
-        // False colour (⌥F, or the key chosen in Settings ▸ Keys).
-        .onKeyPress { press in
-            guard Shortcuts.shared.shortcut(.rawFalseColour).matches(press) else { return .ignored }
-            player.falseColour.toggle()
-            return .handled
-        }
-        // Grab Still and Compare (⌥G, ⌥C, or the keys chosen in Settings ▸ Keys).
-        .onKeyPress { press in
-            if Shortcuts.shared.shortcut(.rawGrabStill).matches(press) { player.grabStill(); return .handled }
-            if Shortcuts.shared.shortcut(.rawCompare).matches(press), player.stillB != nil { player.compare = player.compare.next; return .handled }
-            return .ignored
         }
     }
 

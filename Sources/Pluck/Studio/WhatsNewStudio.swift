@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.7.1", items: [
+                Item(symbol: "checkmark.seal", title: String(localized: "Smaller fixes"),
+                     detail: String(localized: "Shortcuts with ⌃ work, and keys you choose for the player win over its own. Watermarks fit small photos, presets that would write the same file get their own folder, a photo edited in HDR keeps it when exported, and undo after bringing an edit back from Resolve is complete.")),
+            ]),
             Release(version: "3.7.0", items: [
                 Item(symbol: "arrow.left.and.right", title: String(localized: "Trim like an editor"),
                      detail: String(localized: "The Trim tool (T) rolls a cut between two clips or slips a clip to show another part. Q and W trim to the playhead, ⌥ and the arrows nudge by a frame.")),
