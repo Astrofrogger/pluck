@@ -23,7 +23,12 @@ struct PhotoPage: View {
     @State private var labelFilter: String?
     /// The checks' filter: only what looks fine, or only possible rejects.
     @State private var checkFilter: Bool?
-    @AppStorage("photoStackBursts") private var stackBursts = false
+    /// Moments: similar photos stacked, the strongest on top. Starts on for anyone who had "One per Burst" on.
+    @AppStorage("photoMoments") private var momentsOn = false
+    @State private var styles = PhotoStyles.shared
+    /// The moments opened in place: a photo of each (its first when opened), so it stays open when regrouped.
+    @State private var openMoments: Set<String> = []
+    @State private var momentsCache = MomentsCache()
     @State private var checks = PhotoChecks.shared
     @State private var importing = false
     @State private var importAlbum: UUID?
@@ -54,7 +59,13 @@ struct PhotoPage: View {
     @State private var search = ""
     @State private var photoIndex = PhotoIndex.shared
 
-    private var photos: [String] {
+    init() {
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "photoMoments") == nil, defaults.bool(forKey: "photoStackBursts") { defaults.set(true, forKey: "photoMoments") }
+    }
+
+    /// What the filters and the search leave, before moments.
+    private var filtered: [String] {
         var list = catalog.photos(in: source).filter { path in
             let record = catalog.record(path)
             let fine = checks.check(path).map { !$0.possibleReject }
@@ -69,18 +80,39 @@ struct PhotoPage: View {
             var seen: Set<String> = []
             list = (found + byName).filter { seen.insert($0).inserted }
         }
-        // One per burst (the sharpest), when asked.
-        if stackBursts { list = checks.bursts(list).map { $0[0] } }
         return list
     }
 
-    /// How many more photos each burst's shown photo stands for.
-    private var burstSizes: [String: Int] {
-        guard stackBursts else { return [:] }
-        let all = catalog.photos(in: source)
-        var sizes: [String: Int] = [:]
-        for group in checks.bursts(all) where group.count > 1 { sizes[group[0]] = group.count - 1 }
-        return sizes
+    /// What the page lists: the filtered photos, or with Moments on, their stacks.
+    private var listing: PhotoMoments.Listing {
+        guard momentsOn else { return PhotoMoments.Listing(paths: filtered) }
+        return momentsCache.listing(filtered, checks: checks.checks, style: styles.chosenStyle, expanded: openMoments)
+    }
+
+    private var photos: [String] { listing.paths }
+
+    /// Opens or closes the moment this photo is in (nothing for a photo on its own).
+    private func toggleMoment(of path: String) {
+        let before = listing
+        guard momentsOn, let key = before.moment[path] else { return }
+        let members = before.members[key] ?? [key]
+        if members.contains(where: openMoments.contains) { openMoments.subtract(members) } else { openMoments.insert(key) }
+        keepToShown()
+    }
+
+    /// Photos that went back into a stack leave the selection, so a key or an edit never reaches a photo
+    /// that can't be seen; a focus that went in moves to its moment's top photo.
+    private func keepToShown() {
+        guard momentsOn else { return }
+        let now = listing
+        let shown = Set(now.paths)
+        selection.formIntersection(shown)
+        if let focus, !shown.contains(focus) {
+            let key = now.moment[focus]
+            let top = key.flatMap { key in now.paths.first { now.moment[$0] == key } } ?? now.paths.first
+            self.focus = top
+            if let top, !selection.isEmpty { selection.insert(top) }
+        }
     }
 
     var body: some View {
@@ -144,6 +176,9 @@ struct PhotoPage: View {
         .onKeyPress(phases: .down, action: key)
         .onChange(of: focus) { old, new in PhotoPasteboard.focusMoved(from: old, to: new) }
         .onChange(of: selection) { old, new in if old != new { editing.syncAll = true } }
+        .onChange(of: momentsOn) { keepToShown() }
+        .onChange(of: selection, initial: true) { editing.levelCount = pasteTargets.count }
+        .onChange(of: focus) { editing.levelCount = pasteTargets.count }
         .sheet(item: $copySheet) { mode in
             PasteChooser(count: pasteTargets.count, copying: mode == .copy) { _ in
                 if mode == .copy { if let focus { PhotoPasteboard.copy(focus) } } else { PhotoPasteboard.paste(PasteGroup.chosen, to: pasteTargets) }
@@ -462,7 +497,13 @@ struct PhotoPage: View {
             }
             .pickerStyle(.inline)
             Divider()
-            Toggle("One per Burst", isOn: $stackBursts)
+            Toggle("Moments", isOn: $momentsOn)
+            if momentsOn, styles.styles.contains(where: { $0.trained != nil }) {
+                Picker("Ranking", selection: $styles.chosen) {
+                    Text("Built-in").tag(UUID?.none)
+                    ForEach(styles.styles.filter { $0.trained != nil }) { style in Text(style.name).tag(UUID?.some(style.id)) }
+                }
+            }
             if filtering {
                 Divider()
                 Button("Show All") { flagFilter = nil; minRating = 0; labelFilter = nil; checkFilter = nil }
@@ -516,13 +557,14 @@ struct PhotoPage: View {
     }
 
     private var grid: some View {
-        let sizes = burstSizes
+        let listing = listing
         return ScrollViewReader { scroller in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: gridSize, maximum: gridSize * 1.4), spacing: 10)], spacing: 10) {
                     ForEach(photos, id: \.self) { path in
                         PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || (selection.isEmpty && focus == path),
-                                  check: checks.check(path), stack: sizes[path] ?? 0)
+                                  check: checks.check(path), stack: listing.stacked[path] ?? 0, opened: listing.opened[path] != nil,
+                                  toggleStack: { toggleMoment(of: path) })
                             .id(path)
                             .onTapGesture(count: 2) { focus = path; selection = [path]; view = .edit }
                             .onTapGesture { click(path) }
@@ -693,6 +735,10 @@ struct PhotoPage: View {
         case .pasteChoosing: if PhotoPasteboard.copied != nil { copySheet = .paste } else { NSSound.beep() }
         case .pastePrevious:
             if PhotoPasteboard.lastViewed != nil { PhotoPasteboard.pastePrevious(to: pasteTargets) } else { NSSound.beep() }
+        case .level, .levelWithWhiteBalance:
+            let targets = pasteTargets, reference = focus
+            guard targets.count >= 2 else { NSSound.beep(); return }
+            Task { await PhotoLevel.level(targets, reference: reference.flatMap { targets.contains($0) ? $0 : nil }, whiteBalance: action == .levelWithWhiteBalance) }
         }
     }
 
@@ -775,6 +821,9 @@ struct PhotoPage: View {
                 catalog.update(targets) { $0.flag = .reject }
                 advance(targets)
             case .photoUnflag: catalog.update(targets) { $0.flag = .none }
+            case .photoMoment:
+                guard momentsOn, let focus, listing.moment[focus] != nil else { return .ignored }
+                toggleMoment(of: focus)
             case .photoVirtualCopy:
                 guard let focus else { return .ignored }
                 makeCopy(of: focus)
@@ -886,8 +935,10 @@ private struct PhotoCell: View {
     let selected: Bool
     var compact = false
     var check: PhotoCheck?
-    /// More photos in its burst, behind it.
+    /// More photos in its moment, behind it; or the last photo of an open moment (to close it by).
     var stack = 0
+    var opened = false
+    var toggleStack: (() -> Void)?
     @State private var image: NSImage?
     @State private var hovering = false
 
@@ -907,12 +958,20 @@ private struct PhotoCell: View {
                     HStack(spacing: 4) {
                         if let check, check.eyesClosed { Image(systemName: "eye.slash").help("Eyes may be closed") }
                         if let check, check.looksSoft { Image(systemName: "circle.dotted").help("May be out of focus") }
-                        if stack > 0 { Label("+\(stack)", systemImage: "square.stack").help("Burst: the sharpest shown, ^[\(stack) more photo](inflect: true) behind it") }
+                        if stack > 0 {
+                            Button { toggleStack?() } label: { Label("+\(stack)", systemImage: "square.stack") }
+                                .buttonStyle(.plain)
+                                .help("Moment: the strongest shown, ^[\(stack) more photo](inflect: true) behind it")
+                        } else if opened {
+                            Button { toggleStack?() } label: { Image(systemName: "chevron.up.square") }
+                                .buttonStyle(.plain)
+                                .help("Close this moment")
+                        }
                     }
                     .font(.caption2)
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background((check?.possibleReject ?? false) || stack > 0 ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear), in: .capsule)
+                    .background((check?.possibleReject ?? false) || stack > 0 || opened ? AnyShapeStyle(.black.opacity(0.55)) : AnyShapeStyle(.clear), in: .capsule)
                     .padding(6)
                 }
             }

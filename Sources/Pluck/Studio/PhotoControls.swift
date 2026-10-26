@@ -14,6 +14,8 @@ final class PhotoEditing {
     /// With several photos selected, a change goes to all of them (on); off, only to the one shown.
     /// Switches back on when the selection changes to a different set.
     var syncAll = true
+    /// How many photos Level Exposure would reach (the selection); it needs two.
+    var levelCount = 0
     /// The room above white the photo's screen has now (1: none, an SDR screen).
     var headroom = 1.0
     /// The photos a change reaches: all selected while syncing, else only the one shown.

@@ -48,8 +48,40 @@ struct OffloadJob: Codable, Identifiable, Hashable {
     var skipped: Int?
     /// Only some of the card went (its video files): it isn't safe to format.
     var partial: Bool?
+    /// A card offloaded into a project (see OffloadProject), for this operator, as this card ("A004").
+    var project: UUID?
+    var operatorID: UUID?
+    var card: String?
+    /// The camera the card is from ("Sony ILCE-7SM3"), for the wrap report; old jobs have none.
+    var camera: String?
+    /// Files given another name in the copies, so as not to write over another card's (a path
+    /// on the card, and its new name).
+    var renames: [String: String]?
+    /// Files already in the project from an earlier card (not in `files`, not copied again).
+    var alreadyThere: Int?
+    /// How fast each drive wrote and the card read, in MB/s on average, by name (see `speedNames`).
+    var speeds: [String: Double]?
+    /// A backup of this project (see OffloadBackup): a card folder from the main drive to backup drives.
+    var backup: UUID?
 
     var displayName: String { title ?? name }
+    /// Where a file of the card is in each copy: its own path, or its new name in the same folder.
+    func destination(of path: String) -> String {
+        guard let name = renames?[path] else { return path }
+        return ((path as NSString).deletingLastPathComponent as NSString).appendingPathComponent(name)
+    }
+    /// The names speeds are kept under: the card's, then each drive's (a name already taken, like
+    /// two folders on one disk, gets a number).
+    var speedNames: (card: String, drives: [String]) {
+        var taken: Set<String> = [sourceVolume]
+        let drives = rootVolumes.map { name -> String in
+            var unique = name, n = 2
+            while taken.contains(unique) { unique = "\(name) \(n)"; n += 1 }
+            taken.insert(unique)
+            return unique
+        }
+        return (sourceVolume, drives)
+    }
     var cascades: Bool { cascade == true && roots.count > 1 }
     var targets: [String] { roots.map { ($0 as NSString).appendingPathComponent(name) } }
     var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
@@ -83,6 +115,16 @@ final class OffloadRunner: @unchecked Sendable {
         case cardDone
         case stopped(String?)
         case finished
+        /// How fast the drives and the card are going (about four times a second, and once more at the end).
+        case speeds(Speeds)
+    }
+
+    /// Bytes a second for each drive (the writes) and, last, the card (the reads): over the last
+    /// moment, and on average since the run began (only the time spent on that drive counts).
+    struct Speeds: Sendable {
+        var now: [Double]
+        var average: [Double]
+        var final = false
     }
 
     private enum Halt: Error { case stop, waiting(String), fatal(String) }
@@ -98,10 +140,12 @@ final class OffloadRunner: @unchecked Sendable {
     private var job: OffloadJob
     private let send: @Sendable (Event) -> Void
     private static let chunk = 8 << 20
+    private let meter: SpeedMeter
 
     init(job: OffloadJob, send: @escaping @Sendable (Event) -> Void) {
         self.job = job
         self.send = send
+        meter = SpeedMeter(slots: job.roots.count + 1)
     }
 
     func stop() { lock.withLock { stopping = true } }
@@ -132,12 +176,16 @@ final class OffloadRunner: @unchecked Sendable {
                 try pass(from: job.source, to: Array(job.roots.indices), buffer: buffer)
             }
             if job.quick != true { for target in job.targets.indices { writeReport(target) } }
+            send(.speeds(meter.snapshot(final: true)))
             send(.finished)
         } catch Halt.waiting(let drive) {
+            send(.speeds(meter.snapshot(final: true)))
             send(.waiting(drive))
         } catch Halt.fatal(let problem) {
+            send(.speeds(meter.snapshot(final: true)))
             send(.stopped(problem))
         } catch {
+            send(.speeds(meter.snapshot(final: true)))
             send(.stopped(nil))
         }
     }
@@ -208,13 +256,14 @@ final class OffloadRunner: @unchecked Sendable {
     /// Reads the file once, writing it to every copy still to do (from where a copy stopped, if
     /// it did), then reads each copy back and checks it.
     private func copy(_ file: inout OffloadFile, from root: String, to destinations: [Int], buffer: UnsafeMutableRawPointer, retry: Bool) throws {
-        let source = (root as NSString).appendingPathComponent(file.path)
+        let copied = job.destination(of: file.path)
+        let source = (root as NSString).appendingPathComponent(fromCard ? file.path : copied)
         let pending = destinations.filter { !file.done[$0] }
         var writers: [Writer] = []
         var existing: [(destination: Int, target: String)] = []
         defer { for writer in writers { close(writer.fd) } }
         for destination in pending {
-            let target = (job.targets[destination] as NSString).appendingPathComponent(file.path)
+            let target = (job.targets[destination] as NSString).appendingPathComponent(copied)
             let folder = (target as NSString).deletingLastPathComponent
             do {
                 try FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
@@ -252,7 +301,7 @@ final class OffloadRunner: @unchecked Sendable {
         var position: Int64 = 0
         var lastReport = Date.distantPast
         // The next piece comes off the card while this one is written.
-        let reader = ReadAhead(fd: input, first: buffer, size: Self.chunk)
+        let reader = ReadAhead(fd: input, first: buffer, size: Self.chunk, meter: fromCard ? meter : nil)
         while true {
             if isStopping { throw Halt.stop }
             let (buffer, count, code) = reader.next()
@@ -269,11 +318,13 @@ final class OffloadRunner: @unchecked Sendable {
                 DispatchQueue.concurrentPerform(iterations: groups.count) { g in
                     for writer in groups[g] {
                         var written = Int(max(writer.from - start, 0))
+                        let skipped = written, began = SpeedMeter.now()
                         while written < count {
                             let n = pwrite(writer.fd, buffer + written, count - written, off_t(start) + off_t(written))
                             if n < 0 { results[g] = (writer, errno); return }
                             written += n
                         }
+                        meter.add(writer.destination, bytes: count - skipped, nanos: SpeedMeter.now() - began)
                     }
                 }
             }
@@ -291,6 +342,7 @@ final class OffloadRunner: @unchecked Sendable {
                 lastReport = .now
                 send(.progress(bytes: position, file: file.path, phase: .copying))
             }
+            if let speeds = meter.due() { send(.speeds(speeds)) }
         }
         let hash = String(format: "%016llx", hasher.digest())
         if let earlier = file.hash, earlier != hash {
@@ -379,9 +431,12 @@ final class OffloadRunner: @unchecked Sendable {
         private var result = (count: 0, error: Int32(0))
         private var turn = 0
 
-        init(fd: Int32, first: UnsafeMutableRawPointer, size: Int) {
+        private let meter: SpeedMeter?
+
+        init(fd: Int32, first: UnsafeMutableRawPointer, size: Int, meter: SpeedMeter? = nil) {
             self.fd = fd
             self.size = size
+            self.meter = meter
             buffers = [first, UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 16_384)]
             read(into: 0)
         }
@@ -395,8 +450,10 @@ final class OffloadRunner: @unchecked Sendable {
         private func read(into index: Int) {
             group.enter()
             DispatchQueue.global(qos: .userInitiated).async { [self] in
+                let began = SpeedMeter.now()
                 let count = Darwin.read(fd, buffers[index], size)
                 result = (count, count < 0 ? errno : 0)
+                if count > 0, let meter { meter.add(meter.card, bytes: count, nanos: SpeedMeter.now() - began) }
                 group.leave()
             }
         }
@@ -409,6 +466,57 @@ final class OffloadRunner: @unchecked Sendable {
             // The one after it, into the other buffer, while this one is used.
             if got.count > 0 { read(into: turn) }
             return (buffers[index], got.count, got.error)
+        }
+    }
+
+    /// Bytes and the time they took, for each drive and the card, counted from several threads.
+    /// Adding is a lock and a few additions; a report (a small array) is made at most four times a second.
+    final class SpeedMeter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var bytes: [Int64]
+        private var nanos: [UInt64]
+        private var lastBytes: [Int64]
+        private var lastNanos: [UInt64]
+        private var lastReport = SpeedMeter.now()
+        /// The card's place (after the drives).
+        let card: Int
+
+        init(slots: Int) {
+            bytes = Array(repeating: 0, count: slots)
+            nanos = Array(repeating: 0, count: slots)
+            lastBytes = bytes
+            lastNanos = nanos
+            card = slots - 1
+        }
+
+        static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
+
+        func add(_ slot: Int, bytes count: Int, nanos took: UInt64) {
+            lock.withLock {
+                bytes[slot] += Int64(count)
+                nanos[slot] += took
+            }
+        }
+
+        /// The speeds, when a quarter of a second has gone since the last.
+        func due() -> Speeds? {
+            let time = Self.now()
+            return lock.withLock {
+                guard time &- lastReport >= 250_000_000 else { return nil }
+                lastReport = time
+                return report(final: false)
+            }
+        }
+
+        func snapshot(final: Bool) -> Speeds { lock.withLock { report(final: final) } }
+
+        private func report(final: Bool) -> Speeds {
+            func rate(_ bytes: Int64, _ nanos: UInt64) -> Double { nanos == 0 ? 0 : Double(bytes) / (Double(nanos) / 1e9) }
+            let now = bytes.indices.map { rate(bytes[$0] - lastBytes[$0], nanos[$0] - lastNanos[$0]) }
+            let average = bytes.indices.map { rate(bytes[$0], nanos[$0]) }
+            lastBytes = bytes
+            lastNanos = nanos
+            return Speeds(now: now, average: average, final: final)
         }
     }
 
@@ -488,7 +596,7 @@ final class OffloadRunner: @unchecked Sendable {
             guard let hash = file.hash else { continue }
             xml += """
               <hash>
-                <file>\(escaped(file.path))</file>
+                <file>\(escaped(job.destination(of: file.path)))</file>
                 <size>\(file.size)</size>
                 <lastmodificationdate>\(iso.string(from: file.modified))</lastmodificationdate>
                 <xxhash64be>\(hash)</xxhash64be>
@@ -533,8 +641,21 @@ final class OffloadCenter {
     @ObservationIgnored private var runStarted: [UUID: Date] = [:]
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [Any] = []
+    /// Backups stopped so a card can go first: queued again once they've stopped.
+    @ObservationIgnored private var yielding: Set<UUID> = []
+    /// A card into a project is planned while no other is (two cards in at once would otherwise
+    /// both see the same free folder and names), and the cards waiting their turn.
+    @ObservationIgnored private var planning = false
+    @ObservationIgnored private var planningQueue: [CheckedContinuation<Void, Never>] = []
 
-    nonisolated private static var folder: URL {
+    /// How fast the drives and the card are going while a job copies (for its row).
+    private(set) var speedLive: [UUID: SpeedHistory] = [:]
+    /// The clips of finished cards (see OffloadClips).
+    var clipDetails: [UUID: [ClipDetails]] = [:]
+    /// Backup drives that went in, asking "Back up <project>?" (see OffloadBackup).
+    var backupQuestions: [BackupQuestion] = []
+
+    nonisolated static var folder: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Offloads", isDirectory: true)
     }
 
@@ -550,8 +671,15 @@ final class OffloadCenter {
             let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
             MainActor.assumeIsolated {
                 self?.drivesChanged()
-                if let volume { self?.cardInserted(volume) }
+                if let volume {
+                    self?.cardInserted(volume)
+                    Task { await OffloadCenter.shared.askToBackUp(volume) }
+                }
             }
+        })
+        observers.append(center.addObserver(forName: NSWorkspace.didUnmountNotification, object: nil, queue: .main) { [weak self] note in
+            let volume = note.userInfo?[NSWorkspace.volumeURLUserInfoKey] as? URL
+            MainActor.assumeIsolated { if let volume { self?.forgetBackupQuestions(on: volume) } }
         })
     }
 
@@ -585,7 +713,23 @@ final class OffloadCenter {
 
     private func cardInserted(_ volume: URL) {
         let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: Self.autoKey) else { return }
+        guard defaults.bool(forKey: Self.autoKey), !Self.isBackupDrive(volume) else { return }
+        // Into the project being shot, when there is one.
+        if let project = OffloadProjects.shared.current {
+            let roots = project.drives.map { URL(fileURLWithPath: $0, isDirectory: true) }
+            guard !roots.isEmpty, !project.operators.isEmpty, roots.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
+                  !roots.contains(where: { $0.path.hasPrefix(volume.path) }) else { return }
+            Task {
+                guard await Task.detached(operation: { Self.isCameraCard(volume) }).value else { return }
+                let problem = await offload(card: volume, project: project.id, eject: defaults.bool(forKey: "offloadEject"),
+                                            onlyVideo: defaults.bool(forKey: "offloadOnlyVideo"))
+                guard !questions.contains(where: { $0.volume == volume }) else { return }
+                AppDelegate.shared?.manager.notify(
+                    title: problem == nil ? String(localized: "Offloading \(Self.volumeName(volume))") : String(localized: "\(Self.volumeName(volume)) wasn’t offloaded"),
+                    body: problem ?? String(localized: "Into \(project.name), every file checked."))
+            }
+            return
+        }
         let roots = (defaults.string(forKey: "offloadRoots") ?? "").split(separator: "\n").map { URL(fileURLWithPath: String($0), isDirectory: true) }
         guard !roots.isEmpty, roots.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
               !roots.contains(where: { $0.path.hasPrefix(volume.path) }) else { return }
@@ -686,6 +830,115 @@ final class OffloadCenter {
         return nil
     }
 
+    // MARK: Into a project
+
+    /// A card waiting to be told whose camera it's from.
+    struct Question: Identifiable, Equatable {
+        let id = UUID()
+        let volume: URL
+        let camera: CameraCard
+        let project: UUID
+        /// Who's suggested: the camera letter's operator, or whoever the last card was for.
+        let preselected: UUID?
+        let eject: Bool
+        let onlyVideo: Bool
+    }
+
+    /// Cards asking "Whose camera is this?" (shown on Offload's page).
+    private(set) var questions: [Question] = []
+
+    /// A card into a project: its camera recognised and its operator known, or asked (then it
+    /// waits in `questions`). Nil when it started or is asking; else why it couldn't.
+    func offload(card volume: URL, project id: UUID, eject: Bool = false, onlyVideo: Bool = false) async -> String? {
+        guard let project = OffloadProjects.shared.project(id) else { return String(localized: "The project is no longer there.") }
+        guard !project.operators.isEmpty else { return String(localized: "Add who’s filming to the project first.") }
+        let camera = await Task.detached(priority: .userInitiated) { CameraCard.read(volume) }.value
+        switch project.match(camera) {
+        case .known(let person):
+            return await add(card: volume, project: id, operator: person, camera: camera, eject: eject, onlyVideo: onlyVideo)
+        case .ask(let preselected):
+            questions.removeAll { $0.volume == volume }
+            questions.append(Question(volume: volume, camera: camera, project: id, preselected: preselected, eject: eject, onlyVideo: onlyVideo))
+            AppDelegate.shared?.manager.notify(title: String(localized: "Whose camera is this?"),
+                                               body: String(localized: "\(Self.volumeName(volume)) is waiting in Offload."))
+            return nil
+        }
+    }
+
+    /// The answer to "Whose camera is this?": remembered for the camera, and the card offloaded.
+    func answer(_ question: UUID, operator person: UUID) async -> String? {
+        guard let asked = questions.first(where: { $0.id == question }) else { return nil }
+        let problem = await add(card: asked.volume, project: asked.project, operator: person, camera: asked.camera, eject: asked.eject,
+                                onlyVideo: asked.onlyVideo)
+        // (Still asked when it couldn't start, with why.)
+        if problem == nil { questions.removeAll { $0.id == question } }
+        return problem
+    }
+
+    func dismiss(_ question: UUID) { questions.removeAll { $0.id == question } }
+
+    /// A card into a project for this operator: into their next card's folder (or their own
+    /// folder), only what isn't in the project yet, a file whose name is taken renamed.
+    func add(card volume: URL, project id: UUID, operator person: UUID, camera: CameraCard, eject: Bool = false, onlyVideo: Bool = false,
+             date: Date = .now) async -> String? {
+        // One card planned at a time (the next waits until this one's job is in the list).
+        if planning { await withCheckedContinuation { planningQueue.append($0) } }
+        planning = true
+        defer {
+            if planningQueue.isEmpty { planning = false } else { planningQueue.removeFirst().resume() }
+        }
+        let store = OffloadProjects.shared
+        guard let project = store.project(id), let who = project.person(person) else { return String(localized: "The project is no longer there.") }
+        let roots = project.drives.map { URL(fileURLWithPath: $0, isDirectory: true) }
+        guard !roots.isEmpty else { return String(localized: "Choose a drive for the project first.") }
+        if let missing = roots.first(where: { !FileManager.default.fileExists(atPath: $0.path) }) {
+            return String(localized: "\(Self.volumeName(missing)) isn’t connected.")
+        }
+        if let problem = Self.problem(source: volume, roots: roots) { return problem }
+        // The number is kept for this card while it's planned (two cards in at once get two).
+        let letter = who.letter, number = max(project.nextCard[letter] ?? 1, 1)
+        store.change(id) { $0.nextCard[letter] = number + 1 }
+        func giveBack() { store.change(id) { if $0.nextCard[letter] == number + 1 { $0.nextCard[letter] = number } } }
+        let first = project.firstOffload(in: jobs)
+        // Where cards still to be copied into the project will go (not on the drives yet): taken.
+        let waiting = jobs.filter { $0.project == id && $0.backup == nil && $0.finished == nil }
+        let reserved = OffloadProjectPlanner.Reserved(
+            folders: Set(waiting.map { $0.name.lowercased() }),
+            files: Set(waiting.flatMap { job in job.files.map { (job.name as NSString).appendingPathComponent(job.destination(of: $0.path)).lowercased() } }))
+        let plan = await Task.detached(priority: .userInitiated) { () -> OffloadProjectPlanner.Plan? in
+            let list = Self.files(in: volume, onlyVideo: onlyVideo)
+            guard !list.isEmpty else { return nil }
+            let files = list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: roots.map { _ in false }) }
+            return OffloadProjectPlanner.plan(card: volume, files: files, project: project, operator: who, date: date, camera: camera.model ?? camera.brand,
+                                                 firstOffload: first, reserved: reserved)
+        }.value
+        guard let plan else { giveBack(); return String(localized: "There are no files there.") }
+        guard !plan.files.isEmpty else { giveBack(); return String(localized: "Everything on \(Self.volumeName(volume)) is already in \(project.name).") }
+        var job = OffloadJob(name: plan.folder, source: volume.path, sourceVolume: Self.volumeName(volume), roots: roots.map(\.path),
+                             rootVolumes: roots.map(Self.volumeName), files: plan.files, ejectSource: eject)
+        job.renames = plan.renames.isEmpty ? nil : plan.renames
+        let destinations = plan.files.map { (path: job.destination(of: $0.path), size: $0.size, modified: $0.modified) }
+        if let problem = Self.problem(files: destinations, roots: roots) { giveBack(); return problem }
+        for root in roots {
+            if let free = Self.freeSpace(root), free < job.totalBytes { giveBack(); return String(localized: "There isn’t enough room on \(Self.volumeName(root)).") }
+        }
+        job.title = FolderTemplate.safe(plan.label + " · " + who.name)
+        job.project = id
+        job.operatorID = person
+        job.card = plan.label
+        job.camera = camera.name
+        job.alreadyThere = plan.alreadyThere
+        if onlyVideo { job.partial = true }
+        store.change(id) { project in
+            project.nextCard[letter] = max(project.nextCard[letter] ?? 1, plan.card + 1)
+            project.remember(camera, for: person)
+        }
+        jobs.insert(job, at: 0)
+        save(job)
+        resume(job.id)
+        return nil
+    }
+
     /// Why the source and drives can't be used together, if they can't: a copy inside the card
     /// (it would copy itself), the card inside a copy, or the same place twice.
     /// (`quick`: a copy within the Library, where a folder can go to the folder it's in.)
@@ -727,9 +980,23 @@ final class OffloadCenter {
         return nil
     }
 
+    /// A job made elsewhere (a backup's, see OffloadBackup): kept, and in the queue.
+    func enqueue(_ job: OffloadJob) {
+        jobs.insert(job, at: 0)
+        save(job)
+        resume(job.id)
+    }
+
     func resume(_ id: UUID) {
         guard runners[id] == nil, let job = jobs.first(where: { $0.id == id }), job.finished == nil else { return }
         states[id] = .queued
+        // A card doesn't wait for a backup: the backup stops (where it is) and carries on after.
+        if job.backup == nil {
+            for (other, runner) in runners where jobs.first(where: { $0.id == other })?.backup != nil {
+                yielding.insert(other)
+                runner.stop()
+            }
+        }
         next()
     }
 
@@ -750,6 +1017,7 @@ final class OffloadCenter {
     }
 
     func pause(_ id: UUID) {
+        yielding.remove(id)
         if let runner = runners[id] {
             runner.stop()
         } else {
@@ -770,12 +1038,15 @@ final class OffloadCenter {
         runners[id]?.stop()
         jobs.removeAll { $0.id == id }
         states[id] = nil
+        speedLive[id] = nil
+        forgetDetails(id)
         try? FileManager.default.removeItem(at: Self.folder.appendingPathComponent("\(id.uuidString).json"))
     }
 
-    /// The next waiting job, if none is copying.
+    /// The next waiting job, if none is copying: a card before a backup (a card is needed back in the camera).
     private func next() {
-        guard runners.isEmpty, let job = jobs.last(where: { states[$0.id] == .queued }) else { return }
+        guard runners.isEmpty, let job = jobs.last(where: { states[$0.id] == .queued && $0.backup == nil })
+            ?? jobs.last(where: { states[$0.id] == .queued }) else { return }
         let id = job.id
         states[id] = .copying
         if let index = jobs.firstIndex(where: { $0.id == id }), jobs[index].running != true {
@@ -817,6 +1088,18 @@ final class OffloadCenter {
             AppDelegate.shared?.manager.notify(title: String(localized: "The card is done"),
                                                body: String(localized: "\(job.sourceVolume) is on \(job.rootVolumes[0]) and checked. The other drives copy from there."))
             if job.ejectSource == true { Self.eject(job.source) }
+        case .speeds(let speeds):
+            let job = jobs[index]
+            speedLive[id, default: SpeedHistory(drives: job.roots.count)].add(speeds.now.map { $0 / 1e6 })
+            if speeds.final {
+                // The average of this run, by name.
+                let names = job.speedNames
+                var kept = job.speeds ?? [:]
+                for (slot, name) in (names.drives + [names.card]).enumerated() where speeds.average[slot] > 0 {
+                    kept[name] = speeds.average[slot] / 1e6
+                }
+                jobs[index].speeds = kept.isEmpty ? nil : kept
+            }
         case .waiting(let drive):
             finish(id, .waiting(drive))
         case .stopped(let problem):
@@ -838,7 +1121,16 @@ final class OffloadCenter {
                 }
                 return
             }
+            if job.backup != nil {
+                // A backup: the MHL is next to it; no card report or clip details.
+                AppDelegate.shared?.manager.notify(
+                    title: job.problems.isEmpty ? String(localized: "Backup done") : String(localized: "Backup done, with problems"),
+                    body: job.problems.isEmpty ? String(localized: "\(job.displayName): every file checked on \(job.rootVolumes.formatted(.list(type: .and))).")
+                        : String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied."))
+                return
+            }
             OffloadReport.write(job)
+            workOutDetails(job)
             if job.ejectSource == true, !job.cascades { Self.eject(job.source) }
             let problems = job.problems.count
             AppDelegate.shared?.manager.notify(
@@ -855,10 +1147,13 @@ final class OffloadCenter {
         }
         runners[id] = nil
         live[id] = nil
-        states[id] = state
+        speedLive[id] = nil
+        // A backup that stopped for a card: back in the queue, after the card.
+        let yielded = yielding.remove(id) != nil && state == .paused
+        states[id] = yielded ? .queued : state
         if let index = jobs.firstIndex(where: { $0.id == id }) {
-            // Still meant to happen only while it waits for a drive.
-            if case .waiting = state { jobs[index].running = true } else { jobs[index].running = false }
+            // Still meant to happen only while it waits for a drive (or after the card it stopped for).
+            if case .waiting = state { jobs[index].running = true } else { jobs[index].running = yielded }
             save(jobs[index])
         }
         next()

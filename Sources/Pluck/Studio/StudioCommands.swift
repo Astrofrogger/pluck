@@ -43,6 +43,7 @@ struct ExportSubtitlesCommand: View {
 /// handled by the page itself, so Copy and Paste keep working in text fields.
 struct PhotoSettingsCommands: View {
     @State private var nav = StudioNavigator.shared
+    @State private var editing = PhotoEditing.shared
 
     var body: some View {
         Divider()
@@ -54,5 +55,10 @@ struct PhotoSettingsCommands: View {
         Button("Paste Previous Settings") { PhotoPasteboard.perform?(.pastePrevious) }
         }
         .disabled(nav.page != .photo)
+        // ⌥ held while choosing it adds white balance.
+        Button("Level Exposure") {
+            PhotoPasteboard.perform?(NSEvent.modifierFlags.contains(.option) ? .levelWithWhiteBalance : .level)
+        }
+        .disabled(nav.page != .photo || editing.levelCount < 2)
     }
 }

@@ -59,6 +59,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case photoSpeedExposure, photoSpeedContrast, photoSpeedHighlights, photoSpeedShadows, photoSpeedWhites, photoSpeedBlacks, photoSpeedTemperature, photoSpeedTint, photoSpeedSaturation
     case photoVirtualCopy
     case photoBeforeAfter
+    case photoMoment
 
     var id: String { rawValue }
 
@@ -94,6 +95,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoSpeedSaturation: String(localized: "Saturation (hold and scroll)")
         case .photoVirtualCopy: String(localized: "Make a virtual copy")
         case .photoBeforeAfter: String(localized: "Before and after")
+        case .photoMoment: String(localized: "Open or close the moment")
         case .editSelect: String(localized: "Selection tool")
         case .editBlade: String(localized: "Blade tool")
         case .editTrim: String(localized: "Trim tool")
@@ -146,6 +148,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .photoSpeedSaturation: Shortcut("v")
         case .photoVirtualCopy: Shortcut("'", command: true)
         case .photoBeforeAfter: Shortcut("b")
+        case .photoMoment: Shortcut("m")
         case .editSelect: Shortcut("a")
         case .editBlade: Shortcut("b")
         case .editTrim: Shortcut("t")

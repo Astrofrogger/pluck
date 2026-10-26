@@ -35,7 +35,7 @@ enum OffloadReport {
             return type.conforms(to: .movie) || type.conforms(to: .image)
         }
         for file in media.prefix(300) {
-            let url = URL(fileURLWithPath: folder).appendingPathComponent(file.path)
+            let url = URL(fileURLWithPath: folder).appendingPathComponent(job.destination(of: file.path))
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 96, height: 54), scale: 2, representationTypes: .thumbnail)
             if let made = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request) {
                 pictures[file.path] = made.nsImage
@@ -134,7 +134,9 @@ enum OffloadReport {
             } else {
                 cell(plain(""), row: row, column: 0)
             }
-            let name = NSMutableAttributedString(attributedString: plain(file.path))
+            let name = NSMutableAttributedString(attributedString: plain(job.destination(of: file.path)))
+            // Renamed so as not to write over another card's file with its name.
+            if job.renames?[file.path] != nil { name.append(plain("\n" + String(localized: "On the card: \(file.path)"), .systemFont(ofSize: 7), .gray)) }
             if let problem = file.problem { name.append(plain("\n" + problem, .systemFont(ofSize: 7), .systemOrange)) }
             cell(name, row: row, column: 1)
             cell(plain(ByteCountFormatter.string(fromByteCount: file.size, countStyle: .file)), row: row, column: 2)

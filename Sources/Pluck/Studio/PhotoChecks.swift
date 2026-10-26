@@ -11,6 +11,8 @@ struct PhotoCheck: Codable, Hashable {
     var faces: [CGRect]
     var eyesClosed: Bool
     var taken: Date?
+    /// The measures used to group and rank photos (on the normalised picture).
+    var signals: PhotoSignals?
 
     /// Below this it looks soft (from the camera's preview at 1024 px).
     static let softBelow = 0.012
@@ -27,7 +29,7 @@ final class PhotoChecks {
     @ObservationIgnored private var waiting: [String] = []
     @ObservationIgnored private var running = false
     @ObservationIgnored private var saveScheduled = false
-    private static let version = 1
+    private static let version = 2
 
     nonisolated private static var file: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Photo Checks.json")
@@ -137,12 +139,23 @@ final class PhotoChecks {
         var pixel = [Float](repeating: 0, count: 4)
         context.render(average, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
         let sharpness = Double(pixel[0]).squareRoot()
+        let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
         return PhotoCheck(sharpness: sharpness, faces: found.map(\.boundingBox), eyesClosed: closed,
-                          taken: PhotoImportSheet.captureDate(url))
+                          taken: taken(url, properties: properties), signals: PhotoSignals.measure(preview, exif: properties))
+    }
+
+    /// When it was taken, to the hundredth of a second when the camera says (bursts are ~10 a second, and
+    /// Lightroom's capture times, which styles learn from, have them too).
+    nonisolated static func taken(_ url: URL, properties: [CFString: Any]?) -> Date {
+        let date = PhotoImportSheet.captureDate(url)
+        guard let exif = properties?[kCGImagePropertyExifDictionary] as? [CFString: Any], exif[kCGImagePropertyExifDateTimeOriginal] != nil,
+              let subsec = exif[kCGImagePropertyExifSubsecTimeOriginal] as? String,
+              let fraction = Double("0." + subsec.trimmingCharacters(in: .whitespaces)), fraction < 1 else { return date }
+        return date.addingTimeInterval(fraction)
     }
 
     /// How open an eye is: its height over its width (an eye's outline from Vision).
-    nonisolated private static func openness(_ eye: VNFaceLandmarkRegion2D) -> Double {
+    nonisolated static func openness(_ eye: VNFaceLandmarkRegion2D) -> Double {
         let points = eye.normalizedPoints
         guard let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
               let minY = points.map(\.y).min(), let maxY = points.map(\.y).max(), maxX > minX else { return 1 }

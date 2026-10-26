@@ -27,6 +27,10 @@ enum EditSelfTest {
         await resolveRead()
         await quickExports(manager)
         pacing()
+        await offloadProjects()
+        await offloadClips()
+        await offloadBackup()
+        await offloadPhone()
         // The throwaway projects aren't kept.
         for made in ProjectStore.all() where made.name == "Self Test" { try? FileManager.default.removeItem(at: ProjectStore.url(for: made.id)) }
         lines.append("done")

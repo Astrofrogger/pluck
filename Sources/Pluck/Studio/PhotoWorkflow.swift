@@ -67,7 +67,7 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
 @MainActor
 enum PhotoPasteboard {
     /// A key or menu command on the Photo page.
-    enum Action { case copy, copyChoosing, paste, pasteChoosing, pastePrevious }
+    enum Action { case copy, copyChoosing, paste, pasteChoosing, pastePrevious, level, levelWithWhiteBalance }
 
     static var copied: PhotoRecord?
     /// The photo that was shown before the one shown now.

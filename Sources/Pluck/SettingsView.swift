@@ -233,6 +233,8 @@ private struct GeneralSettings: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
 
+            PhotoStyleSettings()
+
             Section {
                 Toggle("Show RED clips as one item in Finder", isOn: $redClipsAsItems)
                     .onChange(of: redClipsAsItems) { _, on in RedClipFolders.apply(on) }

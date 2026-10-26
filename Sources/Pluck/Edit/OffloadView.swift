@@ -16,10 +16,17 @@ struct OffloadView: View {
     @State private var droppingFrom = false
     @State private var droppingTo = false
     @State private var center = OffloadCenter.shared
+    @State private var projects = OffloadProjects.shared
+    @State private var phone = OffloadPhone.shared
+    @State private var showPhone = false
+    /// The project being set up (a new one, or the one cards go into).
+    @State private var editing: (project: OffloadProject, isNew: Bool)?
     @State private var cards: [URL] = []
     @State private var source: URL?
     @State private var found: (count: Int, bytes: Int64)?
-    private var planKey: String { [source?.path ?? "", "\(onlyVideo)", rootsText, "\(newFolder)", name].joined(separator: "|") }
+    private var planKey: String {
+        [source?.path ?? "", "\(onlyVideo)", rootsText, "\(newFolder)", name, project?.id.uuidString ?? ""].joined(separator: "|")
+    }
     @State private var name = ""
     @State private var problem: String?
     /// For screenshots: these instead of the cards plugged in.
@@ -29,9 +36,14 @@ struct OffloadView: View {
     @State private var starting = false
     @State private var dropping = false
 
+    /// Where copies go: the project's drives, or the drives chosen here.
     private var roots: [URL] {
-        rootsText.split(separator: "\n").map { URL(fileURLWithPath: String($0), isDirectory: true) }
+        if let project { return project.drives.map { URL(fileURLWithPath: $0, isDirectory: true) } }
+        return rootsText.split(separator: "\n").map { URL(fileURLWithPath: String($0), isDirectory: true) }
     }
+
+    /// The project cards go into, if one is chosen.
+    private var project: OffloadProject? { projects.current }
 
     var body: some View {
         ToolPage {
@@ -39,6 +51,8 @@ struct OffloadView: View {
                 ToolWelcome(symbol: "externaldrive.badge.checkmark", title: Text("Offload"),
                             subtitle: Text("Copy a card to several drives at once, every file checked. If a drive disconnects, it carries on when it’s back."))
             }
+            ForEach(center.questions) { question in OffloadQuestionCard(question: question) }
+            ForEach(center.backupQuestions) { question in OffloadBackupQuestionCard(question: question) }
             setup
             ForEach(center.checks) { check in CheckRow(check: check) }
             if !center.jobs.isEmpty {
@@ -48,6 +62,9 @@ struct OffloadView: View {
                      detail: Text("A report (MHL) is saved with each copy, for DaVinci Resolve, Silverstack and OffShoot."))
         }
         .frame(minWidth: 640, minHeight: 520)
+        .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            if let editing { OffloadProjectSheet(project: editing.project, isNew: editing.isNew) }
+        }
         .task {
             if let start = Self.startSource { Self.startSource = nil; choose(start) }
             refreshCards()
@@ -76,6 +93,7 @@ struct OffloadView: View {
             // The card on the left, the drives on the right: click or drop on either side, and
             // what's to know about each under it.
             HStack {
+                projectMenu
                 Spacer()
                 Toggle(isOn: $automatic) { Text("Start when a card goes in") }
                     .toggleStyle(.switch)
@@ -93,9 +111,17 @@ struct OffloadView: View {
                     .padding(.top, 44)
                 toSide.frame(maxWidth: .infinity)
             }
+            if let project { OffloadWrapStrip(project: project) }
             HStack(spacing: Design.Spacing.controls) {
                 if let problem { ProblemLabel(text: problem) }
                 Spacer()
+                Button { showPhone.toggle() } label: {
+                    Image(systemName: phone.on ? "iphone.radiowaves.left.and.right" : "iphone")
+                        .foregroundStyle(phone.on ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                }
+                .buttonStyle(.borderless)
+                .help("Show on My Phone")
+                .popover(isPresented: $showPhone, arrowEdge: .bottom) { OffloadPhoneView() }
                 Menu {
                     Button("Check a Copy…", systemImage: "checkmark.shield") { pickCheck() }
                 } label: {
@@ -152,14 +178,24 @@ struct OffloadView: View {
             if roots.count < 4 {
                 addTile(roots.isEmpty ? "Choose a drive…" : "Add a drive…", symbol: "plus") { addRoot() }
             }
-            HStack(spacing: 8) {
-                Self.check("In a new folder", $newFolder)
-                    .help("On: each drive gets a new folder with this name, the card’s files in it. Off: only the card’s contents go, straight into the places chosen.")
-                if newFolder {
-                    TextField("Folder", text: $name).textFieldStyle(.roundedBorder)
+            if let project {
+                Button { editing = (project, false) } label: {
+                    Label(projectPath(project), systemImage: "folder.badge.person.crop")
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
+                .buttonStyle(.plain)
+                .help("Where cards go in this project. Click to change.")
+                .padding(.top, 4)
+            } else {
+                HStack(spacing: 8) {
+                    Self.check("In a new folder", $newFolder)
+                        .help("On: each drive gets a new folder with this name, the card’s files in it. Off: only the card’s contents go, straight into the places chosen.")
+                    if newFolder {
+                        TextField("Folder", text: $name).textFieldStyle(.roundedBorder)
+                    }
+                }
+                .padding(.top, 4)
             }
-            .padding(.top, 4)
         }
         .dropZone(targeted: $droppingTo) { urls in
             let folders = urls.filter(Self.isFolder)
@@ -167,6 +203,43 @@ struct OffloadView: View {
             for folder in folders { add(root: folder) }
             return true
         }
+    }
+
+    /// Choosing the project cards go into, or none (an offload to any folder).
+    private var projectMenu: some View {
+        Menu {
+            Picker("Project", selection: Binding(get: { projects.active }, set: { projects.active = $0 })) {
+                Text("No Project").tag(UUID?.none)
+                ForEach(projects.projects) { Text($0.name).tag(UUID?.some($0.id)) }
+            }
+            .pickerStyle(.inline)
+            .labelsHidden()
+            Divider()
+            Button("New Project…", systemImage: "plus") {
+                var made = OffloadProject(name: String(localized: "New Project"))
+                made.drives = rootsText.split(separator: "\n").map(String.init)
+                made.operators = [.init(name: String(localized: "Operator A"), letter: "A")]
+                editing = (made, true)
+            }
+            if let project {
+                Button("Edit \(project.name)…", systemImage: "pencil") { editing = (project, false) }
+            }
+        } label: {
+            Label(project?.name ?? String(localized: "No Project"), systemImage: "person.2.crop.square.stack")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .font(.callout)
+        .help("A project knows who’s filming and files each card in their folder, under the next card number")
+    }
+
+    /// Where the next card of the last person goes ("Festival/2026-07-12/A_Operator A/A004/").
+    private func projectPath(_ project: OffloadProject) -> String {
+        guard let person = project.person(project.lastOperator) ?? project.operators.first else { return project.name }
+        var shown = project
+        shown.drives = []
+        return OffloadProjectPlanner.plan(card: URL(fileURLWithPath: "/"), files: [], project: shown, operator: person, date: .now,
+                                           firstOffload: project.firstOffload(in: center.jobs)).folder + "/"
     }
 
     private func sideTitle(_ title: LocalizedStringKey) -> some View {
@@ -228,7 +301,8 @@ struct OffloadView: View {
     private var remaining: Int? { found.map { $0.count - (already?.count ?? 0) } }
 
     private var canStart: Bool {
-        source != nil && !roots.isEmpty && !starting && (!newFolder || !name.trimmingCharacters(in: .whitespaces).isEmpty)
+        if let project { return source != nil && !roots.isEmpty && !project.operators.isEmpty && !starting && (found?.count ?? 1) > 0 }
+        return source != nil && !roots.isEmpty && !starting && (!newFolder || !name.trimmingCharacters(in: .whitespaces).isEmpty)
             && (remaining ?? 1) > 0
     }
 
@@ -272,7 +346,8 @@ struct OffloadView: View {
     /// What the offload would copy, worked out again when anything it depends on changes.
     private func plan() async {
         guard let source else { found = nil; already = nil; return }
-        let onlyVideo = onlyVideo, targets = roots.map { newFolder ? $0.appendingPathComponent(name).path : $0.path }
+        // (In a project, what's already there is worked out once the card's operator is known.)
+        let onlyVideo = onlyVideo, targets = project != nil ? [] : roots.map { newFolder ? $0.appendingPathComponent(name).path : $0.path }
         found = nil
         already = nil
         let (list, there) = await Task.detached(priority: .userInitiated) {
@@ -314,6 +389,11 @@ struct OffloadView: View {
 
     private func add(root url: URL) {
         guard !roots.contains(url), roots.count < 4, url != source else { return }
+        if let project {
+            projects.change(project.id) { $0.drives.append(url.path) }
+            refreshCards()
+            return
+        }
         rootsText = (roots + [url]).map(\.path).joined(separator: "\n")
         refreshCards()
     }
@@ -328,6 +408,11 @@ struct OffloadView: View {
     }
 
     private func removeRoot(_ root: URL) {
+        if let project {
+            projects.change(project.id) { $0.drives.removeAll { $0 == root.path } }
+            refreshCards()
+            return
+        }
         rootsText = roots.filter { $0 != root }.map(\.path).joined(separator: "\n")
         refreshCards()
     }
@@ -342,6 +427,13 @@ struct OffloadView: View {
         }
         starting = true
         problem = nil
+        if let project {
+            Task {
+                problem = await center.offload(card: source, project: project.id, eject: eject, onlyVideo: onlyVideo)
+                starting = false
+            }
+            return
+        }
         let folder = newFolder ? name.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "/", with: "-") : ""
         Task {
             problem = await center.add(source: source, roots: targets, name: folder, eject: eject, onlyVideo: onlyVideo)
@@ -360,9 +452,11 @@ private struct OffloadRow: View {
         let state = center.state(job)
         let live = center.live[job.id]
         Card {
-            CardHeader(symbol: job.quick == true ? "doc.on.doc" : "externaldrive.badge.checkmark", title: Text(job.displayName),
+            CardHeader(symbol: job.quick == true ? "doc.on.doc" : job.backup != nil ? "externaldrive.badge.timemachine" : "externaldrive.badge.checkmark", title: Text(job.displayName),
                        subtitle: Text("\(job.sourceVolume) → \(job.rootVolumes.formatted(.list(type: .and)))"
-                                      + ((job.skipped ?? 0) > 0 ? " · " + String(localized: "\(job.skipped ?? 0) already there") : "")),
+                                      + ((job.skipped ?? 0) > 0 ? " · " + String(localized: "\(job.skipped ?? 0) already there") : "")
+                                      + ((job.alreadyThere ?? 0) > 0
+                                         ? " · " + String(localized: "\(job.files.count) new clips · \(job.alreadyThere ?? 0) already there") : "")),
                        tint: tint(state)) {
                 buttons(state)
             }
@@ -383,18 +477,19 @@ private struct OffloadRow: View {
                 }
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(.secondary)
+                if state == .copying, let history = center.speedLive[job.id] { OffloadSpeedLine(job: job, history: history) }
             } else {
                 HStack(spacing: Design.Spacing.controls) {
-                    let skipped = job.skipped ?? 0
-                    Label(skipped > 0
-                          ? String(localized: "\(job.files.count - job.problems.count - skipped) copied and checked, \(skipped) already there")
+                    let skipped = job.skipped ?? 0, there = skipped + (job.alreadyThere ?? 0)
+                    Label(there > 0
+                          ? String(localized: "\(job.files.count - job.problems.count - skipped) copied and checked, \(there) already there")
                           : String(AttributedString(localized: "^[\(job.files.count - job.problems.count) file](inflect: true) checked on every drive").characters),
                           systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                     Text(ByteCountFormatter.string(fromByteCount: job.totalBytes, countStyle: .file)).foregroundStyle(.secondary)
                     Spacer()
                     // Every file on every drive and checked: the card can be formatted.
-                    if job.problems.isEmpty, job.quick != true, job.partial != true {
+                    if job.problems.isEmpty, job.quick != true, job.partial != true, job.backup == nil {
                         Label("Safe to Format", systemImage: "checkmark.seal.fill")
                             .font(.caption.weight(.semibold))
                             .padding(.horizontal, 8).padding(.vertical, 3)
@@ -405,6 +500,7 @@ private struct OffloadRow: View {
                     if let finished = job.finished { Text(finished, style: .date).foregroundStyle(.secondary) }
                 }
                 .font(.callout)
+                if job.quick != true, job.backup == nil { OffloadClipGrid(job: job) }
             }
             if !job.problems.isEmpty {
                 DisclosureGroup(isExpanded: $showProblems) {

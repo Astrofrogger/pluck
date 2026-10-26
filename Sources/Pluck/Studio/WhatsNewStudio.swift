@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.8.0", items: [
+                Item(symbol: "square.stack.3d.up", title: String(localized: "Moments, ranked your way"),
+                     detail: String(localized: "Bursts become moments with the strongest frames on top and the rest one click away, ranked by what you kept in Lightroom. Take your usual look from Lightroom, and level exposure across a set in one go.")),
+                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload projects"),
+                     detail: String(localized: "Set up a shoot with its operators once: cards are recognised, named and filed per person, clips already copied are skipped, and every drive's speed shows. Back up the whole project, see the day's wrap report, and follow offloads from your phone.")),
+            ]),
             Release(version: "3.7.1", items: [
                 Item(symbol: "checkmark.seal", title: String(localized: "Smaller fixes"),
                      detail: String(localized: "Shortcuts with ⌃ work, and keys you choose for the player win over its own. Watermarks fit small photos, presets that would write the same file get their own folder, a photo edited in HDR keeps it when exported, and undo after bringing an edit back from Resolve is complete.")),
