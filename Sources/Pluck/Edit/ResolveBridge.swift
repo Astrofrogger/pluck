@@ -78,6 +78,13 @@ pm = resolve.GetProjectManager()
 action = cmd["action"]
 """#
 
+    /// Whether a timeline is empty, from the number of items on each of its tracks by kind (a pure
+    /// function, tested on its own): only when every video, audio and subtitle track is.
+    static let emptyCheck = #"""
+def is_empty(tracks):
+    return all(count == 0 for kind in ("video", "audio", "subtitle") for count in tracks.get(kind, []))
+"""#
+
     private static let script = #"""
 import sys, json
 sys.path.append(sys.argv[1])
@@ -158,6 +165,20 @@ def timeline_named(name):
             return found
     return None
 
+\#(emptyCheck)
+def contents(timeline):
+    return {kind: [len(timeline.GetItemListInTrack(kind, index) or []) for index in range(1, (timeline.GetTrackCount(kind) or 0) + 1)]
+            for kind in ("video", "audio", "subtitle")}
+
+def empty_timeline(base):
+    # A timeline of that name with nothing on it at all (left by an earlier try) is used again;
+    # one with anything on it is never touched: then "Name 2", "Name 3"… instead.
+    name, number = base, 2
+    while timeline_named(name) is not None and not is_empty(contents(timeline_named(name))):
+        name = "%s %d" % (base, number)
+        number += 1
+    return timeline_named(name) or pool.CreateEmptyTimeline(name), name
+
 def timeline_name(name):
     # Resolve turns a colon in a timeline name into a full stop: ask for that name straight away,
     # so the timeline can be found by it afterwards.
@@ -165,14 +186,8 @@ def timeline_name(name):
 
 if action == "createTimeline":
     # An empty timeline at the asked frame rate if Resolve allows it (whole rates only, through
-    # scripting); the rate it really has is what the edit is placed in. A name already in use
-    # gets a number (an empty timeline of that name, left by an earlier try, is used again).
-    base = timeline_name(cmd["name"])
-    name, number = base, 2
-    while timeline_named(name) is not None and timeline_named(name).GetItemListInTrack("video", 1):
-        name = "%s %d" % (base, number)
-        number += 1
-    timeline = timeline_named(name) or pool.CreateEmptyTimeline(name)
+    # scripting); the rate it really has is what the edit is placed in.
+    timeline, name = empty_timeline(timeline_name(cmd["name"]))
     if timeline is None:
         out({"error": "Couldn't create the timeline " + name})
     rate = cmd.get("frameRate")
@@ -186,12 +201,11 @@ if action == "createTimeline":
 if action == "buildTimeline":
     root = pool.GetRootFolder()
     known = {c.GetClipProperty("File Path"): c for c in clips_in(root)}
-    name = timeline_name(cmd["name"])
-    existing = timeline_named(name)
-    timeline = existing if existing and not existing.GetItemListInTrack("video", 1) else pool.CreateEmptyTimeline(name)
+    timeline, name = empty_timeline(timeline_name(cmd["name"]))
     if timeline is None:
         out({"error": "Couldn't create the timeline " + name})
     project.SetCurrentTimeline(timeline)
+    # (Only ever an empty timeline, so the hidden lanes are switched off even on its own tracks.)
     while timeline.GetTrackCount("video") < cmd.get("videoTracks", 1):
         timeline.AddTrack("video")
     for track in cmd.get("disabledTracks", []):

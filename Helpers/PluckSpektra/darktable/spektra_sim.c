@@ -4886,21 +4886,14 @@ void sf_sim_print_develop(const sf_sim_t *sim,
   }
 }
 
-void sf_sim_scan(const sf_sim_t *sim,
-                 const float *cmy,
-                 float *rgb_out,
-                 size_t npix,
-                 int nch_in,
-                 int nch_out)
+/* the scan's first half: cmy density -> viewed XYZ (pow10 of the scan table, luminance boost),
+   before the scanner's black/white fit. Split out for pluck-spektra's table dump; sf_sim_scan
+   runs the same two halves. */
+static inline void scan_xyz_px(const sf_sim_t *sim,
+                               const float *in,
+                               float xyz[3])
 {
   const int steps = sim->lut_steps;
-#ifdef _OPENMP
-#pragma omp parallel for schedule(static)
-#endif
-  for(size_t px = 0; px < npix; px++)
-  {
-    const float *in = cmy + px * nch_in;
-    float *out = rgb_out + px * nch_out;
     float lx[3];
     if(steps >= 2 && sim->scan_lut_f)
     {
@@ -4930,24 +4923,17 @@ void sf_sim_scan(const sf_sim_t *sim,
       cmy_to_log_xyz(sim, c, lxd);
       lx[0] = (float)lxd[0]; lx[1] = (float)lxd[1]; lx[2] = (float)lxd[2];
     }
-    /* float from here on, matching spektrafilm_scan in spektrafilm.cl term
-       for term (POW10F is already float, and lx above is float in every branch
-       too). Switching to double here would buy no accuracy and would make
-       every pixel's gamut compression disagree with the GPU path. See
-       compress_rgb_oklch_f's comment for what legitimately stays in double
-       (build_cmax_table). */
-    float xyz[3]; float rgb[3];
     for(int m = 0; m < 3; m++) xyz[m] = SF_POW10F(lx[m]);
     if(sim->out_luminance_boost != 1.0)
       for(int m = 0; m < 3; m++) xyz[m] *= (float)sim->out_luminance_boost;
-    if(sim->scan_bw_on)
-    {
-      const float y = xyz[1];
-      float yc = fmaf((float)sim->scan_bw_m, y, (float)sim->scan_bw_q);
-      yc = yc < 0.0f ? 0.0f : (yc > 1.0f ? 1.0f : yc);
-      const float sc = yc / (y + 1e-10f);
-      for(int m = 0; m < 3; m++) xyz[m] *= sc;
-    }
+}
+
+/* the scan's second half: viewed XYZ (after the black/white fit) -> output RGB, gamut
+   compressed and scaled */
+static inline void scan_finish_px(const sf_sim_t *sim,
+                                  const float xyz[3],
+                                  float rgb[3])
+{
     mat3_mulv_f(rgb, sim->m_out_f, xyz);
     if(sim->out_compress == SF_OUTPUT_COMPRESS_OKLCH)
       compress_rgb_oklch_f(sim, rgb);
@@ -4957,8 +4943,51 @@ void sf_sim_scan(const sf_sim_t *sim,
        compressor -- see out_scale in the header */
     if(sim->out_scale != 1.0)
       for(int m = 0; m < 3; m++) rgb[m] *= (float)sim->out_scale;
+}
+
+void sf_sim_scan(const sf_sim_t *sim,
+                 const float *cmy,
+                 float *rgb_out,
+                 size_t npix,
+                 int nch_in,
+                 int nch_out)
+{
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+  for(size_t px = 0; px < npix; px++)
+  {
+    const float *in = cmy + px * nch_in;
+    float *out = rgb_out + px * nch_out;
+    float xyz[3], rgb[3];
+    scan_xyz_px(sim, in, xyz);
+    if(sim->scan_bw_on)
+    {
+      const float y = xyz[1];
+      float yc = fmaf((float)sim->scan_bw_m, y, (float)sim->scan_bw_q);
+      yc = yc < 0.0f ? 0.0f : (yc > 1.0f ? 1.0f : yc);
+      const float sc = yc / (y + 1e-10f);
+      for(int m = 0; m < 3; m++) xyz[m] *= sc;
+    }
+    scan_finish_px(sim, xyz, rgb);
     for(int c = 0; c < 3; c++) out[c] = rgb[c];
   }
+}
+
+void sf_sim_scan_xyz(const sf_sim_t *sim,
+                     const float *cmy,
+                     float *xyz_out,
+                     size_t npix)
+{
+  for(size_t px = 0; px < npix; px++) scan_xyz_px(sim, cmy + px * 3, xyz_out + px * 3);
+}
+
+void sf_sim_scan_finish(const sf_sim_t *sim,
+                        const float *xyz,
+                        float *rgb_out,
+                        size_t npix)
+{
+  for(size_t px = 0; px < npix; px++) scan_finish_px(sim, xyz + px * 3, rgb_out + px * 3);
 }
 
 /* ------------------------------------------------------------------------ */

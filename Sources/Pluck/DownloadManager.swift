@@ -1213,7 +1213,8 @@ final class DownloadManager {
         } else if line.hasPrefix("PLUCKMETA ") {
             let json = Data(line.dropFirst("PLUCKMETA ".count).utf8)
             guard let meta = try? JSONSerialization.jsonObject(with: json) as? [String: Any] else { return }
-            if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String { item.thumbnail = URL(string: thumb) }
+            if item.thumbnail == nil, let thumb = meta["thumbnail"] as? String, let url = URL(string: thumb),
+               LibraryServer.isPublicWeb(url) { item.thumbnail = url }
             item.spokenLanguage = meta["language"] as? String
             if item.options.isAudio {
                 item.sourceAudio = Self.describeAudio(codec: meta["acodec"] as? String, bitrate: meta["abr"] as? Double)
@@ -1496,8 +1497,11 @@ final class DownloadManager {
     private func tagChapters(of item: DownloadItem) async {
         guard let file = item.fileURL, let ffmpeg = tool("ffmpeg") else { return }
         let folder = file.deletingPathExtension()
-        let pieces = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? [])
-            .filter { !$0.lastPathComponent.hasPrefix(".") }
+        // Only this split's own files ("03 - Title.m4a", written since the download began), never
+        // anything else already in a folder of that name.
+        let began = ((try? file.resourceValues(forKeys: [.creationDateKey]))?.creationDate ?? .distantPast).addingTimeInterval(-2)
+        let pieces = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
+            .filter { Self.isChapterPiece($0, since: began) }
             .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
         guard !pieces.isEmpty else { return }
         let album = item.title
@@ -1529,6 +1533,12 @@ final class DownloadManager {
         try? FileManager.default.removeItem(at: file)
         item.fileURL = folder
         item.chapterCount = pieces.count
+    }
+
+    /// A file a chapter split wrote: named like its output ("03 - Title.ext") and written since `since`.
+    nonisolated static func isChapterPiece(_ url: URL, since: Date) -> Bool {
+        url.lastPathComponent.range(of: #"^\d{2,} - "#, options: .regularExpression) != nil
+            && ((try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) >= since
     }
 
     /// A file's size, or everything in a folder (chapter splits).

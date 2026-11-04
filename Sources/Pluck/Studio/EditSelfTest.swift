@@ -17,6 +17,7 @@ enum EditSelfTest {
         media = defaults.string(forKey: "PluckScreenshotFile") ?? ""
         lines = []
         decoding()
+        network()
         await trims()
         await topAndTail()
         await favourites()
@@ -32,7 +33,9 @@ enum EditSelfTest {
         await offloadProjects()
         await offloadClips()
         await offloadBackup()
+        await libraryFiles()
         await offloadPhone()
+        await mediaFixes(manager)
         // The throwaway projects aren't kept.
         for made in ProjectStore.all() where made.name == "Self Test" { try? FileManager.default.removeItem(at: ProjectStore.url(for: made.id)) }
         lines.append("done")

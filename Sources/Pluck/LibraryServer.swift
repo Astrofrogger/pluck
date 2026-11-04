@@ -28,8 +28,12 @@ final class LibraryServer {
     @ObservationIgnored private var listener: NWListener?
     /// Sessions handed out after a correct code (kept until Pluck quits or the code changes).
     @ObservationIgnored private var sessions: Set<String> = []
-    /// Wrong codes per address, to slow down guessing.
-    @ObservationIgnored private var failures: [String: (count: Int, since: Date)] = [:]
+    /// Wrong codes, to slow down guessing.
+    @ObservationIgnored private var lockout = Lockout()
+    /// Connections open now (capped, so a flood can't pile them up).
+    @ObservationIgnored private var open = 0
+    /// Library entries by their id, rebuilt when the Library changes.
+    @ObservationIgnored private var idCache: (version: Int, entries: [String: LibraryStore.Entry]) = (-1, [:])
     @ObservationIgnored private let queue = DispatchQueue(label: "be.wideopen.pluck.library-server")
     /// Thumbnails from the web, fetched once.
     @ObservationIgnored private var remoteThumbnails: [String: (data: Data, type: String)] = [:]
@@ -156,20 +160,35 @@ final class LibraryServer {
 
     private func accept(_ connection: NWConnection) {
         // Only devices on the local network (and this Mac itself).
-        guard case .hostPort(let host, _) = connection.endpoint, Self.isLocal(host) else {
+        guard case .hostPort(let host, _) = connection.endpoint, Self.isLocal(host), open < 32 else {
             connection.cancel()
             return
         }
+        open += 1
+        connection.stateUpdateHandler = { [weak self] state in
+            switch state {
+            case .failed: connection.cancel()
+            case .cancelled: Task { @MainActor in self?.open -= 1 }
+            default: break
+            }
+        }
         connection.start(queue: queue)
-        receive(on: connection, buffer: Data())
+        // A device that never finishes asking is let go after 30 seconds.
+        let headIn = HeadFlag()
+        queue.asyncAfter(deadline: .now() + 30) { if !headIn.done { connection.cancel() } }
+        receive(on: connection, buffer: Data(), headIn: headIn)
     }
 
-    nonisolated private func receive(on connection: NWConnection, buffer: Data) {
+    /// Whether a connection's request head arrived; only touched on `queue`.
+    private final class HeadFlag: @unchecked Sendable { var done = false }
+
+    nonisolated private func receive(on connection: NWConnection, buffer: Data, headIn: HeadFlag) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, complete, error in
             guard let self else { connection.cancel(); return }
             var buffer = buffer
             if let data { buffer.append(data) }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8)) {
+                headIn.done = true
                 let head = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
                 var body = buffer[end.upperBound...]
                 let length = Int(Self.header("content-length", in: head) ?? "") ?? 0
@@ -180,7 +199,7 @@ final class LibraryServer {
                     return
                 }
                 if body.count < min(length, 16 * 1024), !complete, error == nil {
-                    self.receive(on: connection, buffer: buffer)
+                    self.receive(on: connection, buffer: buffer, headIn: headIn)
                     return
                 }
                 body = body.prefix(16 * 1024)
@@ -189,7 +208,7 @@ final class LibraryServer {
             } else if complete || error != nil || buffer.count > 64 * 1024 {
                 connection.cancel()
             } else {
-                self.receive(on: connection, buffer: buffer)
+                self.receive(on: connection, buffer: buffer, headIn: headIn)
             }
         }
     }
@@ -230,6 +249,11 @@ final class LibraryServer {
 
     private func handle(_ request: Request, on connection: NWConnection) {
         let client = Self.clientKey(connection)
+        // Only asked for by address or .local name: a web page elsewhere can't point its own
+        // name at this Mac (DNS rebinding) and read the Library through a visitor's browser.
+        guard Self.isAllowedHost(request.headers["host"]) else {
+            return respond(connection, status: 400, type: "text/plain", body: Data("Bad host".utf8))
+        }
         guard request.method == "GET" || request.method == "HEAD" || request.method == "POST" else {
             return respond(connection, status: 405, type: "text/plain", body: Data("Not allowed".utf8))
         }
@@ -262,10 +286,7 @@ final class LibraryServer {
         }
         // With sharing off, the server only runs for Send to Phone links.
         guard isSharing else { return respond(connection, status: 404, type: "text/plain", body: Data("Not shared".utf8)) }
-        // Everything else needs the code: a session cookie from the web page, or the code itself.
-        let session = request.cookies["pluck_session"]
-        let authorised = (session.map(sessions.contains) ?? false) || request.headers["x-pluck-code"] == code
-        guard authorised else {
+        guard Self.isAuthorised(request, sessions: sessions) else {
             if request.path == "/" { return respond(connection, status: 200, type: "text/html; charset=utf-8", body: Data(LibraryPage.login(error: false).utf8)) }
             return respond(connection, status: 401, type: "text/plain", body: Data("Access code needed".utf8))
         }
@@ -273,7 +294,7 @@ final class LibraryServer {
         case "/":
             respond(connection, status: 200, type: "text/html; charset=utf-8", body: Data(LibraryPage.library.utf8))
         case "/api/library":
-            respond(connection, status: 200, type: "application/json", body: libraryJSON())
+            serveLibrary(on: connection)
         case "/api/downloads":
             respond(connection, status: 200, type: "application/json", body: downloadsJSON())
         case "/api/download" where request.method == "POST":
@@ -291,9 +312,13 @@ final class LibraryServer {
         }
     }
 
+    /// Everything but logging in needs a session cookie from logging in (nothing else counts).
+    nonisolated static func isAuthorised(_ request: Request, sessions: Set<String>) -> Bool {
+        request.cookies["pluck_session"].map(sessions.contains) ?? false
+    }
+
     private func login(_ request: Request, client: String, on connection: NWConnection) {
-        // Ten wrong codes in ten minutes locks that device out for the rest of them.
-        if let record = failures[client], record.count >= 10, Date().timeIntervalSince(record.since) < 600 {
+        if lockout.isLocked(client) {
             return respond(connection, status: 429, type: "text/html; charset=utf-8", body: Data(LibraryPage.login(error: true).utf8))
         }
         let form = String(decoding: request.body, as: UTF8.self)
@@ -301,12 +326,11 @@ final class LibraryServer {
             let kv = pair.split(separator: "=", maxSplits: 1)
             return kv.count == 2 && kv[0] == "code" ? String(kv[1]).removingPercentEncoding : nil
         }.first?.filter(\.isNumber) ?? ""
-        guard typed == code else {
-            let record = failures[client]
-            failures[client] = record.map { Date().timeIntervalSince($0.since) < 600 ? ($0.count + 1, $0.since) : (1, Date()) } ?? (1, Date())
+        guard Self.sameCode(typed, code) else {
+            lockout.fail(client)
             return respond(connection, status: 200, type: "text/html; charset=utf-8", body: Data(LibraryPage.login(error: true).utf8))
         }
-        failures[client] = nil
+        lockout.succeed(client)
         let token = UUID().uuidString + UUID().uuidString
         sessions.insert(token)
         respond(connection, status: 303, type: "text/plain", body: Data(),
@@ -320,34 +344,52 @@ final class LibraryServer {
         SHA256.hash(data: Data(("pluck:" + path).utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
     }
 
-    private func entry(for id: String) -> LibraryStore.Entry? {
-        LibraryStore.shared.entries.first { Self.id(for: $0.path) == id }
+    private var entriesByID: [String: LibraryStore.Entry] {
+        let store = LibraryStore.shared
+        if idCache.version != store.version {
+            idCache = (store.version, Dictionary(store.entries.map { (Self.id(for: $0.path), $0) }, uniquingKeysWith: { first, _ in first }))
+        }
+        return idCache.entries
     }
 
-    private func libraryJSON() -> Data {
+    private func entry(for id: String) -> LibraryStore.Entry? { entriesByID[id] }
+
+    /// Built off the main thread: checking every file is there takes a while in a big Library.
+    private func serveLibrary(on connection: NWConnection) {
+        let entries = entriesByID, canDownload = allowsDownloads, canUpload = allowsUploads
+        Task.detached {
+            let body = Self.libraryJSON(entries, canDownload: canDownload, canUpload: canUpload)
+            self.respond(connection, status: 200, type: "application/json", body: body)
+        }
+    }
+
+    nonisolated private static func libraryJSON(_ entries: [String: LibraryStore.Entry], canDownload: Bool, canUpload: Bool) -> Data {
         let iso = ISO8601DateFormatter()
-        let items: [[String: Any]] = LibraryStore.shared.entries
-            .filter { $0.kind != .other && FileManager.default.fileExists(atPath: $0.path) }
-            .sorted { $0.added > $1.added }
-            .map { entry in
-                var item: [String: Any] = ["id": Self.id(for: entry.path), "title": entry.title, "kind": entry.kind.rawValue,
+        let items: [[String: Any]] = entries
+            .map { (id: $0.key, entry: $0.value) }
+            .filter { $0.entry.kind != .other && FileManager.default.fileExists(atPath: $0.entry.path) }
+            .sorted { $0.entry.added > $1.entry.added }
+            .map { id, entry in
+                var item: [String: Any] = ["id": id, "title": entry.title, "kind": entry.kind.rawValue,
                                            "added": iso.string(from: entry.added), "tags": entry.tags,
                                            "ext": entry.file.pathExtension.lowercased()]
                 if let uploader = entry.uploader { item["uploader"] = uploader }
                 if let site = entry.site { item["site"] = site }
                 if let size = entry.size { item["size"] = size }
                 if let duration = entry.duration { item["duration"] = duration }
-                if entry.thumbnail != nil || entry.kind == .photo { item["thumb"] = "/thumb/" + Self.id(for: entry.path) }
+                if entry.thumbnail != nil || entry.kind == .photo { item["thumb"] = "/thumb/" + id }
                 return item
             }
         let name = Host.current().localizedName ?? "Pluck"
-        return (try? JSONSerialization.data(withJSONObject: ["name": name, "items": items, "canDownload": allowsDownloads,
-                                                             "canUpload": allowsUploads])) ?? Data("{}".utf8)
+        return (try? JSONSerialization.data(withJSONObject: ["name": name, "items": items, "canDownload": canDownload,
+                                                             "canUpload": canUpload])) ?? Data("{}".utf8)
     }
 
     private func serveThumbnail(id: String, on connection: NWConnection) {
         guard let entry = entry(for: id) else { return respond(connection, status: 404, type: "text/plain", body: Data()) }
         if let thumbnail = entry.thumbnail, !thumbnail.isFileURL {
+            // Only pictures on the internet: a site's metadata can't make this Mac fetch from the local network.
+            guard Self.isPublicWeb(thumbnail) else { return respond(connection, status: 404, type: "text/plain", body: Data()) }
             // A picture on the web (YouTube's thumbnail): fetched once by this Mac and served from
             // here, so it shows on a network without internet and phones don't contact the site.
             if let cached = remoteThumbnails[id] {
@@ -368,10 +410,12 @@ final class LibraryServer {
             return
         }
         let file = entry.thumbnail ?? entry.file
-        guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count < 30_000_000 else {
-            return respond(connection, status: 404, type: "text/plain", body: Data())
+        Task.detached {
+            guard let data = try? Data(contentsOf: file, options: .mappedIfSafe), data.count < 30_000_000 else {
+                return self.respond(connection, status: 404, type: "text/plain", body: Data())
+            }
+            self.respond(connection, status: 200, type: Self.mimeType(file), body: data, extra: ["Cache-Control": "max-age=86400"])
         }
-        respond(connection, status: 200, type: Self.mimeType(file), body: data, extra: ["Cache-Control": "max-age=86400"])
     }
 
     /// Streams a file, with byte ranges so browsers can seek in video.
@@ -489,8 +533,20 @@ final class LibraryServer {
         let name = rawName.isEmpty ? "" : Folders.sanitize(rawName)
         let ext = rawExt.isEmpty ? "" : Folders.sanitize(rawExt).replacingOccurrences(of: " ", with: "")
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let destination = Converting.outputURL(folder: folder, name: name.isEmpty ? "File" : name, fileExtension: ext.isEmpty ? "bin" : ext)
-        let partial = destination.appendingPathExtension("part")
+        // (The "important usage" figure is 0 or missing on servers and some drives: then the plain one,
+        // then the file system's; unknown lets it through.)
+        let values = try? URL(fileURLWithPath: folder).resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        var info = statfs()
+        let free: Int64? = if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 { important }
+            else if let plain = values?.volumeAvailableCapacity, plain > 0 { Int64(plain) }
+            else if statfs(folder, &info) == 0 { Int64(info.f_bavail) * Int64(info.f_bsize) }
+            else { nil }
+        // Room for it, with 1 GB left over for the Mac.
+        if let free, length + 1_000_000_000 >= free {
+            return respond(connection, status: 507, type: "text/plain", body: Data("Not enough space on this Mac".utf8))
+        }
+        // Its own partial file (two sends of one name at once don't mix); the name is picked when it's in.
+        let partial = URL(fileURLWithPath: folder).appendingPathComponent(".pluck-upload-\(UUID().uuidString).part")
         guard FileManager.default.createFile(atPath: partial.path, contents: nil),
               let handle = FileHandle(forWritingAtPath: partial.path) else {
             return respond(connection, status: 500, type: "text/plain", body: Data("Couldn’t save".utf8))
@@ -504,6 +560,7 @@ final class LibraryServer {
         streamUpload(on: connection, into: handle, received: received, length: length) { [weak self] ok in
             Task { @MainActor in
                 guard let self else { return }
+                let destination = Converting.outputURL(folder: folder, name: name.isEmpty ? "File" : name, fileExtension: ext.isEmpty ? "bin" : ext)
                 if ok, (try? FileManager.default.moveItem(at: partial, to: destination)) != nil {
                     _ = manager.addLocalFiles([destination])
                     manager.saveHistory()
@@ -541,7 +598,7 @@ final class LibraryServer {
 
     // MARK: - HTTP
 
-    private func respond(_ connection: NWConnection, status: Int, type: String, body: Data, extra: [String: String] = [:]) {
+    nonisolated private func respond(_ connection: NWConnection, status: Int, type: String, body: Data, extra: [String: String] = [:]) {
         var data = Self.head(status: status, type: type, length: Int64(body.count), extra: extra)
         data.append(body)
         connection.send(content: data, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
@@ -549,7 +606,7 @@ final class LibraryServer {
 
     nonisolated private static func head(status: Int, type: String, length: Int64, extra: [String: String]) -> Data {
         let reason = [200: "OK", 206: "Partial Content", 302: "Found", 303: "See Other", 400: "Bad Request", 401: "Unauthorized",
-                      403: "Forbidden", 404: "Not Found", 410: "Gone", 411: "Length Required", 500: "Internal Server Error",
+                      403: "Forbidden", 404: "Not Found", 410: "Gone", 411: "Length Required", 500: "Internal Server Error", 507: "Insufficient Storage",
                       405: "Method Not Allowed", 416: "Range Not Satisfiable", 429: "Too Many Requests"][status] ?? "OK"
         var lines = ["HTTP/1.1 \(status) \(reason)", "Content-Type: \(type)", "Content-Length: \(length)", "Connection: close",
                      "X-Content-Type-Options: nosniff", "Referrer-Policy: no-referrer"]
@@ -565,7 +622,7 @@ final class LibraryServer {
         return nil
     }
 
-    private static func mimeType(_ file: URL) -> String {
+    nonisolated private static func mimeType(_ file: URL) -> String {
         UTType(filenameExtension: file.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
     }
 
@@ -599,6 +656,66 @@ final class LibraryServer {
         default:
             return false
         }
+    }
+
+    /// A Host header naming this Mac by address, .local name or localhost (never a web site's name).
+    nonisolated static func isAllowedHost(_ header: String?) -> Bool {
+        guard var host = header?.lowercased(), !host.isEmpty else { return false }
+        if host.hasPrefix("[") {
+            guard let close = host.firstIndex(of: "]") else { return false }
+            return IPv6Address(String(host[host.index(after: host.startIndex)..<close])) != nil
+        }
+        if let colon = host.lastIndex(of: ":") { host = String(host[..<colon]) }
+        if host.hasSuffix(".") { host.removeLast() }
+        return host == "localhost" || (host.hasSuffix(".local") && host.count > 6) || IPv4Address(host) != nil
+    }
+
+    /// An http(s) address on the internet: not this Mac, the local network or a .local name.
+    /// shortcut: a public name that resolves to a local address still passes; resolve first if that matters.
+    nonisolated static func isPublicWeb(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              var host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return false }
+        if host.hasPrefix("["), host.hasSuffix("]") { host = String(host.dropFirst().dropLast()) }
+        if host.hasSuffix(".") { host.removeLast() }
+        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") { return false }
+        // inet_aton also reads the old forms ("2130706433", "0x7f.1") a connection would accept.
+        var v4 = in_addr()
+        if inet_aton(host, &v4) != 0, let ip = IPv4Address(withUnsafeBytes(of: v4.s_addr) { Data($0) }) {
+            return !isLocal(.ipv4(ip)) && ip.rawValue.first != 0
+        }
+        if let ip = IPv6Address(host) { return !isLocal(.ipv6(ip)) && ip != .any }
+        return true
+    }
+
+    /// The same code, compared in constant time.
+    nonisolated static func sameCode(_ typed: String, _ code: String) -> Bool {
+        let a = Array(typed.utf8), b = Array(code.utf8)
+        return a.count == b.count && zip(a, b).reduce(UInt8(0)) { $0 | ($1.0 ^ $1.1) } == 0
+    }
+
+    /// Wrong codes: ten from one address in ten minutes locks that address out for the rest of
+    /// them; thirty from anywhere locks everyone out (so many addresses can't share the guessing).
+    struct Lockout {
+        static let window: TimeInterval = 600
+        private var perAddress: [String: (count: Int, since: Date)] = [:]
+        private var all: (count: Int, since: Date) = (0, .distantPast)
+
+        func isLocked(_ client: String, now: Date = .now) -> Bool {
+            if all.count >= 30, now.timeIntervalSince(all.since) < Self.window { return true }
+            guard let record = perAddress[client] else { return false }
+            return record.count >= 10 && now.timeIntervalSince(record.since) < Self.window
+        }
+
+        mutating func fail(_ client: String, now: Date = .now) {
+            func counted(_ record: (count: Int, since: Date)?) -> (count: Int, since: Date) {
+                guard let record, now.timeIntervalSince(record.since) < Self.window else { return (1, now) }
+                return (record.count + 1, record.since)
+            }
+            perAddress[client] = counted(perAddress[client])
+            all = counted(all)
+        }
+
+        mutating func succeed(_ client: String) { perAddress[client] = nil }
     }
 
     /// This Mac's address on the local network (Wi-Fi or Ethernet).

@@ -137,7 +137,7 @@ final class ProjectExports {
             var made: [URL] = []
             for (number, job) in jobs.enumerated() {
                 guard !Task.isCancelled else { break }
-                let output = Converting.outputURL(folder: folder, name: job.name,
+                let output = EditorExport.reserve(folder: folder, name: job.name,
                                                   fileExtension: audioOnly ? settings.audioFile.rawValue : settings.container.fileExtension)
                 let done = await render(job.project, to: output, settings: settings, audioOnly: audioOnly, size: size, fps: fps,
                                         lengths: lengths, ffmpeg: ffmpeg, ffprobe: ffprobe) { value in
@@ -203,9 +203,19 @@ final class ProjectExports {
             }
             speech = Ducking.speech(in: project, fileSpans: { found[$0] })
         }
-        let arguments = { (hardware: Bool) in
-            Self.arguments(project, streams: streams, lengths: lengths, settings: settings, audioOnly: audioOnly, size: size, fps: fps,
-                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: output, speech: speech)
+        // Written as "Name.part.ext", named once whole.
+        var made: [[String]] = []
+        let arguments = { (hardware: Bool) -> [String] in
+            let arguments = Self.arguments(project, streams: streams, lengths: lengths, settings: settings, audioOnly: audioOnly, size: size, fps: fps,
+                                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: EditorExport.partial(output), speech: speech)
+            made.append(arguments)
+            return arguments
+        }
+        defer {
+            // A long graph's file.
+            for arguments in made {
+                if let flag = arguments.firstIndex(of: "-/filter_complex") { try? FileManager.default.removeItem(atPath: arguments[flag + 1]) }
+            }
         }
         let report: @Sendable (Double) -> Void = { value in Task { @MainActor in progress(value) } }
         let hardware = !audioOnly && settings.hardware && !settings.codec.isProRes
@@ -223,15 +233,16 @@ final class ProjectExports {
         }
         if let assFile { try? FileManager.default.removeItem(at: assFile) }
         if let subtitleFile { try? FileManager.default.removeItem(at: subtitleFile) }
-        if outcome.isDone {
+        if outcome.isDone, EditorExport.finish(output) {
             // The subtitles as a file too, next to the video.
             if !cues.isEmpty {
                 try? EditorSubtitleFiles.srt(cues).write(to: output.deletingPathExtension().appendingPathExtension("srt"), atomically: true, encoding: .utf8)
             }
             return true
         }
-        try? FileManager.default.removeItem(at: output)
-        problem = EditorExport.readable(outcome)
+        try? FileManager.default.removeItem(at: EditorExport.partial(output))
+        // Done but not renamed (its drive went away): couldn't be written.
+        problem = outcome.isDone ? String(localized: "The export couldn’t be written.") : EditorExport.readable(outcome)
         return false
     }
 
@@ -254,6 +265,8 @@ final class ProjectExports {
                 if kind == "video", fields.count > 1, fields[1] == "1" { continue }
                 kinds.insert(String(kind))
             }
+            // Read here, off the main thread, so the picture chain finds it known.
+            if kinds.contains("video") { _ = EditorRenderSettings.transfer(path) }
             return kinds
         }.value
     }
@@ -276,7 +289,7 @@ final class ProjectExports {
                                               audioOnly: Bool, size: CGSize, fps: Double, titles: URL?, subtitles: URL?, hardware: Bool,
                                               output: URL, speech: [ClosedRange<Double>] = []) -> [String] {
         let width = Int(size.width) / 2 * 2, height = Int(size.height) / 2 * 2
-        let rate = String(format: "%.3f", max(fps, 1))
+        let rate = EditorRenderSettings.rate(fps), pixelFormat = settings.pixelFormat
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         // The files, each opened where it's first needed. A clip earlier in a file than the one
         // before it opens the file again (seeking there), so ffmpeg never holds the frames in between.
@@ -320,15 +333,15 @@ final class ProjectExports {
                         let (v, from) = input(copy ?? clip.path, freeze, freeze + 1)
                         graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: freeze - from, end: freeze - from + 1, length: length,
                                                       look: clip.look, k: k, width: width, height: height, rate: rate,
-                                                      steadied: copy != nil, finish: finish, hold: length, path: clip.path)
+                                                      steadied: copy != nil, finish: finish, hold: length, path: clip.path, pixelFormat: pixelFormat)
                     } else {
                         let (v, from) = input(copy ?? clip.path, max(start, 0), end)
                         graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: start - from, end: end - from,
                                                       length: length, look: clip.look, k: k, width: width, height: height, rate: rate,
-                                                      steadied: copy != nil, finish: finish, path: clip.path)
+                                                      steadied: copy != nil, finish: finish, path: clip.path, pixelFormat: pixelFormat)
                     }
                 } else {
-                    graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(length)),format=yuv420p[v\(k)]")
+                    graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(length)),format=\(pixelFormat)[v\(k)]")
                 }
             }
             var audio: String
@@ -388,9 +401,10 @@ final class ProjectExports {
                     if item.fadeOut > 0 { finish.append("fade=t=out:st=\(number(max(item.length - item.fadeOut, 0))):d=\(number(item.fadeOut)):alpha=1") }
                     let (v, from) = input(item.path, item.start, item.end)
                     graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: item.start - from, end: item.end - from, length: item.length,
-                                                  look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true, path: item.path)
+                                                  look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true, path: item.path,
+                                                  pixelFormat: pixelFormat)
                     graph.append("[v\(k)]setpts=PTS+\(number(at))/TB[o\(layer)]")
-                    graph.append("\(picture)[o\(layer)]overlay=x=0:y=0:eof_action=pass:enable='between(t,\(number(at)),\(number(at + item.length)))'[l\(layer)]")
+                    graph.append("\(picture)[o\(layer)]overlay=x=0:y=0:eof_action=pass\(pixelFormat == "yuv420p" ? "" : ":format=auto"):enable='between(t,\(number(at)),\(number(at + item.length)))'[l\(layer)]")
                     picture = "[l\(layer)]"
                     layer += 1
                 }

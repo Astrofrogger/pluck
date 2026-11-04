@@ -66,7 +66,7 @@ enum Searching {
         return entries.compactMap { e in
             guard let id = e["id"] as? String, let url = e["url"] as? String,
                   let title = e["title"] as? String, !title.isEmpty else { return nil }
-            let thumb = ((e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String).flatMap(URL.init)
+            let thumb = ((e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String).flatMap(URL.init).flatMap { LibraryServer.isPublicWeb($0) ? $0 : nil }
                 ?? URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
             return SearchResult(id: id, url: url, title: title,
                                 subtitle: (e["channel"] as? String) ?? (e["uploader"] as? String),

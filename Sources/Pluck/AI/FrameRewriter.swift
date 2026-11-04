@@ -4,7 +4,7 @@ import CoreImage
 /// Rewrites every frame of a video through a Core Image step, for the picture features that work
 /// frame by frame (new background, privacy blur). Frames are handed over upright (phone videos
 /// included), so Vision sees faces and people the right way round, and are written upright.
-/// Colours pass through untouched and the output is tagged BT.709, like Upscale & Smooth.
+/// Frames are read as BT.709 (HDR tone-mapped by the Mac) and the output is tagged BT.709.
 final class FrameRewriter: @unchecked Sendable {
     enum Codec {
         /// HEVC in a .mov/.mp4, for normal use.
@@ -30,16 +30,18 @@ final class FrameRewriter: @unchecked Sendable {
         let upright = CGRect(origin: .zero, size: natural).applying(transform)
         let size = CGSize(width: (abs(upright.width) / 2).rounded() * 2, height: (abs(upright.height) / 2).rounded() * 2)
 
+        let color: [String: Any] = [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
+                                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
+                                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]
         let reader = try AVAssetReader(asset: asset)
-        let readerOutput = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA])
+        // Frames in Rec.709 (an HDR video tone-mapped by the Mac), as they're written.
+        let readerOutput = AVAssetReaderTrackOutput(track: track, outputSettings: [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA,
+                                                                                   AVVideoColorPropertiesKey: color])
         reader.add(readerOutput)
 
         try? FileManager.default.removeItem(at: output)
         let writer = try AVAssetWriter(outputURL: output, fileType: .mov)
         let frameRate = Double(rate > 0 ? rate : 30)
-        let color: [String: Any] = [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
-                                    AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
-                                    AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]
         var settings: [String: Any] = [AVVideoWidthKey: Int(size.width), AVVideoHeightKey: Int(size.height), AVVideoColorPropertiesKey: color]
         switch codec {
         case .hevc:

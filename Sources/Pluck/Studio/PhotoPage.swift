@@ -269,7 +269,7 @@ struct PhotoPage: View {
             if focus == nil { editing.cropping = false }
         }
         .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
-        .onDisappear { editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop() }
+        .onDisappear { editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop(); FilmHalation.purge() }
         .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
         .sheet(isPresented: $importing) {
             PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
@@ -1044,8 +1044,10 @@ private struct PhotoCell: View {
             return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
         }.value
         if let thumbnail { image = NSImage(cgImage: thumbnail, size: .zero) }
-        // Edited without a saved preview yet (only the adjustments: film previews are made on view).
-        if record.isEdited, !record.filmOn, let developed = try? await PhotoRender.develop(path, record: record, maxSize: 480) {
+        // Edited without a saved preview yet (an instant film too; the helper's film previews are made on view).
+        let film = record.film
+        let instant = !record.filmOn ? true : await Task.detached(priority: .utility) { FilmRoute.resolved(film) == .instant }.value
+        if record.isEdited, instant, let developed = try? await PhotoRender.develop(path, record: record, maxSize: 480) {
             guard !Task.isCancelled else { return }
             image = NSImage(cgImage: developed, size: .zero)
             PhotoRender.savePreview(developed, to: cached)
@@ -1057,8 +1059,8 @@ private struct PhotoCell: View {
 
 /// The developed photo, drawn from the GPU as a setting changes (only the adjustments are redone:
 /// the decode and the local-tone layers are kept). Zoomed in past the preview, the photo at full
-/// size, of which only the part on screen is worked out. With film on, the film render follows
-/// when the slider rests. Hold \ to see it as shot.
+/// size, of which only the part on screen is worked out. An instant film is part of that; the
+/// helper's film render follows when the slider rests. Hold \ to see it as shot.
 struct PhotoLoupe: View {
     let path: String
     let record: PhotoRecord
@@ -1075,6 +1077,24 @@ struct PhotoLoupe: View {
     @State private var fullKey: FullKey?
     @State private var fullLong = 0.0
     @State private var developing = false
+    /// When the settings last changed (changes coming quickly: a slider is being dragged).
+    @State private var lastChange = Date.distantPast
+    /// When the full size was last asked for.
+    @State private var lastFullAsk = Date.distantPast
+    /// A slider was dragged since the full size was last made: the preview shows meanwhile, not the older full size.
+    @State private var sliding = false
+    /// The smaller picture shown while a slider is dragged (when it's the one showing).
+    @State private var dragPicture: CIImage?
+    /// This loupe's own requests for full-size pictures (Compare has two loupes), and its "before"'s.
+    @State private var channel = UUID()
+    @State private var beforeChannel = UUID()
+    /// The film shown is the helper's (it takes a while): what the progress label says.
+    @State private var filmHelper = false
+    /// The tables for this photo's advanced film settings are being made: the last film picture stays meanwhile.
+    @State private var preparingFilm = false
+    /// Which photo `picture` is of.
+    @State private var picturePath: String?
+    @State private var advanced = FilmAdvanced.shared
     /// "Before" while the comparison is on (at full size once zoomed in past the preview).
     @State private var beforePicture: CIImage?
     @State private var problem: String?
@@ -1128,10 +1148,10 @@ struct PhotoLoupe: View {
                 HStack {
                     if original { Text("As Shot").font(.caption.weight(.semibold)).padding(6).background(.black.opacity(0.6), in: .capsule) }
                     Spacer()
-                    if developing {
+                    if developing || preparingFilm {
                         HStack(spacing: 6) {
                             ProgressView().controlSize(.small)
-                            Text(record.filmOn ? "Developing the film…" : "Developing…")
+                            Text(preparingFilm ? "Preparing the film…" : filmHelper ? "Developing the film…" : "Developing…")
                         }
                         .font(.caption)
                         .padding(.horizontal, 10).padding(.vertical, 5)
@@ -1147,19 +1167,65 @@ struct PhotoLoupe: View {
         .overlay(alignment: .bottom) { if primary { SpeedEditHUD().padding(.bottom, 18) } }
         .onHover { if primary { SpeedEditor.shared.overLoupe = $0 } }
         .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
-        .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay, peak: peak)) { await develop() }
-        .task(id: BeforeKey(path: path, record: beforeRecord, on: comparing, full: wantedFull != nil)) { await developBefore() }
+        .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay, peak: peak, revision: revision(shownRecord))) { await develop() }
+        .task(id: BeforeKey(path: path, record: beforeRecord, on: comparing, full: wantedFull != nil, revision: revision(beforeRecord))) { await developBefore() }
         .task(id: wantedFull) {
             // The photo at full size once zoomed in past the preview (decoded once, then only the
-            // adjustments are redone).
-            guard let key = wantedFull else { return }
+            // adjustments are redone; with film, the film is worked out whole, so moving around is quick).
+            guard let key = wantedFull else {
+                // Zoomed out: let go of it (with film it's a few hundred megabytes), and of its kept scene.
+                full = nil; fullKey = nil; sliding = false; developing = false
+                SceneCache.shared.dropFull(path)
+                FilmHalation.purge()
+                return
+            }
             if full == nil || fullKey?.path != key.path { developing = true }
-            let path = key.path, record = key.record, marked = key.overlay, peak = key.peak
-            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: record, maxSize: 0, overlay: marked, peak: peak) }.value
+            // On film, while a slider moves, wait for it to rest: the preview follows it meanwhile. (Without film the full
+            // size is only worked out where it shows, as it's drawn: it follows the slider itself.)
+            let quick = Date.now.timeIntervalSince(lastFullAsk) < 0.3
+            lastFullAsk = .now
+            if quick, key.record.filmOn {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            let path = key.path, record = key.record, marked = key.overlay, peak = key.peak, channel = self.channel
+            let pressures = BaseCache.pressures.withLock { $0 }
+            // Which film it is decides whether it waits for a film slot (only film worked out on the GPU does).
+            let film = record.film
+            let route = record.filmOn ? await Task.detached(priority: .userInitiated) { FilmRoute.resolved(film) }.value : .instant
             guard !Task.isCancelled else { return }
-            full = made
-            fullKey = key
+            // One at a time, this loupe's newest wins: a newer request (or this one going away) stops it between bands.
+            let ticket = FullBuilds.shared.ticket(channel)
+            let made = await withTaskCancellationHandler {
+                await FullBuilds.shared.build(channel, ticket, film: record.filmOn && route == .instant) { cancelled in
+                    var shown = record
+                    if shown.filmOn {
+                        switch route {
+                        case .instant: break
+                        // (Its advanced settings' tables are still being made: the last picture stays until they're there.)
+                        case .tables: return nil
+                        // (The helper's film isn't made at full size to look at: that would take long.)
+                        case .helper: shown.filmOn = false
+                        }
+                    }
+                    return PhotoRender.image(path, record: shown, maxSize: 0, overlay: marked, peak: peak, cancelled: cancelled)
+                }
+            } onCancel: {
+                FullBuilds.shared.cancel(channel, ticket)
+            }
+            guard !Task.isCancelled, FullBuilds.shared.isCurrent(channel, ticket) else {
+                // Given up: a newer request (which shows its own progress) or none any more.
+                if wantedFull == nil || wantedFull == key { developing = false }
+                return
+            }
+            // (Nothing made, say for want of memory: the last picture stays. One made while memory ran short isn't kept.)
+            if let made, BaseCache.pressures.withLock({ $0 }) == pressures { full = made; fullKey = key }
+            sliding = false
             developing = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: PhotoRender.memoryPressure)) { _ in
+            // Short of memory: the enlarged preview shows until a setting changes (made again now, it would only add to it).
+            full = nil; fullKey = nil; developing = false
         }
         .task(id: path) {
             let path = self.path
@@ -1172,9 +1238,10 @@ struct PhotoLoupe: View {
                 for (next, record) in ahead { _ = PhotoRender.base(next, maxSize: size, record: record) }
             }.value
         }
-        .onChange(of: path) { _, _ in
+        .onChange(of: path) { old, _ in
             if !linked { editing.zoom = nil }
             full = nil; fullKey = nil
+            SceneCache.shared.dropFull(old)
             beforePicture = nil
             if primary { editing.selectedMask = nil; editing.beforeSnapshot = nil }
         }
@@ -1236,6 +1303,8 @@ struct PhotoLoupe: View {
         let original: Bool
         let overlay: Int?
         var peak = 1.0
+        /// Advanced film tables made (FilmAdvanced): a picture waiting for them is made again.
+        var revision = 0
     }
 
     /// How bright the edit may go on this screen (1 unless the photo is edited in HDR).
@@ -1249,6 +1318,7 @@ struct PhotoLoupe: View {
         let record: PhotoRecord
         let on: Bool
         let full: Bool
+        var revision = 0
     }
 
     private struct FullKey: Hashable {
@@ -1256,9 +1326,17 @@ struct PhotoLoupe: View {
         let record: PhotoRecord
         let overlay: Int?
         var peak = 1.0
+        var revision = 0
     }
 
     private var original: Bool { editing.asShot }
+
+    /// FilmAdvanced's count, for a photo whose film waits on it (tables still to be made, or the film data): its
+    /// pictures are made again when that moves. 0 for any other, so tables made elsewhere don't redraw it.
+    private func revision(_ shown: PhotoRecord) -> Int {
+        guard shown.filmOn, FilmRoute.of(shown.film) != .instant else { return 0 }
+        return advanced.revision
+    }
 
     /// Before and after shows: on the photo being edited (not in Compare, not while cropping or
     /// when the photo is held as shot).
@@ -1286,8 +1364,19 @@ struct PhotoLoupe: View {
 
     private func developBefore() async {
         guard comparing else { beforePicture = nil; return }
-        let path = self.path, rec = beforeRecord, size = wantedFull == nil ? PhotoRender.previewSize : 0, peak = self.peak
-        let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: rec, maxSize: size, peak: peak) }.value
+        let path = self.path, rec = beforeRecord, peak = self.peak
+        guard wantedFull != nil else {
+            let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: rec, maxSize: PhotoRender.previewSize, peak: peak) }.value
+            if !Task.isCancelled, let made { beforePicture = made }
+            return
+        }
+        // At full size, through the same one-at-a-time builds, on its own channel.
+        let channel = beforeChannel, ticket = FullBuilds.shared.ticket(channel)
+        let made = await withTaskCancellationHandler {
+            await FullBuilds.shared.build(channel, ticket, film: rec.filmOn) { cancelled in PhotoRender.image(path, record: rec, maxSize: 0, peak: peak, cancelled: cancelled) }
+        } onCancel: {
+            FullBuilds.shared.cancel(channel, ticket)
+        }
         if !Task.isCancelled, let made { beforePicture = made }
     }
 
@@ -1347,8 +1436,9 @@ struct PhotoLoupe: View {
     /// masks are placed on the whole photo).
     private var shownRecord: PhotoRecord {
         var shown = primary ? editing.previewRecord ?? record : record
-        // (A look pointed at shows without its film: that takes seconds.)
-        if primary, editing.previewRecord != nil { shown.filmOn = false }
+        // (A look pointed at shows without its film when that takes a wait: the helper's, or tables still to be made. A view
+        // property can't wait for the stock to load, so this is the route as known; a stock found unloadable counts from then on.)
+        if primary, editing.previewRecord != nil, shown.filmOn, !FilmRoute.ready(shown.film) { shown.filmOn = false }
         if editing.cropping || shapingMask {
             shown.adjust.cropRect = nil
             shown.adjust.crop = .original
@@ -1359,24 +1449,27 @@ struct PhotoLoupe: View {
         return shown
     }
 
-    /// The settings to show the full size for: zoomed in past the preview's own pixels.
+    /// The settings to show the full size for: zoomed in past the preview's own pixels. (Whether its film is the
+    /// helper's, and so left off, is decided when it's made, from the stock as it loads.)
     private var wantedFull: FullKey? {
         guard let zoom = editing.zoom, !editing.cropping, zoom * scaleToFull > 1.05 else { return nil }
-        var shown = original ? PhotoRecord() : shownRecord
-        shown.filmOn = false
-        return FullKey(path: path, record: shown, overlay: original ? nil : overlay, peak: peak)
+        let shown = original ? PhotoRecord() : shownRecord
+        return FullKey(path: path, record: shown, overlay: original ? nil : overlay, peak: peak, revision: revision(shown))
     }
 
-    /// The full size when it's made for what's showing now.
+    /// The full size: made for what's showing now, or the last one made until the new one is there (a slider being
+    /// dragged shows the preview, which follows it).
     private var shownImage: CIImage? {
-        guard let wanted = wantedFull, fullKey == wanted else { return nil }
-        return full
+        guard let wanted = wantedFull, let full, let made = fullKey, made.path == wanted.path else { return nil }
+        return made == wanted || !sliding ? full : nil
     }
 
     /// Photo pixels per pixel of the preview.
     private var scaleToFull: Double {
         guard let picture else { return 1 }
-        let shownLong = Double(max(picture.extent.width, picture.extent.height))
+        // (The smaller picture shown while a slider is dragged stands for the preview: the zoom mustn't change with it.)
+        let long = Double(max(picture.extent.width, picture.extent.height))
+        let shownLong = picture === dragPicture ? long / PhotoRender.dragScale : long
         return fullLong > 0 && shownLong > 0 ? max(fullLong / shownLong, 1) : 1
     }
 
@@ -1481,37 +1574,89 @@ struct PhotoLoupe: View {
         return CGRect(x: (area.width - width) / 2, y: (area.height - height) / 2, width: width, height: height)
     }
 
-    /// The adjustments follow at once; the histogram and the grid's copy when the slider rests;
-    /// the film (a second or so) after that.
+    /// The adjustments (and an instant film) follow at once; the histogram and the grid's copy when the
+    /// slider rests; the helper's film (a second or so) after that.
     private func develop() async {
         problem = nil
         let shown = original ? PhotoRecord() : shownRecord
         let path = self.path, size = PhotoRender.previewSize
         let cached = PhotoRender.cachedPreview(path, record: shown)
-        if shown.filmOn, let known = FilmPictures.shared.picture(cached.path) {
+        // The film through the helper (settings the shipped tables can't do): a wait.
+        let film = shown.film
+        let route = shown.filmOn ? await Task.detached(priority: .userInitiated) { FilmRoute.resolved(film) }.value : .instant
+        guard !Task.isCancelled else { return }
+        let helper = route != .instant
+        filmHelper = helper
+        // Without the film data, the advanced settings can't be made (the Film panel offers it): the picture stays.
+        let pack = FilmEngine.shared.state == .ready
+        // Its advanced settings' tables are being made (a moment; then it's instant): the last film picture stays.
+        if case .tables = route {
+            developing = false
+            if picturePath != path { await placeholder(shown, cached: cached) }
+            // A slider moving: asked for once it rests a moment (only the tables it stops at are made).
+            let now = Date.now
+            let quick = now.timeIntervalSince(lastChange) < 0.3
+            lastChange = now
+            if quick {
+                try? await Task.sleep(for: .milliseconds(250))
+                guard !Task.isCancelled else { return }
+            }
+            preparingFilm = pack && advanced.prepare(film)
+            return
+        }
+        preparingFilm = false
+        if helper, !pack {
+            developing = false
+            if picturePath != path { await placeholder(shown, cached: cached) }
+            return
+        }
+        if helper, let known = FilmPictures.shared.picture(cached.path) {
             picture = known
+            picturePath = path
             developing = false
             return
         }
         let marked = original ? nil : overlay, peak = self.peak
-        let quick = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked, peak: peak) }.value
+        // A slider dragged on film: a smaller picture follows it, the full one comes when it rests.
+        let now = Date.now
+        let dragging = shown.filmOn && !helper && now.timeIntervalSince(lastChange) < 0.3
+        lastChange = now
+        if dragging {
+            sliding = true
+            let moving = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked, drag: true) }.value
+            guard !Task.isCancelled else { return }
+            if let moving { picture = moving; picturePath = path; dragPicture = moving }
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+        }
+        // (While the helper's film is made, the adjustments alone show.)
+        var plain = shown
+        if helper { plain.filmOn = false }
+        let quick = await Task.detached(priority: .userInitiated) { [plain] in PhotoRender.image(path, record: plain, maxSize: size, overlay: marked, peak: peak) }.value
         guard !Task.isCancelled else { return }
-        if shown.filmOn, FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
+        if helper, FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
             // The film's look from last time while it's developed again at this size.
             picture = saved
+            picturePath = path
         } else if let quick {
             picture = quick
+            picturePath = path
+        } else if shown.filmOn, !helper {
+            // The film's stock didn't load: damaged files go to the helper (asked again); else the last picture stays.
+            developing = false
+            if await Task.detached(priority: .userInitiated, operation: { FilmRoute.resolved(film) }).value != .instant, !Task.isCancelled { await develop() }
+            return
         } else {
             problem = String(localized: "The photo couldn’t be read.")
             return
         }
-        if !shown.filmOn {
+        if !helper {
             developing = false
             try? await Task.sleep(for: .milliseconds(150))
             // (Not while a mask shows in red.)
             guard !Task.isCancelled, var quick, marked == nil else { return }
             // The histogram and the grid's copy are the SDR picture (an HDR one would clip in them).
-            if peak > 1, let sdr = await Task.detached(priority: .utility, operation: { PhotoRender.image(path, record: shown, maxSize: size) }).value {
+            if peak > 1, !shown.filmOn, let sdr = await Task.detached(priority: .utility, operation: { PhotoRender.image(path, record: shown, maxSize: size) }).value {
                 guard !Task.isCancelled else { return }
                 quick = sdr
             }
@@ -1532,6 +1677,7 @@ struct PhotoLoupe: View {
                 guard !Task.isCancelled else { return }
                 let film = CIImage(cgImage: developed)
                 picture = film
+                picturePath = path
                 FilmPictures.shared.keep(film, for: cached.path)
                 if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
                 PhotoRender.savePreview(developed, to: cached)
@@ -1541,9 +1687,26 @@ struct PhotoLoupe: View {
         }
         if !Task.isCancelled { developing = false }
     }
+
+    /// Something of this photo to show while its film waits (another photo's picture was showing): its last film picture
+    /// (the grid's copy) if there is one, else the photo without the film.
+    private func placeholder(_ shown: PhotoRecord, cached: URL) async {
+        if FileManager.default.fileExists(atPath: cached.path), let saved = CIImage(contentsOf: cached) {
+            picture = saved
+            picturePath = path
+            return
+        }
+        var plain = shown
+        plain.filmOn = false
+        let path = self.path, size = PhotoRender.previewSize
+        let made = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: plain, maxSize: size) }.value
+        guard !Task.isCancelled, let made else { return }
+        picture = made
+        picturePath = path
+    }
 }
 
-/// The last few film pictures made, to show again at once (the film takes a second or so).
+/// The last few film pictures the helper made, to show again at once (it takes a second or so).
 @MainActor
 final class FilmPictures {
     static let shared = FilmPictures()

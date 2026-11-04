@@ -39,6 +39,8 @@ final class LiveSession {
     /// Sound is analysed in pieces this long, speech in pieces of 30 seconds.
     private static let piece = 15.0
     private static let speechPiece = 30.0
+    /// Seconds without the recording growing before it shows as stalled.
+    nonisolated(unsafe) static var stallAfter = 60.0
 
     // MARK: - Starting
 
@@ -52,8 +54,6 @@ final class LiveSession {
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
         title = String(localized: "Live recording") + " " + Date.now.formatted(.dateTime.year().month(.twoDigits).day(.twoDigits).hour().minute())
         let output = Converting.outputURL(folder: folder, name: Folders.sanitize(title), fileExtension: "ts")
-        file = output
-        isLive = true
         // MPEG-TS, written as it comes in: playable and readable while the stream is still going.
         // ffmpeg follows an HLS live playlist until the stream really ends (yt-dlp's own
         // downloader stops at the end of the playlist as it is now, when a site doesn't say it's live).
@@ -62,15 +62,30 @@ final class LiveSession {
         if fromStart { args.append("--live-from-start") }
         args += manager.cookieArguments()
         args += ["--", link]
+        start(ytdlp, args, writing: output)
+    }
+
+    /// Runs the recorder (yt-dlp; a stand-in in the self-test) writing `output`, and analyses as it grows.
+    func start(_ recorderPath: String, _ args: [String], writing output: URL) {
+        file = output
+        isLive = true
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: ytdlp)
+        process.executableURL = URL(fileURLWithPath: recorderPath)
         process.arguments = args
-        process.environment = manager.environment
-        let errors = Pipe()
+        process.environment = manager?.environment
+        // Read as it comes (only the end kept): a full pipe would block yt-dlp and stall the recording.
+        let errors = Pipe(), tail = LogTail()
         process.standardError = errors
         process.standardOutput = FileHandle.nullDevice
+        errors.fileHandleForReading.readabilityHandler = { handle in
+            let data = handle.availableData
+            // Nothing: the end (else it's called again and again).
+            if data.isEmpty { handle.readabilityHandler = nil } else { tail.add(data) }
+        }
         process.terminationHandler = { [weak self] finished in
-            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            errors.fileHandleForReading.readabilityHandler = nil
+            tail.add((try? errors.fileHandleForReading.readToEnd()) ?? Data())
+            let message = tail.text
             Task { @MainActor in self?.recorderEnded(status: finished.terminationStatus, log: message) }
         }
         do {
@@ -135,9 +150,16 @@ final class LiveSession {
         guard let file, let ffmpeg = manager?.tool("ffmpeg") else { return }
         loop?.cancel()
         loop = Task {
+            var grew = Date.now
             while !Task.isCancelled {
                 let recording = recorder?.isRunning ?? false
-                bytes = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
+                let size = (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
+                if size != bytes { grew = .now }
+                bytes = size
+                // Recording, but nothing new has come in for a while: say so (it carries on if the stream comes back).
+                let stalled = recording && Date.now.timeIntervalSince(grew) > Self.stallAfter
+                if stalled { transcriptionProblem = String(localized: "Nothing new from the stream for a minute.") }
+                else if transcriptionProblem == String(localized: "Nothing new from the stream for a minute.") { transcriptionProblem = nil }
                 var progressed = false
                 // Sound: a whole piece while recording; whatever is left once it has stopped.
                 if bytes > 0, let samples = try? await AudioFeatures.samples(of: file, ffmpeg: ffmpeg, from: tagger.analysed, duration: Self.piece) {
@@ -160,7 +182,9 @@ final class LiveSession {
                 if !recording, !progressed, (isLive ? recorder == nil : true) {
                     break
                 }
-                if recording, !progressed { try? await Task.sleep(for: .seconds(3)) }
+                // Nothing new: wait (also while an ended recorder's news is on its way, which would
+                // otherwise spin here and never let it arrive).
+                if !progressed { try? await Task.sleep(for: recording ? .seconds(3) : .milliseconds(200)) }
                 if stopping, !isLive { break }
             }
             tagger.finish()
@@ -479,4 +503,19 @@ enum QuotePicker {
             return SoundTagger.Highlight(start: start, end: max(end, start + 2), reason: "“" + String(usable[index].text.prefix(80)) + "”", score: 1)
         }
     }
+}
+
+/// The end of what a process writes, read as it comes (thread-safe).
+final class LogTail: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data = Data()
+
+    func add(_ chunk: Data) {
+        lock.withLock {
+            data.append(chunk)
+            if data.count > 16_384 { data = data.suffix(8_192) }
+        }
+    }
+
+    var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
 }

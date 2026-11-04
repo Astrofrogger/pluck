@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -36,6 +37,8 @@ final class FinderItem: Identifiable {
     let isFolder: Bool
     /// Something Pluck plays (a movie, camera raw, a clip folder).
     let isClip: Bool
+    /// A picture (a photo, camera raw, a still), shown in the pane's viewer.
+    let isPhoto: Bool
     let size: Int64?
     let modified: Date?
     let kind: String
@@ -45,6 +48,7 @@ final class FinderItem: Identifiable {
         self.name = FileManager.default.displayName(atPath: url.path)
         self.isFolder = isFolder
         self.isClip = isClip
+        isPhoto = !isFolder && !isClip && UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
         self.size = size
         self.modified = modified
         self.kind = kind
@@ -76,6 +80,8 @@ final class FinderThumbnails {
     static let shared = FinderThumbnails()
 
     private(set) var posters: [URL: CGImage] = [:]
+    /// Photos' pictures (and any other picture file's), by macOS's own thumbnailer.
+    private(set) var pictures: [URL: CGImage] = [:]
     private(set) var summaries: [URL: RawClipSummary] = [:]
     private(set) var failed: Set<URL> = []
     /// The frame under the pointer while skimming a clip.
@@ -104,13 +110,53 @@ final class FinderThumbnails {
 
     func forget(_ url: URL) { thumbnailer?.forget(url) }
 
+    @ObservationIgnored private var pictureRequests: [URL: QLThumbnailGenerator.Request] = [:]
+    /// The pictures kept, oldest first (a folder of thousands of photos isn't all kept).
+    @ObservationIgnored private var pictureOrder: [URL] = []
+    private static let picturesKept = 800
+    /// A picture's longest side, in pixels (the largest icon at 2x).
+    static let pictureSize: CGFloat = 640
+
+    /// A photo's picture, made when it's first shown.
+    func wantPicture(_ url: URL) {
+        guard pictures[url] == nil, pictureRequests[url] == nil else { return }
+        let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.pictureSize, height: Self.pictureSize),
+                                                   scale: 1, representationTypes: .thumbnail)
+        pictureRequests[url] = request
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { thumbnail, _ in
+            let image = thumbnail?.cgImage
+            Task { @MainActor in
+                let thumbs = FinderThumbnails.shared
+                guard thumbs.pictureRequests.removeValue(forKey: url) != nil else { return }
+                if let image { thumbs.keep(image, for: url) }
+            }
+        }
+    }
+
+    /// No longer shown before its picture's made: not made.
+    func forgetPicture(_ url: URL) {
+        guard let request = pictureRequests.removeValue(forKey: url) else { return }
+        QLThumbnailGenerator.shared.cancel(request)
+    }
+
+    private func keep(_ image: CGImage, for url: URL) {
+        pictures[url] = image
+        pictureOrder.append(url)
+        if pictureOrder.count > Self.picturesKept {
+            let old = pictureOrder.removeFirst()
+            // (Unless it was made again since.)
+            if !pictureOrder.contains(old) { pictures[old] = nil }
+        }
+    }
+
     func skim(_ url: URL, at fraction: Double) { thumbnailer?.skim(url, at: min(max(fraction, 0), 1)) }
 
     func endSkim(_ url: URL) { if skimmed?.url == url { skimmed = nil } }
 
-    /// A clip changed on disk: its picture is made again.
+    /// A clip (or photo) changed on disk: its picture is made again.
     func refresh(_ url: URL) {
         posters[url] = nil
+        pictures[url] = nil
         summaries[url] = nil
         failed.remove(url)
     }
@@ -142,6 +188,10 @@ final class FinderPane: Identifiable {
     var filter = ""
     /// A clip playing in the pane (Esc goes back to the folder).
     var playing: URL?
+    /// A photo shown in the pane's viewer (Esc goes back to the folder).
+    var viewing: URL?
+    /// A name being asked for: a new folder's, or a file's new one.
+    var naming: Naming?
     /// The folders above this one shown in the Columns view start here.
     private(set) var base: URL
     private var backStack: [URL] = []
@@ -157,7 +207,7 @@ final class FinderPane: Identifiable {
     }
 
     var title: String { list?.name ?? FileManager.default.displayName(atPath: url.path) }
-    var canGoBack: Bool { !backStack.isEmpty || playing != nil }
+    var canGoBack: Bool { !backStack.isEmpty || playing != nil || viewing != nil }
     var canGoForward: Bool { !forwardStack.isEmpty }
 
     /// What's shown: folders first, then the rest, in the order chosen; filtered by name.
@@ -178,13 +228,14 @@ final class FinderPane: Identifiable {
     }
 
     var clips: [URL] { shown.filter(\.isClip).map(\.url) }
+    var photos: [URL] { shown.filter(\.isPhoto).map(\.url) }
 
     // MARK: Going places
 
     /// Shows a folder. `base`: where the Columns view starts (a sidebar choice resets it).
     func go(to folder: URL, base newBase: URL? = nil, record: Bool = true) {
         let folder = folder.standardizedFileURL
-        guard folder != url || list != nil || playing != nil else {
+        guard folder != url || list != nil || playing != nil || viewing != nil else {
             // Already here: the Columns view starts where asked.
             if let newBase { base = newBase.standardizedFileURL }
             return
@@ -192,6 +243,7 @@ final class FinderPane: Identifiable {
         // (A list of clips isn't a place to go back to.)
         if record { if list == nil { backStack.append(url) }; forwardStack = [] }
         playing = nil
+        viewing = nil
         list = nil
         url = folder
         if let newBase { base = newBase.standardizedFileURL } else if !Self.isInside(folder, base) { base = folder }
@@ -206,6 +258,7 @@ final class FinderPane: Identifiable {
         backStack = []
         forwardStack = []
         playing = nil
+        viewing = nil
         list = (name, urls)
         url = URL(fileURLWithPath: "/" + name)
         base = url
@@ -215,6 +268,7 @@ final class FinderPane: Identifiable {
 
     func goBack() {
         if playing != nil { playing = nil; return }
+        if viewing != nil { viewing = nil; return }
         guard let previous = backStack.popLast() else { return }
         forwardStack.append(url)
         go(to: previous, record: false)
@@ -237,11 +291,22 @@ final class FinderPane: Identifiable {
         anchor = from
     }
 
-    /// A folder goes in, a clip plays, anything else opens in its own app.
+    /// A folder goes in, a clip plays, a photo shows in the viewer, anything else opens in its own app.
     func open(_ item: FinderItem) {
         if item.isFolder { go(to: item.url) }
         else if item.isClip { playing = item.url; selection = [item.url] }
+        else if item.isPhoto { viewing = item.url; selection = [item.url]; anchor = item.url }
         else { NSWorkspace.shared.open(item.url) }
+    }
+
+    /// The viewer on the photo before or after (`step` -1 or 1), staying on the last one at an end.
+    func view(by step: Int) {
+        let list = photos
+        guard let viewing, let index = list.firstIndex(of: viewing) else { return }
+        let next = list[min(max(index + step, 0), list.count - 1)]
+        self.viewing = next
+        selection = [next]
+        anchor = next
     }
 
     /// A file from a folder before this one in the columns: that folder becomes the pane's
@@ -250,10 +315,10 @@ final class FinderPane: Identifiable {
         go(to: folder)
         selection = [item.url]
         anchor = item.url
-        if item.isClip {
+        if item.isClip || item.isPhoto {
             Task {
                 while loading { try? await Task.sleep(for: .milliseconds(30)) }
-                playing = item.url
+                if item.isClip { playing = item.url } else { viewing = item.url }
             }
         } else {
             open(item)
@@ -271,8 +336,9 @@ final class FinderPane: Identifiable {
     func openSelection() {
         let chosen = shown.filter { selection.contains($0.url) }
         if chosen.count == 1, let only = chosen.first { open(only); return }
-        for item in chosen where !item.isFolder && !item.isClip { NSWorkspace.shared.open(item.url) }
+        for item in chosen where !item.isFolder && !item.isClip && !item.isPhoto { NSWorkspace.shared.open(item.url) }
         if let clip = chosen.first(where: \.isClip) { playing = clip.url }
+        else if let photo = chosen.first(where: \.isPhoto) { viewing = photo.url }
     }
 
     // MARK: Selecting
@@ -289,6 +355,13 @@ final class FinderPane: Identifiable {
             selection = [item.url]
             anchor = item.url
         }
+    }
+
+    /// Tiles in a row of a pane's Icons view (for the up and down arrows).
+    static func iconColumns(_ pane: FinderPane) -> Int {
+        let width = FinderWorkspace.shared.frames[pane.id]?.width ?? 800
+        let size = UserDefaults.standard.object(forKey: "finderIconSize") as? Double ?? 170
+        return max(Int((width - 32) / (size + 14)), 1)
     }
 
     /// The arrow keys: `step` places on (1, -1, or a row's worth in the Icons view).
@@ -367,11 +440,82 @@ final class FinderPane: Identifiable {
         NSPasteboard.general.writeObjects(urls)
     }
 
-    /// Files copied (here or in Finder) into this folder: checked like an offload.
-    func paste() {
+    /// Files copied (here or in Finder) into this folder: checked like an offload. `move` (⌥⌘V):
+    /// moved here instead.
+    func paste(move: Bool = false) {
         guard list == nil, let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty else { return }
-        LibraryPanes.shared.copy(urls, into: url)
+        LibraryPanes.shared.copy(urls, into: url, move: move)
+    }
+
+    /// What a name is being asked for.
+    enum Naming: Equatable {
+        case newFolder
+        case rename(URL)
+    }
+
+    /// A name Finder would take: not empty, no slash or colon, not starting with a dot.
+    nonisolated static func nameProblem(_ name: String) -> String? {
+        let name = name.trimmingCharacters(in: .whitespaces)
+        if name.isEmpty { return String(localized: "Type a name.") }
+        if name.contains("/") || name.contains(":") { return String(localized: "A name can’t contain “/” or “:”.") }
+        if name.hasPrefix(".") { return String(localized: "Names that begin with a dot are hidden. Choose another name.") }
+        return nil
+    }
+
+    /// A new folder here, named `name`, selected. Nil when made; else why it couldn't be.
+    @discardableResult
+    func newFolder(named name: String) -> String? {
+        guard list == nil else { return nil }
+        if let problem = Self.nameProblem(name) { return problem }
+        let folder = url.appendingPathComponent(name.trimmingCharacters(in: .whitespaces), isDirectory: true)
+        if FileManager.default.fileExists(atPath: folder.path) {
+            return String(localized: "\(folder.lastPathComponent) is already in \(title).")
+        }
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
+        } catch {
+            return error.localizedDescription
+        }
+        load()
+        selection = [folder]
+        anchor = folder
+        return nil
+    }
+
+    /// A name for a new folder here that isn't taken ("untitled folder", "untitled folder 2"…).
+    var freeFolderName: String {
+        let base = String(localized: "untitled folder")
+        var name = base, number = 2
+        while FileManager.default.fileExists(atPath: url.appendingPathComponent(name).path) {
+            name = "\(base) \(number)"
+            number += 1
+        }
+        return name
+    }
+
+    /// A file or folder here renamed. Nil when renamed; else why it couldn't be.
+    @discardableResult
+    func rename(_ item: URL, to name: String) -> String? {
+        if let problem = Self.nameProblem(name) { return problem }
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard name != item.lastPathComponent else { return nil }
+        // (A folder's URL ends in a slash, as the folder's listing has it.)
+        let target = item.deletingLastPathComponent().appendingPathComponent(name, isDirectory: item.hasDirectoryPath)
+        // (Only the case changed: the same file on most Mac drives.)
+        if FileManager.default.fileExists(atPath: target.path), name.lowercased() != item.lastPathComponent.lowercased() {
+            return String(localized: "\(name) is already in \(item.deletingLastPathComponent().lastPathComponent).")
+        }
+        do {
+            try FileManager.default.moveItem(at: item, to: target)
+        } catch {
+            return error.localizedDescription
+        }
+        FinderThumbnails.shared.refresh(item)
+        load()
+        selection = [target]
+        anchor = target
+        return nil
     }
 
     /// The folders from the Columns view's start to here.
@@ -422,6 +566,8 @@ final class FinderWorkspace {
         let id = UUID()
         var pane: FinderPane?
         var axis: Axis = .horizontal
+        /// How much of the split the first goes to.
+        var fraction: CGFloat = 0.5
         var children: [Tile] = []
         weak var parent: Tile?
 
@@ -473,6 +619,15 @@ final class FinderWorkspace {
         focusedID = copy.id
     }
 
+    /// The split the pane in front is in, turned: side by side becomes one above the other, and back.
+    func turn() {
+        guard let parent = tile(of: focused)?.parent else { return }
+        parent.axis = parent.axis == .horizontal ? .vertical : .horizontal
+    }
+
+    /// How a pane is split from its neighbour (nil: there's one pane).
+    func axis(of pane: FinderPane) -> Axis? { tile(of: pane)?.parent?.axis }
+
     /// The pane in front closed (the last one stays).
     func close() {
         guard panes.count > 1, let tile = tile(of: focused), let parent = tile.parent else { return }
@@ -480,6 +635,7 @@ final class FinderWorkspace {
         guard let sibling = others.first else { return }
         parent.pane = sibling.pane
         parent.axis = sibling.axis
+        parent.fraction = sibling.fraction
         parent.children = sibling.children
         for child in parent.children { child.parent = parent }
         focusedID = parent.panes.first?.id ?? panes[0].id

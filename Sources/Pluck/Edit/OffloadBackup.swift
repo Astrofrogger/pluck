@@ -29,13 +29,18 @@ enum OffloadBackup {
 
     /// The project on its main drive, by card folder; nil when the main drive isn't connected.
     /// Reads the folder listing and the MHLs, never the files themselves. `skipping`: folders
-    /// still being offloaded into (they're backed up once they're done).
-    static func parts(of project: OffloadProject, skipping: [String] = []) -> [Part]? {
+    /// still being offloaded into (they're backed up once they're done). Throws when part of it
+    /// couldn't be read (a backup of it would look complete).
+    static func parts(of project: OffloadProject, skipping: [String] = []) throws -> [Part]? {
         guard let main = project.drives.first, FileManager.default.fileExists(atPath: main) else { return nil }
         let root = folder(project, on: main)
         let base = root.standardizedFileURL.path
         let skipped = skipping.compactMap { $0.hasPrefix(base + "/") ? String($0.dropFirst(base.count + 1)) : nil }
-        let all = OffloadCenter.files(in: root).filter { file in !skipped.contains { file.path == $0 || file.path.hasPrefix($0 + "/") } }
+        let found = OffloadCenter.scan(root)
+        if let problem = OffloadCenter.unreadable(found.unreadable, in: root) {
+            throw NSError(domain: "Pluck", code: 45, userInfo: [NSLocalizedDescriptionKey: problem])
+        }
+        let all = found.files.filter { file in !skipped.contains { file.path == $0 || file.path.hasPrefix($0 + "/") } }
 
         // Where offloads left an MHL (beside the files, or in an ascmhl folder): each a card's folder.
         var lists: Set<String> = []
@@ -93,9 +98,13 @@ enum OffloadBackup {
         }
     }
 
-    /// What isn't on the backup yet (nothing when the main drive isn't connected).
-    static func pending(project: OffloadProject, to drive: URL, skipping: [String] = []) -> (files: Int, bytes: Int64) {
-        guard let parts = parts(of: project, skipping: skipping) else { return (0, 0) }
+    /// What isn't on the backup yet (nothing when the main drive isn't connected), or why it can't be known.
+    static func pending(project: OffloadProject, to drive: URL, skipping: [String] = []) -> (files: Int, bytes: Int64, unreadable: String?) {
+        let parts: [Part]
+        do {
+            guard let found = try self.parts(of: project, skipping: skipping) else { return (0, 0, nil) }
+            parts = found
+        } catch { return (0, 0, error.localizedDescription) }
         var files = 0, bytes: Int64 = 0
         for (part, present) in zip(parts, there(parts, project: project, on: drive)) {
             for (file, here) in zip(part.files, present) where !here {
@@ -103,13 +112,13 @@ enum OffloadBackup {
                 bytes += file.size
             }
         }
-        return (files, bytes)
+        return (files, bytes, nil)
     }
 
     /// The jobs a backup needs, not yet started: a job per card folder with something new,
     /// to every drive at once (`parallel`) or a drive at a time, the first drive's jobs first.
-    static func jobs(project: OffloadProject, drives: [URL], parallel: Bool, skipping: [String] = []) -> [OffloadJob] {
-        guard let main = project.drives.first, let parts = parts(of: project, skipping: skipping) else { return [] }
+    static func jobs(project: OffloadProject, drives: [URL], parallel: Bool, skipping: [String] = []) throws -> [OffloadJob] {
+        guard let main = project.drives.first, let parts = try parts(of: project, skipping: skipping) else { return [] }
         let present = drives.map { there(parts, project: project, on: $0) }
         let source = folder(project, on: main)
         let mainName = OffloadCenter.volumeName(URL(fileURLWithPath: main, isDirectory: true))
@@ -151,9 +160,15 @@ enum OffloadBackup {
         }
         guard !chosen.isEmpty else { return [] }
         let skipping = center.offloading(into: project.id)
-        let planned = await Task.detached(priority: .userInitiated) {
-            jobs(project: project, drives: chosen, parallel: parallel, skipping: skipping)
+        let result = await Task.detached(priority: .userInitiated) {
+            Result { try jobs(project: project, drives: chosen, parallel: parallel, skipping: skipping) }
         }.value
+        guard case .success(let planned) = result else {
+            if case .failure(let error) = result {
+                AppDelegate.shared?.manager.notify(title: String(localized: "\(project.name) wasn’t backed up"), body: error.localizedDescription)
+            }
+            return []
+        }
         var added: [OffloadJob] = []
         for job in planned {
             let earlier = center.jobs.filter { $0.backup == project.id && $0.finished == nil && $0.source == job.source }
@@ -292,7 +307,7 @@ private struct OffloadBackupChooser: View {
     @State private var chosen: Set<String> = []
     @State private var parallel = false
     /// What's new on each connected drive (missing while it's worked out).
-    @State private var pending: [String: (files: Int, bytes: Int64)] = [:]
+    @State private var pending: [String: (files: Int, bytes: Int64, unreadable: String?)] = [:]
     @State private var starting = false
 
     private var drives: [String] { OffloadProjects.shared.project(project.id)?.backups ?? project.backups }
@@ -309,6 +324,7 @@ private struct OffloadBackupChooser: View {
                         Spacer()
                         Group {
                             if !connected { Text("Not connected") }
+                            else if let problem = new?.unreadable { Text(problem).lineLimit(2) }
                             else if let new { Text(new.files == 0 ? String(localized: "Up to date")
                                                    : String(localized: "\(ByteCountFormatter.string(fromByteCount: new.bytes, countStyle: .file)) new")) }
                             else { ProgressView().controlSize(.small) }

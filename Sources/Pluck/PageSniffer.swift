@@ -183,7 +183,8 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         if let json = try? await webView.evaluateJavaScript(Self.metaScript) as? String,
            let meta = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] {
             title = (meta["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
-            image = (meta["image"] as? String).flatMap { URL(string: $0, relativeTo: webView.url) }
+            image = (meta["image"] as? String).flatMap { URL(string: $0, relativeTo: webView.url)?.absoluteURL }
+                .flatMap { LibraryServer.isPublicWeb($0) ? $0 : nil }
             agent = meta["ua"] as? String
         }
 

@@ -134,12 +134,14 @@ final class NetworkLibraries {
 
     private func open(_ peer: Peer, code typed: String?) async throws -> (url: URL, library: Library) {
         let base = try await baseURL(for: peer)
+        // The code is kept for this name at this address, and only ever sent back there.
+        let account = Self.keychainAccount(peer.name, base)
         if let typed {
             try await login(base, code: typed)
-            Keychain.save(typed, for: peer.name)
+            Keychain.save(typed, for: account)
         }
         var (data, response) = try await get(base.appendingPathComponent("api/library"))
-        if response.statusCode == 401, let saved = Keychain.code(for: peer.name) {
+        if response.statusCode == 401, let saved = Keychain.code(for: account) {
             try await login(base, code: saved)
             (data, response) = try await get(base.appendingPathComponent("api/library"))
         }
@@ -147,6 +149,18 @@ final class NetworkLibraries {
         if response.statusCode == 404 { throw Failure.notFound }
         guard response.statusCode == 200 else { throw Failure.unreachable }
         return (base, try JSONDecoder().decode(Library.self, from: data))
+    }
+
+    /// The keychain entry for a Mac: its Bonjour name and the address it answered on.
+    static func keychainAccount(_ name: String, _ base: URL) -> String {
+        "\(name) @ \(base.host ?? ""):\(base.port ?? 0)"
+    }
+
+    /// The file extension another Mac names, made safe to use in a file name here.
+    static func safeExtension(_ ext: String?) -> String {
+        // Stricter than Folders.sanitize (which names an empty string "Playlist"): letters and digits only.
+        let cleaned = (ext ?? "").filter { $0.isASCII && ($0.isLetter || $0.isNumber) }.prefix(10)
+        return cleaned.isEmpty ? "mp4" : String(cleaned)
     }
 
     private func login(_ base: URL, code: String) async throws {
@@ -189,7 +203,7 @@ final class NetworkLibraries {
         let (temporary, response) = try await URLSession.shared.download(from: base.appendingPathComponent("file/\(item.id)"))
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.unreachable }
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let destination = Converting.outputURL(folder: folder, name: Folders.sanitize(item.title), fileExtension: item.ext ?? "mp4")
+        let destination = Converting.outputURL(folder: folder, name: Folders.sanitize(item.title), fileExtension: Self.safeExtension(item.ext))
         try FileManager.default.moveItem(at: temporary, to: destination)
         if let manager {
             _ = manager.addLocalFiles([destination])

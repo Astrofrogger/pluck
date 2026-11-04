@@ -140,13 +140,14 @@ final class AppUpdater {
     // MARK: - GitHub
 
     private enum Failure: LocalizedError {
-        case noRelease, checksumMismatch, badBundle, notWritable, noEdition
+        case noRelease, checksumMismatch, badBundle, badSignature, notWritable, noEdition
 
         var errorDescription: String? {
             switch self {
             case .noRelease: String(localized: "No downloadable release was found.")
             case .checksumMismatch: String(localized: "The update didn’t match its published checksum, so it was discarded.")
             case .badBundle: String(localized: "The downloaded update isn’t a valid copy of Pluck.")
+            case .badSignature: String(localized: "The update isn’t signed like this copy of Pluck, so it was discarded.")
             case .notWritable: String(localized: "Pluck can’t replace itself here. Move it to the Applications folder and try again.")
             case .noEdition: String(localized: "That version of Pluck isn’t available to download yet.")
             }
@@ -358,6 +359,13 @@ final class AppUpdater {
 
         let app = staging.appendingPathComponent("Pluck.app")
         guard Bundle(url: app)?.bundleIdentifier == (Bundle.main.bundleIdentifier ?? "be.wideopen.pluck") else { throw Failure.badBundle }
+        // Signed with the same certificate as this copy (a checksum from the same release page
+        // only proves the download is what that page lists).
+        if let mine = CodeSignature.leafCertificate(Bundle.main.bundleURL, validate: false) {
+            guard CodeSignature.leafCertificate(app, validate: true) == mine else { throw Failure.badSignature }
+        } else {
+            print("Pluck update: this copy isn't signed with a certificate (a test build), so the update's signature isn't compared")
+        }
         return app
     }
 

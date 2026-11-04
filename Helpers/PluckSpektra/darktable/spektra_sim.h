@@ -704,6 +704,17 @@ void sf_sim_scan(const sf_sim_t *sim,
                  int nch_out);
 
 
+/* sf_sim_scan in its two halves, 3 floats per pixel (pluck-spektra's table dump): density ->
+ * viewed XYZ before the black/white fit, and viewed XYZ after it -> output RGB */
+void sf_sim_scan_xyz(const sf_sim_t *sim,
+                     const float *cmy,
+                     float *xyz_out,
+                     size_t npix);
+void sf_sim_scan_finish(const sf_sim_t *sim,
+                        const float *xyz,
+                        float *rgb_out,
+                        size_t npix);
+
 /* pre-compression OkLab lightness a single RGB triple would land at, using
  * boost_override in place of the sim's own out_luminance_boost -- see
  * spektra_sim.c for the full rationale (used by the precompression-boost

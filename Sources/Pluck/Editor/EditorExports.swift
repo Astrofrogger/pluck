@@ -62,21 +62,30 @@ final class EditorExports {
         // A look, or a camera's log to make normal.
         if !audioOnly, model.look != nil || CameraLog.detect(file.path) != nil {
             let look = model.look ?? ClipLook()
-            let width = Int(source.width) / 2 * 2, height = Int(source.height) / 2 * 2, rate = String(format: "%.3f", max(fps, 1))
+            let width = Int(source.width) / 2 * 2, height = Int(source.height) / 2 * 2, rate = EditorRenderSettings.rate(fps)
             steadied = look.stabilize ? Stabilizer.copy(for: file.path) : nil
             let isSteadied = steadied != nil
             pictureChain = { input, start, end, k in
                 ClipLook.ffmpegChain(input: input, start: start, end: end, length: end - start, look: look, k: k,
-                                     width: width, height: height, rate: rate, steadied: isSteadied, path: file.path)
+                                     width: width, height: height, rate: rate, steadied: isSteadied, path: file.path,
+                                     pixelFormat: settings.pixelFormat)
             }
         }
         #endif
+        // HDR with nothing else to do to the picture: still made SDR (an 8-bit file tagged HLG looks wrong everywhere).
+        if !audioOnly, pictureChain == nil, let toneMap = EditorRenderSettings.toneMap(file.path) {
+            pictureChain = { input, start, end, k in
+                ["\(input)trim=start=\(String(format: "%.4f", start)):end=\(String(format: "%.4f", end)),setpts=PTS-STARTPTS,\(toneMap)[v\(k)]"]
+            }
+        }
         progress = 0
         task = Task {
             for (index, parts) in groups.enumerated() {
                 let suffix = groups.count > 1 ? String(localized: " (part \(index + 1))")
                     : model.isEdited ? String(localized: " (edit)") : model.hasRange ? String(localized: " (part)") : String(localized: " (export)")
-                let output = Converting.outputURL(folder: folder, name: base + suffix,
+                // Written as "Name.part.ext" (its name held from now, against another export of the
+                // same name), named once whole.
+                let output = EditorExport.reserve(folder: folder, name: base + suffix,
                                                   fileExtension: audioOnly ? settings.audioFile.rawValue : settings.container.fileExtension)
                 var assFile: URL?
                 if choice.burn, !audioOnly {
@@ -86,21 +95,21 @@ final class EditorExports {
                     if (try? text.write(to: ass, atomically: true, encoding: .utf8)) != nil { assFile = ass }
                 }
                 let count = Double(groups.count)
-                guard !Task.isCancelled else { break }
-                let outcome = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: output, ffmpeg: ffmpeg,
+                guard !Task.isCancelled else { try? FileManager.default.removeItem(at: EditorExport.partial(output)); break }
+                let outcome = await EditorExport.joined(parts, of: file, video: video, audio: audio, to: EditorExport.partial(output), ffmpeg: ffmpeg,
                                                      settings: settings, audioOnly: audioOnly, source: source, sourceFPS: fps,
                                                      subtitles: assFile, pictureChain: pictureChain, steadied: steadied) { value in
                     Task { @MainActor in self.progress = (Double(index) + value) / count }
                 }
                 if let assFile { try? FileManager.default.removeItem(at: assFile) }
-                if outcome.isDone {
+                if outcome.isDone, EditorExport.finish(output) {
                     self.output = output
                     finished.insert(output, at: 0)
                     if choice.srt { writeSRT(model, for: parts, next: output) }
                     _ = manager.addLocalFiles([output])
                 } else {
-                    try? FileManager.default.removeItem(at: output)
-                    problem = EditorExport.readable(outcome)
+                    try? FileManager.default.removeItem(at: EditorExport.partial(output))
+                    problem = outcome.isDone ? String(localized: "The export couldn’t be written.") : EditorExport.readable(outcome)
                     break
                 }
             }

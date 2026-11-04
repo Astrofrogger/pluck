@@ -48,7 +48,7 @@ final class OfficeInbox {
     }
 
     /// The file's place: <inbox>/<Mac's name>/<its path>. Only plain paths inside it.
-    private func target(_ path: String, from device: String) throws -> URL {
+    func target(_ path: String, from device: String) throws -> URL {
         let parts = path.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
         guard !path.isEmpty, path.count < 1000, parts.count <= 32,
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.hasPrefix(".") && !$0.contains(":") }) else {

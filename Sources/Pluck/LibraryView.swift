@@ -181,11 +181,17 @@ struct LibraryView: View {
             #if STUDIO
             ToolbarItem {
                 if isFootage {
-                    Button { FinderWorkspace.shared.split(.horizontal) } label: {
-                        Label("Split", systemImage: "rectangle.split.2x1")
+                    ControlGroup {
+                        Button { FinderWorkspace.shared.split(.horizontal) } label: {
+                            Label("Split Right", systemImage: "square.split.2x1")
+                        }
+                        .help("Another pane beside this one (⌘\\). ⌥⌘ and the arrows move between panes, ⌥⌘W closes one. Drag between panes to copy, every file checked; hold ⌘ to move.")
+                        Button { FinderWorkspace.shared.split(.vertical) } label: {
+                            Label("Split Below", systemImage: "square.split.1x2")
+                        }
+                        .help("Another pane below this one (⇧⌘\\). ⌥⌘T turns a split.")
                     }
                     .disabled(FinderWorkspace.shared.panes.count >= FinderWorkspace.maxPanes)
-                    .help("Another pane beside this one (⌘\\, ⇧⌘\\ below). ⌥⌘ and the arrows move between panes, ⇧⌥⌘ and the arrows swap them, ⌥⌘W closes one. Drag between panes to copy, every file checked.")
                 }
             }
             #endif

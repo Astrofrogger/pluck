@@ -15,6 +15,8 @@ while (( $# )); do
 done
 [[ "$EDITION" == studio || "$EDITION" == basic ]] || { echo "Unknown edition $EDITION" >&2; exit 1; }
 export PLUCK_EDITION=$EDITION
+# The macOS SDK by name: a plain xcrun lookup can land on the Command Line Tools' SDK instead of Xcode's.
+export SDKROOT="${SDKROOT:-macosx}"
 # Signed with the "Pluck Code Signing" certificate when this Mac has it: macOS then knows each
 # update as the same app and keeps what it was allowed (Full Disk Access, folders). Else ad hoc.
 SIGN_ID="-"
@@ -71,6 +73,11 @@ if [[ "$EDITION" == studio ]]; then
 # The bridge to spektrafilm (film simulation), which Pluck downloads separately when asked.
 mkdir -p "$APP/Contents/Resources/FilmEngine"
 cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/NOTICE.txt Resources/FilmEngine/COPYING "$APP/Contents/Resources/FilmEngine/"
+# The film tables (Studio only): made once, and again only when the film data or the code changes.
+zsh scripts/film-tables.sh
+rm -rf "$APP/Contents/Resources/FilmTables"
+cp -R build/FilmTables "$APP/Contents/Resources/FilmTables"
+rm -f "$APP/Contents/Resources/FilmTables/.pack-sha"
 # The vision helper (Qwen on the GPU with MLX): Apple silicon only, so it's built on its own and
 # Intel Macs simply don't have it. Its Metal kernels sit next to it in the Cmlx bundle.
 (cd Helpers/PluckVision && swift build -c release --arch arm64 >/dev/null)
@@ -81,7 +88,7 @@ if [[ "$EDITION" != "basic" ]]; then
   SPK=Helpers/PluckSpektra
   clang -O3 -std=gnu11 -ffp-contract=off -fblocks -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 \
     -I$SPK/shim -I$SPK/darktable -I$SPK/shim/common -w \
-    $SPK/main.c $SPK/darktable/spektra_sim.c $SPK/darktable/spektra_core.c $SPK/shim/shim.c \
+    $SPK/main.c $SPK/darktable/spektra_sim.c $SPK/darktable/spektra_core.c $SPK/shim/shim.c -lcompression \
     -o "$APP/Contents/Helpers/pluck-spektra"
   codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-spektra"
 fi
@@ -136,6 +143,8 @@ fi
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null
 mkdir -p "$APP/Contents/Resources/en.lproj"   # English is the source language; marks it as available
+# The licences of everything bundled (both editions).
+cp -R ThirdPartyLicenses.md ThirdPartyLicenses "$APP/Contents/Resources/"
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET"

@@ -211,15 +211,25 @@ struct EditorRenderSettings: Codable, Equatable, Sendable {
 
     // MARK: - ffmpeg
 
-    /// Scaling and frame rate, added after the subtitles.
+    /// Scaling and frame rate, added after the subtitles; tagged Rec.709, as every export is SDR
+    /// (HDR is tone-mapped on the way in; ffmpeg's -color_trc alone doesn't reach the file).
     var filters: [String] {
-        var chain: [String] = []
+        var chain = ["setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"]
         if resolution != .source {
             let lines = resolution.rawValue
             chain.append("scale=w='if(gte(iw,ih),-2,min(iw,\(lines)))':h='if(gte(iw,ih),min(ih,\(lines)),-2)'")
         }
         if frameRate != .source { chain.append("fps=\(frameRate.rawValue)") }
         return chain
+    }
+
+    /// The picture's pixels as the codec keeps them: ProRes in 10 bits (4444 with its alpha).
+    var pixelFormat: String {
+        switch codec {
+        case .h264, .hevc: "yuv420p"
+        case .prores422, .prores422hq: "yuv422p10le"
+        case .prores4444: "yuva444p10le"
+        }
     }
 
     func videoArguments(source: CGSize, sourceFPS: Double, length: Double, hardware: Bool) -> [String] {
@@ -254,6 +264,50 @@ struct EditorRenderSettings: Codable, Equatable, Sendable {
 }
 
 extension EditorRenderSettings {
+    /// A frame rate as ffmpeg takes it exactly: 30000/1001 rather than 29.970, which drifts.
+    static func rate(_ fps: Double) -> String {
+        let fps = max(fps, 1)
+        if let base = [24.0, 30, 48, 60, 120].first(where: { abs(fps - $0 * 1000 / 1001) < 0.005 }) { return "\(Int(base) * 1000)/1001" }
+        if abs(fps - fps.rounded()) < 0.005 { return "\(Int(fps.rounded()))" }
+        return String(format: "%.3f", fps)
+    }
+
+    /// HLG or PQ (HDR) to SDR Rec.709, first thing in a file's picture chain: to linear light
+    /// with HDR's reference white (203 nits, BT.2408) as SDR's white, Rec.709 colours, highlights
+    /// rolled off (mobius keeps mid-tones as they are), back to Rec.709's curve in 10 bits.
+    /// Nil for an SDR file. shortcut: needs zscale (Pluck's own ffmpeg has it, Homebrew's
+    /// doesn't); an HDR export with an ffmpeg without it fails rather than coming out wrong.
+    static func toneMap(_ path: String) -> String? {
+        ["arib-std-b67", "smpte2084"].contains(transfer(path))
+            ? "zscale=t=linear:npl=203,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=mobius:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv444p10le"
+            : nil
+    }
+
+    nonisolated(unsafe) private static var transfers: [String: String] = [:]
+    private static let transfersLock = NSLock()
+
+    /// The picture's transfer curve as ffprobe names it (read once per file).
+    static func transfer(_ path: String) -> String {
+        if let known = transfersLock.withLock({ transfers[path] }) { return known }
+        var found = ""
+        if let ffprobe = ([Updater.directory.path] + DownloadManager.searchPaths).map({ $0 + "/ffprobe" })
+            .first(where: FileManager.default.isExecutableFile(atPath:)) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: ffprobe)
+            process.arguments = ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=color_transfer", "-of", "csv=p=0", path]
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            if (try? process.run()) != nil {
+                let data = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                found = String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        transfersLock.withLock { transfers[path] = found }
+        return found
+    }
+
     /// Saved as text in the preferences (not RawRepresentable: that would make Codable recurse).
     init(saved: String) {
         self = saved.data(using: .utf8).flatMap { try? JSONDecoder().decode(EditorRenderSettings.self, from: $0) } ?? Self()

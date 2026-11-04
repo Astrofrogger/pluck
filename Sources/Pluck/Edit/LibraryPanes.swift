@@ -20,10 +20,16 @@ final class LibraryPanes {
     /// The folder on the other side, when there's one.
     func other(_ pane: Int) -> URL? { split ? here[1 - pane] : nil }
 
-    func copy(_ items: [URL], into folder: URL) {
+    /// `move`: moved instead (to another drive: once every file's checked there).
+    func copy(_ items: [URL], into folder: URL, move: Bool = false) {
         Task {
-            problem = await OffloadCenter.shared.copy(items.filter(\.isFileURL), into: folder)
+            problem = await OffloadCenter.shared.copy(items.filter(\.isFileURL), into: folder, move: move)
         }
+    }
+
+    /// A drop: ⌘ held moves, as in Finder; otherwise a checked copy.
+    func drop(_ items: [URL], into folder: URL) {
+        copy(items, into: folder, move: NSEvent.modifierFlags.contains(.command))
     }
 }
 

@@ -1,7 +1,8 @@
 //  Vendored from swift-vocal-isolation v1.2.0 by David Sherlock (ArrayPress), MIT licence:
 //  https://github.com/arraypress/swift-vocal-isolation — see ThirdPartyLicenses.md.
 //  Changes for Pluck: macOS 27 availability, input is always 44.1 kHz stereo (no resampling
-//  or file reading here), its error type replaced by `StemError`.
+//  or file reading here), its error type replaced by `StemError`, whole recordings streamed
+//  chunk by chunk (same sums in the same order) instead of held in memory.
 //
 //  DemucsSeparator.swift
 //  VocalIsolation
@@ -112,45 +113,73 @@ final class DemucsSeparator: @unchecked Sendable {
 
     // MARK: - Whole recordings
 
-    /// Upstream's `Separator.separate_tensor` + `apply_model(split=True, shifts=0)` at 44.1 kHz.
-    public func separateAt44k(_ stereo: [[Float]], progress: ((Double) -> Void)? = nil) async throws -> [[[Float]]] {
-        let length = stereo[0].count
-        // Global normalisation by the mono mix: mean, and unbiased std + 1e-8.
-        let mono = (0..<length).map { (stereo[0][$0] + stereo[1][$0]) / 2 }
-        let (mean, std) = Self.stats(mono, unbiased: true)
-        let refStd = std + 1e-8
-        let norm = stereo.map { ch in ch.map { ($0 - mean) / refStd } }
+    /// Upstream's `Separator.separate_tensor` + `apply_model(split=True, shifts=0)` at 44.1 kHz,
+    /// a chunk at a time so a long recording is never held whole: `read(start, count)` gives
+    /// that many frames of the mix (`[channel][sample]`, inside the recording), `write` gets each
+    /// stretch of the stems (`[stem][channel][sample]`, in order) once no later chunk adds to it.
+    /// `model` is ``separateSegment(_:)`` (a stand-in in the self-test).
+    static func separateAt44k(length: Int, read: (Int, Int) throws -> [[Float]], write: ([[[Float]]]) throws -> Void,
+                              progress: ((Double) -> Void)? = nil,
+                              model: ([[Float]]) async throws -> [[[Float]]]) async throws {
+        // Global normalisation by the mono mix: mean, and unbiased std + 1e-8 (two passes, as `stats`).
+        let block = 1 << 20
+        func eachMono(_ body: (Float) -> Void) throws {
+            for start in stride(from: 0, to: length, by: block) {
+                let x = try read(start, min(block, length - start))
+                for i in x[0].indices { body((x[0][i] + x[1][i]) / 2) }
+            }
+        }
+        var sum = 0.0
+        try eachMono { sum += Double($0) }
+        let meanD = sum / Double(length)
+        var sq = 0.0
+        try eachMono { let d = Double($0) - meanD; sq += d * d }
+        let mean = Float(meanD)
+        let refStd = Float((sq / Double(length - 1)).squareRoot()) + 1e-8
 
-        let S = Self.sources.count
-        var out = [[[Float]]](repeating: [[Float]](repeating: [Float](repeating: 0, count: length), count: 2), count: S)
-        var sumWeight = [Float](repeating: 0, count: length)
-        let weight = Self.transitionWeight
-        let offsets = Array(stride(from: 0, to: length, by: Self.chunkStride))
+        let S = sources.count
+        // The stems from the current chunk's start on, still being added to.
+        var out = [[[Float]]](repeating: [[Float]](repeating: [Float](repeating: 0, count: segment), count: 2), count: S)
+        var sumWeight = [Float](repeating: 0, count: segment)
+        let weight = transitionWeight
+        let offsets = Array(stride(from: 0, to: length, by: chunkStride))
         for (index, offset) in offsets.enumerated() {
             try Task.checkCancellation()
-            let chunkLength = min(Self.segment, length - offset)
-            let padded = Self.centredPad(norm, offset: offset, length: chunkLength, target: Self.segment)
-            let full = try await separateSegment(padded)
-            if let pause = Self.debugPause { try await Task.sleep(for: pause) }
+            let chunkLength = min(segment, length - offset)
+            // `centredPad` of the normalised mix: real audio around the chunk, zeros past the ends.
+            let delta = segment - chunkLength
+            let start = offset - delta / 2
+            let from = max(start, 0), to = min(start + segment, length)
+            let padded = try read(from, to - from).map { ch in
+                var p = [Float](repeating: 0, count: segment)
+                for i in ch.indices { p[from - start + i] = (ch[i] - mean) / refStd }
+                return p
+            }
+            let full = try await model(padded)
+            if let pause = debugPause { try await Task.sleep(for: pause) }
             // center_trim back to the chunk's own length, then weighted overlap-add.
-            let delta = Self.segment - chunkLength
             let trim = delta / 2
             for s in 0..<S {
                 for ch in 0..<2 {
                     for i in 0..<chunkLength {
-                        out[s][ch][offset + i] += weight[i] * full[s][ch][trim + i]
+                        out[s][ch][i] += weight[i] * full[s][ch][trim + i]
                     }
                 }
             }
-            for i in 0..<chunkLength { sumWeight[offset + i] += weight[i] }
+            for i in 0..<chunkLength { sumWeight[i] += weight[i] }
+            // The next chunk starts a stride on: everything before it is final.
+            let done = index + 1 < offsets.count ? chunkStride : chunkLength
+            try write(out.map { stem in stem.map { ch in (0..<done).map { ch[$0] / sumWeight[$0] * refStd + mean } } })
+            for s in 0..<S {
+                for ch in 0..<2 {
+                    out[s][ch].removeFirst(done)
+                    out[s][ch].append(contentsOf: repeatElement(0, count: done))
+                }
+            }
+            sumWeight.removeFirst(done)
+            sumWeight.append(contentsOf: repeatElement(0, count: done))
             progress?(Double(index + 1) / Double(offsets.count))
         }
-        for s in 0..<S {
-            for ch in 0..<2 {
-                for i in 0..<length { out[s][ch][i] = out[s][ch][i] / sumWeight[i] * refStd + mean }
-            }
-        }
-        return out
     }
 
     // MARK: - One segment

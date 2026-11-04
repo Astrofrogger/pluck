@@ -16,6 +16,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <mach-o/dyld.h>
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -30,15 +31,60 @@ using namespace R3DSDK;
 static bool libraryMode = false;
 static NSDictionary *libraryReply = nil;
 
+/// The value without NaN or infinite numbers (JSON can't hold them, and writing one throws): such
+/// a number, or a list with one in it, is left out.
+static id finiteJSON(id value) {
+    if ([value isKindOfClass:NSNumber.class]) return isfinite([value doubleValue]) ? value : nil;
+    if ([value isKindOfClass:NSArray.class]) {
+        NSMutableArray *list = [NSMutableArray array];
+        for (id item in value) {
+            id clean = finiteJSON(item);
+            if (!clean) return nil;
+            [list addObject:clean];
+        }
+        return list;
+    }
+    if ([value isKindOfClass:NSDictionary.class]) {
+        NSMutableDictionary *clean = [NSMutableDictionary dictionary];
+        [value enumerateKeysAndObjectsUsingBlock:^(id key, id item, BOOL *) { if (id kept = finiteJSON(item)) clean[key] = kept; }];
+        return clean;
+    }
+    return value;
+}
+
+/// A reply as JSON (an error, if it can't be written).
+static NSData *replyData(NSDictionary *object) {
+    @try {
+        if (NSData *data = [NSJSONSerialization dataWithJSONObject:finiteJSON(object) options:0 error:nil]) return data;
+    } @catch (NSException *) {}
+    return [@"{\"ok\":false,\"problem\":\"The decoder’s answer couldn’t be written.\"}" dataUsingEncoding:NSUTF8StringEncoding];
+}
+
 static void reply(NSDictionary *object) {
     if (libraryMode) { libraryReply = object; return; }
-    NSData *data = [NSJSONSerialization dataWithJSONObject:object options:0 error:nil];
+    NSData *data = replyData(object);
     fwrite(data.bytes, 1, data.length, stdout);
     fputc('\n', stdout);
     fflush(stdout);
 }
 
 static void fail(NSString *problem) { reply(@{@"ok": @NO, @"problem": problem}); }
+
+/// How long one decode may take before the decoder is taken as stuck (a damaged clip, a drive
+/// gone). Under Pluck's own 30 seconds, so this answer gets there first.
+static const int64_t decodeTimeout = 20 * NSEC_PER_SEC;
+static bool decoderStuck = false;
+
+/// Waits for a decode; false when it didn't finish in time. Then the decoder can't be trusted
+/// again (it may still write into what it was given, which is kept for it): as a program this
+/// answers and ends (Pluck starts another); as a library, every later request fails.
+static bool waited(dispatch_semaphore_t done) {
+    if (dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, decodeTimeout)) == 0) return true;
+    reply(@{@"ok": @NO, @"problem": @"The decoder stopped responding.", @"stopped": @YES});
+    if (!libraryMode) _exit(3);
+    decoderStuck = true;
+    return false;
+}
 
 /// Where the camera libraries are: given with --libs (Quick Look's copy), or next to this program.
 static std::string librariesFolder;
@@ -72,33 +118,53 @@ struct Mapped {
     }
 };
 
-/// A PCM .wav file: little-endian samples, interleaved.
+/// A PCM .wav file: little-endian samples, interleaved. Past 4 GB it becomes RF64 (room for its
+/// 64-bit sizes is kept from the start as a JUNK chunk, which .wav readers skip). Any write that
+/// fails (a full disk) fails the whole file.
 struct WavFile {
     FILE *file = nullptr;
-    uint32_t written = 0;
-    bool open(const char *path, uint32_t rate, uint16_t channels, uint16_t bits) {
-        file = fopen(path, "wb");
+    std::string path;
+    uint64_t written = 0;
+    uint16_t align = 1;
+    bool ok = true;
+    void put(const void *bytes, size_t count) { if (ok && fwrite(bytes, 1, count, file) != count) ok = false; }
+    template <typename T> void put(T value) { put(&value, sizeof value); }
+    void seek(long at) { if (ok && fseek(file, at, SEEK_SET) != 0) ok = false; }
+    bool open(const char *to, uint32_t rate, uint16_t channels, uint16_t bits) {
+        file = fopen(to, "wb");
         if (!file) return false;
-        uint16_t align = channels * (bits / 8);
-        uint32_t byteRate = rate * align;
-        uint16_t pcm = 1;
-        uint32_t sixteen = 16, zero = 0;
-        fwrite("RIFF", 1, 4, file); fwrite(&zero, 4, 1, file); fwrite("WAVEfmt ", 1, 8, file);
-        fwrite(&sixteen, 4, 1, file); fwrite(&pcm, 2, 1, file); fwrite(&channels, 2, 1, file);
-        fwrite(&rate, 4, 1, file); fwrite(&byteRate, 4, 1, file); fwrite(&align, 2, 1, file); fwrite(&bits, 2, 1, file);
-        fwrite("data", 1, 4, file); fwrite(&zero, 4, 1, file);
-        return true;
+        path = to;
+        align = std::max(channels * (bits / 8), 1);
+        uint8_t room[28] = {};
+        put("RIFF", 4); put<uint32_t>(0); put("WAVE", 4);
+        put("JUNK", 4); put<uint32_t>(28); put(room, 28);
+        put("fmt ", 4); put<uint32_t>(16); put<uint16_t>(1); put(channels); put(rate); put<uint32_t>(rate * align); put(align); put(bits);
+        put("data", 4); put<uint32_t>(0);
+        return ok;
     }
-    void add(const void *bytes, size_t count) { fwrite(bytes, 1, count, file); written += (uint32_t)count; }
-    void close() {
-        if (!file) return;
-        uint32_t riff = 36 + written;
-        fseek(file, 4, SEEK_SET); fwrite(&riff, 4, 1, file);
-        fseek(file, 40, SEEK_SET); fwrite(&written, 4, 1, file);
-        fclose(file);
+    bool add(const void *bytes, size_t count) { put(bytes, count); written += count; return ok; }
+    /// Writes the sizes and closes; false (and the file removed) if any of it couldn't be written.
+    bool close() {
+        if (!file) return false;
+        if (written & 1) put<uint8_t>(0);
+        // Everything after the RIFF size: WAVE, JUNK/ds64, fmt, the data header, the data.
+        uint64_t riff = 4 + 36 + 24 + 8 + written + (written & 1);
+        if (riff > 0xFFFFFFFFull) {
+            seek(0); put("RF64", 4); put<uint32_t>(0xFFFFFFFF);
+            seek(12); put("ds64", 4); put<uint32_t>(28); put<uint64_t>(riff); put<uint64_t>(written); put<uint64_t>(written / align); put<uint32_t>(0);
+            seek(76); put<uint32_t>(0xFFFFFFFF);
+        } else {
+            seek(4); put<uint32_t>((uint32_t)riff);
+            seek(76); put<uint32_t>((uint32_t)written);
+        }
+        if (fclose(file) != 0) ok = false;
         file = nullptr;
+        if (!ok) unlink(path.c_str());
+        return ok;
     }
 };
+
+static void failWriting() { fail(@"The sound couldn’t be written (the disk may be full)."); }
 
 // MARK: - RED
 
@@ -201,11 +267,11 @@ static void audioRed(NSDictionary *request) {
         // Big-endian to little-endian.
         size_t bytes = samples * 4 * channels;
         for (size_t i = 0; i < bytes; i += 4) { std::swap(buffer[i], buffer[i + 3]); std::swap(buffer[i + 1], buffer[i + 2]); }
-        wav.add(buffer, bytes);
+        if (!wav.add(buffer, bytes)) break;
         at += samples;
     }
     free(raw);
-    wav.close();
+    if (!wav.close()) { failWriting(); return; }
     reply(@{@"ok": @YES, @"channels": @(channels), @"rate": @(rate)});
 }
 
@@ -231,28 +297,32 @@ static id<MTLBuffer> redRawDevice, redResult;
 /// CPU), or null if it couldn't, to use the CPU.
 static const uint16_t *frameRedGpu(size_t index, VideoDecodeMode mode, ImageProcessingSettings &settings, size_t pixels) {
     if (!redMetal || !redGpu || GpuDecoder::DecodeSupportedForClip(*redClip) != DSDecodeOK) return nullptr;
-    AsyncDecompressJob job;
-    job.Clip = redClip;
-    job.Mode = mode;
-    job.VideoFrameNo = index;
-    job.VideoTrackNo = 0;
-    job.AbortDecode = false;
-    job.OutputFrameMetadata = nullptr;
-    size_t size = GpuDecoder::GetSizeBufferNeeded(job);
-    if (size == 0) return nullptr;
+    // (On the heap: a decode that never finishes keeps them, see waited().)
+    AsyncDecompressJob *job = new AsyncDecompressJob();
+    RedWait *wait = new RedWait();
+    auto done = [&] { delete job; delete wait; return nullptr; };
+    job->Clip = redClip;
+    job->Mode = mode;
+    job->VideoFrameNo = index;
+    job->VideoTrackNo = 0;
+    job->AbortDecode = false;
+    job->OutputFrameMetadata = nullptr;
+    size_t size = GpuDecoder::GetSizeBufferNeeded(*job);
+    if (size == 0) return done();
     if (size > redPackedSize) {
         free(redPacked);
-        if (posix_memalign(&redPacked, 16, size) != 0) { redPacked = nullptr; redPackedSize = 0; return nullptr; }
+        if (posix_memalign(&redPacked, 16, size) != 0) { redPacked = nullptr; redPackedSize = 0; return done(); }
         redPackedSize = size;
     }
-    job.OutputBuffer = redPacked;
-    job.OutputBufferSize = size;
-    RedWait wait;
-    job.PrivateData = &wait;
-    job.Callback = redDecompressed;
-    if (redGpu->DecodeForGpuSdk(job) != DSDecodeOK) return nullptr;
-    dispatch_semaphore_wait(wait.done, DISPATCH_TIME_FOREVER);
-    if (wait.status != DSDecodeOK) return nullptr;
+    job->OutputBuffer = redPacked;
+    job->OutputBufferSize = size;
+    job->PrivateData = wait;
+    job->Callback = redDecompressed;
+    if (redGpu->DecodeForGpuSdk(*job) != DSDecodeOK) return done();
+    if (!waited(wait->done)) return nullptr;
+    bool decoded = wait->status == DSDecodeOK;
+    done();
+    if (!decoded) return nullptr;
 
     DebayerMetalJob *debayer = redMetal->createDebayerJob();
     debayer->raw_host_mem = redPacked;
@@ -311,6 +381,7 @@ static void frameRed(NSDictionary *request) {
 
     size_t index = [request[@"index"] unsignedIntegerValue];
     const uint16_t *rgb = frameRedGpu(index, mode, settings, pixels);
+    if (decoderStuck) return;
     if (!rgb) {
         redRGB.resize(pixels * 3 + 8);
         // 16-byte aligned, as the decoder wants.
@@ -499,12 +570,16 @@ static bool startBraw() {
 
 /// Runs one read (and decode) and waits for it.
 static HRESULT runBraw(BrawRequest &request, uint64_t index) {
-    brawCallback.request = &request;
+    // (A copy on the heap: a read that never finishes keeps it, see waited().)
+    BrawRequest *job = new BrawRequest(request);
+    brawCallback.request = job;
     IBlackmagicRawJob *read = nullptr;
     HRESULT result = brawClip->CreateJobReadFrame(index, &read);
     if (SUCCEEDED(result)) result = read->Submit();
-    if (FAILED(result)) { if (read) read->Release(); return result; }
-    dispatch_semaphore_wait(brawCallback.done, DISPATCH_TIME_FOREVER);
+    if (FAILED(result)) { if (read) read->Release(); delete job; return result; }
+    if (!waited(brawCallback.done)) return E_FAIL;
+    request = *job;
+    delete job;
     return request.result;
 }
 
@@ -602,11 +677,11 @@ static void audioBraw(NSDictionary *request) {
     while (at < total) {
         uint32_t samples = 0, bytes = 0;
         if (FAILED(audio->GetAudioSamples((int64_t)at, buffer.data(), (uint32_t)buffer.size(), chunk, &samples, &bytes)) || samples == 0) break;
-        wav.add(buffer.data(), bytes);
+        if (!wav.add(buffer.data(), bytes)) break;
         at += samples;
     }
-    wav.close();
     audio->Release();
+    if (!wav.close()) { failWriting(); return; }
     reply(@{@"ok": @YES, @"channels": @(channels), @"rate": @(rate)});
 }
 
@@ -648,6 +723,7 @@ static void frameBraw(NSDictionary *request) {
 static void handle(NSDictionary *request) {
     NSString *op = [request isKindOfClass:NSDictionary.class] ? request[@"op"] : nil;
     if (!op) { fail(@"Bad request."); return; }
+    if (decoderStuck) { fail(@"The decoder stopped responding."); return; }
     NSString *path = request[@"path"];
     NSString *ext = path.pathExtension.lowercaseString;
     if ([op isEqualToString:@"open"]) {
@@ -722,7 +798,7 @@ extern "C" char *pluck_raw_request(const char *json) {
         NSDictionary *request = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         if ([request[@"op"] isEqualToString:@"quit"]) { finish(); libraryReply = @{@"ok": @YES}; }
         else handle(request);
-        NSData *out = [NSJSONSerialization dataWithJSONObject:libraryReply ?: @{@"ok": @NO} options:0 error:nil];
+        NSData *out = replyData(libraryReply ?: @{@"ok": @NO});
         char *text = (char *)malloc(out.length + 1);
         memcpy(text, out.bytes, out.length);
         text[out.length] = 0;

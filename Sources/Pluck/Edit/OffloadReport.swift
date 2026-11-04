@@ -257,7 +257,12 @@ enum MHL {
         defer { try? handle.close() }
         _ = fcntl(handle.fileDescriptor, F_NOCACHE, 1)
         var xxh = XXH64(), md5 = Insecure.MD5(), sha1 = Insecure.SHA1()
-        while !stopped(), let data = try? handle.read(upToCount: 8 << 20), !data.isEmpty {
+        while true {
+            // Stopped, or a read that failed: no hash rather than one of part of the file.
+            if stopped() { return nil }
+            let data: Data?
+            do { data = try handle.read(upToCount: 8 << 20) } catch { return nil }
+            guard let data, !data.isEmpty else { break }
             switch kind {
             case "md5": md5.update(data: data)
             case "sha1": sha1.update(data: data)

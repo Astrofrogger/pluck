@@ -19,8 +19,7 @@ final class MediaFavourites {
             all = saved
         } else {
             // Can't be read: put aside rather than written over by the next favourite.
-            let aside = file.appendingPathExtension("broken")
-            try? FileManager.default.removeItem(at: aside)
+            let aside = file.appendingPathExtension("\(Int(Date.now.timeIntervalSince1970 * 1000)).broken")
             try? FileManager.default.moveItem(at: file, to: aside)
         }
     }

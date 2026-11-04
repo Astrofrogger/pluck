@@ -278,20 +278,30 @@ final class FFmpegSource: RawSource, @unchecked Sendable {
         streamScale = scale
     }
 
-    /// The sound, made into a .wav once.
+    /// The sound, made into a .wav once (deleted with the source). Made outside the lock, so
+    /// frames keep coming while it's written.
     func audio() throws -> URL? {
-        try lock.withLock {
-            if let audioFile { return audioFile }
-            guard info.audioChannels > 0 else { return nil }
-            let to = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-raw-\(UUID().uuidString).wav")
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: ffmpeg)
-            process.arguments = ["-nostdin", "-v", "error"] + input + ["-vn", "-c:a", "pcm_s24le", "-y", to.path]
-            process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else { return nil }
+        let (made, channels) = lock.withLock { (audioFile, info.audioChannels) }
+        if let made { return made }
+        guard channels > 0 else { return nil }
+        let to = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-raw-\(UUID().uuidString).wav")
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: ffmpeg)
+        process.arguments = ["-nostdin", "-v", "error"] + input + ["-vn", "-c:a", "pcm_s24le", "-y", to.path]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            try? FileManager.default.removeItem(at: to)
+            return nil
+        }
+        return lock.withLock {
+            // Made twice at once: keep the first.
+            if let audioFile {
+                try? FileManager.default.removeItem(at: to)
+                return audioFile
+            }
             audioFile = to
             return to
         }

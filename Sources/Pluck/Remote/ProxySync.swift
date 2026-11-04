@@ -183,7 +183,7 @@ final class ProxySync {
     }
 
     /// A path inside the folder (the host's answer is trusted only this far).
-    private static func isSafe(_ path: String) -> Bool {
+    static func isSafe(_ path: String) -> Bool {
         !path.isEmpty && !path.hasPrefix("/") && !path.split(separator: "/").contains("..") && path.count < 1000
     }
 

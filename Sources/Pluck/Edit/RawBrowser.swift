@@ -1,4 +1,5 @@
 import CryptoKit
+import ImageIO
 import SwiftUI
 
 // MARK: - Finding clips
@@ -14,10 +15,31 @@ enum RawFolderScan {
         // (A RED clip is its .RDC folder; loose R3D files elsewhere are clips of their own.)
         if url.pathExtension.lowercased() == "rdc" { return true }
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-        if files.filter({ $0.pathExtension.lowercased() == "dng" }).count >= 2 { return true }
+        let dngs = files.filter { $0.pathExtension.lowercased() == "dng" }
+        if dngs.count >= 2 { return !arePhotos(dngs) }
         // Numbered pictures of one kind, and nothing much else: an image sequence.
         let pictures = files.filter { sequenceExtensions.contains($0.pathExtension.lowercased()) && $0.lastPathComponent.contains(where: \.isNumber) }
-        return pictures.count >= 10 && pictures.count * 10 >= files.count * 9
+        guard pictures.count >= 10 && pictures.count * 10 >= files.count * 9 else { return false }
+        // (A camera's JPEGs are photos: IMG_0001.JPG… is numbered too.)
+        let jpegs = pictures.filter { ["jpg", "jpeg"].contains($0.pathExtension.lowercased()) }
+        return jpegs.isEmpty || !arePhotos(jpegs)
+    }
+
+    /// Whether numbered DNGs or JPEGs are a camera's photos rather than a clip's frames: a JPEG
+    /// that names the camera, or pictures written seconds apart (a clip writes many frames a
+    /// second; a camera, even in a burst, doesn't keep that up).
+    static func arePhotos(_ files: [URL]) -> Bool {
+        let sorted = files.sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        guard let first = sorted.first, let last = sorted.last else { return false }
+        if ["jpg", "jpeg"].contains(first.pathExtension.lowercased()),
+           let source = CGImageSourceCreateWithURL(first as CFURL, nil),
+           let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+           let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any], tiff[kCGImagePropertyTIFFMake] != nil {
+            return true
+        }
+        func written(_ url: URL) -> Date? { (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate }
+        guard let from = written(first), let to = written(last) else { return false }
+        return abs(to.timeIntervalSince(from)) > max(Double(files.count) * 0.5, 10)
     }
 
     /// Every clip under `root`, in order of their folders and names.
@@ -182,7 +204,9 @@ final class RawThumbnailer: @unchecked Sendable {
 }
 
 /// One thread's decoder: a raw helper that opens clip after clip, or Pluck's own for the rest.
-private final class ThumbnailDecoder {
+final class ThumbnailDecoder {
+    /// The raw decoder (another program in tests).
+    var helper = RawHelperSource.helper
     private var process: Process?
     private var input: FileHandle?
     private var output: FileHandle?
@@ -207,7 +231,7 @@ private final class ThumbnailDecoder {
         let file = url.hasDirectoryPath ? firstR3D(in: url) : url
         if let file, ["r3d", "braw", "crm"].contains(file.pathExtension.lowercased()) {
             try startHelper()
-            let reply = try RawHelperSource.ask(["op": "open", "path": file.path], input: input!, output: output!, pending: &pending)
+            let reply = try helperAsk(["op": "open", "path": file.path])
             helperInfo = RawHelperSource.info(from: reply, url: file)
             helperOpen = true
             openURL = url
@@ -230,10 +254,9 @@ private final class ThumbnailDecoder {
     func frame(_ index: Int, info: RawClipInfo) throws -> CGImage {
         var scale = 1
         while scale < 16 && info.width / (scale * 2) >= 380 { scale *= 2 }
-        if helperOpen, let input, let output, let mapped {
-            let reply = try RawHelperSource.ask(["op": "frame", "index": index, "scale": scale, "look": RawLook.video.helperName,
-                                                 "buffer": buffer.path, "size": mappedSize, "depth": 8],
-                                                input: input, output: output, pending: &pending)
+        if helperOpen, let mapped {
+            let reply = try helperAsk(["op": "frame", "index": index, "scale": scale, "look": RawLook.video.helperName,
+                                       "buffer": buffer.path, "size": mappedSize, "depth": 8])
             let width = (reply["width"] as? NSNumber)?.intValue ?? 0, height = (reply["height"] as? NSNumber)?.intValue ?? 0
             let eight = (reply["depth"] as? NSNumber)?.intValue == 8
             let pixel = eight ? 4 : 8
@@ -253,17 +276,9 @@ private final class ThumbnailDecoder {
 
     private func startHelper() throws {
         if let process, process.isRunning { return }
-        guard let helper = RawHelperSource.helper else { throw RawProblem(text: String(localized: "This Pluck was built without the raw decoder.")) }
-        let process = Process()
-        process.executableURL = helper
-        let toHelper = Pipe(), fromHelper = Pipe()
-        process.standardInput = toHelper
-        process.standardOutput = fromHelper
-        process.standardError = FileHandle.nullDevice
-        try process.run()
-        self.process = process
-        input = toHelper.fileHandleForWriting
-        output = fromHelper.fileHandleForReading
+        guard let helper else { throw RawProblem(text: String(localized: "This Pluck was built without the raw decoder.")) }
+        let (started, toHelper, fromHelper) = try RawHelperSource.launch(helper)
+        (process, input, output) = (started, toHelper, fromHelper)
         pending = Data()
         if mapped == nil {
             FileManager.default.createFile(atPath: buffer.path, contents: nil)
@@ -272,6 +287,17 @@ private final class ThumbnailDecoder {
             if fd >= 0, ftruncate(fd, off_t(mappedSize)) == 0, let memory = mmap(nil, mappedSize, PROT_READ, MAP_SHARED, fd, 0), memory != MAP_FAILED {
                 mapped = memory
             }
+        }
+    }
+
+    /// A helper that stopped (stuck, or gone) is ended; the next clip starts a new one.
+    private func helperAsk(_ request: [String: Any]) throws -> [String: Any] {
+        do {
+            return try RawHelperSource.ask(request, input: input!, output: output!, pending: &pending)
+        } catch let problem as RawProblem where problem.stopped {
+            if let process, process.isRunning { process.terminate() }
+            (process, helperOpen, openURL) = (nil, false, nil)
+            throw problem
         }
     }
 

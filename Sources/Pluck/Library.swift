@@ -83,11 +83,17 @@ final class LibraryStore {
     private init() {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        if let data = try? Data(contentsOf: Self.fileURL), let saved = try? decoder.decode([Entry].self, from: data) {
-            entries = saved
+        // A file that can't be read is put aside, rather than written over with an empty list.
+        func putAside(_ file: URL) {
+            // (Its own name each time: an earlier one is never written over.)
+            let aside = file.appendingPathExtension("\(Int(Date.now.timeIntervalSince1970 * 1000)).broken")
+            try? FileManager.default.moveItem(at: file, to: aside)
         }
-        if let data = try? Data(contentsOf: Self.removedURL), let saved = try? decoder.decode([String: Date].self, from: data) {
-            removedPaths = saved
+        if let data = try? Data(contentsOf: Self.fileURL) {
+            if let saved = try? decoder.decode([Entry].self, from: data) { entries = saved } else { putAside(Self.fileURL) }
+        }
+        if let data = try? Data(contentsOf: Self.removedURL) {
+            if let saved = try? decoder.decode([String: Date].self, from: data) { removedPaths = saved } else { putAside(Self.removedURL) }
         }
     }
 

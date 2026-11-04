@@ -76,3 +76,45 @@ reverse engineered or used by other programs. The SDK itself isn't part of this 
 `pluck-raw` uses the Blackmagic RAW SDK, © Blackmagic Design Pty. Ltd. Its API library
 (BlackmagicRawAPI.framework) is included unchanged under the Blackmagic RAW SDK License
 Agreement. The SDK itself isn't part of this repository.
+
+## Tailscale and Go (Edit Anywhere, Pluck Studio)
+Pluck Studio's private network, `pluck-tunnel`, is built in Go from [Tailscale](https://github.com/tailscale/tailscale)
+(`tailscale.com` v1.104.1, © Tailscale Inc. and contributors, BSD 3-Clause) and its Go modules, which are
+linked into the program (Helpers/PluckTunnel/go.mod): filippo.io/edwards25519, akutz/memconn,
+alexbrainman/sspi, coder/websocket, creachadair/msync, dblohm7/wingoes, fxamacker/cbor, gaissmai/bart,
+go-json-experiment/json, godbus/dbus, golang/groupcache, google/btree, google/go-cmp,
+hdevalence/ed25519consensus, huin/goupnp, klauspost/compress, mdlayher/netlink, mdlayher/socket,
+jsimonetti/rtnetlink, mitchellh/go-ps, pires/go-proxyproto, safchain/ethtool, tailscale/certstore,
+tailscale/go-winio, tailscale/hujson, tailscale/peercred, tailscale/web-client-prebuilt,
+tailscale/wireguard-go, x448/float16, go4.org/mem, go4.org/netipx, golang.org/x/{crypto, exp, net, oauth2,
+sync, sys, term, text, time}, golang.zx2c4.com/wintun, golang.zx2c4.com/wireguard/windows and gvisor.dev/gvisor
+(BSD, MIT or Apache 2.0, each as stated in its own licence), plus the Go standard library
+(BSD 3-Clause). Every licence text, with Tailscale's patent grant, is in
+[ThirdPartyLicenses/Tailscale](ThirdPartyLicenses/Tailscale/LICENSE).
+
+## MLX, mlx-swift-lm and Hugging Face Swift packages (shot descriptions, Pluck Studio)
+The vision helper, `pluck-vision`, runs a vision-language model on the GPU with
+[MLX](https://github.com/ml-explore/mlx-swift) (mlx-swift 0.32.3, © Apple Inc., MIT, including the Metal
+kernels in its `mlx-swift_Cmlx` bundle), [mlx-swift-lm](https://github.com/ml-explore/mlx-swift-lm) 3.32.3
+(MIT), [swift-transformers](https://github.com/huggingface/swift-transformers) 1.3.5 (Apache 2.0),
+[swift-huggingface](https://github.com/huggingface/swift-huggingface) 1.0.0 (Apache 2.0),
+[swift-jinja](https://github.com/huggingface/swift-jinja) 2.5.1 (Apache 2.0), and what those use:
+[EventSource](https://github.com/mattt/EventSource) 1.5.1 (MIT), [yyjson](https://github.com/ibireme/yyjson) 0.12.0
+(MIT), swift-collections 1.7.2, swift-numerics 1.1.1, swift-crypto 4.5.2 and swift-asn1 1.7.3 (Apache 2.0).
+The licences are in [ThirdPartyLicenses](ThirdPartyLicenses), one folder per package.
+
+## Vision models (Qwen and Gemma, Pluck Studio; downloaded on request)
+The models `pluck-vision` runs are not part of Pluck's download. Pluck downloads the one chosen in Settings,
+pinned to a revision, when it's first used: the 4-bit MLX conversions from
+[mlx-community](https://huggingface.co/mlx-community) of Qwen3.8 27B, Qwen3.6 35B-A3B, Qwen3.5 9B and
+Qwen3.5 4B by the Qwen team at Alibaba Cloud ([Qwen](https://huggingface.co/Qwen)), released under the
+Apache License 2.0, and of Gemma 4 26B-A4B by Google, which its model card publishes as open (Apache 2.0)
+too. The licence travels with each model's files when downloaded.
+
+## spektrafilm film data (film tables, Pluck Studio)
+The film tables in Pluck Studio (`Contents/Resources/FilmTables`) are made from the film and paper data of
+[darktable-spektrafilm](https://github.com/darktable-org/darktable-spektrafilm), © Andrea Volpato, licensed
+CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). The tables are derived from that data and
+are shared under the same licence; the licence text and notice ship with them in
+`FilmTables/LICENSE` and `FilmTables/NOTICE.txt`. The film engine's own licence (GPL-3.0-or-later) is
+in `FilmEngine/COPYING`.

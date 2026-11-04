@@ -463,7 +463,7 @@ private struct OffloadRow: View {
             if state != .done {
                 let done = live?.bytes ?? job.workDone
                 ProgressView(value: Double(done), total: Double(max(job.work, 1)))
-                if job.cascades, job.cardDone != nil {
+                if job.cascades, job.cardDone != nil, job.cardIsFree {
                     Label("The card is done and can go back in the camera.", systemImage: "sdcard")
                         .font(.callout).foregroundStyle(.green)
                 }
@@ -480,7 +480,10 @@ private struct OffloadRow: View {
                 if state == .copying, let history = center.speedLive[job.id] { OffloadSpeedLine(job: job, history: history) }
             } else {
                 HStack(spacing: Design.Spacing.controls) {
-                    let skipped = job.skipped ?? 0, there = skipped + (job.alreadyThere ?? 0)
+                    // (A skipped file that then had a problem counts once, as a problem; older jobs only have the number.)
+                    let skipped = job.files.contains { $0.skipped != nil } ? job.files.filter { $0.skipped == true && $0.problem == nil }.count
+                        : min(job.skipped ?? 0, job.files.count - job.problems.count)
+                    let there = skipped + (job.alreadyThere ?? 0)
                     Label(there > 0
                           ? String(localized: "\(job.files.count - job.problems.count - skipped) copied and checked, \(there) already there")
                           : String(AttributedString(localized: "^[\(job.files.count - job.problems.count) file](inflect: true) checked on every drive").characters),

@@ -28,6 +28,7 @@ extension AIStudio {
                 item.aiStatus = nil
                 item.aiProgress = nil
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
+            } catch is CancellationError {
             } catch {
                 item.aiStatus = nil
                 item.aiProgress = nil

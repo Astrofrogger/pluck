@@ -295,8 +295,8 @@ enum ProjectStore {
         do {
             return try decoder.decode(Project.self, from: data)
         } catch {
-            let aside = file.appendingPathExtension("broken")
-            try? FileManager.default.removeItem(at: aside)
+            // (Its own name each time: an earlier one is never written over.)
+            let aside = file.appendingPathExtension("\(Int(Date.now.timeIntervalSince1970 * 1000)).broken")
             try? FileManager.default.moveItem(at: file, to: aside)
             return nil
         }
@@ -492,9 +492,8 @@ final class ProjectModel {
 
     /// Every change goes through here: remembered for undo, saved, and played back.
     func change(_ body: (inout Project) -> Void) {
-        history.append(beforeDrag ?? project)
+        remember(beforeDrag ?? project)
         beforeDrag = nil
-        if history.count > 100 { history.removeFirst() }
         future = []
         body(&project)
         Self.followLinks(&project)
@@ -519,6 +518,12 @@ final class ProjectModel {
         rebuild()
     }
 
+    /// A step to undo; the last 100 are kept.
+    private func remember(_ step: Project) {
+        history.append(step)
+        if history.count > 100 { history.removeFirst() }
+    }
+
     func undo() {
         guard let last = history.popLast() else { return }
         beforeDrag = nil
@@ -533,7 +538,7 @@ final class ProjectModel {
     func redo() {
         guard let next = future.popLast() else { return }
         beforeDrag = nil
-        history.append(project)
+        remember(project)
         let link = Self.link(keeping: project.resolveTimeline, stepping: next.resolveTimeline)
         project = next
         project.resolveTimeline = link
@@ -703,7 +708,7 @@ final class ProjectModel {
         same.look = old.look
         if !record { dragging() }
         if same == old, new.speed == old.speed {
-            if record { history.append(beforeDrag ?? project); beforeDrag = nil; future = [] }
+            if record { remember(beforeDrag ?? project); beforeDrag = nil; future = [] }
             project.clips[index] = new
             project.modified = .now
             if record { save() }
@@ -727,8 +732,7 @@ final class ProjectModel {
         beforeDrag = nil
         // A slider let go where it was: no step.
         guard start.adjustments != project.adjustments else { return }
-        history.append(start)
-        if history.count > 100 { history.removeFirst() }
+        remember(start)
         future = []
         project.modified = .now
         save()
@@ -838,7 +842,7 @@ final class ProjectModel {
 
     /// Saves changes made a little at a time (a drag), as one step to undo.
     func commit(from before: Project) {
-        history.append(before)
+        remember(before)
         beforeDrag = nil
         future = []
         project.modified = .now

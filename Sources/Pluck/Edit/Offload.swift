@@ -16,6 +16,8 @@ struct OffloadFile: Codable, Hashable {
     /// Checked on each destination.
     var done: [Bool]
     var problem: String?
+    /// Already on every drive when it started (counted in the job's `skipped`).
+    var skipped: Bool?
 }
 
 struct OffloadJob: Codable, Identifiable, Hashable {
@@ -44,6 +46,12 @@ struct OffloadJob: Codable, Identifiable, Hashable {
     /// the reports a card's offload leaves, and shown by this name.
     var quick: Bool?
     var title: String?
+    /// A move in the Library to another drive: these originals go to the Trash once every file
+    /// is copied and checked (kept when anything went wrong).
+    var moving: [String]?
+    /// The drive the originals were on (its volume UUID): another card with the same name in
+    /// their place by the end isn't touched.
+    var movingVolume: String?
     /// Files already on every drive when it started (same name, size and date): not copied again.
     var skipped: Int?
     /// Only some of the card went (its video files): it isn't safe to format.
@@ -87,6 +95,9 @@ struct OffloadJob: Codable, Identifiable, Hashable {
     var totalBytes: Int64 { files.reduce(0) { $0 + $1.size } }
     var problems: [OffloadFile] { files.filter { $0.problem != nil } }
     var isComplete: Bool { files.allSatisfy { $0.problem != nil || !$0.done.contains(false) } }
+    /// The whole card is off it with nothing wrong (its first copy, when it cascades): it can go
+    /// back in the camera, or be ejected.
+    var cardIsFree: Bool { !files.isEmpty && files.allSatisfy { $0.problem == nil } && partial != true }
     /// The work in bytes: each file read once from the source and once from every copy (and, when
     /// it cascades, once more from the first copy).
     var work: Int64 { totalBytes * Int64(perFile) }
@@ -168,14 +179,17 @@ final class OffloadRunner: @unchecked Sendable {
             if job.cascades {
                 if job.cardDone == nil {
                     try pass(from: job.source, to: [0], buffer: buffer)
-                    job.cardDone = .now
-                    send(.cardDone)
+                    // (A file that failed, or only part of the card: it isn't free, and isn't ejected.)
+                    if job.cardIsFree {
+                        job.cardDone = .now
+                        send(.cardDone)
+                    }
                 }
                 try pass(from: job.targets[0], to: Array(1..<job.roots.count), buffer: buffer)
             } else {
                 try pass(from: job.source, to: Array(job.roots.indices), buffer: buffer)
             }
-            if job.quick != true { for target in job.targets.indices { writeReport(target) } }
+            if job.quick != true { for target in job.targets.indices { try writeReport(target) } }
             send(.speeds(meter.snapshot(final: true)))
             send(.finished)
         } catch Halt.waiting(let drive) {
@@ -575,7 +589,7 @@ final class OffloadRunner: @unchecked Sendable {
 
     /// The list of every file and its hash (MHL 1.1, which Silverstack, OffShoot and Resolve read),
     /// next to the copy.
-    private func writeReport(_ target: Int) {
+    private func writeReport(_ target: Int) throws {
         let iso = ISO8601DateFormatter()
         func escaped(_ text: String) -> String {
             text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
@@ -609,7 +623,12 @@ final class OffloadRunner: @unchecked Sendable {
         let stamp = DateFormatter()
         stamp.dateFormat = "yyyy-MM-dd_HHmmss"
         let report = (job.targets[target] as NSString).appendingPathComponent("\(job.displayName)_\(stamp.string(from: .now)).mhl")
-        try? xml.write(toFile: report, atomically: true, encoding: .utf8)
+        do {
+            try xml.write(toFile: report, atomically: true, encoding: .utf8)
+        } catch {
+            // Without it the copy can't be checked later: not done until it's there.
+            throw Halt.fatal(String(localized: "The MHL couldn’t be written on \(job.rootVolumes[target]): \(error.localizedDescription)"))
+        }
     }
 }
 
@@ -641,6 +660,8 @@ final class OffloadCenter {
     @ObservationIgnored private var runStarted: [UUID: Date] = [:]
     @ObservationIgnored private var saveTask: Task<Void, Never>?
     @ObservationIgnored private var observers: [Any] = []
+    /// Whether each finished move's originals went to the Trash, once that's decided.
+    @ObservationIgnored private(set) var trashed: [UUID: Bool] = [:]
     /// Backups stopped so a card can go first: queued again once they've stopped.
     @ObservationIgnored private var yielding: Set<UUID> = []
     /// A card into a project is planned while no other is (two cards in at once would otherwise
@@ -718,7 +739,7 @@ final class OffloadCenter {
         if let project = OffloadProjects.shared.current {
             let roots = project.drives.map { URL(fileURLWithPath: $0, isDirectory: true) }
             guard !roots.isEmpty, !project.operators.isEmpty, roots.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
-                  !roots.contains(where: { $0.path.hasPrefix(volume.path) }) else { return }
+                  !roots.contains(where: { $0.path == volume.path || $0.path.hasPrefix(volume.path + "/") }) else { return }
             Task {
                 guard await Task.detached(operation: { Self.isCameraCard(volume) }).value else { return }
                 let problem = await offload(card: volume, project: project.id, eject: defaults.bool(forKey: "offloadEject"),
@@ -732,7 +753,7 @@ final class OffloadCenter {
         }
         let roots = (defaults.string(forKey: "offloadRoots") ?? "").split(separator: "\n").map { URL(fileURLWithPath: String($0), isDirectory: true) }
         guard !roots.isEmpty, roots.allSatisfy({ FileManager.default.fileExists(atPath: $0.path) }),
-              !roots.contains(where: { $0.path.hasPrefix(volume.path) }) else { return }
+              !roots.contains(where: { $0.path == volume.path || $0.path.hasPrefix(volume.path + "/") }) else { return }
         Task {
             guard await Task.detached(operation: { Self.isCameraCard(volume) }).value else { return }
             let newFolder = defaults.object(forKey: "offloadNewFolder") as? Bool ?? true
@@ -747,6 +768,11 @@ final class OffloadCenter {
     /// The room left where a copy goes (nil when the drive won't say). macOS's "for important
     /// use" figure is only kept for the Mac's own disks: a server (SMB, AFP, NFS) gives 0 there,
     /// so then the plain figure, and else what the file system says.
+    /// Which drive something is on (two folders on one drive: the same).
+    nonisolated static func volume(_ url: URL) -> NSObject? {
+        (try? url.resourceValues(forKeys: [.volumeIdentifierKey]))?.volumeIdentifier as? NSObject
+    }
+
     nonisolated static func freeSpace(_ url: URL) -> Int64? {
         let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
         if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
@@ -760,52 +786,169 @@ final class OffloadCenter {
     static let finishedNotification = Notification.Name("PluckOffloadFinished")
 
     /// Files and folders copied into a folder, as the Library's panes do it (dragged across, or
-    /// "Copy to Other Side"): each read back and checked like an offload, carrying on if a drive
-    /// comes and goes. Something already there isn't copied over.
-    func copy(_ items: [URL], into folder: URL) async -> String? {
+    /// "Copy to Other Side"): every kind of file, each read back and checked like an offload,
+    /// carrying on if a drive comes and goes. Something already there isn't copied over (the rest
+    /// is); nil when everything started, else what wasn't copied and why. `move`: on the same
+    /// drive, moved at once; to another, copied and checked, then the originals to the Trash.
+    func copy(_ items: [URL], into folder: URL, move: Bool = false) async -> String? {
         let folder = folder.standardizedFileURL
-        for item in items.map(\.standardizedFileURL) {
+        var there: [String] = []
+        let wanted = items.map(\.standardizedFileURL).filter { item in
             let target = folder.appendingPathComponent(item.lastPathComponent)
             if item.deletingLastPathComponent().path == folder.path || FileManager.default.fileExists(atPath: target.path) {
-                return String(localized: "\(item.lastPathComponent) is already in \(folder.lastPathComponent).")
+                there.append(item.lastPathComponent)
+                return false
+            }
+            // (Not a folder into itself.)
+            return !FinderPane.isInside(folder, item)
+        }
+        let skipped: String? = switch there.count {
+        case 0: nil
+        case 1: String(localized: "\(there[0]) is already in \(folder.lastPathComponent).")
+        default: String(localized: "\(there.count) of them are already in \(folder.lastPathComponent).")
+        }
+        var notes = skipped.map { [$0] } ?? []
+        var toCopy = wanted
+        if move {
+            // The same drive: only its place changes, nothing to copy or check.
+            let drive = Self.volume(folder)
+            var here: [URL] = []
+            toCopy = []
+            for item in wanted {
+                if drive != nil, Self.volume(item) == drive { here.append(item) } else { toCopy.append(item) }
+            }
+            let moves = here
+            let failed = await Task.detached(priority: .userInitiated) { () -> [String] in
+                moves.compactMap { item in
+                    do {
+                        try FileManager.default.moveItem(at: item, to: folder.appendingPathComponent(item.lastPathComponent))
+                        return nil
+                    } catch { return item.lastPathComponent }
+                }
+            }.value
+            if !failed.isEmpty {
+                notes.append(String(localized: "\(failed.count) couldn’t be moved: \(failed.formatted(.list(type: .and)))."))
             }
         }
         var loose: [URL] = []
-        for item in items.map(\.standardizedFileURL) {
-            let isFolder = (try? item.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            if isFolder {
-                if let problem = await add(source: item, roots: [folder], name: item.lastPathComponent, quick: true) { return problem }
+        for item in toCopy {
+            let values = try? item.resourceValues(forKeys: [.isDirectoryKey, .isVolumeKey])
+            // A whole drive can't be moved (its own folder can't go to the Trash): only copied.
+            let whole = values?.isVolume == true
+            if move, whole { notes.append(String(localized: "\(Self.volumeName(item)) is a whole drive: it was copied, not moved.")) }
+            if values?.isDirectory == true {
+                if let problem = await add(source: item, roots: [folder], name: item.lastPathComponent, quick: true, moving: move && !whole) {
+                    return (notes + [problem]).joined(separator: " ")
+                }
             } else {
                 loose.append(item)
             }
         }
         // Loose files, a job per folder they're in.
         for (parent, files) in Dictionary(grouping: loose, by: { $0.deletingLastPathComponent() }) {
+            var unread: [String] = []
             let list = files.compactMap { file -> (path: String, size: Int64, modified: Date)? in
-                guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+                guard let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else {
+                    unread.append(file.lastPathComponent)
+                    return nil
+                }
                 return (file.lastPathComponent, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .now)
             }
-            if let problem = Self.problem(files: list, roots: [folder]) { return problem }
+            if !unread.isEmpty {
+                notes.append(String(localized: "\(unread.count) couldn’t be read, so weren’t copied: \(unread.formatted(.list(type: .and)))."))
+            }
+            guard !list.isEmpty else { continue }
+            if let problem = Self.problem(files: list, roots: [folder]) { return (notes + [problem]).joined(separator: " ") }
             let total = list.reduce(Int64(0)) { $0 + $1.size }
-            if let free = Self.freeSpace(folder), free < total { return String(localized: "There isn’t enough room on \(Self.volumeName(folder)).") }
+            if let free = Self.freeSpace(folder), free < total {
+                return (notes + [String(localized: "There isn’t enough room on \(Self.volumeName(folder)).")]).joined(separator: " ")
+            }
             var job = OffloadJob(name: "", source: parent.path, sourceVolume: Self.volumeName(parent), roots: [folder.path],
                                  rootVolumes: [Self.volumeName(folder)],
                                  files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: [false]) })
             job.quick = true
-            job.title = files.count == 1 ? files[0].lastPathComponent : String(localized: "\(files.count) files")
+            // (Only what's in the job: a file that couldn't be read isn't copied, so never trashed.)
+            if move { job.moving = list.map { parent.appendingPathComponent($0.path).path }; job.movingVolume = Self.volumeUUID(parent) }
+            job.title = list.count == 1 ? list[0].path : String(localized: "\(list.count) files")
             jobs.insert(job, at: 0)
             save(job)
             resume(job.id)
         }
+        return notes.isEmpty ? nil : notes.joined(separator: " ")
+    }
+
+    nonisolated static func volumeUUID(_ url: URL) -> String? {
+        (try? url.resourceValues(forKeys: [.volumeUUIDStringKey]))?.volumeUUIDString
+    }
+
+    /// Why a finished move's originals mustn't go to the Trash (nil when they can): they're the
+    /// same drive, the same files (no more, none changed) as were copied and checked, and the
+    /// drive has a Trash (on one without, such as a server, they'd be gone for good). Empty folders
+    /// in a moved folder (a camera card's) are made on the other side here, so none is lost.
+    nonisolated static func keepOriginals(_ job: OffloadJob) -> String? {
+        let kept = String(localized: "\(job.displayName) changed while it was copied: the originals were kept.")
+        guard let moving = job.moving, !moving.isEmpty, !job.files.isEmpty, job.problems.isEmpty, job.isComplete else { return kept }
+        let source = URL(fileURLWithPath: job.source, isDirectory: true)
+        guard let uuid = job.movingVolume, volumeUUID(source) == uuid else {
+            return String(localized: "\(job.sourceVolume) isn’t the same drive any more: the originals were kept.")
+        }
+        guard (try? FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: source, create: true)) != nil else {
+            return String(localized: "\(job.sourceVolume) has no Trash: the originals were kept.")
+        }
+        let recorded = Dictionary(job.files.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        let keys: Set<URLResourceKey> = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
+        func same(_ url: URL, _ path: String) -> Bool {
+            guard let file = recorded[path], let values = try? url.resourceValues(forKeys: keys), values.isRegularFile == true,
+                  Int64(values.fileSize ?? -1) == file.size, let date = values.contentModificationDate else { return false }
+            return abs(date.timeIntervalSince(file.modified)) < 2
+        }
+        if moving == [job.source] {
+            // A folder: walked again; everything in it (but macOS's own files) must be a file that was checked.
+            let folders = Set(job.files.flatMap { file in
+                var parts = file.path.split(separator: "/").dropLast().map(String.init), found: [String] = []
+                while !parts.isEmpty { found.append(parts.joined(separator: "/")); parts.removeLast() }
+                return found
+            })
+            let base = source.standardizedFileURL.path
+            var failed = false, seen = 0
+            guard let walker = FileManager.default.enumerator(at: source, includingPropertiesForKeys: Array(keys), options: [],
+                                                              errorHandler: { _, _ in failed = true; return false }) else { return kept }
+            while let url = walker.nextObject() as? URL {
+                let path = String(url.standardizedFileURL.path.dropFirst(base.count + 1))
+                let values = try? url.resourceValues(forKeys: keys)
+                if isSystemFile(url.lastPathComponent) {
+                    if values?.isDirectory == true { walker.skipDescendants() }
+                    continue
+                }
+                // (A link isn't copied: kept. Anything new or changed: kept.)
+                if values?.isSymbolicLink == true { return String(localized: "\(job.displayName) has links: the originals were kept.") }
+                if values?.isDirectory == true {
+                    if !folders.contains(path) {
+                        for target in job.targets where (try? FileManager.default.createDirectory(
+                            atPath: (target as NSString).appendingPathComponent(path), withIntermediateDirectories: true)) == nil { return kept }
+                    }
+                    continue
+                }
+                guard same(url, path) else { return kept }
+                seen += 1
+            }
+            return !failed && seen == recorded.count ? nil : kept
+        }
+        // Loose files: each still the one that was checked.
+        let parent = URL(fileURLWithPath: job.source, isDirectory: true)
+        guard Set(moving) == Set(job.files.map { parent.appendingPathComponent($0.path).path }),
+              job.files.allSatisfy({ same(parent.appendingPathComponent($0.path), $0.path) }) else { return kept }
         return nil
     }
 
     /// A new offload: the files in the source, to a folder named `name` in each of the roots (an
     /// empty name: straight into the roots, when nothing there has the same name).
     func add(source: URL, roots: [URL], name: String, cascade: Bool = false, eject: Bool = false, quick: Bool = false,
-             onlyVideo: Bool = false) async -> String? {
+             onlyVideo: Bool = false, moving: Bool = false) async -> String? {
         if let problem = Self.problem(source: source, roots: roots, quick: quick) { return problem }
-        let list = await Task.detached(priority: .userInitiated) { Self.files(in: source, onlyVideo: onlyVideo) }.value
+        let found = await Task.detached(priority: .userInitiated) { Self.listing(source, onlyVideo: onlyVideo) }.value
+        if let unreadable = found.problem { return unreadable }
+        let list = found.files
         guard !list.isEmpty else { return String(localized: "There are no files there.") }
         if let problem = Self.problem(files: list, roots: roots) { return problem }
         var job = OffloadJob(name: name, source: source.path, sourceVolume: Self.volumeName(source), roots: roots.map(\.path),
@@ -813,13 +956,14 @@ final class OffloadCenter {
                              files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: roots.map { _ in false }) },
                              cascade: cascade, ejectSource: eject)
         if quick { job.quick = true }
+        if moving { job.moving = [source.path]; job.movingVolume = Self.volumeUUID(source) }
         if onlyVideo { job.partial = true }
         if name.isEmpty { job.title = Self.volumeName(source) }
-        // What's already on a drive (an earlier offload of the same card): skipped there.
-        let there = Self.alreadyThere(list, in: job.targets)
-        for (index, done) in there.enumerated() { job.files[index].done = done }
-        job.skipped = there.filter { !$0.contains(false) }.count
-        if job.files.allSatisfy({ !$0.done.contains(false) }) { return String(localized: "Everything is already there.") }
+        // What's already on every drive (an earlier offload of the same card): only counted. The
+        // runner still reads both sides of each, and hashes it into the MHL; nothing is written over.
+        for (index, there) in Self.alreadyThere(list, in: job.targets).enumerated() where !there.contains(false) { job.files[index].skipped = true }
+        let skipped = job.files.filter { $0.skipped == true }.count
+        job.skipped = skipped > 0 ? skipped : nil
         // Room for it everywhere.
         for root in roots {
             if let free = Self.freeSpace(root), free < job.totalBytes { return String(localized: "There isn’t enough room on \(Self.volumeName(root)).") }
@@ -905,14 +1049,17 @@ final class OffloadCenter {
         let reserved = OffloadProjectPlanner.Reserved(
             folders: Set(waiting.map { $0.name.lowercased() }),
             files: Set(waiting.flatMap { job in job.files.map { (job.name as NSString).appendingPathComponent(job.destination(of: $0.path)).lowercased() } }))
-        let plan = await Task.detached(priority: .userInitiated) { () -> OffloadProjectPlanner.Plan? in
-            let list = Self.files(in: volume, onlyVideo: onlyVideo)
-            guard !list.isEmpty else { return nil }
+        let planned = await Task.detached(priority: .userInitiated) { () -> (plan: OffloadProjectPlanner.Plan?, problem: String?) in
+            let (list, unreadable) = Self.listing(volume, onlyVideo: onlyVideo)
+            if let unreadable { return (nil, unreadable) }
+            guard !list.isEmpty else { return (nil, String(localized: "There are no files there.")) }
             let files = list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: roots.map { _ in false }) }
-            return OffloadProjectPlanner.plan(card: volume, files: files, project: project, operator: who, date: date, camera: camera.model ?? camera.brand,
-                                                 firstOffload: first, reserved: reserved)
+            let plan = OffloadProjectPlanner.plan(card: volume, files: files, project: project, operator: who, date: date, camera: camera.model ?? camera.brand,
+                                                  firstOffload: first, reserved: reserved)
+            return (plan, plan.unreadable)
         }.value
-        guard let plan else { giveBack(); return String(localized: "There are no files there.") }
+        if let problem = planned.problem { giveBack(); return problem }
+        guard let plan = planned.plan else { giveBack(); return String(localized: "There are no files there.") }
         guard !plan.files.isEmpty else { giveBack(); return String(localized: "Everything on \(Self.volumeName(volume)) is already in \(project.name).") }
         var job = OffloadJob(name: plan.folder, source: volume.path, sourceVolume: Self.volumeName(volume), roots: roots.map(\.path),
                              rootVolumes: roots.map(Self.volumeName), files: plan.files, ejectSource: eject)
@@ -1112,12 +1259,34 @@ final class OffloadCenter {
             if job.quick == true {
                 // A copy in the Library (shown by its bar while Pluck is in front).
                 let into = URL(fileURLWithPath: job.roots[0])
-                if job.problems.isEmpty {
+                if let moving = job.moving, job.problems.isEmpty, job.isComplete {
+                    // Every file checked on the other drive: the originals to the Trash, once
+                    // they're known to be just what was checked.
+                    let id = job.id, targets = job.targets.map { URL(fileURLWithPath: $0) }
+                    Task.detached(priority: .userInitiated) {
+                        func done(_ trashed: Bool, _ body: String) {
+                            DispatchQueue.main.async {
+                                MainActor.assumeIsolated {
+                                    OffloadCenter.shared.trashed[id] = trashed
+                                    AppDelegate.shared?.manager.notify(title: trashed ? String(localized: "Moved and checked") : String(localized: "Copied and checked"),
+                                                                       body: body, files: targets)
+                                }
+                            }
+                        }
+                        if let kept = Self.keepOriginals(job) { return done(false, kept) }
+                        NSWorkspace.shared.recycle(moving.map { URL(fileURLWithPath: $0) }) { _, error in
+                            done(error == nil, error == nil ? "\(job.displayName) → \(into.lastPathComponent)"
+                                                            : String(localized: "The originals couldn’t go to the Trash."))
+                        }
+                    }
+                } else if job.problems.isEmpty {
                     AppDelegate.shared?.manager.notify(title: String(localized: "Copied and checked"),
                                                        body: "\(job.displayName) → \(into.lastPathComponent)", files: job.targets.map { URL(fileURLWithPath: $0) })
                 } else {
+                    if job.moving != nil { trashed[job.id] = false }
                     AppDelegate.shared?.manager.notify(title: String(localized: "Copy done, with problems"),
-                                                       body: String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied."))
+                                                       body: job.moving == nil ? String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied.")
+                                                           : String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied. The originals were kept."))
                 }
                 return
             }
@@ -1131,7 +1300,7 @@ final class OffloadCenter {
             }
             OffloadReport.write(job)
             workOutDetails(job)
-            if job.ejectSource == true, !job.cascades { Self.eject(job.source) }
+            if job.ejectSource == true, job.problems.isEmpty, job.cardDone == nil { Self.eject(job.source) }
             let problems = job.problems.count
             AppDelegate.shared?.manager.notify(
                 title: problems == 0 ? String(localized: "Offload done") : String(localized: "Offload done, with problems"),
@@ -1274,8 +1443,10 @@ final class OffloadCenter {
     /// The files to offload; `onlyVideo`: the clips and what the camera wrote beside each (its
     /// sound, XML, RED and BRAW sidecars), not photos or anything else on the card.
     nonisolated static func files(in folder: URL, onlyVideo: Bool) -> [(path: String, size: Int64, modified: Date)] {
-        let all = files(in: folder)
-        guard onlyVideo else { return all }
+        onlyVideo ? videoOnly(files(in: folder)) : files(in: folder)
+    }
+
+    private nonisolated static func videoOnly(_ all: [(path: String, size: Int64, modified: Date)]) -> [(path: String, size: Int64, modified: Date)] {
         let videoKinds: Set<String> = ["mov", "mp4", "m4v", "mxf", "avi", "mkv", "mts", "m2ts", "r3d", "braw", "crm", "insv", "lrv"]
         func folderOf(_ path: String) -> String { (path as NSString).deletingLastPathComponent.lowercased() }
         func stem(_ path: String) -> String { ((path as NSString).lastPathComponent as NSString).deletingPathExtension.lowercased() }
@@ -1309,23 +1480,43 @@ final class OffloadCenter {
         }
     }
 
-    nonisolated static func files(in folder: URL) -> [(path: String, size: Int64, modified: Date)] {
+    nonisolated static func files(in folder: URL) -> [(path: String, size: Int64, modified: Date)] { scan(folder).files }
+
+    /// Every file, and what couldn't be read on the way (relative paths, "" for the folder
+    /// itself): a folder that can't be opened would otherwise look empty, and the copy complete.
+    nonisolated static func scan(_ folder: URL) -> (files: [(path: String, size: Int64, modified: Date)], unreadable: [String]) {
         let keys: Set<URLResourceKey> = [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey, .nameKey]
-        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys)) else { return [] }
         let base = folder.standardizedFileURL.path
+        func relative(_ url: URL) -> String { String(url.standardizedFileURL.path.dropFirst(base.count + 1)) }
+        var failed: [String] = []
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: Array(keys), options: [],
+                                                          errorHandler: { url, _ in failed.append(relative(url)); return true })
+        else { return ([], [""]) }
         var found: [(String, Int64, Date)] = []
         while let url = walker.nextObject() as? URL {
-            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
+            guard let values = try? url.resourceValues(forKeys: keys) else { failed.append(relative(url)); continue }
             if isSystemFile(url.lastPathComponent) {
                 // (Only for a folder: after a file it would skip the rest of the folder it's in.)
                 if values.isRegularFile != true { walker.skipDescendants() }
                 continue
             }
             guard values.isRegularFile == true else { continue }
-            let path = String(url.standardizedFileURL.path.dropFirst(base.count + 1))
-            found.append((path, Int64(values.fileSize ?? 0), values.contentModificationDate ?? .now))
+            found.append((relative(url), Int64(values.fileSize ?? 0), values.contentModificationDate ?? .now))
         }
-        return found.sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }
+        return (found.sorted { $0.0.localizedStandardCompare($1.0) == .orderedAscending }, failed)
+    }
+
+    /// Why nothing starts when part of the source couldn't be read (nil when all of it could).
+    nonisolated static func unreadable(_ paths: [String], in folder: URL) -> String? {
+        guard let first = paths.first else { return nil }
+        return String(localized: "A folder on \(volumeName(folder)) couldn’t be read: \(first.isEmpty ? folder.lastPathComponent : first).")
+    }
+
+    /// The files to copy from a source, or why not: every one of them, or nothing.
+    nonisolated static func listing(_ folder: URL, onlyVideo: Bool = false) -> (files: [(path: String, size: Int64, modified: Date)], problem: String?) {
+        let found = scan(folder)
+        if let problem = unreadable(found.unreadable, in: folder) { return ([], problem) }
+        return (onlyVideo ? videoOnly(found.files) : found.files, nil)
     }
 
     /// A drive's name; a folder's own name when it isn't the whole drive.

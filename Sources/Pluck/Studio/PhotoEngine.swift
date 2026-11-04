@@ -922,7 +922,7 @@ enum PhotoEngine {
         _ = uploads
     }
 
-    private static func upload(_ input: CIImageProcessorInput, device: MTLDevice) -> MTLTexture? {
+    static func upload(_ input: CIImageProcessorInput, device: MTLDevice) -> MTLTexture? {
         let format: MTLPixelFormat
         switch input.format {
         case .RGBAh: format = .rgba16Float

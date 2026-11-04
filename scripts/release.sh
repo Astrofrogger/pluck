@@ -7,6 +7,7 @@
 #   --with-update-files  also the zips, checksums and editions.json that Pluck 1.17.2 and older
 #                        update from (only for the release that moves them to the new updater)
 set -euo pipefail
+unset PLUCK_ALLOW_ADHOC  # a release is always checked for the Pluck signature
 cd "${0:A:h}/.."
 
 VERSION="${1:?usage: release.sh <version> [notes] [--both] [--with-update-files]}"
@@ -19,14 +20,24 @@ for option in "${@:3}"; do
     *) echo "Unknown option $option" >&2; exit 1 ;;
   esac
 done
+[[ "$VERSION" =~ '^[0-9]+\.[0-9]+\.[0-9]+$' ]] || { echo "Version must look like 1.18.0, not $VERSION." >&2; exit 1; }
+[[ "$(git branch --show-current)" == main ]] || { echo "Releases are made from main; you're on $(git branch --show-current)." >&2; exit 1; }
+LATEST=$(git tag -l 'v[0-9]*' | sort -V | tail -1)
+[[ -z "$LATEST" || "$(printf '%s\n%s\n' "${LATEST#v}" "$VERSION" | sort -V | tail -1)" == "$VERSION" && "${LATEST#v}" != "$VERSION" ]] \
+  || { echo "$VERSION must be higher than the latest release, $LATEST." >&2; exit 1; }
 [[ -z "$(git status --porcelain)" ]] || { echo "Commit or stash your changes first." >&2; exit 1; }
 git rev-parse "v$VERSION" >/dev/null 2>&1 && { echo "v$VERSION already exists." >&2; exit 1; }
 # (Ad hoc, an update would be a new app to macOS: everyone's permissions would reset.)
 security find-certificate -c "Pluck Code Signing" >/dev/null 2>&1 || { echo "The Pluck Code Signing certificate isn't in the keychain." >&2; exit 1; }
-grep -q "version: \"$VERSION\"" Sources/Pluck/WhatsNew.swift Sources/Pluck/Studio/WhatsNewStudio.swift \
+grep -qF "version: \"$VERSION\"" Sources/Pluck/WhatsNew.swift Sources/Pluck/Studio/WhatsNewStudio.swift \
   || { echo "Add the notes for $VERSION to Sources/Pluck/WhatsNew.swift (or Studio/WhatsNewStudio.swift for Studio-only) first; people see them after updating." >&2; exit 1; }
 
+# Studio-only code leaking into basic Pluck fails here, before anything is changed.
+PLUCK_EDITION=basic SDKROOT="${SDKROOT:-macosx}" swift build --scratch-path .build-basic >/dev/null
+
 PLIST=Resources/Info.plist
+# If anything fails before the release commit, the version bump doesn't stay behind.
+trap '[[ -n "${COMMITTED:-}" ]] || git checkout -- "$PLIST"' EXIT
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$PLIST"
 /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $(( $(git rev-list --count HEAD) + 1 ))" "$PLIST"
 
@@ -48,6 +59,7 @@ dmg() {
 BASIC_VERSION="$VERSION"
 rm -rf dist && mkdir dist
 ./scripts/build-app.sh --edition basic
+./scripts/check-app.sh build/basic/Pluck.app basic
 PREVIOUS=$(gh release view --json tagName -q .tagName 2>/dev/null || true)
 if [[ -n "$PREVIOUS" && -z "$FORCE_BASIC" ]]; then
   OLD=build/previous-basic
@@ -69,6 +81,7 @@ if [[ "$BASIC_VERSION" == "$VERSION" ]]; then
   if [[ -n "$LEGACY" ]]; then ditto -c -k --keepParent build/basic/Pluck.app dist/Pluck-Basic.zip; fi
 fi
 ./scripts/build-app.sh --edition studio
+./scripts/check-app.sh build/Pluck.app studio
 dmg build/Pluck.app "Pluck Studio" dist/Pluck-Studio.dmg
 
 ASSETS=(dist/Pluck.dmg dist/Pluck-Studio.dmg)
@@ -92,8 +105,18 @@ NOTES=$(mktemp)
 
 git add "$PLIST"
 git commit -q -m "Release $VERSION"
+COMMITTED=1
 git tag "v$VERSION"
-git push -q origin HEAD --tags
-gh release create "v$VERSION" "${ASSETS[@]}" --title "Pluck $VERSION" --notes-file "$NOTES"
+# A draft first: the upload is the step most likely to fail, and nothing is public (or pushed) until
+# it succeeded. Then the push, then the draft goes live on the tag that was just pushed.
+# (--target: gh refuses a tag that's only local without it; main is on GitHub already, and once
+# the tag is pushed GitHub publishes on the tag, not on this.)
+gh release create "v$VERSION" "${ASSETS[@]}" --draft --target main --title "Pluck $VERSION" --notes-file "$NOTES" || {
+  echo "The draft release couldn't be made; nothing was pushed. To undo the local release commit and tag:" >&2
+  echo "  git tag -d v$VERSION && git reset --keep HEAD~1   (and gh release delete v$VERSION if a half-made draft is on GitHub)" >&2
+  exit 1
+}
+git push -q origin HEAD "v$VERSION"
+gh release edit "v$VERSION" --draft=false
 rm -f "$NOTES"
 echo "Released $VERSION"

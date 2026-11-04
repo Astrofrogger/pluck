@@ -15,6 +15,7 @@ extension EditSelfTest {
         await cardBeforeBackup(base)
         await cameraRemembered(base)
         await offloadWithoutProject(base)
+        await offloadSafety()
         // The throwaway projects, jobs and cards aren't kept.
         for project in OffloadProjects.shared.projects where project.name.hasPrefix("Self Test") { OffloadProjects.shared.remove(project.id) }
         for job in OffloadCenter.shared.jobs where !before.contains(job.id) { OffloadCenter.shared.remove(job.id) }

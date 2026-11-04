@@ -7,7 +7,8 @@ import SwiftUI
 /// Keys (as i3 and Sway, with ⌥⌘ for their Mod key):
 /// ⌘\ splits the pane in front to the right, ⇧⌘\ below; ⌥⌘W closes it;
 /// ⌥⌘ + arrows moves between panes; ⇧⌥⌘ + arrows swaps them;
-/// ⌥⌘1, ⌥⌘2, ⌥⌘3: icons, list, columns.
+/// ⌥⌘1, ⌥⌘2, ⌥⌘3: icons, list, columns; ⌥⌘T turns a split (side by side, one above the other);
+/// ⇧⌘N: a new folder in the pane in front; ⌥⌘V moves what was copied into it.
 struct FinderWorkspaceView: View {
     @State private var workspace = FinderWorkspace.shared
 
@@ -25,7 +26,7 @@ struct FinderWorkspaceView: View {
 
     private var navigationKey: String {
         let pane = workspace.focused
-        return "\(pane.id)|\(pane.url.path)|\(pane.canGoBack)|\(pane.canGoForward)|\(pane.playing?.path ?? "")"
+        return "\(pane.id)|\(pane.url.path)|\(pane.canGoBack)|\(pane.canGoForward)|\(pane.playing?.path ?? "")|\(pane.viewing?.path ?? "")"
     }
 
     private func claimNavigation() {
@@ -51,6 +52,10 @@ struct FinderWorkspaceView: View {
             Button("Icons") { workspace.focused.mode = .icons }.keyboardShortcut("1", modifiers: [.command, .option])
             Button("List") { workspace.focused.mode = .list }.keyboardShortcut("2", modifiers: [.command, .option])
             Button("Columns") { workspace.focused.mode = .columns }.keyboardShortcut("3", modifiers: [.command, .option])
+            Button("New Folder") { if workspace.focused.list == nil { workspace.focused.naming = .newFolder } }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Move Here") { workspace.focused.paste(move: true) }.keyboardShortcut("v", modifiers: [.command, .option])
+            Button("Turn Split") { workspace.turn() }.keyboardShortcut("t", modifiers: [.command, .option])
         }
         .opacity(0)
         .allowsHitTesting(false)
@@ -66,18 +71,74 @@ private struct TileView: View {
         if let pane = tile.pane {
             FinderPaneView(pane: pane)
         } else if tile.children.count == 2 {
-            if tile.axis == .horizontal {
-                HSplitView {
-                    TileView(tile: tile.children[0])
-                    TileView(tile: tile.children[1])
-                }
-            } else {
-                VSplitView {
-                    TileView(tile: tile.children[0])
-                    TileView(tile: tile.children[1])
-                }
+            FinderSplit(tile: tile)
+        }
+    }
+}
+
+/// Two tiles and the bar between them: easy to see, dragged to share the room, double-clicked
+/// to share it evenly.
+private struct FinderSplit: View {
+    @Bindable var tile: FinderWorkspace.Tile
+    @State private var dragStart: CGFloat?
+    /// The resize cursor is pushed (popped when the pointer leaves, or the split closes under it).
+    @State private var cursorPushed = false
+    /// The bar's width; its line in the middle.
+    private static let bar: CGFloat = 9
+    private static let minimum: CGSize = CGSize(width: 280, height: 220)
+
+    var body: some View {
+        GeometryReader { geometry in
+            let across = tile.axis == .horizontal
+            let total = (across ? geometry.size.width : geometry.size.height) - Self.bar
+            let least = across ? Self.minimum.width : Self.minimum.height
+            let first = Self.clamp(tile.fraction * total, total: total, least: least)
+            let layout = across ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+            layout {
+                TileView(tile: tile.children[0])
+                    .frame(width: across ? first : nil, height: across ? nil : first)
+                handle(across: across, total: total, least: least)
+                TileView(tile: tile.children[1])
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+    }
+
+    private func handle(across: Bool, total: CGFloat, least: CGFloat) -> some View {
+        ZStack {
+            Rectangle().fill(Color.primary.opacity(0.10))
+            // A line along each edge, so where one pane ends is plain.
+            let edges = across ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
+            edges {
+                Rectangle().fill(Color.primary.opacity(0.30)).frame(width: across ? 1 : nil, height: across ? nil : 1)
+                Spacer(minLength: 0)
+                Rectangle().fill(Color.primary.opacity(0.30)).frame(width: across ? 1 : nil, height: across ? nil : 1)
+            }
+            Capsule().fill(Color.primary.opacity(0.45))
+                .frame(width: across ? 3 : 36, height: across ? 36 : 3)
+        }
+        .frame(width: across ? Self.bar : nil, height: across ? nil : Self.bar)
+        .contentShape(.rect)
+        .onHover { inside in
+            if inside, !cursorPushed { (across ? NSCursor.resizeLeftRight : NSCursor.resizeUpDown).push(); cursorPushed = true }
+            else if !inside, cursorPushed { NSCursor.pop(); cursorPushed = false }
+        }
+        .onDisappear { if cursorPushed { NSCursor.pop(); cursorPushed = false } }
+        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { drag in
+                let start = dragStart ?? tile.fraction * total
+                if dragStart == nil { dragStart = start }
+                let moved = across ? drag.translation.width : drag.translation.height
+                tile.fraction = Self.clamp(start + moved, total: total, least: least) / max(total, 1)
+            }
+            .onEnded { _ in dragStart = nil })
+        .onTapGesture(count: 2) { withAnimation(.snappy) { tile.fraction = 0.5 } }
+        .help("Drag to resize the panes, double-click to share evenly")
+    }
+
+    private static func clamp(_ first: CGFloat, total: CGFloat, least: CGFloat) -> CGFloat {
+        guard total > least * 2 else { return total / 2 }
+        return min(max(first, least), total - least)
     }
 }
 
@@ -93,13 +154,17 @@ struct FinderPaneView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
-            Divider()
+            if pane.viewing == nil {
+                header
+                Divider()
+            }
             Group {
                 if let clip = pane.playing {
                     RawPlayerView(close: { pane.playing = nil }, openClip: { pane.playing = $0; pane.selection = [$0] },
                                   playlist: pane.clips, source: .clip(clip))
                         .id(clip)
+                } else if let photo = pane.viewing {
+                    FinderPhotoView(pane: pane, url: photo)
                 } else {
                     content
                         .focusable()
@@ -109,7 +174,7 @@ struct FinderPaneView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if pane.playing == nil {
+            if pane.playing == nil && pane.viewing == nil {
                 Divider()
                 FinderPathBar(pane: pane)
             }
@@ -131,13 +196,18 @@ struct FinderPaneView: View {
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("finder")) } action: { workspace.frames[pane.id] = $0 }
         .onChange(of: isFront, initial: true) { _, front in if front { focused = true } }
         .onChange(of: focused) { _, now in if now { workspace.focus(pane) } }
+        .onChange(of: pane.selection) { FinderQuickLook.shared.follow(pane) }
         // Dropped here (from another pane, or Finder): copied into this folder, checked.
         .dropDestination(for: URL.self) { urls, _ in
             guard pane.list == nil, !urls.isEmpty else { return false }
-            LibraryPanes.shared.copy(urls, into: pane.url)
+            LibraryPanes.shared.drop(urls, into: pane.url)
             return true
         } isTargeted: { dropping = $0 }
+        .modifier(FinderNaming(pane: pane))
     }
+
+    /// This pane's split is one above the other.
+    private var splitTurned: Bool { workspace.axis(of: pane) == .vertical }
 
     private var header: some View {
         HStack(spacing: 6) {
@@ -175,6 +245,9 @@ struct FinderPaneView: View {
                     }
                     Toggle("Ascending", isOn: $pane.ascending)
                     Divider()
+                    if pane.list == nil {
+                        Button("New Folder", systemImage: "folder.badge.plus") { pane.naming = .newFolder }
+                    }
                     if pane.list == nil, FootageFolders.shared.folder(containing: pane.url.path) == nil {
                         Button("Add to Library", systemImage: "plus.rectangle.on.folder") { FootageFolders.shared.add(pane.url) }
                     }
@@ -185,12 +258,14 @@ struct FinderPaneView: View {
                         }
                     }
                     Divider()
-                    Button("Split Right") { workspace.focus(pane); workspace.split(.horizontal) }
+                    Button("Split Right", systemImage: "square.split.2x1") { workspace.focus(pane); workspace.split(.horizontal) }
                         .disabled(workspace.panes.count >= FinderWorkspace.maxPanes)
-                    Button("Split Below") { workspace.focus(pane); workspace.split(.vertical) }
+                    Button("Split Below", systemImage: "square.split.1x2") { workspace.focus(pane); workspace.split(.vertical) }
                         .disabled(workspace.panes.count >= FinderWorkspace.maxPanes)
                     if workspace.panes.count > 1 {
-                        Button("Close Pane") { workspace.focus(pane); workspace.close() }
+                        Button(splitTurned ? "Put Side by Side" : "Put One Above the Other",
+                               systemImage: splitTurned ? "square.split.2x1" : "square.split.1x2") { workspace.focus(pane); workspace.turn() }
+                        Button("Close Pane", systemImage: "xmark.square") { workspace.focus(pane); workspace.close() }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
@@ -198,7 +273,7 @@ struct FinderPaneView: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("Sort, add to the Library, split")
+                .help("Sort, new folder, add to the Library, split")
             }
         }
         .buttonStyle(.borderless)
@@ -220,8 +295,8 @@ struct FinderPaneView: View {
     }
 }
 
-/// The keys within a pane, as in Finder: arrows, Return or ⌘↓ to open, ⌘↑ to go up, Space to
-/// play, ⌘[ and ⌘] for back and forward, ⌘A, ⌘C, ⌘V, ⌘⌫.
+/// The keys within a pane, as in Finder: arrows, Return or ⌘↓ to open, ⌘↑ to go up, Space for
+/// Quick Look, ⌘[ and ⌘] for back and forward, ⌘A, ⌘C, ⌘V (⌥⌘V to move), ⌘⌫, ⇧⌘N.
 private struct FinderKeys: ViewModifier {
     let pane: FinderPane
     @AppStorage("finderIconSize") private var iconSize = 170.0
@@ -255,7 +330,8 @@ private struct FinderKeys: ViewModifier {
                 return .handled
             }
             .onKeyPress(.return) { pane.openSelection(); return .handled }
-            .onKeyPress(.space) { pane.openSelection(); return .handled }
+            // Space: Quick Look, as in Finder.
+            .onKeyPress(.space) { FinderQuickLook.shared.toggle(pane); return .handled }
             .onKeyPress(.delete, phases: .down) { press in
                 guard press.modifiers.contains(.command) else { return .ignored }
                 pane.trashSelection()
@@ -266,7 +342,7 @@ private struct FinderKeys: ViewModifier {
                 switch press.characters {
                 case "a": pane.selectAll()
                 case "c": pane.copySelection()
-                case "v": pane.paste()
+                case "v": if !press.modifiers.contains(.option) { pane.paste() }
                 case "[": pane.goBack()
                 default: pane.goForward()
                 }
@@ -274,11 +350,7 @@ private struct FinderKeys: ViewModifier {
             }
     }
 
-    /// Tiles in a row of the Icons view (for the up and down arrows).
-    private var columns: Int {
-        let width = FinderWorkspace.shared.frames[pane.id]?.width ?? 800
-        return max(Int((width - 32) / (iconSize + 14)), 1)
-    }
+    private var columns: Int { FinderPane.iconColumns(pane) }
 }
 
 // MARK: - Icons
@@ -301,7 +373,7 @@ private struct FinderIconsView: View {
             }
             .onChange(of: pane.anchor) { _, url in if let url { withAnimation { scroller.scrollTo(url) } } }
             // Clicking the space between: nothing selected.
-            .background(Color.clear.contentShape(.rect).onTapGesture { pane.selection = [] })
+            .background(Color.clear.contentShape(.rect).onTapGesture { pane.selection = [] }.contextMenu { FinderFolderMenu(pane: pane) })
         }
         .overlay(alignment: .bottomTrailing) {
             Slider(value: $iconSize, in: 110...320)
@@ -345,12 +417,12 @@ private struct FinderIconTile: View {
         .contentShape(.rect)
         .onTapGesture(count: 2) { pane.open(item) }
         .simultaneousGesture(TapGesture().onEnded { pane.click(item, modifiers: Self.modifiers) })
-        .draggable(item.url)
+        .fileDrag { FinderDrag.urls(item.url, in: pane) }
         .modifier(FolderDrop(item: item, targeted: $targeted))
         .contextMenu { FinderItemMenu(item: item, pane: pane) }
         .help(item.url.path)
-        .onAppear { if item.isClip { thumbs.want(item.url) } }
-        .onDisappear { if item.isClip { thumbs.forget(item.url) } }
+        .onAppear { if item.isClip { thumbs.want(item.url) } else if item.isPhoto { thumbs.wantPicture(item.url) } }
+        .onDisappear { if item.isClip { thumbs.forget(item.url) } else if item.isPhoto { thumbs.forgetPicture(item.url) } }
     }
 
     @ViewBuilder private var picture: some View {
@@ -371,6 +443,12 @@ private struct FinderIconTile: View {
                         thumbs.endSkim(item.url)
                     }
                 }
+        } else if item.isPhoto, let picture = thumbs.pictures[item.url] {
+            Image(decorative: picture, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .clipShape(.rect(cornerRadius: 6))
+                .padding(4)
         } else {
             Image(nsImage: item.icon)
                 .resizable()
@@ -403,11 +481,76 @@ private struct FolderDrop: ViewModifier {
         if item.isFolder {
             content.dropDestination(for: URL.self) { urls, _ in
                 guard !urls.isEmpty else { return false }
-                LibraryPanes.shared.copy(urls, into: item.url)
+                LibraryPanes.shared.drop(urls, into: item.url)
                 return true
             } isTargeted: { targeted = $0 }
         } else {
             content
+        }
+    }
+}
+
+/// A right-click between the files: what's for the folder itself.
+private struct FinderFolderMenu: View {
+    let pane: FinderPane
+
+    var body: some View {
+        if pane.list == nil {
+            Button("New Folder") { pane.naming = .newFolder }
+            Button("Paste") { pane.paste() }
+            Button("Move Here") { pane.paste(move: true) }
+            Divider()
+            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([pane.url]) }
+        }
+    }
+}
+
+/// Asks for a name: a new folder's, or a file's new one (as Finder's New Folder and Rename).
+private struct FinderNaming: ViewModifier {
+    let pane: FinderPane
+    @State private var name = ""
+    @State private var problem: String?
+    /// Asked again after it couldn't be done: the name typed and why stay.
+    @State private var again = false
+
+    func body(content: Content) -> some View {
+        content
+            .alert(title, isPresented: Binding(get: { pane.naming != nil }, set: { if !$0 { pane.naming = nil } })) {
+                TextField("Name", text: $name)
+                Button(pane.naming == .newFolder ? "Create" : "Rename") { finish() }
+                Button("Cancel", role: .cancel) { pane.naming = nil }
+            } message: {
+                if let problem { Text(problem) }
+            }
+            .onChange(of: pane.naming, initial: true) { _, naming in
+                guard naming != nil else { return }
+                if again { again = false; return }
+                problem = nil
+                switch naming {
+                case .rename(let url): name = url.lastPathComponent
+                default: name = pane.freeFolderName
+                }
+            }
+    }
+
+    private var title: String {
+        if case .rename(let url) = pane.naming { return String(localized: "Rename “\(url.lastPathComponent)”") }
+        return String(localized: "New Folder")
+    }
+
+    private func finish() {
+        guard let naming = pane.naming else { return }
+        let failed: String?
+        switch naming {
+        case .newFolder: failed = pane.newFolder(named: name)
+        case .rename(let url): failed = pane.rename(url, to: name)
+        }
+        // (Asked again, with why, when it couldn't be done.)
+        pane.naming = nil
+        if let failed {
+            problem = failed
+            again = true
+            Task { @MainActor in pane.naming = naming }
         }
     }
 }
@@ -419,6 +562,11 @@ private struct FinderItemMenu: View {
 
     var body: some View {
         Button(item.isClip ? "Play" : "Open") { pane.open(item) }
+        Button("Quick Look") {
+            if !pane.selection.contains(item.url) { pane.selection = [item.url]; pane.anchor = item.url }
+            FinderQuickLook.shared.toggle(pane)
+        }
+        if item.isPhoto { Button(FinderPhotoView.openTitle(item.url)) { NSWorkspace.shared.open(item.url) } }
         if item.isFolder {
             Button("Open in a Pane to the Right") {
                 FinderWorkspace.shared.focus(pane)
@@ -436,6 +584,7 @@ private struct FinderItemMenu: View {
         }
         Divider()
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
+        if pane.list == nil { Button("Rename…") { pane.naming = .rename(item.url) } }
         Button("Copy") {
             if !pane.selection.contains(item.url) { pane.selection = [item.url] }
             pane.copySelection()
@@ -444,6 +593,10 @@ private struct FinderItemMenu: View {
             Button("Copy to \(other.title)") {
                 let chosen = pane.selection.contains(item.url) ? Array(pane.selection) : [item.url]
                 LibraryPanes.shared.copy(chosen, into: other.url)
+            }
+            Button("Move to \(other.title)") {
+                let chosen = pane.selection.contains(item.url) ? Array(pane.selection) : [item.url]
+                LibraryPanes.shared.copy(chosen, into: other.url, move: true)
             }
         }
         Divider()
@@ -466,11 +619,15 @@ private struct FinderListView: View {
         Table(rows, selection: $pane.selection, sortOrder: $order) {
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
-                    Image(nsImage: row.item.icon).resizable().frame(width: 16, height: 16)
+                    if row.item.isPhoto, let picture = thumbs.pictures[row.item.url] {
+                        Image(decorative: picture, scale: 1).resizable().aspectRatio(contentMode: .fit).frame(width: 16, height: 16)
+                    } else {
+                        Image(nsImage: row.item.icon).resizable().frame(width: 16, height: 16)
+                    }
                     Text(row.name).lineLimit(1).truncationMode(.middle)
                 }
-                .draggable(row.item.url)
-                .onAppear { if row.item.isClip { thumbs.want(row.item.url) } }
+                .fileDrag { FinderDrag.urls(row.item.url, in: pane) }
+                .onAppear { if row.item.isClip { thumbs.want(row.item.url) } else if row.item.isPhoto { thumbs.wantPicture(row.item.url) } }
             }
             .width(min: 160, ideal: 280)
             TableColumn("Date Modified", value: \.modified) { row in
@@ -593,7 +750,7 @@ private struct FinderColumn: View {
                             pane.anchor = item.url
                         }
                     })
-                    .draggable(item.url)
+                    .fileDrag { FinderDrag.urls(item.url, in: pane, selected: current) }
                     .contextMenu { FinderItemMenu(item: item, pane: pane) }
                 }
             }
@@ -623,6 +780,8 @@ private struct FinderPreview: View {
         VStack(spacing: 10) {
             if item.isClip, let poster = thumbs.posters[item.url] {
                 Image(decorative: poster, scale: 1).resizable().aspectRatio(contentMode: .fit).clipShape(.rect(cornerRadius: 6))
+            } else if item.isPhoto, let picture = thumbs.pictures[item.url] {
+                Image(decorative: picture, scale: 1).resizable().aspectRatio(contentMode: .fit).clipShape(.rect(cornerRadius: 6))
             } else {
                 Image(nsImage: item.icon).resizable().aspectRatio(contentMode: .fit).frame(width: 96, height: 96)
             }
@@ -637,7 +796,7 @@ private struct FinderPreview: View {
             Spacer()
         }
         .padding(14)
-        .onAppear { if item.isClip { thumbs.want(item.url) } }
+        .onAppear { if item.isClip { thumbs.want(item.url) } else if item.isPhoto { thumbs.wantPicture(item.url) } }
     }
 }
 

@@ -168,12 +168,24 @@ enum ScreenshotMode {
             case "footage":
                 // The Library on a folder or clip put in it: -PluckScreenshotFile <path>
                 // (-PluckScreenshotOpen YES: opened as from Finder instead).
-                // -PluckScreenshotSplit <folder>: split, that folder on the right.
+                // -PluckScreenshotSplit <folder>: split, that folder on the right (below, with
+                // -PluckScreenshotSplitBelow YES).
+                // -PluckScreenshotQuickLook <file name>: that file chosen, and Quick Look on it.
                 // -PluckScreenshotCopy <a|b> -PluckScreenshotCopyTo <folder>: copied there as the panes do.
                 if let right = defaults.string(forKey: "PluckScreenshotSplit") {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        FinderWorkspace.shared.split(.horizontal)
+                        FinderWorkspace.shared.split(defaults.bool(forKey: "PluckScreenshotSplitBelow") ? .vertical : .horizontal)
                         FinderWorkspace.shared.focused.go(to: URL(fileURLWithPath: right))
+                    }
+                }
+                if let name = defaults.string(forKey: "PluckScreenshotQuickLook") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                        let pane = FinderWorkspace.shared.panes[0]
+                        guard let item = pane.shown.first(where: { $0.name == name || $0.url.lastPathComponent == name }) else { return }
+                        FinderWorkspace.shared.focus(pane)
+                        pane.selection = [item.url]
+                        pane.anchor = item.url
+                        FinderQuickLook.shared.toggle(pane)
                     }
                 }
                 // -PluckScreenshotTiling YES -PluckScreenshotLog <file>: split, move, swap and close, as

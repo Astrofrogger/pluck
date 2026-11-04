@@ -150,7 +150,16 @@ final class OffloadProjects {
     }
 
     private init() {
-        projects = (try? JSONDecoder().decode([OffloadProject].self, from: Data(contentsOf: Self.file))) ?? []
+        if let data = try? Data(contentsOf: Self.file) {
+            if let saved = try? JSONDecoder().decode([OffloadProject].self, from: data) {
+                projects = saved
+            } else {
+                // Can't be read: put aside rather than written over by the next change.
+                // (Its own name each time: an earlier one is never written over.)
+                let aside = Self.file.appendingPathExtension("\(Int(Date.now.timeIntervalSince1970 * 1000)).broken")
+                try? FileManager.default.moveItem(at: Self.file, to: aside)
+            }
+        }
         let saved = UserDefaults.standard.string(forKey: Self.activeKey).flatMap(UUID.init(uuidString:))
         active = projects.contains { $0.id == saved } ? saved : nil
     }

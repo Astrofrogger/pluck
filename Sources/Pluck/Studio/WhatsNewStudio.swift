@@ -5,6 +5,14 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.0", items: [
+                Item(symbol: "film", title: String(localized: "Film without the wait"),
+                     detail: String(localized: "Film looks, grain and halation now update instantly as you edit, with no wait and no download. Advanced film settings prepare briefly the first time.")),
+                Item(symbol: "rectangle.3.group", title: String(localized: "Edit page layout"),
+                     detail: String(localized: "The media panel can sit at the bottom, the top or the full height, and the viewer stays 16:9 and as large as the window allows. The inspector is regrouped into six tabs: Clip, Colour, Audio, Text, AI and Export.")),
+                Item(symbol: "rectangle.split.2x1", title: String(localized: "Library: split and move"),
+                     detail: String(localized: "Space opens Quick Look on the selection, and panes can be split side by side or one above the other. Files can be moved as well as copied; across drives Pluck copies and checks every file first, then puts the originals in the Trash. You can also drag the selection out to Finder, Mail or other apps as copies.")),
+            ]),
             Release(version: "3.8.0", items: [
                 Item(symbol: "square.stack.3d.up", title: String(localized: "Moments, ranked your way"),
                      detail: String(localized: "Bursts become moments with the strongest frames on top and the rest one click away, ranked by what you kept in Lightroom. Take your usual look from Lightroom, and level exposure across a set in one go.")),

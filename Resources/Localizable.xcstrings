@@ -60,6 +60,64 @@
         }
       }
     },
+    " (chapters)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (Kapitel)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (capítulos)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (chapitres)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (capitoli)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（チャプター付き）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (챕터)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (hoofdstukken)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": " (capítulos)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "（带章节）"
+          }
+        }
+      }
+    },
     " (clean audio)": {
       "localizations": {
         "de": {
@@ -1808,6 +1866,64 @@
         }
       }
     },
+    "%@ changed while it was copied: the originals were kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat sich während des Kopierens geändert: Die Originale wurden behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ cambió mientras se copiaba: se han conservado los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ a changé pendant la copie : les originaux ont été conservés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è cambiato durante la copia: gli originali sono stati conservati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コピー中に%@が変更されました。元のファイルは残してあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복사하는 동안 %@이(가) 변경되었습니다. 원본은 그대로 두었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is tijdens het kopiëren gewijzigd: de originelen zijn bewaard."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ mudou durante a cópia: os originais foram mantidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 在拷贝过程中发生了变化。原件已保留。"
+          }
+        }
+      }
+    },
     "%@ clip": {
       "localizations": {
         "de": {
@@ -2040,6 +2156,122 @@
         }
       }
     },
+    "%@ has links: the originals were kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ enthält Links: Die Originale wurden behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ contiene enlaces: se han conservado los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ contient des liens : les originaux ont été conservés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ contiene collegamenti: gli originali sono stati conservati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@にはリンクが含まれています。元のファイルは残してあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 링크가 있습니다. 원본은 그대로 두었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bevat links: de originelen zijn bewaard."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ contém links: os originais foram mantidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 含有链接。原件已保留。"
+          }
+        }
+      }
+    },
+    "%@ has no Trash: the originals were kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ hat keinen Papierkorb: Die Originale wurden behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no tiene papelera: se han conservado los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas de corbeille : les originaux ont été conservés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha un cestino: gli originali sono stati conservati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@にはゴミ箱がありません。元のファイルは残してあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에는 휴지통이 없습니다. 원본은 그대로 두었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ heeft geen prullenmand: de originelen zijn bewaard."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não tem Lixeira: os originais foram mantidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 没有废纸篓。原件已保留。"
+          }
+        }
+      }
+    },
     "%@ installs when you quit": {
       "localizations": {
         "de": {
@@ -2094,6 +2326,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 将在退出时安装"
+          }
+        }
+      }
+    },
+    "%@ is a whole drive: it was copied, not moved.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist ein ganzes Laufwerk: Es wurde kopiert, nicht verschoben."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ es un disco completo: se ha copiado, no movido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ est un disque entier : il a été copié, pas déplacé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ è un disco intero: è stato copiato, non spostato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はドライブ全体です。移動ではなくコピーしました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 드라이브 전체입니다. 이동하지 않고 복사했습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is een hele schijf: die is gekopieerd, niet verplaatst."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ é um disco inteiro: foi copiado, não movido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 是整个磁盘：已拷贝，未移动。"
           }
         }
       }
@@ -2628,6 +2918,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ 未连接。"
+          }
+        }
+      }
+    },
+    "%@ isn’t the same drive any more: the originals were kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ist nicht mehr dasselbe Laufwerk: Die Originale wurden behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ya no es el mismo disco: se han conservado los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’est plus le même disque : les originaux ont été conservés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è più lo stesso disco: gli originali sono stati conservati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@は以前と同じドライブではなくなりました。元のファイルは残してあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@은(는) 더 이상 같은 드라이브가 아닙니다. 원본은 그대로 두었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is niet meer dezelfde schijf: de originelen zijn bewaard."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não é mais o mesmo disco: os originais foram mantidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 已不是原来的磁盘。原件已保留。"
           }
         }
       }
@@ -3270,6 +3618,64 @@
         }
       }
     },
+    "%@ wasn’t backed up": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ wurde nicht gesichert"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no se ha copiado en la copia de seguridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas été sauvegardé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non è stato salvato nel backup"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@はバックアップされませんでした"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@이(가) 백업되지 않았습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ is niet geback-upt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não foi copiado no backup"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 未备份"
+          }
+        }
+      }
+    },
     "%@ wasn’t offloaded": {
       "localizations": {
         "de": {
@@ -3883,6 +4289,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@：有 %2$lld 个文件无法拷贝。"
+          }
+        }
+      }
+    },
+    "%@: %lld files couldn’t be copied. The originals were kept.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld Dateien konnten nicht kopiert werden. Die Originale wurden behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: no se pudieron copiar %lld archivos. Se han conservado los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : %lld fichiers n’ont pas pu être copiés. Les originaux ont été conservés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: non è stato possibile copiare %lld file. Gli originali sono stati conservati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$lld 個のファイルをコピーできませんでした。元のファイルは残してあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: 파일 %2$lld개를 복사할 수 없었습니다. 원본은 그대로 두었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: %lld bestanden konden niet worden gekopieerd. De originelen zijn bewaard."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@: não foi possível copiar %lld arquivos. Os originais foram mantidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@：%2$lld 个文件无法拷贝。原件已保留。"
           }
         }
       }
@@ -4943,6 +5407,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "已拷贝并校验 %1$lld 个，%2$lld 个已存在"
+          }
+        }
+      }
+    },
+    "%lld couldn’t be moved: %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld konnten nicht verschoben werden: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron mover %1$lld: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld n’ont pas pu être déplacés : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile spostare %1$lld: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 件を移動できませんでした：%2$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld개를 이동할 수 없었습니다: %2$@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld konden niet worden verplaatst: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível mover %1$lld: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 个项目无法移动：%2$@。"
+          }
+        }
+      }
+    },
+    "%lld couldn’t be read, so weren’t copied: %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld konnten nicht gelesen werden und wurden daher nicht kopiert: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron leer %1$lld, así que no se copiaron: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld n’ont pas pu être lus et n’ont donc pas été copiés : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile leggere %1$lld, quindi non sono stati copiati: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 件を読み込めなかったため、コピーしませんでした：%2$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld개를 읽을 수 없어 복사하지 않았습니다: %2$@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld konden niet worden gelezen en zijn dus niet gekopieerd: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler %1$lld, então não foram copiados: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 个项目无法读取，因此未拷贝：%2$@。"
           }
         }
       }
@@ -6669,6 +7249,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld/%lld · %@"
+          }
+        }
+      }
+    },
+    "%lld of them are already in %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld davon sind bereits in %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld de ellos ya están en %@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld d’entre eux sont déjà dans %@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld di questi sono già in %@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのうち %1$lld 個はすでに %2$@ にあります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그중 %1$lld개는 이미 %2$@에 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld daarvan staan al in %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld deles já estão em %@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "其中 %1$lld 项已在 %2$@ 中。"
           }
         }
       }
@@ -10402,6 +11040,64 @@
         }
       }
     },
+    "A folder on %@ couldn’t be read: %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Ordner auf %1$@ konnte nicht gelesen werden: %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo leer una carpeta de %1$@: %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dossier de %1$@ n’a pas pu être lu : %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile leggere una cartella su %1$@: %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@上のフォルダを読み込めませんでした：%2$@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@의 폴더를 읽을 수 없었습니다: %2$@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een map op %1$@ kon niet worden gelezen: %2$@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ler uma pasta em %1$@: %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法读取 %1$@ 上的一个文件夹：%2$@。"
+          }
+        }
+      }
+    },
     "A frame or two of black in the middle of the video.": {
       "localizations": {
         "de": {
@@ -11443,6 +12139,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "由标志自身形状构成的动画：主体先动，其余随后。"
+          }
+        }
+      }
+    },
+    "A name can’t contain “/” or “:”.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Name darf kein „/“ oder „:“ enthalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nombre no puede contener «/» ni «:»."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nom ne peut pas contenir « / » ni « : »."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un nome non può contenere “/” o “:”."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前に「/」や「:」は使えません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름에 “/” 또는 “:”를 사용할 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een naam mag geen ‘/’ of ‘:’ bevatten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um nome não pode conter “/” nem “:”."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称不能包含“/”或“:”。"
           }
         }
       }
@@ -16852,60 +17606,60 @@
         }
       }
     },
-    "Add folders in the Library. The films and the denoise engine are downloaded from the Photo page when you ask for them.": {
+    "Add folders in the Library. Advanced film settings and the denoise engine are downloaded from the Photo page when you ask for them. Normal film works without them.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Füge Ordner in der Bibliothek hinzu. Die Filme und die Entrauschung werden auf der Fotoseite geladen, wenn du sie anforderst."
+            "value": "Füge Ordner in der Bibliothek hinzu. Die erweiterten Filmeinstellungen und die Entrauschung werden auf der Fotoseite geladen, wenn du sie anforderst. Der normale Film funktioniert auch ohne sie."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Añade carpetas en la biblioteca. Las películas y el motor de reducción de ruido se descargan desde la página Foto cuando los pides."
+            "value": "Añade carpetas en la biblioteca. Los ajustes avanzados de película y el motor de reducción de ruido se descargan desde la página Foto cuando los pides. La película normal funciona sin ellos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajoutez des dossiers dans la bibliothèque. Les films et le moteur de débruitage se téléchargent depuis la page Photo quand vous les demandez."
+            "value": "Ajoutez des dossiers dans la bibliothèque. Les réglages avancés du film et le moteur de débruitage se téléchargent depuis la page Photo quand vous les demandez. Le film normal fonctionne sans eux."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aggiungi le cartelle nella libreria. Le pellicole e il motore di riduzione del rumore si scaricano dalla pagina Foto quando li chiedi."
+            "value": "Aggiungi le cartelle nella libreria. Le impostazioni avanzate della pellicola e il motore di riduzione del rumore si scaricano dalla pagina Foto quando li chiedi. La pellicola normale funziona senza."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "フォルダはライブラリで追加します。フィルムとノイズ除去エンジンは、必要なときに写真ページからダウンロードされます。"
+            "value": "フォルダはライブラリで追加します。フィルムの詳細設定とノイズ除去エンジンは、必要なときに写真ページからダウンロードされます。通常のフィルムはなくても使えます。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "폴더는 보관함에서 추가합니다. 필름과 노이즈 제거 엔진은 요청할 때 사진 페이지에서 다운로드됩니다."
+            "value": "폴더는 보관함에서 추가합니다. 필름 고급 설정과 노이즈 제거 엔진은 요청할 때 사진 페이지에서 다운로드됩니다. 기본 필름은 없어도 작동합니다."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Voeg mappen toe in de bibliotheek. De films en de ruisonderdrukking worden vanaf de Foto-pagina gedownload als je erom vraagt."
+            "value": "Voeg mappen toe in de bibliotheek. De geavanceerde filminstellingen en de ruisonderdrukking worden vanaf de Foto-pagina gedownload als je erom vraagt. Gewone film werkt ook zonder."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Adicione pastas na biblioteca. Os filmes e o motor de redução de ruído são baixados na página Foto quando você pede."
+            "value": "Adicione pastas na biblioteca. Os ajustes avançados de filme e o motor de redução de ruído são baixados na página Foto quando você pede. O filme normal funciona sem eles."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在资料库中添加文件夹。胶片与降噪引擎会在你需要时从“照片”页面下载。"
+            "value": "在资料库中添加文件夹。高级胶片设置与降噪引擎会在你需要时从“照片”页面下载。普通胶片无需它们即可使用。"
           }
         }
       }
@@ -21558,7 +22312,124 @@
         }
       }
     },
+    "Another pane below this one (⇧⌘\\). ⌥⌘T turns a split.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein weiterer Bereich darunter (⇧⌘\\). ⌥⌘T dreht eine Teilung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro panel debajo de este (⇧⌘\\). ⌥⌘T gira una división."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre panneau en dessous (⇧⌘\\). ⌥⌘T pivote une division."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro riquadro sotto (⇧⌘\\). ⌥⌘T ruota una divisione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下に別のペイン（⇧⌘\\）。⌥⌘T で分割の向きを変えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래에 다른 창(⇧⌘\\). ⌥⌘T로 분할 방향을 바꿉니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog een paneel eronder (⇧⌘\\). ⌥⌘T draait een splitsing."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro painel abaixo (⇧⌘\\). ⌥⌘T gira uma divisão."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在下方再开一个窗格（⇧⌘\\）。⌥⌘T 切换拆分方向。"
+          }
+        }
+      }
+    },
+    "Another pane beside this one (⌘\\). ⌥⌘ and the arrows move between panes, ⌥⌘W closes one. Drag between panes to copy, every file checked; hold ⌘ to move.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein weiterer Bereich daneben (⌘\\). ⌥⌘ und die Pfeiltasten wechseln zwischen Bereichen, ⌥⌘W schließt einen. Zwischen Bereichen ziehen kopiert, jede Datei geprüft; mit ⌘ wird bewegt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otro panel junto a este (⌘\\). ⌥⌘ y las flechas pasan de un panel a otro, ⌥⌘W cierra uno. Arrastra entre paneles para copiar, cada archivo comprobado; mantén ⌘ para mover."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un autre panneau à côté (⌘\\). ⌥⌘ et les flèches passent d’un panneau à l’autre, ⌥⌘W en ferme un. Glissez entre panneaux pour copier, chaque fichier vérifié ; maintenez ⌘ pour déplacer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un altro riquadro accanto (⌘\\). ⌥⌘ e le frecce passano da un riquadro all’altro, ⌥⌘W ne chiude uno. Trascina tra i riquadri per copiare, ogni file verificato; tieni premuto ⌘ per spostare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隣に別のペイン（⌘\\）。⌥⌘ と矢印でペイン間を移動、⌥⌘W で閉じます。ペイン間でドラッグするとコピーし、全ファイルを確認します。⌘ を押しながらで移動。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "옆에 다른 창(⌘\\). ⌥⌘와 화살표로 창 사이를 이동하고, ⌥⌘W로 닫습니다. 창 사이로 드래그하면 복사하고 모든 파일을 확인합니다. ⌘를 누르면 이동합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog een paneel ernaast (⌘\\). ⌥⌘ en de pijlen gaan tussen panelen, ⌥⌘W sluit er een. Sleep tussen panelen om te kopiëren, elk bestand gecontroleerd; houd ⌘ ingedrukt om te verplaatsen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outro painel ao lado (⌘\\). ⌥⌘ e as setas passam entre painéis, ⌥⌘W fecha um. Arraste entre painéis para copiar, cada arquivo verificado; segure ⌘ para mover."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在旁边再开一个窗格（⌘\\）。⌥⌘ 加方向键在窗格间移动，⌥⌘W 关闭一个。在窗格间拖移即可拷贝，每个文件都会校验；按住 ⌘ 则为移动。"
+          }
+        }
+      }
+    },
     "Another pane beside this one (⌘\\, ⇧⌘\\ below). ⌥⌘ and the arrows move between panes, ⇧⌥⌘ and the arrows swap them, ⌥⌘W closes one. Drag between panes to copy, every file checked.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -57292,6 +58163,64 @@
         }
       }
     },
+    "Drag to resize the panes, double-click to share evenly": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ziehen, um die Bereiche anzupassen, Doppelklick teilt sie gleichmäßig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra para cambiar el tamaño de los paneles; doble clic para repartirlos por igual"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites glisser pour redimensionner les panneaux, double-cliquez pour les égaliser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina per ridimensionare i riquadri, doppio clic per dividerli in parti uguali"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドラッグでペインのサイズを変更、ダブルクリックで均等に分割"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "드래그하여 창 크기를 조절하고, 이중 클릭하면 균등하게 나눕니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep om de panelen te vergroten of verkleinen, dubbelklik om ze gelijk te verdelen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para redimensionar os painéis; clique duas vezes para dividi-los por igual"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖移以调整窗格大小，连按两次以平均分配"
+          }
+        }
+      }
+    },
     "Drawn from a picture of the file: it uses text, gradients or effects Pluck doesn’t read as shapes.": {
       "localizations": {
         "de": {
@@ -61017,6 +61946,64 @@
         }
       }
     },
+    "Edit page layout": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout der Schnittseite"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diseño de la página Edición"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disposition de la page Montage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout della pagina Modifica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "編集ページのレイアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "편집 페이지 레이아웃"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indeling van de bewerkpagina"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Layout da página Editar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑页面布局"
+          }
+        }
+      }
+    },
     "Edit with tabs and media": {
       "localizations": {
         "de": {
@@ -64505,6 +65492,7 @@
       }
     },
     "Everything is already there.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -68991,6 +69979,64 @@
         }
       }
     },
+    "Film data (advanced settings)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmdaten (erweiterte Einstellungen)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datos de película (ajustes avanzados)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Données de film (réglages avancés)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dati pellicola (impostazioni avanzate)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルムデータ（詳細設定）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필름 데이터(고급 설정)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmgegevens (geavanceerde instellingen)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dados de filme (ajustes avançados)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶片数据（高级设置）"
+          }
+        }
+      }
+    },
     "Film engine (spektrafilm)": {
       "extractionState": "stale",
       "localizations": {
@@ -69108,60 +70154,118 @@
         }
       }
     },
-    "Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version.": {
+    "Film looks, grain and halation now update instantly as you edit, with no wait and no download. Advanced film settings prepare briefly the first time.": {
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filmsimulation mit spektrafilm von Andrea Volpato, in der nativen Version von darktable."
+            "value": "Film-Looks, Korn und Halation aktualisieren sich jetzt sofort beim Bearbeiten, ohne Warten und ohne Download. Erweiterte Filmeinstellungen bereiten sich beim ersten Mal kurz vor."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Simulación de película con spektrafilm de Andrea Volpato, en la versión nativa de darktable."
+            "value": "Los looks de película, el grano y la halación se actualizan al instante mientras editas, sin esperas ni descargas. Los ajustes avanzados de película se preparan brevemente la primera vez."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Simulation de film par spektrafilm d’Andrea Volpato, dans la version native de darktable."
+            "value": "Les looks de film, le grain et l’halation se mettent à jour instantanément pendant que vous éditez, sans attente ni téléchargement. Les réglages avancés du film se préparent brièvement la première fois."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Simulazione della pellicola con spektrafilm di Andrea Volpato, nella versione nativa di darktable."
+            "value": "I look pellicola, la grana e l’alone si aggiornano subito mentre modifichi, senza attese né download. Le impostazioni avanzate della pellicola si preparano brevemente la prima volta."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andrea Volpato による spektrafilm のフィルムモデル（darktable のネイティブ版）。"
+            "value": "フィルムルック、粒子、ハレーションが編集中にすぐ反映されます。待ち時間もダウンロードも不要です。フィルムの詳細設定は初回のみ少し準備が必要です。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Andrea Volpato의 spektrafilm 필름 모델링, darktable 네이티브 버전."
+            "value": "필름 룩, 그레인, 헐레이션이 편집하는 즉시 바로 반영됩니다. 기다림도 다운로드도 필요 없습니다. 필름 고급 설정은 처음에만 잠깐 준비합니다."
           }
         },
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filmsimulatie met spektrafilm van Andrea Volpato, in de native versie van darktable."
+            "value": "Filmlooks, korrel en halatie worden nu direct bijgewerkt terwijl je bewerkt, zonder wachten en zonder download. Geavanceerde filminstellingen worden de eerste keer even voorbereid."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Simulação de filme com spektrafilm de Andrea Volpato, na versão nativa do darktable."
+            "value": "Os looks de filme, o grão e a halação agora são atualizados na hora enquanto você edita, sem espera e sem download. Os ajustes avançados de filme são preparados rapidamente na primeira vez."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "胶片模拟由 Andrea Volpato 的 spektrafilm 提供，采用 darktable 的原生版本。"
+            "value": "胶片风格、颗粒和光晕现在会在你编辑时即时更新，无需等待，也无需下载。高级胶片设置首次使用时会稍作准备。"
+          }
+        }
+      }
+    },
+    "Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmsimulation mit spektrafilm von Andrea Volpato, in der nativen Version von darktable. Die Filmfarbtabellen in Pluck sind aus diesen Daten erstellt (CC BY-SA 4.0)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulación de película con spektrafilm de Andrea Volpato, en la versión nativa de darktable. Las tablas de color de película de Pluck se crean a partir de esos datos (CC BY-SA 4.0)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulation de film par spektrafilm d’Andrea Volpato, dans la version native de darktable. Les tables de couleurs de film de Pluck sont créées à partir de ces données (CC BY-SA 4.0)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulazione della pellicola con spektrafilm di Andrea Volpato, nella versione nativa di darktable. Le tabelle colore della pellicola in Pluck sono create da quei dati (CC BY-SA 4.0)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andrea Volpato による spektrafilm のフィルムモデル（darktable のネイティブ版）。Pluck のフィルム色テーブルはそのデータから作られています（CC BY-SA 4.0）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andrea Volpato의 spektrafilm 필름 모델링, darktable 네이티브 버전. Pluck의 필름 색상 테이블은 해당 데이터로 만들어졌습니다(CC BY-SA 4.0)."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmsimulatie met spektrafilm van Andrea Volpato, in de native versie van darktable. De filmkleurtabellen in Pluck zijn gemaakt van die gegevens (CC BY-SA 4.0)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulação de filme com spektrafilm de Andrea Volpato, na versão nativa do darktable. As tabelas de cor de filme do Pluck são feitas a partir desses dados (CC BY-SA 4.0)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶片模拟由 Andrea Volpato 的 spektrafilm 提供，采用 darktable 的原生版本。Pluck 中的胶片色彩表由这些数据制作（CC BY-SA 4.0）。"
           }
         }
       }
@@ -69225,6 +70329,64 @@
         }
       }
     },
+    "Film without the wait": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Film ohne Warten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Película sin esperas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La pellicule sans attendre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pellicola senza attese"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "待ち時間なしのフィルム"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "기다림 없는 필름"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Film zonder wachten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filme sem espera"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶片效果，无需等待"
+          }
+        }
+      }
+    },
     "Film, fast": {
       "localizations": {
         "de": {
@@ -69279,64 +70441,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "胶片，更快"
-          }
-        }
-      }
-    },
-    "Films (spektrafilm)": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filme (spektrafilm)"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Películas (spektrafilm)"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Films (spektrafilm)"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pellicole (spektrafilm)"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "フィルム（spektrafilm）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "필름(spektrafilm)"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Films (spektrafilm)"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Filmes (spektrafilm)"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "胶片（spektrafilm）"
           }
         }
       }
@@ -89028,6 +90132,64 @@
         }
       }
     },
+    "Library: split and move": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothek: teilen und verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biblioteca: dividir y mover"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliothèque : diviser et déplacer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Libreria: dividi e sposta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ライブラリ:分割と移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "라이브러리: 분할과 이동"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bibliotheek: splitsen en verplaatsen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Biblioteca: dividir e mover"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源库:分屏与移动"
+          }
+        }
+      }
+    },
     "Licence plates, name tags, screens and signs. Titles and captions in the video are blurred too.": {
       "localizations": {
         "de": {
@@ -102240,6 +103402,64 @@
         }
       }
     },
+    "Move Here": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hierher bewegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta qui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここに移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기로 이동"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hierheen verplaatsen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para cá"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到这里"
+          }
+        }
+      }
+    },
     "Move the media panel": {
       "localizations": {
         "de": {
@@ -102352,6 +103572,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "移动面板：底部、顶部或全高（⌥⌘P）。按住可查看列表。"
+          }
+        }
+      }
+    },
+    "Move to %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach %@ bewegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer vers %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 이동"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verplaatsen naar %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover para %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到 %@"
           }
         }
       }
@@ -102584,6 +103862,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "将“%@”移到废纸篓？"
+          }
+        }
+      }
+    },
+    "Moved and checked": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewegt und geprüft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido y comprobado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacé et vérifié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostato e verificato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移動して確認しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이동 및 확인 완료"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verplaatst en gecontroleerd"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Movido e verificado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移动并校验"
           }
         }
       }
@@ -103860,6 +105196,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "名称拼写正确"
+          }
+        }
+      }
+    },
+    "Names that begin with a dot are hidden. Choose another name.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Namen, die mit einem Punkt beginnen, sind unsichtbar. Wähle einen anderen Namen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los nombres que empiezan por un punto quedan ocultos. Elige otro nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les noms commençant par un point sont masqués. Choisissez un autre nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I nomi che iniziano con un punto sono nascosti. Scegli un altro nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ドットで始まる名前は非表示になります。別の名前を選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마침표로 시작하는 이름은 숨겨집니다. 다른 이름을 선택하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Namen die met een punt beginnen, zijn verborgen. Kies een andere naam."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nomes que começam com um ponto ficam ocultos. Escolha outro nome."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "以点开头的名称会被隐藏。请选择其他名称。"
           }
         }
       }
@@ -105890,6 +107284,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "下一帧"
+          }
+        }
+      }
+    },
+    "Next photo (→)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächstes Foto (→)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto siguiente (→)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo suivante (→)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto successiva (→)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "次の写真（→）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다음 사진(→)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volgende foto (→)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próxima foto (→)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一张照片（→）"
           }
         }
       }
@@ -110723,6 +112175,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "资料库中的内容不能被更改或删除。只有你自己网络上、持有代码的设备才能访问。退出 Pluck 后共享即停止。"
+          }
+        }
+      }
+    },
+    "Nothing new from the stream for a minute.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seit einer Minute nichts Neues vom Stream."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada nuevo del stream desde hace un minuto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien de nouveau du flux depuis une minute."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessuna novità dallo stream da un minuto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1分間、ストリームから新しいデータがありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1분 동안 스트림에서 새로운 내용이 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Al een minuut niets nieuws van de stream."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nada de novo do stream há um minuto."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一分钟内没有收到来自直播流的新内容。"
           }
         }
       }
@@ -116953,6 +118463,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "请先打开一次“音乐”App，让它创建 Pluck 添加歌曲的文件夹。"
+          }
+        }
+      }
+    },
+    "Open with %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit %@ öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir con %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir avec %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri con %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@で開く"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@(으)로 열기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Openen met %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir com %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用 %@ 打开"
           }
         }
       }
@@ -130738,6 +132306,64 @@
         }
       }
     },
+    "Preparing the film…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Film wird vorbereitet …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando la película…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Préparation du film…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparazione della pellicola…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルムを準備中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필름 준비 중…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Film wordt voorbereid…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparando o filme…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在准备胶片…"
+          }
+        }
+      }
+    },
     "Preparing…": {
       "localizations": {
         "de": {
@@ -131256,6 +132882,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "上一张和下一张照片"
+          }
+        }
+      }
+    },
+    "Previous photo (←)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorheriges Foto (←)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto anterior (←)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo précédente (←)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto precedente (←)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "前の写真（←）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이전 사진(←)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorige foto (←)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto anterior (←)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上一张照片（←）"
           }
         }
       }
@@ -133060,6 +134744,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "推近"
+          }
+        }
+      }
+    },
+    "Put One Above the Other": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übereinander anordnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner uno encima del otro"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer l’un au-dessus de l’autre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Metti uno sopra l’altro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下に並べる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "위아래로 배치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boven elkaar zetten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colocar um acima do outro"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上下排列"
+          }
+        }
+      }
+    },
+    "Put Side by Side": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nebeneinander anordnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poner lado a lado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer côte à côte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affianca"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左右に並べる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "나란히 배치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naast elkaar zetten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colocar lado a lado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "左右排列"
           }
         }
       }
@@ -139402,6 +141202,64 @@
         }
       }
     },
+    "Rename “%@”": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renombrar «%@»"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer « %@ »"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rinomina “%@”"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”の名前を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@” 이름 변경"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naam van ‘%@’ wijzigen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renomear “%@”"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名“%@”"
+          }
+        }
+      }
+    },
     "Rename…": {
       "localizations": {
         "de": {
@@ -145457,6 +147315,7 @@
       }
     },
     "Saving stems…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -159252,6 +161111,7 @@
       }
     },
     "Sort, add to the Library, split": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -159305,6 +161165,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "排序、添加到资料库、拆分"
+          }
+        }
+      }
+    },
+    "Sort, new folder, add to the Library, split": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sortieren, neuer Ordner, zur Bibliothek hinzufügen, teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar, nueva carpeta, añadir a la biblioteca, dividir"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trier, nouveau dossier, ajouter à la bibliothèque, diviser"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordina, nuova cartella, aggiungi alla libreria, dividi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "並べ替え、新規フォルダ、ライブラリに追加、分割"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정렬, 새 폴더, 보관함에 추가, 분할"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sorteren, nieuwe map, aan bibliotheek toevoegen, splitsen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar, nova pasta, adicionar à biblioteca, dividir"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序、新建文件夹、添加到资料库、拆分"
           }
         }
       }
@@ -159537,6 +161455,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "来源"
+          }
+        }
+      }
+    },
+    "Space opens Quick Look on the selection, and panes can be split side by side or one above the other. Files can be moved as well as copied; across drives Pluck copies and checks every file first, then puts the originals in the Trash. You can also drag the selection out to Finder, Mail or other apps as copies.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit der Leertaste öffnet sich die Übersicht der Auswahl, und Bereiche lassen sich nebeneinander oder untereinander teilen. Dateien können verschoben statt nur kopiert werden; zwischen Laufwerken kopiert und prüft Pluck zuerst jede Datei und legt dann die Originale in den Papierkorb. Du kannst die Auswahl außerdem als Kopien in den Finder, in Mail oder in andere Apps ziehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra espaciadora abre Vista rápida de la selección, y los paneles se pueden dividir en paralelo o uno encima de otro. Los archivos se pueden mover además de copiar; entre discos, Pluck copia y comprueba cada archivo primero y después envía los originales a la papelera. También puedes arrastrar la selección al Finder, a Mail o a otras apps como copias."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barre d'espace ouvre l'Aperçu rapide de la sélection, et les volets peuvent être divisés côte à côte ou l'un au-dessus de l'autre. Les fichiers peuvent être déplacés et pas seulement copiés ; entre disques, Pluck copie et vérifie d'abord chaque fichier, puis met les originaux à la corbeille. Vous pouvez aussi faire glisser la sélection vers le Finder, Mail ou d’autres apps, sous forme de copies."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La barra spaziatrice apre Anteprima rapida sulla selezione, e i pannelli si possono dividere affiancati o uno sopra l'altro. I file si possono spostare oltre che copiare; tra dischi, Pluck copia e verifica prima ogni file e solo dopo mette gli originali nel Cestino. Puoi anche trascinare la selezione nel Finder, in Mail o in altre app come copie."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スペースキーで選択項目のクイックルックが開き、ペインは左右または上下に分割できます。ファイルはコピーだけでなく移動もできます。別のドライブ間では、Pluckがすべてのファイルをコピーして確認してから、元のファイルをゴミ箱に入れます。選択項目をFinderやメールなどのアプリにコピーとしてドラッグして出すこともできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스페이스 바를 누르면 선택 항목의 빠른 보기가 열리고, 패널을 좌우 또는 상하로 나눌 수 있습니다. 파일은 복사뿐 아니라 이동도 할 수 있으며, 드라이브 간에는 Pluck이 모든 파일을 먼저 복사해 확인한 다음 원본을 휴지통에 넣습니다. 선택 항목을 Finder, 메일 등 다른 앱으로 복사본으로 끌어 놓을 수도 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met de spatiebalk opent Snelle weergave voor de selectie, en vensters kun je naast of boven elkaar splitsen. Bestanden kunnen worden verplaatst en niet alleen gekopieerd; tussen schijven kopieert en controleert Pluck eerst elk bestand en zet daarna de originelen in de prullenmand. Je kunt de selectie ook als kopieën naar de Finder, Mail of andere apps slepen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A barra de espaço abre a Visualização Rápida da seleção, e os painéis podem ser divididos lado a lado ou um acima do outro. Os arquivos podem ser movidos, e não só copiados; entre discos, o Pluck copia e confere cada arquivo primeiro e só então coloca os originais na Lixeira. Você também pode arrastar a seleção para o Finder, o Mail ou outros apps como cópias."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按空格键会对所选项目打开快速查看,窗格可以左右或上下分屏。文件除了复制,也可以移动;跨磁盘时,Pluck 会先复制并校验每个文件,然后才把原件移到废纸篓。还可以把所选项目作为副本拖到访达、邮件或其他 App 中。"
           }
         }
       }
@@ -170000,6 +171976,64 @@
         }
       }
     },
+    "The MHL couldn’t be written on %@: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die MHL konnte nicht auf %1$@ geschrieben werden: %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo escribir el MHL en %1$@: %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le MHL n’a pas pu être écrit sur %1$@ : %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile scrivere l’MHL su %1$@: %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@にMHLを書き込めませんでした：%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에 MHL을 쓸 수 없었습니다: %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De MHL kon niet worden geschreven op %1$@: %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível gravar o MHL em %1$@: %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法在 %1$@ 上写入 MHL：%2$@"
+          }
+        }
+      }
+    },
     "The PDF report": {
       "localizations": {
         "de": {
@@ -174593,6 +176627,64 @@
         }
       }
     },
+    "The media panel can sit at the bottom, the top or the full height, and the viewer stays 16:9 and as large as the window allows. The inspector is regrouped into six tabs: Clip, Colour, Audio, Text, AI and Export.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Medienfenster kann unten, oben oder in voller Höhe stehen, und der Viewer bleibt 16:9 und so groß, wie das Fenster erlaubt. Der Inspektor ist in sechs Tabs gegliedert: Clip, Farbe, Audio, Text, KI und Export."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El panel de medios puede ir abajo, arriba o a toda la altura, y el visor se mantiene en 16:9 y tan grande como permite la ventana. El inspector se reorganiza en seis pestañas: Clip, Color, Audio, Texto, IA y Exportar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le panneau de médias peut se placer en bas, en haut ou sur toute la hauteur, et le viewer reste en 16:9 et aussi grand que la fenêtre le permet. L'inspecteur est regroupé en six onglets : Clip, Couleur, Audio, Texte, IA et Export."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il pannello dei media può stare in basso, in alto o a tutta altezza, e il visore resta 16:9 e grande quanto consente la finestra. L'ispettore è riorganizzato in sei schede: Clip, Colore, Audio, Testo, IA ed Esporta."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアパネルは下、上、または全高に置けます。ビューアは16:9のまま、ウインドウが許す限り大きく表示されます。インスペクタは、クリップ、カラー、オーディオ、テキスト、AI、書き出しの6つのタブに整理されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미디어 패널을 아래, 위 또는 전체 높이에 둘 수 있으며, 뷰어는 16:9를 유지하면서 창이 허용하는 만큼 크게 표시됩니다. 인스펙터는 클립, 색상, 오디오, 텍스트, AI, 내보내기의 여섯 탭으로 정리되었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het mediapaneel kan onderaan, bovenaan of over de volle hoogte staan, en de viewer blijft 16:9 en zo groot als het venster toestaat. De inspector is opnieuw ingedeeld in zes tabs: Clip, Kleur, Audio, Tekst, AI en Exporteren."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O painel de mídia pode ficar embaixo, no topo ou em altura total, e o visualizador continua em 16:9 e tão grande quanto a janela permitir. O inspetor foi reorganizado em seis abas: Clipe, Cor, Áudio, Texto, IA e Exportar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "媒体面板可以放在底部、顶部或占满整个高度,检视器保持 16:9,并在窗口允许的范围内尽可能大。检查器重新整理为六个标签页:片段、调色、音频、文本、AI 和导出。"
+          }
+        }
+      }
+    },
     "The microphone gave only silence. Check the one chosen here.": {
       "localizations": {
         "de": {
@@ -175053,6 +177145,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "原始流直接剪切、不重新渲染：最快，画质不变。"
+          }
+        }
+      }
+    },
+    "The originals couldn’t go to the Trash.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Originale konnten nicht in den Papierkorb gelegt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron enviar los originales a la papelera."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les originaux n’ont pas pu être placés dans la corbeille."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato possibile mettere gli originali nel Cestino."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元のファイルをゴミ箱に入れられませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원본을 휴지통에 넣을 수 없었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De originelen konden niet naar de prullenmand."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível colocar os originais na Lixeira."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法将原件移到废纸篓。"
           }
         }
       }
@@ -175867,6 +178017,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "RAW 解码器无法读取。"
+          }
+        }
+      }
+    },
+    "The raw decoder stopped responding.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Raw-Decoder reagiert nicht mehr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El decodificador de raw ha dejado de responder."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le décodeur raw ne répond plus."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il decoder raw ha smesso di rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAWデコーダが応答しなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW 디코더가 응답하지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De raw-decoder reageert niet meer."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O decodificador de raw parou de responder."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW 解码器已停止响应。"
           }
         }
       }
@@ -178015,6 +180223,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "更新与已发布的校验和不符，已被丢弃。"
+          }
+        }
+      }
+    },
+    "The update isn’t signed like this copy of Pluck, so it was discarded.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Update ist nicht wie diese Kopie von Pluck signiert und wurde verworfen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La actualización no está firmada igual que esta copia de Pluck, por lo que se ha descartado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La mise à jour n’est pas signée comme cet exemplaire de Pluck ; elle a donc été écartée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’aggiornamento non è firmato come questa copia di Pluck, quindi è stato scartato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートはこのPluckと同じ署名ではないため、破棄されました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업데이트가 이 Pluck 사본과 같은 방식으로 서명되지 않아 폐기되었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De update is niet ondertekend zoals deze kopie van Pluck en is daarom weggegooid."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A atualização não está assinada como esta cópia do Pluck e foi descartada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此更新的签名与这份 Pluck 不一致，已被丢弃。"
           }
         }
       }
@@ -180285,6 +182551,64 @@
         }
       }
     },
+    "This file has a data track (like timecode or location) that can’t be kept in a copy, so no copy was made.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei hat eine Datenspur (etwa Timecode oder Standort), die sich nicht in einer Kopie behalten lässt, daher wurde keine Kopie erstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo tiene una pista de datos (como el timecode o la ubicación) que no se puede conservar en una copia, así que no se ha hecho ninguna copia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier contient une piste de données (comme le timecode ou la position) qui ne peut pas être conservée dans une copie ; aucune copie n’a donc été faite."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo file ha una traccia dati (come timecode o posizione) che non può essere mantenuta in una copia, quindi non è stata creata alcuna copia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルにはタイムコードや位置情報などのデータトラックがあり、コピーに残せないため、コピーは作成されませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일에는 복사본에 유지할 수 없는 데이터 트랙(타임코드나 위치 등)이 있어 복사본을 만들지 않았습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit bestand heeft een datatrack (zoals timecode of locatie) die niet in een kopie kan worden bewaard, daarom is er geen kopie gemaakt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo tem uma faixa de dados (como timecode ou localização) que não pode ser mantida em uma cópia, então nenhuma cópia foi feita."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件含有无法保留在副本中的数据轨道（如时间码或位置），因此未创建副本。"
+          }
+        }
+      }
+    },
     "This file has no sound to extract.": {
       "localizations": {
         "de": {
@@ -181099,6 +183423,64 @@
         }
       }
     },
+    "This photo’s film settings need the film data. Download it in the Film panel.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Filmeinstellungen dieses Fotos brauchen die Filmdaten. Lade sie im Bereich „Film“ herunter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los ajustes de película de esta foto necesitan los datos de película. Descárgalos en el panel Película."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les réglages de film de cette photo nécessitent les données de film. Téléchargez-les dans le panneau Film."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le impostazioni pellicola di questa foto richiedono i dati delle pellicole. Scaricali nel pannello Pellicola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この写真のフィルム設定にはフィルムデータが必要です。「フィルム」パネルでダウンロードしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사진의 필름 설정에는 필름 데이터가 필요합니다. 필름 패널에서 다운로드하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De filminstellingen van deze foto hebben de filmgegevens nodig. Download ze in het paneel Film."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os ajustes de filme desta foto precisam dos dados de filme. Baixe-os no painel Filme."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此照片的胶片设置需要胶片数据。请在“胶片”面板中下载。"
+          }
+        }
+      }
+    },
     "This playlist has no videos Pluck can download.": {
       "localizations": {
         "de": {
@@ -181153,6 +183535,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "此播放列表中没有 Pluck 可以下载的视频。"
+          }
+        }
+      }
+    },
+    "This setting needs the film data.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Einstellung braucht die Filmdaten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ajuste necesita los datos de película."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce réglage nécessite les données de film."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa impostazione richiede i dati delle pellicole."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この設定にはフィルムデータが必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 설정에는 필름 데이터가 필요합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze instelling heeft de filmgegevens nodig."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este ajuste precisa dos dados de filme."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此设置需要胶片数据。"
           }
         }
       }
@@ -187321,6 +189761,64 @@
         }
       }
     },
+    "Turn Split": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teilung drehen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Girar división"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pivoter la division"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruota divisione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "分割の向きを変える"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "분할 방향 바꾸기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Splitsing draaien"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Girar divisão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换拆分方向"
+          }
+        }
+      }
+    },
     "Turn a logo into a smooth animation. Pluck finds the shapes and letters in it and animates them in, with an outro and the length you choose. Export transparent ProRes or MP4, in any format. Find it in the File menu.": {
       "localizations": {
         "de": {
@@ -188537,6 +191035,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "请按一个键…"
+          }
+        }
+      }
+    },
+    "Type a name.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib einen Namen ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escribe un nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inserisci un nome."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름을 입력하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Typ een naam."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Digite um nome."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入名称。"
           }
         }
       }
@@ -206317,6 +208873,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "至"
+          }
+        }
+      }
+    },
+    "untitled folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "carpeta sin título"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dossier sans titre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cartella senza titolo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称未設定フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "무제 폴더"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "naamloze map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "pasta sem título"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未命名文件夹"
           }
         }
       }

@@ -356,10 +356,9 @@ struct PhotoLooks: View {
         }
     }
 
-    /// The film stocks (when the film engine is here), each with the photo's own settings.
+    /// The film stocks (from the tables in Pluck), each with the photo's own settings.
     private var films: [Look] {
-        guard engine.state == .ready else { return [] }
-        return engine.films.map { film in
+        engine.films.map { film in
             var r = record
             r.useFilm(film.id, engine: engine)
             return Look(id: "film-" + film.id, title: film.name, record: r, film: true)
@@ -447,13 +446,14 @@ struct PhotoLooks: View {
     }
 
     /// The small pictures, one after the other: the profiles and presets first (presets without
-    /// their film, which is slow), then each film stock through the film engine.
+    /// their film when it needs the helper, which is slow), then each film stock.
     private func render() async {
         for look in profiles + presets where pictures[look.id] == nil {
-            var shown = look.record
-            shown.filmOn = false
+            let shown = look.record
             let path = self.path
             let made = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+                var shown = shown
+                if shown.filmOn, FilmRoute.resolved(shown.film) != .instant { shown.filmOn = false }
                 guard let image = PhotoRender.image(path, record: shown, maxSize: 240) else { return nil }
                 return PhotoRender.picture(image, maxSize: 200)
             }.value
@@ -462,8 +462,17 @@ struct PhotoLooks: View {
         }
         await engine.loadProfiles()
         for look in films where pictures[look.id] == nil {
+            // A small picture never waits for tables made for advanced settings: the stock's own tables show instead
+            // (without those settings).
+            var record = look.record
+            let film = record.film
+            if case .tables = await Task.detached(priority: .utility, operation: { FilmRoute.resolved(film) }).value {
+                let tableKeys = Set(FilmRoute.filmKeys + FilmRoute.printKeys)
+                record.film.changed = record.film.changed.filter { !tableKeys.contains($0.key) }
+                if FilmRoute.of(record.film) != .instant { record.filmOn = false }
+            }
             // A worker of its own, so the big photo's film isn't kept waiting.
-            guard let made = try? await PhotoRender.develop(path, record: look.record, maxSize: 200, worker: 4) else { continue }
+            guard let made = try? await PhotoRender.develop(path, record: record, maxSize: 200, worker: 4) else { continue }
             if Task.isCancelled { return }
             pictures[look.id] = NSImage(cgImage: made, size: .zero)
         }

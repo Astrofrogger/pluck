@@ -205,9 +205,11 @@ extension ClipLook {
     /// clip, at its speed), fitted to width × height.
     /// `hold`: one frame (at `start`) kept for this long (a held frame). `clear`: on nothing rather
     /// than black, keeping what's around the picture see-through (laid over another).
+    /// `pixelFormat`: the export's (`EditorRenderSettings.pixelFormat`); one with alpha (ProRes
+    /// 4444) is on nothing too. An HDR file is tone-mapped to SDR Rec.709 first.
     static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
                             width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = [],
-                            hold: Double? = nil, clear: Bool = false, path: String? = nil) -> [String] {
+                            hold: Double? = nil, clear: Bool = false, path: String? = nil, pixelFormat: String = "yuv420p") -> [String] {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
         let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
@@ -218,9 +220,15 @@ extension ClipLook {
         // A camera's log to a normal picture, from 16-bit (log in 8 bits bands).
         if let path, let camera = CameraLog.resolve(look.color.camera, path: path), let cube = camera.cubeFile() {
             steps.append("format=rgb48le,lut3d=file='\(cube.path.replacingOccurrences(of: "'", with: "\\'"))'")
+        } else if let path, let toneMap = EditorRenderSettings.toneMap(path) {
+            steps.append(toneMap)
         }
+        // 10-bit exports (ProRes) stay deeper than 8 bits through the colour steps.
+        let deep = pixelFormat != "yuv420p", rgb = deep ? "rgb48le" : "rgb24"
+        let seeThrough = clear || pixelFormat.hasPrefix("yuva")
+        let clearFormat = pixelFormat.hasPrefix("yuva") ? pixelFormat : "yuva" + pixelFormat.dropFirst(3)
         if !look.color.isDefault, let cube = look.color.cubeFile() {
-            steps.append("format=rgb24,lut3d=file='\(cube.path.replacingOccurrences(of: "'", with: "\\'"))'")
+            steps.append("format=\(rgb),lut3d=file='\(cube.path.replacingOccurrences(of: "'", with: "\\'"))'")
         }
         switch look.scaling {
         case .fit: steps.append("scale=\(width):\(height):force_original_aspect_ratio=decrease")
@@ -244,13 +252,15 @@ extension ClipLook {
         }
         if look.opacity < 1 {
             let o = number(max(look.opacity, 0))
-            steps.append("format=rgb24,colorchannelmixer=rr=\(o):gg=\(o):bb=\(o)")
+            steps.append("format=\(rgb),colorchannelmixer=rr=\(o):gg=\(o):bb=\(o)")
         }
         let dx = number(look.x * Double(width)), dy = number(-look.y * Double(height))
         var after = "fps=\(rate)"
         if let from = look.zoomFrom?.fitted(), let to = look.zoomTo?.fitted() {
             // Dynamic zoom over the composed frame: zoompan makes one frame per frame it gets.
-            let frames = max(Int((length * (Double(rate) ?? 30)).rounded()), 1)
+            let fraction = rate.split(separator: "/").compactMap { Double($0) }
+            let fps = fraction.count == 2 && fraction[1] > 0 ? fraction[0] / fraction[1] : fraction.first ?? 30
+            let frames = max(Int((length * fps).rounded()), 1)
             let t = "min(on/\(frames),1)"
             let eased: String = switch look.zoomEase {
             case .linear: t
@@ -262,11 +272,11 @@ extension ClipLook {
             let size = lerp(from.size, to.size), cx = lerp(from.x, to.x), cy = lerp(from.y, to.y)
             after += ",zoompan=z='1/\(size)':x='\(cx)*iw-iw/zoom/2':y='\(cy)*ih-ih/zoom/2':d=1:s=\(width)x\(height):fps=\(rate)"
         }
-        if clear { steps.append("format=yuva420p") }
+        if seeThrough { steps.append("format=\(clearFormat)") }
         return [
-            clear ? "color=black@0.0:s=\(width)x\(height):r=\(rate),format=yuva420p[bg\(k)]" : "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
+            seeThrough ? "color=black@0.0:s=\(width)x\(height):r=\(rate),format=\(clearFormat)[bg\(k)]" : "color=black:s=\(width)x\(height):r=\(rate)[bg\(k)]",
             input + steps.joined(separator: ",") + "[fg\(k)]",
-            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1\(clear ? ":format=auto" : ""),\(([after] + finish).joined(separator: ",")),format=\(clear ? "yuva420p" : "yuv420p")[v\(k)]",
+            "[bg\(k)][fg\(k)]overlay=x=(W-w)/2+\(dx):y=(H-h)/2+\(dy):shortest=1\(seeThrough || deep ? ":format=auto" : ""),\(([after] + finish).joined(separator: ",")),format=\(seeThrough ? clearFormat : pixelFormat)[v\(k)]",
         ]
     }
 }

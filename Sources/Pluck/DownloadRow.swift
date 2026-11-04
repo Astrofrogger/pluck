@@ -483,10 +483,15 @@ struct DownloadRow: View {
 
     private func aiProgress(_ task: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            if let progress = item.aiProgress {
-                ProgressView(value: progress).progressViewStyle(.linear).tint(.purple)
-            } else {
-                ProgressView().progressViewStyle(.linear).tint(.purple)
+            HStack(spacing: Design.Spacing.controls) {
+                if let progress = item.aiProgress {
+                    ProgressView(value: progress).progressViewStyle(.linear).tint(.purple)
+                } else {
+                    ProgressView().progressViewStyle(.linear).tint(.purple)
+                }
+                #if STUDIO
+                RowButton(symbol: "xmark.circle.fill", label: "Stop", tint: .secondary) { ai.stop(item) }
+                #endif
             }
             Label(item.aiProgress.map { "\(task) \(Int($0 * 100))%" } ?? task, systemImage: "sparkles")
                 .font(.caption)

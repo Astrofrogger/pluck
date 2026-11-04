@@ -50,6 +50,15 @@ final class FilmEngine {
     static let downloadMB = 9
     static let diskMB = 10
     static let packRepository = "darktable-org/darktable-spektrafilm"
+    /// The pack's commit the shipped tables were made from (scripts/film-tables.sh pins the same one).
+    static let packCommit = "b15cfe18fb35ec15084f78c986b0ebc730338e6e"
+    /// Whether the downloaded pack is the one the shipped tables were made from (nil: not known yet). Tables made for
+    /// one photo from another pack can differ a little from the shipped ones: that's logged.
+    static var packMatchesTables: Bool? {
+        guard let shipped = FilmTables.shared.packSHA,
+              let downloaded = try? String(contentsOf: pack.appendingPathComponent(".manifest-sha"), encoding: .utf8) else { return nil }
+        return downloaded.trimmingCharacters(in: .whitespacesAndNewlines) == shipped
+    }
 
     static var folder: URL {
         // Tests use their own copy, never the one in Pluck's folder.
@@ -77,6 +86,9 @@ final class FilmEngine {
     }
 
     private init() {
+        // The shipped film tables list the stocks, so the pickers work without the helper's pack.
+        films = FilmTables.shared.films
+        papers = FilmTables.shared.papers
         if FileManager.default.fileExists(atPath: Self.packMarker.path) { state = .ready }
         // The earlier Python film engine has everything denoise needs.
         if FileManager.default.fileExists(atPath: Self.pythonMarker.path)
@@ -96,6 +108,8 @@ final class FilmEngine {
                 try await downloadPack()
                 state = .ready
                 await loadProfiles()
+                // Photos waiting for their advanced settings' tables can have them now.
+                FilmAdvanced.shared.packArrived()
             } catch {
                 state = .failed(error.localizedDescription)
             }
@@ -113,9 +127,13 @@ final class FilmEngine {
     }
 
     private func downloadPack() async throws {
-        let raw = "https://raw.githubusercontent.com/\(Self.packRepository)/main"
+        let raw = "https://raw.githubusercontent.com/\(Self.packRepository)/\(Self.packCommit)"
         stage = String(localized: "Getting the list of films…")
         let (data, _) = try await URLSession.shared.data(from: URL(string: raw + "/manifest.json")!)
+        let manifestSHA = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        if let shipped = FilmTables.shared.packSHA, shipped != manifestSHA {
+            NSLog("Pluck film: the film data downloaded (%@) isn't what the shipped tables were made from (%@)", manifestSHA, shipped)
+        }
         let manifest = try JSONDecoder().decode(Manifest.self, from: data)
         // The newest layout pluck-spektra reads (darktable's pack formats 2 and 3).
         guard let pack = manifest.packs.filter({ (2...3).contains($0.pack_format) }).last else {
@@ -145,12 +163,13 @@ final class FilmEngine {
         if let (license, _) = try? await URLSession.shared.data(from: URL(string: raw + "/LICENSE")!) {
             try? license.write(to: staging.appendingPathComponent("LICENSE"))
         }
+        try? manifestSHA.write(to: staging.appendingPathComponent(".manifest-sha"), atomically: true, encoding: .utf8)
         FileManager.default.createFile(atPath: staging.appendingPathComponent(".complete").path, contents: Data())
         for worker in workers { worker.stop() }
         workers = []
         try? FileManager.default.removeItem(at: Self.pack)
         try FileManager.default.moveItem(at: staging, to: Self.pack)
-        films = []
+        films = FilmTables.shared.films
         progress = 1
     }
 
@@ -161,8 +180,8 @@ final class FilmEngine {
         state = .notInstalled
         denoiseEngine = .notInstalled
         denoiser = .notInstalled
-        films = []
-        papers = []
+        films = FilmTables.shared.films
+        papers = FilmTables.shared.papers
     }
 
     // MARK: - Running the film
@@ -188,13 +207,16 @@ final class FilmEngine {
     }
 
     func loadProfiles() async {
-        guard state == .ready, films.isEmpty else { return }
-        guard let answer = try? await ask(["do": "profiles", "pack": Self.pack.path]),
-              let data = try? JSONSerialization.data(withJSONObject: answer),
-              let lists = try? JSONDecoder().decode([String: [Profile]].self, from: data) else { return }
-        films = lists["film"] ?? []
-        papers = lists["print"] ?? []
-        if let raw = try? await ask(["do": "schema"]) {
+        guard films.isEmpty || schema.isEmpty else { return }
+        // (The settings and their defaults come from the helper itself: no film data needed for those.)
+        if films.isEmpty, state == .ready {
+            guard let answer = try? await ask(["do": "profiles", "pack": Self.pack.path]),
+                  let data = try? JSONSerialization.data(withJSONObject: answer),
+                  let lists = try? JSONDecoder().decode([String: [Profile]].self, from: data) else { return }
+            films = lists["film"] ?? []
+            papers = lists["print"] ?? []
+        }
+        if schema.isEmpty, let raw = try? await ask(["do": "schema"]) {
             schema = raw.compactMapValues { value -> Setting? in
                 guard let entry = value as? [String: Any], let def = (entry["default"] as? NSNumber)?.doubleValue,
                       let min = (entry["min"] as? NSNumber)?.doubleValue, let max = (entry["max"] as? NSNumber)?.doubleValue else { return nil }
@@ -213,6 +235,24 @@ final class FilmEngine {
         job["set"] = film.settings
         _ = try await ask(job, worker: worker)
     }
+
+    /// Makes the film tables for one photo's advanced settings (format document §7) into `folder`: `film.pft`, and
+    /// `paper.pft` and `pair.pft` unless the film is looked at without a print (`scan_film`). Made for this photo
+    /// alone, so the pair carries its own scan and the scans have the finer grid.
+    func tables(film: String, paper: String, settings: [String: Any], to folder: URL) async throws {
+        let scanned = ((settings["scan_film"] as? NSNumber)?.doubleValue ?? 0) > 0.5
+        for part in scanned ? ["film"] : ["film", "paper", "pair"] {
+            var job: [String: Any] = ["do": "tables", "part": part, "pack": Self.pack.path, "film": film, "print": paper,
+                                      "set": settings, "output": folder.appendingPathComponent("\(part).pft").path]
+            if part == "pair" { job["own_scan"] = true }
+            if part == "pair" || (part == "film" && scanned) { job["n_scan"] = 97 }
+            _ = try await ask(job, worker: Self.tablesWorker)
+        }
+    }
+
+    /// The tables have a worker of their own, so the big photo's helper film isn't kept waiting (exports use 1…6,
+    /// the looks' film thumbnails 4).
+    static let tablesWorker = 7
 
     // MARK: - Denoise engine (Python, on request)
 
@@ -484,8 +524,12 @@ final class FilmWorker {
         process = nil
     }
 
+    /// How many jobs were sent, all workers together (tests).
+    static var asked = 0
+
     /// Sends a job and waits for its answer line.
     func ask(_ job: [String: Any]) async throws -> [String: Any] {
+        Self.asked += 1
         while busy { await withCheckedContinuation { waiting.append($0) } }
         busy = true
         defer {

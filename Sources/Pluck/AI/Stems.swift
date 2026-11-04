@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import CryptoKit
 import Foundation
 
@@ -104,6 +105,63 @@ enum Stems {
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
     }
 
+    /// Separates a raw 44.1 kHz stereo float file (what the model works at) into the stems and
+    /// the Instrumental (everything but the vocals: karaoke) as AAC files in a new `folder`, a
+    /// chunk at a time: each finished stretch goes straight into the files, so memory stays the
+    /// same however long the recording is. Each file gets its name once all are whole.
+    @available(macOS 27, *)
+    static func separate(_ raw: URL, into folder: URL, progress: @escaping (Double) -> Void,
+                         model: ([[Float]]) async throws -> [[[Float]]]) async throws {
+        let input = try FileHandle(forReadingFrom: raw)
+        defer { try? input.close() }
+        let length = Int(try input.seekToEnd()) / 8
+        guard length > 1 else { throw StemError.emptyAudio }
+        let names = outputs.enumerated().map { "\($0.offset + 1) \($0.element.name).m4a" } + ["5 \(String(localized: "Instrumental (karaoke)")).m4a"]
+        let targets = names.map { folder.appendingPathComponent($0) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var finished = false
+        defer {
+            if !finished {
+                for target in targets { try? FileManager.default.removeItem(at: EditorExport.partial(target)) }
+                rmdir(folder.path)   // only when empty
+            }
+        }
+        let settings: [String: Any] = [AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 44_100, AVNumberOfChannelsKey: 2,
+                                       AVEncoderBitRateKey: 256_000]
+        let files = try targets.map {
+            try AVAudioFile(forWriting: EditorExport.partial($0), settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        }
+        let order = outputs.compactMap { output in DemucsSeparator.sources.firstIndex(of: output.source) }
+        // Each chunk's reads and writes let go of what Foundation kept for them (autoreleased),
+        // or memory still grows with the length.
+        try await DemucsSeparator.separateAt44k(length: length, read: { start, count in try autoreleasepool {
+            try input.seek(toOffset: UInt64(start * 8))
+            let data = try input.read(upToCount: count * 8) ?? Data()
+            let frames = data.count / 8
+            var left = [Float](repeating: 0, count: frames), right = [Float](repeating: 0, count: frames)
+            data.withUnsafeBytes { buffer in
+                let samples = buffer.bindMemory(to: Float.self)
+                for i in 0..<frames {
+                    left[i] = samples[2 * i]
+                    right[i] = samples[2 * i + 1]
+                }
+            }
+            return [left, right]
+        } }, write: { stems in try autoreleasepool {
+            for (file, stereo) in zip(files, order.map { stems[$0] } + [AIStudio.mix(stems, without: "vocals")]) {
+                let count = stereo[0].count
+                guard let buffer = AVAudioPCMBuffer(pcmFormat: file.processingFormat, frameCapacity: AVAudioFrameCount(count)),
+                      let channels = buffer.floatChannelData else { throw StemError.setupFailed }
+                buffer.frameLength = AVAudioFrameCount(count)
+                for ch in 0..<2 { stereo[ch].withUnsafeBufferPointer { channels[ch].update(from: $0.baseAddress!, count: count) } }
+                try file.write(from: buffer)
+            }
+        } }, progress: progress, model: model)
+        for file in files { file.close() }
+        for target in targets { try FileManager.default.moveItem(at: EditorExport.partial(target), to: target) }
+        finished = true
+    }
+
     /// The stems, in the order and names they're saved under.
     static let outputs: [(source: String, name: String)] = [
         ("vocals", String(localized: "Vocals")), ("drums", String(localized: "Drums")),
@@ -126,28 +184,22 @@ extension AIStudio {
                 }
                 item.aiStatus = String(localized: "Reading sound…")
                 item.aiProgress = nil
-                let stereo = try await decodeStereo(file)
+                let raw = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-stems-\(UUID().uuidString).f32")
+                defer { try? FileManager.default.removeItem(at: raw) }
+                try await ffmpeg(["-y", "-v", "error", "-i", file.path, "-vn", "-ac", "2", "-ar", "44100", "-f", "f32le", raw.path],
+                                 failure: StemError.emptyAudio)
                 item.aiStatus = String(localized: "Separating stems…")
                 item.aiProgress = 0
                 let separator = try await DemucsSeparator(contentsOf: Stems.modelFolder)
-                let stems = try await separator.separateAt44k(stereo) { progress in
-                    Task { @MainActor in item.aiProgress = progress }
-                }
-                item.aiStatus = String(localized: "Saving stems…")
-                item.aiProgress = nil
                 let folder = Converting.outputFolder(in: file.deletingLastPathComponent(),
                                                      name: file.deletingPathExtension().lastPathComponent + String(localized: " (stems)"))
-                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-                for (index, output) in Stems.outputs.enumerated() {
-                    guard let stem = DemucsSeparator.sources.firstIndex(of: output.source).map({ stems[$0] }) else { continue }
-                    try await encode(stem, to: folder.appendingPathComponent("\(index + 1) \(output.name).m4a"))
-                }
-                // Karaoke: everything except the vocals, summed back together.
-                let instrumental = await Task.detached { Self.mix(stems, without: "vocals") }.value
-                try await encode(instrumental, to: folder.appendingPathComponent("5 \(String(localized: "Instrumental (karaoke)")).m4a"))
+                try await Stems.separate(raw, into: folder) { progress in
+                    Task { @MainActor in item.aiProgress = progress }
+                } model: { try await separator.separateSegment($0) }
                 item.aiStatus = nil
                 item.aiProgress = nil
                 NSWorkspace.shared.activateFileViewerSelecting([folder])
+            } catch is CancellationError {
             } catch {
                 item.aiStatus = nil
                 item.aiProgress = nil
@@ -168,40 +220,6 @@ extension AIStudio {
             }
             return sum
         }
-    }
-
-    /// The sound as 44.1 kHz stereo floats, what the model works at.
-    private func decodeStereo(_ file: URL) async throws -> [[Float]] {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-stems-\(UUID().uuidString).f32")
-        defer { try? FileManager.default.removeItem(at: raw) }
-        try await ffmpeg(["-y", "-v", "error", "-i", file.path, "-vn", "-ac", "2", "-ar", "44100", "-f", "f32le", raw.path],
-                         failure: StemError.emptyAudio)
-        let data = try Data(contentsOf: raw)
-        let frames = data.count / 8
-        guard frames > 0 else { throw StemError.emptyAudio }
-        var left = [Float](repeating: 0, count: frames), right = [Float](repeating: 0, count: frames)
-        data.withUnsafeBytes { buffer in
-            let samples = buffer.bindMemory(to: Float.self)
-            for i in 0..<frames {
-                left[i] = samples[2 * i]
-                right[i] = samples[2 * i + 1]
-            }
-        }
-        return [left, right]
-    }
-
-    /// Writes one stem as AAC (256 kbps) through ffmpeg.
-    private func encode(_ stereo: [[Float]], to output: URL) async throws {
-        let raw = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-stem-\(UUID().uuidString).f32")
-        defer { try? FileManager.default.removeItem(at: raw) }
-        var interleaved = [Float](repeating: 0, count: stereo[0].count * 2)
-        for i in 0..<stereo[0].count {
-            interleaved[2 * i] = stereo[0][i]
-            interleaved[2 * i + 1] = stereo[1][i]
-        }
-        try interleaved.withUnsafeBufferPointer { try Data(buffer: $0).write(to: raw) }
-        try await ffmpeg(["-y", "-v", "error", "-f", "f32le", "-ar", "44100", "-ac", "2", "-i", raw.path,
-                          "-c:a", "aac", "-b:a", "256k", output.path], failure: StemError.emptyAudio)
     }
 
     private func presentStemError(_ error: Error, for item: DownloadItem) {

@@ -76,6 +76,7 @@ final class AIStudio {
     /// overload the Mac. Each item shows "Waiting…" until its turn.
     @ObservationIgnored private var jobs: [(item: DownloadItem, work: @MainActor () async -> Void)] = []
     @ObservationIgnored private var jobsRunning = false
+    @ObservationIgnored private var current: (item: DownloadItem, task: Task<Void, Never>)?
 
     func enqueue(_ item: DownloadItem, waiting: String = String(localized: "Waiting…"), _ work: @escaping @MainActor () async -> Void) {
         item.aiStatus = waiting
@@ -86,10 +87,22 @@ final class AIStudio {
         Task {
             while !jobs.isEmpty {
                 let job = jobs.removeFirst()
-                await job.work()
+                let task = Task { await job.work() }
+                current = (job.item, task)
+                await task.value
+                current = nil
             }
             jobsRunning = false
         }
+    }
+
+    /// The row's Stop: the item's running job is stopped (its ffmpeg ends, half-made files go),
+    /// or its waiting one taken off the queue.
+    func stop(_ item: DownloadItem) {
+        if current?.item === item { current?.task.cancel() }
+        jobs.removeAll { $0.item === item }
+        item.aiStatus = nil
+        item.aiProgress = nil
     }
 
     /// A download finished: transcribe it if automatic transcripts are on.
@@ -261,7 +274,7 @@ final class AIStudio {
                 if chapters.count > 1, ["mp4", "m4v", "mov", "m4a", "mkv"].contains(file.pathExtension.lowercased()) {
                     item.aiStatus = String(localized: "Adding chapters to the file…")
                     item.aiProgress = nil
-                    try await write(chapters, into: file, duration: transcript.duration ?? item.duration)
+                    try await write(chapters, nextTo: file, duration: transcript.duration ?? item.duration)
                 }
                 finishJob(item)
                 openMoment(EditorMoment(filePath: file.path, transcriptID: transcript.id, start: nil, tab: "chapters"))
@@ -271,9 +284,9 @@ final class AIStudio {
         }
     }
 
-    /// Writes chapter markers into the file (streams copied), so QuickTime, Apple Music and
-    /// other players show them.
-    private func write(_ chapters: [Transcript.Chapter], into file: URL, duration: Double?) async throws {
+    /// A "(chapters)" copy next to the file with chapter markers (streams copied), so QuickTime,
+    /// Apple Music and other players show them. The original is never rewritten.
+    func write(_ chapters: [Transcript.Chapter], nextTo file: URL, duration: Double?) async throws {
         var meta = ";FFMETADATA1\n"
         for (index, chapter) in chapters.enumerated() {
             let end = index + 1 < chapters.count ? chapters[index + 1].start : (duration ?? chapter.start + 1)
@@ -284,10 +297,22 @@ final class AIStudio {
         let metaFile = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-chapters-\(UUID().uuidString).txt")
         try meta.write(to: metaFile, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: metaFile) }
-        let temp = file.deletingLastPathComponent().appendingPathComponent(".pluck-chapters-\(UUID().uuidString).\(file.pathExtension)")
-        try await ffmpeg(["-y", "-v", "error", "-i", file.path, "-i", metaFile.path, "-map", "0", "-dn",
-                          "-map_metadata", "0", "-map_chapters", "1", "-c", "copy", temp.path], failure: LocalAI.Failure.noAudio)
-        _ = try FileManager.default.replaceItemAt(file, withItemAt: temp)
+        try await copy(file, suffix: String(localized: " (chapters)"),
+                       ["-i", file.path, "-i", metaFile.path, "-map", "0", "-map_metadata", "0", "-map_chapters", "1", "-c", "copy"])
+    }
+
+    /// A copy of `file` with every stream (data tracks like timecode included) next to it as
+    /// "Name<suffix>.ext". A data track this container can't take stops it, rather than being dropped.
+    private func copy(_ file: URL, suffix: String, _ args: [String]) async throws {
+        let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,
+                                          name: file.deletingPathExtension().lastPathComponent + suffix, fileExtension: file.pathExtension)
+        do {
+            try await ffmpeg(["-y", "-v", "error"] + args + [output.path], failure: LocalAI.Failure.noAudio)
+        } catch let error as ToolFailure {
+            guard await streamCount(file, "d") > 0 else { throw error }
+            throw ToolFailure(message: String(localized: "This file has a data track (like timecode or location) that can’t be kept in a copy, so no copy was made.")
+                + " (" + error.message + ")")
+        }
     }
 
     func finishJob(_ item: DownloadItem) {
@@ -336,41 +361,41 @@ final class AIStudio {
         return temp
     }
 
-    /// Adds subtitle tracks to the video file itself (streams copied, nothing re-encoded).
-    private func embed(_ tracks: [(cues: [Transcript.Cue], language: Locale.Language)], into file: URL) async throws {
+    /// A "(subtitled)" copy of the video with subtitle tracks added (streams copied, nothing
+    /// re-encoded). The original is never rewritten.
+    func embed(_ tracks: [(cues: [Transcript.Cue], language: Locale.Language)], into file: URL) async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-subs-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }
-        var inputs: [String] = ["-i", file.path]
+        var args: [String] = ["-i", file.path]
         for (index, track) in tracks.enumerated() {
             let srt = folder.appendingPathComponent("\(index).srt")
             try Transcript.srt(track.cues).write(to: srt, atomically: true, encoding: .utf8)
-            inputs += ["-i", srt.path]
+            args += ["-i", srt.path]
         }
-        let existing = await subtitleStreamCount(file)
+        let existing = await streamCount(file, "s")
         let codec = switch file.pathExtension.lowercased() {
         case "mkv": "srt"
         case "webm": "webvtt"
         default: "mov_text"
         }
-        var args = ["-y", "-v", "error"] + inputs + ["-map", "0"]
+        args += ["-map", "0"]
         for index in tracks.indices { args += ["-map", "\(index + 1):0"] }
-        args += ["-c", "copy", "-c:s", codec]
+        args += ["-map_metadata", "0", "-c", "copy", "-c:s", codec]
         for (index, track) in tracks.enumerated() {
             let code = track.language.languageCode?.identifier(.alpha3) ?? "und"
             args += ["-metadata:s:s:\(existing + index)", "language=\(code)"]
         }
-        let temp = file.deletingLastPathComponent().appendingPathComponent(".pluck-subs-\(UUID().uuidString).\(file.pathExtension)")
-        try await ffmpeg(args + [temp.path], failure: LocalAI.Failure.noAudio)
-        _ = try FileManager.default.replaceItemAt(file, withItemAt: temp)
+        try await copy(file, suffix: String(localized: " (subtitled)"), args)
     }
 
-    private func subtitleStreamCount(_ file: URL) async -> Int {
+    /// How many streams of a kind ("s" subtitles, "d" data) the file has.
+    private func streamCount(_ file: URL, _ kind: String) async -> Int {
         guard let ffprobe = manager.tool("ffprobe") else { return 0 }
         return await Task.detached {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: ffprobe)
-            p.arguments = ["-v", "error", "-select_streams", "s", "-show_entries", "stream=index", "-of", "csv=p=0", file.path]
+            p.arguments = ["-v", "error", "-select_streams", kind, "-show_entries", "stream=index", "-of", "csv=p=0", file.path]
             let pipe = Pipe()
             p.standardOutput = pipe
             p.standardError = FileHandle.nullDevice
@@ -421,36 +446,29 @@ final class AIStudio {
         var errorDescription: String? { message }
     }
 
-    /// Runs ffmpeg; with `item`, its progress (from `-progress pipe:1`) shows in the row.
+    /// Runs ffmpeg (stopped with the job); with `item`, its progress (from `-progress pipe:1`) shows
+    /// in the row. The output (the last argument) is written as "Name.part.ext" and only gets its
+    /// name once whole, so a stopped or failed job never leaves a half-made file behind.
     func ffmpeg(_ args: [String], failure: Error, duration: Double? = nil, item: DownloadItem? = nil) async throws {
-        guard let ffmpeg = manager.tool("ffmpeg") else { throw Converting.Failure.noFFmpeg }
-        let env = manager.environment
-        let (status, lastError) = await Task.detached { () -> (Int32, String?) in
-            let p = Process()
-            p.executableURL = URL(fileURLWithPath: ffmpeg)
-            p.arguments = args
-            p.environment = env
-            let out = Pipe(), err = Pipe()
-            p.standardOutput = out
-            p.standardError = err
-            guard (try? p.run()) != nil else { return (1, nil) }
-            let errors = Task.detached { () -> String? in
-                var last: String?
-                for await line in PipeLines.stream(err.fileHandleForReading) where !line.isEmpty { last = line }
-                return last
-            }
-            for await line in PipeLines.stream(out.fileHandleForReading) where line.hasPrefix("out_time_us=") {
-                guard let item, let duration, duration > 0, let micro = Double(line.dropFirst("out_time_us=".count)) else { continue }
-                let progress = min(max(micro / 1_000_000 / duration, 0), 1)
-                await MainActor.run { item.aiProgress = progress }
-            }
-            p.waitUntilExit()
-            return (p.terminationStatus, await errors.value)
-        }.value
-        guard status == 0 else { throw lastError.map { ToolFailure(message: $0) } ?? failure }
+        guard let ffmpeg = manager.tool("ffmpeg"), let last = args.last else { throw Converting.Failure.noFFmpeg }
+        let output = URL(fileURLWithPath: last), partial = EditorExport.partial(output)
+        defer { try? FileManager.default.removeItem(at: partial) }
+        let outcome = await EditorExport.run(ffmpeg, Array(args.dropLast()) + [partial.path], total: duration ?? 0) { progress in
+            guard let item, (duration ?? 0) > 0 else { return }
+            Task { @MainActor in item.aiProgress = progress }
+        }
+        switch outcome {
+        case .done:
+            // (A file that appeared there meanwhile is never replaced: then this fails and says so.)
+            try FileManager.default.moveItem(at: partial, to: output)
+        case .stopped: throw CancellationError()
+        case .failed(let tail): throw tail.split(separator: "\n").last.map { ToolFailure(message: String($0)) } ?? failure
+        }
     }
 
     private func presentError(_ error: Error, for item: DownloadItem) {
+        // Stopped from the row: nothing went wrong.
+        guard !(error is CancellationError) else { return }
         let alert = NSAlert()
         alert.messageText = String(localized: "“\(item.title)” couldn’t be finished")
         alert.informativeText = error.localizedDescription

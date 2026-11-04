@@ -3,6 +3,7 @@ import Foundation
 /// Bringing an edit back from DaVinci Resolve (Task 10), from timelines written by hand.
 extension EditSelfTest {
     static func resolveRead() async {
+        resolveEmptyTimeline()
         // Three clips of a.mp4 (25 fps), 4 s each; the second with a look and lower volume.
         let model = await project(["a.mp4", "a.mp4", "a.mp4"])
         let ids = model.project.clips.map(\.id)
@@ -115,5 +116,23 @@ extension EditSelfTest {
         } else {
             check("speed and sound edits are said", false, "didn't decode")
         }
+    }
+
+    /// A Resolve timeline of the project's name is used again only when every video, audio and
+    /// subtitle track on it is empty (Resolve's own Python decides; tested with the Mac's).
+    static func resolveEmptyTimeline() {
+        let code = ResolveBridge.emptyCheck + "\n" + """
+        print(is_empty({"video": [0], "audio": [0, 0], "subtitle": []}), is_empty({"video": [0], "audio": [0, 3]}),
+              is_empty({"video": [0], "audio": [0], "subtitle": [1]}), is_empty({"video": [0, 2]}), is_empty({}))
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", code]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        guard (try? process.run()) != nil else { return check("resolve reuses only an empty timeline", false, "no python3") }
+        let said = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        check("resolve reuses only an empty timeline", said == "True False False False True", said)
     }
 }

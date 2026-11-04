@@ -15,6 +15,9 @@ enum PlayerSelfTest {
         await scopes()
         falseColour()
         compare()
+        rawNumbers()
+        await stuckDecoder()
+        thumbnailDecoderRestarts()
         lines.append("done")
         write()
         NSApp.terminate(nil)
@@ -158,5 +161,89 @@ enum PlayerSelfTest {
         let start = Date.now
         while Date.now.timeIntervalSince(start) < 1 { feed.offer(flat(0.5, 0.5, 0.5), playing: true); offered += 1; try? await Task.sleep(for: .milliseconds(2)) }
         check("scopes analyse at most 12 a second", feed.analysed > 0 && feed.analysed <= 13, "\(feed.analysed) of \(offered)")
+    }
+
+    /// A damaged clip's NaN, infinite or absurd numbers don't crash reading what the clip is.
+    private static func rawNumbers() {
+        let info = RawHelperSource.info(from: ["width": Double.nan, "height": 1e300, "frames": Double.infinity, "fps": Double.nan,
+                                               "iso": -5.0, "isos": [800, Double.nan], "kelvin": Double.infinity,
+                                               "tintRange": [Double.nan, 5]], url: URL(fileURLWithPath: "/x.r3d"))
+        check("raw clip with impossible numbers", info.width == 0 && info.height == 0 && info.frames == 0 && info.fps == 24
+              && info.iso == nil && info.isos == [800] && info.kelvin == nil && info.tintRange == nil,
+              "\(info.width)x\(info.height) \(info.frames) frames \(info.fps) fps")
+    }
+
+    /// A raw decoder that stops answering (a damaged clip, a network drive gone): the frame fails
+    /// in time, the next request starts the decoder again, and closing never waits for it.
+    private static func stuckDecoder() async {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-stuck-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let stub = folder.appendingPathComponent("pluck-raw")
+        // Opens the clip, then never answers again.
+        try? """
+        #!/bin/sh
+        read line
+        echo '{"ok":true,"format":"r3d","width":16,"height":16,"fps":24,"frames":10}'
+        exec sleep 600
+        """.write(to: stub, atomically: true, encoding: .utf8)
+        chmod(stub.path, 0o755)
+        let saved = RawHelperSource.frameTimeout
+        defer { RawHelperSource.frameTimeout = saved }
+        guard let source = try? RawHelperSource(url: folder.appendingPathComponent("a.r3d"), helper: stub) else {
+            return check("stuck decoder opens", false, "the stub didn't open")
+        }
+        func frame() async -> (error: String?, seconds: Double) {
+            let start = Date.now
+            let result = await Task.detached { Result { try source.frame(0, scale: 1, settings: RawSettings()) } }.value
+            if case .failure(let error) = result { return (error.localizedDescription, Date.now.timeIntervalSince(start)) }
+            return (nil, Date.now.timeIntervalSince(start))
+        }
+        RawHelperSource.frameTimeout = 1
+        let first = await frame(), second = await frame()
+        check("stuck decoder: frame fails in time", first.error != nil && first.seconds < 3, "\(first)")
+        check("stuck decoder: started again for the next frame", second.error != nil && second.seconds < 3, "\(second)")
+
+        RawHelperSource.frameTimeout = 60
+        let start = Date.now
+        let blocked = Task.detached { await frame() }
+        try? await Task.sleep(for: .milliseconds(500))
+        let closing = Date.now
+        source.close()
+        let closed = Date.now.timeIntervalSince(closing)
+        let after = await blocked.value
+        check("stuck decoder: close doesn't wait", closed < 0.5 && after.error != nil && Date.now.timeIntervalSince(start) < 3,
+              "close \(closed) s, frame \(after)")
+    }
+
+    /// The helper answers a stuck frame and ends: the thumbnail decoder must not write to it again
+    /// (that ended Pluck), but start a new one for the next clip.
+    private static func thumbnailDecoderRestarts() {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-thumbstuck-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let stub = folder.appendingPathComponent("pluck-raw")
+        try? """
+        #!/bin/sh
+        echo x >> "$(dirname "$0")/launches"
+        read line
+        echo '{"ok":true,"format":"r3d","width":16,"height":16,"fps":24,"frames":10}'
+        read line
+        echo '{"ok":false,"problem":"stuck","stopped":true}'
+        exit 3
+        """.write(to: stub, atomically: true, encoding: .utf8)
+        chmod(stub.path, 0o755)
+        let clip = folder.appendingPathComponent("a.r3d")
+        let decoder = ThumbnailDecoder()
+        decoder.helper = stub
+        defer { decoder.close() }
+        var errors = 0
+        for _ in 0..<2 {
+            guard let info = try? decoder.open(clip) else { continue }
+            if (try? decoder.frame(0, info: info)) == nil { errors += 1 }
+            usleep(200_000) // the helper has ended
+        }
+        let launches = (try? String(contentsOf: folder.appendingPathComponent("launches"), encoding: .utf8))?.split(separator: "\n").count ?? 0
+        check("thumbnails: a stopped helper is started again", errors == 2 && launches == 2, "errors \(errors), launches \(launches)")
     }
 }

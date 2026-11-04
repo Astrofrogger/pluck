@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 
@@ -11,6 +12,21 @@ enum CodeSignature {
         let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\"" as CFString
         guard SecRequirementCreateWithString(text, [], &requirement) == errSecSuccess, let requirement else { return false }
         return SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess
+    }
+
+    /// SHA-256 of the certificate that signed `url` (nil when unsigned, ad-hoc signed, or, with
+    /// `validate`, when its contents no longer match the signature).
+    static func leafCertificate(_ url: URL, validate: Bool) -> String? {
+        var code: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return nil }
+        if validate, SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate | kSecCSCheckAllArchitectures), nil) != errSecSuccess {
+            return nil
+        }
+        var info: CFDictionary?
+        guard SecCodeCopySigningInformation(code, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let certificates = (info as? [String: Any])?[kSecCodeInfoCertificates as String] as? [SecCertificate],
+              let leaf = certificates.first else { return nil }
+        return SHA256.hash(data: SecCertificateCopyData(leaf) as Data).map { String(format: "%02x", $0) }.joined()
     }
 }
 

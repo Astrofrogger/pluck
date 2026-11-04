@@ -14,6 +14,14 @@ enum PhotoSelfTest {
         log = logPath
         photos = defaults.string(forKey: "PluckScreenshotPhotos") ?? ""
         lines = []
+        // (Tests: only the film's speed and route, to measure quickly.)
+        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced"].contains(only) {
+            if only == "film" { await filmInstant() } else { await filmAdvanced() }
+            lines.append("done")
+            write()
+            NSApp.terminate(nil)
+            return
+        }
         await catalogRoundtrip()
         paste()
         sync()
@@ -31,6 +39,7 @@ enum PhotoSelfTest {
         await styles()
         usualLook()
         await levelExposure()
+        await film()
         lines.append("done")
         write()
         NSApp.terminate(nil)

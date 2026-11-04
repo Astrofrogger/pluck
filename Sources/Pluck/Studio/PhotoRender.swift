@@ -9,8 +9,9 @@ import Vision
 import UniformTypeIdentifiers
 
 /// Develops a photo with Pluck's photo engine (PhotoEngine: neutral RAW, local tone, profiles,
-/// on the GPU), then, when film is on, the film and paper through spektrafilm (about a second
-/// for a preview, longer at full size).
+/// on the GPU), then, when film is on, the film and paper: on the GPU in the same chain from the
+/// shipped tables (FilmLook, FilmRoute's `instant`), or through spektrafilm's helper for settings
+/// those can't do (about a second for a preview, longer at full size).
 enum PhotoRender {
     private static var context: CIContext { PhotoEngine.context }
 
@@ -252,9 +253,15 @@ enum PhotoRender {
 
     // MARK: - Developing
 
-    /// The developed photo as a picture to show or save. `maxSize` 0 is full size (slow with film).
+    /// The developed photo as a picture to show or save. `maxSize` 0 is full size (slow with the helper's film).
     /// A preview is developed from the kept decode; full size (for saving) from the file.
     static func develop(_ path: String, record: PhotoRecord, maxSize: Int, worker: Int = 0) async throws -> CGImage? {
+        // The film on the GPU (an advanced setting's tables are made first: a moment); nil: through the helper.
+        let gpu = record.filmOn ? await FilmRoute.stockWaiting(record.film) : nil
+        if maxSize == 0, let stock = gpu {
+            let picture = try await filmPicture(path, record: record, stock: stock)
+            return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        }
         let noise = isRaw(path) ? record.adjust.noise : 0
         let kept = maxSize > 0 ? base(path, maxSize: maxSize, record: record) : nil
         guard let source = kept?.image ?? source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust))
@@ -266,6 +273,12 @@ enum PhotoRender {
         // The film makes the picture from scene light: the light and local tone go in, the film's
         // own curve and colour do the rest.
         let image = adjusted(source, record.adjust, path: path, scene: true, cacheKey: kept?.key)
+        if let stock = gpu {
+            guard let light = BaseCache.texture(image) else { return nil }
+            let picture = filmed(light, stock: stock, film: record.film, geometry: filmGeometry(path, source: source.extent, picture: image.extent, full: false),
+                                 display: true)
+            return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
+        }
         // Through the film: raw linear floats in and out (pluck-spektra, darktable's port).
         let extent = image.extent.integral
         let width = Int(extent.width), height = Int(extent.height)
@@ -290,6 +303,94 @@ enum PhotoRender {
         let picture = CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf, colorSpace: linear)
         return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
+
+    // MARK: - Film in the develop chain
+
+    /// The film (instant: from the shipped tables) on a developed scene (`adjusted(…, scene: true)`), as more of
+    /// the same chain. Its picture is SDR, as the helper's is: 0…1. `display`: for the screen (half floats in between).
+    static func filmed(_ scene: CIImage, stock: FilmStock, film: FilmSettings, geometry: FilmGeometry, display: Bool = false) -> CIImage {
+        FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp")
+    }
+
+    /// Where a developed picture sits on its photo at full size, so the film's grain and halation keep their
+    /// size and place in a preview or a crop. `source`: the decoded photo's extent (before straightening and
+    /// the crop); `picture`: the developed one's; `full`: decoded at full size (an export, or looking closely).
+    static func filmGeometry(_ path: String, source: CGRect, picture: CGRect, full: Bool) -> FilmGeometry {
+        let long = Double(max(source.width, source.height))
+        let whole = full ? long : max(Double(decodedLongEdge(path)), long)
+        let s = min(long / max(whole, 1), 1)
+        return FilmGeometry(fullLongEdge: Int(whole.rounded()), renderScale: s,
+                            fullOrigin: CGPoint(x: (picture.minX - source.minX) / s, y: (source.maxY - picture.maxY) / s))
+    }
+
+    /// The photo's long side as it's decoded at full size (a RAW loses a sliver at its edges, see `source`).
+    static func decodedLongEdge(_ path: String) -> Int {
+        let long = fullLongEdge(path)
+        guard long > 0, isRaw(path) else { return long }
+        return long - 2 * max(2, Int((Double(long) * 0.004).rounded(.up)))
+    }
+
+    /// A photo's instant film at full size, held in memory (half floats, linear sRGB). The scene is worked out
+    /// once; then the film a band of rows at a time (each band reads its spatial stages' reach around it), so the
+    /// GPU memory it takes stays bounded. A few at a time (`FilmGate`).
+    static func filmPicture(_ path: String, record: PhotoRecord, stock: FilmStock) async throws -> CIImage {
+        await FilmGate.shared.enter()
+        defer { Task { await FilmGate.shared.leave() } }
+        return try filmBands(path, record: record, stock: stock)
+    }
+
+    /// Thrown when the GPU couldn't work out the film (an export then reports a problem instead of saving black).
+    static var filmFailed: NSError {
+        NSError(domain: "Pluck", code: 11, userInfo: [NSLocalizedDescriptionKey: String(localized: "The film engine stopped.")])
+    }
+
+    private static func filmBands(_ path: String, record: PhotoRecord, stock: FilmStock) throws -> CIImage {
+        let noise = isRaw(path) ? record.adjust.noise : 0
+        guard let decoded = source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust)) else { throw unreadable }
+        let scene = adjusted(decoded, record.adjust, path: path, scene: true)
+        let extent = scene.extent.integral
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0 else { throw unreadable }
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let rowBytes = width * 8
+        /// `image` over `bounds` into memory at `at`; a failed render throws (the plain render would only log it).
+        func render(_ image: CIImage, _ bounds: CGRect, into at: UnsafeMutableRawPointer) throws {
+            let destination = CIRenderDestination(bitmapData: at, width: Int(bounds.width), height: Int(bounds.height), bytesPerRow: rowBytes, format: .RGBAh)
+            destination.colorSpace = linear
+            try context.startTask(toRender: image, from: bounds, to: destination, at: .zero).waitUntilCompleted()
+        }
+        // The scene once (its local tone is worked out over the whole photo), in memory for the bands to read.
+        var light = Data(count: rowBytes * height)
+        try light.withUnsafeMutableBytes { try render(scene, extent, into: $0.baseAddress!) }
+        let kept = CIImage(bitmapData: light, bytesPerRow: rowBytes, size: extent.size, format: .RGBAh, colorSpace: linear)
+            .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
+        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true))
+        guard !film.extent.isEmpty else { throw filmFailed }
+        let failures = FilmHalation.failures
+        var pixels = Data(count: rowBytes * height)
+        let rows = max(256, min(height, filmBandPixels / width))
+        try pixels.withUnsafeMutableBytes { buffer in
+            for top in stride(from: 0, to: height, by: rows) {
+                let count = min(rows, height - top)
+                let band = CGRect(x: extent.minX, y: extent.maxY - CGFloat(top + count), width: CGFloat(width), height: CGFloat(count))
+                try render(film, band, into: buffer.baseAddress! + top * rowBytes)
+            }
+        }
+        // (Core Image may only log a pass that failed: the film's passes count theirs.)
+        guard FilmHalation.failures == failures else { throw filmFailed }
+        return CIImage(bitmapData: pixels, bytesPerRow: rowBytes, size: CGSize(width: width, height: height), format: .RGBAh, colorSpace: linear)
+    }
+
+    /// Posted (on the main thread) when the Mac is short of memory: let go of big pictures.
+    static let memoryPressure = Notification.Name("PluckPhotoMemoryPressure")
+
+    /// How many pixels of film a band of an export works out at once (its stages' reach comes on top): fewer on a Mac
+    /// with less memory.
+    static let filmBandPixels = ProcessInfo.processInfo.physicalMemory < 16 << 30 ? 2_000_000
+        : ProcessInfo.processInfo.physicalMemory < 24 << 30 ? 4_000_000 : 8_000_000
+    /// The same for the film at 100 % on screen: smaller, so looking closely holds less (the stages' reach weighs more).
+    /// Measured on a 24 MP photo: 8 Mpx bands add 3.5 GB at the peak (0.42 s), 4 Mpx 1.7 GB (0.49 s), 2 Mpx 1.0 GB (0.82 s).
+    static let lookBandPixels = ProcessInfo.processInfo.physicalMemory >= 24 << 30 ? 4_000_000 : 2_000_000
 
     nonisolated(unsafe) private static var longEdges: [String: Int] = [:]
 
@@ -326,14 +427,62 @@ enum PhotoRender {
         return (kept, key)
     }
 
-    /// The developed photo (the adjustments, no film), still to be drawn: for the screen.
+    /// The developed photo, still to be drawn: for the screen. With film on, the film too when it's
+    /// instant (FilmRoute), in the same chain; else only the adjustments (the helper's film follows).
     /// `maxSize` 0: full size, for looking closely (only the part on screen is worked out).
-    static func image(_ path: String, record: PhotoRecord, maxSize: Int, overlay: Int? = nil, peak: Double = 1) -> CIImage? {
-        guard let kept = base(path, maxSize: maxSize, record: record) else { return nil }
+    /// `drag`: smaller (`dragScale`), and so quicker, while a slider is dragged on a photo with film; the film's
+    /// grain and halation keep their size on the photo, so it's the same picture, a little softer.
+    /// `cancelled`: asked between the bands of a full-size film; true gives up (nil).
+    static func image(_ path: String, record: PhotoRecord, maxSize: Int, overlay: Int? = nil, peak: Double = 1, drag: Bool = false,
+                      cancelled: @escaping () -> Bool = { false }) -> CIImage? {
+        guard var kept = base(path, maxSize: maxSize, record: record) else { return nil }
+        if drag, maxSize > 0, let small = smaller(kept) { kept = small }
+        if record.filmOn, let stock = FilmRoute.stock(record.film) {
+            func scene() -> CIImage { adjusted(kept.image, record.adjust, path: path, scene: true, cacheKey: kept.key, overlay: overlay) }
+            // The scene is kept while only the film changes (a film slider moves): a preview's few, the full size's last one.
+            let depth = !record.adjust.masks.isEmpty && SceneCache.depthReady
+            let key = SceneCache.Key(base: kept.key, adjust: record.adjust, overlay: overlay, depth: depth)
+            // The film always reads a scene worked out beforehand: fed the scene's own passes straight, a film split into
+            // tiles can get another tile's scene (Core Image, macOS 27; the self-test "film on screen" shows it). If that
+            // can't be made (no memory for it), this once the scene's passes are read straight.
+            guard maxSize == 0 else {
+                let light = SceneCache.shared.scene(key, make: scene) ?? scene()
+                return filmed(light, stock: stock, film: record.film,
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true)
+            }
+            // At full size (looking closely) the scene and then the film are worked out once, a band at a time, so moving
+            // around is only drawing; a newer request stops this one between bands.
+            guard let light = SceneCache.shared.full(key, cancelled: cancelled, make: { BaseCache.texture(scene(), bands: filmBandPixels, cancelled: cancelled) })
+                    ?? (cancelled() ? nil : scene())
+            else { return nil }
+            let film = filmed(light, stock: stock, film: record.film,
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true)
+            if cancelled() { return nil }
+            // (Nothing when it fails: the loupe keeps what it shows.)
+            return BaseCache.texture(film, bands: lookBandPixels, cancelled: cancelled)
+        }
+        // Film wanted on the GPU whose stock isn't there now: nothing, never the photo without its film as if it were it.
+        if record.filmOn, FilmRoute.of(record.film) == .instant { return nil }
         return adjusted(kept.image, record.adjust, path: path, cacheKey: kept.key, overlay: overlay, peak: peak)
     }
 
-    /// The adjustments only (no film), straight away, as a picture.
+    /// How much smaller the picture is while a slider is dragged on film (each side; about a third of the pixels).
+    static let dragScale = 0.6
+
+    /// The kept decode at `dragScale`, made from it on the GPU once and kept too.
+    private static func smaller(_ kept: (image: CIImage, key: String)) -> (image: CIImage, key: String)? {
+        let key = "drag|" + kept.key
+        if let known = BaseCache.shared.image(key) { return (known, key) }
+        // Whole pixels each way, so no part-pixel row or column at an edge.
+        let e = kept.image.extent.integral
+        let width = max((e.width * dragScale).rounded(), 1), height = max((e.height * dragScale).rounded(), 1)
+        let scaled = kept.image.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            .applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": height / e.height, "inputAspectRatio": (width / e.width) / (height / e.height)])
+            .cropped(to: CGRect(x: 0, y: 0, width: width, height: height))
+        return BaseCache.shared.keep(scaled, key: key).map { ($0, key) }
+    }
+
+    /// The adjustments (and an instant film), straight away, as a picture.
     static func quick(_ path: String, record: PhotoRecord, maxSize: Int) async -> CGImage? {
         guard let image = image(path, record: record, maxSize: maxSize) else { return nil }
         return picture(image)
@@ -379,6 +528,7 @@ enum PhotoRender {
     /// the screen shows it (linear sRGB), without its masks: for picking a range or a colour.
     static func sample(_ path: String, record: PhotoRecord, at point: CGPoint) -> SIMD3<Double>? {
         var plain = record
+        plain.filmOn = false
         plain.adjust.masks = []
         plain.adjust.cropRect = nil
         plain.adjust.crop = .original
@@ -518,8 +668,15 @@ enum PhotoRender {
                        worker: Int = 1) async throws -> URL {
         var picture: CIImage
         var hdr: CIImage?
-        if record.filmOn {
-            // The film makes its own (SDR) picture.
+        if record.filmOn, let stock = await FilmRoute.stockWaiting(record.film) {
+            // The film makes its own (SDR) picture, on the GPU (an advanced setting's tables made first, if they must be).
+            picture = try await filmPicture(path, record: record, stock: stock)
+        } else if record.filmOn {
+            // Settings the shipped tables can't do need the film data (the helper, or tables made for this photo).
+            if await MainActor.run(body: { FilmEngine.shared.state != .ready }) {
+                throw NSError(domain: "Pluck", code: 11, userInfo: [NSLocalizedDescriptionKey: String(localized: "This photo’s film settings need the film data. Download it in the Film panel.")])
+            }
+            // The film makes its own (SDR) picture, through the helper.
             guard let made = try await develop(path, record: record, maxSize: 0, worker: worker) else { throw unreadable }
             picture = CIImage(cgImage: made)
         } else {
@@ -729,6 +886,13 @@ final class BaseCache: @unchecked Sendable {
         pressure.setEventHandler { [weak self] in
             self?.removeAll()
             GuideCache.shared.removeAll()
+            // First, so work under way sees it before what it made is let go.
+            BaseCache.pressures.withLock { $0 += 1 }
+            SceneCache.shared.removeAll()
+            FilmTables.shared.purge()
+            FilmAdvanced.dropMemory()
+            // The loupe lets go of its full-size picture too.
+            DispatchQueue.main.async { NotificationCenter.default.post(name: PhotoRender.memoryPressure, object: nil) }
         }
         pressure.activate()
     }
@@ -744,22 +908,8 @@ final class BaseCache: @unchecked Sendable {
     /// Decodes the photo into a texture now and keeps it.
     func keep(_ source: CIImage, key: String) -> CIImage? {
         let extent = source.extent.integral
-        let width = Int(extent.width), height = Int(extent.height)
-        guard width > 0, height > 0, let device = PhotoEngine.device, let queue = Self.queue,
-              let buffer = queue.makeCommandBuffer() else { return nil }
-        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: width, height: height, mipmapped: false)
-        descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
-        descriptor.storageMode = .private
-        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
-        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
-        let destination = CIRenderDestination(mtlTexture: texture, commandBuffer: buffer)
-        destination.colorSpace = linear
-        guard (try? PhotoEngine.context.startTask(toRender: source.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)),
-                                                  to: destination)) != nil else { return nil }
-        buffer.commit()
-        buffer.waitUntilCompleted()
-        guard let image = CIImage(mtlTexture: texture, options: [.colorSpace: linear]) else { return nil }
-        let bytes = width * height * 8
+        guard let image = Self.texture(source)?.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)) else { return nil }
+        let bytes = Int(extent.width) * Int(extent.height) * 8
         lock.lock()
         if let old = images[key] { total -= old.bytes; order.removeAll { $0 == key } }
         images[key] = (image, bytes)
@@ -778,5 +928,178 @@ final class BaseCache: @unchecked Sendable {
         lock.lock(); images = [:]; order = []; total = 0; lock.unlock()
     }
 
+    /// A picture worked out now into a texture (half floats, linear), at the same place. Drawn the way the screen
+    /// is drawn (rows from the top, then turned upright): a texture given straight to Core Image as its destination
+    /// comes out one row off for the scene's own passes (measured against memory: the self-test "film on screen").
+    /// `bands`: at most about this many pixels worked out at once (rows from the top), for a picture whose passes
+    /// hold a lot of memory per pixel (the film).
+    /// `cancelled`: asked before each band; true gives up (nil).
+    static func texture(_ image: CIImage, bands: Int = 0, cancelled: () -> Bool = { false }) -> CIImage? {
+        let extent = image.extent.integral
+        let width = Int(extent.width), height = Int(extent.height)
+        guard width > 0, height > 0, let device = PhotoEngine.device, let queue else { return nil }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: width, height: height, mipmapped: false)
+        descriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        descriptor.storageMode = .private
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let placed = image.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY))
+        let rows = bands > 0 ? max(256, min(height, bands / width)) : height
+        // Each band into a texture of its own size (rows from the top), then copied into its place.
+        let bandDescriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float, width: width, height: rows, mipmapped: false)
+        bandDescriptor.usage = [.shaderRead, .shaderWrite, .renderTarget]
+        bandDescriptor.storageMode = .private
+        guard let strip = rows < height ? device.makeTexture(descriptor: bandDescriptor) : texture else { return nil }
+        let failures = FilmHalation.failures
+        for top in stride(from: 0, to: height, by: rows) {
+            if cancelled() { return nil }
+            let count = min(rows, height - top)
+            let band = CGRect(x: 0, y: height - top - count, width: width, height: count)
+            guard let buffer = queue.makeCommandBuffer() else { return nil }
+            let destination = CIRenderDestination(width: width, height: count, pixelFormat: .rgba16Float, commandBuffer: buffer) { strip }
+            destination.colorSpace = linear
+            guard let task = try? PhotoEngine.context.startTask(toRender: placed.cropped(to: band).transformed(by: CGAffineTransform(translationX: 0, y: -band.minY)),
+                                                                to: destination) else { return nil }
+            if strip !== texture, let blit = buffer.makeBlitCommandEncoder() {
+                blit.copy(from: strip, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0), sourceSize: MTLSize(width: width, height: count, depth: 1),
+                          to: texture, destinationSlice: 0, destinationLevel: 0, destinationOrigin: MTLOrigin(x: 0, y: top, z: 0))
+                blit.endEncoding()
+            }
+            buffer.commit()
+            buffer.waitUntilCompleted()
+            // A pass that failed gives nothing (the caller keeps what it had), never a black picture.
+            guard buffer.status == .completed, (try? task.waitUntilCompleted()) != nil, FilmHalation.failures == failures else { return nil }
+        }
+        // The texture's first row is the top; Core Image reads a texture's first row as the bottom.
+        let upright = CGAffineTransform(scaleX: 1, y: -1).concatenating(CGAffineTransform(translationX: extent.minX, y: extent.minY + CGFloat(height)))
+        return CIImage(mtlTexture: texture, options: [.colorSpace: linear])?.transformed(by: upright)
+    }
+
     private static let queue = PhotoEngine.device?.makeCommandQueue()
+
+    /// How many times memory ran short: work that started before the last time isn't kept (it would hold on to memory
+    /// the Mac asked back).
+    static let pressures = FilmLocked(0)
+}
+
+/// Lets only a few full-size films work out at once: each holds a lot of GPU memory while it does, and they
+/// share one GPU anyway (two on a Mac with 24 GB or more, else one).
+actor FilmGate {
+    static let shared = FilmGate(slots: ProcessInfo.processInfo.physicalMemory >= 24 << 30 ? 2 : 1)
+    private var free: Int
+    private var waiting: [CheckedContinuation<Void, Never>] = []
+
+    init(slots: Int) { free = slots }
+
+    func enter() async {
+        if free > 0 { free -= 1; return }
+        await withCheckedContinuation { waiting.append($0) }
+    }
+
+    func leave() {
+        if waiting.isEmpty { free += 1 } else { waiting.removeFirst().resume() }
+    }
+}
+
+/// The scene light under a film preview, worked out into a texture and kept for the next few redraws: while only the
+/// film's settings change (a film slider), the adjustments and local tone aren't done again. Four: Compare's two
+/// photos, each while dragged and at rest.
+final class SceneCache: @unchecked Sendable {
+    static let shared = SceneCache()
+    struct Key: Hashable {
+        let base: String
+        let adjust: PhotoAdjustments
+        let overlay: Int?
+        /// Whether depth-based masks can be made yet (they appear once the depth model is ready).
+        let depth: Bool
+    }
+    private var kept: [(key: Key, image: CIImage)] = []
+    private let lock = NSLock()
+    func scene(_ key: Key, make: () -> CIImage) -> CIImage? {
+        if let known = lock.withLock({ kept.first { $0.key == key }?.image }) { return known }
+        guard let image = BaseCache.texture(make()) else { return nil }
+        lock.withLock {
+            kept.removeAll { $0.key == key }
+            kept.append((key, image))
+            if kept.count > 4 { kept.removeFirst() }
+        }
+        return image
+    }
+
+    /// The full size's scene (one: 24 MP is 190 MB), kept while only the film changes. `make` nil: not kept.
+    /// The full size's scenes (24 MP is 190 MB each), kept while only the film changes: two, one per photo (Compare).
+    private var whole: [(key: Key, image: CIImage)] = []
+
+    /// `cancelled`: a build that gave up (or one memory ran short during) isn't kept.
+    func full(_ key: Key, cancelled: () -> Bool = { false }, make: () -> CIImage?) -> CIImage? {
+        if let known = lock.withLock({ whole.first { $0.key == key }?.image }) { return known }
+        let pressures = BaseCache.pressures.withLock { $0 }
+        // This photo's old one goes before the new one is made; so does the oldest past two.
+        lock.withLock {
+            whole.removeAll { $0.key.base == key.base }
+            if whole.count >= 2 { whole.removeFirst() }
+        }
+        guard let image = make(), !cancelled(), BaseCache.pressures.withLock({ $0 }) == pressures else { return nil }
+        lock.withLock { whole.append((key, image)) }
+        return image
+    }
+
+    /// Lets go of a photo's full-size scene (zoomed out, or another photo shown).
+    func dropFull(_ path: String) { lock.withLock { whole.removeAll { $0.key.base.hasSuffix("|" + path) } } }
+
+    func removeAll() { lock.withLock { kept = []; whole = [] } }
+
+    /// Whether depth masks can be made (the depth model is there), looked at no more than once a second.
+    static var depthReady: Bool {
+        depthLock.withLock {
+            if !depthKnown, Date.now.timeIntervalSince(depthChecked) > 1 {
+                depthChecked = .now
+                depthKnown = PhotoDepth.isReady
+            }
+            return depthKnown
+        }
+    }
+    nonisolated(unsafe) private static var depthKnown = false
+    nonisolated(unsafe) private static var depthChecked = Date.distantPast
+    private static let depthLock = NSLock()
+}
+
+/// Full-size pictures for looking closely: worked out one at a time, on one serial queue (nothing waits on a thread).
+/// Each loupe asks on its own `channel` (Compare has two, and "before" its own): there the newest request wins (an older
+/// one still queued is dropped, one being worked out stops at its next band). Channels don't make each other stale.
+final class FullBuilds: @unchecked Sendable {
+    static let shared = FullBuilds()
+    private var current: [UUID: Int] = [:]
+    private var counter = 0
+    private let lock = NSLock()
+    private let queue = DispatchQueue(label: "Pluck full-size pictures", qos: .userInitiated)
+    private var done = 0, running = 0, most = 0
+    /// How many builds ran to the end, and the most at once (tests).
+    var finished: Int { lock.withLock { done } }
+    var mostAtOnce: Int { lock.withLock { most } }
+    func resetMost() { lock.withLock { most = 0 } }
+
+    /// A new request on this channel: its older ones are now stale.
+    func ticket(_ channel: UUID) -> Int { lock.withLock { counter += 1; current[channel] = counter; return counter } }
+    /// This request isn't wanted any more.
+    func cancel(_ channel: UUID, _ ticket: Int) { lock.withLock { if current[channel] == ticket { current[channel] = nil } } }
+    func isCurrent(_ channel: UUID, _ ticket: Int) -> Bool { lock.withLock { current[channel] == ticket } }
+
+    /// Works out `make` on the queue when it's this request's turn and it's still its channel's newest; nil if it gave up.
+    /// `film`: it works out film, so it waits for a `FilmGate` slot first (never at once with an export on a small Mac).
+    func build(_ channel: UUID, _ ticket: Int, film: Bool = false, _ make: @escaping (_ cancelled: @escaping () -> Bool) -> CIImage?) async -> CIImage? {
+        if film { await FilmGate.shared.enter() }
+        defer { if film { Task { await FilmGate.shared.leave() } } }
+        guard isCurrent(channel, ticket) else { return nil }
+        return await withCheckedContinuation { (done: CheckedContinuation<CIImage?, Never>) in
+            queue.async { [self] in
+                let stale = { [self] in !isCurrent(channel, ticket) }
+                guard !stale() else { done.resume(returning: nil); return }
+                lock.withLock { running += 1; most = max(most, running) }
+                let made = make(stale)
+                lock.withLock { running -= 1; if made != nil, current[channel] == ticket { self.done += 1 } }
+                done.resume(returning: stale() ? nil : made)
+            }
+        }
+    }
 }

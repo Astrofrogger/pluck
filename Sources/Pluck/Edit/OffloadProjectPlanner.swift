@@ -17,6 +17,8 @@ enum OffloadProjectPlanner {
         var card: Int
         /// The card's name ("A004").
         var label: String
+        /// Part of the project on the drive couldn't be read (what's there isn't known): nothing starts.
+        var unreadable: String?
     }
 
     /// Folders and files (relative to a drive, in lower case) that cards waiting to be copied
@@ -60,10 +62,15 @@ enum OffloadProjectPlanner {
         // What's in the project already, by name and size (from the main drive, or the first there).
         var index: [String: [String]] = [:]
         var root: String?
+        var unreadable: String?
         if let drive = drives.first {
             let place = (drive as NSString).appendingPathComponent(FolderTemplate.safe(project.name))
             root = place
-            for file in OffloadCenter.files(in: URL(fileURLWithPath: place, isDirectory: true)) {
+            let url = URL(fileURLWithPath: place, isDirectory: true)
+            // (A project's first card: its folder isn't there yet.)
+            let found = FileManager.default.fileExists(atPath: place) ? OffloadCenter.scan(url) : (files: [], unreadable: [])
+            unreadable = OffloadCenter.unreadable(found.unreadable, in: url)
+            for file in found.files {
                 index[key((file.path as NSString).lastPathComponent, file.size), default: []].append(file.path)
             }
         }
@@ -113,7 +120,7 @@ enum OffloadProjectPlanner {
             taken.insert(path.lowercased())
             planned.append(file)
         }
-        return Plan(folder: target, files: planned, renames: renames, alreadyThere: already, card: number, label: label)
+        return Plan(folder: target, files: planned, renames: renames, alreadyThere: already, card: number, label: label, unreadable: unreadable)
     }
 
     private static func key(_ name: String, _ size: Int64) -> String { name.lowercased() + "|" + String(size) }

@@ -689,18 +689,61 @@ private struct PhotoFilmPanel: View {
     @AppStorage("photoFilmAdvanced") private var advancedOpen = false
 
     var body: some View {
-        switch engine.state {
-        case .notInstalled: offer
-        case .installing: installing
-        case .failed(let message):
+        if FilmTables.shared.isAvailable {
+            // The film's tables come with Pluck: the film data is only for the advanced settings, offered when one is changed.
+            VStack(alignment: .leading, spacing: 10) {
+                if needsPack { packOffer }
+                controls
+            }
+        } else {
+            switch engine.state {
+            case .notInstalled: offer
+            case .installing: installing
+            case .failed: failed
+            case .ready: controls
+            }
+        }
+        credit
+    }
+
+    /// A setting the shipped tables can't do is changed, the film data isn't here yet, and this photo's own tables
+    /// aren't made already (in memory or on disk).
+    private var needsPack: Bool {
+        guard engine.state != .ready, record.filmOn, !FilmRoute.ready(record.film) else { return false }
+        if case .tables(let key) = FilmRoute.of(record.film), FilmAdvanced.onDisk(key) { return false }
+        return true
+    }
+
+    @ViewBuilder private var failed: some View {
+        if case .failed(let message) = engine.state {
             VStack(alignment: .leading, spacing: 10) {
                 ProblemLabel(text: message)
                 Button("Try Again") { engine.install() }.buttonStyle(BrandButtonStyle(large: false))
             }
             .padding(.horizontal, 8)
-        case .ready: controls
         }
-        credit
+    }
+
+    @ViewBuilder private var packOffer: some View {
+        switch engine.state {
+        case .installing: installing
+        case .failed: failed
+        default:
+            VStack(alignment: .leading, spacing: 8) {
+                Text("This setting needs the film data.").font(.callout.weight(.semibold))
+                HStack(spacing: 14) {
+                    Label("\(FilmEngine.downloadMB) MB download", systemImage: "arrow.down.circle")
+                    Label("\(FilmEngine.diskMB) MB on disk", systemImage: "internaldrive")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                Button("Download the Films", systemImage: "arrow.down") { engine.install() }
+                    .buttonStyle(BrandButtonStyle(large: false))
+            }
+            .padding(14)
+            .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
+            .padding(.horizontal, 6)
+        }
     }
 
     private var offer: some View {
@@ -745,7 +788,7 @@ private struct PhotoFilmPanel: View {
 
     private var credit: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version.")
+            Text("Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).")
             HStack(spacing: 4) {
                 Link("spektrafilm", destination: URL(string: "https://github.com/andreavolpato/spektrafilm")!)
                 Text(verbatim: "·")
@@ -773,7 +816,7 @@ private struct PhotoFilmPanel: View {
         switch record.film.changed[key] {
         case .number(let v)?: return v
         case .flag(let on)?: return on ? 1 : 0
-        default: return engine.schema[key]?.value ?? 0
+        default: return engine.schema[key]?.value ?? FilmRoute.standard(key) ?? 0
         }
     }
 
@@ -1354,6 +1397,8 @@ private struct PhotoExportPanel: View {
                 }
             }
             editing.exporting = false
+            // The film's in-between images for these sizes aren't needed any more.
+            FilmHalation.purge()
             editing.exportFolder = folder
             AppDelegate.shared?.manager.notify(
                 title: editing.exportProblem == nil ? String(localized: "Photos exported") : String(localized: "Photos exported, with problems"),

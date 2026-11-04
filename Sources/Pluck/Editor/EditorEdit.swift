@@ -216,6 +216,30 @@ enum EditorExport {
         }
     }
 
+    /// Where a file is written until it's whole: "Name.part.mp4" next to "Name.mp4".
+    static func partial(_ output: URL) -> URL {
+        output.deletingPathExtension().appendingPathExtension("part").appendingPathExtension(output.pathExtension)
+    }
+
+    /// A name in `folder` that no file has and no export is writing to (its part file is made
+    /// at once to hold it), so two exports with the same name started together don't collide.
+    static func reserve(folder: String, name: String, fileExtension: String) -> URL {
+        var number = 1
+        while true {
+            let output = Converting.outputURL(folder: folder, name: number == 1 ? name : "\(name) \(number)", fileExtension: fileExtension)
+            let fd = open(partial(output).path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+            if fd >= 0 { close(fd) }
+            // Taken by another export: the next number. (Can't write there at all: ffmpeg will say so.)
+            if fd >= 0 || errno != EEXIST { return output }
+            number += 1
+        }
+    }
+
+    /// Moves a finished export's part file to its name.
+    static func finish(_ output: URL) -> Bool {
+        (try? FileManager.default.moveItem(at: partial(output), to: output)) != nil
+    }
+
     /// What went wrong, in one sentence (from ffmpeg's last lines).
     static func readable(_ outcome: Outcome) -> String? {
         guard case .failed(let tail) = outcome else { return nil }
@@ -237,6 +261,7 @@ private final class FFmpegJob: @unchecked Sendable {
     private var process: Process?
     private var stopped = false
     private var errors = Data()
+    private var unfinished = ""
 
     func stop() {
         lock.withLock {
@@ -253,8 +278,10 @@ private final class FFmpegJob: @unchecked Sendable {
         process.standardOutput = out
         process.standardError = err
         out.fileHandleForReading.readabilityHandler = { handle in
-            guard let text = String(data: handle.availableData, encoding: .utf8) else { return }
-            for line in text.split(separator: "\n") where line.hasPrefix("out_time_us=") {
+            // A read can end mid-line: the unfinished end waits for the next read (one read at a time).
+            let lines = (self.unfinished + String(decoding: handle.availableData, as: UTF8.self)).split(separator: "\n", omittingEmptySubsequences: false)
+            self.unfinished = String(lines.last ?? "")
+            for line in lines.dropLast() where line.hasPrefix("out_time_us=") {
                 if let micro = Double(line.dropFirst("out_time_us=".count)) { progress(min(1, micro / 1_000_000 / max(total, 0.1))) }
             }
         }

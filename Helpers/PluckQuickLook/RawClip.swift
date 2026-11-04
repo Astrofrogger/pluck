@@ -33,9 +33,13 @@ final class RawClip: @unchecked Sendable {
     init(url: URL) throws {
         self.url = url
         let reply = try Self.lock.withLock { try Self.openClip(url) }
-        func number(_ key: String) -> Double { (reply[key] as? NSNumber)?.doubleValue ?? 0 }
+        // (A damaged clip can give NaN or absurd numbers: those are 0.)
+        func number(_ key: String) -> Double {
+            let value = (reply[key] as? NSNumber)?.doubleValue ?? 0
+            return value.isFinite && value >= 0 && value < 1e8 ? value : 0
+        }
         width = Int(number("width")); height = Int(number("height"))
-        fps = max(number("fps"), 1); frames = Int(number("frames"))
+        fps = min(max(number("fps"), 1), 1000); frames = Int(number("frames"))
         format = reply["format"] as? String ?? ""
         let meta = reply["meta"] as? [String: String] ?? [:]
         camera = meta["camera_type"] ?? meta["camera_model"] ?? meta["Camera Model"]
@@ -49,6 +53,7 @@ final class RawClip: @unchecked Sendable {
         defer { if fd >= 0 { Darwin.close(fd) } }
         guard fd >= 0, ftruncate(fd, off_t(mappedSize)) == 0,
               let memory = mmap(nil, mappedSize, PROT_READ, MAP_SHARED, fd, 0), memory != MAP_FAILED else {
+            try? FileManager.default.removeItem(at: buffer)
             throw NSError(domain: "Pluck", code: 1)
         }
         mapped = memory
@@ -56,10 +61,11 @@ final class RawClip: @unchecked Sendable {
 
     deinit {
         munmap(mapped, mappedSize)
-        try? FileManager.default.removeItem(at: buffer)
+        close()
     }
 
-    func close() {}
+    /// Done with the clip: its frame file goes (no frames after this).
+    func close() { try? FileManager.default.removeItem(at: buffer) }
 
     private static func openClip(_ url: URL) throws -> [String: Any] {
         if !librariesSet {
@@ -83,7 +89,7 @@ final class RawClip: @unchecked Sendable {
             let bytes = eight ? 4 : 8
             let info: CGBitmapInfo = eight ? CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
                 : CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipLast.rawValue | CGBitmapInfo.byteOrder16Little.rawValue)
-            guard w > 0, h > 0, w * h * bytes <= mappedSize,
+            guard w > 0, h > 0, w <= mappedSize / bytes / h,
                   let provider = CGDataProvider(data: Data(bytes: mapped, count: w * h * bytes) as CFData),
                   let image = CGImage(width: w, height: h, bitsPerComponent: eight ? 8 : 16, bitsPerPixel: bytes * 8, bytesPerRow: w * bytes,
                                       space: CGColorSpace(name: CGColorSpace.itur_709)!, bitmapInfo: info,

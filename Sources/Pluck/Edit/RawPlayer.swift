@@ -115,6 +115,8 @@ extension RawSource {
 
 struct RawProblem: LocalizedError {
     let text: String
+    /// The raw decoder didn't answer (stuck or gone): it's started again for the next request.
+    var stopped = false
     var errorDescription: String? { text }
 }
 
@@ -124,14 +126,27 @@ struct RawProblem: LocalizedError {
 final class RawHelperSource: RawSource, @unchecked Sendable {
     let info: RawClipInfo
     private let url: URL
-    private let process = Process()
-    private let input: FileHandle
-    private let output: FileHandle
+    private let helper: URL
+    /// The running helper: swapped when it's started again, and stopped by close() without
+    /// waiting for a request in progress (processLock is never held while waiting on the helper).
+    private var process: Process
+    private var closed = false
+    private let processLock = NSLock()
+    // One request at a time (these only under lock).
+    private var input: FileHandle
+    private var output: FileHandle
     private var pending = Data()
+    private var needsRestart = false
     private let buffer: URL
     private let mapped: UnsafeMutableRawPointer
     private let mappedSize: Int
     private let lock = NSLock()
+
+    /// How long the helper may take before it's taken as stuck (a damaged clip, a drive gone):
+    /// opening a clip (a big one on a slow network drive), a frame, writing out a clip's sound.
+    nonisolated(unsafe) static var openTimeout: TimeInterval = 90
+    nonisolated(unsafe) static var frameTimeout: TimeInterval = 30
+    nonisolated(unsafe) static var audioTimeout: TimeInterval = 600
 
     static var helper: URL? {
         let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/pluck-raw")
@@ -154,21 +169,16 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
         return Set(reply?["formats"] as? [String] ?? [])
     }()
 
-    init(url: URL) throws {
-        guard let helper = Self.helper else { throw RawProblem(text: String(localized: "This Pluck was built without the raw decoder.")) }
+    /// `helper`: another program to talk to (tests).
+    init(url: URL, helper: URL? = nil) throws {
+        guard let helper = helper ?? Self.helper else { throw RawProblem(text: String(localized: "This Pluck was built without the raw decoder.")) }
         self.url = url
-        process.executableURL = helper
-        let toHelper = Pipe(), fromHelper = Pipe()
-        process.standardInput = toHelper
-        process.standardOutput = fromHelper
-        process.standardError = FileHandle.nullDevice
-        input = toHelper.fileHandleForWriting
-        output = fromHelper.fileHandleForReading
-        try process.run()
+        self.helper = helper
+        (process, input, output) = try Self.launch(helper)
 
         let reply: [String: Any]
         do {
-            reply = try Self.ask(["op": "open", "path": url.path], input: input, output: output, pending: &pending)
+            reply = try Self.ask(["op": "open", "path": url.path], input: input, output: output, pending: &pending, timeout: Self.openTimeout)
         } catch {
             process.terminate()
             throw error
@@ -184,23 +194,45 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
         guard fd >= 0, ftruncate(fd, off_t(mappedSize)) == 0,
               let memory = mmap(nil, mappedSize, PROT_READ, MAP_SHARED, fd, 0), memory != MAP_FAILED else {
             process.terminate()
+            try? FileManager.default.removeItem(at: buffer)
             throw RawProblem(text: String(localized: "There isn’t enough memory for this clip."))
         }
         mapped = memory
     }
 
+    static func launch(_ helper: URL) throws -> (Process, FileHandle, FileHandle) {
+        let process = Process()
+        process.executableURL = helper
+        let toHelper = Pipe(), fromHelper = Pipe()
+        process.standardInput = toHelper
+        process.standardOutput = fromHelper
+        process.standardError = FileHandle.nullDevice
+        // A helper that died fails the write instead of ending Pluck.
+        _ = fcntl(toHelper.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        try process.run()
+        return (process, toHelper.fileHandleForWriting, fromHelper.fileHandleForReading)
+    }
+
+    /// A whole number from a decoder (nil when it isn't one: NaN, infinite, negative, absurd).
+    static func whole(_ value: Double?) -> Int? {
+        guard let value, value.isFinite, value >= 0, value < 1e8 else { return nil }
+        return Int(value)
+    }
+
     /// A clip's description from the helper's reply to opening it.
     static func info(from reply: [String: Any], url: URL) -> RawClipInfo {
-        func number(_ key: String) -> Double? { (reply[key] as? NSNumber)?.doubleValue }
+        func number(_ key: String) -> Double? { (reply[key] as? NSNumber).map(\.doubleValue).flatMap { $0.isFinite ? $0 : nil } }
         func range(_ key: String) -> ClosedRange<Double>? {
-            guard let pair = reply[key] as? [NSNumber], pair.count == 2, pair[0].doubleValue <= pair[1].doubleValue else { return nil }
+            guard let pair = reply[key] as? [NSNumber], pair.count == 2, pair[0].doubleValue.isFinite, pair[1].doubleValue.isFinite,
+                  pair[0].doubleValue <= pair[1].doubleValue else { return nil }
             return pair[0].doubleValue...pair[1].doubleValue
         }
+        let fps = number("fps").flatMap { $0 > 0 && $0 <= 1000 ? $0 : nil } ?? 24
         var info = RawClipInfo(format: reply["format"] as? String ?? url.pathExtension.lowercased(),
-                               width: Int(number("width") ?? 0), height: Int(number("height") ?? 0),
-                               fps: number("fps") ?? 24, frames: Int(number("frames") ?? 0))
-        info.iso = number("iso").map { Int($0) }
-        info.isos = (reply["isos"] as? [NSNumber])?.map(\.intValue) ?? []
+                               width: whole(number("width")) ?? 0, height: whole(number("height")) ?? 0,
+                               fps: fps, frames: whole(number("frames")) ?? 0)
+        info.iso = whole(number("iso"))
+        info.isos = (reply["isos"] as? [NSNumber])?.compactMap { whole($0.doubleValue) } ?? []
         info.kelvin = number("kelvin"); info.kelvinRange = range("kelvinRange")
         info.tint = number("tint"); info.tintRange = range("tintRange")
         info.exposure = number("exposure"); info.exposureRange = range("exposureRange")
@@ -208,7 +240,7 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
         func text(_ key: String) -> String? { (reply[key] as? String).flatMap { $0.isEmpty ? nil : $0 } }
         info.timecode = text("timecode")
         info.absoluteTimecode = text("absoluteTimecode")
-        info.audioChannels = (reply["audioChannels"] as? NSNumber)?.intValue ?? 0
+        info.audioChannels = whole(number("audioChannels")) ?? 0
         return info
     }
 
@@ -220,11 +252,33 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
         if let audioFile, audioFile.lastPathComponent.hasPrefix("pluck-raw-") { try? FileManager.default.removeItem(at: audioFile) }
     }
 
+    /// Stops the helper straight away, even in the middle of a frame (that frame then fails):
+    /// never waits for it, so a stuck decoder can't hold up whoever closes.
     func close() {
-        lock.withLock {
-            guard process.isRunning else { return }
-            try? input.write(contentsOf: Data("{\"op\":\"quit\"}\n".utf8))
-            process.terminate()
+        processLock.withLock {
+            closed = true
+            if process.isRunning { process.terminate() }
+        }
+    }
+
+    /// A request to the helper (under lock). A helper that doesn't answer in time, or has gone,
+    /// is stopped; the next request starts it again.
+    private func send(_ request: [String: Any], timeout: TimeInterval) throws -> [String: Any] {
+        do {
+            if needsRestart {
+                let (started, toHelper, fromHelper) = try Self.launch(helper)
+                try processLock.withLock {
+                    process = started
+                    if closed { started.terminate(); throw RawProblem(text: String(localized: "The raw decoder stopped."), stopped: true) }
+                }
+                (input, output, pending, needsRestart) = (toHelper, fromHelper, Data(), false)
+                _ = try Self.ask(["op": "open", "path": url.path], input: input, output: output, pending: &pending, timeout: Self.openTimeout)
+            }
+            return try Self.ask(request, input: input, output: output, pending: &pending, timeout: timeout)
+        } catch let problem as RawProblem where problem.stopped {
+            processLock.withLock { if process.isRunning { process.terminate() } }
+            needsRestart = true
+            throw problem
         }
     }
 
@@ -236,7 +290,10 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
             if let audioFile { return audioFile }
             if info.audioChannels > 0 {
                 let to = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-raw-\(UUID().uuidString).wav")
-                _ = try Self.ask(["op": "audio", "to": to.path], input: input, output: output, pending: &pending)
+                do { _ = try send(["op": "audio", "to": to.path], timeout: Self.audioTimeout) } catch {
+                    try? FileManager.default.removeItem(at: to)
+                    throw error
+                }
                 audioFile = to
                 return to
             }
@@ -248,7 +305,7 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
     }
 
     /// The camera makers' decoders use a few cores per frame: more of them in parallel play faster.
-    func another() throws -> RawSource? { try RawHelperSource(url: url) }
+    func another() throws -> RawSource? { try RawHelperSource(url: url, helper: helper) }
 
     func frame(_ index: Int, scale: Int, settings: RawSettings) throws -> CGImage {
         try frame(index, scale: scale, settings: settings, eight: false)
@@ -269,12 +326,12 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
             if let kelvin = settings.kelvin { request["kelvin"] = kelvin }
             if let tint = settings.tint { request["tint"] = tint }
             if let exposure = settings.exposure { request["exposure"] = exposure }
-            let reply = try Self.ask(request, input: input, output: output, pending: &pending)
+            let reply = try send(request, timeout: Self.frameTimeout)
             let width = (reply["width"] as? NSNumber)?.intValue ?? 0, height = (reply["height"] as? NSNumber)?.intValue ?? 0
             // (An older helper ignores the 8-bit request: it says which it wrote.)
             let eight = (reply["depth"] as? NSNumber)?.intValue == 8
             let pixel = eight ? 4 : 8
-            guard width > 0, height > 0, width * height * pixel <= mappedSize else { throw RawProblem(text: String(localized: "The frame couldn’t be decoded.")) }
+            guard width > 0, height > 0, width <= mappedSize / pixel / height else { throw RawProblem(text: String(localized: "The frame couldn’t be decoded.")) }
             let data = Data(bytes: mapped, count: width * height * pixel)
             let space = settings.look == .video ? CGColorSpace(name: CGColorSpace.itur_709)! : CGColorSpace(name: CGColorSpace.sRGB)!
             let layout = eight ? CGImageAlphaInfo.noneSkipFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
@@ -289,23 +346,32 @@ final class RawHelperSource: RawSource, @unchecked Sendable {
         }
     }
 
-    /// One request and its reply (a line of JSON each way).
-    static func ask(_ request: [String: Any], input: FileHandle, output: FileHandle, pending: inout Data) throws -> [String: Any] {
+    /// One request and its reply (a line of JSON each way), waiting at most `timeout` seconds.
+    static func ask(_ request: [String: Any], input: FileHandle, output: FileHandle, pending: inout Data,
+                    timeout: TimeInterval = RawHelperSource.openTimeout) throws -> [String: Any] {
+        let stopped = RawProblem(text: String(localized: "The raw decoder stopped."), stopped: true)
         var line = try JSONSerialization.data(withJSONObject: request)
         line.append(0x0A)
-        do { try input.write(contentsOf: line) } catch { throw RawProblem(text: String(localized: "The raw decoder stopped.")) }
+        do { try input.write(contentsOf: line) } catch { throw stopped }
+        let deadline = Date.now.addingTimeInterval(timeout)
         while true {
             if let end = pending.firstIndex(of: 0x0A) {
                 let answer = pending[pending.startIndex..<end]
                 pending.removeSubrange(pending.startIndex...end)
                 guard let reply = try? JSONSerialization.jsonObject(with: answer) as? [String: Any] else { continue }
                 if (reply["ok"] as? Bool) != true {
-                    throw RawProblem(text: reply["problem"] as? String ?? String(localized: "The raw decoder couldn’t read this."))
+                    throw RawProblem(text: reply["problem"] as? String ?? String(localized: "The raw decoder couldn’t read this."),
+                                     stopped: reply["stopped"] as? Bool == true)
                 }
                 return reply
             }
-            let more = output.availableData
-            if more.isEmpty { throw RawProblem(text: String(localized: "The raw decoder stopped.")) }
+            var ready = pollfd(fd: output.fileDescriptor, events: Int16(POLLIN), revents: 0)
+            let left = deadline.timeIntervalSinceNow
+            let found = left > 0 ? poll(&ready, 1, Int32(min(left * 1000, 1e9))) : 0
+            if found < 0, errno == EINTR { continue }
+            if found == 0 { throw RawProblem(text: String(localized: "The raw decoder stopped responding."), stopped: true) }
+            let more = found > 0 ? output.availableData : Data()
+            if more.isEmpty { throw stopped }
             pending.append(more)
         }
     }
@@ -415,7 +481,7 @@ final class ProResRawSource: RawSource, @unchecked Sendable {
         let size = track.naturalSize
         let fps = Double(track.nominalFrameRate > 0 ? track.nominalFrameRate : 24)
         var info = RawClipInfo(format: "prores", width: Int(size.width), height: Int(size.height), fps: fps,
-                               frames: max(Int((asset.duration.seconds * fps).rounded()), 1))
+                               frames: max(RawHelperSource.whole((asset.duration.seconds * fps).rounded()) ?? 1, 1))
         info.exposure = 0
         info.exposureRange = -5...5
         self.info = info
