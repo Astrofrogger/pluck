@@ -8,18 +8,16 @@ struct ProjectInspector: View {
     @Binding var tab: Tab
 
     enum Tab: String, CaseIterable, Identifiable {
-        case clip, transcript, ai, story, subtitles, titles, marks, export
+        case clip, colour, audio, text, ai, export
         var id: String { rawValue }
 
         var symbol: String {
             switch self {
             case .clip: "slider.horizontal.3"
-            case .transcript: "text.quote"
+            case .colour: "camera.filters"
+            case .audio: "speaker.wave.2"
+            case .text: "text.quote"
             case .ai: "sparkles"
-            case .marks: "bookmark"
-            case .story: "text.book.closed"
-            case .subtitles: "captions.bubble"
-            case .titles: "textformat"
             case .export: "square.and.arrow.up"
             }
         }
@@ -27,13 +25,22 @@ struct ProjectInspector: View {
         var title: LocalizedStringKey {
             switch self {
             case .clip: "Clip"
-            case .transcript: "Transcript"
+            case .colour: "Colour"
+            case .audio: "Audio"
+            case .text: "Text"
             case .ai: "Local AI"
-            case .marks: "Marks"
-            case .story: "Story"
-            case .subtitles: "Subtitles"
-            case .titles: "Titles"
             case .export: "Export"
+            }
+        }
+
+        /// A tab as saved, also by Pluck 3.8.0 (whose Transcript, Subtitles and Titles are in
+        /// Text now, Story in Local AI, and Marks on the timeline).
+        static func saved(_ raw: String) -> Tab {
+            if let tab = Tab(rawValue: raw) { return tab }
+            switch raw {
+            case "transcript", "subtitles", "titles": return .text
+            case "story": return .ai
+            default: return .clip
             }
         }
     }
@@ -50,19 +57,11 @@ struct ProjectInspector: View {
                 .padding(.bottom, 6)
             Group {
                 switch tab {
-                case .clip: ProjectClipPanel(model: model)
-                case .transcript, .ai:
-                    // On the file at the playhead (or the clip chosen), in its own time.
-                    if let path = model.focusedPath {
-                        EditorAIPanel(model: model.focus(path), part: tab == .ai ? .ai : .transcript)
-                            .id(path)
-                    } else {
-                        Text("Add a clip to the timeline.").foregroundStyle(.secondary).padding(14)
-                    }
-                case .marks: ProjectMarksPanel(model: model)
-                case .story: ProjectStoryPanel(model: model)
-                case .subtitles: ProjectSubtitlesPanel(model: model)
-                case .titles: ProjectTitlesPanel(model: model)
+                case .clip: ProjectClipPanel(model: model, part: .clip)
+                case .colour: ProjectClipPanel(model: model, part: .colour)
+                case .audio: ProjectClipPanel(model: model, part: .audio)
+                case .text: ProjectTextTab(model: model)
+                case .ai: ProjectAITab(model: model)
                 case .export: ProjectExportPanel(model: model)
                 }
             }
@@ -88,6 +87,10 @@ private func inspectorRow<Content: View>(_ title: LocalizedStringKey, @ViewBuild
 
 private struct ProjectClipPanel: View {
     @Bindable var model: ProjectModel
+    /// Which tab it fills: the clip's picture and transition, its colour, or its sound.
+    var part: Part
+
+    enum Part { case clip, colour, audio }
 
     private var clip: ProjectClip? {
         guard model.selected.count == 1, let id = model.selected.first else { return nil }
@@ -114,25 +117,62 @@ private struct ProjectClipPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-                if let clip {
-                    clipSettings(clip)
-                } else if let look {
-                    lookSettings(look)
-                } else if let song {
-                    musicSettings(song)
-                } else if let item {
-                    itemSettings(item)
-                } else if model.selected.count > 1 {
-                    Text("^[\(model.selected.count) clip](inflect: true) selected")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                } else {
-                    overview
+                switch part {
+                case .clip:
+                    if let clip { clipSettings(clip) }
+                    else if let song { songHeader(song) }
+                    else if let item { itemSettings(item) }
+                    else if look != nil { hint("Its colour is in Colour.") }
+                    else if model.selected.count > 1 { several }
+                    else { overview }
+                case .colour:
+                    if let clip { colourSettings(look: clip.look, path: clip.path) { record, body in model.set(clip.id, record: record, body) } }
+                    else if let look { lookSettings(look) }
+                    else if let item, isPicture(item) { colourSettings(look: item.look, path: item.path) { record, body in model.setItem(item.id, record: record, body) } }
+                    else { hint("Select a clip or a look on the timeline.") }
+                case .audio:
+                    if let clip { clipAudio(clip) }
+                    else if let song { musicSettings(song) }
+                    else if let item { itemAudio(item) }
+                    else { hint("Select a clip or a song on the timeline.") }
                 }
             }
             .padding(.horizontal, 6)
             .padding(.bottom, 12)
+        }
+    }
+
+    private var several: some View {
+        Text("^[\(model.selected.count) clip](inflect: true) selected")
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8)
+    }
+
+    private func hint(_ text: LocalizedStringKey) -> some View {
+        Text(text).font(.callout).foregroundStyle(.secondary).padding(.horizontal, 8)
+    }
+
+    private func isPicture(_ item: ProjectClip) -> Bool {
+        Converting.isVideo(item.file) && model.project.tracks?.first(where: { $0.items.contains { $0.id == item.id } })?.kind == .video
+    }
+
+    /// The colour part of a clip's look, changed the way its picture is.
+    private func colourSettings(look: ClipLook?, path: String, set: @escaping (Bool, @escaping (inout ProjectClip) -> Void) -> Void) -> some View {
+        ClipLookEditor(look: look ?? ClipLook(), path: path, parts: [.colour]) { record, body in
+            set(record) { clip in
+                var look = clip.look ?? ClipLook()
+                body(&look)
+                clip.look = look.isDefault ? nil : look
+            }
+        }
+    }
+
+    private func songHeader(_ song: ProjectMusic) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(song.name, systemImage: "music.note").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8).padding(.bottom, 6)
+            inspectorRow("Starts at") { Text(Format.duration(song.at)).monospacedDigit() }
+            hint("Its volume and fades are in Audio.")
         }
     }
 
@@ -194,32 +234,12 @@ private struct ProjectClipPanel: View {
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
-            ClipLookEditor(look: clip.look ?? ClipLook(), path: clip.path) { record, body in
+            ClipLookEditor(look: clip.look ?? ClipLook(), path: clip.path, parts: [.picture]) { record, body in
                 model.set(clip.id, record: record) { clip in
                     var look = clip.look ?? ClipLook()
                     body(&look)
                     look.reframed = nil   // placed by hand now
                     clip.look = look.isDefault ? nil : look
-                }
-            }
-            FoldSection(title: "Audio", key: "clip-audio") {
-                inspectorRow("Volume") {
-                    Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
-                        if !editing { model.set(clip.id) { _ in } }
-                    }
-                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
-                }
-                inspectorRow("Fade In") {
-                    Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
-                    if !editing { model.set(clip.id) { _ in } }
-                }
-                    Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
-                }
-                inspectorRow("Fade Out") {
-                    Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3) { editing in
-                    if !editing { model.set(clip.id) { _ in } }
-                }
-                    Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
                 }
             }
             if let index = model.project.clips.firstIndex(where: { $0.id == clip.id }), index + 1 < model.project.clips.count {
@@ -275,7 +295,7 @@ private struct ProjectClipPanel: View {
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
             }
             if Converting.isVideo(item.file), model.project.tracks?.first(where: { $0.items.contains { $0.id == item.id } })?.kind == .video {
-                ClipLookEditor(look: item.look ?? ClipLook(), path: item.path) { record, body in
+                ClipLookEditor(look: item.look ?? ClipLook(), path: item.path, parts: [.picture]) { record, body in
                     model.setItem(item.id, record: record) { item in
                         var look = item.look ?? ClipLook()
                         body(&look)
@@ -283,7 +303,39 @@ private struct ProjectClipPanel: View {
                     }
                 }
             }
-            FoldSection(title: "Audio", key: "item-audio") {
+        }
+    }
+
+    private func clipAudio(_ clip: ProjectClip) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(clip.name, systemImage: "film").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8)
+            FoldSection(title: "Volume and Fades", key: "clip-audio") {
+                inspectorRow("Volume") {
+                    Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
+                        if !editing { model.set(clip.id) { _ in } }
+                    }
+                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+                inspectorRow("Fade In") {
+                    Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
+                    if !editing { model.set(clip.id) { _ in } }
+                }
+                    Text(String(format: "%.1f s", clip.fadeIn)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+                inspectorRow("Fade Out") {
+                    Slider(value: Binding(get: { clip.fadeOut }, set: { value in model.set(clip.id, record: false) { $0.fadeOut = value } }), in: 0...3) { editing in
+                    if !editing { model.set(clip.id) { _ in } }
+                }
+                    Text(String(format: "%.1f s", clip.fadeOut)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+                }
+            }
+        }
+    }
+
+    private func itemAudio(_ item: ProjectClip) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(item.name, systemImage: "waveform").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8)
+            FoldSection(title: "Volume and Fades", key: "item-audio") {
                 inspectorRow("Volume") {
                     Slider(value: Binding(get: { item.volume }, set: { value in model.setItem(item.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
                         if !editing { model.setItem(item.id) { _ in } }
@@ -405,6 +457,89 @@ private struct ProjectClipPanel: View {
             .controlSize(.small)
             .padding(.horizontal, 8)
             .padding(.top, 8)
+        }
+    }
+}
+
+// MARK: - Text and Local AI
+
+/// The words of the edit: what's said (the transcript at the playhead), the subtitles, and the titles.
+private struct ProjectTextTab: View {
+    @Bindable var model: ProjectModel
+    @AppStorage("projectTextPart") private var part = Part.transcript
+
+    enum Part: String, CaseIterable, Identifiable {
+        case transcript, subtitles, titles
+        var id: String { rawValue }
+        var title: LocalizedStringKey {
+            switch self {
+            case .transcript: "Transcript"
+            case .subtitles: "Subtitles"
+            case .titles: "Titles"
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Picker("Text", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(.horizontal, 14)
+            switch part {
+            case .transcript: ProjectFocusedFile(model: model, ai: false)
+            case .subtitles: ProjectSubtitlesPanel(model: model)
+            case .titles: ProjectTitlesPanel(model: model)
+            }
+        }
+    }
+}
+
+/// Local AI on the file at the playhead, and the story across every clip.
+private struct ProjectAITab: View {
+    @Bindable var model: ProjectModel
+    @AppStorage("projectAIPart") private var part = Part.tools
+
+    enum Part: String, CaseIterable, Identifiable {
+        case tools, story
+        var id: String { rawValue }
+        var title: LocalizedStringKey {
+            switch self {
+            case .tools: "This Clip"
+            case .story: "Story"
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            Picker("Local AI", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(.horizontal, 14)
+            switch part {
+            case .tools: ProjectFocusedFile(model: model, ai: true)
+            case .story: ProjectStoryPanel(model: model)
+            }
+        }
+    }
+}
+
+/// The Editor's transcript or local-AI tools, on the file at the playhead (or the clip chosen),
+/// in its own time.
+private struct ProjectFocusedFile: View {
+    @Bindable var model: ProjectModel
+    /// The local-AI tools; else the transcript.
+    let ai: Bool
+
+    var body: some View {
+        if let path = model.focusedPath {
+            EditorAIPanel(model: model.focus(path), part: ai ? .ai : .transcript)
+                .id(path)
+        } else {
+            Text("Add a clip to the timeline.").foregroundStyle(.secondary).padding(14)
         }
     }
 }

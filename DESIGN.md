@@ -20,10 +20,15 @@ Tools page. Opening a file anywhere opens it in a tab on Edit (`EditorTarget.ope
 
 - **Home:** the start page. The title, one large field for a link or a dropped file, a few quick
   links, then Continue Editing (big cards), new from subscriptions and the downloads.
-- **Edit:** the media on the left, the open files and projects as tabs, the Editor (one file) or
-  a project (`ProjectView`: clips, music and titles on a timeline), and the inspector on the right
-  with its tabs. Export lives in the inspector, not a sheet. Side panels can be resized
-  (`ResizeHandle`).
+- **Edit:** the open files and projects as tabs. With nothing open, the Library on the left. A
+  project (`ProjectView`) is built around the picture: a 16:9 viewer as large as fits, never
+  squeezed (`EditLayout` hides a side panel first). Beside it the inspector with six tabs (Clip,
+  Colour, Audio, Text, Local AI, Export); markers are on the timeline (its Marks button). The
+  panel (`EditSidePanel`) holds the project's own media (dropped from Finder or imported from the
+  Library) and the libraries to drag from: Transitions, Titles, Effects, Music. It sits at the
+  bottom beside the timeline, at the top beside the viewer, or the full height of the window (its
+  button, ⌥⌘P); ⌥⌘L hides it. Local AI lives only in the inspector, never on the timeline. Export
+  lives in the inspector, not a sheet. Side panels can be resized (`ResizeHandle`).
 - **Photo:** albums and folders on the left; Grid, Cull (embedded previews, instant) or Edit with a
   filmstrip; the inspector (Info, Adjust, Film, Export). Keys are changeable (Settings ▸ Keys).
   The develop engine is `PhotoEngine` (neutral RAW, guided-filter local tone, AgX and filmic

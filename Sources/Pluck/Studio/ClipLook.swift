@@ -297,17 +297,22 @@ enum ViewerControls: String, CaseIterable, Identifiable {
 /// Transform, cropping, dynamic zoom, composite, speed and stabilization, as in DaVinci
 /// Resolve's Video inspector: for a clip in a project and for a file on its own.
 struct ClipLookEditor: View {
+    enum Part: Hashable { case picture, colour }
+
     let look: ClipLook
     /// The file, for stabilizing it.
     var path: String?
     /// Speed belongs to a clip in a project (a file's own timeline keeps its time).
     var showsSpeed = true
+    /// Which settings to show: the picture's place and motion, its colour, or both.
+    var parts: Set<Part> = [.picture, .colour]
     /// Changes the look: `record` false while a slider moves (one undo step for the drag).
     let change: (Bool, @escaping (inout ClipLook) -> Void) -> Void
     @AppStorage("viewerControls") private var viewer = ViewerControls.transform
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
+            if parts.contains(.picture) {
             Picker("On the Picture", selection: $viewer) {
                 ForEach(ViewerControls.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
             }
@@ -365,7 +370,25 @@ struct ClipLookEditor: View {
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
                 }
             }
-            FoldSection(title: "Colour", key: "clip-colour", open: false) {
+            FoldSection(title: "Composite", key: "clip-composite", open: false) {
+                slider("Opacity", \.opacity, 0...1, format: "%.0f%%", scale: 100, reset: 1)
+            }
+            if showsSpeed {
+            FoldSection(title: "Speed", key: "clip-speed", open: false) {
+                row("Speed") {
+                    Picker("Speed", selection: binding(\.speed)) {
+                        ForEach([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
+                    }
+                    .labelsHidden()
+                }
+            }
+            }
+            FoldSection(title: "Stabilization", key: "clip-stabilize", open: false) {
+                StabilizeRow(look: look, path: path, change: change)
+            }
+            }
+            if parts.contains(.colour) {
+            FoldSection(title: "Colour", key: parts == [.colour] ? "tab-colour" : "clip-colour", open: parts == [.colour]) {
                 row("Camera") {
                     Picker("Camera", selection: binding(\.color.camera)) {
                         Text(path.flatMap(CameraLog.detect).map { "\(String(localized: "Auto")) · \($0.title)" } ?? String(localized: "Automatic"))
@@ -398,23 +421,8 @@ struct ClipLookEditor: View {
                 }
                 if look.color.lut != nil { colourSlider("LUT Amount", \.lutAmount, 0...1, "%.2f", reset: 1) }
             }
-            FoldSection(title: "Composite", key: "clip-composite", open: false) {
-                slider("Opacity", \.opacity, 0...1, format: "%.0f%%", scale: 100, reset: 1)
             }
-            if showsSpeed {
-            FoldSection(title: "Speed", key: "clip-speed", open: false) {
-                row("Speed") {
-                    Picker("Speed", selection: binding(\.speed)) {
-                        ForEach([0.25, 0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4], id: \.self) { Text(String(format: "%g×", $0)).tag($0) }
-                    }
-                    .labelsHidden()
-                }
-            }
-            }
-            FoldSection(title: "Stabilization", key: "clip-stabilize", open: false) {
-                StabilizeRow(look: look, path: path, change: change)
-            }
-            if !look.isDefault {
+            if parts.contains(.picture), !look.isDefault {
                 Button("Reset Picture") { change(true) { $0 = ClipLook() } }
                     .buttonStyle(.link)
                     .padding(.horizontal, 8)

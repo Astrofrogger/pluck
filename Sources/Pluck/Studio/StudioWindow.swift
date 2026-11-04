@@ -190,14 +190,13 @@ private struct EditPage: View {
                 Divider()
             }
             HStack(spacing: 0) {
-                // With a file or project open, the media goes beside its viewer (the timeline
-                // runs under both); otherwise it's here.
+                // With a project open, its panel holds its media; otherwise the Library is here.
                 if nav.current == nil, mediaShown { mediaColumn }
                 VStack(spacing: 0) {
                 if let tab = nav.current, let project = tab.project {
+                    // The project's own media and the libraries are in its panel (EditSidePanel).
                     ProjectView(model: project)
                         .id(tab.id)
-                        .environment(\.editMedia, mediaShown ? AnyView(mediaColumn) : nil)
                 } else {
                     VStack(spacing: Design.Spacing.section) {
                         DropZone(symbol: "film", text: Text("Drop a video to edit it, or several to start a project"), targeted: dropTargeted)
@@ -374,8 +373,15 @@ private struct TabChip: View {
 }
 
 /// The media to edit: what's downloading, and the Library's videos and songs.
-private struct MediaPanel: View {
+struct MediaPanel: View {
     @Bindable var nav: StudioNavigator
+    /// Set when it's a picker (Import from Pluck Library): what's chosen is handed here instead of opened.
+    var onPick: (([URL]) -> Void)? = nil
+
+    init(nav: StudioNavigator, onPick: (([URL]) -> Void)? = nil) {
+        self.nav = nav
+        self.onPick = onPick
+    }
     @State private var library = LibraryStore.shared
     /// The videos and songs, newest first, each with the words to find it by (made once per
     /// change to the Library, so typing only filters).
@@ -434,6 +440,10 @@ private struct MediaPanel: View {
     }
 
     private func open(_ source: MediaSource) {
+        if let onPick {
+            onPick([source.span.map { ProjectModel.moment(source.path, $0) } ?? URL(fileURLWithPath: source.path)])
+            return
+        }
         nav.open(EditorTarget(path: source.path), range: source.span)
     }
 

@@ -3330,15 +3330,15 @@
     },
     "%@ · %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@ · %2$@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
+            "value": "%1$@ · %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
             "value": "%1$@ · %2$@"
           }
         },
@@ -3947,16 +3947,16 @@
     },
     "%@: every file checked on %@.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$@: every file checked on %2$@."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@: Jede Datei auf %2$@ geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$@: every file checked on %2$@."
           }
         },
         "es": {
@@ -6000,16 +6000,16 @@
     },
     "%lld new clips · %lld already there": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld new clips · %2$lld already there"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$lld neue Clips · %2$lld schon vorhanden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "%1$lld new clips · %2$lld already there"
           }
         },
         "es": {
@@ -7467,15 +7467,15 @@
     },
     "%lld · %@ · %@": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "%1$lld · %2$@ · %3$@"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
+            "value": "%1$lld · %2$@ · %3$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
             "value": "%1$lld · %2$@ · %3$@"
           }
         },
@@ -25110,16 +25110,16 @@
     },
     "Back up %@ to %@?": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Back up %1$@ to %2$@?"
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ auf %2$@ sichern?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Back up %1$@ to %2$@?"
           }
         },
         "es": {
@@ -56421,6 +56421,413 @@
         }
       }
     },
+    "Drag onto a clip to steady it, or double-click for the clip at the playhead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf einen Clip ziehen, um ihn zu stabilisieren, oder doppelklicken für den Clip am Abspielkopf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra sobre un clip para estabilizarlo, o haz doble clic para el clip en el cabezal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur un plan pour le stabiliser, ou double-cliquer pour le plan à la tête de lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina su una clip per stabilizzarla, o fai doppio clic per la clip sulla testina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップにドラッグして安定化、またはダブルクリックで再生ヘッド位置のクリップに適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립에 드래그해 안정화하거나, 더블클릭하면 재생 헤드 위치의 클립에 적용됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar een clip om die te stabiliseren, of dubbelklik voor de clip bij de afspeelkop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste sobre um clipe para estabilizá-lo, ou clique duas vezes para o clipe no cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到片段上进行稳定，或双击应用到播放头处的片段"
+          }
+        }
+      }
+    },
+    "Drag onto a cut, or double-click for the cut nearest the playhead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf einen Schnitt ziehen oder doppelklicken für den Schnitt, der dem Abspielkopf am nächsten ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra sobre un corte, o haz doble clic para el corte más cercano al cabezal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur une coupe, ou double-cliquer pour la coupe la plus proche de la tête de lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina su un taglio, o fai doppio clic per il taglio più vicino alla testina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カットにドラッグ、またはダブルクリックで再生ヘッドに最も近いカットに適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "컷에 드래그하거나, 더블클릭하면 재생 헤드에 가장 가까운 컷에 적용됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar een snede, of dubbelklik voor de snede het dichtst bij de afspeelkop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste sobre um corte, ou clique duas vezes para o corte mais próximo do cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到剪辑点上，或双击应用到离播放头最近的剪辑点"
+          }
+        }
+      }
+    },
+    "Drag onto the timeline for a look over five seconds, or double-click for the playhead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die Timeline ziehen für ein Aussehen über fünf Sekunden, oder doppelklicken für den Abspielkopf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra a la línea de tiempo para un aspecto de cinco segundos, o haz doble clic para el cabezal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur la timeline pour une apparence sur cinq secondes, ou double-cliquer pour la tête de lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina sulla timeline per un aspetto di cinque secondi, o fai doppio clic per la testina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインにドラッグすると5秒間の見た目になります。ダブルクリックで再生ヘッド位置に適用"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에 드래그하면 5초 동안 모양이 적용되고, 더블클릭하면 재생 헤드 위치에 적용됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar de tijdlijn voor een uiterlijk van vijf seconden, of dubbelklik voor de afspeelkop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para a linha do tempo para uma aparência de cinco segundos, ou clique duas vezes para o cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到时间线上可得到五秒的外观，或双击应用到播放头处"
+          }
+        }
+      }
+    },
+    "Drag onto the timeline where it should start, or double-click for the playhead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die Timeline ziehen, wo es beginnen soll, oder doppelklicken für den Abspielkopf"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra a la línea de tiempo donde debe empezar, o haz doble clic para el cabezal"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur la timeline à l’endroit où ça doit commencer, ou double-cliquer pour la tête de lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina sulla timeline dove deve iniziare, o fai doppio clic per la testina"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始したい位置のタイムラインにドラッグ、またはダブルクリックで再生ヘッド位置に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시작할 위치의 타임라인에 드래그하거나, 더블클릭하면 재생 헤드 위치에 추가됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar de tijdlijn waar het moet beginnen, of dubbelklik voor de afspeelkop"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para a linha do tempo onde deve começar, ou clique duas vezes para o cursor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到时间线上要开始的位置，或双击添加到播放头处"
+          }
+        }
+      }
+    },
+    "Drag onto the timeline, or double-click to add it as music": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die Timeline ziehen oder doppelklicken, um es als Musik hinzuzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra a la línea de tiempo, o haz doble clic para añadirla como música"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur la timeline, ou double-cliquer pour l’ajouter comme musique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina sulla timeline, o fai doppio clic per aggiungerla come musica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインにドラッグ、またはダブルクリックで音楽として追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에 드래그하거나, 더블클릭하면 음악으로 추가됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar de tijdlijn, of dubbelklik om het als muziek toe te voegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para a linha do tempo, ou clique duas vezes para adicioná-la como música"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到时间线上，或双击将其添加为音乐"
+          }
+        }
+      }
+    },
+    "Drag onto the timeline, or double-click to add it at the end": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die Timeline ziehen oder doppelklicken, um es am Ende hinzuzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrastra a la línea de tiempo, o haz doble clic para añadirlo al final"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glisser sur la timeline, ou double-cliquer pour l’ajouter à la fin"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascina sulla timeline, o fai doppio clic per aggiungerlo alla fine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインにドラッグ、またはダブルクリックで末尾に追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에 드래그하거나, 더블클릭하면 끝에 추가됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar de tijdlijn, of dubbelklik om het aan het einde toe te voegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para a linha do tempo, ou clique duas vezes para adicioná-lo ao final"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到时间线上，或双击添加到末尾"
+          }
+        }
+      }
+    },
+    "Drag onto the timeline, or double-click to add it at the end. Click, then E, comma, full stop, P or R to put it in.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf die Timeline ziehen oder doppelklicken, um es ans Ende zu setzen. Anklicken, dann E, Komma, Punkt, P oder R, um es einzufügen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrástralo a la línea de tiempo o haz doble clic para añadirlo al final. Haz clic y pulsa E, coma, punto, P o R para colocarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites-le glisser sur la Timeline, ou double-cliquez pour l’ajouter à la fin. Cliquez, puis E, virgule, point, P ou R pour le placer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trascinalo sulla Timeline o fai doppio clic per aggiungerlo alla fine. Fai clic, poi E, virgola, punto, P o R per inserirlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムラインにドラッグするか、ダブルクリックで最後に追加。クリックしてから E、カンマ、ピリオド、P、R で配置します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인으로 드래그하거나 이중 클릭하여 끝에 추가합니다. 클릭한 다음 E, 쉼표, 마침표, P 또는 R로 넣습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sleep naar de tijdlijn, of dubbelklik om het aan het eind toe te voegen. Klik, en dan E, komma, punt, P of R om het te plaatsen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arraste para a linha do tempo ou clique duas vezes para adicionar no final. Clique e use E, vírgula, ponto, P ou R para inserir."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拖到时间线上，或连按两次添加到末尾。点按后按 E、逗号、句号、P 或 R 放入。"
+          }
+        }
+      }
+    },
     "Drag the centre and the edge on the photo": {
       "localizations": {
         "de": {
@@ -58104,6 +58511,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "将片段或文件夹拖到这里，或使用“添加文件夹…”"
+          }
+        }
+      }
+    },
+    "Drop files here": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien hier ablegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suelta los archivos aquí"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déposez les fichiers ici"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rilascia i file qui"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ここにファイルをドロップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "여기에 파일을 놓으세요"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet bestanden hier neer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solte os arquivos aqui"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将文件拖放到此处"
           }
         }
       }
@@ -61071,6 +61536,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Editorial"
+          }
+        }
+      }
+    },
+    "Effects": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effekte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エフェクト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "효과"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effecten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efeitos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "效果"
           }
         }
       }
@@ -64099,16 +64622,16 @@
     },
     "Everything on %@ is already in %@.": {
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "new",
-            "value": "Everything on %1$@ is already in %2$@."
-          }
-        },
         "de": {
           "stringUnit": {
             "state": "translated",
             "value": "Alles auf %1$@ ist schon in %2$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Everything on %1$@ is already in %2$@."
           }
         },
         "es": {
@@ -75062,6 +75585,64 @@
         }
       }
     },
+    "Full Height": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volle Höhe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altura completa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pleine hauteur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altezza intera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全高"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 높이"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volledige hoogte"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Altura total"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全高"
+          }
+        }
+      }
+    },
     "Full Size": {
       "localizations": {
         "de": {
@@ -78904,6 +79485,64 @@
         }
       }
     },
+    "Hide the panel (⌥⌘L)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich ausblenden (⌥⌘L)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar el panel (⌥⌘L)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Masquer le panneau (⌥⌘L)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nascondi il pannello (⌥⌘L)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルを隠す（⌥⌘L）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 숨기기(⌥⌘L)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneel verbergen (⌥⌘L)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ocultar o painel (⌥⌘L)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "隐藏面板（⌥⌘L）"
+          }
+        }
+      }
+    },
     "High": {
       "localizations": {
         "de": {
@@ -80815,6 +81454,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "导入照片…"
+          }
+        }
+      }
+    },
+    "Import from Pluck Library…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus der Pluck-Mediathek importieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar desde la biblioteca de Pluck…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer depuis la bibliothèque Pluck…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa dalla libreria di Pluck…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck ライブラリから読み込む…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 보관함에서 가져오기…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importeer uit de Pluck-bibliotheek…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar da biblioteca do Pluck…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从 Pluck 资料库导入…"
           }
         }
       }
@@ -83568,6 +84265,64 @@
         }
       }
     },
+    "Its colour is in Colour.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Farbe findest du unter Farbe."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su color está en Color."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sa couleur se règle dans Couleur."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il suo colore è in Colore."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カラーは「カラー」で調整できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색상은 색상 탭에 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De kleur staat bij Kleur."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A cor está em Cor."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "颜色在“颜色”中调整。"
+          }
+        }
+      }
+    },
     "Its name has characters the drive can’t hold.": {
       "localizations": {
         "de": {
@@ -83738,6 +84493,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "将其声音放到单独的轨道上，以便与画面分开移动、修剪或淡化"
+          }
+        }
+      }
+    },
+    "Its volume and fades are in Audio.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lautstärke und Ausblendungen findest du unter Audio."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Su volumen y fundidos están en Audio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Son volume et ses fondus se règlent dans Audio."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il volume e le dissolvenze sono in Audio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量とフェードは「オーディオ」で調整できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼륨과 페이드는 오디오 탭에 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume en fades staan bij Audio."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O volume e os fades estão em Áudio."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量和淡入淡出在“音频”中调整。"
           }
         }
       }
@@ -98230,6 +99043,64 @@
         }
       }
     },
+    "Markers: the list, and what was found in the clip (M adds one)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marker: die Liste und was im Clip gefunden wurde (M fügt einen hinzu)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcadores: la lista y lo encontrado en el clip (M añade uno)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marqueurs : la liste et ce qui a été trouvé dans le plan (M en ajoute un)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcatori: l’elenco e ciò che è stato trovato nella clip (M ne aggiunge uno)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "マーカー：一覧と、クリップ内で見つかったもの（M で追加）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마커: 목록과 클립에서 찾은 항목(M으로 추가)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markeringen: de lijst en wat in de clip is gevonden (M voegt er een toe)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcadores: a lista e o que foi encontrado no clipe (M adiciona um)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标记：列表以及在片段中找到的内容（按 M 添加）"
+          }
+        }
+      }
+    },
     "Marks": {
       "localizations": {
         "de": {
@@ -101365,6 +102236,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "将 %lld 个项目移到废纸篓？"
+          }
+        }
+      }
+    },
+    "Move the media panel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Medienbereich verschieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover el panel de multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer le panneau des médias"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta il pannello dei media"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアパネルを移動"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미디어 패널 이동"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mediapaneel verplaatsen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover o painel de mídia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动媒体面板"
+          }
+        }
+      }
+    },
+    "Move the panel: bottom, top or full height (⌥⌘P). Hold for the list.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich verschieben: unten, oben oder volle Höhe (⌥⌘P). Gedrückt halten für die Liste."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover el panel: abajo, arriba o altura completa (⌥⌘P). Mantén pulsado para ver la lista."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déplacer le panneau : en bas, en haut ou pleine hauteur (⌥⌘P). Maintenir pour la liste."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sposta il pannello: in basso, in alto o a tutta altezza (⌥⌘P). Tieni premuto per l’elenco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネルを移動：下、上、全高（⌥⌘P）。長押しで一覧を表示。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 이동: 아래, 위 또는 전체 높이(⌥⌘P). 길게 누르면 목록이 나옵니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneel verplaatsen: onder, boven of volledige hoogte (⌥⌘P). Houd ingedrukt voor de lijst."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover o painel: embaixo, em cima ou altura total (⌥⌘P). Segure para ver a lista."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移动面板：底部、顶部或全高（⌥⌘P）。按住可查看列表。"
           }
         }
       }
@@ -104907,6 +105894,64 @@
         }
       }
     },
+    "Next tab of the media panel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nächster Tab des Medienbereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente pestaña del panel de multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onglet suivant du panneau des médias"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scheda successiva del pannello dei media"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアパネルの次のタブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미디어 패널의 다음 탭"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volgende tab van het mediapaneel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Próxima aba do painel de mídia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "媒体面板的下一个标签页"
+          }
+        }
+      }
+    },
     "No Clips": {
       "localizations": {
         "de": {
@@ -106013,6 +107058,64 @@
         }
       }
     },
+    "No media yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Medien"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay multimedia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore de médias"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessun media"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メディアはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 미디어가 없습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen media"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem mídia"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无媒体"
+          }
+        }
+      }
+    },
     "No microphone": {
       "localizations": {
         "de": {
@@ -106125,6 +107228,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "未找到片段：此文件中说话太少。"
+          }
+        }
+      }
+    },
+    "No music yet": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Musik"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay música"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pas encore de musique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessuna musica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュージックはまだありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 음악이 없습니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen muziek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda sem música"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无音乐"
           }
         }
       }
@@ -112008,6 +113169,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在同一网络？改用代码配对"
+          }
+        }
+      }
+    },
+    "On the timeline": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf der Timeline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la línea de tiempo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur la timeline"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sulla timeline"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン上"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에 표시"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op de tijdlijn"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na linha do tempo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在时间线上"
           }
         }
       }
@@ -118523,6 +119742,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "摇镜"
+          }
+        }
+      }
+    },
+    "Panel": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pannello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "パネル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Painel"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "面板"
           }
         }
       }
@@ -146276,6 +147553,64 @@
         }
       }
     },
+    "Search music": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Musik suchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar música"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher de la musique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca musica"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ミュージックを検索"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "음악 검색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muziek zoeken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar música"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索音乐"
+          }
+        }
+      }
+    },
     "Search names, what’s said and what’s seen": {
       "localizations": {
         "de": {
@@ -147730,6 +149065,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "在时间线上选择一个片段。"
+          }
+        }
+      }
+    },
+    "Select a clip or a look on the timeline.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle auf der Timeline einen Clip oder ein Aussehen aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un clip o un aspecto en la línea de tiempo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un plan ou une apparence sur la timeline."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona una clip o un aspetto sulla timeline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン上のクリップまたは見た目を選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에서 클립이나 모양을 선택하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecteer een clip of uiterlijk op de tijdlijn."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione um clipe ou uma aparência na linha do tempo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在时间线上选择一个片段或外观。"
+          }
+        }
+      }
+    },
+    "Select a clip or a song on the timeline.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle auf der Timeline einen Clip oder einen Song aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecciona un clip o una canción en la línea de tiempo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sélectionnez un plan ou un morceau sur la timeline."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seleziona una clip o un brano sulla timeline."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイムライン上のクリップまたは曲を選択してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "타임라인에서 클립이나 노래를 선택하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecteer een clip of nummer op de tijdlijn."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Selecione um clipe ou uma música na linha do tempo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在时间线上选择一个片段或歌曲。"
           }
         }
       }
@@ -178079,6 +179530,64 @@
         }
       }
     },
+    "This Clip": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Clip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este clip"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce plan"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa clip"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このクリップ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 클립"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze clip"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este clipe"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此片段"
+          }
+        }
+      }
+    },
     "This Mac": {
       "localizations": {
         "de": {
@@ -184176,6 +185685,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "Transição"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转场"
+          }
+        }
+      }
+    },
+    "Transitions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergänge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transiciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transitions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transizioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "トランジション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overgangen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transições"
           }
         },
         "zh-Hans": {
@@ -191384,6 +192951,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "音量"
+          }
+        }
+      }
+    },
+    "Volume and Fades": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lautstärke und Ausblendungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen y fundidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume et fondus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume e dissolvenze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量とフェード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "볼륨과 페이드"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume en fades"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume e fades"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音量与淡入淡出"
           }
         }
       }

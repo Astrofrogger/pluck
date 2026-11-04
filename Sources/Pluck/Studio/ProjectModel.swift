@@ -373,6 +373,8 @@ final class ProjectModel {
     var isPlaying: Bool { rate != 0 }
     var selected: Set<UUID> = []
     var selectedTitle: UUID?
+    /// What went wrong putting something from a library into the edit (a title that couldn't be drawn).
+    var libraryProblem: String?
     var tool: EditTool = .select
     var snapping = true
     /// The picture's size (from the first clip).
@@ -473,6 +475,7 @@ final class ProjectModel {
 
     func close() {
         flush()
+        pruneTitleRenders()
         if let quitObserver { NotificationCenter.default.removeObserver(quitObserver) }
         quitObserver = nil
         for observer in driveObservers {

@@ -738,6 +738,9 @@ enum ScreenshotMode {
                 // -PluckScreenshotFiles <a|b|c>: a project with these files.
                 // -PluckScreenshotStabilize <file>: steadies it.
                 if let file = defaults.string(forKey: "PluckScreenshotStabilize") { Stabilizer.shared.start(file) }
+                // -PluckEditPanel bottom|top|fullHeight and -PluckLibraryTab <tab>: the panel there, on that tab.
+                if let position = defaults.string(forKey: "PluckEditPanel") { defaults.set(position, forKey: "editPanelPosition") }
+                if let tab = defaults.string(forKey: "PluckLibraryTab") { defaults.set(tab, forKey: "editLibraryTab") }
                 // -PluckScreenshotPacing YES: the timeline's pacing marks on.
                 if defaults.bool(forKey: "PluckScreenshotPacing") { defaults.set(true, forKey: "projectPacing") }
                 // -PluckScreenshotProject <file.json>: this project, opened.

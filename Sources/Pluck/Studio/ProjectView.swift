@@ -9,10 +9,23 @@ struct ProjectView: View {
     @Environment(DownloadManager.self) private var manager
     @AppStorage("editorSidebar") private var sidebarShown = true
     @AppStorage("editorSidebarWidth") private var sidebarWidth = 300.0
-    @AppStorage("projectSidebarTab") private var tab = ProjectInspector.Tab.clip
+    /// The inspector's tab, as saved (also by 3.8.0, whose tabs map onto today's).
+    @AppStorage("projectSidebarTab") private var savedTab = ProjectInspector.Tab.clip.rawValue
+    private var tab: ProjectInspector.Tab {
+        get { ProjectInspector.Tab.saved(savedTab) }
+        nonmutating set { savedTab = newValue.rawValue }
+    }
     @State private var zoom = 1.0
     @State private var dropTargeted = false
-    @Environment(\.editMedia) private var media
+    /// The panel with the project's media and the libraries: shown or not, where, how wide, which tab.
+    @AppStorage("studioMediaShown") private var panelShown = true
+    @AppStorage("studioMediaWidth") private var panelWidth = 280.0
+    @AppStorage("editPanelPosition") private var panelPosition = EditPanelPosition.bottom
+    @AppStorage("editLibraryTab") private var libraryTab = EditLibraryTab.media
+    /// How tall the timeline's row is without the extra height dragged onto it (for sharing out the room).
+    @State private var baseHeight = 230.0
+    /// The inspector was just asked for (Export, ⌥⌘S): it stays, even if the picture gets smaller.
+    @State private var keepInspector = false
     /// How much taller than its least the timeline is (drag the line above it).
     @AppStorage("editTimelineGrow") private var timelineGrow = 30.0
     @FocusState private var focused: Bool
@@ -21,44 +34,53 @@ struct ProjectView: View {
     @AppStorage("voiceOverMuteTimeline") private var muteTimeline = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                if let media { media }
-                VStack(spacing: Design.Spacing.controls) {
-                    picture.frame(maxWidth: .infinity, maxHeight: .infinity)
-                    transport
-                    if voiceOverShown || recorder.isActive {
-                        VoiceOverBar(recorder: recorder, model: model, muteTimeline: $muteTimeline) {
-                            withAnimation(.snappy) { voiceOverShown = false }
-                            recorder.state = .idle
+        GeometryReader { page in
+            let fit = EditLayout.fit(page: page.size, position: panelPosition, panelWidth: panelWidth, inspectorWidth: sidebarWidth,
+                                     timelineHeight: baseHeight + timelineGrow + Self.transportHeight, panelShown: panelShown,
+                                     inspectorShown: sidebarShown, keepInspector: keepInspector)
+            // The extra height the timeline keeps (it gives some up when the picture needs it).
+            let grow = max(0, timelineGrow - (baseHeight + timelineGrow + Self.transportHeight - fit.timeline))
+            switch panelPosition {
+            case .bottom:
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        viewer
+                        if fit.inspectorShown { inspector }
+                    }
+                    HeightHandle(grow: $timelineGrow, range: 0...360)
+                    // The row is as tall as the timeline needs; the panel beside it takes that height.
+                    HStack(alignment: .top, spacing: 0) {
+                        if fit.panelShown { sidePanel }
+                        timelineColumn(grow: grow)
+                    }
+                    .frame(height: baseHeight + grow)
+                }
+            case .top:
+                VStack(spacing: 0) {
+                    HStack(spacing: 0) {
+                        if fit.panelShown { sidePanel }
+                        viewer
+                        if fit.inspectorShown { inspector }
+                    }
+                    HeightHandle(grow: $timelineGrow, range: 0...360)
+                    timelineColumn(grow: grow)
+                }
+            case .fullHeight:
+                HStack(spacing: 0) {
+                    if fit.panelShown { sidePanel }
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            viewer
+                            if fit.inspectorShown { inspector }
                         }
+                        HeightHandle(grow: $timelineGrow, range: 0...360)
+                        timelineColumn(grow: grow)
                     }
                 }
-                .padding([.horizontal, .top], Design.Spacing.window)
-                .padding(.bottom, Design.Spacing.controls)
-                if sidebarShown {
-                    ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
-                    ProjectInspector(model: model, tab: $tab)
-                        .frame(width: sidebarWidth)
-                        .clipped()
-                }
             }
-            HeightHandle(grow: $timelineGrow, range: 0...360)
-            VStack(spacing: Design.Spacing.controls) {
-                VStack(spacing: 4) {
-                    ProjectToolbar(model: model, zoom: $zoom, addMedia: addMedia, addMusic: addMusic)
-                    ProjectTimeline(model: model, zoom: $zoom, grow: timelineGrow)
-                }
-                .simultaneousGesture(TapGesture().onEnded { focused = true })
-                // Only when something needs doing (a save that failed, files offline).
-                if model.saveProblem != nil || !model.missing.isEmpty { footer }
-            }
-            .padding(.horizontal, Design.Spacing.inset)
-            .padding(.top, Design.Spacing.controls)
-            .padding(.bottom, Design.Spacing.inset)
         }
-        // (With the media beside it, all of it fits the smallest window.)
-        .frame(minWidth: 460 + (sidebarShown ? sidebarWidth : 0), minHeight: 520)
+        // Side panels give way before the picture gets small (EditLayout), so this fits the smallest window.
+        .frame(minWidth: 460, minHeight: 520)
         .toolbar {
             // The edit going out: to DaVinci Resolve, or exported.
             ToolbarItemGroup(placement: .primaryAction) {
@@ -88,7 +110,7 @@ struct ProjectView: View {
                     }
                 }
                 Button {
-                    withAnimation(.snappy) { tab = .export; sidebarShown = true }
+                    withAnimation(.snappy) { tab = .export; sidebarShown = true; keepInspector = true }
                 } label: {
                     Label("Export", systemImage: "square.and.arrow.up").labelStyle(.titleAndIcon)
                 }
@@ -97,7 +119,7 @@ struct ProjectView: View {
                 .help("Export (⌘E)")
             }
             ToolbarItem {
-                Button { withAnimation(.snappy) { sidebarShown.toggle() } } label: { Label("Sidebar", systemImage: "sidebar.right") }
+                Button { withAnimation(.snappy) { sidebarShown.toggle(); keepInspector = sidebarShown } } label: { Label("Sidebar", systemImage: "sidebar.right") }
                     .help("Show or hide the sidebar (⌥⌘S)")
                     .keyboardShortcut("s", modifiers: [.command, .option])
             }
@@ -179,6 +201,65 @@ struct ProjectView: View {
         }
         .onDisappear { model.player.pause() }
         .onChange(of: Stabilizer.shared.finished) { _, _ in model.refresh() }
+    }
+
+    // MARK: - Parts of the page
+
+    /// The transport and the space around the picture, counted with the timeline's row.
+    private static let transportHeight = 70.0
+
+    /// The picture (a 16:9 area, as large as fits) and the transport under it.
+    private var viewer: some View {
+        VStack(spacing: Design.Spacing.controls) {
+            picture
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            transport
+            if voiceOverShown || recorder.isActive {
+                VoiceOverBar(recorder: recorder, model: model, muteTimeline: $muteTimeline) {
+                    withAnimation(.snappy) { voiceOverShown = false }
+                    recorder.state = .idle
+                }
+            }
+        }
+        .padding([.horizontal, .top], Design.Spacing.window)
+        .padding(.bottom, Design.Spacing.controls)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var inspector: some View {
+        HStack(spacing: 0) {
+            ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
+            ProjectInspector(model: model, tab: Binding(get: { tab }, set: { tab = $0 }))
+                .frame(width: sidebarWidth)
+                .clipped()
+        }
+    }
+
+    private var sidePanel: some View {
+        HStack(spacing: 0) {
+            EditSidePanel(model: model, tab: $libraryTab, position: $panelPosition)
+                .frame(width: panelWidth)
+            ResizeHandle(width: $panelWidth, range: 200...560, edge: .leading)
+        }
+        .transition(.move(edge: .leading))
+    }
+
+    private func timelineColumn(grow: Double) -> some View {
+        VStack(spacing: Design.Spacing.controls) {
+            VStack(spacing: 4) {
+                ProjectToolbar(model: model, zoom: $zoom, addMedia: addMedia, addMusic: addMusic)
+                ProjectTimeline(model: model, zoom: $zoom, grow: grow)
+            }
+            .simultaneousGesture(TapGesture().onEnded { focused = true })
+            // Only when something needs doing (a save that failed, files offline).
+            if model.saveProblem != nil || !model.missing.isEmpty { footer }
+        }
+        .padding(.horizontal, Design.Spacing.inset)
+        .padding(.top, Design.Spacing.controls)
+        .padding(.bottom, Design.Spacing.inset)
+        .fixedSize(horizontal: false, vertical: true)
+        .onGeometryChange(for: Double.self) { $0.size.height } action: { baseHeight = max($0 - grow, 0) }
     }
 
     // MARK: - Picture
@@ -414,6 +495,8 @@ struct ProjectView: View {
             case .editRedo: model.redo()
             case .editUndo: model.undo()
             case .editSnapping: model.snapping.toggle()
+            case .editPanelPosition: withAnimation(.snappy) { panelPosition = panelPosition.next; panelShown = true }
+            case .editLibraryNext: withAnimation(.snappy) { libraryTab = libraryTab.next; panelShown = true }
             case .editTitle: model.addTitle(at: model.time)
             case .editMarkIn: model.markIn()
             case .editMarkOut: model.markOut()
@@ -491,6 +574,7 @@ private struct ProjectToolbar: View {
     @AppStorage("projectPacing") private var pacing = false
     @AppStorage("projectPacingLong") private var pacingLong = 8.0
     @AppStorage("projectPacingShort") private var pacingShort = 10
+    @State private var marksShown = false
 
     var body: some View {
         // With words beside the main tools when there's room, symbols alone when not.
@@ -533,6 +617,12 @@ private struct ProjectToolbar: View {
             }
             divider
             tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
+            tool("bookmark", "Markers: the list, and what was found in the clip (M adds one)", words ? "Marks" : nil, on: marksShown) { marksShown.toggle() }
+                .popover(isPresented: $marksShown, arrowEdge: .bottom) {
+                    ProjectMarksPanel(model: model)
+                        .frame(width: 320, height: 420)
+                        .padding(.top, 12)
+                }
             // Right-click for the two thresholds.
             tool("gauge.with.dots.needle.33percent", "Show long shots, very short clips and jump cuts", words ? "Pacing" : nil, on: pacing) { pacing.toggle() }
                 .contextMenu {

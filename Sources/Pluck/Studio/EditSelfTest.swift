@@ -8,7 +8,8 @@ import AVFoundation
 enum EditSelfTest {
     private static var lines: [String] = []
     private static var log = ""
-    private static var media = ""
+    /// The folder of test media (-PluckScreenshotFile).
+    private(set) static var media = ""
 
     static func run(defaults: UserDefaults, manager: DownloadManager) async {
         guard let logPath = defaults.string(forKey: "PluckScreenshotLog") else { return }
@@ -27,6 +28,7 @@ enum EditSelfTest {
         await resolveRead()
         await quickExports(manager)
         pacing()
+        await layout()
         await offloadProjects()
         await offloadClips()
         await offloadBackup()

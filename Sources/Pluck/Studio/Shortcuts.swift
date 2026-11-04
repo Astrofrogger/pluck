@@ -60,6 +60,7 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
     case photoVirtualCopy
     case photoBeforeAfter
     case photoMoment
+    case editPanelPosition, editLibraryNext
 
     var id: String { rawValue }
 
@@ -118,6 +119,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .editMarkOut: String(localized: "Mark out")
         case .editTitle: String(localized: "Add a title")
         case .editMarker: String(localized: "Add a marker")
+        case .editPanelPosition: String(localized: "Move the media panel")
+        case .editLibraryNext: String(localized: "Next tab of the media panel")
         case .editFavourite: String(localized: "Favourite")
         }
     }
@@ -171,6 +174,8 @@ enum ShortcutAction: String, CaseIterable, Identifiable {
         case .editMarkOut: Shortcut("o")
         case .editTitle: Shortcut("t", command: true)
         case .editMarker: Shortcut("m")
+        case .editPanelPosition: Shortcut("p", command: true, option: true)
+        case .editLibraryNext: Shortcut("]", command: true, option: true)
         case .editFavourite: Shortcut("f")
         }
     }

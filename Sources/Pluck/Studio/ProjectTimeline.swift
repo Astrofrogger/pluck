@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A project's timeline: a ruler, the clips one after another (drag one to move it, drag its
 /// edges to trim, click with the blade to cut), the music under them and the titles over them.
@@ -98,16 +99,24 @@ struct ProjectTimeline: View {
                 }
                 .onChange(of: zoom) { _, _ in scroller.scrollTo(playheadSlot, anchor: .center) }
             }
-            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers, location in
+            // Files (from Finder or Media), or something from the libraries (a transition, a title, a look).
+            .onDrop(of: [.fileURL, .plainText], isTargeted: $dropTargeted) { providers, location in
                 let seconds = Double(location.x / width) * max(model.duration, 0.001)
                 let index = insertionIndex(at: seconds)
                 // Above the main line: laid over it; on a sound track: beside it; else into it.
                 let over = location.y < clipsTop && !(hasLooks && location.y < looksTop + looksHeight + 4), sound = location.y >= soundsTop && location.y < musicTop
                 Task { @MainActor in
                     var files: [URL] = []
+                    var items: [EditLibraryItem] = []
                     for provider in providers {
-                        if let url = await provider.load(URL.self), url.isFileURL { files.append(url) }
+                        if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                            if let url = await provider.load(URL.self), url.isFileURL { files.append(url) }
+                        } else if let text = await provider.load(String.self), let item = EditLibraryItem(payload: text) {
+                            items.append(item)
+                        }
                     }
+                    for item in items { await model.apply(item, at: seconds) }
+                    guard !files.isEmpty else { return }
                     if over {
                         for file in files { await model.addOverlay(file, at: seconds) }
                     } else if sound {
