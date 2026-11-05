@@ -33,6 +33,60 @@ extension PhotoSelfTest {
         filmLight()
         clarity()
         sharpening()
+        shadowBlotches()
+    }
+
+    /// Lifting the shadows of a flat, noisy dark patch keeps its noise as it is, as in Lightroom: no colour cast and no
+    /// more colour blotches than the same brightness reached with Exposure (the local tone's gain once followed each
+    /// pixel's noise: the darker, mostly low-green specks were lifted more, which turned into magenta and green patches).
+    /// And a sharp edge stays clean either side (no halo).
+    private static func shadowBlotches() {
+        let width = 1200, height = 800
+        var seed: UInt64 = 12345
+        func uniform() -> Float { seed = seed &* 6364136223846793005 &+ 1442695040888963407; return Float(seed >> 40) / Float(1 << 24) + 1e-7 }
+        func gauss() -> Float { (-2 * log(uniform())).squareRoot() * cos(2 * .pi * uniform()) }
+        // 6 stops under mid grey, each channel's noise about a third of it.
+        var pixels = [Float](repeating: 1, count: width * height * 4)
+        for i in 0..<(width * height) { for c in 0..<3 { pixels[i * 4 + c] = 0.18 / 64 + 0.0009 * gauss() } }
+        let image = CIImage(bitmapData: pixels.withUnsafeBufferPointer { Data(buffer: $0) }, bytesPerRow: width * 16,
+                            size: CGSize(width: width, height: height), format: .RGBAf, colorSpace: linearSpace)
+        // In 16-pixel blocks of the middle: the mean brightness, red and blue against it, and how much those vary.
+        func blotches(_ a: PhotoAdjustments) -> (y: Float, r: Float, b: Float, spread: Float) {
+            let out = PhotoRender.adjusted(image, a, isRaw: true, kelvin: 6500)
+            var px = [Float](repeating: 0, count: width * height * 4)
+            px.withUnsafeMutableBytes {
+                PhotoEngine.context.render(out, toBitmap: $0.baseAddress!, rowBytes: width * 16, bounds: out.extent.integral, format: .RGBAf, colorSpace: linearSpace)
+            }
+            var ys: [Float] = [], rs: [Float] = [], bs: [Float] = []
+            for by in 0..<30 { for bx in 0..<45 {
+                var r: Float = 0, g: Float = 0, b: Float = 0
+                for y in (by * 16 + 160)..<(by * 16 + 176) { for x in (bx * 16 + 240)..<(bx * 16 + 256) {
+                    let i = (y * width + x) * 4; r += px[i]; g += px[i + 1]; b += px[i + 2]
+                } }
+                let Y = max(0.2126 * r + 0.7152 * g + 0.0722 * b, 1e-9)
+                ys.append(Y / 256); rs.append(r / Y); bs.append(b / Y)
+            } }
+            func mean(_ v: [Float]) -> Float { v.reduce(0, +) / Float(v.count) }
+            func sd(_ v: [Float]) -> Float { let m = mean(v); return (v.map { ($0 - m) * ($0 - m) }.reduce(0, +) / Float(v.count)).squareRoot() }
+            return (mean(ys), mean(rs), mean(bs), (sd(rs) + sd(bs)) / 2)
+        }
+        var lift = PhotoAdjustments()
+        lift.shadows = 100
+        let lifted = blotches(lift)
+        // Exposure to the same brightness (found by halving the gap).
+        var low = 0.0, high = 8.0, exposed = blotches(PhotoAdjustments())
+        for _ in 0..<12 {
+            var a = PhotoAdjustments()
+            a.exposure = (low + high) / 2
+            exposed = blotches(a)
+            if exposed.y < lifted.y { low = a.exposure } else { high = a.exposure }
+        }
+        check("lifted shadows keep their colour", abs(lifted.r - exposed.r) < 0.015 && abs(lifted.b - exposed.b) < 0.015 && lifted.spread < exposed.spread * 1.25,
+              "red, blue within 0.015 and blotches under 1.25× of Exposure to the same brightness; got \(lifted) against \(exposed)")
+        let step = greyImage(400, 4) { x, _ in x < 200 ? 0.18 / 64 : 0.36 }
+        let row = Array(lumas(PhotoRender.adjusted(step, lift, isRaw: true, kelvin: 6500)).prefix(400)).map { log2(max($0, 1e-9)) }
+        check("lifted shadows keep a clean edge", (190..<200).allSatisfy { abs(row[$0] - row[185]) < 0.05 } && (200..<210).allSatisfy { abs(row[$0] - row[215]) < 0.05 },
+              "either side of the edge within 0.05 stop of 15 pixels away; got \(Array(row[185...215]))")
     }
 
     /// The Sharpen slider isn't on the film's scene light (the film sharpens what it gets again), and its radius is in

@@ -7,7 +7,8 @@ CC BY-SA 4.0. Pluck doesn't include spektrafilm: it downloads spektrafilm and it
 libraries only when you choose to, into its own folder, and runs it as a separate program.
 
 pluck_film.py, the small script Pluck uses to talk to spektrafilm, is licensed under the
-GNU GPL version 3 as well.
+GNU GPL version 3 as well. pluck_denoise.py, Pluck's denoiser, is part of Pluck and under
+Pluck's own licence; it uses neither spektrafilm nor pluck_film.py.
 
 AI denoise (optional download)
 SCUNet by Kai Zhang et al. (https://github.com/cszn/SCUNet), Apache License 2.0; weights from

@@ -264,7 +264,8 @@ final class FilmEngine {
     @ObservationIgnored private var pythonWorkers: [FilmWorker] = []
     private static var python: URL { folder.appendingPathComponent("venv/bin/python") }
     private static var pythonMarker: URL { folder.appendingPathComponent("installed-denoise-v1") }
-    private static var bridge: URL? { Bundle.main.url(forResource: "pluck_film", withExtension: "py", subdirectory: "FilmEngine") }
+    /// The denoiser (Pluck's own script; the downloaded Python runs it).
+    private static var bridge: URL? { Bundle.main.url(forResource: "pluck_denoise", withExtension: "py", subdirectory: "FilmEngine") }
 
     /// Downloads uv, then Python, NumPy, scikit-image and OpenImageIO into Pluck's folder.
     func installDenoiseEngine() {
@@ -418,11 +419,16 @@ final class FilmEngine {
         return total
     }
 
-    /// Takes the noise out of a linear TIFF (strength 0…1), into a linear half-float TIFF.
-    func denoise(_ input: URL, to output: URL, strength: Double, ai: Bool = false, worker: Int = 1) async throws {
-        var job: [String: Any] = ["do": "denoise", "input": input.path, "output": output.path, "strength": strength]
+    /// Takes all the noise out of a linear TIFF, into a linear half-float OpenEXR (the Amount is mixed in later, live).
+    func denoise(_ input: URL, to output: URL, ai: Bool = false, worker: Int = 1) async throws {
+        var job: [String: Any] = ["do": "denoise", "input": input.path, "output": output.path, "version": 2]
         if ai { job["weights"] = Self.denoiserModel.path }
         _ = try await python(worker).ask(job)
+    }
+
+    /// The denoiser's own check (tests): how far its exposure curve's round trip is off, at worst (relative).
+    func denoiseRoundTrip() async throws -> Double {
+        try await python(1).ask(["do": "selftest"])["roundtrip"] as? Double ?? 1
     }
 }
 

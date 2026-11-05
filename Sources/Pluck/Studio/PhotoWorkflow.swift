@@ -29,6 +29,7 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         case .profile:
             // (Calibration belongs to the profile: Lightroom's adjusts the camera's colour.)
             record.adjust.profile = from.profile; record.adjust.calibration = from.calibration
+            record.adjust.lookName = from.lookName; record.adjust.lookTable = from.lookTable; record.adjust.lookAmount = from.lookAmount
         case .light:
             record.adjust.exposure = from.exposure; record.adjust.contrast = from.contrast
             record.adjust.highlights = from.highlights; record.adjust.shadows = from.shadows
@@ -39,10 +40,16 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         case .presence:
             record.adjust.texture = from.texture; record.adjust.clarity = from.clarity
             record.adjust.dehaze = from.dehaze; record.adjust.vignette = from.vignette
+            record.adjust.vignetteMidpoint = from.vignetteMidpoint; record.adjust.vignetteFeather = from.vignetteFeather
+            record.adjust.vignetteRoundness = from.vignetteRoundness; record.adjust.vignetteHighlights = from.vignetteHighlights
+            record.adjust.vignetteStyle = from.vignetteStyle
+            // (Grain goes with Presence too: Lightroom's Effects.)
+            record.adjust.grain = from.grain; record.adjust.grainSize = from.grainSize; record.adjust.grainRoughness = from.grainRoughness
         case .grading:
             record.adjust.mixer = from.mixer; record.adjust.curves = from.curves; record.adjust.wheels = from.wheels
         case .detail:
-            record.adjust.sharpen = from.sharpen; record.adjust.noise = from.noise; record.adjust.moire = from.moire
+            record.adjust.sharpen = from.sharpen; record.adjust.noise = from.noise; record.adjust.colorNoise = from.colorNoise
+            record.adjust.moire = from.moire
         case .crop:
             record.adjust.crop = from.crop; record.adjust.cropRect = from.cropRect
             record.adjust.cropPortrait = from.cropPortrait; record.adjust.straighten = from.straighten

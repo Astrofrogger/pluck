@@ -14990,64 +14990,6 @@
         }
       }
     },
-    "AI denoised at %lld": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "KI-entrauscht mit %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruido reducido con IA a %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Débruité par IA à %lld"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rumore ridotto con IA a %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AIでノイズ除去済み（%lld）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI 노이즈 제거됨(%lld)"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "AI-ontruist op %lld"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruído removido com IA em %lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已 AI 降噪（%lld）"
-          }
-        }
-      }
-    },
     "AI jobs now wait their turn, so starting several at once won’t slow your Mac down.": {
       "localizations": {
         "de": {
@@ -52345,64 +52287,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "降噪需要照片引擎，请在“胶片”标签页获取。"
-          }
-        }
-      }
-    },
-    "Denoised at %lld": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Entrauscht mit %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruido reducido a %lld"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Débruité à %lld"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Rumore ridotto a %lld"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ノイズ除去済み（%lld）"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "노이즈 제거됨(%lld)"
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ontruist op %lld"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ruído removido em %lld"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "已降噪（%lld）"
           }
         }
       }
@@ -213533,6 +213417,644 @@
           "stringUnit": {
             "state": "translated",
             "value": "照片页面的校准面板可像 Lightroom 一样调整红、绿、蓝原色并为阴影着色。使用它的 Lightroom 预设现在也会一并带入。"
+          }
+        }
+      }
+    },
+    "Classic": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassisch"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clásico"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classique"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Classico"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クラシック"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클래식"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klassiek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clássico"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "经典"
+          }
+        }
+      }
+    },
+    "Compare at 100%.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei 100 % vergleichen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compara al 100 %."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comparez à 100 %."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confronta al 100%."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "100%で比較してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "100%에서 비교하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vergelijk op 100%."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Compare em 100%."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在 100% 下比较。"
+          }
+        }
+      }
+    },
+    "Midpoint": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mittelpunkt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punto medio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Point médian"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Punto medio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中心点"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "중간점"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Middelpunt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ponto médio"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中点"
+          }
+        }
+      }
+    },
+    "Roundness": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rundheit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redondez"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrondi"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rotondità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丸み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "원형률"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rondheid"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arredondamento"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圆度"
+          }
+        }
+      }
+    },
+    "Roughness": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unregelmäßigkeit"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspereza"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rugosité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruvidità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗さ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "거칠기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruwheid"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aspereza"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粗糙度"
+          }
+        }
+      }
+    },
+    "Better Denoise": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Besseres Entrauschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mejor reducción de ruido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meilleur débruitage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduzione rumore migliore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より良いノイズ除去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 나은 노이즈 제거"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Betere ruisonderdrukking"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redução de ruído melhor"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更好的降噪"
+          }
+        }
+      }
+    },
+    "Cleaner shadows": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sauberere Schatten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sombras más limpias"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombres plus propres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ombre più pulite"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "よりきれいなシャドウ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 깨끗한 그림자"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schonere schaduwen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sombras mais limpas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更干净的阴影"
+          }
+        }
+      }
+    },
+    "Lifting Shadows no longer brings out coloured blotches in dark areas.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Aufhellen der Schatten erzeugt in dunklen Bereichen keine farbigen Flecken mehr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Subir las Sombras ya no saca manchas de color en las zonas oscuras."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déboucher les Ombres ne fait plus apparaître de taches colorées dans les zones sombres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schiarire le Ombre non fa più comparire macchie colorate nelle zone scure."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャドウを持ち上げても、暗部に色むらが出なくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "그림자를 밝혀도 어두운 부분에 색 얼룩이 더 이상 생기지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schaduwen ophalen geeft geen gekleurde vlekken meer in donkere delen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clarear as Sombras não traz mais manchas coloridas nas áreas escuras."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提亮阴影时，暗部不再出现彩色斑块。"
+          }
+        }
+      }
+    },
+    "Closer Lightroom presets": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Treuere Lightroom-Vorgaben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustes de Lightroom más fieles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paramètres Lightroom plus fidèles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preset di Lightroom più fedeli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より忠実なLightroomプリセット"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 충실한 Lightroom 프리셋"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrouwere Lightroom-voorinstellingen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Predefinições do Lightroom mais fiéis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更贴近的 Lightroom 预设"
+          }
+        }
+      }
+    },
+    "Presets now bring their parametric curve, split toning, vignette shape, grain, creative profile and older settings along. RAW photos can start from a new Classic profile.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorgaben bringen jetzt ihre parametrische Kurve, Teiltonung, Vignettenform, Körnung, ihr kreatives Profil und ältere Einstellungen mit. RAW-Fotos können von einem neuen Profil „Klassisch“ ausgehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los ajustes preestablecidos ahora incluyen su curva paramétrica, virado dividido, forma de viñeta, grano, perfil creativo y ajustes antiguos. Las fotos RAW pueden partir de un nuevo perfil Clásico."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les paramètres prédéfinis apportent désormais leur courbe paramétrique, virage partiel, forme de vignette, grain, profil créatif et anciens réglages. Les photos RAW peuvent partir d’un nouveau profil Classique."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I preset ora portano con sé curva parametrica, viraggio diviso, forma della vignettatura, grana, profilo creativo e impostazioni precedenti. Le foto RAW possono partire da un nuovo profilo Classico."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プリセットはパラメトリックカーブ、明暗別色補正、周辺光量補正の形、粒子、クリエイティブプロファイル、古い設定も読み込むようになりました。RAW写真は新しい「クラシック」プロファイルから始められます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프리셋이 이제 파라메트릭 곡선, 스플릿 토닝, 비네팅 모양, 그레인, 크리에이티브 프로필과 예전 설정을 함께 가져옵니다. RAW 사진은 새 클래식 프로필에서 시작할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voorinstellingen nemen nu hun parametrische curve, split toning, vignetvorm, korrel, creatieve profiel en oudere instellingen mee. RAW-foto's kunnen starten vanaf een nieuw profiel Klassiek."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As predefinições agora trazem curva paramétrica, tonalização dividida, forma da vinheta, granulação, perfil criativo e ajustes antigos. Fotos RAW podem começar de um novo perfil Clássico."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预设现在会带上参数曲线、分离色调、暗角形状、颗粒、创意配置文件和旧版设置。RAW 照片可以从新的“经典”配置文件开始。"
+          }
+        }
+      }
+    },
+    "Denoise removes far more noise, and analyses each photo only once: Amount and the new Luminance and Colour sliders change live afterwards, as in Lightroom.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrauschen entfernt weit mehr Rauschen und analysiert jedes Foto nur einmal: Stärke und die neuen Regler Luminanz und Farbe ändern sich danach live, wie in Lightroom."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La reducción de ruido elimina mucho más ruido y analiza cada foto una sola vez: la Cantidad y los nuevos reguladores Luminancia y Color cambian en directo después, como en Lightroom."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le débruitage supprime bien plus de bruit et n’analyse chaque photo qu’une fois : le Montant et les nouveaux curseurs Luminance et Couleur changent ensuite en direct, comme dans Lightroom."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La riduzione rumore rimuove molto più rumore e analizza ogni foto una sola volta: Quantità e i nuovi cursori Luminanza e Colore cambiano poi in tempo reale, come in Lightroom."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ノイズ除去ははるかに多くのノイズを取り除き、各写真の解析は一度だけです。その後は適用量と新しい輝度・カラーのスライダーがライブで変わります（Lightroomと同様）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "노이즈 제거가 훨씬 더 많은 노이즈를 없애며 각 사진을 한 번만 분석합니다. 이후 양과 새 휘도·색상 슬라이더가 Lightroom처럼 실시간으로 바뀝니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruisonderdrukking haalt veel meer ruis weg en analyseert elke foto maar één keer: Hoeveelheid en de nieuwe schuifregelaars Luminantie en Kleur veranderen daarna live, zoals in Lightroom."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A redução de ruído remove muito mais ruído e analisa cada foto só uma vez: a Quantidade e os novos controles Luminância e Cor mudam ao vivo depois, como no Lightroom."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "降噪能去除更多噪点，且每张照片只分析一次：之后数量以及新的明亮度和颜色滑块可实时调整，与 Lightroom 一样。"
           }
         }
       }

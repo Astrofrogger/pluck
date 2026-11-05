@@ -61,26 +61,15 @@ enum PhotoRender {
 
     /// The photo, at most this many pixels on its long side (0: full size), in linear light. RAW
     /// is decoded neutral: none of the camera maker's look, so every camera starts the same.
-    /// The denoised photo when there is one for this strength.
-    static func source(_ path: String, maxSize: Int, denoise: Int = 0, noise: Double = 0, raw settings: RawSettings = RawSettings()) -> CIImage? {
-        if denoise > 0, let clean = denoised(path, strength: denoise), FileManager.default.fileExists(atPath: clean.path),
-           var image = CIImage(contentsOf: clean) {
-            let long = max(image.extent.width, image.extent.height)
-            if maxSize > 0, long > Double(maxSize) {
-                let filter = CIFilter.lanczosScaleTransform()
-                filter.inputImage = image
-                filter.scale = Float(Double(maxSize) / long)
-                image = filter.outputImage ?? image
-            }
-            return image
-        }
+    /// `noise` and `color`: Apple's luminance and colour noise reduction (RAW), 0…100.
+    static func source(_ path: String, maxSize: Int, noise: Double = 0, color: Double = 50, raw settings: RawSettings = RawSettings()) -> CIImage? {
         let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         if isRaw(path), let raw = CIRAWFilter(imageURL: url) {
             if maxSize > 0 {
                 let long = max(raw.nativeSize.width, raw.nativeSize.height)
                 if long > 0 { raw.scaleFactor = Float(min(1, Double(maxSize) / long)) }
             }
-            neutral(raw, noise: noise, moire: settings.moire, decoder: settings.decoder)
+            neutral(raw, noise: noise, color: color, moire: settings.moire, decoder: settings.decoder)
             // Lens correction leaves an unfilled edge: a sliver (0.4%) goes.
             guard let image = raw.outputImage else { return nil }
             let edge = max(2, (max(image.extent.width, image.extent.height) * 0.004).rounded(.up))
@@ -99,7 +88,7 @@ enum PhotoRender {
     /// kept, no sharpening or extra detail and contrast (Pluck does those), lens corrections on.
     /// Every switch is set, so nothing depends on Apple's defaults; the decoder's version is the
     /// one the photo was edited with.
-    static func neutral(_ raw: CIRAWFilter, noise: Double, moire: Double = 0, decoder: String? = nil) {
+    static func neutral(_ raw: CIRAWFilter, noise: Double, color: Double = 50, moire: Double = 0, decoder: String? = nil) {
         raw.boostAmount = 0
         raw.boostShadowAmount = 0
         raw.localToneMapAmount = 0
@@ -118,7 +107,7 @@ enum PhotoRender {
             raw.decoderVersion = version
         }
         raw.luminanceNoiseReductionAmount = Float(noise / 100)
-        raw.colorNoiseReductionAmount = Float(max(0.5, noise / 100))
+        raw.colorNoiseReductionAmount = Float(color / 100)
     }
 
     /// The RAW decoder a new edit is pinned to (the newest this Mac has).
@@ -157,6 +146,15 @@ enum PhotoRender {
         var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey,
                                         masks: shapes, overlay: overlay, peak: peak)
         let long = max(image.extent.width, image.extent.height)
+        // A creative profile's own colours, on the picture as Adobe's renderer puts them (after the tone curve).
+        if !scene, let digest = a.lookTable, a.lookAmount > 0, let cube = LookTable.cube(digest, amount: min(a.lookAmount, 200) / 100) {
+            let filter = CIFilter.colorCubeWithColorSpace()
+            filter.inputImage = image
+            filter.cubeDimension = Float(LookTable.cubeSize)
+            filter.cubeData = cube
+            filter.colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+            image = filter.outputImage ?? image
+        }
         if !scene, a.needsLUT {
             let filter = CIFilter.colorCubeWithColorSpace()
             filter.inputImage = image
@@ -177,21 +175,62 @@ enum PhotoRender {
         }
         // With film, the sharpening goes on the film's picture (`filmed`): on scene light it would be
         // sharpened again by the film's grain and scan, and its halos would grow with the film's contrast.
+        let full = Double(max(path.map(decodedLongEdge) ?? 0, Int(long)))
         if !scene {
-            let full = Double(max(path.map(decodedLongEdge) ?? 0, Int(long)))
             image = sharpened(image, a.sharpen, scale: Double(long) / max(full, 1), fullLongEdge: full)
         }
+        let origin = image.extent.origin
         image = geometry(image, a, crop: crop)
-        if a.vignette != 0 {
-            let filter = CIFilter.vignetteEffect()
-            filter.inputImage = image
-            filter.center = CGPoint(x: image.extent.midX, y: image.extent.midY)
-            filter.radius = Float(max(image.extent.width, image.extent.height) * 0.62)
-            filter.intensity = Float(-a.vignette / 100)
-            filter.falloff = 0.6
-            image = filter.outputImage ?? image
-        }
+        // (With film, its own grain.)
+        image = effects(image, a, grain: !scene, scale: Double(long) / max(full, 1), origin: origin)
         return image.cropped(to: image.extent)
+    }
+
+    /// The vignette (as it always was until its shape is changed) and, without film, grain. The grain is
+    /// sized in full-size pixels and placed by where it falls on the photo (`origin`: the decoded photo's
+    /// corner, `scale`: the render's size over the full size), so a preview and the export match.
+    static func effects(_ image: CIImage, _ a: PhotoAdjustments, grain: Bool, scale: Double, origin: CGPoint) -> CIImage {
+        let grain = grain && a.grain > 0
+        guard a.vignette != 0 || grain else { return image }
+        let extent = image.extent, long = max(extent.width, extent.height)
+        func vignette(_ input: CIImage) -> CIImage {
+            let filter = CIFilter.vignetteEffect()
+            filter.inputImage = input
+            filter.center = CGPoint(x: extent.midX, y: extent.midY)
+            // Midpoint moves its edge out or in (0.6× … 1.4×), Feather softens it; at 50 and 50 as before.
+            filter.radius = Float(long * 0.62 * (0.6 + a.vignetteMidpoint / 125))
+            filter.intensity = Float(-a.vignette / 100)
+            let feather = a.vignetteFeather
+            filter.falloff = Float(feather <= 50 ? 0.05 + feather / 50 * 0.55 : 0.6 + (feather - 50) / 50 * 0.4)
+            return filter.outputImage ?? input
+        }
+        let shaped = a.vignetteMidpoint != 50 || a.vignetteFeather != 50 || a.vignetteRoundness != 100 || a.vignetteHighlights != 0
+            || a.vignetteStyle == 3
+        if !shaped, !grain { return vignette(image) }
+        // The vignette as a multiplier of the light (Core Image's multiplies, so on white it is the vignette itself),
+        // squeezed across the short side by Roundness: 100 a circle, 0 the frame's shape.
+        let white = CIImage(color: .white)
+        var mask = a.vignette != 0 ? vignette(white) : white
+        let squeeze = pow(min(extent.width, extent.height) / max(long, 1), 1 - min(max(a.vignetteRoundness, 0), 100) / 100)
+        if squeeze < 1 {
+            let wide = extent.width >= extent.height
+            mask = mask.transformed(by: CGAffineTransform(translationX: extent.midX, y: extent.midY)
+                .scaledBy(x: wide ? 1 : squeeze, y: wide ? squeeze : 1).translatedBy(x: -extent.midX, y: -extent.midY))
+        }
+        var e = PhotoEngine.Effects()
+        e.highlights = Float(a.vignetteHighlights / 100)
+        e.paint = a.vignetteStyle == 3 ? 1 : 0
+        if grain {
+            // Lightroom's Amount 100 is heavy; Size 25 is grain about 2.5 full-size pixels across.
+            e.grain = Float(a.grain / 100 * 0.8)
+            e.size = Float(1 + a.grainSize * 0.06)
+            e.rough = Float(a.grainRoughness / 100)
+            e.scale = Float(min(max(scale, 0.01), 1))
+            e.ox = Float(origin.x); e.oy = Float(origin.y)
+        }
+        let data = withUnsafeBytes(of: e) { Data($0) }
+        return (try? PhotoEngine.apply(EffectsPass.self, extent: extent, inputs: [image, mask.cropped(to: extent)], arguments: ["effects": data]))
+            ?? vignette(image)
     }
 
     /// The adjustments for this photo (whether it's RAW, and its as-shot light).
@@ -261,10 +300,8 @@ enum PhotoRender {
             let picture = try await filmPicture(path, record: record, stock: stock)
             return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
-        let noise = isRaw(path) ? record.adjust.noise : 0
         let kept = maxSize > 0 ? base(path, maxSize: maxSize, record: record) : nil
-        guard let source = kept?.image ?? source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust))
-        else { return nil }
+        guard let source = kept?.image ?? decoded(path, maxSize: 0, record: record) else { return nil }
         guard record.filmOn else {
             let image = adjusted(source, record.adjust, path: path, cacheKey: kept?.key)
             return context.createCGImage(image, from: image.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
@@ -373,8 +410,7 @@ enum PhotoRender {
     }
 
     private static func filmBands(_ path: String, record: PhotoRecord, stock: FilmStock) throws -> CIImage {
-        let noise = isRaw(path) ? record.adjust.noise : 0
-        guard let decoded = source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust)) else { throw unreadable }
+        guard let decoded = PhotoRender.decoded(path, maxSize: 0, record: record) else { throw unreadable }
         let scene = adjusted(decoded, record.adjust, path: path, scene: true)
         let extent = scene.extent.integral
         let width = Int(extent.width), height = Int(extent.height)
@@ -444,14 +480,25 @@ enum PhotoRender {
     /// The photo decoded once (RAW included) and kept on the GPU, so a slider only redoes the
     /// adjustments: that is what makes editing follow the mouse. `maxSize` 0: full size. The key
     /// names this decode (for the layers worked out from it).
+    /// Denoised, the decode without noise reduction and the clean one are both kept (by the model, not the
+    /// Amount): the Amount mixes them as the picture is drawn, so its slider is as quick as any other.
     static func base(_ path: String, maxSize: Int, record: PhotoRecord) -> (image: CIImage, key: String)? {
-        let noise = isRaw(path) ? record.adjust.noise : 0
-        let denoise = record.denoiseKey
-        let ready = denoise > 0 && denoised(path, strength: denoise).map { FileManager.default.fileExists(atPath: $0.path) } == true
         let settings = RawSettings(record.adjust)
-        let key = "\(maxSize)|\(ready ? denoise : 0)|\(ready ? 0 : Int(noise))|\(settings.key)|\(path)"
+        if let file = cleanFile(path, record: record) {
+            let key = "\(maxSize)|denoise \(record.denoiseAI ? "ai" : "standard")|\(settings.key)|\(path)"
+            guard let orig = BaseCache.shared.image(key + "|orig")
+                    ?? source(path, maxSize: maxSize, noise: 0, color: 0, raw: settings).flatMap({ BaseCache.shared.keep($0, key: key + "|orig") }),
+                  let clean = BaseCache.shared.image(key + "|clean")
+                    ?? CIImage(contentsOf: file).flatMap({ BaseCache.shared.keep(fitted($0, to: orig.extent), key: key + "|clean") })
+            else { return nil }
+            // (The key names the mix: the local tone's layers and the film's scene are worked out from it.)
+            return (mixDenoise(orig, clean, amount: record.denoise), key + "|\(record.denoise)")
+        }
+        let raw = isRaw(path)
+        let noise = raw ? record.adjust.noise : 0, color = raw ? record.adjust.colorNoise : 0
+        let key = "\(maxSize)|0|\(Int(noise))|\(Int(color))|\(settings.key)|\(path)"
         if let known = BaseCache.shared.image(key) { return (known, key) }
-        guard let source = source(path, maxSize: maxSize, denoise: ready ? denoise : 0, noise: ready ? 0 : noise, raw: settings),
+        guard let source = source(path, maxSize: maxSize, noise: noise, color: color, raw: settings),
               let kept = BaseCache.shared.keep(source, key: key) else { return nil }
         return (kept, key)
     }
@@ -598,24 +645,83 @@ enum PhotoRender {
 
     // MARK: - Denoising
 
-    /// Where the denoised photo is kept (by the photo, when it was changed, and the strength).
-    static func denoised(_ key: String, strength: Int) -> URL? {
+    /// The denoiser's version: a clean file made by an earlier one is made again (once).
+    static let denoiseVersion = 2
+
+    /// Where the photo's clean decode is kept: one per file (and when it was changed), model, decoder and moiré
+    /// setting. Not the Amount: that's mixed in live (`mixDenoise`), so a photo is worked out once.
+    static func denoised(_ key: String, ai: Bool, raw settings: RawSettings) -> URL? {
         // A copy shares its file's (denoising is of the file, not of an edit).
         let path = PhotoCatalog.file(of: key)
         guard let modified = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date else { return nil }
-        let key = "\(path)|\(modified.timeIntervalSince1970)|\(strength)"
+        let key = "\(path)|\(modified.timeIntervalSince1970)|\(ai ? "ai" : "standard")|\(settings.decoder ?? "")|\(Int(settings.moire))|v\(denoiseVersion)"
         let name = SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Denoised/\(name).exr")
     }
 
-    /// Takes the noise out of the photo at full size, through the photo engine (about 15 s for
-    /// 24 megapixels). The result is kept, and used from then on to develop it.
-    /// `strength` over 1000 is the AI denoiser's (1000 + strength): kept apart from the other.
-    static func denoise(_ path: String, strength: Int, worker: Int = 1) async throws {
-        guard let output = denoised(path, strength: strength) else { throw NSError(domain: "Pluck", code: 1) }
-        let ai = strength > 1000, amount = strength % 1000
+    static func denoised(_ path: String, record: PhotoRecord) -> URL? {
+        denoised(path, ai: record.denoiseAI, raw: RawSettings(record.adjust))
+    }
+
+    /// Whether the clean decode for the record's model and settings is made (Denoise on or not).
+    static func hasClean(_ path: String, record: PhotoRecord) -> Bool {
+        denoised(path, record: record).map { FileManager.default.fileExists(atPath: $0.path) } == true
+    }
+
+    /// The clean decode to develop from: Denoise is on and it's made.
+    static func cleanFile(_ path: String, record: PhotoRecord) -> URL? {
+        guard record.denoise > 0, let url = denoised(path, record: record), FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url
+    }
+
+    /// How much of the clean decode an Amount (0…100) mixes in, as Lightroom's: quick at first, so 50 leaves a
+    /// quarter of the noise (a natural grain) and 100 none.
+    static func denoiseWeight(_ amount: Int) -> Double {
+        let a = min(max(Double(amount) / 100, 0), 1)
+        return 1 - (1 - a) * (1 - a)
+    }
+
+    /// The photo and its clean decode mixed at the Amount: one step on the GPU.
+    static func mixDenoise(_ orig: CIImage, _ clean: CIImage, amount: Int) -> CIImage {
+        let filter = CIFilter.dissolveTransition()
+        filter.inputImage = orig
+        filter.targetImage = clean
+        filter.time = Float(denoiseWeight(amount))
+        return (filter.outputImage ?? orig).cropped(to: orig.extent)
+    }
+
+    /// The clean decode (full size) at a smaller decode's size, pixel for pixel.
+    private static func fitted(_ clean: CIImage, to extent: CGRect) -> CIImage {
+        let e = clean.extent
+        guard e.size != extent.size, e.width > 0, e.height > 0 else { return clean }
+        let scale = extent.height / e.height
+        return clean.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY))
+            .applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": scale, "inputAspectRatio": (extent.width / e.width) / scale])
+            .cropped(to: CGRect(origin: .zero, size: extent.size))
+            .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
+    }
+
+    /// The decode a photo is developed from (full size for saving): denoised, its decode without noise
+    /// reduction and the clean one mixed at the Amount, as on screen; else with the Luminance and Colour sliders'.
+    static func decoded(_ path: String, maxSize: Int, record: PhotoRecord) -> CIImage? {
+        let settings = RawSettings(record.adjust)
+        if let file = cleanFile(path, record: record), let clean = CIImage(contentsOf: file),
+           let orig = source(path, maxSize: maxSize, noise: 0, color: 0, raw: settings) {
+            return mixDenoise(orig, fitted(clean, to: orig.extent), amount: record.denoise)
+        }
+        let raw = isRaw(path)
+        return source(path, maxSize: maxSize, noise: raw ? record.adjust.noise : 0, color: raw ? record.adjust.colorNoise : 0, raw: settings)
+    }
+
+    /// Stands in for the Python engine (tests): input, output, AI.
+    nonisolated(unsafe) static var denoiseEngineForTests: ((URL, URL, Bool) async throws -> Void)?
+
+    /// Takes all the noise out of the photo at full size, once, for the record's model and decoder settings
+    /// (Apple's noise reduction off, so the denoiser sees the noise as it is). Kept, and mixed in from then on.
+    static func denoise(_ path: String, record: PhotoRecord, worker: Int = 1) async throws {
+        guard let output = denoised(path, record: record) else { throw NSError(domain: "Pluck", code: 1) }
         if FileManager.default.fileExists(atPath: output.path) { return }
-        guard let image = source(path, maxSize: 0) else {
+        guard let image = source(path, maxSize: 0, noise: 0, color: 0, raw: RawSettings(record.adjust)) else {
             throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "The photo couldn’t be read.")])
         }
         try FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -624,7 +730,11 @@ enum PhotoRender {
         defer { try? FileManager.default.removeItem(at: input) }
         try context.writeTIFFRepresentation(of: image, to: input, format: .RGBAh, colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!)
         let partial = output.deletingPathExtension().appendingPathExtension("part.exr")
-        try await FilmEngine.shared.denoise(input, to: partial, strength: Double(amount) / 100, ai: ai, worker: worker)
+        if let stand = denoiseEngineForTests {
+            try await stand(input, partial, record.denoiseAI)
+        } else {
+            try await FilmEngine.shared.denoise(input, to: partial, ai: record.denoiseAI, worker: worker)
+        }
         try? FileManager.default.removeItem(at: output)
         try FileManager.default.moveItem(at: partial, to: output)
     }
@@ -636,7 +746,8 @@ enum PhotoRender {
         var key = path
         if let data = try? JSONEncoder().encode(record.adjust) { key += String(decoding: data, as: UTF8.self) }
         if record.filmOn, let data = try? JSONEncoder().encode(record.film) { key += String(decoding: data, as: UTF8.self) }
-        if record.denoise > 0 { key += "|denoise \(record.denoiseKey)" }
+        // Denoised: by the Amount and model, once the clean decode is made (until then it shows without).
+        if record.denoise > 0, cleanFile(path, record: record) != nil { key += "|denoise v\(denoiseVersion) \(record.denoiseAI ? "ai" : "") \(record.denoise)" }
         let name = SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
         return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Pluck/Photo Previews/\(name).jpg")
@@ -709,8 +820,7 @@ enum PhotoRender {
             guard let made = try await develop(path, record: record, maxSize: 0, worker: worker) else { throw unreadable }
             picture = CIImage(cgImage: made)
         } else {
-            let noise = isRaw(path) ? record.adjust.noise : 0
-            guard let decoded = source(path, maxSize: 0, denoise: record.denoiseKey, noise: noise, raw: RawSettings(record.adjust)) else { throw unreadable }
+            guard let decoded = PhotoRender.decoded(path, maxSize: 0, record: record) else { throw unreadable }
             picture = adjusted(decoded, record.adjust, path: path)
             if settings.savesHDR(record) {
                 hdr = adjusted(decoded, record.adjust, path: path, peak: PhotoExportSettings.hdrPeak)

@@ -15,7 +15,9 @@ import simd
 enum PhotoEngine {
     /// How the light becomes a picture: the starting point, as in Lightroom's profiles.
     enum Profile: String, Codable, CaseIterable, Identifiable {
-        case neutral, standard, vivid, flat, monochrome, asShot
+        /// `adobe` (shown as Classic): Neutral with Adobe's default tone curve on top (see adobeBase), for RAW photos whose
+        /// Lightroom edit or preset starts from an Adobe profile; on other photos it's As Shot.
+        case neutral, standard, vivid, flat, monochrome, asShot, adobe
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -25,6 +27,7 @@ enum PhotoEngine {
             case .flat: String(localized: "Flat")
             case .monochrome: String(localized: "Monochrome")
             case .asShot: String(localized: "As Shot")
+            case .adobe: String(localized: "Classic")
             }
         }
     }
@@ -82,7 +85,8 @@ enum PhotoEngine {
             layers = make(exposed)
         }
         let profile = a.profile ?? (isRaw ? .neutral : .asShot)
-        let shown = profile == .asShot && isRaw ? .standard : profile
+        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile
+        let base = modern && shown == .adobe
         func params(_ a: PhotoAdjustments, shift: Float) -> Params {
             var p = Params()
             p.shadows = Float(a.shadows / 100)
@@ -101,7 +105,7 @@ enum PhotoEngine {
             p.shadowTint = Float(a.calibration.shadowTint / 100)
             if modern {
                 tone(a, profile: shown, into: &p, peak: peak)
-                p.curves = a.curves.isDefault ? 0 : 1
+                p.curves = a.curves.isDefault && !base ? 0 : 1
                 if let airlight = layers.haze?.airlight {
                     // The haze's colour, at this exposure.
                     let k = Float(cacheKey == nil ? 1 : gain)
@@ -157,7 +161,7 @@ enum PhotoEngine {
         let data = all.withUnsafeBytes { Data($0) }
         let grade = grades.withUnsafeBytes { Data($0) }
         let info = infos.withUnsafeBytes { Data($0) }
-        let curves = modern && !a.curves.isDefault ? curveTable(a.curves) : Data(count: 16)
+        let curves = modern && (!a.curves.isDefault || base) ? curveTable(a.curves, base: base) : Data(count: 16)
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
             "params": data, "grade": grade, "curves": curves, "masks": info,
             "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, glowLayer.extent, extent]
@@ -385,6 +389,12 @@ enum PhotoEngine {
         var shadowTint: Float = 0
     }
 
+    /// The vignette's highlights and style, and the grain, for the GPU (see PhotoRender.effects).
+    struct Effects {
+        var highlights: Float = 0, grain: Float = 0, size: Float = 1, rough: Float = 0, scale: Float = 1, ox: Float = 0, oy: Float = 0
+        var paint: Int32 = 0
+    }
+
     /// The colour wheels and the mixer, for the GPU.
     struct Grade {
         typealias Eight = (Float, Float, Float, Float, Float, Float, Float, Float)
@@ -394,6 +404,8 @@ enum PhotoEngine {
         var lum: Eight = (0, 0, 0, 0, 0, 0, 0, 0)
         var vibrance: Float = 0, saturation: Float = 0
         var wheels: Int32 = 0, mixer: Int32 = 0
+        /// Blending as a width (1: Lightroom's 50) and Balance as stops the split moves.
+        var blend: Float = 1, balance: Float = 0
 
         init(_ a: PhotoAdjustments) {
             func wheel(_ w: ColorWheels.Wheel) -> SIMD4<Float> {
@@ -403,6 +415,7 @@ enum PhotoEngine {
             let w = a.wheels
             lift = wheel(w.lift); gamma = wheel(w.gamma); gain = wheel(w.gain); offset = wheel(w.offset)
             wheels = w.isDefault ? 0 : 1
+            blend = Float(max(w.blending, 5) / 50); balance = Float(w.balance / 100 * 2)
             func eight(_ v: [Double]) -> Eight {
                 let f = (v + [Double](repeating: 0, count: 8)).prefix(8).map(Float.init)
                 return (f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7])
@@ -455,18 +468,194 @@ enum PhotoEngine {
         p.peak = Float(max(peak, 1))
     }
 
-    /// The curves as a table of 128 steps per channel (the master after each).
-    static func curveTable(_ curves: PhotoCurves) -> Data {
+    /// The curves as a table of 128 steps per channel (the master after each). `base`: Adobe's tone curve
+    /// first (the Classic profile).
+    static func curveTable(_ curves: PhotoCurves, base: Bool = false) -> Data {
         let master = Curve(curves.master), red = Curve(curves.red), green = Curve(curves.green), blue = Curve(curves.blue)
         var values = [Float](repeating: 0, count: 128 * 4)
         for i in 0..<128 {
-            let x = Double(i) / 127
+            let x = base ? adobeBase[i] : Double(i) / 127
             values[i * 4] = Float(master.value(red.value(x)))
             values[i * 4 + 1] = Float(master.value(green.value(x)))
             values[i * 4 + 2] = Float(master.value(blue.value(x)))
         }
         return values.withUnsafeBufferPointer { Data(buffer: $0) }
     }
+
+    /// The Classic profile (`adobe`), on the picture's sRGB steps (128): what Neutral makes of the light, as the
+    /// DNG SDK's default tone curve (dng_tone_curve_acr3_default) would make it instead. The sliders still
+    /// work on Neutral's curve underneath; at their defaults, the light's grey gets Adobe's curve exactly.
+    static let adobeBase: [Double] = {
+        var p = Params()
+        tone(PhotoAdjustments(), profile: .neutral, into: &p)
+        // Neutral's grey (the shader's tone curve: inset and outset keep grey grey).
+        func neutral(_ s: Double) -> Double {
+            let x = min(max((log2(max(s * 1.15, 1e-10)) - Double(p.toneLo)) / Double(p.toneHi - p.toneLo), 0), 1)
+            let grey = Double(p.toneGrey), y0 = Double(p.toneY), slope = Double(p.toneSlope)
+            let y = x >= grey
+                ? y0 + slope * (x - grey) / pow(1 + pow(slope * (x - grey) / (Double(p.toneCeiling) - y0), Double(p.tonePb)), 1 / Double(p.tonePb))
+                : y0 - slope * (grey - x) / pow(1 + pow(slope * (grey - x) / (y0 - Double(p.toneFloor)), Double(p.tonePt)), 1 / Double(p.tonePt))
+            return pow(min(max(y, 0), 1), 2.2)
+        }
+        func acr3(_ x: Double) -> Double {
+            let y = min(max(x, 0), 1) * Double(adobeCurve.count - 1)
+            let i = min(Int(y), adobeCurve.count - 2), f = y - Double(i)
+            return adobeCurve[i] * (1 - f) + adobeCurve[i + 1] * f
+        }
+        // The SDK puts the camera's baseline exposure ahead of the curve; Pluck's decode has its own, so the light is
+        // scaled to keep Neutral's mid grey (the curve alone puts it 0.7 stop brighter).
+        var below = -8.0, above = 4.0
+        for _ in 0..<50 { let mid = (below + above) / 2; if acr3(0.18 * exp2(mid)) < neutral(0.18) { below = mid } else { above = mid } }
+        let gain = exp2((below + above) / 2)
+        // Above `knee` the light rolls smoothly into white at Neutral's white, rather than clipping at the curve's end.
+        let knee = 0.6, top = gain * exp2(Double(p.toneHi)) / 1.15
+        func rolled(_ t: Double) -> Double {
+            guard top > 1, t > knee else { return t }
+            let m = (top - knee) / (1 - knee), u = min((t - knee) / (top - knee), 1)
+            return knee + (1 - knee) * m * u / (1 + (m - 1) * u)
+        }
+        return (0..<128).map { i in
+            let d = LookTable.fromSRGB(Double(i) / 127)
+            guard d > neutral(1e-6) else { return 0 }
+            // The light Neutral made this from (by halving, in stops).
+            var low = -20.0, high = 6.0
+            for _ in 0..<50 { let mid = (low + high) / 2; if neutral(exp2(mid)) < d { low = mid } else { high = mid } }
+            return LookTable.toSRGB(acr3(rolled(gain * exp2((low + high) / 2))))
+        }
+    }()
+
+    /// dng_tone_curve_acr3_default (DNG SDK, dng_render.cpp): linear light in, linear light out, 1025 steps.
+    static let adobeCurve: [Double] = [
+        0.00000, 0.00078, 0.00160, 0.00242, 0.00314, 0.00385, 0.00460, 0.00539,
+        0.00623, 0.00712, 0.00806, 0.00906, 0.01012, 0.01122, 0.01238, 0.01359,
+        0.01485, 0.01616, 0.01751, 0.01890, 0.02033, 0.02180, 0.02331, 0.02485,
+        0.02643, 0.02804, 0.02967, 0.03134, 0.03303, 0.03475, 0.03648, 0.03824,
+        0.04002, 0.04181, 0.04362, 0.04545, 0.04730, 0.04916, 0.05103, 0.05292,
+        0.05483, 0.05675, 0.05868, 0.06063, 0.06259, 0.06457, 0.06655, 0.06856,
+        0.07057, 0.07259, 0.07463, 0.07668, 0.07874, 0.08081, 0.08290, 0.08499,
+        0.08710, 0.08921, 0.09134, 0.09348, 0.09563, 0.09779, 0.09996, 0.10214,
+        0.10433, 0.10652, 0.10873, 0.11095, 0.11318, 0.11541, 0.11766, 0.11991,
+        0.12218, 0.12445, 0.12673, 0.12902, 0.13132, 0.13363, 0.13595, 0.13827,
+        0.14061, 0.14295, 0.14530, 0.14765, 0.15002, 0.15239, 0.15477, 0.15716,
+        0.15956, 0.16197, 0.16438, 0.16680, 0.16923, 0.17166, 0.17410, 0.17655,
+        0.17901, 0.18148, 0.18395, 0.18643, 0.18891, 0.19141, 0.19391, 0.19641,
+        0.19893, 0.20145, 0.20398, 0.20651, 0.20905, 0.21160, 0.21416, 0.21672,
+        0.21929, 0.22185, 0.22440, 0.22696, 0.22950, 0.23204, 0.23458, 0.23711,
+        0.23963, 0.24215, 0.24466, 0.24717, 0.24967, 0.25216, 0.25465, 0.25713,
+        0.25961, 0.26208, 0.26454, 0.26700, 0.26945, 0.27189, 0.27433, 0.27676,
+        0.27918, 0.28160, 0.28401, 0.28641, 0.28881, 0.29120, 0.29358, 0.29596,
+        0.29833, 0.30069, 0.30305, 0.30540, 0.30774, 0.31008, 0.31241, 0.31473,
+        0.31704, 0.31935, 0.32165, 0.32395, 0.32623, 0.32851, 0.33079, 0.33305,
+        0.33531, 0.33756, 0.33981, 0.34205, 0.34428, 0.34650, 0.34872, 0.35093,
+        0.35313, 0.35532, 0.35751, 0.35969, 0.36187, 0.36404, 0.36620, 0.36835,
+        0.37050, 0.37264, 0.37477, 0.37689, 0.37901, 0.38112, 0.38323, 0.38533,
+        0.38742, 0.38950, 0.39158, 0.39365, 0.39571, 0.39777, 0.39982, 0.40186,
+        0.40389, 0.40592, 0.40794, 0.40996, 0.41197, 0.41397, 0.41596, 0.41795,
+        0.41993, 0.42191, 0.42388, 0.42584, 0.42779, 0.42974, 0.43168, 0.43362,
+        0.43554, 0.43747, 0.43938, 0.44129, 0.44319, 0.44509, 0.44698, 0.44886,
+        0.45073, 0.45260, 0.45447, 0.45632, 0.45817, 0.46002, 0.46186, 0.46369,
+        0.46551, 0.46733, 0.46914, 0.47095, 0.47275, 0.47454, 0.47633, 0.47811,
+        0.47989, 0.48166, 0.48342, 0.48518, 0.48693, 0.48867, 0.49041, 0.49214,
+        0.49387, 0.49559, 0.49730, 0.49901, 0.50072, 0.50241, 0.50410, 0.50579,
+        0.50747, 0.50914, 0.51081, 0.51247, 0.51413, 0.51578, 0.51742, 0.51906,
+        0.52069, 0.52232, 0.52394, 0.52556, 0.52717, 0.52878, 0.53038, 0.53197,
+        0.53356, 0.53514, 0.53672, 0.53829, 0.53986, 0.54142, 0.54297, 0.54452,
+        0.54607, 0.54761, 0.54914, 0.55067, 0.55220, 0.55371, 0.55523, 0.55673,
+        0.55824, 0.55973, 0.56123, 0.56271, 0.56420, 0.56567, 0.56715, 0.56861,
+        0.57007, 0.57153, 0.57298, 0.57443, 0.57587, 0.57731, 0.57874, 0.58017,
+        0.58159, 0.58301, 0.58443, 0.58583, 0.58724, 0.58864, 0.59003, 0.59142,
+        0.59281, 0.59419, 0.59556, 0.59694, 0.59830, 0.59966, 0.60102, 0.60238,
+        0.60373, 0.60507, 0.60641, 0.60775, 0.60908, 0.61040, 0.61173, 0.61305,
+        0.61436, 0.61567, 0.61698, 0.61828, 0.61957, 0.62087, 0.62216, 0.62344,
+        0.62472, 0.62600, 0.62727, 0.62854, 0.62980, 0.63106, 0.63232, 0.63357,
+        0.63482, 0.63606, 0.63730, 0.63854, 0.63977, 0.64100, 0.64222, 0.64344,
+        0.64466, 0.64587, 0.64708, 0.64829, 0.64949, 0.65069, 0.65188, 0.65307,
+        0.65426, 0.65544, 0.65662, 0.65779, 0.65897, 0.66013, 0.66130, 0.66246,
+        0.66362, 0.66477, 0.66592, 0.66707, 0.66821, 0.66935, 0.67048, 0.67162,
+        0.67275, 0.67387, 0.67499, 0.67611, 0.67723, 0.67834, 0.67945, 0.68055,
+        0.68165, 0.68275, 0.68385, 0.68494, 0.68603, 0.68711, 0.68819, 0.68927,
+        0.69035, 0.69142, 0.69249, 0.69355, 0.69461, 0.69567, 0.69673, 0.69778,
+        0.69883, 0.69988, 0.70092, 0.70196, 0.70300, 0.70403, 0.70506, 0.70609,
+        0.70711, 0.70813, 0.70915, 0.71017, 0.71118, 0.71219, 0.71319, 0.71420,
+        0.71520, 0.71620, 0.71719, 0.71818, 0.71917, 0.72016, 0.72114, 0.72212,
+        0.72309, 0.72407, 0.72504, 0.72601, 0.72697, 0.72794, 0.72890, 0.72985,
+        0.73081, 0.73176, 0.73271, 0.73365, 0.73460, 0.73554, 0.73647, 0.73741,
+        0.73834, 0.73927, 0.74020, 0.74112, 0.74204, 0.74296, 0.74388, 0.74479,
+        0.74570, 0.74661, 0.74751, 0.74842, 0.74932, 0.75021, 0.75111, 0.75200,
+        0.75289, 0.75378, 0.75466, 0.75555, 0.75643, 0.75730, 0.75818, 0.75905,
+        0.75992, 0.76079, 0.76165, 0.76251, 0.76337, 0.76423, 0.76508, 0.76594,
+        0.76679, 0.76763, 0.76848, 0.76932, 0.77016, 0.77100, 0.77183, 0.77267,
+        0.77350, 0.77432, 0.77515, 0.77597, 0.77680, 0.77761, 0.77843, 0.77924,
+        0.78006, 0.78087, 0.78167, 0.78248, 0.78328, 0.78408, 0.78488, 0.78568,
+        0.78647, 0.78726, 0.78805, 0.78884, 0.78962, 0.79040, 0.79118, 0.79196,
+        0.79274, 0.79351, 0.79428, 0.79505, 0.79582, 0.79658, 0.79735, 0.79811,
+        0.79887, 0.79962, 0.80038, 0.80113, 0.80188, 0.80263, 0.80337, 0.80412,
+        0.80486, 0.80560, 0.80634, 0.80707, 0.80780, 0.80854, 0.80926, 0.80999,
+        0.81072, 0.81144, 0.81216, 0.81288, 0.81360, 0.81431, 0.81503, 0.81574,
+        0.81645, 0.81715, 0.81786, 0.81856, 0.81926, 0.81996, 0.82066, 0.82135,
+        0.82205, 0.82274, 0.82343, 0.82412, 0.82480, 0.82549, 0.82617, 0.82685,
+        0.82753, 0.82820, 0.82888, 0.82955, 0.83022, 0.83089, 0.83155, 0.83222,
+        0.83288, 0.83354, 0.83420, 0.83486, 0.83552, 0.83617, 0.83682, 0.83747,
+        0.83812, 0.83877, 0.83941, 0.84005, 0.84069, 0.84133, 0.84197, 0.84261,
+        0.84324, 0.84387, 0.84450, 0.84513, 0.84576, 0.84639, 0.84701, 0.84763,
+        0.84825, 0.84887, 0.84949, 0.85010, 0.85071, 0.85132, 0.85193, 0.85254,
+        0.85315, 0.85375, 0.85436, 0.85496, 0.85556, 0.85615, 0.85675, 0.85735,
+        0.85794, 0.85853, 0.85912, 0.85971, 0.86029, 0.86088, 0.86146, 0.86204,
+        0.86262, 0.86320, 0.86378, 0.86435, 0.86493, 0.86550, 0.86607, 0.86664,
+        0.86720, 0.86777, 0.86833, 0.86889, 0.86945, 0.87001, 0.87057, 0.87113,
+        0.87168, 0.87223, 0.87278, 0.87333, 0.87388, 0.87443, 0.87497, 0.87552,
+        0.87606, 0.87660, 0.87714, 0.87768, 0.87821, 0.87875, 0.87928, 0.87981,
+        0.88034, 0.88087, 0.88140, 0.88192, 0.88244, 0.88297, 0.88349, 0.88401,
+        0.88453, 0.88504, 0.88556, 0.88607, 0.88658, 0.88709, 0.88760, 0.88811,
+        0.88862, 0.88912, 0.88963, 0.89013, 0.89063, 0.89113, 0.89163, 0.89212,
+        0.89262, 0.89311, 0.89360, 0.89409, 0.89458, 0.89507, 0.89556, 0.89604,
+        0.89653, 0.89701, 0.89749, 0.89797, 0.89845, 0.89892, 0.89940, 0.89987,
+        0.90035, 0.90082, 0.90129, 0.90176, 0.90222, 0.90269, 0.90316, 0.90362,
+        0.90408, 0.90454, 0.90500, 0.90546, 0.90592, 0.90637, 0.90683, 0.90728,
+        0.90773, 0.90818, 0.90863, 0.90908, 0.90952, 0.90997, 0.91041, 0.91085,
+        0.91130, 0.91173, 0.91217, 0.91261, 0.91305, 0.91348, 0.91392, 0.91435,
+        0.91478, 0.91521, 0.91564, 0.91606, 0.91649, 0.91691, 0.91734, 0.91776,
+        0.91818, 0.91860, 0.91902, 0.91944, 0.91985, 0.92027, 0.92068, 0.92109,
+        0.92150, 0.92191, 0.92232, 0.92273, 0.92314, 0.92354, 0.92395, 0.92435,
+        0.92475, 0.92515, 0.92555, 0.92595, 0.92634, 0.92674, 0.92713, 0.92753,
+        0.92792, 0.92831, 0.92870, 0.92909, 0.92947, 0.92986, 0.93025, 0.93063,
+        0.93101, 0.93139, 0.93177, 0.93215, 0.93253, 0.93291, 0.93328, 0.93366,
+        0.93403, 0.93440, 0.93478, 0.93515, 0.93551, 0.93588, 0.93625, 0.93661,
+        0.93698, 0.93734, 0.93770, 0.93807, 0.93843, 0.93878, 0.93914, 0.93950,
+        0.93986, 0.94021, 0.94056, 0.94092, 0.94127, 0.94162, 0.94197, 0.94231,
+        0.94266, 0.94301, 0.94335, 0.94369, 0.94404, 0.94438, 0.94472, 0.94506,
+        0.94540, 0.94573, 0.94607, 0.94641, 0.94674, 0.94707, 0.94740, 0.94774,
+        0.94807, 0.94839, 0.94872, 0.94905, 0.94937, 0.94970, 0.95002, 0.95035,
+        0.95067, 0.95099, 0.95131, 0.95163, 0.95194, 0.95226, 0.95257, 0.95289,
+        0.95320, 0.95351, 0.95383, 0.95414, 0.95445, 0.95475, 0.95506, 0.95537,
+        0.95567, 0.95598, 0.95628, 0.95658, 0.95688, 0.95718, 0.95748, 0.95778,
+        0.95808, 0.95838, 0.95867, 0.95897, 0.95926, 0.95955, 0.95984, 0.96013,
+        0.96042, 0.96071, 0.96100, 0.96129, 0.96157, 0.96186, 0.96214, 0.96242,
+        0.96271, 0.96299, 0.96327, 0.96355, 0.96382, 0.96410, 0.96438, 0.96465,
+        0.96493, 0.96520, 0.96547, 0.96574, 0.96602, 0.96629, 0.96655, 0.96682,
+        0.96709, 0.96735, 0.96762, 0.96788, 0.96815, 0.96841, 0.96867, 0.96893,
+        0.96919, 0.96945, 0.96971, 0.96996, 0.97022, 0.97047, 0.97073, 0.97098,
+        0.97123, 0.97149, 0.97174, 0.97199, 0.97223, 0.97248, 0.97273, 0.97297,
+        0.97322, 0.97346, 0.97371, 0.97395, 0.97419, 0.97443, 0.97467, 0.97491,
+        0.97515, 0.97539, 0.97562, 0.97586, 0.97609, 0.97633, 0.97656, 0.97679,
+        0.97702, 0.97725, 0.97748, 0.97771, 0.97794, 0.97817, 0.97839, 0.97862,
+        0.97884, 0.97907, 0.97929, 0.97951, 0.97973, 0.97995, 0.98017, 0.98039,
+        0.98061, 0.98082, 0.98104, 0.98125, 0.98147, 0.98168, 0.98189, 0.98211,
+        0.98232, 0.98253, 0.98274, 0.98295, 0.98315, 0.98336, 0.98357, 0.98377,
+        0.98398, 0.98418, 0.98438, 0.98458, 0.98478, 0.98498, 0.98518, 0.98538,
+        0.98558, 0.98578, 0.98597, 0.98617, 0.98636, 0.98656, 0.98675, 0.98694,
+        0.98714, 0.98733, 0.98752, 0.98771, 0.98789, 0.98808, 0.98827, 0.98845,
+        0.98864, 0.98882, 0.98901, 0.98919, 0.98937, 0.98955, 0.98973, 0.98991,
+        0.99009, 0.99027, 0.99045, 0.99063, 0.99080, 0.99098, 0.99115, 0.99133,
+        0.99150, 0.99167, 0.99184, 0.99201, 0.99218, 0.99235, 0.99252, 0.99269,
+        0.99285, 0.99302, 0.99319, 0.99335, 0.99351, 0.99368, 0.99384, 0.99400,
+        0.99416, 0.99432, 0.99448, 0.99464, 0.99480, 0.99495, 0.99511, 0.99527,
+        0.99542, 0.99558, 0.99573, 0.99588, 0.99603, 0.99619, 0.99634, 0.99649,
+        0.99664, 0.99678, 0.99693, 0.99708, 0.99722, 0.99737, 0.99751, 0.99766,
+        0.99780, 0.99794, 0.99809, 0.99823, 0.99837, 0.99851, 0.99865, 0.99879,
+        0.99892, 0.99906, 0.99920, 0.99933, 0.99947, 0.99960, 0.99974, 0.99987,
+        1.00000,
+    ]
 
     static let shaders = #"""
     #include <metal_stdlib>
@@ -491,6 +680,7 @@ enum PhotoEngine {
         float hue[8]; float sat[8]; float lum[8];
         float vibrance, saturation;
         int wheels, mixer;
+        float blend, balance;
     };
 
     constant float3x3 toRec2020 = float3x3(float3(0.6274039, 0.0690973, 0.0163914),
@@ -618,8 +808,10 @@ enum PhotoEngine {
         if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint);
         c = toRec2020 * c;
         if (g.wheels != 0) {
-            float e = log2(max(luma2020(c), 1e-6) / 0.18);
-            float shadow = 1.0 - smoothstep(-4.5, 0.5, e), light = smoothstep(-0.5, 3.5, e);
+            // Balance moves where shadows end and highlights begin; Blending widens or narrows both ranges.
+            float e = log2(max(luma2020(c), 1e-6) / 0.18) + g.balance;
+            float shadow = 1.0 - smoothstep(-2.0 - 2.5 * g.blend, -2.0 + 2.5 * g.blend, e);
+            float light = smoothstep(1.5 - 2.0 * g.blend, 1.5 + 2.0 * g.blend, e);
             float3 ev = g.offset.rgb * 0.5 + g.offset.w + shadow * (g.lift.rgb * 0.7 + g.lift.w * 1.5)
                       + light * (g.gain.rgb * 0.7 + g.gain.w * 1.5);
             c *= exp2(ev);
@@ -718,10 +910,11 @@ enum PhotoEngine {
     };
 
     // The local tone (shadows, highlights, clarity, texture) as the new log brightness.
-    inline float tonedLog(float L, float2 al, float2 as, constant Params &p) {
+    // `Lg`: the brightness the layers follow (see guideColour), `L` the pixel's own.
+    inline float tonedLog(float L, float Lg, float2 al, float2 as, constant Params &p) {
         // b moves with the exposure the layers were made without: (1 − a)·shift.
-        float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
-        float baseS = as.x * L + as.y + (1.0 - as.x) * p.shift;
+        float baseL = al.x * Lg + al.y + (1.0 - al.x) * p.shift;
+        float baseS = as.x * Lg + as.y + (1.0 - as.x) * p.shift;
         float detail = L - baseS, mid = baseS - baseL;
         // Local tone, on the large base, in stops from mid grey. Highlights compress (or stretch)
         // what's above mid grey, shadows what's below: the curve always keeps rising, so nothing
@@ -742,9 +935,9 @@ enum PhotoEngine {
 
     // Version 2, one pixel: dehaze, local tone, then the rest (finish). `t`: how much light gets
     // through the haze there.
-    inline float3 developModern(float3 c, float2 al, float2 as, float t, float3 soft, float3 wide,
+    inline float3 developModern(float3 c, float3 cg, float2 al, float2 as, float t, float3 soft, float3 wide,
                                 constant Params &p, constant Grade &g, constant float4 *curve) {
-        float L = log2(max(luma(c), 1e-5));
+        float L = log2(max(luma(c), 1e-5)), Lg = log2(max(luma(cg), 1e-5));
         // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
         // through (the dark channel prior); the layers then work on what's left.
         if (p.dehaze != 0) {
@@ -752,22 +945,24 @@ enum PhotoEngine {
             if (p.dehaze > 0) {
                 float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8);
                 c = (c - A) / through + A;
+                cg = (cg - A) / through + A;
             } else {
                 // More haze where there's already some (far away), less up close.
                 float through = 1.0 + 0.22 * p.dehaze * (1.0 - 0.5 * t);
                 c = c * through + A * (1.0 - through);
+                cg = cg * through + A * (1.0 - through);
             }
-            float Ld = log2(max(luma(c), 1e-5));
+            float Ld = log2(max(luma(cg), 1e-5));
             // The layers' base follows the change, so it isn't undone as detail.
-            al.y += (Ld - L) * (1.0 - al.x);
-            as.y += (Ld - L) * (1.0 - as.x);
-            L = Ld;
+            al.y += (Ld - Lg) * (1.0 - al.x);
+            as.y += (Ld - Lg) * (1.0 - as.x);
+            L = log2(max(luma(c), 1e-5)); Lg = Ld;
         }
-        float Lp = tonedLog(L, al, as, p);
+        float Lp = tonedLog(L, Lg, al, as, p);
         // Clarity: the contrast against a soft copy of the photo (about 2% of its size), less only in
         // the extremes; a third of its base follows the edges, so it doesn't halo.
         if (p.clarity != 0) {
-            float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
+            float baseL = al.x * Lg + al.y + (1.0 - al.x) * p.shift;
             float local = L - mix(log2(max(luma(soft), 1e-5)), baseL, 0.35);
             // Full from 2 stops under mid grey to 2 over, easing to half at 7 (deep shadows, light sources): skies and
             // shadows get it too.
@@ -783,6 +978,30 @@ enum PhotoEngine {
             c = mix(c, soft, 0.22 * k) + bloom * 0.45 * k;
         }
         return finish(c, p, g, curve);
+    }
+
+    // The colour the local-tone layers follow here: the pixels around (5×5) within about a stop of this one, averaged
+    // in linear light. With the pixel alone, its noise is in the gain (darker specks lifted more, and as they're mostly
+    // low green, lifted shadows turn into magenta and green blotches); across an edge nothing is mixed in, so no halo.
+    inline float3 guideColour(texture2d<float, access::read> image, uint2 gid, int2 offset, float3 c, bool positive) {
+        uint2 size = uint2(image.get_width(), image.get_height());
+        float box = 0;
+        for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) {
+            float3 n = image.read(at(gid, offset + int2(x, y), size)).rgb;
+            box += luma(positive ? max(n, 0.0) : n);
+        }
+        // (A speck at or below black is measured against what's around it, not itself.)
+        float ref = log2(max(max(luma(c), box / 25.0 / 16.0), 1e-5));
+        float3 sum = 0.0;
+        float weights = 0.0;
+        for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) {
+            float3 n = image.read(at(gid, offset + int2(x, y), size)).rgb;
+            if (positive) n = max(n, 0.0);
+            float d = log2(max(luma(n), 1e-5)) - ref;
+            float w = exp(-0.5 * d * d);
+            sum += w * n; weights += w;
+        }
+        return weights > 1e-20 ? sum / weights : c;
     }
 
     kernel void develop(texture2d<float, access::read> image [[texture(0)]],
@@ -807,6 +1026,7 @@ enum PhotoEngine {
         if (p.process < 2) c = max(c, 0.0);
         float Y = max(luma(c), 1e-5);
         float L = log2(Y);
+        float3 cg = guideColour(image, gid, offsets[0], c, p.process < 2);
         // Where this pixel is in the photo, then in each small layer's texture.
         float2 pos = float2(map[0].x + float(gid.x) + 0.5, map[0].y - float(gid.y) - 0.5);
         float2 t1 = float2(map[1].x * pos.x + map[1].y, map[1].z * pos.y + map[1].w);
@@ -827,7 +1047,7 @@ enum PhotoEngine {
                 wide += glow.sample(smooth, t5 + o).rgb * p.glowGain;
             }
             wide /= 9.0;
-            float3 out = developModern(c, al, as, through, soft, wide, p, gs[0], curve);
+            float3 out = developModern(c, cg, al, as, through, soft, wide, p, gs[0], curve);
             // The masks: each one's own settings developed here too, mixed in where it is.
             int count = p.masks;
             if (count > 0) {
@@ -855,7 +1075,7 @@ enum PhotoEngine {
                     if (k == int(p.overlay)) marked = w;
                     if (w < 0.002) continue;
                     float3x3 change = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz);
-                    out = mix(out, developModern(change * c, al, as, through, change * soft, change * wide, ps[k + 1], gs[k + 1], curve), w);
+                    out = mix(out, developModern(change * c, change * cg, al, as, through, change * soft, change * wide, ps[k + 1], gs[k + 1], curve), w);
                 }
                 // The mask being edited, shown in red.
                 if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
@@ -863,7 +1083,7 @@ enum PhotoEngine {
             dst.write(float4(out, 1.0), gid);
             return;
         }
-        float Lp = tonedLog(L, al, as, p);
+        float Lp = tonedLog(L, log2(max(luma(cg), 1e-5)), al, as, p);
         c *= exp2(Lp - L);
         if (p.dehaze != 0) {
             float haze = 0.03 * p.dehaze;
@@ -896,6 +1116,63 @@ enum PhotoEngine {
         float Y2 = luma(outc);
         outc = p.profile == 4 ? float3(Y2) : Y2 + (outc - Y2) * sat;
         dst.write(float4(clamp(outc, 0.0, 1.0), 1.0), gid);
+    }
+
+    // The vignette's highlights and style, and grain (see PhotoRender.effects).
+    struct Effects {
+        float highlights, grain, size, rough, scale, ox, oy;
+        int paint;
+    };
+
+    inline float grainHash(int2 q) {
+        uint h = uint(q.x) * 374761393u + uint(q.y) * 668265263u;
+        h = (h ^ (h >> 13)) * 1274126177u;
+        return float(h ^ (h >> 16)) * (2.0 / 4294967295.0) - 1.0;
+    }
+
+    // Value noise: a random number at each corner of a grid, smoothly in between.
+    inline float grainNoise(float2 p) {
+        float2 i = floor(p), f = p - i;
+        f = f * f * (3.0 - 2.0 * f);
+        int2 q = int2(i);
+        return mix(mix(grainHash(q), grainHash(q + int2(1, 0)), f.x), mix(grainHash(q + int2(0, 1)), grainHash(q + int2(1, 1)), f.x), f.y);
+    }
+
+    // One octave of grain `cell` full-size pixels wide, seen at `scale`: grains smaller than a pixel average out.
+    inline float grainOctave(float2 p, float cell, float scale) {
+        return grainNoise(p / max(cell, 1.0 / scale)) * min(cell * scale, 1.0);
+    }
+
+    kernel void effects(texture2d<float, access::read> src [[texture(0)]],
+                        texture2d<float, access::read> mask [[texture(1)]],
+                        texture2d<float, access::write> dst [[texture(2)]],
+                        constant Effects &e [[buffer(0)]],
+                        constant float2 &origin [[buffer(1)]],
+                        constant int2 *offsets [[buffer(2)]],
+                        uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        float4 px = src.read(at(gid, offsets[0], uint2(src.get_width(), src.get_height())));
+        float m = mask.read(at(gid, offsets[1], uint2(mask.get_width(), mask.get_height()))).r;
+        float3 c = px.rgb;
+        float v = pow(clamp(luma(c), 0.0, 1.0), 1.0 / 2.2);
+        // Highlights: where the vignette darkens, the brightest parts keep (some of) their light.
+        if (m < 1.0) m = mix(m, 1.0, e.highlights * smoothstep(0.5, 1.0, v));
+        if (e.paint != 0 && m > 1.0) {
+            // Paint overlay: lighter edges mix towards white (in picture steps) rather than brightening the light.
+            c = pow(mix(pow(max(c, 0.0), 1.0 / 2.2), float3(1.0), 1.0 - 1.0 / m), 2.2);
+        } else {
+            c *= m;
+        }
+        if (e.grain > 0) {
+            // Where the pixel is on the photo at full size, so the grain keeps its size and place in any render.
+            float2 p = (float2(origin.x + gid.x + 0.5, origin.y - gid.y - 0.5) - float2(e.ox, e.oy)) / e.scale;
+            float n = grainOctave(p, e.size, e.scale) + e.rough * grainOctave(p + 17.0, e.size * 0.5, e.scale);
+            n /= sqrt(1.0 + e.rough * e.rough);
+            // Strongest in the midtones, as film grain looks.
+            float w = 4.0 * v * (1.0 - v);
+            c *= exp2(e.grain * n * w);
+        }
+        dst.write(float4(c, px.a), gid);
     }
     """#
 
@@ -1049,14 +1326,26 @@ final class GuideCoef: CIImageProcessorKernel {
     }
 }
 
+/// The vignette's shape and grain (see PhotoRender.effects).
+final class EffectsPass: CIImageProcessorKernel {
+    override class var outputFormat: CIFormat { .RGBAh }
+    override class func formatForInput(at input: Int32) -> CIFormat { .RGBAh }
+    override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect { outputRect }
+    override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
+        let origin = [Float(output.region.minX), Float(output.region.maxY)].withUnsafeBytes { Data($0) }
+        try PhotoEngine.run("effects", inputs: inputs, output: output, bytes: [(arguments?["effects"] as? Data) ?? Data(count: 32), origin])
+    }
+}
+
 /// Local tone and the profile.
 final class DevelopPass: CIImageProcessorKernel {
     override class var outputFormat: CIFormat { .RGBAh }
     override class func formatForInput(at input: Int32) -> CIFormat { .RGBAh }
-    /// The photo where the output is; the two small layers whole.
+    /// The photo where the output is (and 2 pixels around, for guideColour); the two small layers whole.
     override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect {
+        if input == 0 { return outputRect.insetBy(dx: -2, dy: -2) }
         // (As numbers: Core Image moves rectangles it finds among the arguments.)
-        guard input > 0, let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else { return outputRect }
+        guard let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else { return outputRect }
         let i = Int(input - 1) * 4
         return CGRect(x: sizes[i], y: sizes[i + 1], width: sizes[i + 2], height: sizes[i + 3])
     }

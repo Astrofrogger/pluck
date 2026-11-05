@@ -299,9 +299,10 @@ struct PhotoInspector: View {
                 }
             }
             HStack(spacing: 8) {
-                Picker("Profile", selection: Binding(get: { record.adjust.profile ?? (raw ? .neutral : .asShot) },
+                // (Classic is As Shot on a photo that isn't RAW.)
+                Picker("Profile", selection: Binding(get: { record.adjust.profile.map { !raw && $0 == .adobe ? .asShot : $0 } ?? (raw ? .neutral : .asShot) },
                                                      set: { value in change { $0.adjust.profile = value } })) {
-                    ForEach(PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : true }) { Text($0.title).tag($0) }
+                    ForEach(PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : $0 != .adobe }) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()
@@ -315,6 +316,10 @@ struct PhotoInspector: View {
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
+            if let look = record.adjust.lookName, record.adjust.lookTable != nil {
+                // A creative profile from Lightroom: how much of it.
+                slider(LocalizedStringKey(look), \.lookAmount, 0...200, neutral: 100, format: "%.0f")
+            }
             if record.adjust.process < PhotoAdjustments.currentProcess {
                 // Edited with the first engine: kept as it was until asked.
                 HStack(spacing: 8) {
@@ -362,6 +367,12 @@ struct PhotoInspector: View {
                 slider("Clarity", \.clarity, -100...100)
                 slider("Dehaze", \.dehaze, -100...100)
                 slider("Vignette", \.vignette, -100...100)
+                if record.adjust.vignette != 0 {
+                    slider("Midpoint", \.vignetteMidpoint, 0...100, neutral: 50)
+                    slider("Feather", \.vignetteFeather, 0...100, neutral: 50)
+                    slider("Roundness", \.vignetteRoundness, 0...100, neutral: 100)
+                    slider("Highlights", \.vignetteHighlights, 0...100)
+                }
             }
             AdjustFold(title: "Colour Mixer", section: .mixer, adjust: record.adjust, reset: { resetSection(.mixer) }) {
                 ColorMixerEditor(mixer: record.adjust.mixer) { mixer in change { $0.adjust.mixer = mixer } }
@@ -374,7 +385,13 @@ struct PhotoInspector: View {
             }
             AdjustFold(title: "Detail", section: .detail, adjust: record.adjust, reset: { resetSection(.detail) }) {
                 slider("Sharpen", \.sharpen, 0...100)
-                slider("Noise", \.noise, 0...100)
+                // Lightroom's manual noise reduction. A denoised RAW is decoded without it (Denoise does it instead).
+                if !raw || record.denoise == 0 {
+                    Text("Noise").font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
+                    slider("Luminance", \.noise, 0...100)
+                    if raw { slider("Colour", \.colorNoise, 0...100, neutral: PhotoAdjustments.defaultColorNoise) }
+                }
                 if raw { slider("Moiré", \.moire, 0...100) }
                 denoise
             }
@@ -390,6 +407,16 @@ struct PhotoInspector: View {
                         .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
                     slider("Hue", (\PhotoAdjustments.calibration).appending(path: hue), -100...100)
                     slider("Saturation", (\PhotoAdjustments.calibration).appending(path: saturation), -100...100, track: .colour(colour))
+                }
+            }
+            // Grain for a photo without film (the film makes its own).
+            if !record.filmOn {
+                AdjustFold(title: "Effects", section: .effects, adjust: record.adjust, reset: { resetSection(.effects) }) {
+                    slider("Grain", \.grain, 0...100)
+                    if record.adjust.grain > 0 {
+                        slider("Size", \.grainSize, 0...100, neutral: 25)
+                        slider("Roughness", \.grainRoughness, 0...100, neutral: 50)
+                    }
                 }
             }
             Button("Reset Adjustments") { change { $0.adjust = PhotoAdjustments() } }
@@ -491,15 +518,17 @@ struct PhotoInspector: View {
 
     private var portraitPhoto: Bool { shown.map(PhotoRender.isPortrait) ?? false }
 
-    @State private var denoiseStrength = 50.0
     @State private var film = FilmEngine.shared
 
     @AppStorage("photoDenoiseAI") private var denoiseAI = false
 
-    /// Denoise: a slower, better noise reduction at full size, done once and kept. Standard
-    /// (non-local means) or AI (a network trained on real camera noise, an optional download).
+    /// Denoise, as Lightroom's: a switch, Standard (non-local means) or AI (a network trained on real camera
+    /// noise, an optional download), and an Amount. The noise is worked out once per photo; the Amount is live.
     private var denoise: some View {
         let busy = paths.filter(editing.denoising.contains).count
+        let on = record.denoise > 0
+        let ready = shown.map { PhotoRender.hasClean($0, record: record) } ?? false
+        let modelMissing = denoiseAI && film.denoiser != .ready
         return VStack(alignment: .leading, spacing: 6) {
             if film.denoiseEngine != .ready {
                 switch film.denoiseEngine {
@@ -520,40 +549,54 @@ struct PhotoInspector: View {
                     Text("Removing noise from ^[\(busy) photo](inflect: true)…").font(.callout).foregroundStyle(.secondary)
                 }
             } else {
-                Picker("Denoise", selection: $denoiseAI) {
-                    Text("Standard").tag(false)
-                    Text("AI").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                if denoiseAI, film.denoiser != .ready {
-                    aiOffer
-                } else {
-                    HStack(spacing: 8) {
-                        Slider(value: $denoiseStrength, in: 10...100, step: 5)
-                        Text(verbatim: "\(Int(denoiseStrength))").font(.caption.monospacedDigit()).frame(width: 26, alignment: .trailing)
-                        Button(record.denoise > 0 ? "Redo" : "Denoise") {
-                            editing.denoise(editTargets, strength: Int(denoiseStrength), ai: denoiseAI)
-                        }
+                HStack {
+                    Toggle("Denoise", isOn: Binding(get: { on }, set: { new in
+                        if new { editing.denoise(editTargets, ai: denoiseAI) } else { change { $0.denoise = 0 } }
+                    }))
+                    .toggleStyle(.checkbox)
+                    .font(.callout)
+                    .disabled(modelMissing && !on)
+                    Spacer()
+                    Picker("Denoise", selection: Binding(get: { denoiseAI }, set: { ai in
+                        denoiseAI = ai
+                        if on, !(ai && film.denoiser != .ready) { editing.denoise(editTargets, ai: ai) }
+                    })) {
+                        Text("Standard").tag(false)
+                        Text("AI").tag(true)
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
                 }
-                if record.denoise > 0 {
-                    HStack {
-                        Label(record.denoiseAI ? "AI denoised at \(record.denoise)" : "Denoised at \(record.denoise)", systemImage: "checkmark.circle.fill")
-                            .font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        Button("Remove") { change { $0.denoise = 0; $0.denoiseAI = false } }.buttonStyle(.link).font(.caption)
+                if modelMissing {
+                    aiOffer
+                } else if on {
+                    // Mixed live with the photo as it's drawn: never worked out again.
+                    AdjustSlider(title: "Amount", value: Double(record.denoise), range: 0...100, neutral: 50, format: "%.0f") { new in
+                        // (At least 1: 0 is off, which the checkbox does, and would take the slider away mid-drag.)
+                        change { $0.denoise = max(1, Int(new.rounded())) }
+                    }
+                    .padding(.horizontal, -Design.Sidebar.rowPadding)
+                    .disabled(!ready)
+                    if ready {
+                        Text("Compare at 100%.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }
             if let problem = editing.denoiseProblem { ProblemLabel(text: problem) }
         }
         .controlSize(.small)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, Design.Sidebar.rowPadding)
         .padding(.top, 4)
         .onAppear {
             film.checkDenoiser()
-            if record.denoise > 0 { denoiseStrength = Double(record.denoise); denoiseAI = record.denoiseAI }
+            if on { denoiseAI = record.denoiseAI }
+        }
+        // A photo denoised before version 2 (or whose decoder settings changed) is worked out again, once.
+        .task(id: "\(shown ?? "")|\(record.denoise > 0)|\(record.denoiseAI)|\(PhotoRender.RawSettings(record.adjust).key)|\(film.denoiseEngine == .ready)") {
+            if on { denoiseAI = record.denoiseAI }
+            guard on, film.denoiseEngine == .ready, !record.denoiseAI || film.denoiser == .ready else { return }
+            editing.analyse(editTargets)
         }
     }
 
@@ -625,8 +668,9 @@ struct PhotoInspector: View {
     }
 
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<PhotoAdjustments, Double>, _ range: ClosedRange<Double>,
-                        format: String = "%+.0f", label: String? = nil, track: AdjustSlider.Track = .plain, clipping: Bool = false) -> some View {
-        AdjustSlider(title: title, value: record.adjust[keyPath: path], range: range, format: format, label: label, track: track,
+                        neutral: Double = 0, format: String = "%+.0f", label: String? = nil, track: AdjustSlider.Track = .plain,
+                        clipping: Bool = false) -> some View {
+        AdjustSlider(title: title, value: record.adjust[keyPath: path], range: range, neutral: neutral, format: format, label: label, track: track,
                      clipping: clipping) { new in change { $0.adjust[keyPath: path] = new } }
     }
 

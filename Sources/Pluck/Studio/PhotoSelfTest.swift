@@ -44,6 +44,9 @@ enum PhotoSelfTest {
         tone()
         calibration()
         couplerEdges()
+        lightroomExtras()
+        lightroomProfiles()
+        await denoise()
         lines.append("done")
         write()
         NSApp.terminate(nil)
@@ -51,6 +54,12 @@ enum PhotoSelfTest {
 
     static func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
         lines.append(ok ? "PASS \(name)" : "FAIL \(name): \(detail())")
+        write()
+    }
+
+    /// A check that can't run here (neither passed nor failed), and why.
+    static func skip(_ name: String, _ why: String) {
+        lines.append("SKIP \(name): \(why)")
         write()
     }
 

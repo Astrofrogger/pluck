@@ -20,8 +20,15 @@ struct PhotoAdjustments: Codable, Hashable {
     var dehaze = 0.0         // -100…100
     /// The starting point (nil: Neutral for RAW, As Shot for other photos).
     var profile: PhotoEngine.Profile?
+    /// A creative profile from Lightroom (its name and its colour table's digest, see LookTable) and how
+    /// much of it, 0…200 (100 as made). Nil: none.
+    var lookName: String?, lookTable: String?
+    var lookAmount = 100.0
     var sharpen = 0.0        // 0…100
-    var noise = 0.0          // noise reduction, 0…100
+    var noise = 0.0          // luminance noise reduction, 0…100
+    /// Colour noise reduction (RAW), 0…100: Lightroom's Color, 25 by default.
+    var colorNoise = PhotoAdjustments.defaultColorNoise
+    static let defaultColorNoise = 25.0
     var moire = 0.0          // moiré reduction (RAW), 0…100
     /// How the photo is developed, as Lightroom's process versions: 1 the first engine (sRGB,
     /// colour after the profile), 2 scene-referred colour (wide gamut, CAT16, grading before the
@@ -32,6 +39,14 @@ struct PhotoAdjustments: Codable, Hashable {
     /// doesn't change how it looks (nil: not edited yet, the newest).
     var rawDecoder: String?
     var vignette = 0.0       // darker edges -100 … lighter 100
+    /// The vignette's shape, as Lightroom's: how far in it reaches (0…100), how soft its edge,
+    /// how round (0 the frame's shape … 100 a circle, as it always was), how much the brightest
+    /// parts keep their light (0…100), and its style (1 highlight priority, 2 colour priority,
+    /// 3 paint overlay).
+    var vignetteMidpoint = 50.0, vignetteFeather = 50.0, vignetteRoundness = 100.0, vignetteHighlights = 0.0
+    var vignetteStyle = 1
+    /// Grain for a photo without film (the film has its own): 0…100, its size and roughness.
+    var grain = 0.0, grainSize = 25.0, grainRoughness = 50.0
     var straighten = 0.0     // degrees, -45…45
     var crop = Crop.original
     /// The part kept, as shares of the straightened picture (nil: all of it).
@@ -102,9 +117,18 @@ struct PhotoAdjustments: Codable, Hashable {
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
         calibration = value(.calibration, Calibration())
+        lookName = value(.lookName, nil as String?); lookTable = value(.lookTable, nil as String?); lookAmount = value(.lookAmount, 100)
+        vignetteMidpoint = value(.vignetteMidpoint, 50); vignetteFeather = value(.vignetteFeather, 50)
+        vignetteRoundness = value(.vignetteRoundness, 100); vignetteHighlights = value(.vignetteHighlights, 0); vignetteStyle = value(.vignetteStyle, 1)
+        grain = value(.grain, 0); grainSize = value(.grainSize, 25); grainRoughness = value(.grainRoughness, 50)
         // Saved before versions: the first engine, unless nothing was changed.
         process = value(.process, 1)
-        if process < Self.currentProcess, isDefault { process = Self.currentProcess }
+        // Saved before Colour had its own slider: Apple's colour noise reduction was the Noise slider's, at least 50.
+        let colorSaved = value(.colorNoise, nil as Double?)
+        colorNoise = colorSaved ?? Self.defaultColorNoise
+        let untouched = isDefault
+        if process < Self.currentProcess, untouched { process = Self.currentProcess }
+        if colorSaved == nil, !untouched { colorNoise = max(50, noise) }
     }
 
     /// Nothing changed (which decoder made the photo doesn't count).
@@ -317,7 +341,22 @@ struct ColorWheels: Codable, Hashable {
     var gamma = Wheel()
     var gain = Wheel()
     var offset = Wheel()
+    /// Lightroom's Blending (0…100, how much the shadows' and highlights' ranges overlap) and
+    /// Balance (-100 more shadows … 100 more highlights). Version 2 only.
+    var blending = 50.0
+    var balance = 0.0
+    /// (Blending and Balance only shape the wheels: without a push they change nothing.)
     var isDefault: Bool { lift.isDefault && gamma.isDefault && gain.isDefault && offset.isDefault }
+
+    init() {}
+
+    // Saved before Blending and Balance: Lightroom's neutral 50 and 0.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback }
+        lift = value(.lift, Wheel()); gamma = value(.gamma, Wheel()); gain = value(.gain, Wheel()); offset = value(.offset, Wheel())
+        blending = value(.blending, 50); balance = value(.balance, 0)
+    }
 }
 
 /// Lightroom's Calibration: the camera's red, green and blue primaries turned and made more or

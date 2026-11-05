@@ -95,17 +95,33 @@ final class PhotoEditing {
     var exportProblem: String?
     var exportFolder: URL?
 
-    /// Denoises these photos one after the other, then uses the clean ones to develop them.
-    func denoise(_ paths: [String], strength: Int, ai: Bool = false) {
-        let waiting = paths.filter { !denoising.contains($0) }
+    /// Turns Denoise on for these photos with this model (at their Amount; 50, Lightroom's, when it was off), and
+    /// works out what's missing.
+    func denoise(_ paths: [String], ai: Bool) {
+        PhotoCatalog.shared.update(paths) { record in
+            if record.denoise == 0 { record.denoise = 50 }
+            record.denoiseAI = ai
+            record.edited = .now
+        }
+        analyse(paths)
+    }
+
+    /// Works out the clean decode of the denoised photos that don't have one for their model and settings yet
+    /// (an edit from before version 2 too), one after the other: once each. The Amount is never worked out.
+    func analyse(_ paths: [String]) {
+        let catalog = PhotoCatalog.shared
+        let waiting = paths.filter { !denoising.contains($0) && catalog.record($0).denoise > 0 && !PhotoRender.hasClean($0, record: catalog.record($0)) }
         guard !waiting.isEmpty else { return }
         denoising.formUnion(waiting)
         denoiseProblem = nil
         Task {
             for path in waiting {
                 do {
-                    try await PhotoRender.denoise(path, strength: ai ? 1000 + strength : strength, worker: 5)
-                    PhotoCatalog.shared.update([path]) { $0.denoise = strength; $0.denoiseAI = ai; $0.edited = .now }
+                    // Again while the model or decoder settings changed during it (the inspector asked while this ran).
+                    repeat { try await PhotoRender.denoise(path, record: catalog.record(path), worker: 5) }
+                    while catalog.record(path).denoise > 0 && !PhotoRender.hasClean(path, record: catalog.record(path))
+                    // (So what shows is developed again, from the clean decode.)
+                    catalog.update([path]) { $0.edited = .now }
                 } catch {
                     denoiseProblem = error.localizedDescription
                 }

@@ -12,7 +12,9 @@ struct PhotoRecord: Codable, Hashable {
     var filmOn = false
     var film = FilmSettings()
     var edited: Date?
-    /// Noise taken out before developing (0: none, else the strength in %), by AI or not.
+    /// Denoise (0: off, else its Amount, 1…100), by AI or not: the noise is worked out once per file
+    /// (PhotoRender.denoise) and the Amount mixed in live. (Before version 2 this was the strength
+    /// a file was worked out at: the same scale, so an old edit reads as on, at that Amount.)
     var denoise = 0
     var denoiseAI = false
     /// Looks kept along the way, to go back to.
@@ -23,9 +25,6 @@ struct PhotoRecord: Codable, Hashable {
     var hdr: Bool?
 
     var isEdited: Bool { !adjust.isDefault || filmOn || denoise > 0 }
-
-    /// The denoised file's strength key (the AI's counts from 1000).
-    var denoiseKey: Int { denoise > 0 && denoiseAI ? 1000 + denoise : denoise }
 
     init() {}
 

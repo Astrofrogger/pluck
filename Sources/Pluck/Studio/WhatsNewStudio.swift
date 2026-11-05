@@ -5,6 +5,14 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.4", items: [
+                Item(symbol: "wand.and.stars", title: String(localized: "Better Denoise"),
+                     detail: String(localized: "Denoise removes far more noise, and analyses each photo only once: Amount and the new Luminance and Colour sliders change live afterwards, as in Lightroom.")),
+                Item(symbol: "circle.lefthalf.filled", title: String(localized: "Cleaner shadows"),
+                     detail: String(localized: "Lifting Shadows no longer brings out coloured blotches in dark areas.")),
+                Item(symbol: "camera.filters", title: String(localized: "Closer Lightroom presets"),
+                     detail: String(localized: "Presets now bring their parametric curve, split toning, vignette shape, grain, creative profile and older settings along. RAW photos can start from a new Classic profile.")),
+            ]),
             Release(version: "3.9.3", items: [
                 Item(symbol: "slider.horizontal.3", title: String(localized: "Calibration"),
                      detail: String(localized: "A Calibration panel on the Photo page moves the red, green and blue primaries and tints the shadows, as in Lightroom. Lightroom presets that use it now bring it along.")),

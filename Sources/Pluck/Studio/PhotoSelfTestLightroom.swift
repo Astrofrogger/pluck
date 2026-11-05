@@ -33,7 +33,7 @@ extension PhotoSelfTest {
               "3 points, middle 0.502, 0.549; got \(curve)")
         check("colour grading to wheels", abs(adjust.wheels.lift.x + 0.1) < 0.001 && abs(adjust.wheels.lift.y - 0.1732) < 0.001,
               "lift at 120° half way (-0.1, 0.173); got \(adjust.wheels.lift.x), \(adjust.wheels.lift.y)")
-        check("unmapped listed", unmapped == ["GrainAmount"], "only GrainAmount; got \(unmapped)")
+        check("unmapped listed", unmapped.isEmpty, "nothing (grain is mapped now); got \(unmapped)")
         check("preset name is its own", crs["Name"] == "Soft Teal", "Soft Teal, not the profile's; got \(String(describing: crs["Name"]))")
         // White balance: As Shot leaves it; Custom on a photo is measured from its own light.
         let asShot = LightroomPresets.adjustments(["WhiteBalance": "As Shot", "Temperature": "3200", "Tint": "+10"], asShotKelvin: 3200).0

@@ -169,7 +169,7 @@ struct AdjustSlider: View {
 /// The Adjust panel's sections, each with what it holds (to show it's edited, to peek at the photo
 /// without it, and to reset it).
 enum AdjustSection: String, CaseIterable {
-    case light, colour, presence, mixer, curves, wheels, detail, calibration
+    case light, colour, presence, mixer, curves, wheels, detail, calibration, effects
 
     /// The words it's found by: its name and its tools'.
     var words: [String] {
@@ -187,6 +187,7 @@ enum AdjustSection: String, CaseIterable {
                        String(localized: "Denoise")]
         case .calibration: [String(localized: "Calibration"), String(localized: "Shadows Tint"), String(localized: "Red Primary"),
                             String(localized: "Green Primary"), String(localized: "Blue Primary")]
+        case .effects: [String(localized: "Effects"), String(localized: "Grain")]
         }
     }
 
@@ -210,6 +211,8 @@ enum AdjustSection: String, CaseIterable {
             a.temperature = 0; a.tint = 0; a.vibrance = 0; a.saturation = 0
         case .presence:
             a.texture = 0; a.clarity = 0; a.dehaze = 0; a.vignette = 0
+            a.vignetteMidpoint = fresh.vignetteMidpoint; a.vignetteFeather = fresh.vignetteFeather
+            a.vignetteRoundness = fresh.vignetteRoundness; a.vignetteHighlights = fresh.vignetteHighlights; a.vignetteStyle = fresh.vignetteStyle
         case .mixer:
             a.mixer = fresh.mixer
         case .curves:
@@ -217,9 +220,11 @@ enum AdjustSection: String, CaseIterable {
         case .wheels:
             a.wheels = fresh.wheels
         case .detail:
-            a.sharpen = 0; a.noise = 0; a.moire = 0
+            a.sharpen = 0; a.noise = 0; a.colorNoise = fresh.colorNoise; a.moire = 0
         case .calibration:
             a.calibration = fresh.calibration
+        case .effects:
+            a.grain = fresh.grain; a.grainSize = fresh.grainSize; a.grainRoughness = fresh.grainRoughness
         }
     }
 }
@@ -341,7 +346,7 @@ struct PhotoLooks: View {
 
     private var profiles: [Look] {
         let raw = PhotoRender.isRaw(path)
-        return PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : true }.map { profile in
+        return PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : $0 != .adobe }.map { profile in
             var r = record
             r.adjust.profile = profile
             return Look(id: "profile-" + profile.rawValue, title: profile.title, record: r)

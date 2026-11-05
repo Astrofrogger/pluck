@@ -118,3 +118,12 @@ CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). The tables are d
 are shared under the same licence; the licence text and notice ship with them in
 `FilmTables/LICENSE` and `FilmTables/NOTICE.txt`. The film engine's own licence (GPL-3.0-or-later) is
 in `FilmEngine/COPYING`.
+
+## Adobe DNG SDK (Lightroom profiles, Pluck Studio)
+This product includes DNG technology under license by Adobe Systems Incorporated. Pluck Studio's
+Adobe-like profile uses the DNG SDK's default tone curve (`dng_tone_curve_acr3_default`, dng_render.cpp),
+and its reading of Lightroom's creative profiles follows the SDK's RGB tables: their text and stream format
+(dng_big_table.cpp), how they're applied (dng_reference.cpp) and their colour spaces and gammas
+(dng_color_space.cpp), from DNG SDK 1.7.1, Copyright 2006-2023 Adobe Systems Incorporated. All Rights
+Reserved. Used under the DNG SDK License Agreement, whose text is in
+[ThirdPartyLicenses/DNG-SDK](ThirdPartyLicenses/DNG-SDK/LICENSE).
