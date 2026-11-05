@@ -176,11 +176,10 @@ private struct ExportChip: View {
 
 // MARK: - Edit
 
-/// The Edit page: the media on the left, the open files in tabs, and the Editor.
+/// The Edit page: the open files in tabs and the Editor; with nothing open, the project manager.
 private struct EditPage: View {
     @Bindable var nav: StudioNavigator
     @AppStorage("studioMediaShown") private var mediaShown = true
-    @AppStorage("studioMediaWidth") private var mediaWidth = 250.0
     @State private var dropTargeted = false
 
     var body: some View {
@@ -189,29 +188,13 @@ private struct EditPage: View {
                 TabStrip(nav: nav)
                 Divider()
             }
-            HStack(spacing: 0) {
-                // With a project open, its panel holds its media; otherwise the Library is here.
-                if nav.current == nil, mediaShown { mediaColumn }
-                VStack(spacing: 0) {
-                if let tab = nav.current, let project = tab.project {
-                    // The project's own media and the libraries are in its panel (EditSidePanel).
-                    ProjectView(model: project)
-                        .id(tab.id)
-                } else {
-                    VStack(spacing: Design.Spacing.section) {
-                        DropZone(symbol: "film", text: Text("Drop a video to edit it, or several to start a project"), targeted: dropTargeted)
-                        HStack(spacing: Design.Spacing.controls) {
-                            Button("Open…", systemImage: "doc", action: openPanel)
-                                .buttonStyle(GlassCapsuleButtonStyle())
-                            Button("New Project", systemImage: "rectangle.stack.badge.plus") { nav.newProject() }
-                                .buttonStyle(BrandButtonStyle())
-                        }
-                    }
-                    .padding(Design.Spacing.window)
-                        .frame(maxWidth: 560, maxHeight: 320)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                }
+            // With a project open, the project; otherwise the project manager.
+            if let tab = nav.current, let project = tab.project {
+                // The project's own media and the libraries are in its panel (EditSidePanel).
+                ProjectView(model: project)
+                    .id(tab.id)
+            } else {
+                ProjectManagerView(nav: nav, sidebarShown: mediaShown, dropTargeted: dropTargeted, openFiles: openPanel)
             }
         }
         .toolbar {
@@ -230,22 +213,17 @@ private struct EditPage: View {
             Task { @MainActor in
                 var files: [URL] = []
                 for provider in providers {
-                    if let url = await provider.load(URL.self), url.isFileURL, EditorTarget.canOpen(url) { files.append(url) }
+                    guard let url = await provider.load(URL.self), url.isFileURL else { continue }
+                    // A project from elsewhere: a copy goes in with the others.
+                    if url.pathExtension == "pluckproject" {
+                        if ProjectStore.importProject(url) != nil { nav.projectsChanged += 1 }
+                    } else if EditorTarget.canOpen(url) { files.append(url) }
                 }
                 // Several files make a project; one opens in its own tab.
                 if files.count > 1 { nav.newProject(with: files) } else if let file = files.first { nav.open(EditorTarget(path: file.path)) }
             }
             return true
         }
-    }
-
-    private var mediaColumn: some View {
-        HStack(spacing: 0) {
-            MediaPanel(nav: nav)
-                .frame(width: mediaWidth)
-            ResizeHandle(width: $mediaWidth, range: 200...420, edge: .leading)
-        }
-        .transition(.move(edge: .leading))
     }
 
     private func openPanel() {

@@ -19,7 +19,7 @@ struct ProjectView: View {
     @State private var dropTargeted = false
     /// The panel with the project's media and the libraries: shown or not, where, how wide, which tab.
     @AppStorage("studioMediaShown") private var panelShown = true
-    @AppStorage("studioMediaWidth") private var panelWidth = 280.0
+    @AppStorage("studioMediaWidth") private var panelWidth = Design.Sidebar.width
     @AppStorage("editPanelPosition") private var panelPosition = EditPanelPosition.bottom
     @AppStorage("editLibraryTab") private var libraryTab = EditLibraryTab.media
     /// How tall the timeline's row is without the extra height dragged onto it (for sharing out the room).
@@ -32,6 +32,13 @@ struct ProjectView: View {
     @State private var recorder = VoiceOverRecorder()
     @State private var voiceOverShown = false
     @AppStorage("voiceOverMuteTimeline") private var muteTimeline = false
+    @AppStorage("projectTextPart") private var textPart = "transcript"
+
+    private func followChoice() {
+        let chosen = model.chosen
+        tab = ProjectInspector.Tab.following(tab, chosen)
+        if chosen == .title { textPart = "titles" }
+    }
 
     var body: some View {
         GeometryReader { page in
@@ -129,6 +136,9 @@ struct ProjectView: View {
         .focused($focused)
         .focusEffectDisabled()
         .onKeyPress(phases: .down, action: key)
+        // A title chosen on the timeline opens its words (Text), a look its colour (Colour).
+        .onChange(of: model.selected) { followChoice() }
+        .onChange(of: model.selectedTitle) { followChoice() }
         .onAppear {
             focused = true
             // The media panel beside it hands on the keys that put its media in (it keeps the focus).
@@ -240,7 +250,7 @@ struct ProjectView: View {
         HStack(spacing: 0) {
             EditSidePanel(model: model, tab: $libraryTab, position: $panelPosition)
                 .frame(width: panelWidth)
-            ResizeHandle(width: $panelWidth, range: 200...560, edge: .leading)
+            ResizeHandle(width: $panelWidth, range: Design.Sidebar.widthRange, edge: .leading)
         }
         .transition(.move(edge: .leading))
     }
@@ -466,10 +476,8 @@ struct ProjectView: View {
         case "k": model.shuttle(0)
         case "l": model.shuttle(1)
         case .delete, .deleteForward:
-            // A title, a song or clips, whichever is selected.
-            if let title = model.selectedTitle { model.removeTitle(title) }
-            else if let song = model.project.music.first(where: { model.selected.contains($0.id) }) { model.removeMusic(song.id); model.selected = [] }
-            else { let chosen = model.selected; model.delete(chosen); model.removeItems(chosen) }
+            // Clips, items on the tracks (titles too), looks, songs or a plain title, whichever is selected.
+            model.deleteSelection()
         default:
             switch Shortcuts.shared.action(for: press, in: .edit) {
             case .editSplit: model.split(at: model.time)
@@ -602,8 +610,8 @@ private struct ProjectToolbar: View {
             tool("pause.rectangle", "Freeze Frame: hold the frame at the playhead (⇧F)", words ? "Freeze" : nil) { model.freezeFrame() }
                 .disabled(model.project.clips.isEmpty)
             tool("bookmark", "Add a Marker at the Playhead (M)", words ? "Marker" : nil) { model.addMarker() }
-            tool("trash", "Delete (⌫)") { let chosen = model.selected; model.delete(chosen); model.removeItems(chosen) }
-                .disabled(model.selected.isEmpty)
+            tool("trash", "Delete (⌫)") { model.deleteSelection() }
+                .disabled(model.selected.isEmpty && model.selectedTitle == nil)
             tool("arrow.uturn.backward", "Undo (⌘Z)") { model.undo() }
                 .disabled(!model.canUndo)
             tool("arrow.uturn.forward", "Redo (⇧⌘Z)") { model.redo() }

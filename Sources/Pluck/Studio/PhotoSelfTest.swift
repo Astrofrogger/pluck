@@ -15,8 +15,8 @@ enum PhotoSelfTest {
         photos = defaults.string(forKey: "PluckScreenshotPhotos") ?? ""
         lines = []
         // (Tests: only the film's speed and route, to measure quickly.)
-        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced"].contains(only) {
-            if only == "film" { await filmInstant() } else { await filmAdvanced() }
+        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced", "tone"].contains(only) {
+            if only == "film" { await filmInstant() } else if only == "tone" { tone() } else { await filmAdvanced() }
             lines.append("done")
             write()
             NSApp.terminate(nil)
@@ -31,6 +31,7 @@ enum PhotoSelfTest {
         await copies()
         await exportPresets()
         await beforeAfter()
+        await panelColumn()
         hdr()
         signals()
         moments()
@@ -40,6 +41,7 @@ enum PhotoSelfTest {
         usualLook()
         await levelExposure()
         await film()
+        tone()
         lines.append("done")
         write()
         NSApp.terminate(nil)

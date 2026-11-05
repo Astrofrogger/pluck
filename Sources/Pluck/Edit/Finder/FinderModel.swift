@@ -103,12 +103,24 @@ final class FinderThumbnails {
     }
 
     func want(_ url: URL) {
+        wanters[url, default: 0] += 1
         guard posters[url] == nil, !failed.contains(url) else { return }
         asked.insert(url)
         thumbnailer?.want(url)
     }
 
-    func forget(_ url: URL) { thumbnailer?.forget(url) }
+    func forget(_ url: URL) { if release(url) { thumbnailer?.forget(url) } }
+
+    /// How many show each file now (two rows, or a row and the column view's end, can show one):
+    /// its picture is dropped only once none do.
+    @ObservationIgnored private var wanters: [URL: Int] = [:]
+
+    /// One fewer shows it; whether that was the last.
+    private func release(_ url: URL) -> Bool {
+        let left = (wanters[url] ?? 1) - 1
+        wanters[url] = left > 0 ? left : nil
+        return left <= 0
+    }
 
     @ObservationIgnored private var pictureRequests: [URL: QLThumbnailGenerator.Request] = [:]
     /// The pictures kept, oldest first (a folder of thousands of photos isn't all kept).
@@ -119,6 +131,7 @@ final class FinderThumbnails {
 
     /// A photo's picture, made when it's first shown.
     func wantPicture(_ url: URL) {
+        wanters[url, default: 0] += 1
         guard pictures[url] == nil, pictureRequests[url] == nil else { return }
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.pictureSize, height: Self.pictureSize),
                                                    scale: 1, representationTypes: .thumbnail)
@@ -127,7 +140,9 @@ final class FinderThumbnails {
             let image = thumbnail?.cgImage
             Task { @MainActor in
                 let thumbs = FinderThumbnails.shared
-                guard thumbs.pictureRequests.removeValue(forKey: url) != nil else { return }
+                // (A request cancelled, answered late, doesn't take the place of one asked since.)
+                guard thumbs.pictureRequests[url] === request else { return }
+                thumbs.pictureRequests[url] = nil
                 if let image { thumbs.keep(image, for: url) }
             }
         }
@@ -135,7 +150,7 @@ final class FinderThumbnails {
 
     /// No longer shown before its picture's made: not made.
     func forgetPicture(_ url: URL) {
-        guard let request = pictureRequests.removeValue(forKey: url) else { return }
+        guard release(url), let request = pictureRequests.removeValue(forKey: url) else { return }
         QLThumbnailGenerator.shared.cancel(request)
     }
 

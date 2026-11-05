@@ -44,7 +44,7 @@ struct AdjustSlider: View {
                 .foregroundStyle(changed ? .primary : .secondary)
                 .fontWeight(changed ? .medium : .regular)
                 .lineLimit(1)
-                .frame(width: 84, alignment: .leading)
+                .frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
                 .onTapGesture(count: 2) { set(neutral) }
             bar
             Text(verbatim: shown)
@@ -65,12 +65,12 @@ struct AdjustSlider: View {
         }
         .font(.callout)
         .controlSize(.small)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 24)
+        .padding(.horizontal, Design.Sidebar.rowPadding)
+        .frame(minHeight: Design.Sidebar.sliderHeight)
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onKeyPress(phases: .down) { press in
+        .onKeyPress(phases: [.down, .repeat]) { press in
             let step = (range.upperBound - range.lowerBound) / 200
             let scale = press.modifiers.contains(.shift) ? 10.0 : press.modifiers.contains(.option) ? 0.2 : 1
             switch press.key {
@@ -256,10 +256,13 @@ struct AdjustFold<Content: View>: View {
                     if reduceMotion { isOpen.toggle() } else { withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() } }
                 } label: {
                     HStack(spacing: 6) {
+                        // The chevron in the gutter, so the name lines up with the sliders' names.
                         Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
                             .rotationEffect(.degrees(open ? 90 : 0))
                             .foregroundStyle(.tertiary)
-                        Text(title).font(.caption.weight(.semibold)).textCase(.uppercase)
+                            .frame(width: Design.Sidebar.rowPadding)
+                            .padding(.trailing, -6)
+                        Text(title).font(Design.Sidebar.header)
                             .foregroundStyle(edited ? .primary : .secondary)
                         if edited { Circle().fill(Color.accentColor).frame(width: 5, height: 5).accessibilityHidden(true) }
                         Spacer(minLength: 0)
@@ -286,9 +289,9 @@ struct AdjustFold<Content: View>: View {
                         .accessibilityLabel(Text("Reset this section"))
                 }
             }
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .font(.callout)
+            .padding(.trailing, Design.Sidebar.rowPadding)
+            .frame(height: Design.Sidebar.foldHeight)
             .onHover { hovering = $0 }
             if open { content }
         }

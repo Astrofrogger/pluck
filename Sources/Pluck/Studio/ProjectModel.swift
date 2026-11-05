@@ -34,6 +34,8 @@ struct ProjectClip: Codable, Identifiable, Hashable {
     var freeze: Double?
     /// How the clip before it goes into it.
     var transitionIn: ProjectTransition?
+    /// A title from a motion template (an item on a track): drawn, not read from `path`.
+    var motion: ProjectMotion?
 
     var speed: Double { look?.speed ?? 1 }
     /// How long it lasts on the timeline (its part of the file, at its speed).
@@ -53,6 +55,7 @@ extension ProjectClip {
         dipOut = value(.dipOut, nil as ProjectDip?)
         at = value(.at, nil as Double?); link = value(.link, nil as UUID?); linkOffset = value(.linkOffset, nil as Double?); ownAudio = value(.ownAudio, nil as Bool?)
         freeze = value(.freeze, nil as Double?); transitionIn = value(.transitionIn, nil as ProjectTransition?)
+        motion = value(.motion, nil as ProjectMotion?)
     }
 }
 
@@ -130,6 +133,8 @@ struct Project: Codable, Identifiable {
     var name: String
     /// The folder it's filed in on the Edit page (nil: at the top).
     var folder: UUID?
+    /// When it was put in the project manager's Trash (nil: not there). Put Back clears it.
+    var trashed: Date?
     var created = Date.now
     var modified = Date.now
     var clips: [ProjectClip] = []
@@ -191,6 +196,7 @@ extension Project {
             (try? c.decodeIfPresent([Lenient<T>].self, forKey: key))?.compactMap(\.value) ?? []
         }
         id = value(.id, UUID()); name = value(.name, String(localized: "Project")); folder = value(.folder, nil as UUID?)
+        trashed = value(.trashed, nil as Date?)
         created = value(.created, Date.now); modified = value(.modified, Date.now)
         clips = list(.clips); media = value(.media, nil as [String]?); music = list(.music); titles = list(.titles)
         subtitlesOn = value(.subtitlesOn, nil as Bool?); subtitleEdits = value(.subtitleEdits, nil as [String: String]?)
@@ -279,11 +285,14 @@ extension Project {
 
 /// Where projects are kept: one file each, in Pluck's folder.
 enum ProjectStore {
-    static var folder: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Projects", isDirectory: true)
-    }
+    /// (Settable for tests, which use a folder of their own.)
+    static var folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Pluck/Projects", isDirectory: true)
 
     static func url(for id: UUID) -> URL { folder.appendingPathComponent("\(id.uuidString).pluckproject") }
+
+    /// The still the project manager shows: the frame at the playhead when it was last saved or closed.
+    static func thumbnail(for id: UUID) -> URL { folder.appendingPathComponent("\(id.uuidString).jpg") }
 
     /// The project, or nil. A file that can't be read at all is put aside (".broken") rather than
     /// left to vanish from the list without a trace.
@@ -316,6 +325,8 @@ enum ProjectStore {
     struct Folder: Codable, Identifiable, Hashable {
         var id = UUID()
         var name: String
+        /// The folder it's in (nil: at the top).
+        var parent: UUID?
     }
 
     private static var foldersFile: URL { folder.appendingPathComponent("folders.json") }
@@ -337,9 +348,13 @@ enum ProjectStore {
         save(project)
     }
 
-    /// Moves the project's file to the Trash.
-    static func trash(_ id: UUID) {
-        try? FileManager.default.trashItem(at: url(for: id), resultingItemURL: nil)
+    /// Moves the project's file (and its still) to the Trash on the Mac; where the file went, or nil.
+    @discardableResult
+    static func trash(_ id: UUID) -> URL? {
+        try? FileManager.default.trashItem(at: thumbnail(for: id), resultingItemURL: nil)
+        var moved: NSURL?
+        try? FileManager.default.trashItem(at: url(for: id), resultingItemURL: &moved)
+        return moved as URL?
     }
 
     static func all() -> [Project] {
@@ -403,7 +418,11 @@ final class ProjectModel {
     @ObservationIgnored private var future: [Project] = []
     /// The project as it was when a drag began (sliders, handles): what undo goes back to once
     /// the drag ends, rather than its last step.
-    @ObservationIgnored private var beforeDrag: Project?
+    @ObservationIgnored private(set) var beforeDrag: Project?
+    /// The titles' videos being rendered in the background.
+    @ObservationIgnored var titleRender: Task<Void, Never>?
+    /// A title's typing or colour picking, made one undo step once it pauses.
+    @ObservationIgnored var motionCommit: Task<Void, Never>?
     /// Each file seen in its own time (for the transcript and AI panels), kept while it's open.
     @ObservationIgnored private var focuses: [String: FileFocus] = [:]
 
@@ -475,6 +494,10 @@ final class ProjectModel {
 
     func close() {
         flush()
+        // (Saved just now: a late title commit or render mustn't write it again once it's closed.)
+        motionCommit?.cancel()
+        titleRender?.cancel()
+        saveThumbnail(force: true)
         pruneTitleRenders()
         if let quitObserver { NotificationCenter.default.removeObserver(quitObserver) }
         quitObserver = nil
@@ -568,6 +591,7 @@ final class ProjectModel {
     /// Why the last save didn't work (shown in the project), nil when it did.
     private(set) var saveProblem: String?
     @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @ObservationIgnored private var thumbnailMade = Date.distantPast
 
     /// Saves a moment later (a drag is one write), or straight away with `now`.
     func save(now: Bool = false) {
@@ -587,8 +611,26 @@ final class ProjectModel {
         do {
             try ProjectStore.write(project)
             saveProblem = nil
+            saveThumbnail()
         } catch {
             saveProblem = String(localized: "The project couldn’t be saved: \(error.localizedDescription)")
+        }
+    }
+
+    /// The frame at the playhead, small, next to the project's file (the project manager's card);
+    /// at most every 30 s while editing, always on closing. Made off the main thread.
+    func saveThumbnail(force: Bool = false) {
+        guard force || Date.now.timeIntervalSince(thumbnailMade) > 30, !project.clips.isEmpty, let item = player.currentItem else { return }
+        thumbnailMade = .now
+        let generator = AVAssetImageGenerator(asset: item.asset)
+        generator.videoComposition = item.videoComposition
+        generator.maximumSize = CGSize(width: 640, height: 640)
+        let at = CMTime(seconds: time, preferredTimescale: 600), file = ProjectStore.thumbnail(for: project.id)
+        Task.detached(priority: .utility) {
+            guard let image = try? await generator.image(at: at).image,
+                  let jpeg = NSBitmapImageRep(cgImage: image).representation(using: .jpeg, properties: [.compressionFactor: 0.8]) else { return }
+            try? jpeg.write(to: file, options: .atomic)
+            await MainActor.run { StudioNavigator.shared.projectsChanged += 1 }
         }
     }
 
@@ -736,6 +778,32 @@ final class ProjectModel {
         future = []
         project.modified = .now
         save()
+    }
+
+    /// Changes a title's words, colours or plate: shown at once; `record` false while typing or
+    /// picking (one undo step when it's committed).
+    func setMotion(_ id: UUID, record: Bool, _ body: (inout ProjectMotion) -> Void) {
+        guard let (t, i) = trackItem(id), var motion = project.tracks![t].items[i].motion else { return }
+        if !record { dragging() }
+        let start = beforeDrag ?? project
+        body(&motion)
+        project.tracks![t].items[i].motion = motion
+        project.tracks![t].items[i].path = titleFile(project.tracks![t].items[i])?.path ?? ""
+        layers.setMotion(id, motion.timed(project.tracks![t].items[i]))
+        redraw()
+        renderTitlesSoon()
+        motionCommit?.cancel()
+        guard record else {
+            motionCommit = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled else { return }
+                self?.setMotion(id, record: true) { _ in }
+            }
+            return
+        }
+        endDrag()
+        guard start.tracks != project.tracks else { return }
+        commit(from: start)
     }
 
     /// The looks the picture is drawn with, read while it plays (so a change shows at once).
@@ -1213,7 +1281,8 @@ final class ProjectModel {
                 spans.append(ProjectLayers.Span(clip: clip.id, trackID: video.trackID, path: clip.path, start: start, end: start + length,
                                                 clipStart: at, clipEnd: at + clip.length, look: clip.look,
                                                 orientation: CGImagePropertyOrientation(pictures.transform), main: true,
-                                                fadeIn: index > 0 && before > 0 ? before * 2 : 0))
+                                                fadeIn: index > 0 && before > 0 ? before * 2 : 0,
+                                                transition: before > 0 ? clip.transitionIn?.kind : nil))
             }
             // Its sound, unless it was taken off to an audio track or it's a held frame.
             if clip.ownAudio != false, clip.freeze == nil, let sound = main.audio {
@@ -1234,6 +1303,19 @@ final class ProjectModel {
             voice?.setVolume(0, at: .zero)
             for item in lane.items.sorted(by: { ($0.at ?? 0) < ($1.at ?? 0) }) {
                 if Task.isCancelled { return }
+                if let motion = item.motion {
+                    // A title: drawn by the compositor, no file to read.
+                    if lane.kind == .video {
+                        let at = item.at ?? 0
+                        var span = ProjectLayers.Span(clip: item.id, trackID: kCMPersistentTrackID_Invalid, start: at, end: at + item.length,
+                                                      clipStart: at, clipEnd: at + item.length, look: item.look, orientation: .up, main: false,
+                                                      fadeIn: item.fadeIn, fadeOut: item.fadeOut)
+                        span.motion = motion.timed(item)
+                        span.sourceStart = item.start
+                        spans.append(span)
+                    }
+                    continue
+                }
                 let media = await loaded(await playableURL(for: item.file))
                 let at = item.at ?? 0
                 let source = CMTimeRange(start: cm(item.freeze ?? item.start), duration: cm(max(item.end - item.start, 0)))
@@ -1275,12 +1357,14 @@ final class ProjectModel {
         mix.inputParameters = mixes
         let size = Self.frame(firstSize ?? CGSize(width: 1920, height: 1080), aspect: project.aspect)
         renderSize = size
+        // The titles' videos at this size and rate (those already made are kept).
+        if tracks.contains(where: { $0.items.contains { $0.motion != nil } }) { renderTitlesSoon() }
 
         let item = AVPlayerItem(asset: composition)
         item.audioMix = mix
         // Faster or slower clips keep their voices' pitch.
         item.audioTimePitchAlgorithm = .spectral
-        let total = max(composition.duration.seconds, project.duration)
+        let total = max(composition.duration.seconds, project.duration, spans.map(\.end).max() ?? 0)
         if !spans.isEmpty, total > 0 {
             let dips = clips.indices.map { (index: Int) -> (in: ProjectDip?, out: ProjectDip?) in
                 (index > 0 ? clips[index - 1].dipOut : nil, clips[index].dipOut)
@@ -1309,7 +1393,7 @@ final class ProjectModel {
     nonisolated static func dissolveOverlaps(_ clips: [ProjectClip], lengths: [String: Double]) -> [Double] {
         var overlap = [Double](repeating: 0, count: clips.count)
         for index in clips.indices.dropFirst() {
-            guard let transition = clips[index].transitionIn, transition.kind == .dissolve,
+            guard let transition = clips[index].transitionIn, transition.kind.overlaps,
                   clips[index].freeze == nil, clips[index - 1].freeze == nil else { continue }
             let before = clips[index - 1], after = clips[index]
             let tail = ((lengths[before.path] ?? before.end) - before.end) / before.speed, head = after.start / after.speed
@@ -1389,7 +1473,7 @@ final class ProjectModel {
     // MARK: - Missing files
 
     nonisolated static func missingFiles(in project: Project) -> Set<String> {
-        let items = (project.tracks ?? []).flatMap(\.items).map(\.path)
+        let items = (project.tracks ?? []).flatMap(\.items).filter { $0.motion == nil }.map(\.path)
         return Set((project.clips.map(\.path) + project.music.map(\.path) + items).filter { !FileManager.default.fileExists(atPath: $0) })
     }
 
@@ -1469,7 +1553,7 @@ final class ProjectModel {
 
     /// A few pictures per clip, for the timeline.
     private func loadThumbnails() async {
-        let overlays = (project.tracks ?? []).filter { $0.kind == .video }.flatMap(\.items)
+        let overlays = (project.tracks ?? []).filter { $0.kind == .video }.flatMap(\.items).filter { $0.motion == nil }
         for clip in project.clips + overlays where thumbnails[Self.thumbnailKey(clip)] == nil && !missing.contains(clip.path) {
             let key = Self.thumbnailKey(clip)
             let file = await playableURL(for: clip.file)

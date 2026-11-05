@@ -169,7 +169,12 @@ enum ProjectResolve {
         Task {
             defer { model.sendingToResolve = false }
             do {
-                let result = try await send(model.project, size: model.renderSize)
+                // The titles as videos (rendered once, kept).
+                var project = model.project
+                if let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg") {
+                    project = try await ProjectMotion.rendered(project, size: model.renderSize, fps: model.frameRate, ffmpeg: ffmpeg)
+                }
+                let result = try await send(project, size: model.renderSize)
                 if let link = result.link { model.setUp { $0.resolveTimeline = link } }
                 if let resolve = NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.blackmagic-design.DaVinciResolve") {
                     _ = try? await NSWorkspace.shared.openApplication(at: resolve, configuration: NSWorkspace.OpenConfiguration())

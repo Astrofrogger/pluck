@@ -33,6 +33,20 @@ struct ProjectInspector: View {
             }
         }
 
+        /// What's chosen on the timeline, for the inspector to follow.
+        enum Chosen { case title, look, clip, nothing }
+
+        /// The tab for what was just chosen: a title's words are in Text, a look's colour in
+        /// Colour; a clip keeps the tab open, but Text (its titles aren't about the clip) gives way to Clip.
+        static func following(_ current: Tab, _ chosen: Chosen) -> Tab {
+            switch chosen {
+            case .title: .text
+            case .look: .colour
+            case .clip: current == .text ? .clip : current
+            case .nothing: current
+            }
+        }
+
         /// A tab as saved, also by Pluck 3.8.0 (whose Transcript, Subtitles and Titles are in
         /// Text now, Story in Local AI, and Marks on the timeline).
         static func saved(_ raw: String) -> Tab {
@@ -74,13 +88,13 @@ struct ProjectInspector: View {
 /// A name on the left, its controls on the right.
 private func inspectorRow<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
     HStack(spacing: 8) {
-        Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: 96, alignment: .leading)
+        Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
         HStack(spacing: 6) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
     }
     .font(.callout)
     .controlSize(.small)
-    .padding(.horizontal, 8)
-    .frame(minHeight: 28)
+    .padding(.horizontal, Design.Sidebar.rowPadding)
+    .frame(minHeight: Design.Sidebar.sliderHeight)
 }
 
 // MARK: - Clip
@@ -137,7 +151,7 @@ private struct ProjectClipPanel: View {
                     else { hint("Select a clip or a song on the timeline.") }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
     }
@@ -250,8 +264,12 @@ private struct ProjectClipPanel: View {
                             model.setTransition(into: index + 1, kind.map { ProjectTransition(kind: $0, length: transition?.length ?? 1) })
                         })) {
                             Text("Cut").tag(ProjectTransition.Kind?.none)
-                            ForEach(ProjectTransition.Kind.allCases, id: \.self) { kind in
-                                Text(ProjectTransition(kind: kind, length: 1).label).tag(ProjectTransition.Kind?.some(kind))
+                            ForEach(ProjectTransition.Group.allCases, id: \.self) { group in
+                                Section(group.label) {
+                                    ForEach(group.kinds, id: \.self) { kind in
+                                        Text(ProjectTransition(kind: kind, length: 1).label).tag(ProjectTransition.Kind?.some(kind))
+                                    }
+                                }
                             }
                         }
                         .labelsHidden()
@@ -622,7 +640,7 @@ private struct ProjectStoryPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
         .task(id: files) {
@@ -671,9 +689,16 @@ private struct ProjectTitlesPanel: View {
         Binding(get: { model.project.titleStyle }, set: { model.setTitleStyle($0) })
     }
 
+    /// A title from the Titles library, chosen on the timeline.
+    private var motionItem: ProjectClip? {
+        guard model.selected.count == 1, let id = model.selected.first else { return nil }
+        return (model.project.tracks ?? []).flatMap(\.items).first { $0.id == id && $0.motion != nil }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if let item = motionItem, let motion = item.motion { MotionTitleEditor(model: model, item: item, motion: motion) }
                 Button("Add a Title at the Playhead", systemImage: "plus") { model.addTitle(at: model.time) }
                     .buttonStyle(BrandButtonStyle(large: false))
                     .padding(.horizontal, 8)
@@ -729,9 +754,65 @@ private struct ProjectTitlesPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
+    }
+}
+
+/// A template title's words, colours and plate, changed live in the viewer (and its export).
+private struct MotionTitleEditor: View {
+    @Bindable var model: ProjectModel
+    let item: ProjectClip
+    let motion: ProjectMotion
+
+    var body: some View {
+        SidebarSection(title: Text(item.name)) {
+            ForEach(motion.motionTemplate?.fields ?? []) { field in
+                inspectorRow(LocalizedStringKey(field.label)) {
+                    TextField(field.label, text: Binding(get: { motion.placement.texts[field.key] ?? "" },
+                                                         set: { value in model.setMotion(item.id, record: false) { $0.placement.texts[field.key] = value } }),
+                              prompt: Text(verbatim: field.placeholder), axis: .vertical)
+                        .textFieldStyle(.roundedBorder)
+                        .lineLimit(1...3)
+                        .labelsHidden()
+                        .onSubmit { model.setMotion(item.id, record: true) { _ in } }
+                }
+            }
+            inspectorRow("Text") { well(\.text) }
+            inspectorRow("Accent") {
+                well(\.accent)
+                well(\.accent2).help("The accent's partner: gradients run from one to the other")
+            }
+            inspectorRow("Background") {
+                if motion.style.plates != false {
+                    well(\.secondary).help("The plates behind the words")
+                    if motion.style.background != nil, motion.motionTemplate?.fullFrame == true {
+                        ColorPicker("Background", selection: colour(Binding(get: { motion.style.background ?? .ink },
+                                                                            set: { value in model.setMotion(item.id, record: false) { $0.style.background = value } })),
+                                    supportsOpacity: false)
+                            .labelsHidden()
+                    }
+                }
+                Toggle("Background", isOn: Binding(get: { motion.style.plates != false },
+                                                   set: { on in model.setMotion(item.id, record: true) { $0.style.plates = on ? nil : false } }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .help("Off: just the words, see-through behind them")
+            }
+        }
+    }
+
+    private func well(_ path: WritableKeyPath<MotionStyle, MotionColor>) -> some View {
+        ColorPicker("", selection: colour(Binding(get: { motion.style[keyPath: path] },
+                                                 set: { value in model.setMotion(item.id, record: false) { $0.style[keyPath: path] = value } })),
+                    supportsOpacity: false)
+            .labelsHidden()
+    }
+
+    private func colour(_ color: Binding<MotionColor>) -> Binding<Color> {
+        Binding(get: { Color(cgColor: color.wrappedValue.cg) },
+                set: { new in if let cg = NSColor(new).usingColorSpace(.sRGB)?.cgColor { color.wrappedValue = MotionColor(cg) } })
     }
 }
 
@@ -810,7 +891,7 @@ private struct ProjectExportPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
     }
@@ -895,7 +976,7 @@ private struct ProjectSubtitlesPanel: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
         .task(id: files) { refresh() }
@@ -943,5 +1024,16 @@ private struct ProjectSubtitlesPanel: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         if text != line.text { model.editSubtitle(line.key, text: text.isEmpty ? "" : text) }
         editing = nil
+    }
+}
+
+extension ProjectModel {
+    /// What's chosen on the timeline, for the inspector to follow (one thing; several stay put).
+    var chosen: ProjectInspector.Tab.Chosen {
+        if selected.isEmpty { return selectedTitle == nil ? .nothing : .title }
+        guard selected.count == 1, let id = selected.first else { return .nothing }
+        if adjustment(id) != nil { return .look }
+        if let (t, i) = trackItem(id) { return project.tracks![t].items[i].motion != nil ? .title : .clip }
+        return project.clips.contains { $0.id == id } ? .clip : .nothing
     }
 }

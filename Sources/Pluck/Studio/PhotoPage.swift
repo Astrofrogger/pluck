@@ -33,7 +33,9 @@ struct PhotoPage: View {
     @State private var importing = false
     @State private var importAlbum: UUID?
     @AppStorage("photoSidebarHidden") private var sidebarHidden = false
+    @AppStorage("photoLeftWidth") private var sidebarWidth = Design.Sidebar.width
     @AppStorage("photoInspectorHidden") private var inspectorHidden = false
+    @State private var pageWidth = 0.0
     @State private var renamingAlbum: UUID?
     @State private var albumName = ""
     @State private var dropTargeted = false
@@ -115,11 +117,26 @@ struct PhotoPage: View {
         }
     }
 
+    /// The panels' widths as drawn: the inspector, then the sidebar, give way (down to their
+    /// least) before the photos get less than `middle`.
+    static func fitted(left: Double, right: Double, total: Double, middle: Double = 600) -> (left: Double, right: Double) {
+        // (0: hidden.)
+        var left = left > 0 ? min(max(left, 200), 300) : 0, right = right > 0 ? min(max(right, 280), 520) : 0
+        var over = left + right + middle - total
+        guard total > 0, over > 0 else { return (left, right) }
+        let fromRight = min(over, max(right - 280, 0))
+        right -= fromRight
+        over -= fromRight
+        left -= min(over, max(left - 200, 0))
+        return (left, right)
+    }
+
     var body: some View {
+        let fit = Self.fitted(left: sidebarHidden ? 0 : sidebarWidth, right: inspectorHidden ? 0 : inspectorWidth, total: pageWidth - 2)
         HStack(spacing: 0) {
             if !sidebarHidden {
-                sidebar.frame(width: 220)
-                Divider()
+                sidebar.frame(width: fit.left)
+                ResizeHandle(width: $sidebarWidth, range: 200...300, edge: .leading)
             }
             VStack(spacing: 0) {
                 toolbar
@@ -164,16 +181,22 @@ struct PhotoPage: View {
             if !inspectorHidden {
                 ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
                 PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
-                    .frame(width: inspectorWidth)
+                    .frame(width: fit.right)
                     .clipped()
             }
         }
+        .onGeometryChange(for: Double.self) { $0.size.width } action: { pageWidth = $0 }
         .frame(minWidth: 1000, minHeight: 600)
         .navigationTitle("Photo")
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
         .onKeyPress(phases: .down, action: key)
+        // A held key: the arrows keep moving, any other key did its thing once (a repeat left unhandled beeps).
+        .onKeyPress(phases: .repeat) { press in
+            if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
+            return Self.repeats(press.key) ? key(press) : .handled
+        }
         .onChange(of: focus) { old, new in PhotoPasteboard.focusMoved(from: old, to: new) }
         .onChange(of: selection) { old, new in if old != new { editing.syncAll = true } }
         .onChange(of: momentsOn) { keepToShown() }
@@ -184,8 +207,9 @@ struct PhotoPage: View {
                 if mode == .copy { if let focus { PhotoPasteboard.copy(focus) } } else { PhotoPasteboard.paste(PasteGroup.chosen, to: pasteTargets) }
             }
         }
-        .onKeyPress("\\", phases: [.down, .up]) { press in
-            editing.asShot = press.phase == .down
+        // Before (as shot) while \ is held, as in Lightroom.
+        .onKeyPress("\\", phases: [.down, .repeat, .up]) { press in
+            editing.asShot = press.phase != .up
             return .handled
         }
         .onAppear {
@@ -280,18 +304,17 @@ struct PhotoPage: View {
 
     private var sidebar: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                SidebarSection(title: Text("Library")) {
-                    row(.all, symbol: "photo.on.rectangle", title: Text("All Photos"))
-                    row(.picks, symbol: "flag.fill", title: Text("Picks"))
-                    row(.fiveStars, symbol: "star.fill", title: Text("5 Stars"))
-                    row(.edited, symbol: "slider.horizontal.3", title: Text("Edited"))
-                    row(.rejects, symbol: "xmark.circle", title: Text("Rejected"))
-                }
-                SidebarSection(title: Text("Albums")) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                row(.all, symbol: "photo.on.rectangle", title: Text("All Photos"))
+                row(.picks, symbol: "flag.fill", title: Text("Picks"))
+                row(.fiveStars, symbol: "star.fill", title: Text("5 Stars"))
+                row(.edited, symbol: "slider.horizontal.3", title: Text("Edited"))
+                row(.rejects, symbol: "xmark.circle", title: Text("Rejected"))
+                SidebarGap()
+                SidebarSection(title: Text("Albums"), fold: "photo-albums", count: catalog.albums.count, pinned: true) {
                     ForEach(catalog.folders) { folder in
                         let open = !closedFolders.contains(folder.id)
-                        SidebarRow(symbol: open ? "folder" : "folder.fill", title: Text(folder.name), detail: Text(verbatim: ""), selected: false) {
+                        SidebarRow(symbol: "folder", title: Text(folder.name), open: open) {
                             EmptyView()
                         }
                         .onTapGesture { if open { closedFolders.insert(folder.id) } else { closedFolders.remove(folder.id) } }
@@ -307,39 +330,39 @@ struct PhotoPage: View {
                         }
                         if open {
                             ForEach(catalog.albums.filter { $0.folder == folder.id }) { album in
-                                albumRow(album).padding(.leading, 14)
+                                albumRow(album, indent: 1)
                             }
                         }
                     }
                     ForEach(catalog.albums.filter { album in album.folder == nil || !catalog.folders.contains { $0.id == album.folder } }) { album in
                         albumRow(album)
                     }
-                    HStack(spacing: 12) {
-                        Button { importPhotos() } label: {
-                            Label("New Album…", systemImage: "plus")
-                        }
-                        Button { renamingFolder = catalog.newFolder(named: String(localized: "New Folder")).id; folderName = String(localized: "New Folder") } label: {
-                            Label("Folder", systemImage: "folder.badge.plus")
-                        }
-                        .help("New folder for albums")
+                } accessory: {
+                    Menu {
+                        Button("New Album…") { importPhotos() }
+                        Button("New Folder") { renamingFolder = catalog.newFolder(named: String(localized: "New Folder")).id; folderName = String(localized: "New Folder") }
+                    } label: {
+                        Image(systemName: "plus")
                     }
-                    .font(.callout)
-                    .padding(.horizontal, 8)
-                    .frame(minHeight: 26)
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("New Album or Folder")
+                    .accessibilityLabel(Text("New Album or Folder"))
                 }
                 let photoFolders = folders.folders.filter { !(folders.photos[$0.id] ?? []).isEmpty }
                 if !photoFolders.isEmpty {
-                    SidebarSection(title: Text("Folders")) {
+                    SidebarGap()
+                    SidebarSection(title: Text("Folders"), fold: "photo-folders", count: photoFolders.count, pinned: true) {
                         ForEach(photoFolders) { folder in
                             row(.folder(folder.id), symbol: "folder", title: Text(folder.name))
                         }
                     }
                 }
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 12)
+            .padding(.horizontal, Design.Sidebar.inset)
+            .padding(.top, Design.Sidebar.inset)
+            .padding(.bottom, 20)
         }
         .background(.background.secondary)
         .alert("Rename Album", isPresented: Binding(get: { renamingAlbum != nil }, set: { if !$0 { renamingAlbum = nil } })) {
@@ -354,8 +377,8 @@ struct PhotoPage: View {
         }
     }
 
-    private func albumRow(_ album: PhotoAlbum) -> some View {
-        row(.album(album.id), symbol: "rectangle.stack", title: Text(album.name))
+    private func albumRow(_ album: PhotoAlbum, indent: Int = 0) -> some View {
+        row(.album(album.id), symbol: "rectangle.stack", title: Text(album.name), indent: indent)
             .contextMenu {
                 Button("Rename…") { albumName = album.name; renamingAlbum = album.id }
                 Button("Add Photos…") { importPhotos(into: album.id) }
@@ -389,8 +412,11 @@ struct PhotoPage: View {
         renamingAlbum = album.id
     }
 
-    private func row(_ item: PhotoCatalog.Source, symbol: String, title: Text) -> some View {
-        SidebarRow(symbol: symbol, title: title, detail: Text(verbatim: "\(catalog.photos(in: item).count)"), selected: source == item) {
+    private func row(_ item: PhotoCatalog.Source, symbol: String, title: Text, indent: Int = 0) -> some View {
+        let count = catalog.photos(in: item).count
+        // A zero fainter, as LightCraft does.
+        return SidebarRow(symbol: symbol, title: title, detail: Text(verbatim: "\(count)").foregroundStyle(count == 0 ? HierarchicalShapeStyle.tertiary : .secondary),
+                          selected: source == item, indent: indent) {
             EmptyView()
         }
         .onTapGesture {
@@ -741,6 +767,9 @@ struct PhotoPage: View {
             Task { await PhotoLevel.level(targets, reference: reference.flatMap { targets.contains($0) ? $0 : nil }, whiteBalance: action == .levelWithWhiteBalance) }
         }
     }
+
+    /// Keys that act again while held (the rest act once).
+    static func repeats(_ key: KeyEquivalent) -> Bool { [.leftArrow, .rightArrow, .upArrow, .downArrow].contains(key) }
 
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }

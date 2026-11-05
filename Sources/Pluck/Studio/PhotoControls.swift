@@ -522,15 +522,17 @@ struct FoldSection<Content: View>: View {
             Button {
                 withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
             } label: {
-                HStack(spacing: 4) {
-                    Text(title).font(.caption2.weight(.semibold)).textCase(.uppercase)
-                    Spacer()
+                // The same header as the Adjust folds: chevron in the gutter, the name Title Case.
+                HStack(spacing: 0) {
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .foregroundStyle(.tertiary)
+                        .frame(width: Design.Sidebar.rowPadding)
+                    Text(title).font(Design.Sidebar.header).foregroundStyle(.secondary)
+                    Spacer()
                 }
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.trailing, Design.Sidebar.rowPadding)
+                .frame(height: Design.Sidebar.foldHeight)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)

@@ -28,9 +28,43 @@ struct ProjectTrack: Codable, Identifiable, Hashable {
     }
 }
 
-/// How one clip goes into the next: a dissolve through both pictures, or a dip to a colour.
+/// How one clip goes into the next: a dip to a colour, or both pictures at once (a dissolve, a
+/// wipe, a push…), drawn the same in the viewer and the export (`ProjectTransitions`).
 struct ProjectTransition: Codable, Hashable, Sendable {
-    enum Kind: String, Codable, CaseIterable, Sendable { case dissolve, dipBlack, dipWhite }
+    enum Kind: String, Codable, CaseIterable, Sendable {
+        case dissolve, dipBlack, dipWhite
+        case wipeLeft, wipeRight, wipeUp, wipeDown, irisOpen, irisClose
+        case pushLeft, pushRight, pushUp, pushDown, whipLeft, whipRight
+        case zoomIn, zoomOut, blurDissolve
+
+        /// Both pictures at once around the cut (a dip fades one out, then the other in).
+        var overlaps: Bool { self != .dipBlack && self != .dipWhite }
+
+        var group: Group {
+            switch self {
+            case .dissolve, .dipBlack, .dipWhite: .dissolves
+            case .wipeLeft, .wipeRight, .wipeUp, .wipeDown, .irisOpen, .irisClose: .wipes
+            case .pushLeft, .pushRight, .pushUp, .pushDown, .whipLeft, .whipRight: .slides
+            case .zoomIn, .zoomOut, .blurDissolve: .zoomAndBlur
+            }
+        }
+    }
+
+    enum Group: CaseIterable {
+        case dissolves, wipes, slides, zoomAndBlur
+
+        var label: String {
+            switch self {
+            case .dissolves: String(localized: "Dissolves")
+            case .wipes: String(localized: "Wipes")
+            case .slides: String(localized: "Slides")
+            case .zoomAndBlur: String(localized: "Zoom & Blur")
+            }
+        }
+
+        var kinds: [Kind] { Kind.allCases.filter { $0.group == self } }
+    }
+
     var kind: Kind
     var length: Double
 
@@ -39,6 +73,21 @@ struct ProjectTransition: Codable, Hashable, Sendable {
         case .dissolve: String(localized: "Cross Dissolve")
         case .dipBlack: String(localized: "Dip to Black")
         case .dipWhite: String(localized: "Dip to White")
+        case .wipeLeft: String(localized: "Wipe Left")
+        case .wipeRight: String(localized: "Wipe Right")
+        case .wipeUp: String(localized: "Wipe Up")
+        case .wipeDown: String(localized: "Wipe Down")
+        case .irisOpen: String(localized: "Iris Open")
+        case .irisClose: String(localized: "Iris Close")
+        case .pushLeft: String(localized: "Push Left")
+        case .pushRight: String(localized: "Push Right")
+        case .pushUp: String(localized: "Push Up")
+        case .pushDown: String(localized: "Push Down")
+        case .whipLeft: String(localized: "Whip Pan Left")
+        case .whipRight: String(localized: "Whip Pan Right")
+        case .zoomIn: String(localized: "Zoom In")
+        case .zoomOut: String(localized: "Zoom Out")
+        case .blurDissolve: String(localized: "Blur Dissolve")
         }
     }
 }

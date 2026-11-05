@@ -172,10 +172,17 @@ final class StudioNavigator {
         projectsChanged += 1
     }
 
-    /// Closes it if open and moves it to the Trash.
+    /// Closes it if open and puts it in the project manager's Trash (Put Back brings it back;
+    /// only Empty Trash moves the file to the Mac's Trash).
     func trashProject(_ id: UUID) {
         if let tab = tabs.first(where: { $0.project?.project.id == id }) { close(tab.id) }
-        ProjectStore.trash(id)
+        ProjectStore.update(id) { $0.trashed = .now }
+        forget(Self.projectKey(id))
+        projectsChanged += 1
+    }
+
+    func putBack(_ id: UUID) {
+        ProjectStore.update(id) { $0.trashed = nil }
         projectsChanged += 1
     }
 

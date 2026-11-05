@@ -87,15 +87,19 @@ extension EditSelfTest {
             let before = (m.project.tracks ?? []).filter { $0.kind == .video }.flatMap(\.items).count
             ok = await m.apply(.title(templateID: template.id), at: 3)
             let items = (m.project.tracks ?? []).filter { $0.kind == .video }.flatMap(\.items)
+            // Its video is rendered in the background (at the edit's size, known once it's built).
+            let rendered = { items.last.flatMap { m.titleFile($0)?.path } ?? "" }
+            for _ in 0..<120 where !FileManager.default.fileExists(atPath: rendered()) { try? await Task.sleep(for: .milliseconds(250)) }
             check("library: a title template lands on an overlay track at the drop point",
-                  ok && items.count == before + 1 && near(items.last?.at ?? -1, 3) && FileManager.default.fileExists(atPath: items.last?.path ?? ""),
+                  ok && items.count == before + 1 && near(items.last?.at ?? -1, 3) && FileManager.default.fileExists(atPath: rendered()),
                   "\(ok) \(m.libraryProblem ?? "") \(items.map(\.at))")
             if let item = items.last {
                 m.removeItems([item.id])
                 m.pruneTitleRenders()
+                let file = m.titleFile(item)?.path ?? ""
                 check("library: a title taken off the timeline leaves no file behind once tidied",
-                      !FileManager.default.fileExists(atPath: item.path), item.path)
-                check("library: title renders are kept with Pluck's data, not in Caches", !item.path.contains("/Caches/"), item.path)
+                      !file.isEmpty && !FileManager.default.fileExists(atPath: file), file)
+                check("library: title renders are kept with Pluck's data, not in Caches", !file.contains("/Caches/"), file)
             }
         }
         check("library: payload round trip", EditLibraryItem(payload: EditLibraryItem.title(templateID: "slab").payload) == .title(templateID: "slab"))

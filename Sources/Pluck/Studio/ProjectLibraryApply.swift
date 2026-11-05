@@ -45,7 +45,7 @@ extension ProjectModel {
             addTitle(at: max(seconds, 0))
             return true
         case .title(let id):
-            return await placeTemplate(id, at: max(seconds, 0))
+            return placeTemplate(id, at: max(seconds, 0))
         case .adjustment:
             guard duration > 0 else { return false }
             let start = min(max(seconds, 0), duration)
@@ -64,50 +64,5 @@ extension ProjectModel {
             Stabilizer.shared.start(clip.path)
             return true
         }
-    }
-
-    /// A motion template drawn into a video (see-through where it can be) at the project's size and
-    /// rate, then laid over the picture where it was dropped.
-    private func placeTemplate(_ id: String, at seconds: Double) async -> Bool {
-        guard let template = MotionTemplate.all.first(where: { $0.id == id }) else { return false }
-        guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg") else {
-            libraryProblem = Converting.Failure.noFFmpeg.localizedDescription
-            return false
-        }
-        let kit = BrandKit.shared
-        let style = kit.style, placement = kit.placement(template)
-        let transparent = !(template.fullFrame && style.background != nil)
-        let folder = titleRenders
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appendingPathComponent("\(template.id)-\(UUID().uuidString).\(transparent ? "mov" : "mp4")")
-        let size = renderSize, rate = max(Int(frameRate.rounded()), 1)
-        do {
-            try await LogoAnimation.writeVideo(to: url, size: size, frameRate: rate, length: placement.duration, transparent: transparent,
-                                               motionBlur: 3, ffmpeg: ffmpeg, progress: { _ in }) { t, context in
-                template.render(t: t, in: context, canvas: size, style: style, placement: placement)
-            }
-        } catch {
-            try? FileManager.default.removeItem(at: url)   // what a failed render left
-            libraryProblem = error.localizedDescription
-            return false
-        }
-        await addOverlay(url, at: seconds)
-        libraryProblem = nil
-        return true
-    }
-
-    /// Where this project's rendered titles are kept: with Pluck's data, so they stay as long as
-    /// the project uses them (Caches can be emptied by macOS).
-    var titleRenders: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Pluck/Titles/\(project.id.uuidString)", isDirectory: true)
-    }
-
-    /// Removes rendered titles the timeline doesn't use any more (when the project closes, so
-    /// undo can't bring one back).
-    func pruneTitleRenders() {
-        let used = Set((project.tracks ?? []).flatMap(\.items).map(\.path))
-        let files = (try? FileManager.default.contentsOfDirectory(at: titleRenders, includingPropertiesForKeys: nil)) ?? []
-        for file in files where !used.contains(file.path) { try? FileManager.default.removeItem(at: file) }
     }
 }

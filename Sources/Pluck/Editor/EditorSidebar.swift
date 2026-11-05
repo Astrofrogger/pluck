@@ -157,57 +157,145 @@ struct EditorSidebar: View {
                     }
                 }
             }
-            .padding(.horizontal, 6)
+            .panelColumn()
             .padding(.bottom, 12)
         }
     }
 }
 
-/// A section of the sidebar: a small title and compact rows.
-struct SidebarSection<Content: View>: View {
+/// A section of the sidebar: a dim Title Case header and rows. With a `fold` key it folds by its
+/// header (remembered) and shows its `count` while folded; an `accessory` (a `+`) shows on hover.
+/// `pinned` makes it a `Section`, whose header stays at the top of a
+/// `LazyVStack(pinnedViews: .sectionHeaders)` while its rows scroll under it.
+struct SidebarSection<Content: View, Accessory: View>: View {
     let title: Text
-    @ViewBuilder var content: Content
+    var count: Int?
+    var pinned = false
+    private let foldable: Bool
+    @AppStorage private var folded: Bool
+    private let content: Content
+    private let accessory: Accessory
+    @State private var hovering = false
+
+    init(title: Text, fold key: String? = nil, count: Int? = nil, pinned: Bool = false,
+         @ViewBuilder content: () -> Content, @ViewBuilder accessory: () -> Accessory) {
+        self.title = title
+        self.count = count
+        self.pinned = pinned
+        foldable = key != nil
+        _folded = AppStorage(wrappedValue: false, "sidebar-fold-" + (key ?? ""))
+        self.content = content()
+        self.accessory = accessory()
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            title
-                .font(.caption.weight(.semibold))
-                .textCase(.uppercase)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.bottom, 3)
-            content
+        if pinned {
+            Section {
+                if !isFolded { content }
+            } header: {
+                // Opaque, in the panel's own colour: a panel's `.background(.background.secondary)` makes
+                // that its background style, so `.secondary` here again would be a level lighter.
+                header.background(.background)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                header
+                if !isFolded { content }
+            }
         }
+    }
+
+    private var isFolded: Bool { foldable && folded }
+
+    private var header: some View {
+        HStack(spacing: 0) {
+            // The chevron sits in the gutter left of the title (on hover, and while folded).
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(isFolded ? 0 : 90))
+                .frame(width: Design.Sidebar.rowPadding)
+                .opacity(foldable && (hovering || isFolded) ? 1 : 0)
+                .accessibilityHidden(true)
+            title
+                .font(Design.Sidebar.header)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+            Spacer(minLength: 4)
+            if isFolded, let count {
+                Text(verbatim: "\(count)").font(Design.Sidebar.count).foregroundStyle(.tertiary)
+            }
+            accessory
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .opacity(hovering ? 1 : 0)
+        }
+        .padding(.trailing, Design.Sidebar.rowPadding)
+        .frame(height: Design.Sidebar.headerHeight)
+        .contentShape(.rect)
+        .onHover { hovering = $0 }
+        .onTapGesture { if foldable { withAnimation(.snappy(duration: 0.2)) { folded.toggle() } } }
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isHeader)
     }
 }
 
-/// One compact row of the sidebar: a symbol, a name, a value, and controls on the right. Lights
-/// up under the pointer.
+extension SidebarSection where Accessory == EmptyView {
+    init(title: Text, fold key: String? = nil, count: Int? = nil, pinned: Bool = false, @ViewBuilder content: () -> Content) {
+        self.init(title: title, fold: key, count: count, pinned: pinned, content: content) { EmptyView() }
+    }
+}
+
+/// The hairline between two sections of a sidebar, in the middle of the gap.
+struct SidebarGap: View {
+    var body: some View {
+        Divider()
+            .padding(.horizontal, Design.Sidebar.rowPadding)
+            .padding(.vertical, Design.Sidebar.sectionGap / 2)
+    }
+}
+
+/// One row of the sidebar: a symbol, a name, a value (a count, a duration), and controls on the
+/// right. Lights up under the pointer. In a tree: `indent` levels in, and `open` puts a chevron
+/// in the gutter left of the symbol (true: unfolded).
 struct SidebarRow<Trailing: View>: View {
     let symbol: String
     let title: Text
     var detail: Text?
     var dimmed = false
     var selected = false
+    var indent = 0
+    var open: Bool?
     @ViewBuilder var trailing: Trailing
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
-            Image(systemName: symbol)
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-                .frame(width: 16)
+        HStack(spacing: 0) {
+            Image(systemName: "chevron.right")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(open == true ? 90 : 0))
+                .frame(width: Design.Sidebar.rowPadding)
+                .opacity(open == nil ? 0 : 1)
                 .accessibilityHidden(true)
-            title.lineLimit(1).truncationMode(.tail)
-            Spacer(minLength: 4)
-            detail?.font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-            trailing
+            HStack(spacing: Design.Sidebar.iconGap) {
+                Image(systemName: symbol)
+                    .font(.system(size: 13))
+                    .foregroundStyle(selected ? .primary : .secondary)
+                    .frame(width: Design.Sidebar.icon)
+                    .accessibilityHidden(true)
+                title.font(Design.Sidebar.label).lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 4)
+                detail?.font(Design.Sidebar.count).foregroundStyle(.secondary).lineLimit(1).fixedSize()
+                trailing
+            }
         }
         .font(.callout)
         .opacity(dimmed ? 0.45 : 1)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 26)
+        .padding(.leading, CGFloat(indent) * Design.Sidebar.indent)
+        .padding(.trailing, Design.Sidebar.rowPadding)
+        .frame(minHeight: Design.Sidebar.rowHeight)
         .background(RoundedRectangle(cornerRadius: Design.Radius.small)
             .fill(selected ? Design.Brand.chosenFill : AnyShapeStyle(hovering ? Color.primary.opacity(0.06) : .clear)))
         .contentShape(.rect)

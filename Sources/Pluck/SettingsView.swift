@@ -229,7 +229,7 @@ private struct GeneralSettings: View {
             } header: {
                 Text("Photos")
             } footer: {
-                Text("A small .xmp file next to each photo, which Lightroom, Capture One and darktable read. Ratings and labels from those apps are always read.")
+                Text("A small .xmp file next to each photo, which Lightroom and Capture One read. Ratings and labels from those apps are always read.")
                     .font(.caption).foregroundStyle(.secondary)
             }
 

@@ -179,7 +179,9 @@ struct ProjectTimeline: View {
                     ForEach(track.items) { item in
                         let left = x(item.at ?? 0), w = max(x((item.at ?? 0) + item.length) - left, 2)
                         Group {
-                            if track.kind == .video {
+                            if item.motion != nil {
+                                lengthBlock(item.name, symbol: "textformat", tint: Design.Brand.violet, selected: model.selected.contains(item.id))
+                            } else if track.kind == .video {
                                 ClipBlock(clip: item, thumbnails: model.thumbnails[ProjectModel.thumbnailKey(item)] ?? [],
                                           selected: model.selected.contains(item.id), moving: false,
                                           offline: model.missing.contains(item.path), peaks: [])
@@ -249,7 +251,7 @@ struct ProjectTimeline: View {
                         .padding(3)
                         .background(Circle().fill(Design.Brand.gradient))
                         .offset(x: x(offsets[index]) - 9, y: clipsTop + clipsHeight - 20)
-                        .help(ProjectTransition(kind: .dissolve, length: 1).label)
+                        .help(clip.transitionIn?.label ?? "")
                         .allowsHitTesting(false)
                 }
             }
@@ -660,6 +662,8 @@ struct ProjectTimeline: View {
         if point.y >= musicTop, point.y <= musicTop + musicHeight {
             for song in model.project.music {
                 let left = x(song.at), right = x(song.at + song.length)
+                // One thing chosen at a time: a song, a look or a title (⌫ takes out what's chosen).
+                if point.x >= left - edge, point.x <= right + edge { model.selectedTitle = nil }
                 if abs(point.x - left) <= edge { model.selected = [song.id]; return .musicStart(song.id) }
                 if abs(point.x - right) <= edge { model.selected = [song.id]; return .musicEnd(song.id) }
                 if point.x > left, point.x < right { model.selected = [song.id]; return .music(song.id, offset: t(point.x) - song.at) }
@@ -668,6 +672,7 @@ struct ProjectTimeline: View {
         if hasLooks, point.y >= looksTop, point.y <= looksTop + looksHeight {
             for look in (model.project.adjustments ?? []).reversed() {
                 let left = x(look.start), right = x(look.end)
+                if point.x >= left - edge, point.x <= right + edge { model.selectedTitle = nil }
                 if abs(point.x - left) <= edge { model.selected = [look.id]; return .lookStart(look.id) }
                 if abs(point.x - right) <= edge { model.selected = [look.id]; return .lookEnd(look.id) }
                 if point.x > left, point.x < right { model.selected = [look.id]; return .look(look.id, offset: t(point.x) - look.start) }
@@ -676,6 +681,7 @@ struct ProjectTimeline: View {
         if point.y >= titlesTop, point.y <= titlesTop + titlesHeight {
             for title in model.project.titles {
                 let left = x(title.start), right = x(title.end)
+                if point.x >= left - edge, point.x <= right + edge { model.selected = [] }
                 if abs(point.x - left) <= edge { model.selectedTitle = title.id; return .titleStart(title.id) }
                 if abs(point.x - right) <= edge { model.selectedTitle = title.id; return .titleEnd(title.id) }
                 if point.x > left, point.x < right { model.selectedTitle = title.id; return .title(title.id, offset: t(point.x) - title.start) }

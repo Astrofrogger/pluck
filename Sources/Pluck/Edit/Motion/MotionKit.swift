@@ -49,6 +49,17 @@ struct MotionStyle: Codable, Hashable {
     var glow = 0.6
     /// Film grain over the cards.
     var grain = true
+    /// The plates behind the words and the cards' background (nil: on); off, just the words.
+    var plates: Bool?
+
+    /// As drawn: without plates, their colour and the background see-through.
+    var drawn: MotionStyle {
+        guard plates == false else { return self }
+        var style = self
+        style.secondary.a = 0
+        style.background = nil
+        return style
+    }
 }
 
 /// One template's own settings.

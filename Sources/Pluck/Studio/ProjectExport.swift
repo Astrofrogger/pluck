@@ -173,6 +173,18 @@ final class ProjectExports {
     /// One file of the project; true when it's written.
     private func render(_ project: Project, to output: URL, settings: EditorRenderSettings, audioOnly: Bool, size: CGSize, fps: Double,
                         lengths: [String: Double], ffmpeg: String, ffprobe: String, progress: @escaping @MainActor (Double) -> Void) async -> Bool {
+        // The titles' videos (rendered once, kept).
+        var project = project
+        if !audioOnly {
+            do {
+                project = try await ProjectMotion.rendered(project, size: size, fps: fps, ffmpeg: ffmpeg)
+            } catch {
+                problem = error.localizedDescription
+                return false
+            }
+        } else {
+            for t in (project.tracks ?? []).indices { project.tracks![t].items.removeAll { $0.motion != nil } }
+        }
         // What each file has: a picture, sound or both.
         var streams: [String: Set<String>] = [:]
         let items = (project.tracks ?? []).flatMap(\.items).map(\.path)
@@ -376,10 +388,23 @@ final class ProjectExports {
             start = k
         }
         var video = runs[0].video, audio = runs[0].audio, length = runs[0].length
+        // Where each run starts (its first clip has the transition into it).
+        let firsts = [0] + (1..<max(clips.count, 1)).filter { overlap[$0] > 0 }
         for (r, run) in runs.enumerated().dropFirst() {
             let blend = run.overlap * 2
             if !audioOnly {
-                graph.append("\(video)\(run.video)xfade=transition=fade:duration=\(number(blend)):offset=\(number(max(length - blend, 0)))[x\(r)v]")
+                let kind = clips[firsts[r]].transitionIn?.kind ?? .dissolve
+                if kind == .dissolve {
+                    graph.append("\(video)\(run.video)xfade=transition=fade:duration=\(number(blend)):offset=\(number(max(length - blend, 0)))[x\(r)v]")
+                } else if kind == .blurDissolve {
+                    graph += ProjectTransitions.blurDissolve(video, run.video, out: "[x\(r)v]", offset: max(length - blend, 0), duration: blend,
+                                                             width: width, label: "xd\(r)")
+                } else {
+                    // Drawn by an expression on full-size planes, then back to the edit's pixels.
+                    let full = pixelFormat.replacingOccurrences(of: "420", with: "444").replacingOccurrences(of: "422", with: "444")
+                    graph.append("\(video)format=\(full)[xa\(r)];\(run.video)format=\(full)[xb\(r)]")
+                    graph.append("[xa\(r)][xb\(r)]xfade=\(ProjectTransitions.xfade(kind)):duration=\(number(blend)):offset=\(number(max(length - blend, 0))),format=\(pixelFormat)[x\(r)v]")
+                }
                 video = "[x\(r)v]"
             }
             graph.append("\(audio)\(run.audio)acrossfade=d=\(number(blend))[x\(r)a]")

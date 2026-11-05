@@ -110,7 +110,7 @@ struct PhotoInspector: View {
                         case .export: PhotoExportPanel(paths: paths)
                         }
                     }
-                    .padding(.horizontal, 6)
+                    .panelColumn()
                     .padding(.bottom, 14)
                 }
                 // Screenshots: -PluckScreenshotPhotoWatermark YES scrolls to the watermark.
@@ -307,10 +307,11 @@ struct PhotoInspector: View {
                 .fixedSize()
                 .help("The starting point: how the light becomes a picture, the same for every camera")
                 Spacer(minLength: 0)
-                Button("Auto", systemImage: "wand.and.stars") { autoTone() }
-                    .fixedSize()
-                    .help("Exposure, highlights, shadows, whites and blacks for this photo")
-                presetsMenu
+                // At a narrow panel, symbols only: this row must never push the column wider than the panel.
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 8) { autoButton; presetsMenu }
+                    HStack(spacing: 8) { autoButton; presetsMenu }.labelStyle(.iconOnly)
+                }
             }
             .controlSize(.small)
             .padding(.horizontal, 8)
@@ -430,7 +431,7 @@ struct PhotoInspector: View {
                             _ range: ClosedRange<Double>, _ format: String) -> some View {
         let value = mask[keyPath: path]
         return HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 84, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
             Slider(value: Binding(get: { value }, set: { new in
                 change { record in if let i = record.adjust.masks.firstIndex(where: { $0.id == mask.id }) { record.adjust.masks[i][keyPath: path] = new } }
             }), in: range)
@@ -439,8 +440,8 @@ struct PhotoInspector: View {
         }
         .font(.callout)
         .controlSize(.small)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 24)
+        .padding(.horizontal, Design.Sidebar.rowPadding)
+        .frame(minHeight: Design.Sidebar.sliderHeight)
     }
 
     /// Lightroom's Auto, from the photo developed plain, for each photo being edited.
@@ -565,6 +566,12 @@ struct PhotoInspector: View {
                     .buttonStyle(BrandButtonStyle(large: false))
             }
         }
+    }
+
+    private var autoButton: some View {
+        Button("Auto", systemImage: "wand.and.stars") { autoTone() }
+            .fixedSize()
+            .help("Exposure, highlights, shadows, whites and blacks for this photo")
     }
 
     private var presetsMenu: some View {
@@ -750,7 +757,7 @@ private struct PhotoFilmPanel: View {
         VStack(alignment: .leading, spacing: 12) {
             Image(systemName: "film.stack").font(.system(size: 28)).foregroundStyle(Design.Brand.gradient)
             Text("Real film, simulated").font(.title3.weight(.semibold))
-            Text("spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data. In darktable’s native version: quick.")
+            Text("spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data.")
                 .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 14) {
                 Label("\(FilmEngine.downloadMB) MB download", systemImage: "arrow.down.circle")
@@ -788,11 +795,9 @@ private struct PhotoFilmPanel: View {
 
     private var credit: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).")
+            Text("Film modelling powered by spektrafilm by Andrea Volpato. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).")
             HStack(spacing: 4) {
                 Link("spektrafilm", destination: URL(string: "https://github.com/andreavolpato/spektrafilm")!)
-                Text(verbatim: "·")
-                Link("darktable", destination: URL(string: "https://github.com/darktable-org/darktable")!)
                 Text(verbatim: "· GPLv3 · data CC BY-SA 4.0")
             }
         }

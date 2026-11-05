@@ -5,6 +5,16 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.1", items: [
+                Item(symbol: "folder", title: String(localized: "A project manager"),
+                     detail: String(localized: "With no project open, the Edit page shows your projects: in folders, recent, as a grid or a list, with search and a Trash you can put projects back from.")),
+                Item(symbol: "textformat", title: String(localized: "Titles and transitions"),
+                     detail: String(localized: "Edit a title’s words and colours, or turn its background off. 15 new transitions: wipes, iris, pushes, whip pans, zooms and blur. Canon Log 2 is supported too.")),
+                Item(symbol: "sidebar.left", title: String(localized: "Calmer sidebars"),
+                     detail: String(localized: "Sidebars and inspectors have more room, and the Photo sidebar can be resized.")),
+                Item(symbol: "checkmark.seal", title: String(localized: "Smaller fixes"),
+                     detail: String(localized: "Contrast, Whites, Blacks and curves work with film on, Clarity reaches the highlights, and holding \\ compares without a beep. Closing a Library pane no longer crashes (⌘W closes it), and the Library shows real photo thumbnails. Backspace deletes titles and colour layers, and the inspector’s text is no longer cut off.")),
+            ]),
             Release(version: "3.9.0", items: [
                 Item(symbol: "film", title: String(localized: "Film without the wait"),
                      detail: String(localized: "Film looks, grain and halation now update instantly as you edit, with no wait and no download. Advanced film settings prepare briefly the first time.")),
@@ -153,7 +163,7 @@ extension WhatsNew {
                 Item(symbol: "camera.aperture", title: String(localized: "A real RAW developer"),
                      detail: String(localized: "Every camera starts from the same neutral point, with profiles, Kelvin white balance and highlights and shadows that recover without halos. Masks, colour mixer, Auto, live histogram and zoom up to 400%. Your originals are never changed.")),
                 Item(symbol: "film", title: String(localized: "Film, fast"),
-                     detail: String(localized: "spektrafilm now runs in darktable’s native version: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.")),
+                     detail: String(localized: "spektrafilm now runs natively: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.")),
                 Item(symbol: "rectangle.stack", title: String(localized: "Cull, then edit"),
                      detail: String(localized: "Grid, Cull and Edit views, crop with rotation and locked ratios, and keys you can change in Settings. AI denoise is an optional download that runs locally on your Mac.")),
                 Item(symbol: "film.stack", title: String(localized: "Editing like an NLE"),

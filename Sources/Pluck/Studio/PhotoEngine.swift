@@ -625,7 +625,16 @@ enum PhotoEngine {
         // A finished picture shown as shot keeps its colours; everything else is brought inside.
         bool asShot = p.profile == 5 && p.isRaw == 0;
         c = asShot ? max(c, 0.0) : compressGamut(c);
-        if (p.scene == 1) return min(c, 64.0);
+        if (p.scene == 1) {
+            // The film makes its own curve from this light, so what the tone curve does without film happens here
+            // first: Contrast steepens (or flattens) the stops around mid grey, Whites moves the brightest stops and
+            // Blacks the darkest (gently enough that the light never turns back down).
+            float stops = log2(max(luma(c), 1e-6) / 0.18);
+            float shaped = stops * (1.0 + p.contrast * (p.contrast > 0 ? 0.6 : 0.4)) + p.whites * smoothstep(0.5, 3.5, stops)
+                         + p.blacks * 1.2 * (1.0 - smoothstep(-8.0, -3.0, stops));
+            c *= exp2(shaped - stops);
+            return min(c, 64.0);
+        }
 
         float3 outc;
         if (asShot) {
@@ -716,13 +725,15 @@ enum PhotoEngine {
             L = Ld;
         }
         float Lp = tonedLog(L, al, as, p);
-        // Clarity: the contrast against a soft copy of the photo (about 2% of its size), mostly in
-        // the midtones; a third of its base follows the edges, so it doesn't halo.
+        // Clarity: the contrast against a soft copy of the photo (about 2% of its size), less only in
+        // the extremes; a third of its base follows the edges, so it doesn't halo.
         if (p.clarity != 0) {
             float baseL = al.x * L + al.y + (1.0 - al.x) * p.shift;
             float local = L - mix(log2(max(luma(soft), 1e-5)), baseL, 0.35);
-            float w = 1.0 - abs(smoothstep(-6.0, 3.0, Lp - log2(0.18)) * 2.0 - 1.0);
-            Lp += local * p.clarity * (p.clarity > 0 ? 0.9 : 0.5) * (0.3 + 0.7 * w);
+            // Full from 2 stops under mid grey to 2 over, easing to half at 7 (deep shadows, light sources): skies and
+            // shadows get it too.
+            float w = 1.0 - 0.5 * smoothstep(2.0, 7.0, abs(Lp - log2(0.18)));
+            Lp += local * p.clarity * (p.clarity > 0 ? 0.7 : 0.4) * w;
         }
         c *= exp2(Lp - L);
         // Below zero, a mist filter as well: a soft veil over the picture and the highlights
@@ -820,15 +831,14 @@ enum PhotoEngine {
             c = max((c - haze * 0.18) / (1.0 - haze), 0.0);
         }
 
-        if (p.scene == 1) { dst.write(float4(min(c, 64.0), 1.0), gid); return; }
-
-        // Contrast (around mid grey) and whites (the brightest stops), in scene light.
-        float flat = p.profile == 3 ? 0.78 : 1.0;
+        // Contrast (around mid grey) and whites (the brightest stops), in scene light (the film's too).
+        float flat = p.profile == 3 && p.scene == 0 ? 0.78 : 1.0;
         float contrast = flat * (1.0 + p.contrast * (p.contrast > 0 ? 0.55 : 0.45));
         float Yc = max(luma(c), 1e-6);
         float stops = log2(Yc / 0.18);
         float shaped = stops * contrast + p.whites * 1.2 * smoothstep(0.5, 3.5, stops);
         c *= exp2(shaped - stops);
+        if (p.scene == 1) { dst.write(float4(min(c, 64.0), 1.0), gid); return; }
 
         // The profile: as shot (a finished picture), or the same curve for every camera.
         float3 outc;

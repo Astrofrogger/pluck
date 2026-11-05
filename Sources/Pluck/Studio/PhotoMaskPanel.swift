@@ -206,7 +206,7 @@ struct PhotoMaskPanel: View {
         case .colour:
             hint("Click the photo to pick a colour")
             HStack(spacing: 8) {
-                Text("Hue").foregroundStyle(.secondary).frame(width: 84, alignment: .leading)
+                Text("Hue").foregroundStyle(.secondary).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
                 Slider(value: Binding(get: { part.hue }, set: { value in updatePart(part.id, in: mask.id) { $0.hue = value } }), in: 0...360)
                 Circle().fill(Self.swatch(part.hue)).frame(width: 14, height: 14)
             }
@@ -270,13 +270,13 @@ struct PhotoMaskPanel: View {
 
     private func plainSlider(_ title: LocalizedStringKey, value: Binding<Double>, _ range: ClosedRange<Double>) -> some View {
         HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: 84, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
             Slider(value: value, in: range)
         }
         .font(.callout)
         .controlSize(.small)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 24)
+        .padding(.horizontal, Design.Sidebar.rowPadding)
+        .frame(minHeight: Design.Sidebar.sliderHeight)
     }
 
     // MARK: - Changes

@@ -35,8 +35,9 @@ struct MotionScene {
         return typed.isEmpty ? (defaults[key] ?? "") : typed
     }
 
-    /// White or near black, whichever reads on a colour.
-    func ink(on color: MotionColor) -> MotionColor { color.luminance > 0.55 ? .ink : .white }
+    /// White or near black, whichever reads on a colour (white over a plate that's off: the words
+    /// are then over the picture).
+    func ink(on color: MotionColor) -> MotionColor { color.a > 0 && color.luminance > 0.55 ? .ink : .white }
 
     func title(_ string: String, size: Double, color: MotionColor? = nil, tracking: Double = -0.02) -> MotionText {
         MotionText(string, family: style.titleFont, size: size, weight: style.titleWeight, color: (color ?? style.text).cg, tracking: tracking)
@@ -123,6 +124,7 @@ struct MotionTemplate: Identifiable, Hashable {
     /// over it all. Then the graphic at its place and size.
     func render(t: Double, in context: CGContext, canvas: CGSize, style: MotionStyle, placement: MotionPlacement,
                 logo: LogoAnimation? = nil, logoPlan: LogoAnimation.Plan? = nil) {
+        let style = style.drawn
         let card = fullFrame && style.background != nil
         if card, let base = style.background {
             MotionBackground.draw(style, base: base, t: t, canvas: canvas, in: context)

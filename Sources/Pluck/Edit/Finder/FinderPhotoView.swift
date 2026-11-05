@@ -64,7 +64,7 @@ struct FinderPhotoView: View {
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
-        .onAppear { focused = true; thumbs.wantPicture(url) }
+        .onAppear { focused = true }
         .onKeyPress(keys: [.leftArrow, .rightArrow, .upArrow, .downArrow]) { press in
             if press.modifiers.contains(.command) {
                 // (⌘↑, as in the folder: back to it.)
@@ -78,6 +78,8 @@ struct FinderPhotoView: View {
         .onKeyPress(.escape) { pane.viewing = nil; return .handled }
         // The whole photo at the pane's size (sharp on its display), its neighbours read ahead.
         .task(id: "\(url.path)|\(Int(longest))") {
+            // (Its small picture meanwhile, for every photo gone to, not only the first.)
+            thumbs.wantPicture(url)
             let wanted = longest
             guard wanted > 0 else { return }
             if let cached = FinderPhotoCache.shared.image(url, longest: wanted) {

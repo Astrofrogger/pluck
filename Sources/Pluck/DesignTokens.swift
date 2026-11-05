@@ -66,6 +66,34 @@ enum Design {
         static let panel: CGFloat = 18
     }
 
+    /// The left sidebars (Photo, Edit's panel, Projects) and the inspectors' folds, after
+    /// LightCraft's calm rhythm (docs/superpowers/specs/2026-11-04-sidebar-layout.md).
+    enum Sidebar {
+        static let width: Double = 260
+        static let widthRange: ClosedRange<Double> = 200...420
+        /// From the panel's edge to a row's highlight.
+        static let inset: CGFloat = 8
+        /// Inside a row's highlight, to its icon and its count (so both sit 18 from the edge).
+        static let rowPadding: CGFloat = 10
+        static let rowHeight: CGFloat = 28
+        static let headerHeight: CGFloat = 28
+        /// Above each section, with a hairline in the middle.
+        static let sectionGap: CGFloat = 12
+        /// Per level of a tree.
+        static let indent: CGFloat = 16
+        static let icon: CGFloat = 16
+        static let iconGap: CGFloat = 8
+        static let label = Font.body
+        static let count = Font.callout.monospacedDigit()
+        /// Title Case, dimmed; 13 like LightCraft (one token if it feels too big).
+        static let header = Font.body.weight(.semibold)
+        /// An inspector's fold (Light, Colour, Transform…).
+        static let foldHeight: CGFloat = 32
+        /// A slider row in an inspector: one line, its name in a column this wide.
+        static let sliderHeight: CGFloat = 28
+        static let sliderLabel: CGFloat = 88
+    }
+
     enum Typography {
         /// Text typed in, or chosen in, a bar control.
         static let control = Font.system(size: 15)
@@ -77,6 +105,20 @@ enum Design {
         static let sheetSymbol = Font.largeTitle
         /// Notes under a form ("Runs on this Mac…").
         static let note = Font.callout
+    }
+}
+
+/// Exactly as wide as it's offered (a scroll view's width), never as wide as its widest child:
+/// that child runs off on the right instead of widening and centring everything.
+private struct OfferedWidth: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else { return .zero }
+        let size = child.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil))
+        return CGSize(width: proposal.width ?? size.width, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, anchor: .topLeading, proposal: ProposedViewSize(width: bounds.width, height: nil))
     }
 }
 
@@ -116,6 +158,13 @@ extension View {
         font(Design.Typography.note)
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// A side panel's scrolling column (an inspector): the sidebar's inset, and never wider than the
+    /// panel. Without the cap, one row wider than the panel made the whole column wider, centred
+    /// it, and cut the fold names and slider names off on the left.
+    func panelColumn() -> some View {
+        OfferedWidth { padding(.horizontal, Design.Sidebar.inset) }
     }
 
     /// A capsule bar control: the shared height, inset and glass, for fields and menus.

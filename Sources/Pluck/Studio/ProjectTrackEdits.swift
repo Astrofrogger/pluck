@@ -145,18 +145,41 @@ extension ProjectModel {
 
     func removeItems(_ ids: Set<UUID>) {
         guard (project.tracks ?? []).contains(where: { $0.items.contains { ids.contains($0.id) } }) else { return }
-        change { project in
-            for t in (project.tracks ?? []).indices {
-                let gone = project.tracks![t].items.filter { ids.contains($0.id) }
-                project.tracks![t].items.removeAll { ids.contains($0.id) }
-                // A detached sound taken out: the clip plays its own again.
-                for item in gone where project.tracks![t].kind == .audio {
-                    if let link = item.link, let index = project.clips.firstIndex(where: { $0.link == link }) { project.clips[index].ownAudio = nil }
-                }
-            }
-            project.tracks?.removeAll { $0.items.isEmpty }
-        }
+        change { Self.takeItems(ids, from: &$0) }
         selected.subtract(ids)
+    }
+
+    /// ⌫ on the timeline: whatever is selected (clips, items on the tracks, titles, looks, songs),
+    /// in one undo step; the clips after those taken out move up. Else the plain title chosen.
+    func deleteSelection() {
+        let ids = selected
+        let tracks = project.tracks ?? []
+        guard project.clips.contains(where: { ids.contains($0.id) }) || project.music.contains(where: { ids.contains($0.id) })
+                || project.adjustments?.contains(where: { ids.contains($0.id) }) == true
+                || tracks.contains(where: { $0.items.contains { ids.contains($0.id) } }) else {
+            if let title = selectedTitle { removeTitle(title) }
+            return
+        }
+        change { project in
+            project.clips.removeAll { ids.contains($0.id) }
+            project.music.removeAll { ids.contains($0.id) }
+            project.adjustments?.removeAll { ids.contains($0.id) }
+            if project.adjustments?.isEmpty == true { project.adjustments = nil }
+            Self.takeItems(ids, from: &project)
+        }
+        selected = []
+    }
+
+    private static func takeItems(_ ids: Set<UUID>, from project: inout Project) {
+        for t in (project.tracks ?? []).indices {
+            let gone = project.tracks![t].items.filter { ids.contains($0.id) }
+            project.tracks![t].items.removeAll { ids.contains($0.id) }
+            // A detached sound taken out: the clip plays its own again.
+            for item in gone where project.tracks![t].kind == .audio {
+                if let link = item.link, let index = project.clips.firstIndex(where: { $0.link == link }) { project.clips[index].ownAudio = nil }
+            }
+        }
+        project.tracks?.removeAll { $0.items.isEmpty }
     }
 
     // MARK: - Held frames
@@ -199,8 +222,8 @@ extension ProjectModel {
     func setTransition(into index: Int, _ transition: ProjectTransition?, record: Bool = true) {
         guard index > 0, project.clips.indices.contains(index) else { return }
         let body = { (project: inout Project) in
-            project.clips[index].transitionIn = transition?.kind == .dissolve ? transition : nil
-            project.clips[index - 1].dipOut = transition.flatMap { $0.kind == .dissolve ? nil : ProjectDip(white: $0.kind == .dipWhite, length: $0.length) }
+            project.clips[index].transitionIn = transition?.kind.overlaps == true ? transition : nil
+            project.clips[index - 1].dipOut = transition.flatMap { $0.kind.overlaps ? nil : ProjectDip(white: $0.kind == .dipWhite, length: $0.length) }
         }
         if record { change(body) } else { changeWhileDragging(body) }
     }
@@ -235,9 +258,7 @@ extension ProjectModel {
 
     func cutSelection() {
         guard copySelection() else { return }
-        let ids = selected
-        delete(ids)
-        removeItems(ids)
+        deleteSelection()
     }
 
     /// Clips copied before, at the playhead: main-line clips into the edit there (at the cut

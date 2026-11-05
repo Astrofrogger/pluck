@@ -1512,6 +1512,64 @@
         }
       }
     },
+    "%@ Copy": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Kopie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia de %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copie de %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copia di %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@のコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 복사본"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kopie van %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cópia de %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 副本"
+          }
+        }
+      }
+    },
     "%@ LUFS; the target is %@. %@": {
       "localizations": {
         "de": {
@@ -13481,6 +13539,64 @@
         }
       }
     },
+    "A project manager": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Projektverwaltung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gestor de proyectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gestionnaire de projets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un gestore di progetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトマネージャー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 관리자"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een projectbeheerder"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um gerenciador de projetos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目管理器"
+          }
+        }
+      }
+    },
     "A quicker Library": {
       "localizations": {
         "de": {
@@ -14003,7 +14119,66 @@
         }
       }
     },
+    "A small .xmp file next to each photo, which Lightroom and Capture One read. Ratings and labels from those apps are always read.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine kleine .xmp-Datei neben jedem Foto, die Lightroom und Capture One lesen. Bewertungen und Etiketten aus diesen Apps werden immer gelesen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pequeño archivo .xmp junto a cada foto, que leen Lightroom y Capture One. Las valoraciones y etiquetas de esas apps siempre se leen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un petit fichier .xmp à côté de chaque photo, lu par Lightroom et Capture One. Les notes et étiquettes de ces apps sont toujours lues."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un piccolo file .xmp accanto a ogni foto, letto da Lightroom e Capture One. Valutazioni ed etichette di quelle app vengono sempre lette."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "各写真の横に置かれる小さな.xmpファイルで、LightroomとCapture Oneが読み込みます。これらのアプリのレーティングとラベルは常に読み込まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "각 사진 옆에 놓이는 작은 .xmp 파일로, Lightroom과 Capture One이 읽습니다. 이 앱들의 별점과 레이블은 항상 읽어 옵니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een klein .xmp-bestand naast elke foto, dat Lightroom en Capture One lezen. Beoordelingen en labels uit die apps worden altijd gelezen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um pequeno arquivo .xmp ao lado de cada foto, lido pelo Lightroom e Capture One. Classificações e rótulos desses apps são sempre lidos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每张照片旁的一个小 .xmp 文件，Lightroom 和 Capture One 都能读取。这些应用的评分和标签始终会被读取。"
+          }
+        }
+      }
+    },
     "A small .xmp file next to each photo, which Lightroom, Capture One and darktable read. Ratings and labels from those apps are always read.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -20276,6 +20451,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "所有照片"
+          }
+        }
+      }
+    },
+    "All Projects": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Projekte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos los proyectos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tous les projets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutti i progetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのプロジェクト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 프로젝트"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle projecten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todos os projetos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "所有项目"
           }
         }
       }
@@ -28600,6 +28833,64 @@
         }
       }
     },
+    "Blur Dissolve": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weichzeichner-Überblendung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundido con desenfoque"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondu avec flou"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissolvenza sfocata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ぼかしディゾルブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "흐림 디졸브"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vervagende overvloeier"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissolver com desfoque"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "模糊溶解"
+          }
+        }
+      }
+    },
     "Blurred. Click to keep sharp.": {
       "localizations": {
         "de": {
@@ -32268,6 +32559,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "沉稳：从容柔和。高级：缓慢，细致落定。活泼：轻快有弹性。大胆：迅速利落。"
+          }
+        }
+      }
+    },
+    "Calmer sidebars": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhigere Seitenleisten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barras laterales más tranquilas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des barres latérales plus sereines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre laterali più calme"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すっきりしたサイドバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 차분한 사이드바"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rustigere zijbalken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barras laterais mais calmas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更清爽的边栏"
           }
         }
       }
@@ -41347,6 +41696,64 @@
         }
       }
     },
+    "Close Pane (⌘W)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereich schließen (⌘W)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar panel (⌘W)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer le panneau (⌘W)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi riquadro (⌘W)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインを閉じる（⌘W）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "창 닫기 (⌘W)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paneel sluiten (⌘W)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar painel (⌘W)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭窗格（⌘W）"
+          }
+        }
+      }
+    },
     "Close Tab": {
       "localizations": {
         "de": {
@@ -44723,6 +45130,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "对比度（按住并滚动）"
+          }
+        }
+      }
+    },
+    "Contrast, Whites, Blacks and curves work with film on, Clarity reaches the highlights, and holding \\ compares without a beep. Closing a Library pane no longer crashes (⌘W closes it), and the Library shows real photo thumbnails. Backspace deletes titles and colour layers, and the inspector’s text is no longer cut off.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kontrast, Weiß, Schwarz und Kurven funktionieren bei aktivem Film, Klarheit erreicht die Lichter, und beim Halten von \\ wird ohne Signalton verglichen. Das Schließen eines Mediathek-Bereichs stürzt nicht mehr ab (⌘W schließt ihn), und die Mediathek zeigt echte Fotovorschauen. Rückschritt löscht Titel und Farbebenen, und der Text im Informationsbereich wird nicht mehr abgeschnitten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste, Blancos, Negros y curvas funcionan con la película activada, Claridad llega a las altas luces, y mantener pulsada \\ compara sin pitido. Cerrar un panel de la Biblioteca ya no provoca un cierre inesperado (⌘W lo cierra), y la Biblioteca muestra miniaturas reales de las fotos. Retroceso elimina títulos y capas de color, y el texto del inspector ya no se corta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste, Blancs, Noirs et courbes fonctionnent avec la pellicule activée, la Clarté atteint les hautes lumières, et maintenir \\ compare sans bip. Fermer un panneau de la Bibliothèque ne provoque plus de plantage (⌘W le ferme), et la Bibliothèque affiche de vraies vignettes de photos. Retour arrière supprime les titres et les calques de couleur, et le texte de l’inspecteur n’est plus coupé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrasto, Bianchi, Neri e curve funzionano con la pellicola attiva, Chiarezza raggiunge le alte luci, e tenere premuto \\ confronta senza segnale acustico. Chiudere un riquadro della Libreria non causa più un arresto anomalo (⌘W lo chiude), e la Libreria mostra vere miniature delle foto. Backspace elimina titoli e livelli colore, e il testo dell’ispettore non viene più tagliato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルムをオンにしてもコントラスト、白レベル、黒レベル、カーブが効くようになり、明瞭度がハイライトにも届き、\\ を押し続けても警告音なしで比較できます。ライブラリのペインを閉じてもクラッシュしなくなり（⌘Wで閉じられます）、ライブラリに本物の写真サムネールが表示されます。Backspaceでタイトルやカラーレイヤーを削除でき、インスペクタの文字が切れなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필름을 켠 상태에서도 대비, 흰색, 검정, 곡선이 작동하고, 명료도가 하이라이트까지 적용되며, \\ 를 누르고 있어도 경고음 없이 비교됩니다. 보관함 창을 닫아도 더 이상 충돌하지 않고(⌘W로 닫기), 보관함에 실제 사진 썸네일이 표시됩니다. Backspace로 제목과 색상 레이어를 삭제할 수 있고, 인스펙터의 글자가 더 이상 잘리지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contrast, Wit, Zwart en curven werken met film aan, Helderheid bereikt de hoge lichten, en \\ ingedrukt houden vergelijkt zonder piep. Een Bibliotheek-paneel sluiten laat de app niet meer crashen (⌘W sluit het), en de Bibliotheek toont echte fotominiaturen. Backspace verwijdert titels en kleurlagen, en de tekst van de inspector wordt niet meer afgekapt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Contraste, Brancos, Pretos e curvas funcionam com o filme ativado, a Clareza alcança as altas luzes, e manter \\ pressionada compara sem bipe. Fechar um painel da Biblioteca não causa mais travamento (⌘W o fecha), e a Biblioteca mostra miniaturas reais das fotos. Delete apaga títulos e camadas de cor, e o texto do inspetor não é mais cortado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启胶片后，对比度、白色、黑色和曲线仍然有效，清晰度能作用到高光，按住 \\ 比较时不再发出提示音。关闭资源库窗格不再崩溃（⌘W 可关闭），资源库会显示真实的照片缩略图。Backspace 可删除标题和颜色图层，检查器中的文字也不再被截断。"
           }
         }
       }
@@ -48154,6 +48619,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "创建"
+          }
+        }
+      }
+    },
+    "Created": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成日"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성일"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aangemaakt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建时间"
           }
         }
       }
@@ -53340,6 +53863,64 @@
     },
     "Display P3": {
       "shouldTranslate": false
+    },
+    "Dissolves": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überblendungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fundidos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fondus"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissolvenze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディゾルブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디졸브"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overvloeiers"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dissolvências"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "溶解"
+          }
+        }
+      }
     },
     "Done": {
       "localizations": {
@@ -61714,6 +62295,64 @@
         }
       }
     },
+    "Edit a title’s words and colours, or turn its background off. 15 new transitions: wipes, iris, pushes, whip pans, zooms and blur. Canon Log 2 is supported too.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ändere Wörter und Farben eines Titels oder schalte seinen Hintergrund aus. 15 neue Übergänge: Wischblenden, Irisblenden, Schieben, Wischschwenks, Zooms und Weichzeichnen. Canon Log 2 wird ebenfalls unterstützt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edita las palabras y los colores de un título, o desactiva su fondo. 15 transiciones nuevas: cortinillas, iris, empujes, barridos rápidos, zooms y desenfoque. También es compatible Canon Log 2."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifiez les mots et les couleurs d’un titre, ou désactivez son fond. 15 nouvelles transitions : volets, iris, poussées, panoramiques filés, zooms et flou. Canon Log 2 est aussi pris en charge."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifica le parole e i colori di un titolo, oppure disattiva il suo sfondo. 15 nuove transizioni: tendine, iridi, spinte, panoramiche rapide, zoom e sfocature. Supportato anche Canon Log 2."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルの文字と色を編集したり、背景をオフにしたりできます。ワイプ、アイリス、プッシュ、ウィップパン、ズーム、ぼかしの新しいトランジションを15種類追加。Canon Log 2にも対応しました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목의 글자와 색상을 편집하거나 배경을 끌 수 있습니다. 와이프, 아이리스, 푸시, 휩 팬, 확대/축소, 흐림 등 새로운 전환 15개. Canon Log 2도 지원합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bewerk de woorden en kleuren van een titel, of zet de achtergrond uit. 15 nieuwe overgangen: wipes, iris, duwen, zwiepende pans, zooms en vervagen. Canon Log 2 wordt ook ondersteund."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edite as palavras e as cores de um título, ou desligue o fundo. 15 novas transições: cortinas, íris, empurrões, whip pans, zooms e desfoque. O Canon Log 2 também é compatível."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "可编辑标题的文字和颜色，或关闭其背景。新增 15 种转场：擦除、光圈、推入、甩镜、缩放和模糊。同时支持 Canon Log 2。"
+          }
+        }
+      }
+    },
     "Edit by deleting words from the transcript, cut to the beat, reframe for vertical, dip to black or white, see waveforms and relink missing media. Long renders can be stopped.": {
       "localizations": {
         "de": {
@@ -63277,6 +63916,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "空文件夹"
+          }
+        }
+      }
+    },
+    "Empty Trash": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papierkorb leeren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaciar la papelera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vider la corbeille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Svuota il cestino"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱を空にする"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴지통 비우기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prullenmand legen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esvaziar o Lixo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "清倒废纸篓"
           }
         }
       }
@@ -66251,6 +66948,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "导出影片…"
+          }
+        }
+      }
+    },
+    "Export Project…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Projekt exportieren …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar proyecto…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporter le projet…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esporta progetto…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを書き出す…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트 내보내기…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exporteer project…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar projeto…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导出项目…"
           }
         }
       }
@@ -70213,6 +70968,7 @@
       }
     },
     "Film modelling powered by spektrafilm by Andrea Volpato, in darktable’s native version. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -70325,6 +71081,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "胶片模拟由 Andrea Volpato 的 spektrafilm 提供。"
+          }
+        }
+      }
+    },
+    "Film modelling powered by spektrafilm by Andrea Volpato. The film colour tables in Pluck are made from that data (CC BY-SA 4.0).": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmsimulation mit spektrafilm von Andrea Volpato. Die Filmfarbtabellen in Pluck sind aus diesen Daten erstellt (CC BY-SA 4.0)."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulación de película con spektrafilm de Andrea Volpato. Las tablas de color de película de Pluck se crean a partir de esos datos (CC BY-SA 4.0)."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulation de film par spektrafilm d’Andrea Volpato. Les tables de couleurs de film de Pluck sont créées à partir de ces données (CC BY-SA 4.0)."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulazione della pellicola con spektrafilm di Andrea Volpato. Le tabelle colore della pellicola in Pluck sono create da quei dati (CC BY-SA 4.0)."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andrea Volpato による spektrafilm のフィルムモデル。Pluck のフィルム色テーブルはそのデータから作られています（CC BY-SA 4.0）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Andrea Volpato의 spektrafilm 필름 모델링. Pluck의 필름 색상 테이블은 해당 데이터로 만들어졌습니다(CC BY-SA 4.0)."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmsimulatie met spektrafilm van Andrea Volpato. De filmkleurtabellen in Pluck zijn gemaakt van die gegevens (CC BY-SA 4.0)."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Simulação de filme com spektrafilm de Andrea Volpato. As tabelas de cor de filme do Pluck são feitas a partir desses dados (CC BY-SA 4.0)."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶片模拟由 Andrea Volpato 的 spektrafilm 提供。Pluck 中的胶片色彩表由这些数据制作（CC BY-SA 4.0）。"
           }
         }
       }
@@ -85016,6 +85830,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "邀请 Mac…"
+          }
+        }
+      }
+    },
+    "Iris Close": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Irisblende schließen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris de cierre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermeture en iris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iride in chiusura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイリス（閉じる）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이리스 닫기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris sluiten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Íris fechando"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "光圈收缩"
+          }
+        }
+      }
+    },
+    "Iris Open": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Irisblende öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris de apertura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouverture en iris"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iride in apertura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アイリス（開く）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아이리스 열기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iris openen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Íris abrindo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "光圈展开"
           }
         }
       }
@@ -106012,6 +106942,64 @@
         }
       }
     },
+    "New Album or Folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neues Album oder neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo álbum o carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouvel album ou dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuovo album o cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規アルバムまたはフォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 앨범 또는 폴더"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieuw album of nieuwe map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Novo álbum ou pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建相簿或文件夹"
+          }
+        }
+      }
+    },
     "New Album…": {
       "localizations": {
         "de": {
@@ -106709,6 +107697,7 @@
       }
     },
     "New folder for albums": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -113103,6 +114092,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "关闭"
+          }
+        }
+      }
+    },
+    "Off: just the words, see-through behind them": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus: nur die Wörter, dahinter durchsichtig"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado: solo las palabras, transparente detrás"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé : seulement les mots, transparent derrière"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spento: solo le parole, trasparente dietro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：文字のみ、背面は透明"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔: 글자만, 뒤는 투명"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uit: alleen de woorden, doorzichtig erachter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desligado: só as palavras, transparente atrás"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭：仅显示文字，背后透明"
           }
         }
       }
@@ -134690,6 +135737,238 @@
         }
       }
     },
+    "Push Down": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schieben nach unten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empujar hacia abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poussée vers le bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spinta verso il basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ（下）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "푸시 아래쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duwen omlaag"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empurrar para baixo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推入向下"
+          }
+        }
+      }
+    },
+    "Push Left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schieben links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empujar a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poussée à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spinta a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ（左）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "푸시 왼쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duwen links"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empurrar para a esquerda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推入向左"
+          }
+        }
+      }
+    },
+    "Push Right": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schieben rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empujar a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poussée à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spinta a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ（右）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "푸시 오른쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duwen rechts"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empurrar para a direita"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推入向右"
+          }
+        }
+      }
+    },
+    "Push Up": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schieben nach oben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empujar hacia arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Poussée vers le haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spinta verso l’alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プッシュ（上）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "푸시 위쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duwen omhoog"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empurrar para cima"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "推入向上"
+          }
+        }
+      }
+    },
     "Push in": {
       "localizations": {
         "de": {
@@ -134744,6 +136023,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "推近"
+          }
+        }
+      }
+    },
+    "Put Back": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zurücklegen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a colocar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remettre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimetti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "元に戻す"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "되돌려 놓기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zet terug"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colocar de volta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放回原处"
           }
         }
       }
@@ -137596,7 +138933,6 @@
       }
     },
     "Recent": {
-      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -148243,6 +149579,64 @@
         }
       }
     },
+    "Search (⌘F)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suchen (⌘F)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar (⌘F)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher (⌘F)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca (⌘F)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "検索（⌘F）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검색 (⌘F)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoek (⌘F)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar (⌘F)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索（⌘F）"
+          }
+        }
+      }
+    },
     "Search Didn’t Work": {
       "localizations": {
         "de": {
@@ -158258,6 +159652,64 @@
         }
       }
     },
+    "Sidebars and inspectors have more room, and the Photo sidebar can be resized.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seitenleisten und Informationsbereiche haben mehr Platz, und die Seitenleiste der Fotoseite lässt sich in der Größe ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las barras laterales y los inspectores tienen más espacio, y la barra lateral de Fotos se puede redimensionar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les barres latérales et les inspecteurs ont plus d’espace, et la barre latérale Photo peut être redimensionnée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le barre laterali e gli ispettori hanno più spazio, e la barra laterale Foto si può ridimensionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバーとインスペクタに余裕ができ、写真のサイドバーはサイズを変更できるようになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바와 인스펙터의 여백이 넓어졌고, 사진 사이드바의 크기를 조절할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zijbalken en inspectors hebben meer ruimte, en de zijbalk van Foto kan van grootte worden veranderd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As barras laterais e os inspetores têm mais espaço, e a barra lateral de Fotos pode ser redimensionada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边栏和检查器的空间更宽敞，照片边栏也可以调整大小。"
+          }
+        }
+      }
+    },
     "Silence": {
       "localizations": {
         "de": {
@@ -159130,6 +160582,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "滑块直接由 GPU 跟随鼠标，保留超出 sRGB 的颜色，白平衡使用 CAT16，去雾效果真实。之前的编辑在你更新前保持原样。"
+          }
+        }
+      }
+    },
+    "Slides": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schieben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizamientos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Glissements"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scorrimenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "スライド"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "슬라이드"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schuiven"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deslizamentos"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "滑动"
           }
         }
       }
@@ -177323,6 +178833,64 @@
         }
       }
     },
+    "The plates behind the words": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Flächen hinter den Wörtern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las placas detrás de las palabras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les plaques derrière les mots"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le placche dietro le parole"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字の背後のプレート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "글자 뒤의 판"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De vlakken achter de woorden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As placas atrás das palavras"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文字后面的底板"
+          }
+        }
+      }
+    },
     "The player no longer crashes on macOS 27, and summaries and chapters work better for Chinese, Japanese and Korean.": {
       "extractionState": "stale",
       "localizations": {
@@ -177726,6 +179294,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "该项目已不存在。"
+          }
+        }
+      }
+    },
+    "The projects go to the Trash on this Mac.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Projekte werden in den Papierkorb dieses Macs gelegt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los proyectos se trasladan a la papelera de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les projets sont placés dans la corbeille de ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I progetti vengono spostati nel cestino di questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトはこのMacのゴミ箱に入ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트는 이 Mac의 휴지통으로 이동합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De projecten gaan naar de prullenmand van deze Mac."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os projetos vão para o Lixo deste Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "项目会移到此 Mac 的废纸篓。"
           }
         }
       }
@@ -185746,6 +187372,64 @@
         }
       }
     },
+    "Titles and transitions": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titel und Übergänge"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Títulos y transiciones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titres et transitions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titoli e transizioni"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タイトルとトランジション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제목과 전환"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Titels en overgangen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Títulos e transições"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标题与转场"
+          }
+        }
+      }
+    },
     "Titles in a shot always stay whole, and the rest of the shot stays on the people in it.": {
       "localizations": {
         "de": {
@@ -189001,6 +190685,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "透明（ProRes 4444）"
+          }
+        }
+      }
+    },
+    "Trash": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papierkorb"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Papelera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corbeille"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cestino"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴지통"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prullenmand"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lixo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "废纸篓"
           }
         }
       }
@@ -198941,6 +200683,122 @@
         }
       }
     },
+    "Whip Pan Left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischschwenk links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrido rápido a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramique filé à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramica rapida a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィップパン（左）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휩 팬 왼쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwiepende pan links"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whip pan para a esquerda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "甩镜向左"
+          }
+        }
+      }
+    },
+    "Whip Pan Right": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischschwenk rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barrido rápido a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramique filé à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Panoramica rapida a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ウィップパン（右）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휩 팬 오른쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zwiepende pan rechts"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whip pan para a direita"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "甩镜向右"
+          }
+        }
+      }
+    },
     "Whip pan": {
       "localizations": {
         "de": {
@@ -199927,6 +201785,296 @@
         }
       }
     },
+    "Wipe Down": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischblende nach unten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla hacia abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet vers le bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tendina verso il basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワイプ（下）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "와이프 아래쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe omlaag"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina para baixo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擦除向下"
+          }
+        }
+      }
+    },
+    "Wipe Left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischblende links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla a la izquierda"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet à gauche"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tendina a sinistra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワイプ（左）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "와이프 왼쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe links"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina para a esquerda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擦除向左"
+          }
+        }
+      }
+    },
+    "Wipe Right": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischblende rechts"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tendina a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワイプ（右）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "와이프 오른쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe rechts"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina para a direita"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擦除向右"
+          }
+        }
+      }
+    },
+    "Wipe Up": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischblende nach oben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinilla hacia arriba"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volet vers le haut"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tendina verso l’alto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワイプ（上）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "와이프 위쪽"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipe omhoog"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortina para cima"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擦除向上"
+          }
+        }
+      }
+    },
+    "Wipes": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wischblenden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinillas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tendine"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ワイプ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "와이프"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wipes"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cortinas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "擦除"
+          }
+        }
+      }
+    },
     "With RED clips shown as one item in Finder, each now gets a picture from its take. Log out and back in once for Finder to pick it up.": {
       "localizations": {
         "de": {
@@ -200039,6 +202187,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "含本地 AI、剪辑工具和随处剪辑。"
+          }
+        }
+      }
+    },
+    "With no project open, the Edit page shows your projects: in folders, recent, as a grid or a list, with search and a Trash you can put projects back from.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ist kein Projekt geöffnet, zeigt die Schnittseite deine Projekte: in Ordnern, zuletzt verwendet, als Raster oder Liste, mit Suche und einem Papierkorb, aus dem du Projekte zurücklegen kannst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin ningún proyecto abierto, la página Editar muestra tus proyectos: en carpetas, recientes, como cuadrícula o lista, con búsqueda y una papelera de la que puedes recuperarlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quand aucun projet n’est ouvert, la page Montage affiche vos projets : en dossiers, récents, en grille ou en liste, avec une recherche et une corbeille d’où les remettre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Senza nessun progetto aperto, la pagina Montaggio mostra i tuoi progetti: in cartelle, recenti, a griglia o a elenco, con ricerca e un cestino da cui rimetterli a posto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロジェクトを開いていないとき、編集ページにプロジェクトが表示されます。フォルダ別、最近のもの、グリッドまたはリスト表示、検索、そして元に戻せるゴミ箱があります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로젝트가 열려 있지 않으면 편집 페이지에 프로젝트가 표시됩니다. 폴더별, 최근 항목, 그리드 또는 목록 보기, 검색, 그리고 되돌릴 수 있는 휴지통이 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als er geen project open is, toont de bewerkpagina je projecten: in mappen, recent, als raster of lijst, met zoeken en een prullenmand waaruit je projecten kunt terugzetten."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sem nenhum projeto aberto, a página Editar mostra seus projetos: em pastas, recentes, em grade ou lista, com busca e um Lixo de onde você pode recolocá-los."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未打开项目时，编辑页面会显示你的项目：按文件夹、最近使用，网格或列表显示，支持搜索，还有可以放回项目的废纸篓。"
           }
         }
       }
@@ -202666,6 +204872,64 @@
         }
       }
     },
+    "Zoom & Blur": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom & Weichzeichnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom y desenfoque"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom et flou"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom e sfocatura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズームとぼかし"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확대/축소 및 흐림"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom en vervagen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom e desfoque"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩放与模糊"
+          }
+        }
+      }
+    },
     "Zoom (in Browse: the grid's size)": {
       "localizations": {
         "de": {
@@ -202720,6 +204984,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "缩放（浏览时：网格大小）"
+          }
+        }
+      }
+    },
+    "Zoom In": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hineinzoomen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acercar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom avant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom avanti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズームイン"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확대"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inzoomen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aumentar zoom"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大"
+          }
+        }
+      }
+    },
+    "Zoom Out": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herauszoomen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alejar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom arrière"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom indietro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ズームアウト"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "축소"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitzoomen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diminuir zoom"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "缩小"
           }
         }
       }
@@ -205667,9 +208047,6 @@
         }
       }
     },
-    "darktable": {
-      "shouldTranslate": false
-    },
     "drone shot over water": {
       "extractionState": "stale",
       "localizations": {
@@ -208003,7 +210380,6 @@
       }
     },
     "spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data.": {
-      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -208062,6 +210438,7 @@
       }
     },
     "spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data. In darktable’s native version: quick.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -208120,6 +210497,7 @@
       }
     },
     "spektrafilm now runs in darktable’s native version: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -208173,6 +210551,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "spektrafilm 现在使用 darktable 的原生版本运行：下载仅 9 MB 而非数百 MB，渲染速度快数倍，每项设置都有旋钮。"
+          }
+        }
+      }
+    },
+    "spektrafilm now runs natively: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm läuft jetzt nativ: ein Download von 9 MB statt Hunderten, mehrfach schnellere Berechnung und jede Einstellung als Regler."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm ahora funciona de forma nativa: una descarga de 9 MB en lugar de cientos, renderizado varias veces más rápido y cada ajuste como un dial."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm fonctionne désormais en natif : un téléchargement de 9 Mo au lieu de centaines, un rendu plusieurs fois plus rapide et chaque réglage sous forme de molette."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm ora funziona in modo nativo: un download di 9 MB invece di centinaia, rendering molto più veloce e ogni impostazione come una manopola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilmがネイティブで動作するようになりました。ダウンロードは数百MBではなく9MB、レンダリングは数倍高速、すべての設定をダイヤルで調整できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm이 이제 네이티브로 실행됩니다. 수백 MB 대신 9MB 다운로드, 몇 배 빠른 렌더링, 모든 설정을 다이얼로 조절할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm draait nu native: een download van 9 MB in plaats van honderden, meerdere keren sneller en elke instelling als draaiknop."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O spektrafilm agora roda nativamente: um download de 9 MB em vez de centenas, renderização várias vezes mais rápida e cada ajuste como um dial."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "spektrafilm 现在以原生方式运行：下载仅 9 MB 而非数百 MB，渲染速度快数倍，每项设置都有旋钮。"
           }
         }
       }

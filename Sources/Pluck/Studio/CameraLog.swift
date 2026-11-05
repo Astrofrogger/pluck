@@ -6,7 +6,7 @@ import Foundation
 /// gentle film-like roll-off into the highlights. Found from the file's own metadata (or a
 /// camera's sidecar .XML), or chosen for a clip. One table for the viewer and the export.
 enum CameraLog: String, CaseIterable, Identifiable, Sendable {
-    case sLog3Cine, sLog3, vLog, canonLog3, logC3, logC4, log3G10, blackmagicFilm, fLog, fLog2, nLog
+    case sLog3Cine, sLog3, vLog, canonLog2, canonLog3, logC3, logC4, log3G10, blackmagicFilm, fLog, fLog2, nLog
 
     var id: String { rawValue }
 
@@ -15,6 +15,7 @@ enum CameraLog: String, CaseIterable, Identifiable, Sendable {
         case .sLog3Cine: "Sony S-Log3 Cine"
         case .sLog3: "Sony S-Log3"
         case .vLog: "Panasonic V-Log"
+        case .canonLog2: "Canon Log 2"
         case .canonLog3: "Canon Log 3"
         case .logC3: "ARRI LogC3"
         case .logC4: "ARRI LogC4"
@@ -55,6 +56,7 @@ enum CameraLog: String, CaseIterable, Identifiable, Sendable {
         (["s-gamut3cine", "s-gamut3.cine", "s-log3-cine", "sgamut3cine"], .sLog3Cine),
         (["s-log3", "slog3"], .sLog3),
         (["v-log", "vlog"], .vLog),
+        (["canon log 2", "canonlog2", "c-log2", "clog2"], .canonLog2),
         (["canon log 3", "canonlog3", "c-log3", "clog3"], .canonLog3),
         (["logc4", "log-c4", "log c4"], .logC4),
         (["logc3", "logc", "log-c"], .logC3),
@@ -130,6 +132,12 @@ enum CameraLog: String, CaseIterable, Identifiable, Sendable {
             return v >= cut ? pow(10, (v * 1023 - 420) / 261.5) * 0.19 - 0.01 : (v * 1023 - 95) * 0.01125 / (171.2102946929 - 95)
         case .vLog:
             return v < 0.181 ? (v - 0.125) / 5.6 : pow(10, (v - 0.598206) / 0.241514) - 0.00873
+        case .canonLog2:
+            // Canon's white paper "Canon Log Gamma Curves" (as in the ACES Canon IDT and colour-science):
+            // y = 0.24136077·log10(87.09937546·x + 1) + 0.092864125 (mirrored below 0), x = scene / 0.9.
+            let x = v < 0.092864125 ? -(pow(10, (0.092864125 - v) / 0.24136077) - 1) / 87.09937546
+                : (pow(10, (v - 0.092864125) / 0.24136077) - 1) / 87.09937546
+            return x * 0.9
         case .canonLog3:
             let x: Double
             if v < 0.097465473 {
@@ -165,7 +173,7 @@ enum CameraLog: String, CaseIterable, Identifiable, Sendable {
     /// Fujifilm, Nikon), or of video's black-to-white (Canon, RED, Blackmagic).
     var codeValues: Bool {
         switch self {
-        case .canonLog3, .log3G10, .blackmagicFilm: false
+        case .canonLog2, .canonLog3, .log3G10, .blackmagicFilm: false
         default: true
         }
     }
@@ -176,7 +184,8 @@ enum CameraLog: String, CaseIterable, Identifiable, Sendable {
         case .sLog3Cine: [(0.766, 0.275), (0.225, 0.800), (0.089, -0.087)]
         case .sLog3: [(0.730, 0.280), (0.140, 0.855), (0.100, -0.050)]
         case .vLog: [(0.730, 0.280), (0.165, 0.840), (0.100, -0.030)]
-        case .canonLog3: [(0.740, 0.270), (0.170, 1.140), (0.080, -0.100)]
+        // Canon's Cinema Gamut.
+        case .canonLog2, .canonLog3: [(0.740, 0.270), (0.170, 1.140), (0.080, -0.100)]
         case .logC3: [(0.6840, 0.3130), (0.2210, 0.8480), (0.0861, -0.1020)]
         case .logC4: [(0.7347, 0.2653), (0.1424, 0.8576), (0.0991, -0.0308)]
         case .log3G10: [(0.780308, 0.304253), (0.121595, 1.493994), (0.095612, -0.084589)]

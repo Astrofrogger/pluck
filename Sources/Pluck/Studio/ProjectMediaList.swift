@@ -43,6 +43,7 @@ struct ProjectMediaList: View {
     @State private var picking = false
     @State private var dropTargeted = false
     @State private var selection = MediaSelection.shared
+    @FocusState private var listFocused: Bool
 
     /// Chooses a file for the keys that put media in (E, comma, full stop, P, R), as a click in 3.8.0's media panel did.
     static func choose(_ path: String) {
@@ -57,24 +58,9 @@ struct ProjectMediaList: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: Design.Spacing.controls) {
-                PaneSearchField(prompt: audioOnly ? "Search music" : "Search media", text: $search)
-                Button {
-                    picking = true
-                } label: {
-                    Image(systemName: "plus")
-                }
-                .buttonStyle(.plain)
-                .help("Import from Pluck Library…")
-                .popover(isPresented: $picking, arrowEdge: .trailing) {
-                    MediaPanel(nav: StudioNavigator.shared) { urls in
-                        Task { await model.importMedia(urls) }
-                        picking = false
-                    }
-                    .frame(width: 340, height: 520)
-                }
-            }
-            .padding(Design.Spacing.controls)
+            PaneSearchField(prompt: audioOnly ? "Search music" : "Search media", text: $search)
+                .padding(.horizontal, Design.Sidebar.inset)
+                .padding(.vertical, Design.Spacing.controls)
             if model.mediaFiles(audioOnly: audioOnly).isEmpty {
                 ContentUnavailableView {
                     Label(audioOnly ? "No music yet" : "No media yet", systemImage: audioOnly ? "music.note" : "film.stack")
@@ -85,11 +71,21 @@ struct ProjectMediaList: View {
                         .buttonStyle(GlassCapsuleButtonStyle())
                 }
             } else {
-                List(files, id: \.self) { path in
-                    row(path)
+                // Not a List: a List insets its rows on its own, off the sidebar's 18.
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                        SidebarSection(title: Text(audioOnly ? LocalizedStringKey("Music") : "Media"), pinned: true) {
+                            ForEach(files, id: \.self) { path in row(path) }
+                        } accessory: {
+                            importButton
+                        }
+                    }
+                    .padding(.horizontal, Design.Sidebar.inset)
+                    .padding(.bottom, 20)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
+                .focusable()
+                .focused($listFocused)
+                .focusEffectDisabled()
                 .onKeyPress { press in
                     // Putting the chosen media in, and playing: the project's, though the list has the focus.
                     let action = Shortcuts.shared.action(for: press, in: .edit)
@@ -100,6 +96,13 @@ struct ProjectMediaList: View {
                     return .ignored
                 }
             }
+        }
+        .popover(isPresented: $picking, arrowEdge: .trailing) {
+            MediaPanel(nav: StudioNavigator.shared) { urls in
+                Task { await model.importMedia(urls) }
+                picking = false
+            }
+            .frame(width: 340, height: 520)
         }
         .overlay {
             if dropTargeted {
@@ -118,28 +121,29 @@ struct ProjectMediaList: View {
         }
     }
 
+    private var importButton: some View {
+        Button {
+            picking = true
+        } label: {
+            Image(systemName: "plus")
+        }
+        .help("Import from Pluck Library…")
+        .accessibilityLabel(Text("Import from Pluck Library…"))
+    }
+
     private func row(_ path: String) -> some View {
         let file = URL(fileURLWithPath: path)
         let onTimeline = model.project.clips.contains { $0.path == path } || (model.project.tracks ?? []).contains { $0.items.contains { $0.path == path } }
             || model.project.music.contains { $0.path == path }
-        return HStack(spacing: 8) {
-            Image(systemName: Converting.isVideo(file) ? "film" : "waveform")
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-            Text(file.deletingPathExtension().lastPathComponent)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer(minLength: 4)
+        return SidebarRow(symbol: Converting.isVideo(file) ? "film" : "waveform", title: Text(file.deletingPathExtension().lastPathComponent),
+                          detail: model.fileLengths[path].map { Text(Format.duration($0)) },
+                          selected: selection.source == MediaSource(path: path, span: nil)) {
             if onTimeline {
                 Image(systemName: "checkmark").font(.caption).foregroundStyle(.tertiary)
                     .help("On the timeline")
             }
         }
-        .font(.callout)
-        .padding(.horizontal, 4)
-        .padding(.vertical, 2)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-            .fill(selection.source == MediaSource(path: path, span: nil) ? Design.Brand.chosenFill : AnyShapeStyle(Color.clear)))
+        .task(id: path) { _ = await model.length(of: file) }
         .contentShape(.rect)
         .onDrag { NSItemProvider(object: file as NSURL) }
         .onTapGesture(count: 2) {
@@ -147,7 +151,7 @@ struct ProjectMediaList: View {
                 if audioOnly { await model.addMusic(file) } else { await model.add([file]) }
             }
         }
-        .onTapGesture { Self.choose(path) }
+        .onTapGesture { Self.choose(path); listFocused = true }
         .help(audioOnly ? "Drag onto the timeline, or double-click to add it as music" : "Drag onto the timeline, or double-click to add it at the end. Click, then E, comma, full stop, P or R to put it in.")
     }
 }

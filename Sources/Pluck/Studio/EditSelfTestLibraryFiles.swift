@@ -1,5 +1,7 @@
 import AppKit
 import ImageIO
+import QuickLookUI
+import SwiftUI
 import UniformTypeIdentifiers
 
 /// The Library with any file, not only clips: photos, documents and folders copied and checked;
@@ -17,6 +19,7 @@ extension EditSelfTest {
         await moving(base)
         splitsTurn()
         dragOut(base)
+        await panesOnScreen(base)
         for job in OffloadCenter.shared.jobs where !before.contains(job.id) { OffloadCenter.shared.remove(job.id) }
         try? FileManager.default.removeItem(at: base)
     }
@@ -325,6 +328,116 @@ extension EditSelfTest {
         workspace.close()
         check("splits turn", below == .vertical && turned == .horizontal && workspace.panes.count == count,
               "split \(String(describing: below)), turned \(String(describing: turned)), panes \(workspace.panes.count)")
+    }
+}
+
+extension EditSelfTest {
+    /// The Library's panes on screen: thumbnails for every photo (in icons, list and columns,
+    /// the column view's preview following the choice), panes split both ways with files chosen
+    /// and Quick Look open, closed one by one (the one in front, and others) without a crash;
+    /// ⌘W closes a pane while there are several, and leaves the window open.
+    fileprivate static func panesOnScreen(_ base: URL) async {
+        let place = base.appendingPathComponent("Panes", isDirectory: true).creating()
+        let written = (1...5).map { place.appendingPathComponent("Photo \($0).jpg") }
+        for (n, photo) in written.enumerated() { writeColoured(photo, red: Double(n) / 4) }
+        let thumbs = FinderThumbnails.shared
+        // A picture asked for, dropped (scrolled away) and asked for again at once still comes.
+        thumbs.wantPicture(written[3])
+        thumbs.forgetPicture(written[3])
+        thumbs.wantPicture(written[3])
+
+        let workspace = FinderWorkspace.shared
+        let start = workspace.panes.count
+        let window = NSWindow(contentRect: NSRect(x: 80, y: 80, width: 1100, height: 700), styleMask: [.titled, .closable, .resizable],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = NSHostingView(rootView: FinderWorkspaceView())
+        NSApp.activate()
+        window.makeKeyAndOrderFront(nil)
+        func settle(_ ms: Int = 250) async { try? await Task.sleep(for: .milliseconds(ms)) }
+        let pane = workspace.focused
+        let was = (pane.url, pane.mode)
+        pane.go(to: place)
+        for _ in 0..<100 where pane.items.count < 5 { await settle(30) }
+        // (As the pane has them: the temporary folder by its real path.)
+        let photos = pane.shown.map(\.url).sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        // Every photo's own picture, in each view; the column view's preview for 1, 2 and 5.
+        var shown: [String] = []
+        for mode in [FinderViewMode.icons, .list, .columns] {
+            pane.mode = mode
+            await settle()
+            if mode == .columns {
+                for n in [0, 1, 4] { pane.selection = [photos[n]]; pane.anchor = photos[n]; await settle(400) }
+            }
+        }
+        for _ in 0..<200 where (photos + [written[3]]).contains(where: { thumbs.pictures[$0] == nil }) { await settle(25) }
+        let reds = photos.map { thumbs.pictures[$0].map(redness) ?? -1 }
+        for (n, red) in reds.enumerated() where abs(red - Double(n) / 4) > 0.08 { shown.append("Photo \(n + 1): \(red)") }
+        let again = thumbs.pictures[written[3]].map(redness) ?? -1
+        check("every photo gets its own picture", photos.count == 5 && shown.isEmpty && abs(again - 0.75) <= 0.08,
+              "photos \(photos.count), reds \(reds), asked again \(again)")
+
+        // Split right, then below, files chosen and Quick Look on them; closed one by one.
+        pane.mode = .icons
+        pane.selection = Set(photos.prefix(2))
+        workspace.split(.horizontal)
+        await settle()
+        workspace.focused.selection = [photos[2]]
+        FinderQuickLook.shared.toggle(workspace.focused)
+        workspace.split(.vertical)
+        await settle()
+        let most = workspace.panes.count
+        // The one in front; then one that isn't (as its close button does); then the last but one.
+        workspace.close()
+        await settle()
+        if let other = workspace.panes.first(where: { $0.id != workspace.focusedID }) { workspace.focus(other); workspace.close() }
+        await settle()
+        let afterClosing = workspace.panes.count
+        if FinderQuickLook.shared.isOpen { QLPreviewPanel.shared().orderOut(nil) }
+        // ⌘W with two panes: one closes, the window stays.
+        workspace.split(.vertical)
+        await settle()
+        let two = workspace.panes.count
+        // (As the app gives a key to the window before the menus: the pane's ⌘W comes first.)
+        var handled = false
+        if let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: .command, timestamp: 0,
+                                        windowNumber: window.windowNumber, context: nil, characters: "w",
+                                        charactersIgnoringModifiers: "w", isARepeat: false, keyCode: 13) {
+            handled = window.performKeyEquivalent(with: event)
+        }
+        await settle()
+        let afterKey = workspace.panes.count
+        check("panes close without a crash", most == start + 2 && afterClosing == start && two == start + 1,
+              "most \(most), after closing \(afterClosing), two \(two)")
+        check("⌘W closes a pane, not the window", handled && afterKey == start && window.isVisible,
+              "handled \(handled), panes \(afterKey), window open \(window.isVisible)")
+        while workspace.panes.count > start { workspace.close() }
+        pane.go(to: was.0)
+        pane.mode = was.1
+        window.orderOut(nil)
+        window.contentView = nil
+    }
+
+    /// A JPEG of one colour: `red` from 0 to 1, so each photo's picture can be told apart.
+    private static func writeColoured(_ url: URL, red: Double) {
+        let context = CGContext(data: nil, width: 600, height: 400, bitsPerComponent: 8, bytesPerRow: 0,
+                                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue)!
+        context.setFillColor(CGColor(srgbRed: red, green: 0.5, blue: 0.5, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 600, height: 400))
+        guard let image = context.makeImage(),
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
+    }
+
+    /// The red of a picture's middle, 0 to 1.
+    private static func redness(_ image: CGImage) -> Double {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        guard let context = CGContext(data: &pixel, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return -1 }
+        context.draw(image, in: CGRect(x: -CGFloat(image.width) / 2, y: -CGFloat(image.height) / 2, width: CGFloat(image.width), height: CGFloat(image.height)))
+        return Double(pixel[0]) / 255
     }
 }
 

@@ -24,6 +24,11 @@ final class ProjectLayers: @unchecked Sendable {
         /// Fades in over its first seconds, out over its last (a dissolve's two halves).
         var fadeIn = 0.0
         var fadeOut = 0.0
+        /// How it comes in over the clip before, during `fadeIn` (a main-line clip).
+        var transition: ProjectTransition.Kind?
+        /// A title drawn as it plays (no file), from this far into it.
+        var motion: ProjectMotion?
+        var sourceStart = 0.0
     }
 
     private var spans: [Span] = []
@@ -43,6 +48,10 @@ final class ProjectLayers: @unchecked Sendable {
     /// The looks over the timeline at a time, in order.
     func adjustments(at seconds: Double) -> [ProjectAdjustment] {
         lock.withLock { adjustments.filter { $0.contains(seconds) } }
+    }
+
+    func setMotion(_ clip: UUID, _ motion: ProjectMotion?) {
+        lock.withLock { for index in spans.indices where spans[index].clip == clip { spans[index].motion = motion } }
     }
 
     func setLook(_ clip: UUID, _ look: ClipLook?) {
@@ -124,16 +133,23 @@ final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
             let frame = CGRect(origin: .zero, size: size)
             var picture = CIImage(color: .black).cropped(to: frame)
             for (span, alpha) in instruction.layers.layers(at: seconds) where alpha > 0.001 {
-                guard let buffer = request.sourceFrame(byTrackID: span.trackID) else { continue }
-                // A camera's log made normal, from the file's own numbers.
                 let source: CIImage
-                if let camera = CameraLog.resolve(span.look?.color.camera, path: span.path) {
-                    source = camera.apply(CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])).oriented(span.orientation)
+                if let motion = span.motion {
+                    // A title: drawn now, as it'll be rendered for the export.
+                    guard let drawn = motion.image(at: span.sourceStart + (seconds - span.start) * (span.look?.speed ?? 1), size: size) else { continue }
+                    source = drawn
+                } else if let buffer = request.sourceFrame(byTrackID: span.trackID) {
+                    source = Self.source(buffer, span: span)
                 } else {
-                    source = CIImage(cvPixelBuffer: buffer).oriented(span.orientation)
+                    continue
                 }
                 let progress = (seconds - span.clipStart) / max(span.clipEnd - span.clipStart, 0.001)
                 var placed = ClipLook.place(source, look: span.look, progress: min(max(progress, 0), 1), in: size, onBlack: span.main)
+                // A dissolve, wipe, push… from the picture so far into this one, mixed as the export mixes.
+                if span.main, let kind = span.transition, alpha < 0.999 {
+                    picture = ProjectTransitions.blend(kind, from: picture, to: placed, progress: alpha, size: size)
+                    continue
+                }
                 if alpha < 0.999 {
                     let a = CGFloat(alpha)
                     placed = placed.applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: a),
@@ -154,6 +170,16 @@ final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
             Self.context.render(picture.cropped(to: frame), to: output, bounds: frame, colorSpace: Self.video)
             request.finish(withComposedVideoFrame: output)
         }
+    }
+}
+
+extension ProjectCompositor {
+    /// A file's frame upright, a camera's log made normal from the file's own numbers.
+    static func source(_ buffer: CVPixelBuffer, span: ProjectLayers.Span) -> CIImage {
+        if let camera = CameraLog.resolve(span.look?.color.camera, path: span.path) {
+            return camera.apply(CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])).oriented(span.orientation)
+        }
+        return CIImage(cvPixelBuffer: buffer).oriented(span.orientation)
     }
 }
 

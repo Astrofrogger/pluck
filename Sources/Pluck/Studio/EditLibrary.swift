@@ -1,3 +1,4 @@
+import CoreImage
 import SwiftUI
 
 /// The Transitions, Titles and Effects tabs of the Edit page's panel: tiles to drag onto the
@@ -15,21 +16,27 @@ struct EditLibraryList: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                VStack(alignment: .leading, spacing: 0) {
                     switch kind {
                     case .transitions:
-                        grid(ProjectTransition.Kind.allCases.map { kind in
-                            Tile(item: .transition(kind), title: Text(ProjectTransition(kind: kind, length: 1).label)) {
-                                TransitionPreview(kind: kind, thumbnails: previewFrames)
+                        ForEach(Array(ProjectTransition.Group.allCases.enumerated()), id: \.element) { index, group in
+                            if index > 0 { SidebarGap() }
+                            SidebarSection(title: Text(group.label)) {
+                                grid(group.kinds.map { kind in
+                                    Tile(item: .transition(kind), title: Text(ProjectTransition(kind: kind, length: 1).label)) {
+                                        TransitionPreview(kind: kind, thumbnails: previewFrames)
+                                    }
+                                })
                             }
-                        })
+                        }
                     case .titles:
                         grid([Tile(item: .plainTitle, title: Text("Title")) { SymbolPreview(symbol: "textformat") }])
+                            .padding(.top, Design.Spacing.controls)
                         ForEach(MotionTemplate.Category.allCases) { category in
                             let templates = MotionTemplate.all.filter { $0.category == category }
                             if !templates.isEmpty {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(category.label).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                SidebarGap()
+                                SidebarSection(title: Text(category.label)) {
                                     grid(templates.map { template in
                                         Tile(item: .title(templateID: template.id), title: Text(template.name)) {
                                             TemplatePreview(template: template)
@@ -43,9 +50,11 @@ struct EditLibraryList: View {
                             Tile(item: .adjustment, title: Text("Look")) { SymbolPreview(symbol: "camera.filters") },
                             Tile(item: .stabilize, title: Text("Stabilize")) { SymbolPreview(symbol: "hand.raised.slash") },
                         ])
+                        .padding(.top, Design.Spacing.controls)
                     }
                 }
-                .padding(Design.Spacing.controls)
+                .padding(.horizontal, Design.Sidebar.inset)
+                .padding(.bottom, Design.Spacing.controls)
             }
             if applying {
                 ProgressView().controlSize(.small).padding(.bottom, Design.Spacing.controls)
@@ -65,6 +74,7 @@ struct EditLibraryList: View {
     }
 
     private func grid(_ tiles: [Tile]) -> some View {
+        // The tiles keep the rows' 18 from the panel's edge.
         LazyVGrid(columns: columns, spacing: Design.Spacing.controls) {
             ForEach(tiles) { tile in
                 VStack(spacing: 4) {
@@ -85,6 +95,7 @@ struct EditLibraryList: View {
                 .help(help(tile.item))
             }
         }
+        .padding(.horizontal, Design.Sidebar.rowPadding)
     }
 
     private func help(_ item: EditLibraryItem) -> LocalizedStringKey {
@@ -122,34 +133,52 @@ private struct SymbolPreview: View {
     }
 }
 
-/// A transition playing between two pictures of the edit while the pointer is over it.
+/// A transition playing between two pictures of the edit while the pointer is over it (drawn as
+/// the viewer draws it, small).
 private struct TransitionPreview: View {
     let kind: ProjectTransition.Kind
     let thumbnails: [NSImage]
     @State private var hovering = false
+    private static let context = CIContext(options: [.cacheIntermediates: false])
+    private static let size = CGSize(width: 160, height: 90)
 
     var body: some View {
         TimelineView(.animation(paused: !hovering)) { context in
-            let p = hovering ? (sin(context.date.timeIntervalSinceReferenceDate * 2) + 1) / 2 : 0
+            let p = hovering ? (sin(context.date.timeIntervalSinceReferenceDate * 2) + 1) / 2 : 0.5
             ZStack {
-                picture(0, fallback: Design.Brand.pink)
                 switch kind {
-                case .dissolve:
-                    picture(1, fallback: Design.Brand.violet).opacity(p)
                 case .dipBlack, .dipWhite:
-                    picture(1, fallback: Design.Brand.violet).opacity(p > 0.5 ? 1 : 0)
+                    picture(p > 0.5 ? 1 : 0)
                     (kind == .dipBlack ? Color.black : Color.white).opacity(1 - abs(p - 0.5) * 2)
+                default:
+                    if let frame = frame(p) { Image(decorative: frame, scale: 1).resizable() }
                 }
             }
         }
         .onHover { hovering = $0 }
     }
 
-    @ViewBuilder private func picture(_ index: Int, fallback: Color) -> some View {
+    private func source(_ index: Int) -> CIImage {
+        let rect = CGRect(origin: .zero, size: Self.size)
+        guard thumbnails.indices.contains(index), let cg = thumbnails[index].cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+            let colour = index == 0 ? CIColor(red: 0.95, green: 0.35, blue: 0.6) : CIColor(red: 0.45, green: 0.3, blue: 0.95)
+            return CIImage(color: colour).cropped(to: rect)
+        }
+        let image = CIImage(cgImage: cg)
+        let scale = max(rect.width / image.extent.width, rect.height / image.extent.height)
+        return image.transformed(by: CGAffineTransform(scaleX: scale, y: scale)).cropped(to: rect)
+    }
+
+    private func frame(_ p: Double) -> CGImage? {
+        let image = ProjectTransitions.blend(kind, from: source(0), to: source(1), progress: p, size: Self.size)
+        return Self.context.createCGImage(image, from: CGRect(origin: .zero, size: Self.size))
+    }
+
+    @ViewBuilder private func picture(_ index: Int) -> some View {
         if thumbnails.indices.contains(index) {
             Image(nsImage: thumbnails[index]).resizable().scaledToFill()
         } else {
-            fallback.opacity(0.6)
+            (index == 0 ? Design.Brand.pink : Design.Brand.violet).opacity(0.6)
         }
     }
 }

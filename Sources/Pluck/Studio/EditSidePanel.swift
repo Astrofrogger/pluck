@@ -35,8 +35,9 @@ struct EditSidePanel: View {
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
                 .help("Hide the panel (⌥⌘L)")
-                .padding(.trailing, 8)
+                .padding(.trailing, Design.Sidebar.rowPadding)
             }
+            .frame(height: Design.Size.control)
             Divider()
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)

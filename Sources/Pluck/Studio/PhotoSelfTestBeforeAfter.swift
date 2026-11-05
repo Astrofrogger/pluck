@@ -52,6 +52,9 @@ extension PhotoSelfTest {
         check("side by side renders both", sr - sl > 0.05, "right brighter than left by 0.05; got \(sl) and \(sr)")
 
         let x = PhotoComposite.splitX(frame: CGRect(x: -100, y: 0, width: 800, height: 400), view: CGSize(width: 600, height: 400), split: 0.5)
+        // A held key repeats: the arrows move on, \ (before while held) and the rest are taken once, not left to beep.
+        check("held keys are handled", PhotoPage.repeats(.rightArrow) && PhotoPage.repeats(.upArrow) && !PhotoPage.repeats("\\")
+              && !PhotoPage.repeats("5") && !PhotoPage.repeats("r"), "arrows repeat; \\, 5 and r act once")
         check("split line stays on the visible part", abs(x - 300) < 0.01, "300; got \(x)")
     }
 }

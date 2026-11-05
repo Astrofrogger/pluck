@@ -446,13 +446,13 @@ struct ClipLookEditor: View {
 
     private func row<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: 96, alignment: .leading)
+            Text(title).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
             HStack(spacing: 6) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
         .font(.callout)
         .controlSize(.small)
-        .padding(.horizontal, 8)
-        .frame(minHeight: 28)
+        .padding(.horizontal, Design.Sidebar.rowPadding)
+        .frame(minHeight: Design.Sidebar.sliderHeight)
     }
 
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipLook, Double>, _ range: ClosedRange<Double>,

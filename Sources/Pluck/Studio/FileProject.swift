@@ -16,8 +16,9 @@ extension ProjectStore {
         return project
     }
 
-    /// The projects made by hand (not the files' own).
-    static func madeProjects() -> [Project] { all().filter { $0.origin == nil } }
+    /// The projects made by hand (not the files' own); those in the project manager's Trash too
+    /// with `trashed`.
+    static func madeProjects(trashed: Bool = false) -> [Project] { all().filter { $0.origin == nil && (trashed || $0.trashed == nil) } }
 }
 
 extension ProjectModel {

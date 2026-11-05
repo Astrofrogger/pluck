@@ -5,7 +5,7 @@ import SwiftUI
 /// view (icons, list or columns) of a folder, playing clips in place.
 ///
 /// Keys (as i3 and Sway, with ⌥⌘ for their Mod key):
-/// ⌘\ splits the pane in front to the right, ⇧⌘\ below; ⌥⌘W closes it;
+/// ⌘\ splits the pane in front to the right, ⇧⌘\ below; ⌘W closes it (with one pane, the window);
 /// ⌥⌘ + arrows moves between panes; ⇧⌥⌘ + arrows swaps them;
 /// ⌥⌘1, ⌥⌘2, ⌥⌘3: icons, list, columns; ⌥⌘T turns a split (side by side, one above the other);
 /// ⇧⌘N: a new folder in the pane in front; ⌥⌘V moves what was copied into it.
@@ -40,7 +40,10 @@ struct FinderWorkspaceView: View {
         ZStack {
             Button("Split Right") { workspace.split(.horizontal) }.keyboardShortcut("\\", modifiers: .command)
             Button("Split Below") { workspace.split(.vertical) }.keyboardShortcut("\\", modifiers: [.command, .shift])
-            Button("Close Pane") { workspace.close() }.keyboardShortcut("w", modifiers: [.command, .option])
+            // (Only while there are several: with one, ⌘W is the menu's Close, for the window.)
+            if workspace.panes.count > 1 {
+                Button("Close Pane") { workspace.close() }.keyboardShortcut("w", modifiers: .command)
+            }
             Button("Left") { workspace.move(.left) }.keyboardShortcut(.leftArrow, modifiers: [.command, .option])
             Button("Right") { workspace.move(.right) }.keyboardShortcut(.rightArrow, modifiers: [.command, .option])
             Button("Up") { workspace.move(.up) }.keyboardShortcut(.upArrow, modifiers: [.command, .option])
@@ -94,12 +97,15 @@ private struct FinderSplit: View {
             let least = across ? Self.minimum.width : Self.minimum.height
             let first = Self.clamp(tile.fraction * total, total: total, least: least)
             let layout = across ? AnyLayout(HStackLayout(spacing: 0)) : AnyLayout(VStackLayout(spacing: 0))
-            layout {
-                TileView(tile: tile.children[0])
-                    .frame(width: across ? first : nil, height: across ? nil : first)
-                handle(across: across, total: total, least: least)
-                TileView(tile: tile.children[1])
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            // (A pane just closed makes this tile a pane: it's read once more before it goes.)
+            if tile.children.count == 2 {
+                layout {
+                    TileView(tile: tile.children[0])
+                        .frame(width: across ? first : nil, height: across ? nil : first)
+                    handle(across: across, total: total, least: least)
+                    TileView(tile: tile.children[1])
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
     }
@@ -149,6 +155,7 @@ struct FinderPaneView: View {
     @State private var workspace = FinderWorkspace.shared
     @FocusState private var focused: Bool
     @State private var dropping = false
+    @State private var hovering = false
 
     private var isFront: Bool { workspace.focusedID == pane.id }
 
@@ -193,6 +200,7 @@ struct FinderPaneView: View {
             }
         }
         .simultaneousGesture(TapGesture().onEnded { workspace.focus(pane) })
+        .onHover { hovering = $0 }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("finder")) } action: { workspace.frames[pane.id] = $0 }
         .onChange(of: isFront, initial: true) { _, front in if front { focused = true } }
         .onChange(of: focused) { _, now in if now { workspace.focus(pane) } }
@@ -211,6 +219,16 @@ struct FinderPaneView: View {
 
     private var header: some View {
         HStack(spacing: 6) {
+            // Closing it, as a Finder tab: on the pane in front, or the one under the pointer.
+            if workspace.panes.count > 1 {
+                Button { workspace.focus(pane); workspace.close() } label: {
+                    Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 16, height: 16).contentShape(.rect)
+                }
+                .foregroundStyle(.secondary)
+                .opacity(isFront || hovering ? 1 : 0)
+                .help("Close Pane (⌘W)")
+                .accessibilityLabel("Close Pane")
+            }
             Button { pane.goBack() } label: { Image(systemName: "chevron.left") }
                 .disabled(!pane.canGoBack)
                 .help("Back")
@@ -421,8 +439,7 @@ private struct FinderIconTile: View {
         .modifier(FolderDrop(item: item, targeted: $targeted))
         .contextMenu { FinderItemMenu(item: item, pane: pane) }
         .help(item.url.path)
-        .onAppear { if item.isClip { thumbs.want(item.url) } else if item.isPhoto { thumbs.wantPicture(item.url) } }
-        .onDisappear { if item.isClip { thumbs.forget(item.url) } else if item.isPhoto { thumbs.forgetPicture(item.url) } }
+        .modifier(FinderWantsPicture(item: item))
     }
 
     @ViewBuilder private var picture: some View {
@@ -619,15 +636,10 @@ private struct FinderListView: View {
         Table(rows, selection: $pane.selection, sortOrder: $order) {
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
-                    if row.item.isPhoto, let picture = thumbs.pictures[row.item.url] {
-                        Image(decorative: picture, scale: 1).resizable().aspectRatio(contentMode: .fit).frame(width: 16, height: 16)
-                    } else {
-                        Image(nsImage: row.item.icon).resizable().frame(width: 16, height: 16)
-                    }
+                    FinderSmallIcon(item: row.item)
                     Text(row.name).lineLimit(1).truncationMode(.middle)
                 }
                 .fileDrag { FinderDrag.urls(row.item.url, in: pane) }
-                .onAppear { if row.item.isClip { thumbs.want(row.item.url) } else if row.item.isPhoto { thumbs.wantPicture(row.item.url) } }
             }
             .width(min: 160, ideal: 280)
             TableColumn("Date Modified", value: \.modified) { row in
@@ -732,7 +744,7 @@ private struct FinderColumn: View {
                     // (By path: a folder's URL may end in a slash or not.)
                     let on = item.url.standardizedFileURL.path == chosen?.standardizedFileURL.path || (current && pane.selection.contains(item.url))
                     HStack(spacing: 6) {
-                        Image(nsImage: item.icon).resizable().frame(width: 16, height: 16)
+                        FinderSmallIcon(item: item)
                         Text(item.name).lineLimit(1).truncationMode(.middle)
                         Spacer(minLength: 4)
                         if item.isFolder { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary) }
@@ -796,7 +808,42 @@ private struct FinderPreview: View {
             Spacer()
         }
         .padding(14)
-        .onAppear { if item.isClip { thumbs.want(item.url) } else if item.isPhoto { thumbs.wantPicture(item.url) } }
+        .modifier(FinderWantsPicture(item: item))
+    }
+}
+
+/// A photo's picture (or a clip's poster) asked for while it's shown, for the file shown now (a
+/// list's row, or the column view's end, shows another file without appearing again), and no
+/// longer made once it's gone.
+private struct FinderWantsPicture: ViewModifier {
+    let item: FinderItem
+
+    func body(content: Content) -> some View {
+        content.task(id: item.url) {
+            let thumbs = FinderThumbnails.shared, url = item.url
+            if item.isClip { thumbs.want(url) } else if item.isPhoto { thumbs.wantPicture(url) } else { return }
+            // (Until cancelled: scrolled away, or another file shown here.)
+            try? await Task.sleep(for: .seconds(365 * 86_400))
+            if item.isClip { thumbs.forget(url) } else { thumbs.forgetPicture(url) }
+        }
+    }
+}
+
+/// A row's icon in the list and columns: a photo's picture or a clip's, else the system's icon.
+private struct FinderSmallIcon: View {
+    let item: FinderItem
+    @State private var thumbs = FinderThumbnails.shared
+
+    var body: some View {
+        Group {
+            if let picture = item.isClip ? thumbs.posters[item.url] : thumbs.pictures[item.url] {
+                Image(decorative: picture, scale: 1).resizable().aspectRatio(contentMode: .fit)
+            } else {
+                Image(nsImage: item.icon).resizable()
+            }
+        }
+        .frame(width: 16, height: 16)
+        .modifier(FinderWantsPicture(item: item))
     }
 }
 

@@ -276,7 +276,7 @@ enum PhotoRender {
         if let stock = gpu {
             guard let light = BaseCache.texture(image) else { return nil }
             let picture = filmed(light, stock: stock, film: record.film, geometry: filmGeometry(path, source: source.extent, picture: image.extent, full: false),
-                                 display: true)
+                                 display: true, curves: record.adjust.curves)
             return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         // Through the film: raw linear floats in and out (pluck-spektra, darktable's port).
@@ -300,7 +300,8 @@ enum PhotoRender {
         try await FilmEngine.shared.render(input, to: output, width: width, height: height, film: record.film, fullLongEdge: full, worker: worker)
         let developed = try Data(contentsOf: output)
         guard developed.count == width * height * 16 else { return nil }
-        let picture = CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf, colorSpace: linear)
+        let picture = curved(CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf,
+                                     colorSpace: linear), record.adjust.curves)
         return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 
@@ -308,8 +309,23 @@ enum PhotoRender {
 
     /// The film (instant: from the shipped tables) on a developed scene (`adjusted(…, scene: true)`), as more of
     /// the same chain. Its picture is SDR, as the helper's is: 0…1. `display`: for the screen (half floats in between).
-    static func filmed(_ scene: CIImage, stock: FilmStock, film: FilmSettings, geometry: FilmGeometry, display: Bool = false) -> CIImage {
-        FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp")
+    /// `curves`: the photo's curves, on the film's picture (as on any picture: in sRGB steps).
+    static func filmed(_ scene: CIImage, stock: FilmStock, film: FilmSettings, geometry: FilmGeometry, display: Bool = false,
+                       curves: PhotoCurves = PhotoCurves()) -> CIImage {
+        curved(FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp"), curves)
+    }
+
+    /// The curves on a finished picture (the film's: its scene light had none of them).
+    static func curved(_ picture: CIImage, _ curves: PhotoCurves) -> CIImage {
+        guard !curves.isDefault else { return picture }
+        var only = PhotoAdjustments()
+        only.curves = curves
+        let filter = CIFilter.colorCubeWithColorSpace()
+        filter.inputImage = picture
+        filter.cubeDimension = Float(lutSize)
+        filter.cubeData = lut(for: only)
+        filter.colorSpace = CGColorSpace(name: CGColorSpace.sRGB)
+        return (filter.outputImage ?? picture).cropped(to: picture.extent)
     }
 
     /// Where a developed picture sits on its photo at full size, so the film's grain and halation keep their
@@ -364,7 +380,7 @@ enum PhotoRender {
         try light.withUnsafeMutableBytes { try render(scene, extent, into: $0.baseAddress!) }
         let kept = CIImage(bitmapData: light, bytesPerRow: rowBytes, size: extent.size, format: .RGBAh, colorSpace: linear)
             .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
-        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true))
+        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true), curves: record.adjust.curves)
         guard !film.extent.isEmpty else { throw filmFailed }
         let failures = FilmHalation.failures
         var pixels = Data(count: rowBytes * height)
@@ -448,7 +464,7 @@ enum PhotoRender {
             guard maxSize == 0 else {
                 let light = SceneCache.shared.scene(key, make: scene) ?? scene()
                 return filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true)
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true, curves: record.adjust.curves)
             }
             // At full size (looking closely) the scene and then the film are worked out once, a band at a time, so moving
             // around is only drawing; a newer request stops this one between bands.
@@ -456,7 +472,7 @@ enum PhotoRender {
                     ?? (cancelled() ? nil : scene())
             else { return nil }
             let film = filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true)
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true, curves: record.adjust.curves)
             if cancelled() { return nil }
             // (Nothing when it fails: the loupe keeps what it shows.)
             return BaseCache.texture(film, bands: lookBandPixels, cancelled: cancelled)
