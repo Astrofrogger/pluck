@@ -212840,6 +212840,122 @@
           }
         }
       }
+    },
+    "Calmer sharpening": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhigere Schärfung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfoque más suave"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netteté plus douce"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nitidezza più morbida"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "控えめなシャープネス"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "부드러워진 선명도"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rustiger verscherpen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nitidez mais suave"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更柔和的锐化"
+          }
+        }
+      }
+    },
+    "With film on, Sharpen now works on the developed picture instead of before the film, so photos are no longer oversharpened. Sharpening also looks the same in the preview, at 100 % and in the export.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit Film wirkt Schärfen jetzt auf das entwickelte Bild statt vor dem Film, sodass Fotos nicht mehr überschärft werden. Die Schärfung sieht außerdem in der Vorschau, bei 100 % und im Export gleich aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con la película activada, Enfoque actúa ahora sobre la imagen revelada en lugar de antes de la película, así que las fotos ya no quedan sobreenfocadas. El enfoque también se ve igual en la vista previa, al 100 % y en la exportación."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avec le film activé, Netteté agit désormais sur l’image développée plutôt qu’avant le film : les photos ne sont plus trop accentuées. La netteté est aussi la même dans l’aperçu, à 100 % et à l’exportation."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Con la pellicola attiva, Nitidezza ora agisce sull’immagine sviluppata invece che prima della pellicola, così le foto non risultano più troppo nitide. La nitidezza appare anche uguale nell’anteprima, al 100 % e nell’esportazione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルムがオンのとき、シャープはフィルムの前ではなく現像後の画像にかかるようになり、写真がシャープになりすぎなくなりました。プレビュー、100 %、書き出しでも同じ見え方になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필름이 켜져 있으면 이제 선명하게가 필름 전이 아니라 현상된 사진에 적용되어 사진이 지나치게 선명해지지 않습니다. 미리보기, 100 %, 내보내기에서도 선명도가 똑같이 보입니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Met film aan werkt Verscherpen nu op het ontwikkelde beeld in plaats van vóór de film, zodat foto’s niet meer overscherp worden. Verscherpen ziet er ook hetzelfde uit in de voorvertoning, op 100 % en in de export."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Com o filme ativado, Nitidez agora age na imagem revelada em vez de antes do filme, então as fotos não ficam mais com nitidez exagerada. A nitidez também fica igual na prévia, em 100 % e na exportação."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开启胶片时，锐化现在作用于冲洗后的画面，而不是在胶片之前，照片不再过度锐化。锐化在预览、100 % 和导出中看起来也一致。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

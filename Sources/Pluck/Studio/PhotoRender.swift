@@ -175,12 +175,11 @@ enum PhotoRender {
             filter.sharpness = 0.4
             image = filter.outputImage ?? image
         }
-        if a.sharpen > 0 {
-            let filter = CIFilter.sharpenLuminance()
-            filter.inputImage = image
-            filter.sharpness = Float(a.sharpen / 100 * 0.9)
-            filter.radius = Float(max(1.5, long / 2400))
-            image = filter.outputImage ?? image
+        // With film, the sharpening goes on the film's picture (`filmed`): on scene light it would be
+        // sharpened again by the film's grain and scan, and its halos would grow with the film's contrast.
+        if !scene {
+            let full = Double(max(path.map(decodedLongEdge) ?? 0, Int(long)))
+            image = sharpened(image, a.sharpen, scale: Double(long) / max(full, 1), fullLongEdge: full)
         }
         image = geometry(image, a, crop: crop)
         if a.vignette != 0 {
@@ -276,7 +275,7 @@ enum PhotoRender {
         if let stock = gpu {
             guard let light = BaseCache.texture(image) else { return nil }
             let picture = filmed(light, stock: stock, film: record.film, geometry: filmGeometry(path, source: source.extent, picture: image.extent, full: false),
-                                 display: true, curves: record.adjust.curves)
+                                 display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
             return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         // Through the film: raw linear floats in and out (pluck-spektra, darktable's port).
@@ -300,8 +299,9 @@ enum PhotoRender {
         try await FilmEngine.shared.render(input, to: output, width: width, height: height, film: record.film, fullLongEdge: full, worker: worker)
         let developed = try Data(contentsOf: output)
         guard developed.count == width * height * 16 else { return nil }
-        let picture = curved(CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf,
-                                     colorSpace: linear), record.adjust.curves)
+        let picture = sharpened(curved(CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf,
+                                               colorSpace: linear), record.adjust.curves),
+                                record.adjust.sharpen, scale: Double(max(width, height)) / Double(max(full, 1)), fullLongEdge: Double(full))
         return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 
@@ -311,8 +311,20 @@ enum PhotoRender {
     /// the same chain. Its picture is SDR, as the helper's is: 0…1. `display`: for the screen (half floats in between).
     /// `curves`: the photo's curves, on the film's picture (as on any picture: in sRGB steps).
     static func filmed(_ scene: CIImage, stock: FilmStock, film: FilmSettings, geometry: FilmGeometry, display: Bool = false,
-                       curves: PhotoCurves = PhotoCurves()) -> CIImage {
-        curved(FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp"), curves)
+                       curves: PhotoCurves = PhotoCurves(), sharpen: Double = 0) -> CIImage {
+        sharpened(curved(FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp"), curves),
+                  sharpen, scale: geometry.scale, fullLongEdge: Double(geometry.fullLongEdge))
+    }
+
+    /// The Sharpen slider. Its radius is set in full-size pixels, so a preview, 100 % and the export
+    /// look alike (`scale`: the render's size over the full size).
+    static func sharpened(_ image: CIImage, _ amount: Double, scale: Double, fullLongEdge: Double) -> CIImage {
+        guard amount > 0 else { return image }
+        let filter = CIFilter.sharpenLuminance()
+        filter.inputImage = image
+        filter.sharpness = Float(amount / 100 * 0.9)
+        filter.radius = Float(max(1.5, fullLongEdge / 2400) * min(max(scale, 0.05), 1))
+        return (filter.outputImage ?? image).cropped(to: image.extent)
     }
 
     /// The curves on a finished picture (the film's: its scene light had none of them).
@@ -380,7 +392,8 @@ enum PhotoRender {
         try light.withUnsafeMutableBytes { try render(scene, extent, into: $0.baseAddress!) }
         let kept = CIImage(bitmapData: light, bytesPerRow: rowBytes, size: extent.size, format: .RGBAh, colorSpace: linear)
             .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
-        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true), curves: record.adjust.curves)
+        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true), curves: record.adjust.curves,
+                          sharpen: record.adjust.sharpen)
         guard !film.extent.isEmpty else { throw filmFailed }
         let failures = FilmHalation.failures
         var pixels = Data(count: rowBytes * height)
@@ -464,7 +477,7 @@ enum PhotoRender {
             guard maxSize == 0 else {
                 let light = SceneCache.shared.scene(key, make: scene) ?? scene()
                 return filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true, curves: record.adjust.curves)
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
             }
             // At full size (looking closely) the scene and then the film are worked out once, a band at a time, so moving
             // around is only drawing; a newer request stops this one between bands.
@@ -472,7 +485,7 @@ enum PhotoRender {
                     ?? (cancelled() ? nil : scene())
             else { return nil }
             let film = filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true, curves: record.adjust.curves)
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
             if cancelled() { return nil }
             // (Nothing when it fails: the loupe keeps what it shows.)
             return BaseCache.texture(film, bands: lookBandPixels, cancelled: cancelled)

@@ -32,6 +32,28 @@ extension PhotoSelfTest {
         contrast()
         filmLight()
         clarity()
+        sharpening()
+    }
+
+    /// The Sharpen slider isn't on the film's scene light (the film sharpens what it gets again), and its radius is in
+    /// full-size pixels: a half-size render's edge is as wide, in full-size pixels, as the full-size render's.
+    private static func sharpening() {
+        let step = greyImage(400, 4) { x, _ in x < 200 ? 0.05 : 0.5 }
+        var a = PhotoAdjustments()
+        let plain = lumas(PhotoRender.adjusted(step, a, isRaw: true, kelvin: 6500, scene: true))
+        a.sharpen = 100
+        let scene = lumas(PhotoRender.adjusted(step, a, isRaw: true, kelvin: 6500, scene: true))
+        check("sharpen not on the film's scene", zip(plain, scene).allSatisfy { abs($0 - $1) < 1e-4 }, "the scene light is the same with Sharpen at 100")
+        // How far either side of the step the sharpening reaches, in full-size pixels.
+        func reach(_ width: Int, scale: Double) -> Double {
+            let image = greyImage(width, 4) { x, _ in x < width / 2 ? 0.05 : 0.5 }
+            let row = Array(lumas(PhotoRender.sharpened(image, 100, scale: scale, fullLongEdge: 6000)).prefix(width))
+            let changed = row.indices.filter { x in abs(row[x] - (x < width / 2 ? 0.05 : 0.5)) > 0.002 }
+            return Double((changed.max() ?? 0) - (changed.min() ?? 0) + 1) / scale
+        }
+        let full = reach(400, scale: 1), half = reach(200, scale: 0.5)
+        check("sharpen the same at any size", full > 0 && abs(half - full) <= max(4, full * 0.5),
+              "edge halo \(full) full-size pixels at full size, \(half) at half size")
     }
 
     /// With the film on, every light control still reaches the scene light the film is made from: each moves its end

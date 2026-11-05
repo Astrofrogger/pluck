@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.2", items: [
+                Item(symbol: "camera.aperture", title: String(localized: "Calmer sharpening"),
+                     detail: String(localized: "With film on, Sharpen now works on the developed picture instead of before the film, so photos are no longer oversharpened. Sharpening also looks the same in the preview, at 100 % and in the export.")),
+            ]),
             Release(version: "3.9.1", items: [
                 Item(symbol: "folder", title: String(localized: "A project manager"),
                      detail: String(localized: "With no project open, the Edit page shows your projects: in folders, recent, as a grid or a list, with search and a Trash you can put projects back from.")),
