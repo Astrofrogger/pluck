@@ -58,7 +58,9 @@ enum PhotoEngine {
         let modern = a.process >= 2
         // 1. Exposure and white balance: one matrix in linear light.
         let gain = pow(2, a.exposure)
-        let balance = whiteBalance(a, kelvin: asShotKelvin)
+        // (Calibration first: it moves the camera's primaries, as Lightroom's does.)
+        let ownBalance = whiteBalance(a, kelvin: asShotKelvin)
+        let balance = a.calibration.isDefault ? ownBalance : multiply(ownBalance, calibration(a.calibration))
         let exposed = linear(image, balance.map { $0 * gain }, wide: modern)
         // 2–3. Local tone and the profile, in one pass, from two base layers (and the haze, when
         // it's taken out).
@@ -96,6 +98,7 @@ enum PhotoEngine {
             p.scene = scene ? 1 : 0
             p.shift = shift
             p.process = Int32(min(a.process, 2))
+            p.shadowTint = Float(a.calibration.shadowTint / 100)
             if modern {
                 tone(a, profile: shown, into: &p, peak: peak)
                 p.curves = a.curves.isDefault ? 0 : 1
@@ -121,7 +124,7 @@ enum PhotoEngine {
             add(\.contrast, mask.contrast); add(\.highlights, mask.highlights); add(\.shadows, mask.shadows)
             add(\.saturation, mask.saturation); add(\.clarity, mask.clarity); add(\.texture, mask.texture); add(\.dehaze, mask.dehaze)
             add(\.temperature, mask.warmth); add(\.tint, mask.tint)
-            let change = multiply(whiteBalance(m, kelvin: asShotKelvin), inverse(balance)).map { $0 * pow(2, mask.exposure * k) }
+            let change = multiply(whiteBalance(m, kelvin: asShotKelvin), inverse(ownBalance)).map { $0 * pow(2, mask.exposure * k) }
             var own = params(m, shift: shift + Float(mask.exposure * k))
             // The haze's colour as the mask sees it (its exposure and white balance too).
             let h = [Double(own.hazeR), Double(own.hazeG), Double(own.hazeB)]
@@ -295,6 +298,30 @@ enum PhotoEngine {
         return multiply(fromXYZ, multiply(inverse(cone), multiply(diag, multiply(cone, toXYZ))))
     }
 
+    /// Calibration as a matrix in linear sRGB: each primary's chromaticity (xy) turned about white
+    /// and moved nearer to or further from it, then the matrix made again from the new primaries
+    /// so white stays white (as an RGB→XYZ matrix is made from its primaries and white point).
+    // Hue ±100 turns a primary ±35° (+ towards the next primary: red to yellow, green to cyan, blue to purple); Saturation ±100 is 0.5×…1.5× its distance from white.
+    static func calibration(_ c: Calibration) -> [Double] {
+        let white = (0.3127, 0.3290)
+        let primaries = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)]
+        let moves = [(c.redHue, c.redSaturation), (c.greenHue, c.greenSaturation), (c.blueHue, c.blueSaturation)]
+        func toXYZ(_ xy: [(Double, Double)]) -> [Double] {
+            // Columns: each primary's XYZ (Y 1), then scaled so the three add up to white.
+            let p = [0, 1, 2].map { i in [xy[i].0 / xy[i].1, 1, (1 - xy[i].0 - xy[i].1) / xy[i].1] }
+            let m = [p[0][0], p[1][0], p[2][0], p[0][1], p[1][1], p[2][1], p[0][2], p[1][2], p[2][2]]
+            let w = [white.0 / white.1, 1, (1 - white.0 - white.1) / white.1], inv = inverse(m)
+            let s = [0, 1, 2].map { r in inv[r * 3] * w[0] + inv[r * 3 + 1] * w[1] + inv[r * 3 + 2] * w[2] }
+            return [0, 1, 2].flatMap { r in [0, 1, 2].map { col in m[r * 3 + col] * s[col] } }
+        }
+        let moved = zip(primaries, moves).map { xy, move -> (Double, Double) in
+            let dx = xy.0 - white.0, dy = xy.1 - white.1
+            let angle = atan2(dy, dx) + move.0 / 100 * 35 * .pi / 180, reach = hypot(dx, dy) * (1 + move.1 / 100 * 0.5)
+            return (white.0 + reach * cos(angle), white.1 + reach * sin(angle))
+        }
+        return multiply(inverse(toXYZ(primaries)), toXYZ(moved))
+    }
+
     private static let bradford = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296]
     private static let cat16 = [0.401288, 0.650173, -0.051461, -0.250268, 1.204414, 0.045854, -0.002079, 0.048952, 0.953127]
 
@@ -354,6 +381,8 @@ enum PhotoEngine {
         /// `peak`: the brightest the picture goes (1: white; above for HDR, in display light).
         /// `glowGain`: the soft layer's exposure (it's made without the photo's own).
         var toneCeiling: Float = 1, overlay: Float = -1, peak: Float = 1, glowGain: Float = 1
+        /// Calibration's shadows tint, -1 (green) … 1 (magenta).
+        var shadowTint: Float = 0
     }
 
     /// The colour wheels and the mixer, for the GPU.
@@ -453,6 +482,7 @@ enum PhotoEngine {
         float toneLo, toneHi, toneGrey, toneY;
         float toneSlope, tonePt, tonePb, toneFloor;
         float toneCeiling, overlay, peak, glowGain;
+        float shadowTint;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -519,6 +549,14 @@ enum PhotoEngine {
 
     inline float luma(float3 c) { return dot(c, float3(0.2126, 0.7152, 0.0722)); }
 
+    // Calibration's shadows tint (scene light): magenta (or green) strongest in the deep shadows,
+    // gone by mid grey.
+    inline float3 tintShadows(float3 c, float k) {
+        float w = 1.0 - smoothstep(-6.0, 0.0, log2(max(luma(c), 1e-6) / 0.18));
+        float a = 0.3 * k * w;
+        return c * exp2(float3(a, -a, a));
+    }
+
     // log brightness and its square, for the guided filter's means
     // Where an input's pixel is: Core Image may hand over a bigger piece than the output's.
     inline uint2 at(uint2 gid, int2 offset, uint2 size) {
@@ -577,6 +615,7 @@ enum PhotoEngine {
     // Version 2, after the local tone: grading in scene light (Rec.2020), the mixer, vibrance and
     // saturation (OkLCh), the gamut compression, the tone curve and profile, then the curves.
     inline float3 finish(float3 c, constant Params &p, constant Grade &g, constant float4 *curve) {
+        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint);
         c = toRec2020 * c;
         if (g.wheels != 0) {
             float e = log2(max(luma2020(c), 1e-6) / 0.18);
@@ -831,6 +870,7 @@ enum PhotoEngine {
             c = max((c - haze * 0.18) / (1.0 - haze), 0.0);
         }
 
+        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint);
         // Contrast (around mid grey) and whites (the brightest stops), in scene light (the film's too).
         float flat = p.profile == 3 && p.scene == 0 ? 0.78 : 1.0;
         float contrast = flat * (1.0 + p.contrast * (p.contrast > 0 ? 0.55 : 0.45));

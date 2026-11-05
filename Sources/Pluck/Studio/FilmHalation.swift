@@ -49,7 +49,7 @@ enum FilmHalation {
 
     /// The settings these stages read (they never change a table: a change here is instant).
     static let settings = ["halation_on", "scatter_amount", "scatter_scale", "halation_amount", "halation_scale",
-                           "couplers_diffusion_um", "couplers_tail_um", "couplers_tail_weight", "film_format_mm",
+                           "couplers_diffusion_um", "couplers_tail_um", "couplers_tail_weight", "couplers_edge", "film_format_mm",
                            "scan_blur", "scan_usm_sigma", "scan_usm_amount"]
 
     // MARK: - The stages' blurs
@@ -83,6 +83,9 @@ enum FilmHalation {
 
     /// The coupler diffusion: a core and an exponential tail. The three numbers come from the settings
     /// (the shipped films all carry the defaults), so they need no new tables. A blur under 0.3 px is the identity.
+    /// The couplers' edge effect unless set: a third of spektrafilm's, whose full edges look oversharpened on screen.
+    static let defaultCouplerEdge = 0.3
+
     static func couplers(_ stock: FilmStock, _ settings: FilmSettings, _ geometry: FilmGeometry) -> FilmBlur.Plan? {
         guard stock.constants.couplers, value(settings, "couplers_amount", 1, 0...1) > 0 else { return nil }
         let core = value(settings, "couplers_diffusion_um", stock.spatial["coupler_core_um"]?.number ?? 20, 0...60)
@@ -90,15 +93,18 @@ enum FilmHalation {
         var share = value(settings, "couplers_tail_weight", stock.spatial["coupler_tail_weight"]?.number ?? 0.03, 0...1)
         if !(tail > 0 && share > 0) { tail = 0; share = 0 }
         let p = pitch(settings, geometry)
+        // The edge effect (Pluck's own): the share of the couplers' inhibition that spreads. At 1 it all spreads, as in
+        // spektrafilm; the rest stays put, keeping the couplers' colour without their edges (which read as sharpening).
+        let edge = value(settings, "couplers_edge", defaultCouplerEdge, 0...1)
         func skip(_ sigma: Double) -> Double { sigma < 0.3 ? 0 : sigma }
-        var parts = [FilmBlur.Component(sigma: SIMD3(repeating: skip(core / p)), wide: true, weight: SIMD3(repeating: 1 - share))]
+        var parts = [FilmBlur.Component(sigma: SIMD3(repeating: skip(core / p)), wide: true, weight: SIMD3(repeating: (1 - share) * edge))]
         if share > 0 {
             for g in 0..<3 {
                 parts.append(FilmBlur.Component(sigma: SIMD3(repeating: skip(tailRadius[g] * tail / p)), wide: true,
-                                                weight: SIMD3(repeating: share * tailShare[g])))
+                                                weight: SIMD3(repeating: share * tailShare[g] * edge)))
             }
         }
-        return FilmBlur.plan(keep: .zero, parts)
+        return FilmBlur.plan(keep: SIMD3(repeating: 1 - edge), parts)
     }
 
     /// The scanner: its blur, then its sharpening (an additive unsharp mask, not clamped). Their radii

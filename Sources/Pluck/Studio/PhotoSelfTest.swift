@@ -42,6 +42,8 @@ enum PhotoSelfTest {
         await levelExposure()
         await film()
         tone()
+        calibration()
+        couplerEdges()
         lines.append("done")
         write()
         NSApp.terminate(nil)

@@ -140,7 +140,7 @@ enum FilmRoute: Equatable {
         "grain_sublayer_scale": 1, "grain_density_min": 1, "development_min": 0, "adaptation_bandwidth": 1, "adaptation_surface": 0,
         "output_luminance_boost": 1, "output_scale": 1, "gamut_compress": 1, "print_auto_exposure": 0, "print_development_min": 0,
         "filter_m": 0, "filter_y": 0, "preflash_exposure": 0, "preflash_m_shift": 0, "preflash_y_shift": 0, "print_contrast": 1,
-        "print_gamma_r": 1, "print_gamma_g": 1, "print_gamma_b": 1, "scan_film": 0,
+        "print_gamma_r": 1, "print_gamma_g": 1, "print_gamma_b": 1, "scan_film": 0, "couplers_edge": FilmHalation.defaultCouplerEdge,
     ]
     private static let lock = NSLock()
 

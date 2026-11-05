@@ -212956,6 +212956,586 @@
           }
         }
       }
+    },
+    "Softer film edges": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weichere Filmkanten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bordes de película más suaves"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bords du film plus doux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bordi della pellicola più morbidi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルムのエッジを穏やかに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 부드러운 필름 가장자리"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zachtere filmranden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bordas do filme mais suaves"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更柔和的胶片边缘"
+          }
+        }
+      }
+    },
+    "Film photos no longer look oversharpened. The couplers keep their colour, and a new Edge Effect slider sets how much they sharpen edges, as real film does.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmfotos wirken nicht mehr überschärft. Die Kuppler behalten ihre Farbe, und ein neuer Regler „Kanteneffekt“ legt fest, wie stark sie Kanten schärfen, wie echter Film."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fotos con película ya no parecen sobreenfocadas. Los acopladores conservan su color, y un nuevo control Efecto de borde ajusta cuánto realzan los bordes, como la película real."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les photos sur film ne paraissent plus trop accentuées. Les coupleurs gardent leur couleur, et un nouveau curseur Effet de bord règle combien ils accentuent les contours, comme un vrai film."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le foto su pellicola non sembrano più troppo nitide. Gli accoppianti mantengono il loro colore e un nuovo cursore Effetto bordo regola quanto rendono nitidi i contorni, come una vera pellicola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フィルム写真がシャープになりすぎなくなりました。カプラーは色を保ち、新しい「エッジ効果」スライダーで、実際のフィルムのようにエッジをどれだけ強調するかを設定できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "필름 사진이 더 이상 지나치게 선명해 보이지 않습니다. 커플러는 색을 유지하고, 새 가장자리 효과 슬라이더로 실제 필름처럼 가장자리를 얼마나 강조할지 정할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Filmfoto’s zien er niet meer overscherp uit. De koppelaars houden hun kleur, en een nieuwe schuif Randeffect bepaalt hoeveel ze randen verscherpen, zoals echte film."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fotos com filme não parecem mais com nitidez exagerada. Os acopladores mantêm a cor, e um novo controle Efeito de borda define quanto eles realçam as bordas, como o filme de verdade."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "胶片照片不再显得过度锐化。成色剂保留其色彩，新的“边缘效果”滑块可设置它们对边缘的强化程度，就像真实胶片一样。"
+          }
+        }
+      }
+    },
+    "Edge Effect": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kanteneffekt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efecto de borde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effet de bord"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effetto bordo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エッジ効果"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가장자리 효과"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Randeffect"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Efeito de borda"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "边缘效果"
+          }
+        }
+      }
+    },
+    "How much the couplers sharpen edges, as on real film. Lower keeps their colour with softer edges.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie stark die Kuppler Kanten schärfen, wie bei echtem Film. Niedriger behält ihre Farbe mit weicheren Kanten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuánto realzan los bordes los acopladores, como en la película real. Más bajo conserva su color con bordes más suaves."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Combien les coupleurs accentuent les contours, comme sur un vrai film. Plus bas garde leur couleur avec des bords plus doux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto gli accoppianti rendono nitidi i contorni, come su una vera pellicola. Più basso mantiene il colore con bordi più morbidi."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "実際のフィルムのように、カプラーがエッジをどれだけ強調するか。下げると色はそのままでエッジが柔らかくなります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "실제 필름처럼 커플러가 가장자리를 얼마나 강조할지입니다. 낮추면 색은 유지하고 가장자리는 부드러워집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hoeveel de koppelaars randen verscherpen, zoals bij echte film. Lager houdt hun kleur met zachtere randen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quanto os acopladores realçam as bordas, como no filme de verdade. Mais baixo mantém a cor com bordas mais suaves."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "成色剂对边缘的强化程度，与真实胶片一样。调低可保留色彩并让边缘更柔和。"
+          }
+        }
+      }
+    },
+    "Calibration": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalibrierung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibración"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Étalonnage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibrazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "キャリブレーション"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보정"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kalibratie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calibração"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "校准"
+          }
+        }
+      }
+    },
+    "Shadows Tint": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schattentönung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matiz de sombras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teinte des ombres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tinta ombre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "シャドウの色かぶり"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "어두운 영역 색조"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schaduwtint"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Matiz das sombras"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阴影色调"
+          }
+        }
+      }
+    },
+    "Red Primary": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rote Primärfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario rojo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primaire rouge"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario rosso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レッド原色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "빨강 원색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rode primaire kleur"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primária vermelha"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "红原色"
+          }
+        }
+      }
+    },
+    "Green Primary": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grüne Primärfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario verde"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primaire verte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario verde"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "グリーン原色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초록 원색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Groene primaire kleur"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primária verde"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "绿原色"
+          }
+        }
+      }
+    },
+    "Blue Primary": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blaue Primärfarbe"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario azul"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primaire bleue"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primario blu"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ブルー原色"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파랑 원색"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Blauwe primaire kleur"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primária azul"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "蓝原色"
+          }
+        }
+      }
+    },
+    "A Calibration panel on the Photo page moves the red, green and blue primaries and tints the shadows, as in Lightroom. Lightroom presets that use it now bring it along.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Kalibrierungsbereich auf der Fotoseite verschiebt die roten, grünen und blauen Primärfarben und tönt die Schatten, wie in Lightroom. Lightroom-Vorgaben, die ihn nutzen, bringen ihn jetzt mit."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un panel de Calibración en la página Foto mueve los primarios rojo, verde y azul y tiñe las sombras, como en Lightroom. Los ajustes preestablecidos de Lightroom que lo usan ahora lo incluyen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un panneau Étalonnage dans la page Photo déplace les primaires rouge, verte et bleue et teinte les ombres, comme dans Lightroom. Les paramètres prédéfinis Lightroom qui l’utilisent l’apportent désormais."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un pannello Calibrazione nella pagina Foto sposta i primari rosso, verde e blu e tinge le ombre, come in Lightroom. I predefiniti di Lightroom che lo usano ora lo portano con sé."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真ページのキャリブレーションパネルで、Lightroom と同様にレッド・グリーン・ブルーの原色を調整し、シャドウに色をのせられます。これを使う Lightroom プリセットも反映されるようになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 페이지의 보정 패널에서 Lightroom처럼 빨강, 초록, 파랑 원색을 조정하고 어두운 영역에 색조를 줄 수 있습니다. 이를 사용하는 Lightroom 사전 설정도 이제 함께 적용됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een Kalibratie-paneel op de Foto-pagina verschuift de rode, groene en blauwe primaire kleuren en kleurt de schaduwen, zoals in Lightroom. Lightroom-voorinstellingen die het gebruiken, nemen het nu mee."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um painel de Calibração na página Foto ajusta as primárias vermelha, verde e azul e tinge as sombras, como no Lightroom. Predefinições do Lightroom que o usam agora o trazem junto."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片页面的校准面板可像 Lightroom 一样调整红、绿、蓝原色并为阴影着色。使用它的 Lightroom 预设现在也会一并带入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

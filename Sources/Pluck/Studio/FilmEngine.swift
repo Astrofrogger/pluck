@@ -232,7 +232,8 @@ final class FilmEngine {
         var job: [String: Any] = ["do": "render", "pack": Self.pack.path, "input": input.path, "output": output.path,
                                   "width": width, "height": height, "film": film.film, "print": film.paper,
                                   "full_long_edge": fullLongEdge]
-        job["set"] = film.settings
+        // (The couplers' edge setting is Pluck's own: the helper always spreads them fully.)
+        job["set"] = film.settings.filter { $0.key != "couplers_edge" }
         _ = try await ask(job, worker: worker)
     }
 

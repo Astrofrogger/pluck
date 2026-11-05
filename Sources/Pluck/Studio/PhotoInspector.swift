@@ -378,6 +378,20 @@ struct PhotoInspector: View {
                 if raw { slider("Moiré", \.moire, 0...100) }
                 denoise
             }
+            AdjustFold(title: "Calibration", section: .calibration, adjust: record.adjust, reset: { resetSection(.calibration) }) {
+                slider("Shadows Tint", \.calibration.shadowTint, -100...100, track: .tint)
+                let primaries: [(LocalizedStringKey, WritableKeyPath<Calibration, Double>, WritableKeyPath<Calibration, Double>, Color)] = [
+                    ("Red Primary", \.redHue, \.redSaturation, .red), ("Green Primary", \.greenHue, \.greenSaturation, .green),
+                    ("Blue Primary", \.blueHue, \.blueSaturation, .blue),
+                ]
+                ForEach(primaries.indices, id: \.self) { i in
+                    let (title, hue, saturation, colour) = primaries[i]
+                    Text(title).font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
+                    slider("Hue", (\PhotoAdjustments.calibration).appending(path: hue), -100...100)
+                    slider("Saturation", (\PhotoAdjustments.calibration).appending(path: saturation), -100...100, track: .colour(colour))
+                }
+            }
             Button("Reset Adjustments") { change { $0.adjust = PhotoAdjustments() } }
                 .buttonStyle(.link)
                 .padding(.horizontal, 8)
@@ -912,6 +926,10 @@ private struct PhotoFilmPanel: View {
                 }
                 filmSlider("Couplers", key: "couplers_amount", range: 0...1, format: "%.2f")
                     .help("The film’s colour couplers: richer colour and local contrast")
+                if value("couplers_amount") > 0 {
+                    filmSlider("Edge Effect", key: "couplers_edge", range: 0...1, format: "%.2f")
+                        .help("How much the couplers sharpen edges, as on real film. Lower keeps their colour with softer edges.")
+                }
             }
             FoldSection(title: "Diffusion Filter", key: "film-diffusion", open: false) {
                 filmToggle("Filter", key: "diffusion_on")

@@ -560,6 +560,7 @@ extension PhotoSelfTest {
             settings.paper = FilmTables.shared.films.first { $0.id == film }?.print ?? settings.paper
         }
         settings.changed = colourOnly
+        settings.changed["couplers_edge"] = .number(1)
         if paper == nil { settings.changed["scan_film"] = .number(1) }
         for key in on { settings.changed[key] = nil }
         for (key, value) in extra { settings.changed[key] = value }
@@ -1881,7 +1882,9 @@ extension PhotoSelfTest {
         func film(_ id: String, _ paper: String, _ changed: [String: Double], colour: Bool = true) -> FilmSettings {
             var settings = FilmSettings()
             settings.film = id; settings.paper = paper
+            // (Against the helper: the couplers' edges in full, as spektrafilm has them.)
             settings.changed = (colour ? colourOnly : [:]).merging(changed.mapValues { .number($0) }) { $1 }
+            if settings.changed["couplers_edge"] == nil { settings.changed["couplers_edge"] = .number(1) }
             return settings
         }
         let P = "kodak_portra_400", E = "kodak_portra_endura"

@@ -169,7 +169,7 @@ struct AdjustSlider: View {
 /// The Adjust panel's sections, each with what it holds (to show it's edited, to peek at the photo
 /// without it, and to reset it).
 enum AdjustSection: String, CaseIterable {
-    case light, colour, presence, mixer, curves, wheels, detail
+    case light, colour, presence, mixer, curves, wheels, detail, calibration
 
     /// The words it's found by: its name and its tools'.
     var words: [String] {
@@ -185,6 +185,8 @@ enum AdjustSection: String, CaseIterable {
         case .wheels: [String(localized: "Colour Wheels"), String(localized: "Colour Grading")]
         case .detail: [String(localized: "Detail"), String(localized: "Sharpen"), String(localized: "Noise"), String(localized: "Moiré"),
                        String(localized: "Denoise")]
+        case .calibration: [String(localized: "Calibration"), String(localized: "Shadows Tint"), String(localized: "Red Primary"),
+                            String(localized: "Green Primary"), String(localized: "Blue Primary")]
         }
     }
 
@@ -216,6 +218,8 @@ enum AdjustSection: String, CaseIterable {
             a.wheels = fresh.wheels
         case .detail:
             a.sharpen = 0; a.noise = 0; a.moire = 0
+        case .calibration:
+            a.calibration = fresh.calibration
         }
     }
 }

@@ -41,6 +41,7 @@ struct PhotoAdjustments: Codable, Hashable {
     var curves = PhotoCurves()
     var wheels = ColorWheels()
     var mixer = ColorMixer()
+    var calibration = Calibration()
     /// Changes in part of the photo only (the subject, the background).
     var masks: [PhotoMask] = []
 
@@ -100,6 +101,7 @@ struct PhotoAdjustments: Codable, Hashable {
         noise = value(.noise, 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
+        calibration = value(.calibration, Calibration())
         // Saved before versions: the first engine, unless nothing was changed.
         process = value(.process, 1)
         if process < Self.currentProcess, isDefault { process = Self.currentProcess }
@@ -316,6 +318,17 @@ struct ColorWheels: Codable, Hashable {
     var gain = Wheel()
     var offset = Wheel()
     var isDefault: Bool { lift.isDefault && gamma.isDefault && gain.isDefault && offset.isDefault }
+}
+
+/// Lightroom's Calibration: the camera's red, green and blue primaries turned and made more or
+/// less colourful (before everything else, see PhotoEngine.calibration), and a green–magenta
+/// tint in the shadows. -100…100 each.
+struct Calibration: Codable, Hashable {
+    var redHue = 0.0, redSaturation = 0.0
+    var greenHue = 0.0, greenSaturation = 0.0
+    var blueHue = 0.0, blueSaturation = 0.0
+    var shadowTint = 0.0
+    var isDefault: Bool { self == Calibration() }
 }
 
 /// The colour mixer: hue, saturation and luminance for eight bands of colour, as in Lightroom.

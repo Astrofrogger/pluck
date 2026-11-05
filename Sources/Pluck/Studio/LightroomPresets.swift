@@ -168,6 +168,11 @@ enum LightroomPresets {
         set("Texture", \.texture)
         set("Dehaze", \.dehaze)
         set("PostCropVignetteAmount", \.vignette)
+        // Calibration.
+        set("RedHue", \.calibration.redHue); set("RedSaturation", \.calibration.redSaturation)
+        set("GreenHue", \.calibration.greenHue); set("GreenSaturation", \.calibration.greenSaturation)
+        set("BlueHue", \.calibration.blueHue); set("BlueSaturation", \.calibration.blueSaturation)
+        set("ShadowTint", \.calibration.shadowTint)
         // Lightroom sharpens every RAW by 40 unless told not to: in a photo's own edit, that's no edit.
         if asShotKelvin != nil, number("Sharpness") == 40 { } else { set("Sharpness", \.sharpen, scale: 1 / 1.5, range: 0...100) }
         set("LuminanceSmoothing", \.noise, range: 0...100)

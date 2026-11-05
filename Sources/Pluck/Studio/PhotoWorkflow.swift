@@ -27,7 +27,8 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         let from = copied.adjust
         switch self {
         case .profile:
-            record.adjust.profile = from.profile
+            // (Calibration belongs to the profile: Lightroom's adjusts the camera's colour.)
+            record.adjust.profile = from.profile; record.adjust.calibration = from.calibration
         case .light:
             record.adjust.exposure = from.exposure; record.adjust.contrast = from.contrast
             record.adjust.highlights = from.highlights; record.adjust.shadows = from.shadows

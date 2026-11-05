@@ -5,6 +5,12 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.3", items: [
+                Item(symbol: "slider.horizontal.3", title: String(localized: "Calibration"),
+                     detail: String(localized: "A Calibration panel on the Photo page moves the red, green and blue primaries and tints the shadows, as in Lightroom. Lightroom presets that use it now bring it along.")),
+                Item(symbol: "film", title: String(localized: "Softer film edges"),
+                     detail: String(localized: "Film photos no longer look oversharpened. The couplers keep their colour, and a new Edge Effect slider sets how much they sharpen edges, as real film does.")),
+            ]),
             Release(version: "3.9.2", items: [
                 Item(symbol: "camera.aperture", title: String(localized: "Calmer sharpening"),
                      detail: String(localized: "With film on, Sharpen now works on the developed picture instead of before the film, so photos are no longer oversharpened. Sharpening also looks the same in the preview, at 100 % and in the export.")),
