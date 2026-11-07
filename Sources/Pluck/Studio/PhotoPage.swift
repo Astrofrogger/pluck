@@ -1163,6 +1163,8 @@ struct PhotoLoupe: View {
                             PhotoMaskHandles(path: path, record: record, frame: frame)
                         } else if editing.mixerTargeting, primary, !editing.cropping, !original, !sideBySide {
                             MixerTarget(path: path, record: record, frame: frame)
+                        } else if editing.pointPicking, primary, record.adjust.process >= 5, !record.filmOn, !editing.cropping, !original, !sideBySide {
+                            PointPicker(path: path, record: record, frame: frame)
                         }
                         if comparing { beforeAfterMarks(frame: frame, area: geo.size) }
                     }
@@ -1460,6 +1462,8 @@ struct PhotoLoupe: View {
     /// The mask shown in red while it's shaped.
     private var overlay: Int? {
         guard primary, record.adjust.process >= 2 else { return nil }
+        // (Process 5: a colour point's area held to be seen, as −2 − its index; see PhotoEngine.colourTools.)
+        if editing.pointOverlay, record.adjust.process >= 5, let point = editing.mixerPoint, point < (record.adjust.mixer.points?.count ?? 0) { return -2 - point }
         // The one the pointer is over in the list, else the one being shaped.
         if let hover = editing.hoverMask, let index = record.adjust.masks.firstIndex(where: { $0.id == hover }) { return index }
         guard shapingMask, editing.maskOverlay else { return nil }

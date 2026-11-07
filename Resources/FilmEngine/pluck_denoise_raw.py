@@ -6,19 +6,20 @@
 # The noise is taken out of the sensor's own mosaic, before any demosaicing, where each pixel's noise is
 # still independent and follows the sensor's physics: variance = a*x + b (photon shot noise plus read
 # noise), fitted from the photo itself. The cleaned mosaic is written back as a DNG, and so is the
-# untouched one, in the same wrapper (and Apple's lens correction, fitted from two decodes, as a
-# WarpRectilinear opcode): Pluck decodes both the same way and mixes them (the Amount), so they line up.
+# untouched one, in the same wrapper: Pluck decodes both the same way and mixes them (the Amount), so they line up.
+# Apple's lens correction (which the RAW's own decode has and a DNG's doesn't) is measured from two decodes and
+# answered as a radial table that Pluck warps the DNGs' decodes by (fit_warp).
 #
 #   {"do": "denoise_raw", "input": raw, "output": clean dng, "noisy": dng, "weights": drunet_color.pth,
 #    "lens": [off.tif, on.tif] (optional: Apple's half-size decodes without and with its lens correction)}
-#       -> {"ok": true, "version": 1, "a": .., "b": .., "warp": [k0..k3] or null, "seconds": ..}
+#       -> {"ok": true, "version": 2, "a": .., "b": .., "warp": [24 factors] or null, "seconds": ..}
 #       or {"ok": false, "unsupported": why} (not a Bayer RAW: Pluck uses its other denoiser)
 import struct
 import time
 
 import numpy as np
 
-VERSION = 1  # PhotoRender.rawDenoiseVersion
+VERSION = 2  # PhotoRender.rawDenoiseVersion
 
 
 class Unsupported(Exception):
@@ -94,7 +95,7 @@ def _rational(values, den=10000):
     return tuple(flat)
 
 
-def write_dng(path, mosaic, meta, make_model=("", ""), warp=None):
+def write_dng(path, mosaic, meta, make_model=("", "")):
     """The mosaic (0…1 above black) as an uncompressed 16-bit CFA DNG, four times finer than the camera's
     14 bits so the cleaned values aren't rounded back to steps."""
     import tifffile
@@ -114,18 +115,18 @@ def write_dng(path, mosaic, meta, make_model=("", ""), warp=None):
         (50778, 3, 1, 21, True),  # ColorMatrix1 is LibRaw's D65 matrix
         (50728, 5, 3, _rational(meta["neutral"], den=1000000), True),
     ]
-    if warp is not None:
-        tags.append((51022, 7, 0, _warp_rectilinear(warp), True))  # OpcodeList3
     tifffile.imwrite(path, codes, photometric=32803, compression=None, extratags=tags, metadata=None, subfiletype=0)
 
 
-def _warp_rectilinear(k, centre=(0.5, 0.5)):
-    """A DNG WarpRectilinear opcode (one plane, radial terms only), big-endian as the spec has it."""
-    params = struct.pack(">I6d2d", 1, *(list(k) + [0.0] * 4)[:4], 0.0, 0.0, *centre)
-    return struct.pack(">I", 1) + struct.pack(">IIII", 1, 0x01030000, 1, len(params)) + params
+# MARK: - Apple's lens correction, as a radial table
+#
+# Version 1 fitted it as a DNG WarpRectilinear opcode: radial terms up to r^6 (which can't follow a lens's "moustache":
+# 3 px off at the corners for Sony's own curve), fitted in the mosaic's frame from upright decodes (a portrait came out
+# 30 px off). The ghosted, doubled edges where the photo and its clean decode were mixed. Now: a table of 24 factors,
+# measured in the upright decode itself (the correction is radial about the centre, so turning doesn't change it).
 
+KNOTS = np.linspace(0.0, 1.0, 24)  # radius as a share of the half-diagonal; PhotoRender.lensWarp reads the same
 
-# MARK: - Apple's lens correction, as a radial warp
 
 def _shift(p, q):
     """Where q's content sits against p's (phase correlation, to a tenth of a pixel or so)."""
@@ -141,52 +142,114 @@ def _shift(p, q):
     return (dy if dy < s / 2 else dy - s), (dx if dx < s / 2 else dx - s), float(r.max())
 
 
-def fit_warp(off_path, on_path, meta):
-    """Apple's lens correction (decodes of the ARW without and with it) as WarpRectilinear's radial terms, or
-    None (no correction to speak of, or too little detail to measure it)."""
+def sony_curve(path):
+    """Sony's own distortion curve from the ARW (SR2 tag 0x7037: n knots, even over the half-diagonal, in 2^-14 of
+    the radius), or None. Apple's correction follows it within a pixel; the measurement below settles the rest."""
+    try:
+        with open(path, "rb") as f:
+            d = f.read(4 << 20)
+        if d[:4] != b"II*\x00":
+            return None
+
+        def ifd(off):
+            n = struct.unpack_from("<H", d, off)[0]
+            return {t: (ty, c, v) for t, ty, c, v in (struct.unpack_from("<HHII", d, off + 2 + 12 * i) for i in range(n))}
+        top = ifd(struct.unpack_from("<I", d, 4)[0])
+        if 330 not in top:
+            return None
+        _, count, value = top[330]
+        for sub in [value] if count == 1 else struct.unpack_from(f"<{count}I", d, value):
+            tags = ifd(sub)
+            if 0x7037 in tags and tags[0x7037][0] == 8:
+                _, c, at = tags[0x7037]
+                v = struct.unpack_from(f"<{c}h", d, at)
+                if 2 <= v[0] < c:
+                    return np.array(v[1:v[0] + 1], np.float64)
+    except (OSError, struct.error):
+        pass
+    return None
+
+
+def _warp(img, table):
+    """img read through a radial table (as PhotoRender.lensWarp: each output pixel from radius * factor)."""
+    from scipy.ndimage import map_coordinates
+    H, W = img.shape
+    m = np.hypot(W, H) / 2
+    y, x = np.mgrid[0:H, 0:W].astype(np.float32) + 0.5
+    dx, dy = x - W / 2, y - H / 2
+    f = np.interp(np.hypot(dx, dy) / m, KNOTS, table)
+    return map_coordinates(img, [H / 2 + dy * f - 0.5, W / 2 + dx * f - 0.5], order=1, mode="nearest")
+
+
+def _matches(on, moved, s, step, most):
+    """Radius (share of the half-diagonal), radial factor and peak of the shifts between two pictures, patch by patch.
+    Every patch counts, dark ones too: the same noise is in both, so it lines up as well as detail does."""
+    H, W = on.shape
+    m = np.hypot(W, H) / 2
+    R, F, P = [], [], []
+    for y0 in range(2, H - s - 2, step):
+        for x0 in range(2, W - s - 2, step):
+            p, q = on[y0:y0 + s, x0:x0 + s], moved[y0:y0 + s, x0:x0 + s]
+            if p.std() < 1e-6:
+                continue
+            dy, dx, peak = _shift(p, q)
+            cx, cy = x0 + s / 2 - W / 2, y0 + s / 2 - H / 2
+            r = np.hypot(cx, cy)
+            if peak < 0.08 or max(abs(dx), abs(dy)) > most or r < 0.04 * m or abs(dy * cx - dx * cy) / r > 0.6:
+                continue  # (a sideways shift isn't the lens: repeating texture, or nothing to match)
+            R.append(r / m)
+            F.append(1 + (dx * cx + dy * cy) / (r * r))
+            P.append(peak)
+    return np.array(R), np.array(F), np.array(P), m
+
+
+def _fit_table(R, F, P, m, smooth=30.0):
+    """Piecewise-linear factors at KNOTS through the matches (weighted in pixels, the misfits dropped), kept smooth."""
+    def basis(r):
+        return np.maximum(0, 1 - np.abs(np.clip(r, 0, 1)[:, None] - KNOTS[None]) / KNOTS[1])
+    use = np.ones(len(R), bool)
+    bend = np.diff(np.eye(len(KNOTS)), 2, 0) * smooth
+    for _ in range(4):
+        w = np.sqrt(P[use]) * R[use] * m
+        A = np.vstack([basis(R[use]) * w[:, None], bend])
+        g = np.linalg.lstsq(A, np.concatenate([F[use] * w, np.zeros(len(bend))]), rcond=None)[0]
+        miss = np.abs(F - basis(R) @ g) * R * m
+        use = miss < max(0.25, 3 * float(np.median(miss[use])))
+        if use.sum() < 12:
+            return None
+    return g
+
+
+def fit_warp(off_path, on_path, raw_path=None):
+    """Apple's lens correction (its decodes of the RAW without and with it, same size) as factors on the radius at
+    KNOTS: an output pixel at radius r reads the uncorrected picture at r * factor. A first guess (the camera's own
+    curve, else coarse matches), then the small shifts left after it measured over the whole frame. None: no
+    correction to speak of (under a quarter pixel anywhere, at full size), or nothing to measure."""
     import tifffile
 
     def luma(f):
-        x = tifffile.imread(f)[..., :3].astype(np.float32).mean(-1)
-        return x / max(float(np.percentile(x, 99.5)), 1e-6)
+        return tifffile.imread(f)[..., :3].astype(np.float32).mean(-1)
     off, on = luma(off_path), luma(on_path)
     if off.shape != on.shape:
         return None
     H, W = off.shape
-    left, top, cw, ch = meta["crop"]
-    scale = cw / W  # the half-size decode to the mosaic's pixels
-    s, P, Q = 128, [], []
-    for y0 in range(32, H - s - 32, 75):
-        for x0 in range(32, W - s - 32, 75):
-            p, q = on[y0:y0 + s, x0:x0 + s], off[y0:y0 + s, x0:x0 + s]
-            if p.std() < 0.02:
-                continue
-            dy, dx, peak = _shift(p, q)
-            if peak < 0.15 or abs(dy) > s / 4 or abs(dx) > s / 4:
-                continue
-            P.append((x0 + s / 2, y0 + s / 2))
-            Q.append((x0 + s / 2 + dx, y0 + s / 2 + dy))
-    if len(P) < 12:
-        return None
-    # Into the mosaic's coordinates, where the opcode works (its centre is the mosaic's).
-    P = np.array(P) * scale + (left, top)
-    Q = np.array(Q) * scale + (left, top)
-    h, w = meta["shape"]
-    c = np.array([w / 2, h / 2])
-    m = np.hypot(*c)
-    rp, rq = np.hypot(*(P - c).T) / m, np.hypot(*(Q - c).T) / m
-    use = rp > 0.15
-    for _ in range(3):  # drop the matches that don't fit (repeating texture, moving things)
-        A = np.stack([np.ones(use.sum()), rp[use] ** 2, rp[use] ** 4, rp[use] ** 6], 1)
-        k = np.linalg.lstsq(A, rq[use] / rp[use], rcond=None)[0]
-        miss = np.abs(rq - rp * (np.stack([np.ones_like(rp), rp ** 2, rp ** 4, rp ** 6], 1) @ k)) * m
-        use = (rp > 0.15) & (miss < max(1.0, 3 * float(np.median(miss[rp > 0.15]))))
-        if use.sum() < 12:
+    m = np.hypot(W, H) / 2
+    curve = sony_curve(raw_path) if raw_path else None
+    if curve is not None:
+        knots = np.linspace(0, 1, len(curve))
+        # Apple zooms in just enough that the frame stays filled (the short side's middle is the first to come short).
+        zoom = 1 / np.max(1 + np.interp(np.linspace(min(W, H) / 2 / m, 1, 200), knots, curve) / 16384)
+        guess = zoom * (1 + np.interp(KNOTS, knots, curve) / 16384)
+    else:
+        R, F, P, _ = _matches(on, off, 128, 75, 32)
+        guess = _fit_table(R, F, P, m, smooth=300.0) if len(R) >= 12 else None
+        if guess is None:
             return None
-    k = [float(v) for v in k]
-    # No correction worth a warp: under half a pixel at the corners.
-    corner = abs(sum(k) - 1) * m
-    return None if corner < 0.5 else k
+    R, F, P, _ = _matches(on, _warp(off, guess), 64, 48, 6)
+    rest = _fit_table(R, F, P, m) if len(R) >= 12 else None
+    table = guess * rest if rest is not None else guess
+    # (The table is measured on a half-size decode: twice the pixels at full size.)
+    return None if float(np.max(np.abs(table - 1) * KNOTS)) * m * 2 < 0.25 else [float(v) for v in table]
 
 
 # MARK: - The noise, from the photo itself
@@ -366,13 +429,13 @@ def denoise_raw(job):
     mm = make_model(job["input"])
     a, b = fit_noise(planes)
     lens = job.get("lens")
-    warp = fit_warp(lens[0], lens[1], meta) if lens else None
+    warp = fit_warp(lens[0], lens[1], job["input"]) if lens else None
     t1 = time.time()
     net = model(job["weights"])
     clean = denoise_planes(planes, a, b, lambda u, sigma: run(net, u, sigma))
     t2 = time.time()
-    write_dng(job["output"], unpack(clean, meta), meta, mm, warp)
-    write_dng(job["noisy"], unpack(planes, meta), meta, mm, warp)
+    write_dng(job["output"], unpack(clean, meta), meta, mm)
+    write_dng(job["noisy"], unpack(planes, meta), meta, mm)
     return {"ok": True, "version": VERSION, "a": a, "b": b, "warp": warp,
             "seconds": {"prepare": t1 - t0, "network": t2 - t1, "write": time.time() - t2, "total": time.time() - t0}}
 
@@ -406,10 +469,24 @@ def selftest():
     assert bias < 0.01, bias
     meta = {"order": [0, 1, 2, 3], "shape": (256, 512)}
     assert (unpack(truth, meta)[0::2, 0::2] == truth[0]).all() and (unpack(truth, meta)[1::2, 1::2] == truth[3]).all()
-    # The opcode is the size the DNG spec gives it: count, then id/version/flags/size, then 1 + 8 doubles.
-    assert len(_warp_rectilinear([1, 0, 0, 0])) == 4 + 16 + 4 + 64
-    # A RAW that isn't TIFF-based (CR3, RAF) is unsupported, not an error.
+    # A known lens moustache is measured back from two pictures within 0.15 px (at half size) out to 0.9 of the
+    # half-diagonal (past the last patch's middle it's extrapolated: the corners' last pixels).
     import tempfile
+    import tifffile
+    grain = np.random.default_rng(3)
+    texture = grain.normal(0.3, 0.1, (1000, 1500)).astype(np.float32)
+    from scipy.ndimage import gaussian_filter
+    texture = gaussian_filter(texture, 1.2) + 0.02 * grain.normal(size=texture.shape).astype(np.float32)
+    truth = 1.004 + 0.012 * KNOTS ** 2 - 0.03 * KNOTS ** 4
+    with tempfile.TemporaryDirectory() as folder:
+        off_path, on_path = f"{folder}/off.tif", f"{folder}/on.tif"
+        for img, path in [(texture, off_path), (_warp(texture, truth), on_path)]:
+            tifffile.imwrite(path, np.clip(img[..., None].repeat(3, -1) * 65535, 0, 65535).astype(np.uint16))
+        table = fit_warp(off_path, on_path)
+    inner = KNOTS <= 0.9
+    lens_miss = float(np.max(np.abs(np.array(table) - truth)[inner] * KNOTS[inner])) * np.hypot(1500, 1000) / 2
+    assert lens_miss < 0.15, lens_miss
+    # A RAW that isn't TIFF-based (CR3, RAF) is unsupported, not an error.
     with tempfile.NamedTemporaryFile(suffix=".CR3") as f:
         f.write(b"\x00\x00\x00\x18ftypcrx " + bytes(64))
         f.flush()
@@ -418,4 +495,4 @@ def selftest():
             raise AssertionError("a CR3 read as TIFF")
         except Unsupported:
             pass
-    return {"ok": True, "inverse_bias": worst, "fit_a": fa, "fit_b": fb, "oracle_bias": bias, "version": VERSION}
+    return {"ok": True, "inverse_bias": worst, "fit_a": fa, "fit_b": fb, "oracle_bias": bias, "lens_miss": lens_miss, "version": VERSION}

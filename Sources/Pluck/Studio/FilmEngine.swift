@@ -457,13 +457,13 @@ final class FilmEngine {
         _ = try await python(worker).ask(job)
     }
 
-    /// Takes the noise out of a Bayer RAW's own mosaic (AI): writes the clean mosaic and the untouched one as DNGs,
-    /// with Apple's lens correction as fitted from `lens` (its half-size decodes without and with it). False: not a
-    /// Bayer RAW (X-Trans and others), for the other denoiser.
-    func denoiseRaw(_ input: URL, clean: URL, noisy: URL, lens: [URL], worker: Int = 1) async throws -> Bool {
+    /// Takes the noise out of a Bayer RAW's own mosaic (AI): writes the clean mosaic and the untouched one as DNGs, and
+    /// answers Apple's lens correction as measured from `lens` (its half-size decodes without and with it) as a radial
+    /// table (`PhotoRender.lensWarp`; nil: none). made false: not a Bayer RAW (X-Trans and others), for the other denoiser.
+    func denoiseRaw(_ input: URL, clean: URL, noisy: URL, lens: [URL], worker: Int = 1) async throws -> (made: Bool, warp: [Double]?) {
         let answer = try await python(worker).ask(["do": "denoise_raw", "input": input.path, "output": clean.path, "noisy": noisy.path,
                                                    "weights": Self.rawDenoiserModel.path, "lens": lens.map(\.path)])
-        return answer["ok"] as? Bool == true
+        return (answer["ok"] as? Bool == true, (answer["warp"] as? [NSNumber])?.map(\.doubleValue))
     }
 
     /// The raw denoiser's own check (tests): its transform's round trip and noise fit, true when all hold.

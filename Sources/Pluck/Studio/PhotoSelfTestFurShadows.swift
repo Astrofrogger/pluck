@@ -69,7 +69,7 @@ extension PhotoSelfTest {
 extension PhotoSelfTest {
     private static let fsLinear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
 
-    private static func fsImage(_ width: Int, _ height: Int, _ colour: (Int, Int) -> SIMD3<Float>) -> CIImage {
+    static func fsImage(_ width: Int, _ height: Int, _ colour: (Int, Int) -> SIMD3<Float>) -> CIImage {
         var px = [Float](repeating: 1, count: width * height * 4)
         for y in 0..<height { for x in 0..<width {
             let c = colour(x, y), i = (y * width + x) * 4
@@ -80,7 +80,7 @@ extension PhotoSelfTest {
     }
 
     /// Linear RGB, rows from the top.
-    private static func fsPixels(_ image: CIImage, _ extent: CGRect) -> [SIMD3<Double>] {
+    static func fsPixels(_ image: CIImage, _ extent: CGRect) -> [SIMD3<Double>] {
         let w = Int(extent.width), h = Int(extent.height)
         var px = [Float](repeating: 0, count: w * h * 4)
         px.withUnsafeMutableBytes {
@@ -89,12 +89,12 @@ extension PhotoSelfTest {
         return (0..<w * h).map { SIMD3(Double(px[$0 * 4]), Double(px[$0 * 4 + 1]), Double(px[$0 * 4 + 2])) }
     }
 
-    private static func fsLab(_ c: SIMD3<Double>) -> SIMD3<Double> { let o = OkLab.from(c.x, c.y, c.z); return SIMD3(o.0, o.1, o.2) }
-    private static func fsChroma(_ o: SIMD3<Double>) -> Double { (o.y * o.y + o.z * o.z).squareRoot() }
-    private static func fsHue(_ o: SIMD3<Double>) -> Double { atan2(o.z, o.y) * 180 / .pi }
-    private static func fsHueApart(_ a: Double, _ b: Double) -> Double { let d = abs(a - b).truncatingRemainder(dividingBy: 360); return min(d, 360 - d) }
+    static func fsLab(_ c: SIMD3<Double>) -> SIMD3<Double> { let o = OkLab.from(c.x, c.y, c.z); return SIMD3(o.0, o.1, o.2) }
+    static func fsChroma(_ o: SIMD3<Double>) -> Double { (o.y * o.y + o.z * o.z).squareRoot() }
+    static func fsHue(_ o: SIMD3<Double>) -> Double { atan2(o.z, o.y) * 180 / .pi }
+    static func fsHueApart(_ a: Double, _ b: Double) -> Double { let d = abs(a - b).truncatingRemainder(dividingBy: 360); return min(d, 360 - d) }
 
-    private static func fsDeveloped(_ image: CIImage, _ a: PhotoAdjustments, scene: Bool = false) -> [SIMD3<Double>] {
+    static func fsDeveloped(_ image: CIImage, _ a: PhotoAdjustments, scene: Bool = false) -> [SIMD3<Double>] {
         let out = PhotoRender.adjusted(image, a, isRaw: true, kelvin: 5500, scene: scene)
         return fsPixels(scene ? out : PhotoRender.output(out, a, p3: false), image.extent)
     }
@@ -254,8 +254,10 @@ extension PhotoSelfTest {
             return c / Y * 0.18 * exp2(Float(x) / 40 - 10)
         }
         var worst: [String] = []
-        for profile in [PhotoEngine.Profile.adobe, .neutral, .accurate, .vivid, .landscape, .portrait, .monochrome] {
-            var a = PhotoAdjustments(); a.process = 4; a.profile = profile; a.exposure = 5; a.shadows = 100
+        // (And Accurate on process 5, whose fade to white is safe: see towardsWhite5.)
+        for (profile, process) in [(PhotoEngine.Profile.adobe, 4), (.neutral, 4), (.accurate, 4), (.vivid, 4), (.landscape, 4), (.portrait, 4), (.monochrome, 4), (.accurate, 5)] {
+            let name = profile.rawValue + (process == 5 ? " p5" : "")
+            var a = PhotoAdjustments(); a.process = process; a.profile = profile; a.exposure = 5; a.shadows = 100
             let px = fsDeveloped(ramp, a)
             var falls = 0, step = 0.0, at = (0, 0), around: [SIMD3<Double>] = [], bright = 0.0
             for (k, _) in colours.enumerated() {
@@ -268,13 +270,13 @@ extension PhotoSelfTest {
                     if m > step { step = m; at = (k, i); around = Array(row[i - 1...i + 1]) }
                 }
             }
-            worst.append("\(profile.rawValue) \(String(format: "%.4f", step)) (colour \(at.0), x \(at.1): \(around.map { String(format: "%.3f %.3f %.3f", $0.x, $0.y, $0.z) })), falls \(falls), chroma over L 0.92 \(String(format: "%.3f", bright))")
+            worst.append("\(name) \(String(format: "%.4f", step)) (colour \(at.0), x \(at.1): \(around.map { String(format: "%.3f %.3f %.3f", $0.x, $0.y, $0.z) })), falls \(falls), chroma over L 0.92 \(String(format: "%.3f", bright))")
             if step > 0.02 {
                 let plain = fsPixels(PhotoRender.adjusted(ramp, a, isRaw: true, kelvin: 5500), ramp.extent)
-                note("pushed +5 EV \(profile.rawValue) before the gamut mapping at the step: \((at.1 - 2...at.1 + 2).map { i -> String in let o = fsLab(plain[(at.0 * 8 + 4) * n + i]), c = plain[(at.0 * 8 + 4) * n + i]; return String(format: "%.4f %.4f %.4f (%.4f %.4f %.4f)", o.x, o.y, o.z, c.x, c.y, c.z) })")
+                note("pushed +5 EV \(name) before the gamut mapping at the step: \((at.1 - 2...at.1 + 2).map { i -> String in let o = fsLab(plain[(at.0 * 8 + 4) * n + i]), c = plain[(at.0 * 8 + 4) * n + i]; return String(format: "%.4f %.4f %.4f (%.4f %.4f %.4f)", o.x, o.y, o.z, c.x, c.y, c.z) })")
             }
-            // (Accurate is noted, not checked: a saturated green snaps to grey 2% under white, found here, not yet traced.)
-            if profile != .accurate { check("pushed +5 EV stays smooth (\(profile.rawValue))", falls == 0 && step < 0.02,
+            // (Accurate on process 4 is noted, not checked: a saturated green snaps to grey 2% under white there, kept as it was.)
+            if profile != .accurate || process == 5 { check("pushed +5 EV stays smooth (\(name))", falls == 0 && step < 0.02,
                   "lightness never falls, second difference under 0.02; got falls \(falls), \(step) at colour \(at.0), x \(at.1)") }
         }
         note("pushed +5 EV, Shadows +100, largest second difference: \(worst.joined(separator: "; "))")

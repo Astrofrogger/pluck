@@ -228,6 +228,7 @@ enum LightroomPresets {
         // Lightroom sharpens every RAW by 40 unless told not to: in a photo's own edit, that's no edit.
         if asShotKelvin != nil, number("Sharpness") == 40 { } else { set("Sharpness", \.sharpen, scale: 1 / 1.5, range: 0...100) }
         set("LuminanceSmoothing", \.noise, range: 0...100)
+        if crs["LuminanceSmoothing"] != nil { a.noiseSet = true }
         set("ColorNoiseReduction", \.colorNoise, range: 0...100)
         // White balance: the slider as it is on JPEGs and the like. On RAW a Kelvin value, only when
         // set by hand ("Custom"; As Shot and Auto are the photo's own): as stops from the photo's

@@ -300,11 +300,46 @@ extension PhotoSelfTest {
         URL(fileURLWithPath: photos).deletingLastPathComponent().appendingPathComponent("greencast/DSC01962.ARW")
     }
 
-    /// A temporary copy of the test RAW (its own clean files), or nil without it.
-    private static func rawCopy(_ folder: URL, _ name: String) -> String? {
+    /// A temporary copy of the test RAW (its own clean files), or nil without it. `from`: another RAW beside it.
+    private static func rawCopy(_ folder: URL, _ name: String, from: String? = nil) -> String? {
         let url = folder.appendingPathComponent(name)
-        guard (try? FileManager.default.copyItem(at: greencastRaw, to: url)) != nil else { return nil }
+        let source = from.map { greencastRaw.deletingLastPathComponent().appendingPathComponent($0) } ?? greencastRaw
+        guard (try? FileManager.default.copyItem(at: source, to: url)) != nil else { return nil }
         return url.path
+    }
+
+    /// The raw denoiser's noisy DNG decoded as its clean one is (lens table, colour matrix): what the mix's clean side
+    /// lines up with, pixel for pixel.
+    private static func rawNoisyDNG(_ path: String, _ file: URL, _ settings: PhotoRender.RawSettings) -> CIImage? {
+        guard let (m, warp) = PhotoRender.rawPair(file) else { return nil }
+        return PhotoRender.source(path, maxSize: 0, noise: 0, color: 0, raw: settings,
+                                  file: URL(fileURLWithPath: file.deletingPathExtension().deletingPathExtension().path + ".noisy.dng"), warp: warp)
+            .map { PhotoRender.coloured($0, m) }
+    }
+
+    /// How far the raw denoiser's DNG decode sits from the RAW's own (shown as the mix's other side), at worst over a 5×5
+    /// grid of 128 px patches from edge to edge. At each, of a 3×3 choice of patches stepping inwards, the one with the most
+    /// detail (the two decoders' noise differs, so a flat patch has nothing to measure); a match that hardly correlates
+    /// (peak under 0.2) doesn't count, and at least 15 of the 25 must.
+    private static func rawMisregistration(_ dng: CIImage, _ raw: CIImage) -> (worst: Double, at: String) {
+        let e = raw.extent, n = 128, W = Int(e.width), H = Int(e.height)
+        func spread(_ p: [Double]) -> Double { let m = p.reduce(0, +) / Double(p.count); return p.reduce(0) { $0 + ($1 - m) * ($1 - m) } }
+        var worst = (0.0, ""), counted = 0
+        for fy in [0.0, 0.25, 0.5, 0.75, 1.0] { for fx in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let x0 = 16 + Int(fx * Double(W - n - 32)), y0 = 16 + Int(fy * Double(H - n - 32))
+            let sx = fx < 0.5 ? 1 : -1, sy = fy < 0.5 ? 1 : -1
+            var best = (x: x0, y: y0, detail: -1.0, patch: [Double]())
+            for i in 0..<3 { for j in 0..<3 {
+                let x = x0 + sx * i * 96, y = y0 + sy * j * 96, p = patch(raw, x: x, y: y, n: n)
+                if spread(p) > best.detail { best = (x, y, spread(p), p) }
+            } }
+            let d = phaseShift(best.patch, patch(dng, x: best.x, y: best.y, n: n), n)
+            guard d.peak >= 0.2 else { continue }
+            counted += 1
+            let off = max(abs(d.dx), abs(d.dy))
+            if off > worst.0 { worst = (off, "\(fx),\(fy)") }
+        } }
+        return counted >= 15 ? worst : (99, "only \(counted) matched")
     }
 
     /// AI on a Bayer RAW goes to the raw denoiser, and once only, however the Amount moves and whatever is drawn; one it
@@ -387,7 +422,7 @@ extension PhotoSelfTest {
     }
 
     /// Phase correlation of two square grey patches (n a power of two not needed: a plain DFT): how far `b` sits from `a`, in pixels.
-    private static func phaseShift(_ a: [Double], _ b: [Double], _ n: Int) -> (dx: Double, dy: Double) {
+    private static func phaseShift(_ a: [Double], _ b: [Double], _ n: Int) -> (dx: Double, dy: Double, peak: Double) {
         let cosines = (0..<n * n).map { cos(2 * Double.pi * Double($0 % n) * Double($0 / n) / Double(n)) }
         let sines = (0..<n * n).map { sin(2 * Double.pi * Double($0 % n) * Double($0 / n) / Double(n)) }
         // Rows, then columns; `sign` -1 forward, +1 back.
@@ -427,7 +462,8 @@ extension PhotoSelfTest {
         func fine(_ m: Double, _ z: Double, _ p: Double) -> Double { abs(m - 2 * z + p) < 1e-12 ? 0 : 0.5 * (m - p) / (m - 2 * z + p) }
         let dx = Double(px) + fine(surface[py * n + (px + n - 1) % n], surface[peak], surface[py * n + (px + 1) % n])
         let dy = Double(py) + fine(surface[((py + n - 1) % n) * n + px], surface[peak], surface[((py + 1) % n) * n + px])
-        return (dx > Double(n) / 2 ? dx - Double(n) : dx, dy > Double(n) / 2 ? dy - Double(n) : dy)
+        // (peak: the correlation's height, 1 for a perfect match, near 0 when there's nothing to line up.)
+        return (dx > Double(n) / 2 ? dx - Double(n) : dx, dy > Double(n) / 2 ? dy - Double(n) : dy, surface[peak] / Double(n * n))
     }
 
     /// A patch's brightness (square root, so the shadows count), at full size, from the top left. Softened (3 px):
@@ -489,6 +525,24 @@ extension PhotoSelfTest {
         }
         check("denoise raw alignment", clean.extent.size == e.size && e.size == arw.extent.size && worstClean < 0.5 && worstRaw < 0.5,
               "clean, noisy and RAW decodes one size; clean and the RAW each under 0.5 px from noisy; got \(clean.extent.size), \(e.size), \(arw.extent.size), \(worstClean), \(worstRaw)")
+        // Edge to edge, and on a portrait (turned by the camera): the denoiser's decode where the RAW's is, within a quarter
+        // pixel (version 1's lens fit left this portrait's edges 30 px off, its corners a few: the mix showed double edges).
+        var lined = [String]()
+        if let dng = rawNoisyDNG(path, file, settings) {
+            let m = rawMisregistration(dng, arw); lined.append(String(format: "landscape %.2f px at %@", m.worst, m.at))
+            if m.worst >= 0.25 { lined.append("FAIL") }
+        } else { lined.append("FAIL no landscape DNG") }
+        if let portrait = rawCopy(folder, "DSC01994.ARW", from: "DSC01994.ARW") {
+            do {
+                try await PhotoRender.denoise(portrait, record: record)
+                if let pfile = PhotoRender.cleanFile(portrait, record: record), let dng = rawNoisyDNG(portrait, pfile, settings),
+                   let own = PhotoRender.source(portrait, maxSize: 0, noise: 0, color: 0, raw: settings) {
+                    let m = rawMisregistration(dng, own); lined.append(String(format: "portrait %.2f px at %@", m.worst, m.at))
+                    if m.worst >= 0.25 || dng.extent != own.extent { lined.append("FAIL") }
+                } else { lined.append("FAIL no portrait DNG") }
+            } catch { lined.append("FAIL \(error.localizedDescription)") }
+        } else { lined.append("(no greencast/DSC01994.ARW: portrait not checked)") }
+        check("denoise raw registration", !lined.contains { $0.hasPrefix("FAIL") }, "under 0.25 px from the RAW's own decode, edge to edge; got \(lined.joined(separator: ", "))")
 
         // Amount 0 as the RAW: 64 px patches with light in them, per channel (half size).
         let half = Int(max(e.width, e.height) / 2)
@@ -515,11 +569,7 @@ extension PhotoSelfTest {
         // clean decode draws sharper isn't a spot. A spot put in on purpose is found (the measure works).
         // (Against the denoiser's own input, the noisy DNG decoded alike: version 3 shows the RAW's decode, by decoder 9, as
         // the noisy side, and the shown clean side is held within it: settled.)
-        let input = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([Double].self, from: $0) }.flatMap { m in
-            PhotoRender.source(path, maxSize: 0, noise: 0, color: 0, raw: settings,
-                               file: URL(fileURLWithPath: file.deletingPathExtension().deletingPathExtension().path + ".noisy.dng"))
-                .map { PhotoRender.coloured($0, m) }
-        } ?? noisy
+        let input = rawNoisyDNG(path, file, settings) ?? noisy
         let soft = input.clampedToExtent().applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: 1])
         let low = floats(soft.applyingFilter("CIMorphologyMinimum", parameters: [kCIInputRadiusKey: 2]).cropped(to: e))
         let high = floats(soft.applyingFilter("CIMorphologyMaximum", parameters: [kCIInputRadiusKey: 2]).cropped(to: e))

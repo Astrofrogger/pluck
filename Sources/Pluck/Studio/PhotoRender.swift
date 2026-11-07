@@ -94,14 +94,26 @@ enum PhotoRender {
     /// (texture mostly), ISO 6400's 2.7× (visible speckle).
     static func lumaShare(iso: Double) -> Double { iso > 0 ? min(max(log2(iso / 1600) / 2, 0), 1) : 0 }
 
+    /// Process 5: the Luminance slider's amount when it wasn't set, by ISO: 0 up to ISO 1600 (as process 4: the decoder's
+    /// own is enough), then by stops to `autoLumaTop` from ISO 6400, lighter than process 4's there (as Luminance 25: mushy).
+    static func autoLuminance(iso: Double) -> Double { (autoLumaTop * lumaShare(iso: iso)).rounded() }
+    static let autoLumaTop = 15.0
+
+    /// The Luminance a photo is developed with: process 5's RAW without it set follows the ISO (`autoLuminance`).
+    /// At 0 there's none at all: Apple's decoder adds none at 0 either, as `neutral` sets it (the decoder chosen after the
+    /// other settings; measured on an ISO 6400 CR3, decoder 9: fine detail the same at 0 and 0.001, 0.81 of it at 1).
+    static func luminance(_ a: PhotoAdjustments, path: String) -> Double {
+        a.process >= 5 && !a.noiseSet && isRaw(path) ? autoLuminance(iso: iso(PhotoCatalog.file(of: path))) : a.noise
+    }
+
     /// The photo, at most this many pixels on its long side (0: full size), in linear light. RAW
     /// is decoded neutral: none of the camera maker's look, so every camera starts the same.
     /// `noise`: Apple's luminance noise reduction, `color`: Pluck's colour noise reduction (RAW), 0…100.
     /// `file`: a DNG standing in for the RAW (the raw denoiser's), decoded the same way.
     /// `luma`: version 3's own luminance noise reduction too (lumaNoiseReduced), the Luminance slider making it stronger;
-    /// off for what the denoisers are given, which must keep the noise as it is.
+    /// off for what the denoisers are given, which must keep the noise as it is. `allLuma` (process 5): the slider is all of it.
     static func source(_ path: String, maxSize: Int, noise: Double = 0, color: Double = 50, raw settings: RawSettings = RawSettings(), file: URL? = nil,
-                       luma: Bool = false) -> CIImage? {
+                       warp: [Double]? = nil, luma: Bool = false, allLuma: Bool = false) -> CIImage? {
         let url = file ?? URL(fileURLWithPath: PhotoCatalog.file(of: path))
         if isRaw(path) || file != nil, let raw = CIRAWFilter(imageURL: url) {
             if maxSize > 0 {
@@ -111,9 +123,13 @@ enum PhotoRender {
                 if long > 0 { raw.scaleFactor = Float(min(1, max(0.5, Double(maxSize) / long))) }
             }
             // (The raw denoiser's DNGs keep the pinned decoder: decoder 9 left a few dark spots in its clean one, measured.)
-            neutral(raw, noise: noise, color: 0, moire: settings.moire, decoder: settings.decoder, modern: settings.wideColourNoise && file == nil)
+            // Process 5: the decoder's own only past Luminance 25 (all of it at 100, as process 4's 100).
+            neutral(raw, noise: allLuma ? max(noise - 25, 0) * 4 / 3 : noise, color: 0, moire: settings.moire, decoder: settings.decoder,
+                    modern: settings.wideColourNoise && file == nil)
             // Lens correction leaves an unfilled edge: a sliver (0.4%) goes.
             guard var image = raw.outputImage else { return nil }
+            // The raw denoiser's DNG: Apple's lens correction, which the RAW's own decode has, put on as measured (lensWarp).
+            if let warp { image = lensWarp(image, warp) }
             // Process 4: the lens's fall-off put back from the camera's own shading data (Apple's lens correction leaves it).
             if settings.lighter, let knots = lensShading(PhotoCatalog.file(of: path)) { image = shaded(image, knots) }
             // Decoder 9 sharpens as it decodes (measured against 8 on bright detail: 1.5 times the contrast at 1–2 px, 1.23 at
@@ -144,9 +160,11 @@ enum PhotoRender {
             if luma, settings.wideColourNoise {
                 // Process 4: none at Luminance 0 up to ISO 1600 (decoder 9's own is enough there), then more with the ISO (all
                 // of version 3's at 6400: see `lumaShare`); the Luminance slider adds it back as it's raised.
-                let share = settings.lighter ? min(1, lumaShare(iso: iso(PhotoCatalog.file(of: path))) + noise / 25) : 1
+                // Process 5 (`allLuma`): none at 0, the ISO's share only through the slider's starting amount (`luminance`): 25 is
+                // process 4's at ISO 6400 (without the decoder's), 100 the same as process 4's 100.
+                let share = allLuma ? min(1, noise / 25) : settings.lighter ? min(1, lumaShare(iso: iso(PhotoCatalog.file(of: path))) + noise / 25) : 1
                 if share > 0 {
-                    let reduced = lumaNoiseReduced(placed, amount: noise, scale: placed.extent.width / max(raw.nativeSize.width, 1), key: key)
+                    let reduced = lumaNoiseReduced(placed, amount: allLuma ? max(noise - 25, 0) * 4 / 3 : noise, scale: placed.extent.width / max(raw.nativeSize.width, 1), key: key)
                     placed = share < 1 ? reduced.applyingFilter("CIMix", parameters: [kCIInputBackgroundImageKey: placed, "inputAmount": share]) : reduced
                 }
             }
@@ -240,6 +258,29 @@ enum PhotoRender {
         return kernel.apply(extent: e, arguments: [image, v(0), v(4), v(8), v(12), CIVector(x: e.midX, y: e.midY),
                                                    hypot(e.width, e.height) / 2, Double(knots.count - 1)]) ?? image
     }
+
+    /// A decode read through a radial table (the raw denoiser's measure of Apple's lens correction, pluck_denoise_raw.py's
+    /// fit_warp): each pixel from its radius times the factor at that radius (24 even knots over the half-diagonal, linear
+    /// between). Its own size; past the edge the edge's pixels.
+    static func lensWarp(_ image: CIImage, _ table: [Double]) -> CIImage {
+        guard table.count == 24, let kernel = lensKernel else { return image }
+        let e = image.extent
+        func v(_ i: Int) -> CIVector { CIVector(x: table[i], y: table[i + 1], z: table[i + 2], w: table[i + 3]) }
+        return kernel.apply(extent: e, roiCallback: { _, _ in e }, image: image.clampedToExtent(),
+                            arguments: [CIVector(x: e.midX, y: e.midY), hypot(e.width, e.height) / 2] + stride(from: 0, to: 24, by: 4).map(v))?
+            .cropped(to: e) ?? image
+    }
+
+    private static let lensKernel = CIWarpKernel(source: """
+        kernel vec2 lens(vec2 centre, float reach, vec4 a, vec4 b, vec4 c, vec4 d, vec4 e, vec4 f) {
+            vec2 p = destCoord() - centre;
+            float x = clamp(length(p) / reach, 0.0, 1.0) * 23.0;
+            vec4 i = vec4(0.0, 1.0, 2.0, 3.0);
+            float g = dot(a, max(1.0 - abs(i - x), 0.0)) + dot(b, max(1.0 - abs(i + 4.0 - x), 0.0)) + dot(c, max(1.0 - abs(i + 8.0 - x), 0.0))
+                    + dot(d, max(1.0 - abs(i + 12.0 - x), 0.0)) + dot(e, max(1.0 - abs(i + 16.0 - x), 0.0)) + dot(f, max(1.0 - abs(i + 20.0 - x), 0.0));
+            return centre + p * g;
+        }
+        """)
 
     private static let shadeKernel = CIColorKernel(source: """
         float pick(vec4 a, vec4 b, vec4 c, vec4 d, float j) {
@@ -362,6 +403,16 @@ enum PhotoRender {
         guard let v = spread.apply(extent: extent, arguments: [image, m, model.a, model.b]),
               let ab = coef.apply(extent: extent, arguments: [m, mean(v), 1 + amount / 25]) else { return image }
         return settle.apply(extent: extent, arguments: [image, ab]) ?? image
+    }
+
+    /// The noise of a picture the engine develops (process 5's Texture), kept per decode (`key`).
+    static func noiseModel(_ image: CIImage, key: String?) -> (a: Double, b: Double)? {
+        let kept = key.map { "develop|" + $0 }
+        noiseLock.lock(); let known = kept.flatMap { noiseModels[$0] }; noiseLock.unlock()
+        if let known { return known }
+        let model = noiseModel(image)
+        if let kept, let model { noiseLock.lock(); noiseModels[kept] = model; noiseLock.unlock() }
+        return model
     }
 
     nonisolated(unsafe) private static var noiseModels: [String: (a: Double, b: Double)] = [:]
@@ -575,7 +626,7 @@ enum PhotoRender {
         // sharpened again by the film's grain and scan, and its halos would grow with the film's contrast.
         let full = Double(max(path.map(decodedLongEdge) ?? 0, Int(long)))
         if !scene {
-            image = sharpened(image, a.sharpen, scale: Double(long) / max(full, 1), fullLongEdge: full, fine: a.process >= 3)
+            image = sharpened(image, a.sharpen, scale: Double(long) / max(full, 1), fullLongEdge: full, fine: a.process >= 3, mask: a.sharpenMask)
         }
         let origin = image.extent.origin
         image = geometry(image, a, crop: crop)
@@ -709,8 +760,8 @@ enum PhotoRender {
         let image = adjusted(source, record.adjust, path: path, scene: true, cacheKey: kept?.key)
         if let stock = gpu {
             guard let light = BaseCache.texture(image) else { return nil }
-            let picture = filmed(light, stock: stock, film: record.film, geometry: filmGeometry(path, source: source.extent, picture: image.extent, full: false),
-                                 display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
+            let picture = filmed(light, stock: stock, film: FilmHalation.rendered(record.film, process: record.adjust.process), geometry: filmGeometry(path, source: source.extent, picture: image.extent, full: false),
+                                 display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen, sharpenMask: record.adjust.sharpenMask)
             return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
         }
         // Through the film: raw linear floats in and out (pluck-spektra, darktable's port).
@@ -731,12 +782,12 @@ enum PhotoRender {
         try pixels.write(to: input)
         // Grain and halation keep their size on the film however small the preview is.
         let full = maxSize > 0 ? max(fullLongEdge(path), width, height) : max(width, height)
-        try await FilmEngine.shared.render(input, to: output, width: width, height: height, film: record.film, fullLongEdge: full, worker: worker)
+        try await FilmEngine.shared.render(input, to: output, width: width, height: height, film: FilmHalation.rendered(record.film, process: record.adjust.process), fullLongEdge: full, worker: worker)
         let developed = try Data(contentsOf: output)
         guard developed.count == width * height * 16 else { return nil }
         let picture = sharpened(curved(CIImage(bitmapData: developed, bytesPerRow: width * 16, size: CGSize(width: width, height: height), format: .RGBAf,
                                                colorSpace: linear), record.adjust.curves),
-                                record.adjust.sharpen, scale: Double(max(width, height)) / Double(max(full, 1)), fullLongEdge: Double(full))
+                                record.adjust.sharpen, scale: Double(max(width, height)) / Double(max(full, 1)), fullLongEdge: Double(full), mask: record.adjust.sharpenMask)
         return context.createCGImage(picture, from: picture.extent, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))
     }
 
@@ -746,16 +797,23 @@ enum PhotoRender {
     /// the same chain. Its picture is SDR, as the helper's is: 0…1. `display`: for the screen (half floats in between).
     /// `curves`: the photo's curves, on the film's picture (as on any picture: in sRGB steps).
     static func filmed(_ scene: CIImage, stock: FilmStock, film: FilmSettings, geometry: FilmGeometry, display: Bool = false,
-                       curves: PhotoCurves = PhotoCurves(), sharpen: Double = 0) -> CIImage {
+                       curves: PhotoCurves = PhotoCurves(), sharpen: Double = 0, sharpenMask: Double = 0) -> CIImage {
         sharpened(curved(FilmLook.apply(scene, stock: stock, settings: film, geometry: geometry, display: display).applyingFilter("CIColorClamp"), curves),
-                  sharpen, scale: geometry.scale, fullLongEdge: Double(geometry.fullLongEdge))
+                  sharpen, scale: geometry.scale, fullLongEdge: Double(geometry.fullLongEdge), mask: sharpenMask)
     }
 
     /// The Sharpen slider. Its radius is set in full-size pixels, so a preview, 100 % and the export
     /// look alike (`scale`: the render's size over the full size). `fine` (version 3): Lightroom's radius, a pixel of a
     /// 24-megapixel photo; the wider one sharpened a lifted shadow's noise into coarse grain.
-    static func sharpened(_ image: CIImage, _ amount: Double, scale: Double, fullLongEdge: Double, fine: Bool = false) -> CIImage {
+    /// `mask` (process 5's Masking, 0…100): only where there are edges, see sharpenMask.
+    static func sharpened(_ image: CIImage, _ amount: Double, scale: Double, fullLongEdge: Double, fine: Bool = false, mask: Double = 0) -> CIImage {
         guard amount > 0 else { return image }
+        if mask > 0 {
+            let sharp = sharpened(image, amount, scale: scale, fullLongEdge: fullLongEdge, fine: fine)
+            return sharp.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: image,
+                                                                        kCIInputMaskImageKey: sharpenMask(image, mask, scale: scale, fullLongEdge: fullLongEdge)])
+                .cropped(to: image.extent)
+        }
         let filter = CIFilter.sharpenLuminance()
         filter.inputImage = image
         filter.sharpness = Float(amount / 100 * 0.9)
@@ -770,9 +828,26 @@ enum PhotoRender {
             .cropped(to: image.extent)
     }
 
+    /// Where Masking lets Sharpen in (1) or not (0): the steepness of a slightly blurred copy (a pixel at full size) in
+    /// screen steps, its 3×3 rise; flat noise rises about its own size (under 0.03 on a noisy sky), an edge far more. 0 lets
+    /// in everything, 100 only rises over 0.1 (full at 0.14).
+    static func sharpenMask(_ image: CIImage, _ mask: Double, scale: Double, fullLongEdge: Double) -> CIImage {
+        let t = min(max(mask, 0), 100) / 100, lo = 0.1 * t, width = 0.002 + 0.04 * t
+        let sigma = max(1, fullLongEdge / 6000) * min(max(scale, 0.05), 1)
+        let rise = image.applyingFilter("CIColorClamp", parameters: ["inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 1),
+                                                                    "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)])
+            .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / 2.2]).clampedToExtent()
+            .applyingGaussianBlur(sigma: sigma).applyingFilter("CIMorphologyGradient", parameters: [kCIInputRadiusKey: 1])
+        let k = 1 / width, w = CIVector(x: 0.2126 * k, y: 0.7152 * k, z: 0.0722 * k, w: 0)
+        return rise.applyingFilter("CIColorMatrix", parameters: ["inputRVector": w, "inputGVector": w, "inputBVector": w,
+                                                                 "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0),
+                                                                 "inputBiasVector": CIVector(x: -lo * k, y: -lo * k, z: -lo * k, w: 1)])
+            .applyingFilter("CIColorClamp").cropped(to: image.extent)
+    }
+
     /// The curves on a finished picture (the film's: its scene light had none of them).
     static func curved(_ picture: CIImage, _ curves: PhotoCurves) -> CIImage {
-        guard !curves.isDefault else { return picture }
+        guard !curves.tonesDefault else { return picture }
         var only = PhotoAdjustments()
         only.curves = curves
         let filter = CIFilter.colorCubeWithColorSpace()
@@ -834,8 +909,8 @@ enum PhotoRender {
         try light.withUnsafeMutableBytes { try render(scene, extent, into: $0.baseAddress!) }
         let kept = CIImage(bitmapData: light, bytesPerRow: rowBytes, size: extent.size, format: .RGBAh, colorSpace: linear)
             .transformed(by: CGAffineTransform(translationX: extent.minX, y: extent.minY))
-        let film = filmed(kept, stock: stock, film: record.film, geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true), curves: record.adjust.curves,
-                          sharpen: record.adjust.sharpen)
+        let film = filmed(kept, stock: stock, film: FilmHalation.rendered(record.film, process: record.adjust.process), geometry: filmGeometry(path, source: decoded.extent, picture: extent, full: true), curves: record.adjust.curves,
+                          sharpen: record.adjust.sharpen, sharpenMask: record.adjust.sharpenMask)
         guard !film.extent.isEmpty else { throw filmFailed }
         let failures = FilmHalation.failures
         var pixels = Data(count: rowBytes * height)
@@ -902,10 +977,10 @@ enum PhotoRender {
             }
         }
         let raw = isRaw(path)
-        let noise = raw ? record.adjust.noise : 0, color = raw ? record.adjust.colorNoise : 0
-        let key = "\(maxSize)|0|\(Int(noise))|\(Int(color))|\(settings.key)|\(path)"
+        let noise = raw ? luminance(record.adjust, path: path) : 0, color = raw ? record.adjust.colorNoise : 0, all = record.adjust.process >= 5
+        let key = "\(maxSize)|0|\(Int(noise))|\(Int(color))|\(settings.key)" + (all ? "|l5" : "") + "|\(path)"
         if let known = BaseCache.shared.image(key) { return (known, key) }
-        guard let source = source(path, maxSize: maxSize, noise: noise, color: color, raw: settings, luma: true),
+        guard let source = source(path, maxSize: maxSize, noise: noise, color: color, raw: settings, luma: true, allLuma: all),
               let kept = BaseCache.shared.keep(source, key: key) else { return nil }
         return (kept, key)
     }
@@ -930,16 +1005,16 @@ enum PhotoRender {
             // can't be made (no memory for it), this once the scene's passes are read straight.
             guard maxSize == 0 else {
                 let light = SceneCache.shared.scene(key, make: scene) ?? scene()
-                return filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
+                return filmed(light, stock: stock, film: FilmHalation.rendered(record.film, process: record.adjust.process),
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: false), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen, sharpenMask: record.adjust.sharpenMask)
             }
             // At full size (looking closely) the scene and then the film are worked out once, a band at a time, so moving
             // around is only drawing; a newer request stops this one between bands.
             guard let light = SceneCache.shared.full(key, cancelled: cancelled, make: { BaseCache.texture(scene(), bands: filmBandPixels, cancelled: cancelled) })
                     ?? (cancelled() ? nil : scene())
             else { return nil }
-            let film = filmed(light, stock: stock, film: record.film,
-                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen)
+            let film = filmed(light, stock: stock, film: FilmHalation.rendered(record.film, process: record.adjust.process),
+                              geometry: filmGeometry(path, source: kept.image.extent, picture: light.extent, full: true), display: true, curves: record.adjust.curves, sharpen: record.adjust.sharpen, sharpenMask: record.adjust.sharpenMask)
             if cancelled() { return nil }
             // (Nothing when it fails: the loupe keeps what it shows.)
             return BaseCache.texture(film, bands: lookBandPixels, cancelled: cancelled)
@@ -1083,7 +1158,9 @@ enum PhotoRender {
     static let denoiseVersion = 5
     static let decodeDenoiseVersion = 4
     /// pluck_denoise_raw.py's VERSION: its DNG pairs are made again when it changes.
-    static let rawDenoiseVersion = 1
+    // 2: Apple's lens correction as a measured radial table, put on in Swift (version 1's DNG opcode left portraits' edges
+    //    30 px off and any photo's corners a few: the photo and its clean decode mixed showed double edges).
+    static let rawDenoiseVersion = 2
 
     /// Where the photo's clean decode is kept: one per file (and when it was changed), model, decoder and moiré
     /// setting. Not the Amount: that's mixed in live (`mixDenoise`), so a photo is worked out once.
@@ -1178,10 +1255,18 @@ enum PhotoRender {
         if noisy, !pair || settings.wideColourNoise { return source(path, maxSize: maxSize, noise: 0, color: 0, raw: settings) }
         guard pair else { return CIImage(contentsOf: file) }
         let base = file.deletingPathExtension().deletingPathExtension().path
-        guard let data = try? Data(contentsOf: file), let m = try? JSONDecoder().decode([Double].self, from: data), m.count == 9,
+        guard let (m, warp) = rawPair(file),
               let image = source(path, maxSize: maxSize, noise: 0, color: 0, raw: settings,
-                                 file: URL(fileURLWithPath: base + (noisy ? ".noisy.dng" : ".clean.dng"))) else { return nil }
+                                 file: URL(fileURLWithPath: base + (noisy ? ".noisy.dng" : ".clean.dng")), warp: warp) else { return nil }
         return coloured(image, m)
+    }
+
+    /// The raw denoiser's colour.json: the 3×3 matrix to the RAW's colours, then (when there's a lens correction) its
+    /// 24-knot radial table.
+    static func rawPair(_ file: URL) -> (matrix: [Double], warp: [Double]?)? {
+        guard let data = try? Data(contentsOf: file), let all = try? JSONDecoder().decode([Double].self, from: data),
+              all.count == 9 || all.count == 33 else { return nil }
+        return (Array(all.prefix(9)), all.count == 33 ? Array(all.suffix(24)) : nil)
     }
 
     /// A 3×3 matrix (row by row: what each output channel takes of the input's) on linear light.
@@ -1287,7 +1372,8 @@ enum PhotoRender {
             return mixDenoise(orig, settled(clean, within: orig), amount: record.denoise)
         }
         let raw = isRaw(path)
-        return source(path, maxSize: maxSize, noise: raw ? record.adjust.noise : 0, color: raw ? record.adjust.colorNoise : 0, raw: settings, luma: true)
+        return source(path, maxSize: maxSize, noise: raw ? luminance(record.adjust, path: path) : 0, color: raw ? record.adjust.colorNoise : 0, raw: settings, luma: true,
+                      allLuma: record.adjust.process >= 5)
     }
 
     /// Stands in for the Python engine (tests): input, output, AI.
@@ -1339,12 +1425,12 @@ enum PhotoRender {
             try context.writeTIFFRepresentation(of: image, to: out, format: .RGBA16, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
         }
         let clean = temp.appendingPathComponent("clean.dng"), noisy = temp.appendingPathComponent("noisy.dng")
-        let made: Bool
+        let made: Bool, warp: [Double]?
         if let stand = rawDenoiseEngineForTests {
-            made = try await stand(url, clean, noisy)
+            (made, warp) = (try await stand(url, clean, noisy), nil)
         } else {
-            made = try await FilmEngine.shared.denoiseRaw(url, clean: clean, noisy: noisy,
-                                                          lens: lens.filter { FileManager.default.fileExists(atPath: $0.path) }, worker: worker)
+            (made, warp) = try await FilmEngine.shared.denoiseRaw(url, clean: clean, noisy: noisy,
+                                                                  lens: lens.filter { FileManager.default.fileExists(atPath: $0.path) }, worker: worker)
         }
         guard made else {
             FileManager.default.createFile(atPath: files.unsupported.path, contents: Data())
@@ -1352,8 +1438,9 @@ enum PhotoRender {
         }
         let half = Int((fullFrame(path).map { max($0.width, $0.height) } ?? 0) / 2)
         // (Both DNGs must decode, alike, or the photo would show without its denoise every time.)
-        guard let decoded = source(path, maxSize: half, noise: 0, color: 0, raw: settings, file: noisy),
-              source(path, maxSize: half, noise: 0, color: 0, raw: settings, file: clean)?.extent == decoded.extent,
+        guard warp == nil || warp?.count == 24,
+              let decoded = source(path, maxSize: half, noise: 0, color: 0, raw: settings, file: noisy, warp: warp),
+              source(path, maxSize: half, noise: 0, color: 0, raw: settings, file: clean, warp: warp)?.extent == decoded.extent,
               let own = source(path, maxSize: half, noise: 0, color: 0, raw: settings),
               let m = colourFit(decoded, to: own) else {
             throw NSError(domain: "Pluck", code: 1, userInfo: [NSLocalizedDescriptionKey: String(localized: "The photo couldn’t be read.")])
@@ -1362,7 +1449,7 @@ enum PhotoRender {
             try? FileManager.default.removeItem(at: to)
             try FileManager.default.moveItem(at: from, to: to)
         }
-        try JSONEncoder().encode(m).write(to: files.colour, options: .atomic)
+        try JSONEncoder().encode(m + (warp ?? [])).write(to: files.colour, options: .atomic)
         return true
     }
 

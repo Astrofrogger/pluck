@@ -15,9 +15,29 @@ enum ColourProfiles {
     /// The table for a profile (nil: none). Accurate's only for RAW, whose colour Apple's decoder makes; Neutral's too (a
     /// finished picture's colour already has its density).
     /// `v4`: process 4's (Classic and the profiles made from it on Apple's own colour; Accurate and Neutral as version 3's).
-    static func table(_ profile: PhotoEngine.Profile, isRaw: Bool, v4: Bool = false) -> Data? {
+    /// `v5`: process 5's (its Standard, `standard5`; the rest as process 4's).
+    static func table(_ profile: PhotoEngine.Profile, isRaw: Bool, v4: Bool = false, v5: Bool = false) -> Data? {
         if (profile == .accurate || profile == .neutral) && !isRaw { return nil }
+        if v5, profile == .standard { return standardTable5 }
         return (v4 ? tables4[profile] : nil) ?? tables[profile]
+    }
+
+    private static let standardTable5 = table(standard5).withUnsafeBufferPointer { Data(buffer: $0) }
+
+    /// Process 5's Standard: natural colour, Apple's default decode as the anchor (its hue per band, its colourfulness), no
+    /// density (Apple's has none: strong colours keep their light), no hue twist of its own. Chroma scale and hue turn by OkLCh
+    /// hue every 15° (periodic Catmull-Rom, so the table is smooth), measured against Apple's default on five Sony RAWs per
+    /// hue band; strong colours (C/L 0.25–0.5) get half the scale, as Classic's, since the tone curve already makes them more so.
+    static let standard5Chroma: [Double] = [1.25, 1.22, 1.217, 1.173, 1.030, 1.034, 1.060, 1.074, 1.090, 1.111, 1.133, 1.149,
+                                            1.170, 1.204, 1.250, 1.339, 1.380, 1.229, 1.070, 1.072, 1.130, 1.192, 1.22, 1.28]
+    static let standard5Turn: [Double] = [8.9, 2.6, -5.0, -6.4, -2.0, 0.1, 1.0, 1.5, 1.6, 1.0, -0.1, -1.8,
+                                          -2.7, -0.3, 2.6, 3.6, 3.5, 2.2, 0.6, -0.2, -0.3, 0.8, 2.8, 6.8]
+
+    static func standard5(_ pro: SIMD3<Double>) -> SIMD3<Double> {
+        okLCh(density: 0) { L, C, h in
+            let k = periodic(standard5Chroma, h), strong = smoothstep(0.25, 0.5, C / max(L, 1e-6))
+            return (C * (1 + (k - 1) * (1 - 0.5 * strong)), h + periodic(standard5Turn, h))
+        }(pro)
     }
 
     private static let tables: [PhotoEngine.Profile: Data] = {

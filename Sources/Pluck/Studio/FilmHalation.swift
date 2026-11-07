@@ -52,6 +52,16 @@ enum FilmHalation {
                            "couplers_diffusion_um", "couplers_tail_um", "couplers_tail_weight", "couplers_edge", "film_format_mm",
                            "scan_blur", "scan_usm_sigma", "scan_usm_amount"]
 
+    /// The film as rendered for a photo on `process`. From process 5, Halation off only takes the glow away: the emulsion's
+    /// scatter (the film's own softness) stays, so the film doesn't come out crisper (and oversharpened by the scan).
+    static func rendered(_ film: FilmSettings, process: Int) -> FilmSettings {
+        guard process >= 5, let on = film.number("halation_on"), on <= 0.5 else { return film }
+        var kept = film
+        kept.changed["halation_on"] = .number(1)
+        kept.changed["halation_amount"] = .number(0)
+        return kept
+    }
+
     // MARK: - The stages' blurs
 
     /// Scatter: a narrow core plus a tail (an exponential, as three Gaussians), per channel.

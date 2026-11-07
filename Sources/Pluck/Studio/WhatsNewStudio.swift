@@ -5,6 +5,20 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.6", items: [
+                Item(symbol: "paintpalette", title: String(localized: "Richer colour grading"),
+                     detail: String(localized: "Lift, Gamma and Gain wheels, Hue vs curves, Point Colour and a Colour Warper. The Colour Grading wheels and the Colour Mixer work the same at any brightness.")),
+                Item(symbol: "camera.aperture", title: String(localized: "Natural colours"),
+                     detail: String(localized: "RAW photos start from a new Standard profile with natural colours. Saturation keeps each colour’s brightness, for richer colours without a glow.")),
+                Item(symbol: "sun.haze", title: String(localized: "Dehaze, Clarity and Glow"),
+                     detail: String(localized: "Dehaze no longer tints or crushes shadows, Clarity adds contrast without halos, and a new Glow in Effects has blend modes.")),
+                Item(symbol: "circle.grid.cross", title: String(localized: "More detail"),
+                     detail: String(localized: "High-ISO photos keep their texture: Luminance shows the automatic noise reduction, and 0 turns it off. Texture no longer boosts noise, and Sharpen has Masking.")),
+                Item(symbol: "film", title: String(localized: "Favourite film"),
+                     detail: String(localized: "Star a film stock to start with it every time you turn Film on. With Halation off, film no longer looks oversharpened.")),
+                Item(symbol: "checkmark.circle", title: String(localized: "Fixes"),
+                     detail: String(localized: "AI Denoise no longer shows double edges, and profiles look right on JPEG and HEIC photos. Press Update on older photos to use the new engine.")),
+            ]),
             Release(version: "3.9.5", items: [
                 Item(symbol: "camera.aperture", title: String(localized: "Truer RAW photos"),
                      detail: String(localized: "RAW photos keep far more fine detail, with natural colours, cleaner shadows, deeper blacks and no dark corners. Press Update on older photos to use it.")),

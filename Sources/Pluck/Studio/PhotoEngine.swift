@@ -21,10 +21,11 @@ enum PhotoEngine {
         /// (New ones only ever at the end: the shaders know the others by their place.)
         case neutral, standard, vivid, flat, monochrome, asShot, adobe, accurate, landscape, portrait
         var id: String { rawValue }
-        /// The profile a photo starts from (`a.profile` nil): Classic for RAW from version 3, as Lightroom starts from
-        /// Adobe Color; Neutral for RAW before; As Shot for other photos.
+        /// The profile a photo starts from (`a.profile` nil): Standard for RAW from process 5 (natural colour, Apple's default
+        /// as the anchor); Classic for RAW in 3 and 4, as Lightroom starts from Adobe Color; Neutral for RAW before; As Shot
+        /// for other photos. (A Lightroom edit naming an Adobe profile stores Classic, so it stays on Adobe's curve.)
         static func starting(_ a: PhotoAdjustments, isRaw: Bool) -> Profile {
-            a.profile ?? (isRaw ? (a.process >= 3 ? .adobe : .neutral) : .asShot)
+            a.profile ?? (isRaw ? (a.process >= 5 ? .standard : a.process >= 3 ? .adobe : .neutral) : .asShot)
         }
         var title: String {
             switch self {
@@ -42,12 +43,13 @@ enum PhotoEngine {
         }
         /// Version 3's own profiles (ColourProfiles).
         var isNew: Bool { [.accurate, .landscape, .portrait].contains(self) }
-        /// The profiles to choose from: RAW has Classic, other photos As Shot; version 3 has its own instead of Standard and
-        /// Flat (still shown while chosen); earlier versions don't have version 3's.
+        /// The profiles to choose from: RAW has Classic, other photos As Shot; version 3 has its own instead of Flat (still
+        /// shown while chosen); earlier versions don't have version 3's. Standard is in every version's list (process 5 has
+        /// its own: `isStandard5`; before, the earlier one, unchanged).
         static func choices(raw: Bool, process: Int, chosen: Profile?) -> [Profile] {
             allCases.filter { p in
                 (raw ? p != .asShot : p != .adobe)
-                    && (process >= 3 ? ![.standard, .flat].contains(p) || p == chosen : !p.isNew || p == chosen)
+                    && (process >= 3 ? p != .flat || p == chosen : !p.isNew || p == chosen)
             }
         }
     }
@@ -81,8 +83,13 @@ enum PhotoEngine {
                         cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil, peak: Double = 1, baseline: Double = 0) -> CIImage {
         let extent = image.extent
         let modern = a.process >= 2
+        let profile = Profile.starting(a, isRaw: isRaw)
+        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile.isNew && a.process < 3 ? .neutral : profile
+        // Process 5: a finished picture (JPEG, HEIC) keeps its own tone whatever the profile (`picture5`: only the profile's
+        // colour and look, see pictureTone); RAW's Neutral sits at Classic's mid grey (`neutralLift5`).
+        let v5 = a.process >= 5, picture5 = v5 && !isRaw
         // 1. Exposure and white balance: one matrix in linear light.
-        let stops = a.exposure + (a.process >= 3 && isRaw ? baseline : 0)
+        let stops = a.exposure + (a.process >= 3 && isRaw ? baseline : 0) + (v5 && isRaw && !scene && shown == .neutral ? neutralLift5 : 0)
         let gain = pow(2, stops)
         // (Calibration first: it moves the camera's primaries, as Lightroom's does.)
         let ownBalance = whiteBalance(a, kelvin: asShotKelvin)
@@ -93,25 +100,30 @@ enum PhotoEngine {
         let long = max(extent.width, extent.height)
         let local = modern && masks != nil ? Array(a.masks.prefix(PhotoMasks.limit)) : []
         let hazy = modern && (a.dehaze != 0 || local.contains { $0.dehaze != 0 })
-        let soft = modern && (a.clarity != 0 || local.contains { $0.clarity != 0 })
+        // (Process 5's Clarity works on the large layer; its soft layer is Glow's light instead, see glowLight.)
+        let soft = modern && !v5 && (a.clarity != 0 || local.contains { $0.clarity != 0 })
+        let glowOn = v5 && !scene && a.glow > 0
+        let clear = v5 && (a.clarity != 0 || local.contains { $0.clarity != 0 })
         let layers: Layers
         var shift: Float = 0
         func make(_ source: CIImage) -> Layers {
             Layers(large: guide(source, scale: 640 / long, radius: 16, eps: 0.03), small: guide(source, scale: 1600 / long, radius: 6, eps: 0.02),
-                   haze: hazy ? haze(source, long: long) : nil, glow: soft ? glow(source, long: long) : nil)
+                   haze: hazy ? haze(source, long: long, v5: v5) : nil, glow: soft ? glow(source, long: long) : nil,
+                   clarity: clear ? guide(source, scale: 640 / long, radius: 16, eps: 0.3) : nil)
         }
         if let cacheKey {
-            let key = cacheKey + "|\(a.process)|\(hazy)|\(soft)|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
+            let key = cacheKey + "|\(a.process)|\(hazy)|\(soft)|\(clear)|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
             layers = GuideCache.shared.layers(key) { make(linear(image, balance, wide: modern)) }
             shift = Float(stops)
         } else {
             layers = make(exposed)
         }
-        let profile = Profile.starting(a, isRaw: isRaw)
-        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile.isNew && a.process < 3 ? .neutral : profile
-        // (Version 3: every profile but Neutral, Standard and Flat on Adobe's curve, at Classic's mid grey.)
-        let base = modern && (shown == .adobe || a.process >= 3 && [.accurate, .vivid, .landscape, .portrait, .monochrome].contains(shown))
-        let table = a.process >= 3 ? ColourProfiles.table(shown, isRaw: isRaw, v4: a.process >= 4) : nil
+        // (Version 3: every profile but Neutral, Standard and Flat on Adobe's curve, at Classic's mid grey; process 5's Standard too.)
+        let base = modern && !picture5 && (shown == .adobe || a.process >= 3 && [.accurate, .vivid, .landscape, .portrait, .monochrome].contains(shown)
+                              || a.process >= 5 && shown == .standard)
+        // Process 5's Texture keeps out the photo's noise: its noise at each brightness (PhotoRender.noiseModel).
+        let noise = v5 && (a.texture > 0 || local.contains { $0.texture > 0 }) ? PhotoRender.noiseModel(image, key: cacheKey) : nil
+        let table = a.process >= 3 ? ColourProfiles.table(shown, isRaw: isRaw, v4: a.process >= 4 && !picture5, v5: v5 && isRaw) : nil
         func params(_ a: PhotoAdjustments, shift: Float) -> Params {
             var p = Params()
             p.shadows = Float(a.shadows / 100)
@@ -129,7 +141,9 @@ enum PhotoEngine {
             p.process = Int32(min(a.process, 2))
             p.shadowTint = Float(a.calibration.shadowTint / 100)
             p.space = a.process >= 3 ? 1 : 0
-            p.v4 = a.process >= 4 ? 1 : 0
+            // (Process 4's Highlights window is for RAW: on 5 a finished picture doesn't get it.)
+            p.v4 = a.process >= 4 && !picture5 ? 1 : 0
+            p.v5 = v5 ? 1 : 0
             p.hueSat = table == nil ? 0 : 1
             // Process 4 with film: the profile's colour (its table, Monochrome's grey) goes into the film's light, its tone
             // doesn't (the film's own curves do that); Accurate's light is the film's as before (2: table, 3: grey).
@@ -137,22 +151,26 @@ enum PhotoEngine {
             if scene, a.process >= 4 { p.hueSat = shown == .monochrome ? 3 : shown == .accurate || table == nil ? 0 : 2 }
             if modern {
                 tone(a, profile: shown, into: &p, peak: peak)
+                // (Accurate's own way through the tone curve is for RAW.)
+                if picture5, p.tro == 1 { p.tro = 0 }
                 let c = a.curves
                 // (Version 3: one curve for all three goes through RGBTone, keeping the hue.)
-                p.curves = c.isDefault && !base ? 0 : a.process >= 3 && [c.red, c.green, c.blue].allSatisfy { $0 == PhotoCurves.straight } ? 2 : 1
+                p.curves = c.tonesDefault && !base ? 0 : a.process >= 3 && [c.red, c.green, c.blue].allSatisfy { $0 == PhotoCurves.straight } ? 2 : 1
                 if let airlight = layers.haze?.airlight {
                     // The haze's colour, at this exposure.
                     let k = Float(cacheKey == nil ? 1 : gain)
                     p.hazeR = airlight.x * k; p.hazeG = airlight.y * k; p.hazeB = airlight.z * k
                 }
-                p.glowGain = Float(cacheKey == nil ? 1 : gain)
+                p.glowGain = Float(cacheKey == nil || glowOn ? 1 : gain)
             }
+            if glowOn { p.glow = Float(a.glow / 100); p.glowMode = Int32(PhotoAdjustments.GlowMode.allCases.firstIndex(of: a.glowMode) ?? 1) }
+            if let noise { p.noiseA = Float(noise.a); p.noiseB = Float(noise.b); p.noiseGain = Float(gain) }
             return p
         }
         var p = params(a, shift: shift)
         p.masks = Int32(local.count)
         p.overlay = Float(overlay.map { $0 < local.count ? $0 : -1 } ?? -1)
-        var all = [p], grades = [Grade(a)], infos: [MaskInfo] = []
+        var all = [p], grades = [Grade(a, scene: scene, isRaw: isRaw)], infos: [MaskInfo] = []
         // Each mask: the photo's settings with the mask's changes, and its own white balance
         // and exposure as a matrix on top of the photo's.
         for mask in local {
@@ -170,7 +188,7 @@ enum PhotoEngine {
             own.hazeG = Float(change[3] * h[0] + change[4] * h[1] + change[5] * h[2])
             own.hazeB = Float(change[6] * h[0] + change[7] * h[1] + change[8] * h[2])
             all.append(own)
-            grades.append(Grade(m))
+            grades.append(Grade(m, scene: scene, isRaw: isRaw))
             var info = MaskInfo()
             info.m0 = SIMD4(Float(change[0]), Float(change[3]), Float(change[6]), 0)
             info.m1 = SIMD4(Float(change[1]), Float(change[4]), Float(change[7]), 0)
@@ -190,20 +208,64 @@ enum PhotoEngine {
         let dot = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 1, height: 1))
         let hazeLayer = layers.haze?.through ?? dot
         let maskLayer = local.isEmpty ? dot : masks ?? dot
-        let glowLayer = layers.glow ?? dot
-        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer, maskLayer, glowLayer]
+        let glowLayer = glowOn ? glowLight(exposed, long: long, isRaw: isRaw && !picture5, size: a.glowSize, key: cacheKey.map { key in
+            key + "|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",") + String(format: "|%.4f|%.1f", stops, a.glowSize) }) : layers.glow ?? dot
+        let clarityLayer = layers.clarity ?? dot
+        // (Process 5 has its own kernel, with Clarity's layer as one more input.)
+        let inputs = [exposed.clampedToExtent(), layers.large, layers.small, hazeLayer, maskLayer, glowLayer] + (v5 ? [clarityLayer] : [])
+        var rects: [CGRect] = [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, glowLayer.extent]
+        if v5 { rects.append(clarityLayer.extent) }
+        rects.append(extent)
         let data = all.withUnsafeBytes { Data($0) }
         let grade = grades.withUnsafeBytes { Data($0) }
         let info = infos.withUnsafeBytes { Data($0) }
-        let curves = modern && (!a.curves.isDefault || base)
+        let curves = modern && (!a.curves.tonesDefault || base)
             ? curveTable(a.curves, base: base ? (a.process >= 4 ? adobeBaseV4 : a.process >= 3 ? adobeBaseV3 : adobeBase) : nil) : Data(count: 16)
+        // (Process 5's colour curves and points; an overlay under −1 is a point shown in red, see colourTools.)
+        let tools = v5 && !scene ? colourTools(a, shown: overlay.map { -2 - $0 }) : nil
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
             "params": data, "grade": grade, "curves": curves, "masks": info, "table": table ?? Data(count: 16),
-            "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, glowLayer.extent, extent]
-                .flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
+            "layers": rects.flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
+            "tools": tools ?? Data(count: 16),
         ]) else { return exposed }
         return developed
     }
+
+    /// Process 5's colour curves and colour points for the GPU (`colourTools5`), nil when they change nothing: [0] what's on
+    /// (curves, the number of points, the point shown in red or −1, 1); [1…256] by hue, Hue vs Hue (degrees), Hue vs Sat
+    /// (×), Hue vs Lum (stops), and Lum vs Sat (×) by lightness; [257…512] Sat vs Sat (×) by C/L; then two per point
+    /// (its hue, C/L, L and Range 0…1; its hue turn in degrees, saturation ×−1…+1, stops). `shown`: the point marked.
+    /// With the Colour Warper ([0].w 2): from [529] its turn and saturation × by hue (every 5°) × C/L (0…satAxis, 16 steps).
+    static func colourTools(_ a: PhotoAdjustments, shown: Int? = nil) -> Data? {
+        let curves = a.curves.hue.flatMap { $0.isDefault ? nil : $0 }
+        let warp = a.curves.warp.flatMap { $0.isDefault ? nil : $0 }
+        let points = (a.mixer.points ?? []).prefix(ColourPoint.limit)
+        let marked = shown.flatMap { $0 >= 0 && $0 < points.count ? $0 : nil }
+        guard curves != nil || warp != nil || points.contains(where: \.changes) || marked != nil else { return nil }
+        var t = [SIMD4<Float>](repeating: SIMD4(0, 0, 0, 0), count: 513)
+        t[0] = SIMD4(curves == nil ? 0 : 1, Float(points.count), Float(marked ?? -1), warp == nil ? 1 : 2)
+        if let curves {
+            for i in 0..<256 {
+                let x = Double(i) / 255
+                t[1 + i] = SIMD4(Float((curves.value(.hueHue, at: x) - 0.5) * 2 * hueCurveTurn), Float(curves.value(.hueSat, at: x) * 2),
+                                 Float((curves.value(.hueLum, at: x) - 0.5) * 2), Float(curves.value(.lumSat, at: x) * 2))
+                t[257 + i] = SIMD4(Float(curves.value(.satSat, at: x) * 2), 0, 0, 0)
+            }
+        }
+        for p in points {
+            t.append(SIMD4(Float(p.hue), Float(p.sat), Float(p.lum), Float(min(max(p.range, 0), 100) / 100)))
+            t.append(SIMD4(Float(p.hueShift / 100 * pointTurn), Float(p.saturation / 100), Float(p.luminance / 100), 0))
+        }
+        if let warp {
+            t += [SIMD4<Float>](repeating: SIMD4(0, 0, 0, 0), count: 529 - t.count)
+            t += warp.table(hueSteps: 72, satSteps: 16, top: satAxis).map { SIMD4(Float($0.turn), Float($0.scale), 0, 0) }
+        }
+        return t.withUnsafeBytes { Data($0) }
+    }
+    /// Hue vs Hue's turn at the top (and bottom) of its curve, and a colour point's at Hue ±100, in degrees.
+    static let hueCurveTurn = 60.0, pointTurn = 30.0
+    /// The colour tools' saturation axis: C/L from 0 to this (a pure sRGB red is about 0.41, its blue 0.69).
+    static let satAxis = 0.6
 
     /// A mask's limits besides its shape, for the GPU (see MaskInfo in the shaders).
     struct MaskInfo {
@@ -219,6 +281,8 @@ enum PhotoEngine {
         var haze: (through: CIImage, airlight: SIMD3<Float>)?
         /// A soft copy of the photo (version 2's clarity and mist).
         var glow: CIImage?
+        /// Process 5's Clarity base: the guided filter on log brightness with a wide eps (0.3 stop²), so only real edges stay.
+        var clarity: CIImage? = nil
     }
 
     /// A 3×3 matrix in linear light, then within range (and a step Core Image always runs on
@@ -247,11 +311,47 @@ enum PhotoEngine {
         return small.applyingGaussianBlur(sigma: 0.02 * max(frame.width, frame.height)).cropped(to: frame)
     }
 
+    /// Process 5's Glow light: the light over a soft knee (from a stop over mid grey, all of it 2 stops further up; a finished
+    /// picture's half a stop lower), with its own colour, spread smooth and wide (a blur and one 3 times wider, half each;
+    /// `size` 50: 2 % of the photo, 0 a quarter of that, 100 four times). Small (480 px), kept for the last settings.
+    static func glowLight(_ image: CIImage, long: Double, isRaw: Bool, size: Double, key: String?) -> CIImage {
+        glowLock.lock()
+        if let key, let last = lastGlow, last.key == key { glowLock.unlock(); return last.image }
+        glowLock.unlock()
+        let s = min(480 / long, 1)
+        let frame = image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral
+        let sigma = 0.02 * pow(2, (size - 50) / 25) * max(frame.width, frame.height)
+        let carried = image.clampedToExtent().cropped(to: image.extent.insetBy(dx: -3 * sigma / s, dy: -3 * sigma / s))
+        let small = s < 0.5 ? carried.applyingFilter("CILanczosScaleTransform", parameters: ["inputScale": s, "inputAspectRatio": 1])
+                            : carried.transformed(by: CGAffineTransform(scaleX: s, y: s))
+        guard let knee = glowKernels.knee.apply(extent: small.extent, arguments: [small, isRaw ? 0.72 : 0.5]) else { return image }
+        let near = knee.clampedToExtent().applyingGaussianBlur(sigma: sigma), far = knee.clampedToExtent().applyingGaussianBlur(sigma: 3 * sigma)
+        guard let light = glowKernels.half.apply(extent: frame, arguments: [near, far]) else { return image }
+        let kept = GuideCache.shared.render(light)
+        if let key { glowLock.lock(); lastGlow = (key, kept); glowLock.unlock() }
+        return kept
+    }
+    nonisolated(unsafe) private static var lastGlow: (key: String, image: CIImage)?
+    private static let glowLock = NSLock()
+    private static let glowKernels = (
+        knee: CIColorKernel(source: """
+            kernel vec4 knee(__sample c, float thr) {
+                float Y = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+                float t = clamp((log2(max(Y, 1e-6) / thr) + 1.0) * 0.5, 0.0, 1.0);
+                return vec4(max(c.rgb, 0.0) * t * t * (3.0 - 2.0 * t), 1.0);
+            }
+            """)!,
+        half: CIColorKernel(source: "kernel vec4 halves(__sample a, __sample b) { return vec4(0.5 * (a.rgb + b.rgb), 1.0); }")!
+    )
+
     /// The haze, worked out small (He et al.'s dark channel prior): its colour is the brightest
     /// of the softened photo; how much light gets through is one minus the darkest channel
     /// around each place (relative to that colour), smoothed along the photo's edges.
-    private static func haze(_ image: CIImage, long: Double) -> (through: CIImage, airlight: SIMD3<Float>) {
-        let s = min(640 / long, 1)
+    /// Process 5 (`v5`): finer (1024 px, a smaller minimum), lamps left out of the haze's colour (anything over twice the
+    /// 99th percentile of brightness), that colour half as colourful and at most C/L 0.1 (OkLab), and the map smoothed along
+    /// edges in log brightness, so dark trees beside a bright sky keep their own (no dark band along the skyline).
+    private static func haze(_ image: CIImage, long: Double, v5: Bool = false) -> (through: CIImage, airlight: SIMD3<Float>) {
+        let s = min((v5 ? 1024 : 640) / long, 1)
         // The edges carried on before it's made small, so the edge pixels aren't mixed with
         // nothing (which reads as haze there).
         let frame = image.extent.applying(CGAffineTransform(scaleX: s, y: s)).integral
@@ -261,7 +361,7 @@ enum PhotoEngine {
         let extent = small.extent
         // The haze's colour: the average of the haziest 0.1% (where the darkest channel is
         // brightest), from a softened copy so single bright lights don't count.
-        let soft = small.clampedToExtent().applyingGaussianBlur(sigma: 3).cropped(to: extent)
+        let soft = small.clampedToExtent().applyingGaussianBlur(sigma: v5 ? 2 : 3).cropped(to: extent)
         let w = Int(extent.width), h = Int(extent.height)
         var pixels = [Float](repeating: 0, count: max(w * h * 4, 4))
         context.render(soft, toBitmap: &pixels, rowBytes: w * 16, bounds: extent, format: .RGBAf, colorSpace: nil)
@@ -270,6 +370,13 @@ enum PhotoEngine {
         var darkest = [Float](repeating: 0, count: n)
         var top: Float = 1e-6
         for i in 0..<n { darkest[i] = min(pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2]); top = max(top, darkest[i]) }
+        if v5 {
+            // (Lamps out: what's brighter than twice the 99th percentile of brightness doesn't count.)
+            let lumas = (0..<n).map { 0.2126 * pixels[$0 * 4] + 0.7152 * pixels[$0 * 4 + 1] + 0.0722 * pixels[$0 * 4 + 2] }
+            let limit = 2 * lumas.sorted()[min(n * 99 / 100, n - 1)]
+            top = 1e-6
+            for i in 0..<n { if lumas[i] > limit { darkest[i] = -1 } else { top = max(top, darkest[i]) } }
+        }
         var bins = [Int](repeating: 0, count: 1024)
         for v in darkest { bins[min(max(Int(v / top * 1023), 0), 1023)] += 1 }
         let wanted = max(n / 1000, 1)
@@ -281,19 +388,39 @@ enum PhotoEngine {
             sum += SIMD3(pixels[i * 4], pixels[i * 4 + 1], pixels[i * 4 + 2])
             count += 1
         }
-        let airlight = simd_max(sum / max(count, 1), SIMD3(repeating: 0.05))
+        var airlight = simd_max(sum / max(count, 1), SIMD3(repeating: 0.05))
+        if v5 {
+            // Neutral-ish: half its colour, at most C/L 0.1.
+            let (L, a, b) = OkLab.from(Double(airlight.x), Double(airlight.y), Double(airlight.z))
+            let C = (a * a + b * b).squareRoot(), k = 0.5 * min(1, 0.2 * L / max(C, 1e-9))
+            let (r, g, bl) = OkLab.to(L, a * k, b * k)
+            airlight = simd_max(SIMD3(Float(r), Float(g), Float(bl)), SIMD3(repeating: 0.02))
+        }
         let dark = small.applyingFilter("CIColorMatrix", parameters: [
             "inputRVector": CIVector(x: CGFloat(1 / airlight.x), y: 0, z: 0, w: 0),
             "inputGVector": CIVector(x: 0, y: CGFloat(1 / airlight.y), z: 0, w: 0),
             "inputBVector": CIVector(x: 0, y: 0, z: CGFloat(1 / airlight.z), w: 0),
-        ]).applyingFilter("CIMinimumComponent").clampedToExtent().applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": 4]).cropped(to: extent)
+        ]).applyingFilter("CIMinimumComponent").clampedToExtent().applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": v5 ? 2 : 4]).cropped(to: extent)
+        let omega: CGFloat = v5 ? 0.9 : 0.95
         let through = dark.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: -0.95, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: -0.95, y: 0, z: 0, w: 0),
-            "inputBVector": CIVector(x: -0.95, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 1, y: 1, z: 1, w: 0),
+            "inputRVector": CIVector(x: -omega, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: -omega, y: 0, z: 0, w: 0),
+            "inputBVector": CIVector(x: -omega, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 1, y: 1, z: 1, w: 0),
         ])
         // Both carried on a little past the edges, or the filter reads nothing there (not
         // endlessly: the passes before it can't be asked for an endless picture).
         let margin = extent.insetBy(dx: -24, dy: -24)
+        if v5, let logs = try? apply(GuidePrep.self, extent: extent, inputs: [small.clampedToExtent()], arguments: [:]) {
+            // (The guide: log2 brightness / 16 as a grey, so its edges count the same in the shade as in the sky.)
+            let k: CGFloat = 1 / 16
+            let guideImage = logs.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: k, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: k, y: 0, z: 0, w: 0),
+                "inputBVector": CIVector(x: k, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 1, y: 1, z: 1, w: 0),
+            ]).clampedToExtent().cropped(to: margin)
+            let refined = through.clampedToExtent().cropped(to: margin)
+                .applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": guideImage, "inputRadius": 8, "inputEpsilon": 0.0001])
+                .cropped(to: extent)
+            return (refined, airlight)
+        }
         let guideImage = small.applyingFilter("CIMaximumComponent").clampedToExtent().cropped(to: margin)
         let refined = through.clampedToExtent().cropped(to: margin)
             .applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": guideImage, "inputRadius": 10, "inputEpsilon": 0.001])
@@ -452,6 +579,11 @@ enum PhotoEngine {
         var tro: Int32 = 0, hueSat: Int32 = 0
         /// Process 4 (Highlights' top stops, see `tonedLog`).
         var v4: Int32 = 0
+        /// Process 5 (Dehaze on brightness, Accurate's fade to white, a finished picture's profiles, Neutral's hue).
+        var v5: Int32 = 0
+        /// Process 5's Glow (`glowed`): its amount (0…1) and mode (GlowMode's order); Texture's noise as variance a·Y + b of
+        /// the photo's light before the exposure (`noiseGain`), from PhotoRender.noiseModel (0: none known).
+        var glow: Float = 0, glowMode: Int32 = 1, noiseA: Float = 0, noiseB: Float = 0, noiseGain: Float = 1
     }
 
     /// The vignette's highlights and style, and the grain, for the GPU (see PhotoRender.effects).
@@ -471,23 +603,40 @@ enum PhotoEngine {
         var wheels: Int32 = 0, mixer: Int32 = 0
         /// Blending as a width (1: Lightroom's 50) and Balance as stops the split moves.
         var blend: Float = 1, balance: Float = 0
+        /// Process 5 (not the film's light): Saturation and Vibrance on the picture, HSV (`hsvSaturation`), instead of the two
+        /// above (zero then, so the earlier processes' code runs exactly as it was).
+        var hsvSaturation: Float = 0, hsvVibrance: Float = 0
+        /// Process 5: the colour wheels (`wheels5`), Lift/Gamma/Gain/Offset (`primaries5`, `pLift`…) and, not with the film's
+        /// light, the mixer on the picture as shown (`mixer5`), in place of `wheels` and `mixer` (0 then, as above). `gradeR`:
+        /// the grading space's white as log2(1 + white/k) (a RAW's tone curve's white, 14.2; a finished picture's 1).
+        var wheels5: Int32 = 0, primaries5: Int32 = 0, mixer5: Int32 = 0, gradeR: Float = 10.88745
+        var pLift = SIMD4<Float>(), pGamma = SIMD4<Float>(), pGain = SIMD4<Float>(), pOffset = SIMD4<Float>()
 
-        init(_ a: PhotoAdjustments) {
+        init(_ a: PhotoAdjustments, scene: Bool = false, isRaw: Bool = true) {
             func wheel(_ w: ColorWheels.Wheel) -> SIMD4<Float> {
                 let (r, g, b) = w.rgb
                 return SIMD4(Float(r), Float(g), Float(b), Float(w.master))
             }
             let w = a.wheels
             lift = wheel(w.lift); gamma = wheel(w.gamma); gain = wheel(w.gain); offset = wheel(w.offset)
-            wheels = w.isDefault ? 0 : 1
+            wheels = w.tonesDefault ? 0 : 1
             blend = Float(max(w.blending, 5) / 50); balance = Float(w.balance / 100 * 2)
             func eight(_ v: [Double]) -> Eight {
                 let f = (v + [Double](repeating: 0, count: 8)).prefix(8).map(Float.init)
                 return (f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7])
             }
             hue = eight(a.mixer.hue); sat = eight(a.mixer.saturation); lum = eight(a.mixer.luminance)
-            mixer = a.mixer.isDefault ? 0 : 1
+            mixer = a.mixer.bandsDefault ? 0 : 1
             vibrance = Float(a.vibrance / 100); saturation = Float(a.saturation / 100)
+            if a.process >= 5, !scene { (hsvSaturation, hsvVibrance, saturation, vibrance) = (saturation, vibrance, 0, 0) }
+            if a.process >= 5 {
+                (wheels5, wheels) = (wheels, 0)
+                let p = w.primaries
+                pLift = wheel(p.lift); pGamma = wheel(p.gamma); pGain = wheel(p.gain); pOffset = wheel(p.offset)
+                primaries5 = p.isDefault ? 0 : 1
+                if !isRaw { gradeR = Float(log2(1 + 1 / 0.0075)) }
+                if !scene { (mixer5, mixer) = (mixer, 0) }
+            }
         }
     }
 
@@ -501,8 +650,10 @@ enum PhotoEngine {
         let grey = (log2(0.18 * 1.15) - lo) / (hi - lo)
         let y0 = 0.5219
         let v3 = a.process >= 3
+        // Process 5's Standard: Classic's curve as it is (Apple's brightness), its colour from its table.
+        let standard5 = a.process >= 5 && profile == .standard
         let look: Double = switch profile {
-        case .standard: 1.2
+        case .standard: standard5 ? 1 : 1.2
         case .vivid: v3 ? 1.15 : 1.25
         case .flat: 0.8
         case .monochrome: 1.06
@@ -532,8 +683,10 @@ enum PhotoEngine {
         p.toneSlope = Float(slope); p.tonePt = Float(pt); p.tonePb = Float(pb)
         p.toneFloor = Float((bottom + low) / 2); p.toneCeiling = Float((top + high) / 2)
         // (Version 3's Vivid has its colour from its table.)
-        p.sat = Float(profile == .vivid ? (v3 ? 1 : 1.35) : profile == .standard ? 1.15 : profile == .flat ? 0.95 : 1)
-        p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait].contains(profile) ? 2 : 0
+        p.sat = Float(profile == .vivid ? (v3 ? 1 : 1.35) : profile == .standard && !standard5 ? 1.15 : profile == .flat ? 0.95 : 1)
+        // (Process 5: Neutral and Flat keep each colour's hue through the curve too: bright blues went purple, reds magenta.)
+        p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait].contains(profile) || standard5
+            || a.process >= 5 && [.neutral, .flat].contains(profile) ? 2 : 0
         p.mono = profile == .monochrome ? 1 : 0
         p.peak = Float(max(peak, 1))
     }
@@ -579,18 +732,32 @@ enum PhotoEngine {
         return LookTable.toSRGB(out * out * out)
     }
 
+    /// Neutral's grey at the defaults (the shader's tone curve: inset and outset keep grey grey), linear light in and out.
+    private static func neutralGrey(_ s: Double) -> Double {
+        var p = Params()
+        tone(PhotoAdjustments(), profile: .neutral, into: &p)
+        let x = min(max((log2(max(s * 1.15, 1e-10)) - Double(p.toneLo)) / Double(p.toneHi - p.toneLo), 0), 1)
+        let grey = Double(p.toneGrey), y0 = Double(p.toneY), slope = Double(p.toneSlope)
+        let y = x >= grey
+            ? y0 + slope * (x - grey) / pow(1 + pow(slope * (x - grey) / (Double(p.toneCeiling) - y0), Double(p.tonePb)), 1 / Double(p.tonePb))
+            : y0 - slope * (grey - x) / pow(1 + pow(slope * (grey - x) / (y0 - Double(p.toneFloor)), Double(p.tonePt)), 1 / Double(p.tonePt))
+        return pow(min(max(y, 0), 1), 2.2)
+    }
+
+    /// Process 5's Neutral: the stops its light is raised by so its mid grey is Classic's (process 4/5: Neutral's curve, then
+    /// adobeBaseV4), so the photo doesn't jump between them (it sat about ¼ stop darker).
+    static let neutralLift5: Double = {
+        let e = LookTable.toSRGB(neutralGrey(0.18)) * 127, i = min(Int(e), 126), f = e - Double(i)
+        let classic = LookTable.fromSRGB(adobeBaseV4[i] * (1 - f) + adobeBaseV4[i + 1] * f)
+        var low = -2.0, high = 2.0
+        for _ in 0..<50 { let mid = (low + high) / 2; if neutralGrey(0.18 * exp2(mid)) < classic { low = mid } else { high = mid } }
+        return (low + high) / 2
+    }()
+
     private static func adobeBase(matchingNeutral: Bool, sooner: Double = 0) -> [Double] {
         var p = Params()
         tone(PhotoAdjustments(), profile: .neutral, into: &p)
-        // Neutral's grey (the shader's tone curve: inset and outset keep grey grey).
-        func neutral(_ s: Double) -> Double {
-            let x = min(max((log2(max(s * 1.15, 1e-10)) - Double(p.toneLo)) / Double(p.toneHi - p.toneLo), 0), 1)
-            let grey = Double(p.toneGrey), y0 = Double(p.toneY), slope = Double(p.toneSlope)
-            let y = x >= grey
-                ? y0 + slope * (x - grey) / pow(1 + pow(slope * (x - grey) / (Double(p.toneCeiling) - y0), Double(p.tonePb)), 1 / Double(p.tonePb))
-                : y0 - slope * (grey - x) / pow(1 + pow(slope * (grey - x) / (y0 - Double(p.toneFloor)), Double(p.tonePt)), 1 / Double(p.tonePt))
-            return pow(min(max(y, 0), 1), 2.2)
-        }
+        let neutral = neutralGrey
         func acr3(_ x: Double) -> Double {
             let y = min(max(x, 0), 1) * Double(adobeCurve.count - 1)
             let i = min(Int(y), adobeCurve.count - 2), f = y - Double(i)
@@ -769,6 +936,10 @@ enum PhotoEngine {
         int space;
         int tro, hueSat;
         int v4;
+        int v5;
+        float glow;
+        int glowMode;
+        float noiseA, noiseB, noiseGain;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -778,6 +949,10 @@ enum PhotoEngine {
         float vibrance, saturation;
         int wheels, mixer;
         float blend, balance;
+        float hsvSaturation, hsvVibrance;
+        int wheels5, primaries5, mixer5;
+        float gradeR;
+        float4 pLift, pGamma, pGain, pOffset;
     };
 
     constant float3x3 toRec2020 = float3x3(float3(0.6274039, 0.0690973, 0.0163914),
@@ -919,7 +1094,26 @@ enum PhotoEngine {
     // Accurate, near white: the colour fades to white at its brightness. How far towards the brightest a channel reaches, 1 at
     // the edge, eased from 0.8 so it never gets there; by taking colourfulness out in OkLab, lightness and hue kept (towards
     // white in RGB, blues went purple). Linear ProPhoto in and out.
+    // Process 5: the same fade, found safely. The reach is eased with tanh held to a sane range (fast maths overflowed it for a
+    // colour far past its headroom: every step then failed and a saturated green just under white turned grey from one pixel
+    // to the next), and the search asks only "is the brightest channel within the goal", which grows steadily with the colour.
+    inline float3 towardsWhite5(float3 outc, constant Params &p) {
+        float Yo = lumaPro(outc), mx = max(outc.r, max(outc.g, outc.b)), head = p.peak - Yo;
+        if (mx - Yo <= 0.8 * head) return outc;
+        float r = (mx - Yo) / max(head, 1e-6);
+        float goal = 0.8 + 0.2 * tanh(min((r - 0.8) / 0.2, 8.0));
+        float top = head > 0.0 ? Yo + goal * head : Yo, lo = 0.0, hi = 1.0;
+        float3 o = oklab(fromPro * outc);
+        for (int i = 0; i < 12; i++) {
+            float k = 0.5 * (lo + hi);
+            float3 t = toPro * fromOklab(float3(o.x, o.yz * k));
+            if (max(t.r, max(t.g, t.b)) <= top) lo = k; else hi = k;
+        }
+        return toPro * fromOklab(float3(o.x, o.yz * lo));
+    }
+
     inline float3 towardsWhite(float3 outc, constant Params &p) {
+        if (p.v5 == 1) return towardsWhite5(outc, p);
         float Yo = lumaPro(outc), mx = max(outc.r, max(outc.g, outc.b));
         float r = (mx - Yo) / max(p.peak - Yo, 1e-6);
         if (r <= 0.8) return outc;
@@ -947,6 +1141,21 @@ enum PhotoEngine {
         int i0 = int(floor(at)), i1 = min(i0 + 1, 127);
         e = mix(curve[i0][k], curve[i1][k], at - float(i0));
         return e <= 0.04045 ? e / 12.92 : pow((e + 0.055) / 1.055, 2.4);
+    }
+
+    // Process 5, a finished picture (JPEG, HEIC): no second tone curve. The profile's look (its slope: Vivid 1.15, Portrait
+    // 0.92, …) and Contrast as a gentle S around the picture's mid grey (0.18, kept), black and white pinned; Whites and Blacks
+    // move the picture's ends. In gamma 2.2 steps; above white (HDR) as it is.
+    inline float pictureTone(float v, constant Params &p) {
+        if (v <= 0.0) return v;
+        float e = pow(v, 1.0 / 2.2);
+        if (e >= 1.0) return v;
+        const float g = 0.4587;
+        float s = p.toneSlope / (0.12505 * (p.toneHi - p.toneLo));
+        e = e < g ? g * pow(e / g, s) : 1.0 - (1.0 - g) * pow((1.0 - e) / (1.0 - g), s);
+        e *= 1.0 + 0.2 * p.whites * e * e;
+        e += 0.1 * p.blacks * (1.0 - e) * (1.0 - e);
+        return pow(clamp(e, 0.0, 1.0), 2.2);
     }
 
     // Version 3's profile table (ColourProfiles), as the DNG SDK's HueSatMap (dng_reference.cpp, RefBaselineHueSatMap): in HSV
@@ -979,6 +1188,178 @@ enum PhotoEngine {
         }
     }
 
+    // Process 5's Saturation and Vibrance, as DaVinci Resolve's HSV saturation: on the picture as shown (after the tone curve
+    // and the curves), in Rec.2020 with a 2.4 gamma (a display-referred grading space, as Resolve's timeline; Rec.2020 so the
+    // camera's real colours are all positive there), only HSV's S changes: each colour's brightest channel (V) is kept and the
+    // others move away from it (richer, denser colour, no glow) or towards it (lower: down to a grey at V at -100). +100 is
+    // twice the S, as Resolve's Sat 100. Raised S eases into the space's edge (from 0.85, never past 1); near white (every
+    // channel over 0.9) is left as it is when raised; colours already outside Rec.2020 (a channel under 0) scale as they are.
+    // Vibrance: the same, most on quiet colours ((1 - S)²) and a little over half as much on skin's hues (OkLCh 55°).
+    inline float3 hsvSaturation(float3 c, constant Grade &g, bool pro) {
+        float3 lin = pro ? fromPro * c : c;
+        float3 r = toRec2020 * lin;
+        float3 e = sign(r) * pow(abs(r), float3(1.0 / 2.4));
+        float V = max(e.r, max(e.g, e.b)), m = min(e.r, min(e.g, e.b));
+        if (V <= 1e-6 || V - m <= 1e-7) return c;
+        float S = (V - m) / V, k = 1.0 + g.hsvSaturation;
+        if (g.hsvVibrance != 0) {
+            float3 o = oklab(lin);
+            float h = atan2(o.z, o.y) * 57.29578, d = abs(h - 55.0);
+            d = fmod(d + 360.0, 360.0); if (d > 180.0) d = 360.0 - d;
+            float skin = exp(-(d * d) / (2.0 * 18.0 * 18.0)), quiet = (1.0 - min(S, 1.0)) * (1.0 - min(S, 1.0));
+            k *= max(0.0, 1.0 + (g.hsvVibrance > 0 ? 1.6 * quiet * (1.0 - 0.45 * skin) : 1.0 - 0.45 * skin) * g.hsvVibrance);
+        }
+        float target = S * max(k, 0.0), S2 = target;
+        if (target > S) {
+            if (target > 0.85) S2 = max(S, 0.85 + 0.15 * tanh((target - 0.85) / 0.15));
+            S2 = mix(S2, S, smoothstep(0.9, 1.0, m));
+        }
+        float3 e2 = V - (V - e) * (S2 / S);
+        float3 out = fromRec2020 * (sign(e2) * pow(abs(e2), float3(2.4)));
+        return pro ? toPro * out : out;
+    }
+
+    // Process 5's grading space, per channel: a log of the light with a straight toe through black, as DaVinci
+    // Intermediate's (log2(1 + c/k)): 0 is black (so black can be tinted), 1 the tone curve's white (14.2), the stops above
+    // a deep shadow evenly spaced. Rec.2020, so the wheels' colours are near the screen's and a camera's colours positive.
+    constant float gradeK = 0.0075;
+    inline float3 gradeU(float3 c, float R) { return select(c / (gradeK * 0.6931472 * R), log2(1.0 + c / gradeK) / R, c > 0.0); }
+    inline float3 gradeC(float3 u, float R) { return select(u * (gradeK * 0.6931472 * R), gradeK * (exp2(u * R) - 1.0), u > 0.0); }
+    // A colour push that doesn't change the brightness (Rec.2020's luminance weights add up to 1).
+    inline float3 pushOnly(float3 v) { return v - luma2020(v); }
+    // From `m` (the grading space) by `d`: light going down nears black without passing it (no negative light to clip).
+    inline float3 pushed(float3 m, float3 d) { return select(m * m / max(m - d, 1e-6), m + d, d >= 0.0 || m < 0.0); }
+    // The brightness put back to `target`, from about 4 stops under mid grey up (`uY`); under that a tinted black keeps the
+    // little light its colour needs.
+    inline float3 keepLight(float3 c, float target, float uY) {
+        float Y = luma2020(c), k = smoothstep(0.0, 0.1, uY), d = target - Y;
+        return d >= 0.0 || Y <= 1e-9 ? c + d * k : c * mix(1.0, target / Y, k);
+    }
+
+    // Process 5's colour wheels (Shadows, Midtones, Highlights, Global): each range a weight of the brightness in the grading
+    // space (Balance moves the split, Blending widens the overlaps; Midtones is what the other two leave, so it's 0 at black
+    // and at white); a wheel's brightness is a gain on the light (black stays black), its colour an even push of the log
+    // light in its range (so Shadows tints black too), with the brightness put back.
+    inline float3 wheels5(float3 c, constant Grade &g) {
+        float3 r = toRec2020 * (fromPro * c);
+        float uY = gradeU(float3(luma2020(r)), g.gradeR).x;
+        float mid = 4.643856 / g.gradeR - 0.06 * g.balance, h = 0.12 * g.blend;
+        float ws = 1.0 - smoothstep(mid - 0.12 - h, mid - 0.12 + h, uY), wh = smoothstep(mid + 0.12 - h, mid + 0.12 + h, uY);
+        float wm = max(1.0 - ws - wh, 0.0);
+        float3 lit = r * exp2((ws * g.lift.w + wm * g.gamma.w + wh * g.gain.w + g.offset.w) * 1.5);
+        // (Shadows' colour grows towards black, where the tone curve's toe would hide a small push.)
+        float deep = 1.0 + 3.6 * (1.0 - min(uY / mid, 1.0));
+        float3 push = pushOnly(ws * deep * g.lift.rgb + wm * g.gamma.rgb + wh * g.gain.rgb + 0.6 * g.offset.rgb);
+        float3 out = gradeC(pushed(gradeU(lit, g.gradeR), push * 0.08), g.gradeR);
+        return toPro * (fromRec2020 * keepLight(out, luma2020(lit), uY));
+    }
+
+    // Lift, Gamma, Gain and Offset, as DaVinci Resolve's primaries, per channel in the grading space: Lift moves black with
+    // white held, Gain white with black held, Gamma the middle with both held, Offset all of it evenly (in stops). Each
+    // colour push leaves the brightness as the masters make it.
+    inline float3 lggo(float3 u, float3 L, float3 G, float3 P, float3 O) {
+        float3 v = u + L * (1.0 - min(u, 1.0));
+        v *= G;
+        v = select(v, pow(max(v, 1e-12), P), v > 0.0);
+        return v + O;
+    }
+    inline float3 primaries5(float3 c, constant Grade &g) {
+        float3 r = toRec2020 * (fromPro * c), u = gradeU(r, g.gradeR);
+        float3 masters = lggo(u, float3(g.pLift.w * 0.2), float3(exp2(g.pGain.w * 0.5)), float3(exp2(-g.pGamma.w * 0.8)), float3(g.pOffset.w * 0.15));
+        float3 coloured = lggo(u, g.pLift.w * 0.2 + pushOnly(g.pLift.rgb) * 0.4, exp2(g.pGain.w * 0.5 + pushOnly(g.pGain.rgb) * 0.4),
+                               exp2(-g.pGamma.w * 0.8 - pushOnly(g.pGamma.rgb) * 0.6), g.pOffset.w * 0.15 + pushOnly(g.pOffset.rgb) * 0.1);
+        float3 out = gradeC(pushed(masters, coloured - masters), g.gradeR), m = gradeC(masters, g.gradeR);
+        return toPro * (fromRec2020 * keepLight(out, luma2020(m), gradeU(float3(luma2020(m)), g.gradeR).x));
+    }
+
+    // Process 5's colour mixer, on the picture as shown (after the tone curve, so a band is the colour seen and picked):
+    // OkLCh; each band all of its own hue and none of its neighbours' (raised cosine between centres); the strength by
+    // C/L, which doesn't change with exposure; Luminance ±1 stop at full strength, its colourfulness scaled with it (the
+    // colour kept), easing into white instead of past it.
+    inline float3 mixer5(float3 c, constant Grade &g, float top, bool pro) {
+        float3 o = oklab(pro ? fromPro * c : c);
+        float C = length(o.yz), L = o.x;
+        if (C < 1e-5 || L <= 1e-4) return c;
+        float h = atan2(o.z, o.y) * 57.29578;
+        if (h < 25.0) h += 360.0;
+        const float centres[9] = {25, 60, 105, 145, 195, 255, 300, 345, 385};
+        int i = 0;
+        for (int k = 1; k < 8; k++) if (h >= centres[k]) i = k;
+        float a = cos((h - centres[i]) / (centres[i + 1] - centres[i]) * 1.5707963);
+        a *= a;
+        int j = (i + 1) % 8;
+        float dh = a * g.hue[i] + (1.0 - a) * g.hue[j], ds = a * g.sat[i] + (1.0 - a) * g.sat[j], dl = a * g.lum[i] + (1.0 - a) * g.lum[j];
+        float w = min(C / max(L, 0.03) / 0.08, 1.0);
+        float hr = (h + dh * 0.3 * w) * 0.01745329;
+        float L1 = L * exp2(dl * 0.01 * w / 3.0), room = max(scbrt(top) - L, 0.0);
+        if (L1 > L) L1 = L + (L1 - L) * room / (room + L1 - L);
+        float C1 = C * max(0.0, 1.0 + ds * 0.01 * w) * (L1 / L);
+        float3 out = fromOklab(float3(L1, C1 * cos(hr), C1 * sin(hr)));
+        return pro ? toPro * out : out;
+    }
+
+    // Process 5's colour points: how much of a point (its hue, C/L, L and Range in `pt`) this colour gets: a soft step
+    // down in each of hue (15…60° wide by Range), saturation (in stops of C/L) and lightness; full in the inner third.
+    // A grey has no hue to measure, so only its saturation and lightness count.
+    inline float pointWeight(float h, float s, float L, float4 pt) {
+        float d = fmod(abs(h - pt.x), 360.0);
+        if (d > 180.0) d = 360.0 - d;
+        float wh = 15.0 + 45.0 * pt.w, ws = 0.4 + 1.6 * pt.w, wl = 0.08 + 0.32 * pt.w;
+        float fh = mix(1.0, 1.0 - smoothstep(0.3 * wh, wh, d), smoothstep(0.0, 0.04, min(s, pt.y)));
+        float fs = 1.0 - smoothstep(0.3 * ws, ws, abs(log2((s + 0.02) / (pt.y + 0.02))));
+        float fl = 1.0 - smoothstep(0.3 * wl, wl, abs(L - pt.z));
+        return fh * fs * fl;
+    }
+    // One of the colour tools' tables (256 steps along an axis, `axis` 0…1), read smoothly between steps.
+    inline float4 toolTable(constant float4 *t, float axis) {
+        float at = clamp(axis, 0.0, 1.0) * 255.0;
+        int i = min(int(at), 254);
+        return mix(t[i], t[i + 1], at - float(i));
+    }
+    // Process 5's colour points and colour curves (PhotoEngine.colourTools: `t`), on the picture as shown (linear sRGB
+    // numbers, after the mixer), in OkLCh with C/L as saturation (the same at any exposure). Each point and curve is read
+    // from the colour as it came in, so they don't chain; a hue turn and a saturation scale, and a lightness change in stops
+    // with the colourfulness scaled with it (its colour kept), easing into white instead of past it. Greys keep their hue
+    // (the hue curves fade out under C/L 0.05).
+    inline float3 colourTools5(float3 c, constant float4 *t, float top) {
+        float3 o = oklab(c);
+        float L = o.x, C = length(o.yz);
+        if (L <= 1e-4) return c;
+        float h = atan2(o.z, o.y) * 57.29578;
+        if (h < 0.0) h += 360.0;
+        float s = C / max(L, 0.03);
+        float dh = 0.0, scale = 1.0, stops = 0.0, marked = 0.0;
+        int n = min(int(t[0].y), 8);
+        for (int k = 0; k < n; k++) {
+            float w = pointWeight(h, s, L, t[513 + 2 * k]);
+            float4 shift = t[514 + 2 * k];
+            dh += shift.x * w; scale *= max(0.0, 1.0 + shift.y * w); stops += shift.z * w;
+            if (k == int(t[0].z)) marked = w;
+        }
+        if (t[0].x > 0.0) {
+            float grey = smoothstep(0.0, 0.05, s);
+            float4 byHue = toolTable(t + 1, h / 360.0);
+            dh += byHue.x * grey;
+            scale *= mix(1.0, byHue.y, grey) * toolTable(t + 1, L).w * toolTable(t + 257, s / 0.6).x;
+            stops += byHue.z * grey;
+        }
+        if (t[0].w > 1.5) {
+            // The Colour Warper (72 hues × 16 C/L steps, read smoothly; grey, at C/L 0, is unchanged).
+            constant float4 *w = t + 529;
+            float hf = h / 5.0, sf = min(s / 0.6, 1.0) * 15.0;
+            int h0 = int(hf) % 72, h1 = (h0 + 1) % 72, s0 = min(int(sf), 14);
+            float fh = hf - floor(hf), fs = sf - float(s0);
+            float2 e = mix(mix(w[h0 * 16 + s0].xy, w[h0 * 16 + s0 + 1].xy, fs), mix(w[h1 * 16 + s0].xy, w[h1 * 16 + s0 + 1].xy, fs), fh);
+            dh += e.x; scale *= e.y;
+        }
+        float L1 = L * exp2(stops / 3.0), room = max(scbrt(top) - L, 0.0);
+        if (L1 > L) L1 = L + (L1 - L) * room / (room + L1 - L);
+        float C1 = C * max(scale, 0.0) * (L1 / L), hr = (h + dh) * 0.01745329;
+        float3 out = fromOklab(float3(L1, C1 * cos(hr), C1 * sin(hr)));
+        // (The point being looked at, shown in red as a mask is.)
+        return t[0].z >= 0.0 ? mix(out, float3(1.0, 0.12, 0.1), 0.6 * marked) : out;
+    }
+
     // Version 2, after the local tone: grading in scene light (Rec.2020), the mixer, vibrance and
     // saturation (OkLCh), the gamut compression, the tone curve and profile, then the curves.
     // Version 3 (`p.space` 1) does all of it in linear ProPhoto, as Lightroom: colours past sRGB are kept (only what's
@@ -1003,6 +1384,8 @@ enum PhotoEngine {
             c = select(c, 0.18 * pow(max(c, 0.0) / 0.18, power), c > 0.0);
         }
         if (!pro) c = fromRec2020 * c;
+        if (g.primaries5 != 0) c = primaries5(c, g);
+        if (g.wheels5 != 0) c = wheels5(c, g);
         if (g.mixer != 0 || g.vibrance != 0 || g.saturation != 0) {
             // (OkLab is the same colours whatever the RGB they're written in.)
             float3 o = oklab(pro ? fromPro * c : c);
@@ -1041,7 +1424,9 @@ enum PhotoEngine {
         // A finished picture shown as shot keeps its colours; everything else is brought inside (version 3: inside
         // ProPhoto, which only touches colours no eye sees, such as the decoder's near-black noise).
         bool asShot = p.profile == 5 && p.isRaw == 0;
-        c = asShot ? max(c, 0.0) : pro ? compressGamut(c, float3(0.97), float3(1.15)) : compressGamut(c);
+        // (Process 5: a finished picture keeps its tone and colours under any profile; see pictureTone.)
+        bool picture = asShot || (p.v5 == 1 && p.isRaw == 0);
+        c = picture ? max(c, 0.0) : pro ? compressGamut(c, float3(0.97), float3(1.15)) : compressGamut(c);
         float3 scene = c;
         if (p.scene == 1) {
             if (p.hueSat == 3) c = float3(lumaPro(c));
@@ -1058,8 +1443,15 @@ enum PhotoEngine {
         }
 
         float3 outc;
-        if (asShot) {
+        if (picture) {
             outc = pro ? min(c, p.peak) : clamp(c, 0.0, 1.0);
+            if (p.v5 == 1) {
+                float3 v = p.mono != 0 ? float3(pro ? lumaPro(outc) : luma(outc)) : outc;
+                float mx = max(v.r, max(v.g, v.b)), mn = min(v.r, min(v.g, v.b));
+                outc = rgbTone(v, pictureTone(mx, p), pictureTone(mn, p));
+                float Y2 = pro ? lumaPro(outc) : luma(outc);
+                outc = p.mono != 0 ? float3(Y2) : max(Y2 + (outc - Y2) * p.sat, 0.0);
+            }
         } else if (pro && p.tro == 1 && p.mono == 0) {
             // Accurate: the brightness through the curve (Classic's), each colour's chromaticity kept (RGB curves as gains at
             // its brightness); near white the colour fades smoothly to white at its brightness, so whites end white.
@@ -1068,6 +1460,8 @@ enum PhotoEngine {
             outc = max(c, 0.0) * (Yt / Y);
             if (p.curves == 1) outc *= float3(curveLight(t, 0, curve), Yt, curveLight(t, 2, curve)) / max(Yt, 1e-10);
             outc = towardsWhite(outc, p);
+            // (Process 5: and white once the light is past the curve's white, as the old fade's overflow happened to make it.)
+            if (p.v5 == 1) outc = mix(outc, float3(lumaPro(outc)), smoothstep(p.toneHi - 1.0, p.toneHi, log2(Y * 1.15)));
         } else if (pro) {
             // (Each channel first held at the curve's white, as the DNG SDK's RGBTone clamps: a tinted white past it is white.)
             float3 v = min((p.mono != 0 ? float3(lumaPro(c)) : c) * 1.15, exp2(p.toneHi));
@@ -1119,11 +1513,21 @@ enum PhotoEngine {
             float Cs = length(so.yz);
             if (Cs > 1e-6) outc = toPro * fromOklab(float3(to.x, so.yz * (length(to.yz) / Cs)));
         }
-        if ((p.profile == 6 || p.tro == 2) && !asShot) {
+        // (Process 5: not for Neutral and Flat, which never had it and now keep their hue as tro 2. Kept separate from process
+        // 4's line so its pixels stay exactly as they were.)
+        if (p.v5 == 1) {
+            if ((p.profile == 6 || p.tro == 2) && !picture && p.profile != 0 && p.profile != 3) {
+                float Yo = pro ? lumaPro(outc) : luma(outc), Yc = pro ? lumaPro(scene) : luma(scene);
+                float3 kept = Yc > 1e-7 ? scene * (Yo / Yc) : float3(Yo);
+                outc = mix(outc, kept, 1.0 - smoothstep(0.02, 0.3, Yo));
+            }
+        } else if ((p.profile == 6 || p.tro == 2) && !asShot) {
             float Yo = pro ? lumaPro(outc) : luma(outc), Yc = pro ? lumaPro(scene) : luma(scene);
             float3 kept = Yc > 1e-7 ? scene * (Yo / Yc) : float3(Yo);
             outc = mix(outc, kept, 1.0 - smoothstep(0.02, 0.3, Yo));
         }
+        if (g.mixer5 != 0) outc = mixer5(outc, g, p.peak, pro);
+        if (g.hsvSaturation != 0 || g.hsvVibrance != 0) outc = hsvSaturation(outc, g, pro);
         // (Version 3: back in the engine's linear sRGB numbers, colours past sRGB as they are.)
         return pro ? fromPro * clamp(outc, 0.0, p.peak) : clamp(outc, 0.0, p.peak);
     }
@@ -1237,6 +1641,39 @@ enum PhotoEngine {
         return base + mid * (clarity + (p.process < 2 ? p.dehaze * 0.6 : 0.0)) + detail * (1.0 + p.texture * 0.9);
     }
 
+    // Process 5's Dehaze, one colour: the haze taken out of its brightness only (no channel goes below zero or flips to the
+    // haze's opposite colour), Y' = Y - (1/through - 1)(A - Y) up to the haze's brightness (brighter, a lamp, is left as it is),
+    // as a gain on all three channels, never under 0.3 (soft); then a little more colour where there was haze.
+    inline float3 dehazed(float3 c, float AY, float through, float boost) {
+        float Y = max(luma(c), 1e-4);
+        float k = (Y - (1.0 / through - 1.0) * (AY - min(Y, AY))) / Y;
+        k = 0.5 * (k + 0.3 + sqrt((k - 0.3) * (k - 0.3) + 0.01));
+        c *= k;
+        float Yk = luma(c);
+        return Yk + (c - Yk) * boost;
+    }
+
+    // Process 5's Glow on the picture: `light` the glow's (scene light, see PhotoEngine.glowLight) as the screen would show
+    // it, laid on as a compositor's blend modes: Add, Screen and Lighten in display light, Overlay and Soft Light in screen
+    // steps with the glow on mid grey (where there's none, nothing changes, and dark parts stay dark).
+    inline float3 glowed(float3 c, float3 light, constant Params &p) {
+        float3 gl = 1.0 - exp(-max(light, 0.0) * (1.5 * p.glow / (p.isRaw == 1 ? 2.0 : 1.0)));
+        float3 a = clamp(c, 0.0, 1.0), over = c - a, r;
+        if (p.glowMode == 0) r = a + gl;
+        else if (p.glowMode == 1) r = 1.0 - (1.0 - a) * (1.0 - gl);
+        else if (p.glowMode == 2) r = max(a, gl);
+        else {
+            float3 A = pow(a, 1.0 / 2.2), B = 0.5 + 0.5 * pow(gl, 1.0 / 2.2), R;
+            if (p.glowMode == 3) R = select(1.0 - 2.0 * (1.0 - A) * (1.0 - B), 2.0 * A * B, A < 0.5);
+            else {
+                float3 D = select(sqrt(A), ((16.0 * A - 12.0) * A + 4.0) * A, A <= 0.25);
+                R = select(A + (2.0 * B - 1.0) * (D - A), A - (1.0 - 2.0 * B) * A * (1.0 - A), B <= 0.5);
+            }
+            r = pow(R, 2.2);
+        }
+        return min(r + over, p.peak);
+    }
+
     // Version 2, one pixel: dehaze, local tone, then the rest (finish). `t`: how much light gets
     // through the haze there.
     inline float3 developModern(float3 c, float3 cg, float3 al, float2 as, float t, float3 soft, float3 wide,
@@ -1244,7 +1681,25 @@ enum PhotoEngine {
         float L = log2(max(luma(c), 1e-5)), Lg = log2(max(luma(cg), 1e-5));
         // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
         // through (the dark channel prior); the layers then work on what's left.
-        if (p.dehaze != 0) {
+        if (p.dehaze != 0 && p.v5 == 1) {
+            float3 A = float3(p.hazeR, p.hazeG, p.hazeB);
+            if (p.dehaze > 0) {
+                float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8), boost = 1.0 + 0.35 * p.dehaze * (1.0 - t);
+                float AY = max(luma(A), 1e-4);
+                c = dehazed(c, AY, through, boost);
+                cg = dehazed(cg, AY, through, boost);
+            } else {
+                // A veil of the haze's (neutral-ish, lamp-free) colour, more where there's already some. (Written as mix so the
+                // compiler can't share it with process 4's same line: sharing moved process 4's pixels by one step.)
+                float veil = -0.22 * p.dehaze * (1.0 - 0.5 * t);
+                c = mix(c, A, veil);
+                cg = mix(cg, A, veil);
+            }
+            float Ld = log2(max(luma(cg), 1e-5));
+            al.y += (Ld - Lg) * (1.0 - al.x);
+            as.y += (Ld - Lg) * (1.0 - as.x);
+            L = log2(max(luma(c), 1e-5)); Lg = Ld;
+        } else if (p.dehaze != 0) {
             float3 A = float3(p.hazeR, p.hazeG, p.hazeB);
             if (p.dehaze > 0) {
                 float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8);
@@ -1294,6 +1749,75 @@ enum PhotoEngine {
             c = mix(c, soft, 0.22 * k) + bloom * 0.45 * k;
         }
         return finish(c, p, g, curve, hs);
+    }
+
+    // Process 5, one pixel (developModern's own copy, so the earlier processes' code stays exactly as it was): Dehaze v5,
+    // local tone, Texture without noise, Clarity v5, then finish. `t`: how much light gets
+    // through the haze there.
+    inline float3 developModern5(float3 c, float3 cg, float3 al, float2 as, float t, float3 soft, float3 wide,
+                                constant Params &p, constant Grade &g, constant float4 *curve, constant float4 *hs, constant float4 *tools) {
+        float L = log2(max(luma(c), 1e-5)), Lg = log2(max(luma(cg), 1e-5));
+        // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
+        // through (the dark channel prior); the layers then work on what's left.
+        if (p.dehaze != 0) {
+            float3 A = float3(p.hazeR, p.hazeG, p.hazeB);
+            if (p.dehaze > 0) {
+                float through = mix(1.0, max(t, 0.2), p.dehaze * 0.8), boost = 1.0 + 0.35 * p.dehaze * (1.0 - t);
+                float AY = max(luma(A), 1e-4);
+                c = dehazed(c, AY, through, boost);
+                cg = dehazed(cg, AY, through, boost);
+            } else {
+                // A veil of the haze's (neutral-ish, lamp-free) colour, more where there's already some. (Written as mix so the
+                // compiler can't share it with process 4's same line: sharing moved process 4's pixels by one step.)
+                float veil = -0.22 * p.dehaze * (1.0 - 0.5 * t);
+                c = mix(c, A, veil);
+                cg = mix(cg, A, veil);
+            }
+            float Ld = log2(max(luma(cg), 1e-5));
+            al.y += (Ld - Lg) * (1.0 - al.x);
+            as.y += (Ld - Lg) * (1.0 - as.x);
+            wide.y += (Ld - Lg) * (1.0 - wide.x);
+            L = log2(max(luma(c), 1e-5)); Lg = Ld;
+        }
+        float Lp = tonedLog(L, Lg, al, as, p);
+        // Process 5's Texture, raising: kept only where the place (5×5, `wide.z`: its spread in stops²) has more going on
+        // than the photo's noise there (σ² = a·Y + b): a flat sky's grain stays as it is, a fabric's weave gets it all.
+        // (tonedLog raised all of it; what the noise doesn't allow is taken back here, so tonedLog stays as it was.)
+        if (p.texture > 0 && p.noiseB > 0) {
+            float Ys = max(exp2(Lg) / p.noiseGain, 1e-6), n = (p.noiseA * Ys + p.noiseB) / (Ys * Ys) * 2.0813;
+            float keep = smoothstep(1.2, 2.2, wide.z / n), smallBase = fma(as.x, Lg - p.shift, as.y + p.shift);
+            Lp -= (1.0 - keep) * 0.9 * p.texture * (L - smallBase);
+        }
+        // Version 3: what Shadows lifts gets less colourful as it comes up, as in Lightroom (a lifted warm floor: blue to
+        // green 0.33 there, 0.08 with its colour kept whole), rather than dark colours coming out deep and green.
+        // (By hue: warm colours, as that floor, the most; cool ones, as a teal pot in the shade, keep much more: Lightroom's
+        // pot red to green 0.16, here 0.44 when all lost alike.)
+        if (p.space == 1 && p.shadows > 0) {
+            // (The hue of the colour around, and only where there is one: noise in a grey has every hue, and would get a cast.)
+            float Y = luma(c);
+            float3 o = oklab(cg);
+            float C = length(o.yz), warm = C > 1e-7 ? dot(o.yz / C, float2(0.5, 0.866)) : 1.0;
+            float k = mix(1.0, mix(0.15, 1.0, smoothstep(-0.2, 0.5, warm)), smoothstep(0.03, 0.08, C / max(o.x, 1e-4)));
+            c = Y + (c - Y) * exp2(-0.28 * k * shadowLift(liftBase(Lg, al, p), p));
+        }
+        // Clarity: the contrast against a soft copy of the photo (about 2% of its size), less only in
+        // the extremes; a third of its base follows the edges, so it doesn't halo.
+        // Process 5's Clarity: the place's own contrast against an edge-following base in log brightness (its own guided
+        // filter, eps 0.3 stop², in `wide`: across a real edge the base keeps to the pixel, so nothing bright darkens or
+        // lights what's beside it), from the 5×5 light (noise is Texture's). Less towards the extremes; lowering it doesn't
+        // lift the deepest shadows.
+        // (Written apart from the earlier processes' lines, so the compiler can't share them: that moved their pixels.)
+        if (p.clarity != 0) {
+            float local = Lg - fma(wide.x, Lg - p.shift, wide.y + p.shift);
+            float w5 = fma(-0.5, smoothstep(2.0, 7.0, fabs(Lp + 2.4739312)), 1.0);
+            if (p.clarity < 0) w5 *= smoothstep(-11.4739312, -7.4739312, Lg);
+            Lp = fma(local * p.clarity * (p.clarity > 0 ? 0.8 : 0.6), w5, Lp);
+        }
+        c *= exp2(Lp - L);
+        float3 out = finish(c, p, g, curve, hs);
+        // Then the colour points and curves, on the picture as shown (not the film's light: they're off then).
+        if (tools[0].w > 0.0) out = fromPro * clamp(toPro * colourTools5(out, tools, p.peak), 0.0, p.peak);
+        return out;
     }
 
     // The colour the local-tone layers follow here: the pixels around (5×5) within about a stop of this one, averaged
@@ -1398,6 +1922,143 @@ enum PhotoEngine {
                 // The mask being edited, shown in red.
                 if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
             }
+            dst.write(float4(out, 1.0), gid);
+            return;
+        }
+        float Lp = tonedLog(L, log2(max(luma(cg), 1e-5)), al, as, p);
+        c *= exp2(Lp - L);
+        if (p.dehaze != 0) {
+            float haze = 0.03 * p.dehaze;
+            c = max((c - haze * 0.18) / (1.0 - haze), 0.0);
+        }
+
+        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint, luma(c));
+        // Contrast (around mid grey) and whites (the brightest stops), in scene light (the film's too).
+        float flat = p.profile == 3 && p.scene == 0 ? 0.78 : 1.0;
+        float contrast = flat * (1.0 + p.contrast * (p.contrast > 0 ? 0.55 : 0.45));
+        float Yc = max(luma(c), 1e-6);
+        float stops = log2(Yc / 0.18);
+        float shaped = stops * contrast + p.whites * 1.2 * smoothstep(0.5, 3.5, stops);
+        c *= exp2(shaped - stops);
+        if (p.scene == 1) { dst.write(float4(min(c, 64.0), 1.0), gid); return; }
+
+        // The profile: as shot (a finished picture), or the same curve for every camera.
+        float3 outc;
+        if (p.profile == 5 && p.isRaw == 0) {
+            outc = c;
+        } else if (p.profile == 1 || p.profile == 2) {
+            outc = filmic(c);
+        } else {
+            outc = agx(c * 1.15);
+        }
+        // Blacks: lift or deepen the darkest part of the picture.
+        float Yo = luma(outc);
+        outc += p.blacks * 0.045 * (1.0 - smoothstep(0.0, 0.25, Yo));
+        float sat = p.profile == 2 ? 1.2 : p.profile == 3 ? 0.92 : p.profile == 1 ? 1.06 : 1.0;
+        float Y2 = luma(outc);
+        outc = p.profile == 4 ? float3(Y2) : Y2 + (outc - Y2) * sat;
+        dst.write(float4(clamp(outc, 0.0, 1.0), 1.0), gid);
+    }
+
+    // Process 5's own kernel (develop's copy: a change in develop's code moved earlier processes' pixels): Clarity's
+    // guided layer as texture 6, Texture's 5×5 spread, developModern5, Glow.
+    kernel void develop5(texture2d<float, access::read> image [[texture(0)]],
+                        texture2d<float, access::sample> large [[texture(1)]],
+                        texture2d<float, access::sample> small [[texture(2)]],
+                        texture2d<float, access::sample> haze [[texture(3)]],
+                        texture2d<float, access::sample> masks [[texture(4)]],
+                        texture2d<float, access::sample> glow [[texture(5)]],
+                        texture2d<float, access::sample> clear [[texture(6)]],
+                        texture2d<float, access::write> dst [[texture(7)]],
+                        constant Params *ps [[buffer(0)]],
+                        constant int2 *offsets [[buffer(1)]],
+                        constant float4 *map [[buffer(2)]],
+                        constant Grade *gs [[buffer(3)]],
+                        constant float4 *curve [[buffer(4)]],
+                        constant MaskInfo *info [[buffer(5)]],
+                        constant float4 *hs [[buffer(6)]],
+                        constant float4 *tools [[buffer(7)]],
+                        uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        constant Params &p = ps[0];
+        constexpr sampler smooth(coord::normalized, address::clamp_to_edge, filter::linear);
+        float3 c = image.read(at(gid, offsets[0], uint2(image.get_width(), image.get_height()))).rgb;
+        // Version 1 had no colours past sRGB; version 2 keeps them until the gamut compression.
+        if (p.process < 2) c = max(c, 0.0);
+        float Y = max(luma(c), 1e-5);
+        float L = log2(Y);
+        float3 cg = guideColour(image, gid, offsets[0], c, p.process < 2);
+        // Where this pixel is in the photo, then in each small layer's texture.
+        float2 pos = float2(map[0].x + float(gid.x) + 0.5, map[0].y - float(gid.y) - 0.5);
+        float2 t1 = float2(map[1].x * pos.x + map[1].y, map[1].z * pos.y + map[1].w);
+        float2 t2 = float2(map[2].x * pos.x + map[2].y, map[2].z * pos.y + map[2].w);
+        float2 uv1 = t1 / float2(large.get_width(), large.get_height()), uv2 = t2 / float2(small.get_width(), small.get_height());
+        float3 al = large.sample(smooth, uv1).rgb;
+        float2 as = small.sample(smooth, uv2).rg;
+        if (p.process >= 2) {
+            float2 t3 = float2(map[3].x * pos.x + map[3].y, map[3].z * pos.y + map[3].w);
+            float through = haze.sample(smooth, t3 / float2(haze.get_width(), haze.get_height())).r;
+            // The soft layer here, and wider (around this place) for the mist's bloom.
+            float2 t5 = float2(map[5].x * pos.x + map[5].y, map[5].z * pos.y + map[5].w) / float2(glow.get_width(), glow.get_height());
+            float3 soft = glow.sample(smooth, t5).rgb * p.glowGain;
+            float reach = 0.035;
+            float3 wide = soft;
+            for (int i = 0; i < 8; i++) {
+                float angle = float(i) * 0.785398;
+                float2 o = float2(cos(angle), sin(angle)) * reach * float2(1.0, float(glow.get_width()) / float(max(glow.get_height(), 1u)));
+                wide += glow.sample(smooth, t5 + o).rgb * p.glowGain;
+            }
+            wide /= 9.0;
+            // Process 5's Clarity base (its own guided filter), carried in `wide`'s place, which only the mist uses.
+            {
+                float2 t6 = float2(map[6].x * pos.x + map[6].y, map[6].z * pos.y + map[6].w) / float2(clear.get_width(), clear.get_height());
+                wide = float3(clear.sample(smooth, t6).rg, 0.0);
+                // (With Texture: the spread of the log light over the 5×5 here, for the noise check.)
+                if (p.noiseB > 0) {
+                    uint2 size = uint2(image.get_width(), image.get_height());
+                    float s1 = 0, s2 = 0;
+                    for (int y = -2; y <= 2; y++) for (int x = -2; x <= 2; x++) {
+                        float l = log2(max(luma(image.read(at(gid, offsets[0] + int2(x, y), size)).rgb), 1e-5));
+                        s1 += l; s2 += l * l;
+                    }
+                    wide.z = max(s2 / 25.0 - (s1 / 25.0) * (s1 / 25.0), 0.0);
+                }
+            }
+            float3 out = developModern5(c, cg, al, as, through, soft, wide, p, gs[0], curve, hs, tools);
+            // The masks: each one's own settings developed here too, mixed in where it is.
+            int count = p.masks;
+            if (count > 0) {
+                float2 t4 = float2(map[4].x * pos.x + map[4].y, map[4].z * pos.y + map[4].w);
+                float4 shape = masks.sample(smooth, t4 / float2(masks.get_width(), masks.get_height()));
+                // The ranges look at the photo as developed (its brightness and colour).
+                float3 seen = clamp(out, 0.0, 1.0);
+                float bright = pow(max(luma(seen), 0.0), 1.0 / 2.2);
+                float3 o = oklab(seen);
+                float chroma = length(o.yz), hue = atan2(o.z, o.y) * 57.29578;
+                if (hue < 0) hue += 360.0;
+                float marked = 0;
+                for (int k = 0; k < count && k < 4; k++) {
+                    constant MaskInfo &m = info[k];
+                    float w = shape[k];
+                    if (m.lum.w > 0) {
+                        w *= smoothstep(m.lum.x - m.lum.z, m.lum.x + 0.001, bright) * (1.0 - smoothstep(m.lum.y - 0.001, m.lum.y + m.lum.z, bright));
+                    }
+                    if (m.col.z > 0) {
+                        float d = abs(hue - m.col.x);
+                        if (d > 180) d = 360 - d;
+                        w *= (1.0 - smoothstep(m.col.y * 0.5, m.col.y * 0.5 + 18.0, d)) * smoothstep(0.015, 0.05, chroma);
+                    }
+                    if (m.col.w > 0) w = 1.0 - w;
+                    if (k == int(p.overlay)) marked = w;
+                    if (w < 0.002) continue;
+                    float3x3 change = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz);
+                    out = mix(out, developModern5(change * c, change * cg, al, as, through, change * soft, wide, ps[k + 1], gs[k + 1], curve, hs, tools), w);
+                }
+                // The mask being edited, shown in red.
+                if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
+            }
+            // Process 5's Glow, on the picture the masks made too (the same for each).
+            if (p.glow > 0) out = glowed(out, soft, p);
             dst.write(float4(out, 1.0), gid);
             return;
         }
@@ -1608,7 +2269,8 @@ final class GuideCache: @unchecked Sendable {
         lock.unlock()
         let made = make()
         let kept = PhotoEngine.Layers(large: render(made.large), small: render(made.small),
-                                      haze: made.haze.map { (render($0.through), $0.airlight) }, glow: made.glow.map(render))
+                                      haze: made.haze.map { (render($0.through), $0.airlight) }, glow: made.glow.map(render),
+                                      clarity: made.clarity.map(render))
         lock.lock()
         layers[key] = kept
         order.append(key)
@@ -1622,7 +2284,7 @@ final class GuideCache: @unchecked Sendable {
     }
 
     /// Rendered now and kept as floats (the same place and size).
-    private func render(_ image: CIImage) -> CIImage {
+    func render(_ image: CIImage) -> CIImage {
         let extent = image.extent.integral
         guard let made = PhotoEngine.context.createCGImage(image, from: extent, format: .RGBAf,
                                                            colorSpace: nil) else { return image }
@@ -1679,19 +2341,20 @@ final class DevelopPass: CIImageProcessorKernel {
     override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect {
         if input == 0 { return outputRect.insetBy(dx: -2, dy: -2) }
         // (As numbers: Core Image moves rectangles it finds among the arguments.)
-        guard let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else { return outputRect }
+        guard let sizes = arguments?["layers"] as? [Double], sizes.count == 24 || sizes.count == 28 else { return outputRect }
         let i = Int(input - 1) * 4
         return CGRect(x: sizes[i], y: sizes[i + 1], width: sizes[i + 2], height: sizes[i + 3])
     }
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
         // Where each pixel falls in the two layers' textures: texel = (sx·x + bx, sy·y + by) from
         // the photo's coordinates (y up) to the textures' (y down, from the piece handed over).
-        guard let inputs, inputs.count == 6, let sizes = arguments?["layers"] as? [Double], sizes.count == 24 else {
+        guard let inputs, inputs.count == 6 || inputs.count == 7, let sizes = arguments?["layers"] as? [Double], sizes.count == inputs.count * 4 else {
             throw NSError(domain: "Pluck", code: 11)
         }
-        let photo = CGRect(x: sizes[20], y: sizes[21], width: sizes[22], height: sizes[23])
+        let n = sizes.count - 4
+        let photo = CGRect(x: sizes[n], y: sizes[n + 1], width: sizes[n + 2], height: sizes[n + 3])
         var map = [SIMD4<Float>(Float(output.region.minX), Float(output.region.maxY), 0, 0)]
-        for layer in 0..<5 {
+        for layer in 0..<(inputs.count - 1) {
             let extent = CGRect(x: sizes[layer * 4], y: sizes[layer * 4 + 1], width: sizes[layer * 4 + 2], height: sizes[layer * 4 + 3])
             let region = inputs[layer + 1].region
             let sx = extent.width / photo.width, sy = extent.height / photo.height
@@ -1699,10 +2362,10 @@ final class DevelopPass: CIImageProcessorKernel {
                              Float(-sy), Float(region.maxY - extent.minY + photo.minY * sy)))
         }
         let bytes = map.withUnsafeBytes { Data($0) }
-        try PhotoEngine.run("develop", inputs: inputs, output: output,
+        try PhotoEngine.run(inputs.count == 7 ? "develop5" : "develop", inputs: inputs, output: output,
                             bytes: [(arguments?["params"] as? Data) ?? Data(), bytes, (arguments?["grade"] as? Data) ?? Data(),
                                     (arguments?["curves"] as? Data) ?? Data(count: 16), (arguments?["masks"] as? Data) ?? Data(count: 96),
-                                    (arguments?["table"] as? Data) ?? Data(count: 16)],
+                                    (arguments?["table"] as? Data) ?? Data(count: 16)] + (inputs.count == 7 ? [(arguments?["tools"] as? Data) ?? Data(count: 16)] : []),
                             offsetsIndex: 1)
     }
 }

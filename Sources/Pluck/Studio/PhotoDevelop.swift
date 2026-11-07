@@ -25,7 +25,11 @@ struct PhotoAdjustments: Codable, Hashable {
     var lookName: String?, lookTable: String?
     var lookAmount = 100.0
     var sharpen = 0.0        // 0…100
+    /// Process 5: where Sharpen goes, as Lightroom's Masking: 0 everywhere … 100 only on the strongest edges.
+    var sharpenMask = 0.0
     var noise = 0.0          // luminance noise reduction, 0…100
+    /// Process 5 (RAW): the Luminance slider was set (else it follows the ISO: PhotoRender.luminance).
+    var noiseSet = false
     /// Colour noise reduction (RAW), 0…100: Lightroom's Color, 25 by default.
     var colorNoise = PhotoAdjustments.defaultColorNoise
     static let defaultColorNoise = 25.0
@@ -36,9 +40,14 @@ struct PhotoAdjustments: Codable, Hashable {
     /// kept through the curves, gamut mapped only at the screen or file; Classic the RAW default, Adobe's mid grey).
     /// 4 (RAW only; other photos develop as 3): decoder 9 with half of 3's soften, its luminance noise reduction only with
     /// the ISO (PhotoRender.source, `lumaShare`).
+    /// 5: Standard (natural colour on Apple's default) the RAW starting profile, Saturation and Vibrance on the picture as
+    /// shown, DaVinci Resolve's HSV way (PhotoEngine `hsvSaturation`); the Luminance slider all of the luminance noise
+    /// reduction, the decoder's included, starting at an amount by ISO (PhotoRender.luminance); halation off keeps the film's softness;
+    /// Dehaze on brightness with a lamp-free, neutral-ish haze colour; a JPEG's or HEIC's profiles change its colour and look,
+    /// not its tone (no second curve); Neutral keeps hues and sits at Classic's mid grey; Accurate's fade to white without a snap.
     /// Old edits keep their look.
     var process = PhotoAdjustments.currentProcess
-    static let currentProcess = 4
+    static let currentProcess = 5
     /// The version of Apple's RAW decoder the photo was edited with, kept so a macOS update
     /// doesn't change how it looks (nil: not edited yet, the newest).
     var rawDecoder: String?
@@ -51,6 +60,10 @@ struct PhotoAdjustments: Codable, Hashable {
     var vignetteStyle = 1
     /// Grain for a photo without film (the film has its own): 0…100, its size and roughness.
     var grain = 0.0, grainSize = 25.0, grainRoughness = 50.0
+    /// Process 5's Glow (Effects, without film): bright parts spread their light, 0…100; how far (0…100) and how it's laid
+    /// on the picture (`GlowMode`, as a compositor's blend modes).
+    var glow = 0.0, glowSize = 50.0
+    var glowMode = GlowMode.screen
     var straighten = 0.0     // degrees, -45…45
     var crop = Crop.original
     /// The part kept, as shares of the straightened picture (nil: all of it).
@@ -63,6 +76,25 @@ struct PhotoAdjustments: Codable, Hashable {
     var calibration = Calibration()
     /// Changes in part of the photo only (the subject, the background).
     var masks: [PhotoMask] = []
+
+    /// Old negative Clarity's mist as Glow (see `updated`): measured on a night stage photo and a backlit one.
+    static let mistToGlow = 0.65
+
+    /// How Glow's light is laid on the picture: Add and Screen add light (Screen never past white), Lighten only where the
+    /// glow is brighter, Overlay and Soft Light brighten as contrast does (dark parts stay dark).
+    enum GlowMode: String, Codable, CaseIterable, Identifiable {
+        case add, screen, lighten, overlay, softLight
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .add: String(localized: "Add")
+            case .screen: String(localized: "Screen")
+            case .lighten: String(localized: "Lighten")
+            case .overlay: String(localized: "Overlay")
+            case .softLight: String(localized: "Soft Light")
+            }
+        }
+    }
 
     /// The crop's shape. Ratios turn with the photo (or with `cropPortrait`): 2:3 is 3:2 on a
     /// landscape photo.
@@ -117,7 +149,7 @@ struct PhotoAdjustments: Codable, Hashable {
         whites = value(.whites, 0); blacks = value(.blacks, 0); temperature = value(.temperature, 0); tint = value(.tint, 0)
         vibrance = value(.vibrance, 0); saturation = value(.saturation, 0); clarity = value(.clarity, 0); sharpen = value(.sharpen, 0)
         texture = value(.texture, 0); dehaze = value(.dehaze, 0); profile = value(.profile, nil as PhotoEngine.Profile?)
-        noise = value(.noise, 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
+        noise = value(.noise, 0); noiseSet = value(.noiseSet, noise != 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
         calibration = value(.calibration, Calibration())
@@ -125,6 +157,7 @@ struct PhotoAdjustments: Codable, Hashable {
         vignetteMidpoint = value(.vignetteMidpoint, 50); vignetteFeather = value(.vignetteFeather, 50)
         vignetteRoundness = value(.vignetteRoundness, 100); vignetteHighlights = value(.vignetteHighlights, 0); vignetteStyle = value(.vignetteStyle, 1)
         grain = value(.grain, 0); grainSize = value(.grainSize, 25); grainRoughness = value(.grainRoughness, 50)
+        glow = value(.glow, 0); glowSize = value(.glowSize, 50); glowMode = value(.glowMode, GlowMode.screen); sharpenMask = value(.sharpenMask, 0)
         // Saved before versions: the first engine, unless nothing was changed.
         process = value(.process, 1)
         // Saved before Colour had its own slider: Apple's colour noise reduction was the Noise slider's, at least 50.
@@ -148,9 +181,16 @@ struct PhotoAdjustments: Codable, Hashable {
     func updated(isRaw: Bool) -> PhotoAdjustments {
         var copy = self
         if isRaw { copy.profile = PhotoEngine.Profile.starting(self, isRaw: true) }
+        // Before 5, negative Clarity was mostly a mist (a veil and blooming highlights); 5's is only less local contrast, so
+        // the mist becomes Glow (Screen, the closest: it only adds light), at about the same strength, and Clarity 0.
+        if process < 5, clarity < 0 { copy.glow = min(-clarity * Self.mistToGlow, 100); copy.glowMode = .screen; copy.clarity = 0 }
         copy.process = Self.currentProcess
         return copy
     }
+
+    /// Before something that brings the current engine along (a paste, a Lightroom preset): an older photo updated first, as
+    /// Update does, so its own look (a RAW's profile, the old mist) stays.
+    func current(isRaw: Bool) -> PhotoAdjustments { process < Self.currentProcess ? updated(isRaw: isRaw) : self }
 
     /// These settings for another photo, which keeps its own decoder.
     func keepingDecoder(of other: PhotoAdjustments) -> PhotoAdjustments {
@@ -325,8 +365,116 @@ struct PhotoCurves: Codable, Hashable {
     var green: [CurvePoint] = PhotoCurves.straight
     var blue: [CurvePoint] = PhotoCurves.straight
 
+    /// Process 5: the colour curves (Hue vs Hue …), nil when there are none (as before them).
+    var hue: HueCurves?
+    /// Process 5: the Colour Warper, nil when it's untouched.
+    var warp: ColourWarp?
+
     static let straight = [CurvePoint(x: 0, y: 0), CurvePoint(x: 1, y: 1)]
-    var isDefault: Bool { master == Self.straight && red == Self.straight && green == Self.straight && blue == Self.straight }
+    /// The four tone curves straight (what the engine's curve table is for).
+    var tonesDefault: Bool { master == Self.straight && red == Self.straight && green == Self.straight && blue == Self.straight }
+    var isDefault: Bool { tonesDefault && (hue?.isDefault ?? true) && (warp?.isDefault ?? true) }
+}
+
+/// Process 5's Colour Warper, as DaVinci Resolve's hue–saturation warper: a polar grid on the picture as shown (OkLCh hue
+/// round, C/L outwards, as the colour curves), 12 hues × 4 rings, each dot dragged to where its colour goes (a hue turn in
+/// degrees, a saturation ×). The centre (grey) stays. Between the dots, the curves' smooth spline that never overshoots, so a
+/// dot moves only the colours up to its neighbours.
+struct ColourWarp: Codable, Hashable {
+    static let hues = 12, rings = 4
+    /// Column i's hue (from OkLCh red, every 30°) and ring j's C/L.
+    static func hue(_ i: Int) -> Double { 29.2 + Double(i) * 360 / Double(hues) }
+    static func ring(_ j: Int) -> Double { 0.12 * Double(j + 1) }
+    static func index(_ i: Int, _ j: Int) -> Int { j * hues + i }
+    var turn = [Double](repeating: 0, count: hues * rings)
+    var scale = [Double](repeating: 1, count: hues * rings)
+    var isDefault: Bool { turn.allSatisfy { $0 == 0 } && scale.allSatisfy { $0 == 1 } }
+
+    init() {}
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let t = try c.decode([Double].self, forKey: .turn), s = try c.decode([Double].self, forKey: .scale)
+        // (A grid of another size, from a file: untouched rather than out of range.)
+        if t.count == Self.hues * Self.rings, s.count == t.count, (t + s).allSatisfy(\.isFinite) { turn = t; scale = s.map { max($0, 0) } }
+    }
+
+    /// The hue turn and saturation × at every `hueSteps` × `satSteps` (hue i·360/hueSteps, C/L j·`top`/(satSteps − 1)): along
+    /// each ring round the hues, then from grey (no change) out through the rings, holding past the last.
+    func table(hueSteps: Int, satSteps: Int, top: Double) -> [(turn: Double, scale: Double)] {
+        func round(_ values: [Double], _ j: Int) -> Curve {
+            let points = (0..<Self.hues).map { CurvePoint(x: Self.hue($0) / 360, y: values[Self.index($0, j)]) }
+            return Curve(points.suffix(2).map { CurvePoint(x: $0.x - 1, y: $0.y) } + points + points.prefix(2).map { CurvePoint(x: $0.x + 1, y: $0.y) })
+        }
+        let turns = (0..<Self.rings).map { round(turn, $0) }, scales = (0..<Self.rings).map { round(scale, $0) }
+        var out: [(Double, Double)] = []
+        for i in 0..<hueSteps {
+            var x = Double(i) / Double(hueSteps)
+            if x < Self.hue(0) / 360 { x += 1 }
+            let t = Curve([CurvePoint(x: 0, y: 0)] + (0..<Self.rings).map { CurvePoint(x: Self.ring($0), y: turns[$0].value(x)) })
+            let s = Curve([CurvePoint(x: 0, y: 1)] + (0..<Self.rings).map { CurvePoint(x: Self.ring($0), y: scales[$0].value(x)) })
+            for j in 0..<satSteps {
+                let at = top * Double(j) / Double(satSteps - 1)
+                out.append((t.value(at), max(s.value(at), 0)))
+            }
+        }
+        return out
+    }
+}
+
+/// Process 5's colour curves, as DaVinci Resolve's: Hue vs Hue, Hue vs Saturation, Hue vs Luminance, Luminance vs Saturation
+/// and Saturation vs Saturation, on the picture as shown (OkLCh, PhotoEngine `colourTools5`). Each is points (x along its
+/// axis, y 0.5 no change); the hue axes go round (x 0 and 1 are the same hue, OkLCh degrees / 360). Empty: flat.
+struct HueCurves: Codable, Hashable {
+    enum Kind: String, CaseIterable, Identifiable {
+        case hueHue, hueSat, hueLum, lumSat, satSat
+        var id: String { rawValue }
+        var periodic: Bool { self == .hueHue || self == .hueSat || self == .hueLum }
+        var path: WritableKeyPath<HueCurves, [CurvePoint]> {
+            switch self {
+            case .hueHue: \.hueHue
+            case .hueSat: \.hueSat
+            case .hueLum: \.hueLum
+            case .lumSat: \.lumSat
+            case .satSat: \.satSat
+            }
+        }
+        /// The points shown on a flat curve: the hues of red, yellow, green, cyan, blue and magenta (as Resolve's six), or
+        /// the two ends.
+        var start: [CurvePoint] {
+            periodic ? [29.2, 109.8, 142.5, 194.8, 264.1, 328.4].map { CurvePoint(x: $0 / 360, y: 0.5) }
+                : [CurvePoint(x: 0, y: 0.5), CurvePoint(x: 1, y: 0.5)]
+        }
+    }
+    var hueHue: [CurvePoint] = [], hueSat: [CurvePoint] = [], hueLum: [CurvePoint] = [], lumSat: [CurvePoint] = [], satSat: [CurvePoint] = []
+
+    static func flat(_ points: [CurvePoint]) -> Bool { points.allSatisfy { abs($0.y - 0.5) < 1e-9 } }
+    var isDefault: Bool { Kind.allCases.allSatisfy { Self.flat(self[keyPath: $0.path]) } }
+
+    /// The curve's height at x (0.5 none). The same smooth curve that never overshoots as the tone curves (Fritsch–Carlson),
+    /// on a hue axis through copies of the points a turn before and after, so it joins smoothly at 0 and 1.
+    static func value(_ points: [CurvePoint], periodic: Bool, at x: Double) -> Double {
+        let sorted = points.sorted { $0.x < $1.x }
+        guard let first = sorted.first else { return 0.5 }
+        guard sorted.count > 1 else { return first.y }
+        guard periodic else { return Curve(sorted).value(x) }
+        let around = sorted.suffix(2).map { CurvePoint(x: $0.x - 1, y: $0.y) } + sorted + sorted.prefix(2).map { CurvePoint(x: $0.x + 1, y: $0.y) }
+        let wrapped = x - floor(x)
+        return Curve(around).value(wrapped)
+    }
+    func value(_ kind: Kind, at x: Double) -> Double { Self.value(self[keyPath: kind.path], periodic: kind.periodic, at: x) }
+}
+
+/// Process 5's point colour (in the Colour Mixer): a colour picked on the photo (its OkLCh hue in degrees, C/L and L as
+/// shown) and what happens to it and the colours near it (Range 0…100 how near), -100…100 each.
+struct ColourPoint: Codable, Hashable, Identifiable {
+    var id = UUID()
+    var hue: Double, sat: Double, lum: Double
+    var range = ColourPoint.defaultRange
+    var hueShift = 0.0, saturation = 0.0, luminance = 0.0
+    /// (50 reached walls and hair from a pick on skin.)
+    static let defaultRange = 30.0
+    var changes: Bool { hueShift != 0 || saturation != 0 || luminance != 0 }
+    static let limit = 8
 }
 
 struct CurvePoint: Codable, Hashable {
@@ -358,8 +506,17 @@ struct ColorWheels: Codable, Hashable {
     /// Balance (-100 more shadows … 100 more highlights). Version 2 only.
     var blending = 50.0
     var balance = 0.0
+    /// Process 5: Lift, Gamma, Gain and Offset as DaVinci Resolve's primaries, beside the four above (which are then
+    /// Lightroom's Shadows, Midtones, Highlights and Global).
+    var primaries = Primaries()
     /// (Blending and Balance only shape the wheels: without a push they change nothing.)
-    var isDefault: Bool { lift.isDefault && gamma.isDefault && gain.isDefault && offset.isDefault }
+    var tonesDefault: Bool { lift.isDefault && gamma.isDefault && gain.isDefault && offset.isDefault }
+    var isDefault: Bool { tonesDefault && primaries.isDefault }
+
+    struct Primaries: Codable, Hashable {
+        var lift = Wheel(), gamma = Wheel(), gain = Wheel(), offset = Wheel()
+        var isDefault: Bool { lift.isDefault && gamma.isDefault && gain.isDefault && offset.isDefault }
+    }
 
     init() {}
 
@@ -368,7 +525,7 @@ struct ColorWheels: Codable, Hashable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { (try? c.decodeIfPresent(T.self, forKey: key)) ?? fallback }
         lift = value(.lift, Wheel()); gamma = value(.gamma, Wheel()); gain = value(.gain, Wheel()); offset = value(.offset, Wheel())
-        blending = value(.blending, 50); balance = value(.balance, 0)
+        blending = value(.blending, 50); balance = value(.balance, 0); primaries = value(.primaries, Primaries())
     }
 }
 
@@ -410,7 +567,12 @@ struct ColorMixer: Codable, Hashable {
     var saturation = [Double](repeating: 0, count: 8)
     var luminance = [Double](repeating: 0, count: 8)
 
-    var isDefault: Bool { hue.allSatisfy { $0 == 0 } && saturation.allSatisfy { $0 == 0 } && luminance.allSatisfy { $0 == 0 } }
+    /// Process 5: colours picked on the photo, each with its own changes (nil: none, as before them).
+    var points: [ColourPoint]?
+
+    /// The eight bands unchanged (what the engine's mixer is for).
+    var bandsDefault: Bool { hue.allSatisfy { $0 == 0 } && saturation.allSatisfy { $0 == 0 } && luminance.allSatisfy { $0 == 0 } }
+    var isDefault: Bool { bandsDefault && (points?.isEmpty ?? true) }
 
     /// The bands' share of a hue: smooth, overlapping bumps that add up to one.
     static func weights(_ h: Double) -> [Double] {
@@ -421,6 +583,18 @@ struct ColorMixer: Codable, Hashable {
         }
         let sum = max(raw.reduce(0, +), 1e-6)
         return raw.map { $0 / sum }
+    }
+
+    /// Process 5's bands (PhotoEngine `mixer5`): between two neighbouring centres a raised cosine, so a band is all of its own
+    /// hue and none of its neighbours'.
+    static func weights5(_ h: Double) -> [Double] {
+        let centres = Band.allCases.map(\.hue) + [385]
+        let hue = h.truncatingRemainder(dividingBy: 360) < 25 ? h.truncatingRemainder(dividingBy: 360) + 360 : h.truncatingRemainder(dividingBy: 360)
+        let i = (1..<8).last { hue >= centres[$0] } ?? 0
+        let a = pow(cos((hue - centres[i]) / (centres[i + 1] - centres[i]) * .pi / 2), 2)
+        var w = [Double](repeating: 0, count: 8)
+        w[i] = a; w[(i + 1) % 8] += 1 - a
+        return w
     }
 }
 
@@ -464,7 +638,7 @@ enum DevelopLUT {
                     for ri in 0..<size {
                         var r = Double(ri) * step, g = Double(gi) * step, b = Double(bi) * step
                         // Colour wheels (lift, gamma, gain, offset), per channel.
-                        if !w.isDefault {
+                        if !w.tonesDefault {
                             func grade(_ v: Double, _ lc: Double, _ gc: Double, _ kc: Double, _ oc: Double) -> Double {
                                 let liftAmount = (w.lift.master + lc) * 0.25
                                 let gainAmount = 1 + (w.gain.master + kc) * 0.5
@@ -481,12 +655,12 @@ enum DevelopLUT {
                         r = master.value(red.value(r)); g = master.value(green.value(g)); b = master.value(blue.value(b))
                         // The colour mixer, saturation and vibrance, in OkLCh (so hues hold). Vibrance lifts
                         // dull colours more than strong ones, and leaves skin tones mostly alone.
-                        if saturation != 1 || vibrance != 0 || !a.mixer.isDefault {
+                        if saturation != 1 || vibrance != 0 || !a.mixer.bandsDefault {
                             let (L0, A0, B0) = OkLab.from(decode(clamp(r)), decode(clamp(g)), decode(clamp(b)))
                             var L = L0, C = (A0 * A0 + B0 * B0).squareRoot()
                             var h = atan2(B0, A0) * 180 / .pi
                             if h < 0 { h += 360 }
-                            if !a.mixer.isDefault, C > 0.002 {
+                            if !a.mixer.bandsDefault, C > 0.002 {
                                 let w = ColorMixer.weights(h)
                                 var dh = 0.0, ds = 0.0, dl = 0.0
                                 for i in 0..<8 { dh += w[i] * a.mixer.hue[i]; ds += w[i] * a.mixer.saturation[i]; dl += w[i] * a.mixer.luminance[i] }

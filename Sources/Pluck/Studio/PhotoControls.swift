@@ -32,6 +32,8 @@ final class PhotoEditing {
     }
     /// The crop frame is shown on the picture.
     var cropping = false
+    /// The Colour Wheels' page chosen per photo (true: Lift, Gamma, Gain and Offset), for this session.
+    var wheelsPrimaries: [String: Bool] = [:]
     /// The photo is shown as shot while \ is held.
     var asShot = false
     /// Before and after on the loupe: off, one picture split by a line, or two side by side (B cycles).
@@ -57,6 +59,10 @@ final class PhotoEditing {
     /// The Colour Mixer's band shown, and dragging on the photo to change colours.
     var mixerBand = 0
     var mixerTargeting = false
+    /// Process 5's colour points: the one chosen (nil: the bands), picking one on the photo, and its area shown in red.
+    var mixerPoint: Int?
+    var pointPicking = false
+    var pointOverlay = false
     /// What's typed in the Adjust panel's search (tools whose name matches show).
     var toolQuery = ""
     /// The keyboard shortcuts shown (? or the … menu).
@@ -136,113 +142,194 @@ final class PhotoEditing {
 // MARK: - Curves
 
 /// Tone curves you shape by hand: click to add a point, drag it, double-click to remove it.
-/// One curve for brightness and one per colour.
+/// One curve for brightness and one per colour; process 5 adds the colour curves (Hue vs Hue, Hue vs Saturation, Hue vs
+/// Luminance, Luminance vs Saturation, Saturation vs Saturation), each drawn over its axes' colours, flat in the middle.
 struct CurvesEditor: View {
     let curves: PhotoCurves
+    /// The colour curves are offered (process 5, without film).
+    var colour = false
     let change: (PhotoCurves) -> Void
-    @State private var channel = Channel.master
+    @State private var channel: Channel
     @State private var dragging: Int?
+    /// A colour curve's point where the drag began (it moves by the drag, so a click doesn't make it jump).
+    @State private var origin: CurvePoint?
+    /// The Colour Warper shown instead of a curve.
+    @State private var warping: Bool
+
+    init(curves: PhotoCurves, colour: Bool = false, start: Channel = .master, warper: Bool = false, change: @escaping (PhotoCurves) -> Void) {
+        self.curves = curves
+        self.colour = colour
+        self.change = change
+        _channel = State(initialValue: start)
+        _warping = State(initialValue: warper)
+    }
 
     enum Channel: String, CaseIterable, Identifiable {
-        case master, red, green, blue
+        case master, red, green, blue, hueHue, hueSat, hueLum, lumSat, satSat
         var id: String { rawValue }
         var color: Color {
             switch self {
-            case .master: .primary
             case .red: .red
             case .green: .green
             case .blue: .blue
+            default: .primary
+            }
+        }
+        var kind: HueCurves.Kind? { HueCurves.Kind(rawValue: rawValue) }
+        var title: Text {
+            switch self {
+            case .master: Text("Brightness")
+            case .red: Text("Red")
+            case .green: Text("Green")
+            case .blue: Text("Blue")
+            case .hueHue: Text("Hue vs Hue")
+            case .hueSat: Text("Hue vs Saturation")
+            case .hueLum: Text("Hue vs Luminance")
+            case .lumSat: Text("Luminance vs Saturation")
+            case .satSat: Text("Saturation vs Saturation")
             }
         }
         var path: WritableKeyPath<PhotoCurves, [CurvePoint]> {
             switch self {
-            case .master: \.master
             case .red: \.red
             case .green: \.green
             case .blue: \.blue
+            default: \.master
             }
         }
     }
 
-    private var points: [CurvePoint] { curves[keyPath: channel.path].sorted { $0.x < $1.x } }
+    private var shownChannel: Channel { colour || channel.kind == nil ? channel : .master }
+
+    private func stored(_ c: Channel) -> [CurvePoint] {
+        if let kind = c.kind { return curves.hue?[keyPath: kind.path] ?? [] }
+        return curves[keyPath: c.path]
+    }
+    private func edited(_ c: Channel) -> Bool { c.kind == nil ? stored(c) != PhotoCurves.straight : !HueCurves.flat(stored(c)) }
+
+    /// The points shown (a flat colour curve shows its starting points).
+    private var points: [CurvePoint] {
+        let c = shownChannel, list = stored(c)
+        return (list.isEmpty ? c.kind?.start ?? list : list).sorted { $0.x < $1.x }
+    }
+
+    private func height(_ list: [CurvePoint], _ c: Channel, _ x: Double) -> Double {
+        guard let kind = c.kind else { return Curve(list).value(x) }
+        return HueCurves.value(list, periodic: kind.periodic, at: x)
+    }
 
     var body: some View {
+        let c = shownChannel, warper = warping && colour, warped = !(curves.warp?.isDefault ?? true)
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-                ForEach(Channel.allCases) { item in
-                    Button { channel = item } label: {
-                        Circle()
-                            .fill(item == .master ? AnyShapeStyle(.white) : AnyShapeStyle(item.color))
-                            .frame(width: 12, height: 12)
-                            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3).opacity(channel == item ? 1 : 0))
+            HStack(spacing: colour ? 2 : 4) {
+                ForEach(Channel.allCases.filter { colour || $0.kind == nil }) { item in
+                    Button { channel = item; warping = false } label: {
+                        Group {
+                            if let kind = item.kind {
+                                CurveBackdrop(kind: kind).frame(width: 14, height: 12).clipShape(.rect(cornerRadius: 3))
+                            } else {
+                                Circle().fill(item == .master ? AnyShapeStyle(.white) : AnyShapeStyle(item.color)).frame(width: 12, height: 12)
+                            }
+                        }
+                        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(Color.accentColor, lineWidth: 2).padding(-3).opacity(c == item && !warper ? 1 : 0))
+                        .overlay(alignment: .bottom) {
+                            Circle().fill(Color.accentColor).frame(width: 3, height: 3).offset(y: 6).opacity((item != c || warper) && edited(item) ? 1 : 0)
+                        }
+                        .padding(4)
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .help(item.title)
+                    .accessibilityLabel(item.title)
+                    .accessibilityAddTraits(c == item && !warper ? .isSelected : [])
+                    if item == .blue, colour { Divider().frame(height: 12) }
+                }
+                if colour {
+                    Button { warping = true } label: {
+                        ColourWarper.disc.frame(width: 12, height: 12).clipShape(Circle())
+                            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3).opacity(warper ? 1 : 0))
+                            .overlay(alignment: .bottom) {
+                                Circle().fill(Color.accentColor).frame(width: 3, height: 3).offset(y: 6).opacity(!warper && warped ? 1 : 0)
+                            }
                             .padding(4)
                             .contentShape(.rect)
                     }
                     .buttonStyle(.plain)
-                    .help(item == .master ? Text("Brightness") : Text(item.rawValue.capitalized))
+                    .help("Colour Warper")
+                    .accessibilityLabel(Text("Colour Warper"))
+                    .accessibilityAddTraits(warper ? .isSelected : [])
                 }
                 Spacer()
-                if curves[keyPath: channel.path] != PhotoCurves.straight {
-                    Button("Reset") {
-                        var new = curves
-                        new[keyPath: channel.path] = PhotoCurves.straight
-                        change(new)
-                    }
-                    .buttonStyle(.link)
-                    .font(.caption)
+                if warper ? warped : edited(c) {
+                    // (An icon: with the colour curves' swatches the row has no room for the word.)
+                    Button { if warper { var new = curves; new.warp = nil; change(new) } else { set(c.kind == nil ? PhotoCurves.straight : [], c) } } label: { Image(systemName: "arrow.counterclockwise") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Reset")
+                        .accessibilityLabel(Text("Reset"))
                 }
             }
+            if warper {
+                ColourWarper(warp: curves.warp ?? ColourWarp()) { w in var new = curves; new.warp = w.isDefault ? nil : w; change(new) }
+            } else {
             GeometryReader { geo in
                 let size = geo.size
                 ZStack {
                     RoundedRectangle(cornerRadius: Design.Radius.small).fill(.black.opacity(0.25))
-                    grid(size)
-                    // The other channels, faintly.
-                    ForEach(Channel.allCases.filter { $0 != channel && curves[keyPath: $0.path] != PhotoCurves.straight }) { other in
-                        line(curves[keyPath: other.path], size).stroke(other.color.opacity(0.35), lineWidth: 1)
+                    if let kind = c.kind {
+                        CurveBackdrop(kind: kind).opacity(0.55).clipShape(.rect(cornerRadius: Design.Radius.small))
                     }
-                    line(points, size).stroke(channel.color, lineWidth: 1.5)
+                    grid(size, flat: c.kind != nil)
+                    // The other channels, faintly.
+                    if c.kind == nil {
+                        ForEach(Channel.allCases.filter { $0.kind == nil && $0 != c && edited($0) }) { other in
+                            line(stored(other), other, size).stroke(other.color.opacity(0.35), lineWidth: 1)
+                        }
+                    }
+                    line(points, c, size).stroke(c.kind == nil ? c.color : .white, lineWidth: 1.5)
                     ForEach(points.indices, id: \.self) { index in
                         let p = points[index]
                         Circle()
-                            .fill(dragging == index ? Color.accentColor : channel.color)
+                            .fill(dragging == index ? Color.accentColor : c.kind == nil ? c.color : .white)
                             .frame(width: 9, height: 9)
+                            .shadow(color: .black.opacity(c.kind == nil ? 0 : 0.5), radius: 1)
                             .position(x: p.x * size.width, y: (1 - p.y) * size.height)
                     }
                 }
                 .contentShape(.rect)
-                .gesture(drag(size))
-                .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in remove(near: tap.location, size) })
+                .gesture(drag(size, c))
+                .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in remove(near: tap.location, size, c) })
             }
             .aspectRatio(1, contentMode: .fit)
+            }
         }
         .padding(.horizontal, 8)
     }
 
-    private func grid(_ size: CGSize) -> some View {
+    private func grid(_ size: CGSize, flat: Bool) -> some View {
         Path { path in
             for i in 1..<4 {
                 let x = size.width * Double(i) / 4, y = size.height * Double(i) / 4
                 path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
                 path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y))
             }
-            path.move(to: CGPoint(x: 0, y: size.height)); path.addLine(to: CGPoint(x: size.width, y: 0))
+            if !flat { path.move(to: CGPoint(x: 0, y: size.height)); path.addLine(to: CGPoint(x: size.width, y: 0)) }
         }
-        .stroke(.white.opacity(0.08), lineWidth: 1)
+        .stroke(.white.opacity(flat ? 0.14 : 0.08), lineWidth: 1)
     }
 
-    private func line(_ points: [CurvePoint], _ size: CGSize) -> Path {
+    private func line(_ points: [CurvePoint], _ c: Channel, _ size: CGSize) -> Path {
         let curve = Curve(points)
         return Path { path in
-            for i in 0...64 {
-                let x = Double(i) / 64, y = min(max(curve.value(x), 0), 1)
+            for i in 0...128 {
+                let x = Double(i) / 128, y = min(max(c.kind == nil ? curve.value(x) : height(points, c, x), 0), 1)
                 let point = CGPoint(x: x * size.width, y: (1 - y) * size.height)
                 if i == 0 { path.move(to: point) } else { path.addLine(to: point) }
             }
         }
     }
 
-    private func drag(_ size: CGSize) -> some Gesture {
+    private func drag(_ size: CGSize, _ c: Channel) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
                 var list = points
@@ -253,32 +340,52 @@ struct CurvesEditor: View {
                        distance(list[near], start, size) < 12 {
                         dragging = near
                     } else {
-                        list.append(CurvePoint(x: x, y: y))
+                        // (A colour curve's new point goes on the curve, then moves with the drag.)
+                        let at = c.kind?.periodic == true ? min(x, 0.999) : x
+                        list.append(CurvePoint(x: at, y: c.kind == nil ? y : height(list, c, at)))
                         list.sort { $0.x < $1.x }
-                        dragging = list.firstIndex { $0.x == x }
+                        dragging = list.firstIndex { $0.x == at }
                     }
+                    origin = dragging.map { list[$0] }
                 }
                 guard let index = dragging, list.indices.contains(index) else { return }
-                // The ends stay at the ends; the others stay between their neighbours.
-                let isEnd = index == 0 || index == list.count - 1
-                let low = index == 0 ? 0 : list[index - 1].x + 0.01, high = index == list.count - 1 ? 1 : list[index + 1].x - 0.01
-                list[index] = CurvePoint(x: isEnd ? list[index].x : min(max(x, low), high), y: y)
-                set(list)
+                // The ends stay at the ends (a hue curve has none: it goes round); the others stay between their neighbours.
+                let round = c.kind?.periodic == true
+                let isEnd = !round && (index == 0 || index == list.count - 1)
+                let low = index == 0 ? 0 : list[index - 1].x + 0.01, high = index == list.count - 1 ? (round ? 0.999 : 1) : list[index + 1].x - 0.01
+                if c.kind != nil, let origin {
+                    let moved = CGPoint(x: origin.x + value.translation.width / size.width, y: origin.y - value.translation.height / size.height)
+                    list[index] = CurvePoint(x: isEnd ? origin.x : min(max(moved.x, low), high), y: min(max(moved.y, 0), 1))
+                } else {
+                    list[index] = CurvePoint(x: isEnd ? list[index].x : min(max(x, low), high), y: y)
+                }
+                set(list, c)
             }
-            .onEnded { _ in dragging = nil }
+            .onEnded { _ in
+                dragging = nil; origin = nil
+                // (Colour curves all flat again: none, as before they were touched.)
+                if let hue = curves.hue, hue.isDefault { var new = curves; new.hue = nil; change(new) }
+            }
     }
 
-    private func remove(near location: CGPoint, _ size: CGSize) {
+    private func remove(near location: CGPoint, _ size: CGSize, _ c: Channel) {
         var list = points
+        let round = c.kind?.periodic == true
         guard let index = list.indices.min(by: { distance(list[$0], location, size) < distance(list[$1], location, size) }),
-              distance(list[index], location, size) < 12, index != 0, index != list.count - 1 else { return }
+              distance(list[index], location, size) < 12, round || (index != 0 && index != list.count - 1) else { return }
         list.remove(at: index)
-        set(list)
+        set(list, c)
     }
 
-    private func set(_ list: [CurvePoint]) {
+    private func set(_ list: [CurvePoint], _ c: Channel) {
         var new = curves
-        new[keyPath: channel.path] = list
+        if let kind = c.kind {
+            var hue = new.hue ?? HueCurves()
+            hue[keyPath: kind.path] = list
+            new.hue = hue.isDefault ? nil : hue
+        } else {
+            new[keyPath: c.path] = list
+        }
         change(new)
     }
 
@@ -287,22 +394,157 @@ struct CurvesEditor: View {
     }
 }
 
-// MARK: - Colour wheels
-
-/// Lift, gamma, gain and offset, as in DaVinci Resolve: drag the dot towards a colour to push the
-/// shadows, midtones, highlights or everything that way; the slider under it is the brightness.
-struct ColorWheelsEditor: View {
-    let wheels: ColorWheels
-    let change: (ColorWheels) -> Void
+/// What a colour curve's axes mean, as colour: the hues across (OkLCh, as the engine's), fading down to grey (Saturation)
+/// or dark (Luminance); black to white (Lum vs Sat) or grey to red (Sat vs Sat), colour rising up the curve.
+struct CurveBackdrop: View {
+    let kind: HueCurves.Kind
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 12) {
-            wheel("Shadows", \.lift)
-            wheel("Midtones", \.gamma)
-            wheel("Highlights", \.gain)
-            wheel("Offset", \.offset)
+        let hues = LinearGradient(colors: stride(from: 0.0, through: 360, by: 20).map { PhotoMaskPanel.swatch($0) }, startPoint: .leading, endPoint: .trailing)
+        ZStack {
+            switch kind {
+            case .hueHue: hues
+            case .hueSat: hues; LinearGradient(colors: [.clear, Color(white: 0.45)], startPoint: .top, endPoint: .bottom)
+            case .hueLum: hues; LinearGradient(colors: [.white.opacity(0.35), .clear, .black], startPoint: .top, endPoint: .bottom)
+            case .lumSat:
+                LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(colors: [PhotoMaskPanel.swatch(40).opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
+            case .satSat: LinearGradient(colors: [Color(white: 0.5), PhotoMaskPanel.swatch(29)], startPoint: .leading, endPoint: .trailing)
+            }
         }
-        .padding(.horizontal, 8)
+    }
+}
+
+/// Process 5's Colour Warper: the hue–saturation disc (OkLCh hue round, C/L out to the rim at `PhotoEngine.satAxis`) and its
+/// grid of dots, each drawn where its colour now goes. Drag a dot to move that colour (round: its hue; in and out: its
+/// saturation); double-click it to put it back.
+struct ColourWarper: View {
+    let warp: ColourWarp
+    let change: (ColourWarp) -> Void
+    @State private var dragging: Int?
+    /// The dot's place where the drag began (it moves by the drag, so a click doesn't make it jump).
+    @State private var origin: CGPoint?
+
+    /// The hues round as the dots read them (hue counter-clockwise from the right), greying to the centre.
+    static var disc: some View {
+        ZStack {
+            // (An angular gradient runs clockwise on screen.)
+            AngularGradient(colors: stride(from: 0.0, through: 360, by: 15).map { PhotoMaskPanel.swatch(360 - $0) }, center: .center)
+            EllipticalGradient(colors: [Color(white: 0.5), Color(white: 0.5).opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
+        }
+    }
+
+    private func place(_ k: Int, _ r: Double, _ c: CGPoint) -> CGPoint {
+        let i = k % ColourWarp.hues, j = k / ColourWarp.hues
+        let h = (ColourWarp.hue(i) + warp.turn[k]) * .pi / 180, d = ColourWarp.ring(j) * warp.scale[k] / PhotoEngine.satAxis * r
+        return CGPoint(x: c.x + d * cos(h), y: c.y - d * sin(h))
+    }
+
+    var body: some View {
+        GeometryReader { geo in
+            let r = min(geo.size.width, geo.size.height) / 2 - 6, c = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
+            let dots = (0..<warp.turn.count).map { place($0, r, c) }
+            ZStack {
+                Self.disc.opacity(0.6).clipShape(Circle()).frame(width: 2 * r, height: 2 * r).position(c)
+                Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1).frame(width: 2 * r, height: 2 * r).position(c)
+                // The grid as it's bent: each ring round, each hue's spoke out from grey.
+                Path { path in
+                    for j in 0..<ColourWarp.rings {
+                        path.addLines((0..<ColourWarp.hues).map { dots[ColourWarp.index($0, j)] }); path.closeSubpath()
+                    }
+                    for i in 0..<ColourWarp.hues { path.addLines([c] + (0..<ColourWarp.rings).map { dots[ColourWarp.index(i, $0)] }) }
+                }
+                .stroke(.white.opacity(0.4), lineWidth: 1)
+                ForEach(dots.indices, id: \.self) { k in
+                    let moved = warp.turn[k] != 0 || warp.scale[k] != 1
+                    Circle()
+                        .fill(dragging == k ? Color.accentColor : moved ? .white : .white.opacity(0.55))
+                        .frame(width: 7, height: 7)
+                        .shadow(color: .black.opacity(0.5), radius: 1)
+                        .position(dots[k])
+                }
+            }
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    if dragging == nil {
+                        guard let near = dots.indices.min(by: { hypot(dots[$0].x - value.startLocation.x, dots[$0].y - value.startLocation.y) < hypot(dots[$1].x - value.startLocation.x, dots[$1].y - value.startLocation.y) }),
+                              hypot(dots[near].x - value.startLocation.x, dots[near].y - value.startLocation.y) < 10 else { return }
+                        dragging = near; origin = dots[near]
+                    }
+                    // (A click alone, or the first of a double-click, changes nothing.)
+                    guard let k = dragging, let origin, value.translation != .zero else { return }
+                    let dx = origin.x + value.translation.width - c.x, dy = c.y - (origin.y + value.translation.height)
+                    var turn = atan2(dy, dx) * 180 / .pi - ColourWarp.hue(k % ColourWarp.hues)
+                    turn -= 360 * (turn / 360).rounded()
+                    var new = warp
+                    new.turn[k] = turn
+                    new.scale[k] = min(hypot(dx, dy), r) / r * PhotoEngine.satAxis / ColourWarp.ring(k / ColourWarp.hues)
+                    change(new)
+                }
+                .onEnded { _ in dragging = nil; origin = nil })
+            .simultaneousGesture(SpatialTapGesture(count: 2).onEnded { tap in
+                guard let k = dots.indices.first(where: { hypot(dots[$0].x - tap.location.x, dots[$0].y - tap.location.y) < 10 }) else { return }
+                var new = warp; new.turn[k] = 0; new.scale[k] = 1; change(new)
+            })
+        }
+        .aspectRatio(1, contentMode: .fit)
+        .accessibilityElement()
+        .accessibilityLabel(Text("Colour Warper"))
+    }
+}
+
+// MARK: - Colour wheels
+
+/// Drag a wheel's dot towards a colour to push its part of the picture that way; the slider under it is the brightness.
+/// Process 5: two pages, chosen per photo: Lightroom's Shadows, Midtones, Highlights and Global (with Blending and Balance
+/// once one is pushed), and DaVinci Resolve's Lift, Gamma, Gain and Offset. Before, the four wheels only.
+struct ColorWheelsEditor: View {
+    let wheels: ColorWheels
+    var path: String?
+    var process = PhotoAdjustments.currentProcess
+    let change: (ColorWheels) -> Void
+    @State private var editing = PhotoEditing.shared
+
+    /// The page shown: the one last chosen for this photo, else Primaries when only they are pushed.
+    private var primariesShown: Bool {
+        process >= 5 && (path.flatMap { editing.wheelsPrimaries[$0] } ?? (wheels.tonesDefault && !wheels.primaries.isDefault))
+    }
+
+    var body: some View {
+        let primaries = primariesShown
+        VStack(spacing: 8) {
+            if process >= 5 {
+                Picker("Colour Wheels", selection: Binding(get: { primaries }, set: { new in if let path { editing.wheelsPrimaries[path] = new } })) {
+                    Image(systemName: "circle.lefthalf.filled").tag(false).help("Colour Grading")
+                    Image(systemName: "dial.medium").tag(true).help("Lift, Gamma, Gain")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .fixedSize()
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 12) {
+                if primaries {
+                    wheel("Lift", \.primaries.lift)
+                    wheel("Gamma", \.primaries.gamma)
+                    wheel("Gain", \.primaries.gain)
+                    wheel("Offset", \.primaries.offset)
+                } else {
+                    wheel("Shadows", \.lift)
+                    wheel("Midtones", \.gamma)
+                    wheel("Highlights", \.gain)
+                    wheel("Offset", \.offset)
+                }
+            }
+            .padding(.horizontal, 8)
+            if process >= 5, !primaries, !wheels.tonesDefault {
+                VStack(spacing: 0) {
+                    AdjustSlider(title: "Blending", value: wheels.blending, range: 0...100, neutral: 50, format: "%.0f") { v in var new = wheels; new.blending = v; change(new) }
+                    AdjustSlider(title: "Balance", value: wheels.balance, range: -100...100) { v in var new = wheels; new.balance = v; change(new) }
+                }
+            }
+        }
     }
 
     private func wheel(_ title: LocalizedStringKey, _ path: WritableKeyPath<ColorWheels, ColorWheels.Wheel>) -> some View {
@@ -561,22 +803,27 @@ struct FoldSection<Content: View>: View {
 
 // MARK: - Colour mixer
 
-/// Hue, saturation and luminance for eight bands of colour.
+/// Hue, saturation and luminance for eight bands of colour. Process 5 (`points`): and colours picked on the photo (the
+/// eyedropper), each with its own Hue, Saturation, Luminance and Range; a chip chosen shows its sliders instead of the band's.
 struct ColorMixerEditor: View {
     let mixer: ColorMixer
+    var points = false
     let change: (ColorMixer) -> Void
     @State private var editing = PhotoEditing.shared
 
     var body: some View {
         let band = ColorMixer.Band(rawValue: editing.mixerBand) ?? .red
+        let list = points ? mixer.points ?? [] : []
+        let chosen = editing.mixerPoint.flatMap { $0 < list.count ? $0 : nil }
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 0) {
                 ForEach(ColorMixer.Band.allCases) { item in
                     let edited = mixer.hue[item.rawValue] != 0 || mixer.saturation[item.rawValue] != 0 || mixer.luminance[item.rawValue] != 0
-                    Button { editing.mixerBand = item.rawValue } label: {
+                    let on = item == band && chosen == nil
+                    Button { editing.mixerBand = item.rawValue; editing.mixerPoint = nil } label: {
                         VStack(spacing: 3) {
                             Circle().fill(Self.colour(item)).frame(width: 18, height: 18)
-                                .overlay(Circle().strokeBorder(.white, lineWidth: item == band ? 2 : 0))
+                                .overlay(Circle().strokeBorder(.white, lineWidth: on ? 2 : 0))
                                 .shadow(color: .black.opacity(0.3), radius: 1)
                             Circle().fill(edited ? Color.accentColor : .clear).frame(width: 4, height: 4)
                         }
@@ -586,19 +833,80 @@ struct ColorMixerEditor: View {
                     .buttonStyle(.plain)
                     .help(item.title)
                     .accessibilityLabel(Text(item.title))
-                    .accessibilityAddTraits(item == band ? .isSelected : [])
+                    .accessibilityAddTraits(on ? .isSelected : [])
                 }
-                Toggle(isOn: $editing.mixerTargeting) { Image(systemName: "scope") }
+                Toggle(isOn: Binding(get: { editing.mixerTargeting }, set: { editing.mixerTargeting = $0; if $0 { editing.pointPicking = false } })) {
+                    Image(systemName: "scope")
+                }
                     .toggleStyle(.button)
                     .controlSize(.small)
                     .help("Drag on the photo: up and down changes the colour under the pointer (saturation; with ⌥ luminance, with ⇧ hue)")
                     .accessibilityLabel(Text("Change a colour by dragging on the photo"))
             }
             .padding(.horizontal, 8)
-            AdjustSlider(title: "Hue", value: mixer.hue[band.rawValue], range: -100...100, track: .hues) { set(\.hue, band, $0) }
-            AdjustSlider(title: "Saturation", value: mixer.saturation[band.rawValue], range: -100...100, track: .colour(Self.colour(band))) { set(\.saturation, band, $0) }
-            AdjustSlider(title: "Luminance", value: mixer.luminance[band.rawValue], range: -100...100) { set(\.luminance, band, $0) }
+            if points { pointRow(list, chosen) }
+            if let chosen {
+                let point = list[chosen]
+                AdjustSlider(title: "Hue", value: point.hueShift, range: -100...100, track: .hues) { v in setPoint(chosen) { $0.hueShift = v } }
+                AdjustSlider(title: "Saturation", value: point.saturation, range: -100...100, track: .colour(Self.colour(point))) { v in setPoint(chosen) { $0.saturation = v } }
+                AdjustSlider(title: "Luminance", value: point.luminance, range: -100...100) { v in setPoint(chosen) { $0.luminance = v } }
+                AdjustSlider(title: "Range", value: point.range, range: 0...100, neutral: ColourPoint.defaultRange, format: "%.0f") { v in setPoint(chosen) { $0.range = v } }
+            } else {
+                AdjustSlider(title: "Hue", value: mixer.hue[band.rawValue], range: -100...100, track: .hues) { set(\.hue, band, $0) }
+                AdjustSlider(title: "Saturation", value: mixer.saturation[band.rawValue], range: -100...100, track: .colour(Self.colour(band))) { set(\.saturation, band, $0) }
+                AdjustSlider(title: "Luminance", value: mixer.luminance[band.rawValue], range: -100...100) { set(\.luminance, band, $0) }
+            }
         }
+    }
+
+    /// The eyedropper, the picked colours as chips, and (one chosen) its area in red while held, and taking it away.
+    private func pointRow(_ list: [ColourPoint], _ chosen: Int?) -> some View {
+        HStack(spacing: 6) {
+            Toggle(isOn: Binding(get: { editing.pointPicking }, set: { editing.pointPicking = $0; if $0 { editing.mixerTargeting = false } })) {
+                Image(systemName: "eyedropper")
+            }
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .disabled(list.count >= ColourPoint.limit)
+            .help("Pick a colour on the photo")
+            .accessibilityLabel(Text("Pick a colour on the photo"))
+            ForEach(list.indices, id: \.self) { i in
+                Button { editing.mixerPoint = i } label: {
+                    Circle().fill(Self.colour(list[i])).frame(width: 16, height: 16)
+                        .overlay(Circle().strokeBorder(.white, lineWidth: chosen == i ? 2 : 0))
+                        .shadow(color: .black.opacity(0.3), radius: 1)
+                        .overlay(alignment: .bottom) {
+                            Circle().fill(Color.accentColor).frame(width: 3, height: 3).offset(y: 5).opacity(list[i].changes ? 1 : 0)
+                        }
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Picked colour"))
+                .accessibilityAddTraits(chosen == i ? .isSelected : [])
+            }
+            Spacer()
+            if let chosen {
+                Image(systemName: editing.pointOverlay ? "eye.fill" : "eye")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(.rect)
+                    .onLongPressGesture(minimumDuration: 0, perform: {}, onPressingChanged: { editing.pointOverlay = $0 })
+                    .help("Hold to see what this colour reaches")
+                    .accessibilityLabel(Text("Hold to see what this colour reaches"))
+                Button {
+                    var new = mixer
+                    new.points?.remove(at: chosen)
+                    if new.points?.isEmpty == true { new.points = nil }
+                    editing.mixerPoint = nil; editing.pointOverlay = false
+                    change(new)
+                } label: { Image(systemName: "minus.circle") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Remove")
+                .accessibilityLabel(Text("Remove"))
+            }
+        }
+        .padding(.horizontal, 8)
     }
 
     private func set(_ aspect: WritableKeyPath<ColorMixer, [Double]>, _ band: ColorMixer.Band, _ value: Double) {
@@ -607,8 +915,76 @@ struct ColorMixerEditor: View {
         change(new)
     }
 
+    private func setPoint(_ index: Int, _ body: (inout ColourPoint) -> Void) {
+        var new = mixer
+        guard var list = new.points, list.indices.contains(index) else { return }
+        body(&list[index])
+        new.points = list
+        change(new)
+    }
+
     /// The band's colour (its OkLCh hue, as a swatch).
     static func colour(_ band: ColorMixer.Band) -> Color { PhotoMaskPanel.swatch(band.hue) }
+    /// A picked colour as it was on the photo.
+    static func colour(_ point: ColourPoint) -> Color {
+        let L = min(max(point.lum, 0.2), 0.95), C = point.sat * L, r = point.hue * .pi / 180
+        let (lr, lg, lb) = OkLab.to(L, C * cos(r), C * sin(r))
+        func e(_ v: Double) -> Double { DevelopLUT.encode(min(max(v, 0), 1)) }
+        return Color(red: e(lr), green: e(lg), blue: e(lb))
+    }
+}
+
+/// The eyedropper on the photo (Colour Mixer, process 5): a click picks the colour there as it shows without the colour
+/// points and curves (what they read), as a new point, chosen.
+struct PointPicker: View {
+    let path: String
+    let record: PhotoRecord
+    let frame: CGRect
+    @State private var editing = PhotoEditing.shared
+    @State private var catalog = PhotoCatalog.shared
+
+    var body: some View {
+        Color.clear
+            .contentShape(.rect)
+            .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+            .gesture(SpatialTapGesture().onEnded { tap in pick(at: tap.location) })
+    }
+
+    private func pick(at location: CGPoint) {
+        let at = CGPoint(x: (location.x - frame.minX) / max(frame.width, 1), y: (location.y - frame.minY) / max(frame.height, 1))
+        guard (0...1).contains(at.x), (0...1).contains(at.y) else { return }
+        let path = self.path
+        var plain = record
+        plain.adjust.mixer.points = nil
+        plain.adjust.curves.hue = nil; plain.adjust.curves.warp = nil
+        let record = plain
+        Task {
+            guard let colour = await Task.detached(priority: .userInitiated, operation: { PhotoRender.sample(path, record: record, at: at) }).value
+            else { return }
+            let point = ColourPoint.picked(colour)
+            var count = 0
+            catalog.update([path]) {
+                var list = $0.adjust.mixer.points ?? []
+                if list.count < ColourPoint.limit { list.append(point) }
+                count = list.count
+                $0.adjust.mixer.points = list
+                $0.edited = .now
+            }
+            editing.mixerPoint = count - 1
+            editing.pointPicking = false
+        }
+    }
+}
+
+extension ColourPoint {
+    /// A point at this colour (linear sRGB, as shown): its OkLCh hue, C/L and L, as the engine reads them.
+    static func picked(_ colour: SIMD3<Double>) -> ColourPoint {
+        let c = colour.clamped(lowerBound: SIMD3(repeating: 0), upperBound: SIMD3(repeating: 1))
+        let (L, a, b) = OkLab.from(c.x, c.y, c.z)
+        var hue = atan2(b, a) * 180 / .pi
+        if hue < 0 { hue += 360 }
+        return ColourPoint(hue: hue, sat: (a * a + b * b).squareRoot() / max(L, 0.03), lum: L)
+    }
 }
 
 /// Dragging on the photo to change the colour under the pointer (the mixer's target): up adds,
@@ -642,15 +1018,20 @@ struct MixerTarget: View {
         let flags = NSEvent.modifierFlags
         let aspect: WritableKeyPath<ColorMixer, [Double]> = flags.contains(.option) ? \.luminance : flags.contains(.shift) ? \.hue : \.saturation
         let at = CGPoint(x: (location.x - frame.minX) / max(frame.width, 1), y: (location.y - frame.minY) / max(frame.height, 1))
-        let path = self.path, record = self.record
+        let path = self.path
+        // (Process 5's mixer works on the picture as shown: the colour it reads is the shown one before the mixer.)
+        let mixer = self.record.adjust.mixer
+        var plain = self.record
+        if plain.adjust.process >= 5 { plain.adjust.mixer = ColorMixer(); plain.adjust.curves.hue = nil; plain.adjust.curves.warp = nil }
+        let record = plain
         Task {
             guard let colour = await Task.detached(priority: .userInitiated, operation: { PhotoRender.sample(path, record: record, at: at) }).value
             else { return }
             let seen = PhotoRender.describe(colour)
-            var weights = ColorMixer.weights(seen.hue)
+            var weights = record.adjust.process >= 5 ? ColorMixer.weights5(seen.hue) : ColorMixer.weights(seen.hue)
             let top = max(weights.max() ?? 1, 0.0001)
             weights = weights.map { $0 / top }
-            start = (weights, record.adjust.mixer, aspect)
+            start = (weights, mixer, aspect)
             if let strongest = weights.indices.max(by: { weights[$0] < weights[$1] }) { editing.mixerBand = strongest }
             apply()
         }

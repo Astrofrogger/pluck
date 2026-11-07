@@ -41,6 +41,8 @@ enum Prefs {
     static let aiAutoTranscribe = "aiAutoTranscribe"
     static let visionModelEnabled = "visionModelEnabled"
     static let visionModel = "visionModel"
+    /// The Photo page's favourite film stock (its id): Film turned on for a photo without film settings starts on it.
+    static let favouriteFilm = "favouriteFilm"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [

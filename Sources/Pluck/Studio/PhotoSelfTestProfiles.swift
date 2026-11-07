@@ -240,9 +240,9 @@ extension PhotoSelfTest {
         let reset = PhotoAdjustments()  // (the inspector's Reset)
         let saved = (try? JSONEncoder().encode(catalog.record(from).adjust)).flatMap { try? JSONDecoder().decode(PhotoAdjustments.self, from: $0) }
         let unknown = try? JSONDecoder().decode(PhotoAdjustments.self, from: Data(#"{"exposure":0.4,"profile":"calibrated","process":3}"#.utf8))
-        check("new profiles copy, paste and reset", pasted == .portrait && PhotoEngine.Profile.starting(reset, isRaw: true) == .adobe
+        check("new profiles copy, paste and reset", pasted == .portrait && PhotoEngine.Profile.starting(reset, isRaw: true) == .standard
               && saved?.profile == .portrait && unknown?.profile == nil && unknown?.exposure == 0.4,
-              "pasted Portrait, reset to Classic, saved and read back, an unknown one read as none; got \(String(describing: pasted)), \(String(describing: saved?.profile)), \(String(describing: unknown))")
+              "pasted Portrait, reset to Standard (process 5's start), saved and read back, an unknown one read as none; got \(String(describing: pasted)), \(String(describing: saved?.profile)), \(String(describing: unknown))")
         let names = ["Adobe Color": PhotoEngine.Profile.adobe, "Adobe Standard": .adobe, "Adobe Neutral": .adobe, "Adobe Monochrome": .monochrome,
                      "Adobe Vivid": .vivid, "Adobe Landscape": .landscape, "Adobe Portrait": .portrait]
         let wrong = names.filter { LightroomPresets.adjustments(["CameraProfile": $0.key]).0.profile != $0.value }.map(\.key)

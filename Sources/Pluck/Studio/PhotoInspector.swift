@@ -126,7 +126,7 @@ struct PhotoInspector: View {
         .background(.background.secondary)
         .onChange(of: tab) { _, now in
             if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil }
-            if now != .adjust { editing.mixerTargeting = false }
+            if now != .adjust { editing.mixerTargeting = false; editing.pointPicking = false; editing.pointOverlay = false }
         }
     }
 
@@ -321,8 +321,8 @@ struct PhotoInspector: View {
                 // A creative profile from Lightroom: how much of it.
                 slider(LocalizedStringKey(look), \.lookAmount, 0...200, neutral: 100, format: "%.0f")
             }
-            // (Process 4 changes only RAWs.)
-            if record.adjust.process < (raw ? PhotoAdjustments.currentProcess : 3) {
+            // (Process 4 changed only RAWs; process 5 changes a JPEG's profiles too, so a JPEG on 3 or 4 is offered it.)
+            if record.adjust.process < PhotoAdjustments.currentProcess {
                 // Edited with the first engine: kept as it was until asked.
                 HStack(spacing: 8) {
                     Label("Earlier engine", systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
@@ -381,21 +381,29 @@ struct PhotoInspector: View {
                 }
             }
             AdjustFold(title: "Colour Mixer", section: .mixer, adjust: record.adjust, reset: { resetSection(.mixer) }) {
-                ColorMixerEditor(mixer: record.adjust.mixer) { mixer in change { $0.adjust.mixer = mixer } }
+                ColorMixerEditor(mixer: record.adjust.mixer, points: record.adjust.process >= 5 && !record.filmOn) { mixer in change { $0.adjust.mixer = mixer } }
             }
             AdjustFold(title: "Curves", section: .curves, adjust: record.adjust, reset: { resetSection(.curves) }) {
-                CurvesEditor(curves: record.adjust.curves) { curves in change { $0.adjust.curves = curves } }
+                CurvesEditor(curves: record.adjust.curves, colour: record.adjust.process >= 5 && !record.filmOn) { curves in change { $0.adjust.curves = curves } }
             }
             AdjustFold(title: "Colour Wheels", section: .wheels, adjust: record.adjust, reset: { resetSection(.wheels) }) {
-                ColorWheelsEditor(wheels: record.adjust.wheels) { wheels in change { $0.adjust.wheels = wheels } }
+                ColorWheelsEditor(wheels: record.adjust.wheels, path: shown, process: record.adjust.process) { wheels in change { $0.adjust.wheels = wheels } }
             }
             AdjustFold(title: "Detail", section: .detail, adjust: record.adjust, reset: { resetSection(.detail) }) {
                 slider("Sharpen", \.sharpen, 0...100)
+                if record.adjust.process >= 5, record.adjust.sharpen > 0 { slider("Masking", \.sharpenMask, 0...100, format: "%.0f") }
                 // Lightroom's manual noise reduction. A denoised RAW is decoded without it (Denoise does it instead).
                 if !raw || record.denoise == 0 {
                     Text("Noise").font(.caption).foregroundStyle(.secondary)
                         .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
-                    slider("Luminance", \.noise, 0...100)
+                    if raw, record.adjust.process >= 5, let shown {
+                        // (Process 5: starts at the amount the ISO asks for; 0 is none, the decoder's too.)
+                        let auto = PhotoRender.autoLuminance(iso: PhotoRender.iso(PhotoCatalog.file(of: shown)))
+                        AdjustSlider(title: "Luminance", value: PhotoRender.luminance(record.adjust, path: shown), range: 0...100,
+                                     neutral: auto) { new in change { $0.adjust.noise = new; $0.adjust.noiseSet = true } }
+                    } else {
+                        slider("Luminance", \.noise, 0...100)
+                    }
                     if raw { slider("Colour", \.colorNoise, 0...100, neutral: PhotoAdjustments.defaultColorNoise) }
                 }
                 if raw { slider("Moiré", \.moire, 0...100) }
@@ -415,9 +423,10 @@ struct PhotoInspector: View {
                     slider("Saturation", (\PhotoAdjustments.calibration).appending(path: saturation), -100...100, track: .colour(colour))
                 }
             }
-            // Grain for a photo without film (the film makes its own).
+            // Glow and grain for a photo without film (the film makes its own).
             if !record.filmOn {
                 AdjustFold(title: "Effects", section: .effects, adjust: record.adjust, reset: { resetSection(.effects) }) {
+                    if record.adjust.process >= 5 { GlowControls(adjust: record.adjust) { edit in change { edit(&$0.adjust) } } }
                     slider("Grain", \.grain, 0...100)
                     if record.adjust.grain > 0 {
                         slider("Size", \.grainSize, 0...100, neutral: 25)
@@ -656,7 +665,8 @@ struct PhotoInspector: View {
                 if let shown {
                     PhotoLooks(path: shown, record: record) { look, lightroom in
                         if let lightroom {
-                            change { $0.adjust = LightroomPresets.adjustments(lightroom, base: $0.adjust).0 }
+                            var raws = editTargets.map(PhotoRender.isRaw).makeIterator()
+                            change { $0.adjust = LightroomPresets.adjustments(lightroom, base: $0.adjust.current(isRaw: raws.next() ?? false)).0 }
                         } else {
                             change { $0.adjust = look.adjust; $0.filmOn = look.filmOn; $0.film = look.film }
                         }
@@ -707,6 +717,32 @@ struct PhotoInspector: View {
 }
 
 // MARK: - Details
+
+/// Process 5's Glow (Effects): how much, how far, and how it's laid on the picture (shown once there's some).
+struct GlowControls: View {
+    let adjust: PhotoAdjustments
+    let change: (@escaping (inout PhotoAdjustments) -> Void) -> Void
+
+    var body: some View {
+        AdjustSlider(title: "Glow", value: adjust.glow, range: 0...100, format: "%.0f") { v in change { $0.glow = v } }
+        if adjust.glow > 0 {
+            AdjustSlider(title: "Size", value: adjust.glowSize, range: 0...100, neutral: 50, format: "%.0f") { v in change { $0.glowSize = v } }
+            HStack(spacing: 8) {
+                Text("Blend").foregroundStyle(.secondary).lineLimit(1)
+                Spacer(minLength: 0)
+                Picker("Blend", selection: Binding(get: { adjust.glowMode }, set: { mode in change { $0.glowMode = mode } })) {
+                    ForEach(PhotoAdjustments.GlowMode.allCases) { Text($0.title).tag($0) }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            .font(.callout)
+            .controlSize(.small)
+            .padding(.horizontal, Design.Sidebar.rowPadding)
+            .frame(minHeight: 26)
+        }
+    }
+}
 
 /// What the camera wrote: the file, its size, the camera and lens, the exposure.
 private struct PhotoDetails: View {
@@ -765,6 +801,7 @@ private struct PhotoFilmPanel: View {
     @State private var engine = FilmEngine.shared
     @State private var catalog = PhotoCatalog.shared
     @AppStorage("photoFilmAdvanced") private var advancedOpen = false
+    @AppStorage(Prefs.favouriteFilm) private var favouriteFilm = ""
 
     var body: some View {
         if FilmTables.shared.isAvailable {
@@ -910,7 +947,7 @@ private struct PhotoFilmPanel: View {
 
     private var controls: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Toggle(isOn: Binding(get: { record.filmOn }, set: { on in change { $0.filmOn = on } })) {
+            Toggle(isOn: Binding(get: { record.filmOn }, set: { on in change { $0.turnFilm(on, engine: engine) } })) {
                 Label("Develop on Film", systemImage: "film").font(.callout.weight(.semibold))
             }
             .toggleStyle(.switch)
@@ -921,12 +958,19 @@ private struct PhotoFilmPanel: View {
                     Picker("Film", selection: Binding(get: { record.film.film }, set: { id in
                         change { $0.useFilm(id, engine: engine) }
                     })) {
-                        Section("Colour Negative") { ForEach(engine.films.filter { $0.type == "negative" && $0.use != "cine" && $0.bw != true }) { Text($0.name).tag($0.id) } }
-                        Section("Slide") { ForEach(engine.films.filter { $0.type == "positive" && $0.bw != true }) { Text($0.name).tag($0.id) } }
-                        Section("Cinema") { ForEach(engine.films.filter { $0.use == "cine" && $0.type != "positive" && $0.bw != true }) { Text($0.name).tag($0.id) } }
-                        Section("Black & White") { ForEach(engine.films.filter { $0.bw == true }) { Text($0.name).tag($0.id) } }
+                        Section("Colour Negative") { ForEach(engine.films.filter { $0.type == "negative" && $0.use != "cine" && $0.bw != true }) { stock($0) } }
+                        Section("Slide") { ForEach(engine.films.filter { $0.type == "positive" && $0.bw != true }) { stock($0) } }
+                        Section("Cinema") { ForEach(engine.films.filter { $0.use == "cine" && $0.type != "positive" && $0.bw != true }) { stock($0) } }
+                        Section("Black & White") { ForEach(engine.films.filter { $0.bw == true }) { stock($0) } }
                     }
                     .labelsHidden()
+                    let favourite = favouriteFilm == record.film.film
+                    Button { favouriteFilm = favourite ? "" : record.film.film } label: {
+                        Image(systemName: favourite ? "star.fill" : "star").foregroundStyle(favourite ? Color.yellow : .secondary)
+                    }
+                    .buttonStyle(.borderless)
+                    .help(favourite ? "Favourite" : "Set as Favourite")
+                    .accessibilityLabel(favourite ? "Favourite" : "Set as Favourite")
                 }
                 if value("scan_film") < 0.5 {
                     filmRow("Paper") {
@@ -1023,6 +1067,11 @@ private struct PhotoFilmPanel: View {
             }
             .padding(.horizontal, 8)
         }
+    }
+
+    /// A stock in the Film menu, the favourite starred.
+    private func stock(_ film: FilmEngine.Profile) -> some View {
+        Group { if film.id == favouriteFilm { Label(film.name, systemImage: "star.fill") } else { Text(film.name) } }.tag(film.id)
     }
 
     private func filmRow<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {

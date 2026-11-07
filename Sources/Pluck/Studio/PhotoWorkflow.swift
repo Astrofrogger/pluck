@@ -45,10 +45,11 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
             record.adjust.vignetteStyle = from.vignetteStyle
             // (Grain goes with Presence too: Lightroom's Effects.)
             record.adjust.grain = from.grain; record.adjust.grainSize = from.grainSize; record.adjust.grainRoughness = from.grainRoughness
+            record.adjust.glow = from.glow; record.adjust.glowSize = from.glowSize; record.adjust.glowMode = from.glowMode
         case .grading:
             record.adjust.mixer = from.mixer; record.adjust.curves = from.curves; record.adjust.wheels = from.wheels
         case .detail:
-            record.adjust.sharpen = from.sharpen; record.adjust.noise = from.noise; record.adjust.colorNoise = from.colorNoise
+            record.adjust.sharpen = from.sharpen; record.adjust.sharpenMask = from.sharpenMask; record.adjust.noise = from.noise; record.adjust.noiseSet = from.noiseSet; record.adjust.colorNoise = from.colorNoise
             record.adjust.moire = from.moire
         case .crop:
             record.adjust.crop = from.crop; record.adjust.cropRect = from.cropRect
@@ -107,7 +108,11 @@ enum PhotoPasteboard {
         guard !paths.isEmpty else { return }
         let catalog = PhotoCatalog.shared
         catalog.endStep()
+        // (The update reaches the photos in this order.)
+        var raws = paths.map(PhotoRender.isRaw).makeIterator()
         catalog.update(paths) { record in
+            let raw = raws.next() ?? false
+            if source.adjust.process >= PhotoAdjustments.currentProcess, !groups.isSubset(of: [.film, .crop]) { record.adjust = record.adjust.current(isRaw: raw) }
             for group in PasteGroup.allCases where groups.contains(group) { group.apply(source, to: &record) }
             record.edited = .now
         }

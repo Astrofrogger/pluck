@@ -180,14 +180,18 @@ enum AdjustSection: String, CaseIterable {
                        String(localized: "Saturation"), String(localized: "White Balance")]
         case .presence: [String(localized: "Presence"), String(localized: "Texture"), String(localized: "Clarity"), String(localized: "Dehaze"),
                          String(localized: "Vignette")]
-        case .mixer: [String(localized: "Colour Mixer"), String(localized: "Hue"), String(localized: "Saturation"), String(localized: "Luminance")]
-        case .curves: [String(localized: "Curves"), String(localized: "Tone Curve")]
-        case .wheels: [String(localized: "Colour Wheels"), String(localized: "Colour Grading")]
+        case .mixer: [String(localized: "Colour Mixer"), String(localized: "Hue"), String(localized: "Saturation"), String(localized: "Luminance"),
+                      String(localized: "Point Colour"), String(localized: "Range")]
+        case .curves: [String(localized: "Curves"), String(localized: "Tone Curve"), String(localized: "Hue vs Hue"), String(localized: "Hue vs Saturation"),
+                       String(localized: "Hue vs Luminance"), String(localized: "Luminance vs Saturation"), String(localized: "Saturation vs Saturation"),
+                       String(localized: "Colour Warper")]
+        case .wheels: [String(localized: "Colour Wheels"), String(localized: "Colour Grading"), String(localized: "Lift"), String(localized: "Gamma"),
+                       String(localized: "Gain"), String(localized: "Blending"), String(localized: "Balance")]
         case .detail: [String(localized: "Detail"), String(localized: "Sharpen"), String(localized: "Noise"), String(localized: "Moiré"),
-                       String(localized: "Denoise")]
+                       String(localized: "Denoise"), String(localized: "Masking")]
         case .calibration: [String(localized: "Calibration"), String(localized: "Shadows Tint"), String(localized: "Red Primary"),
                             String(localized: "Green Primary"), String(localized: "Blue Primary")]
-        case .effects: [String(localized: "Effects"), String(localized: "Grain")]
+        case .effects: [String(localized: "Effects"), String(localized: "Grain"), String(localized: "Glow")]
         }
     }
 
@@ -220,11 +224,12 @@ enum AdjustSection: String, CaseIterable {
         case .wheels:
             a.wheels = fresh.wheels
         case .detail:
-            a.sharpen = 0; a.noise = 0; a.colorNoise = fresh.colorNoise; a.moire = 0
+            a.sharpen = 0; a.sharpenMask = 0; a.noise = 0; a.noiseSet = false; a.colorNoise = fresh.colorNoise; a.moire = 0
         case .calibration:
             a.calibration = fresh.calibration
         case .effects:
             a.grain = fresh.grain; a.grainSize = fresh.grainSize; a.grainRoughness = fresh.grainRoughness
+            a.glow = fresh.glow; a.glowSize = fresh.glowSize; a.glowMode = fresh.glowMode
         }
     }
 }
@@ -320,6 +325,15 @@ extension PhotoRecord {
         film.changed["scan_film"] = .number(engine.films.first { $0.id == id }?.type == "positive" ? 1 : 0)
         filmOn = true
     }
+
+    /// Film on or off. Turned on for a photo without film settings yet, it starts on the favourite stock (if there is one).
+    @MainActor mutating func turnFilm(_ on: Bool, engine: FilmEngine, defaults: UserDefaults = .standard) {
+        if on, film == FilmSettings(), let favourite = defaults.string(forKey: Prefs.favouriteFilm),
+           engine.films.contains(where: { $0.id == favourite }) {
+            useFilm(favourite, engine: engine)
+        }
+        filmOn = on
+    }
 }
 
 /// Looks: the profiles and your presets as small pictures of this photo. Point at one to see it
@@ -358,7 +372,7 @@ struct PhotoLooks: View {
             var r = record
             if let crs = preset.lightroom {
                 // Only what the Lightroom preset sets, on this photo's own edit.
-                r.adjust = LightroomPresets.adjustments(crs, base: record.adjust).0
+                r.adjust = LightroomPresets.adjustments(crs, base: record.adjust.current(isRaw: PhotoRender.isRaw(path))).0
                 return Look(id: preset.id.uuidString, title: preset.name, record: r, preset: preset.id, lightroom: crs)
             }
             r.adjust = preset.adjust.keepingDecoder(of: record.adjust)

@@ -52,11 +52,12 @@ extension PhotoSelfTest {
         let folder = p4Raws
         guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("DSC01994.ARW").path) else { skip("process 4", "no test RAWs"); return }
         var v3 = PhotoAdjustments(); v3.process = 3
-        let v4 = PhotoAdjustments()
+        var v4 = PhotoAdjustments(); v4.process = 4
         let s3 = PhotoRender.RawSettings(v3), s4 = PhotoRender.RawSettings(v4)
 
-        // New edits are process 4; Update moves a version 3 edit there (a JPEG's look is version 3's, so it isn't offered it).
-        check("p4 is current", PhotoAdjustments.currentProcess == 4 && v4.process == 4 && v3.updated(isRaw: true).process == 4)
+        // New edits are process 5 (process 4's decode); Update moves a version 3 edit there (a JPEG's look is version 3's, so it isn't offered it).
+        check("p4 is current", PhotoAdjustments.currentProcess == 5 && PhotoAdjustments().process == 5 && v3.updated(isRaw: true).process == 5
+              && PhotoRender.RawSettings(PhotoAdjustments()) == s4)
 
         // Keys: versions 1–3 name their decodes as before; process 4's are its own (and so are its denoised files).
         var a2 = PhotoAdjustments(); a2.process = 2

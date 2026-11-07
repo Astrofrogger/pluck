@@ -98,17 +98,17 @@ extension PhotoSelfTest {
             check("old record keeps its look", false, "didn't decode")
         }
 
-        // Classic starts a new RAW (and a Lightroom preset or sidecar); a JPEG starts As Shot.
+        // Standard starts a new RAW (process 5; a Lightroom preset or sidecar naming an Adobe profile starts Classic); a JPEG starts As Shot.
         let fresh = PhotoAdjustments(), untouched = try? JSONDecoder().decode(PhotoAdjustments.self, from: Data("{}".utf8))
-        let preset = LightroomPresets.adjustments(["Exposure2012": "+1.00"], base: saved ?? fresh).0
-        let classic = version(PhotoAdjustments.currentProcess) { $0.profile = .adobe }
-        let sameAsClassic = colours.allSatisfy { middle(PhotoRender.adjusted(patch($0), fresh, isRaw: true, kelvin: 5500))
-            == middle(PhotoRender.adjusted(patch($0), classic, isRaw: true, kelvin: 5500)) }
-        check("classic is the default for new raws",
-              PhotoEngine.Profile.starting(fresh, isRaw: true) == .adobe && untouched.map { PhotoEngine.Profile.starting($0, isRaw: true) } == .adobe
+        let preset = LightroomPresets.adjustments(["Exposure2012": "+1.00", "CameraProfile": "Adobe Standard"], base: saved ?? fresh).0
+        let standard = version(PhotoAdjustments.currentProcess) { $0.profile = .standard }
+        let sameAsStandard = colours.allSatisfy { middle(PhotoRender.adjusted(patch($0), fresh, isRaw: true, kelvin: 5500))
+            == middle(PhotoRender.adjusted(patch($0), standard, isRaw: true, kelvin: 5500)) }
+        check("standard is the default for new raws",
+              PhotoEngine.Profile.starting(fresh, isRaw: true) == .standard && untouched.map { PhotoEngine.Profile.starting($0, isRaw: true) } == .standard
                 && PhotoEngine.Profile.starting(fresh, isRaw: false) == .asShot && preset.process == PhotoAdjustments.currentProcess
-                && PhotoEngine.Profile.starting(preset, isRaw: true) == .adobe && sameAsClassic,
-              "Classic for a new or untouched RAW and after a Lightroom preset, As Shot for a JPEG, rendered as Classic")
+                && PhotoEngine.Profile.starting(preset, isRaw: true) == .adobe && sameAsStandard,
+              "Standard for a new or untouched RAW, rendered as Standard; Classic after a Lightroom preset naming Adobe's; As Shot for a JPEG")
 
         // Classic's mid grey is Adobe's (0.7 stop over Neutral's) only from version 3.
         func grey(_ a: PhotoAdjustments) -> Float { middle(PhotoRender.adjusted(patch(SIMD3(repeating: 0.18)), a, isRaw: true, kelvin: 5500)).y }
