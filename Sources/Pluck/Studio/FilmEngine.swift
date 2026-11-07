@@ -60,7 +60,7 @@ final class FilmEngine {
         return downloaded.trimmingCharacters(in: .whitespacesAndNewlines) == shipped
     }
 
-    static var folder: URL {
+    nonisolated static var folder: URL {
         // Tests use their own copy, never the one in Pluck's folder.
         if ScreenshotMode.scene != nil, let test = UserDefaults.standard.string(forKey: "PluckScreenshotEngine") {
             return URL(fileURLWithPath: test, isDirectory: true)
@@ -93,7 +93,7 @@ final class FilmEngine {
         // The earlier Python film engine has everything denoise needs.
         if FileManager.default.fileExists(atPath: Self.pythonMarker.path)
             || FileManager.default.fileExists(atPath: Self.folder.appendingPathComponent("installed-v0.3.3").path) { denoiseEngine = .ready }
-        if FileManager.default.fileExists(atPath: Self.denoiserMarker.path) { denoiser = .ready }
+        checkDenoiser()
     }
 
     // MARK: - The film data
@@ -180,6 +180,7 @@ final class FilmEngine {
         state = .notInstalled
         denoiseEngine = .notInstalled
         denoiser = .notInstalled
+        denoiserUpdate = false
         films = FilmTables.shared.films
         papers = FilmTables.shared.papers
     }
@@ -328,36 +329,60 @@ final class FilmEngine {
 
     enum AddOn: Equatable { case notInstalled, installing, ready, failed(String) }
 
-    /// The AI denoiser: SCUNet (Apache 2.0), a network trained on real camera noise, run with
-    /// PyTorch on the GPU through spandrel (MIT). An extra for the photo engine, on request.
+    /// The AI denoiser: a Bayer RAW's own mosaic is cleaned by DRUNet (MIT) after rawpy (MIT, LibRaw LGPL-2.1/CDDL)
+    /// reads it; other photos by SCUNet (Apache 2.0), a network trained on real camera noise, through spandrel (MIT).
+    /// Both run with PyTorch on the GPU. An extra for the photo engine, on request.
     private(set) var denoiser: AddOn = .notInstalled
     private(set) var denoiserProgress = 0.0
-    static let denoiserDownloadMB = 160
-    static let denoiserDiskMB = 480
+    /// Installed before the RAW part came (version 1): it still works, as before, until updated.
+    private(set) var denoiserUpdate = false
+    // PyTorch and spandrel (88), SCUNet (72), DRUNet (131) and rawpy (2).
+    static let denoiserDownloadMB = 293
+    static let denoiserDiskMB = 620
+    /// What updating version 1 fetches: DRUNet and rawpy.
+    static let denoiserUpdateMB = 133
     static let denoiserWeights = URL(string: "https://github.com/cszn/KAIR/releases/download/v1.0/scunet_color_real_psnr.pth")!
     static let denoiserWeightsSize: Int64 = 71_982_841
     static var denoiserModel: URL { folder.appendingPathComponent("models/scunet_color_real_psnr.pth") }
+    static let rawDenoiserWeights = URL(string: "https://github.com/cszn/KAIR/releases/download/v1.0/drunet_color.pth")!
+    static let rawDenoiserWeightsSize: Int64 = 130_579_305
+    static var rawDenoiserModel: URL { folder.appendingPathComponent("models/drunet_color.pth") }
     private static var denoiserMarker: URL { folder.appendingPathComponent("installed-denoiser-v1") }
+    nonisolated private static var rawDenoiserMarker: URL { folder.appendingPathComponent("installed-denoiser-v2") }
+
+    /// Whether the AI denoiser has its RAW part (any thread: the photo's renderer asks).
+    nonisolated static var rawDenoiseInstalled: Bool { FileManager.default.fileExists(atPath: rawDenoiserMarker.path) }
 
     func checkDenoiser() {
-        if denoiser != .installing { denoiser = FileManager.default.fileExists(atPath: Self.denoiserMarker.path) ? .ready : .notInstalled }
+        guard denoiser != .installing else { return }
+        let old = FileManager.default.fileExists(atPath: Self.denoiserMarker.path)
+        denoiser = old || Self.rawDenoiseInstalled ? .ready : .notInstalled
+        denoiserUpdate = old && !Self.rawDenoiseInstalled
     }
 
+    /// Gets the AI denoiser, or its RAW part when version 1 is there (what's there already isn't fetched again).
     func installDenoiser() {
         guard denoiseEngine == .ready, denoiser != .installing else { return }
+        let update = denoiserUpdate
         denoiser = .installing
         denoiserProgress = 0
         Task {
             do {
-                try await runDenoiserInstall()
+                try await runDenoiserInstall(expectedMB: update ? Self.denoiserUpdateMB : Self.denoiserDiskMB)
                 denoiser = .ready
+                denoiserUpdate = false
             } catch {
-                denoiser = .failed(error.localizedDescription)
+                // (Version 1 still works.)
+                denoiser = update ? .ready : .failed(error.localizedDescription)
+                if update { denoiserProblem = error.localizedDescription }
             }
         }
     }
 
-    private func runDenoiserInstall() async throws {
+    /// Why the last update didn't finish (version 1 kept working).
+    private(set) var denoiserProblem: String?
+
+    private func runDenoiserInstall(expectedMB: Int) async throws {
         let folder = Self.folder
         let arch = ProcessInfo.processInfo.machineHardwareName == "arm64" ? "aarch64" : "x86_64"
         let uv = folder.appendingPathComponent("uv-\(arch)-apple-darwin/uv").path
@@ -367,26 +392,32 @@ final class FilmEngine {
         let watcher = Task {
             while !Task.isCancelled {
                 let mb = Double(Self.size(of: folder) - start) / 1_048_576
-                denoiserProgress = min(0.9 * mb / Double(Self.denoiserDiskMB), 0.9)
+                denoiserProgress = min(0.9 * mb / Double(expectedMB), 0.9)
                 try? await Task.sleep(for: .milliseconds(500))
             }
         }
         defer { watcher.cancel() }
-        try await run(uv, ["pip", "install", "-q", "--python", Self.python.path, "torch~=2.8", "spandrel~=0.4"], environment: environment)
+        try await run(uv, ["pip", "install", "-q", "--python", Self.python.path, "torch~=2.8", "spandrel~=0.4", "rawpy~=0.26", "tifffile>=2024.1"],
+                      environment: environment)
         try? FileManager.default.removeItem(at: folder.appendingPathComponent("cache"))
-        // The network's weights, checked by their exact size.
-        let (download, _) = try await URLSession.shared.download(from: Self.denoiserWeights)
-        let size = (try? FileManager.default.attributesOfItem(atPath: download.path)[.size] as? NSNumber)?.int64Value
-        guard size == Self.denoiserWeightsSize else {
-            try? FileManager.default.removeItem(at: download)
-            throw NSError(domain: "Pluck", code: 5, userInfo: [NSLocalizedDescriptionKey: String(localized: "The AI denoiser didn’t download completely. Try again.")])
+        // The networks' weights, each checked by its exact size (one already there isn't fetched again).
+        for (url, size, file) in [(Self.denoiserWeights, Self.denoiserWeightsSize, Self.denoiserModel),
+                                  (Self.rawDenoiserWeights, Self.rawDenoiserWeightsSize, Self.rawDenoiserModel)] {
+            if (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value == size { continue }
+            let (download, _) = try await URLSession.shared.download(from: url)
+            let got = (try? FileManager.default.attributesOfItem(atPath: download.path)[.size] as? NSNumber)?.int64Value
+            guard got == size else {
+                try? FileManager.default.removeItem(at: download)
+                throw NSError(domain: "Pluck", code: 5, userInfo: [NSLocalizedDescriptionKey: String(localized: "The AI denoiser didn’t download completely. Try again.")])
+            }
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? FileManager.default.removeItem(at: file)
+            try FileManager.default.moveItem(at: download, to: file)
         }
-        try FileManager.default.createDirectory(at: Self.denoiserModel.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? FileManager.default.removeItem(at: Self.denoiserModel)
-        try FileManager.default.moveItem(at: download, to: Self.denoiserModel)
         for worker in pythonWorkers { worker.stop() }  // they load torch the next time
         pythonWorkers = []
         FileManager.default.createFile(atPath: Self.denoiserMarker.path, contents: Data())
+        FileManager.default.createFile(atPath: Self.rawDenoiserMarker.path, contents: Data())
         denoiserProgress = 1
     }
 
@@ -426,9 +457,25 @@ final class FilmEngine {
         _ = try await python(worker).ask(job)
     }
 
+    /// Takes the noise out of a Bayer RAW's own mosaic (AI): writes the clean mosaic and the untouched one as DNGs,
+    /// with Apple's lens correction as fitted from `lens` (its half-size decodes without and with it). False: not a
+    /// Bayer RAW (X-Trans and others), for the other denoiser.
+    func denoiseRaw(_ input: URL, clean: URL, noisy: URL, lens: [URL], worker: Int = 1) async throws -> Bool {
+        let answer = try await python(worker).ask(["do": "denoise_raw", "input": input.path, "output": clean.path, "noisy": noisy.path,
+                                                   "weights": Self.rawDenoiserModel.path, "lens": lens.map(\.path)])
+        return answer["ok"] as? Bool == true
+    }
+
+    /// The raw denoiser's own check (tests): its transform's round trip and noise fit, true when all hold.
+    func rawDenoiseSelfTest() async throws -> Bool {
+        try await python(1).ask(["do": "selftest_raw"])["ok"] as? Bool == true
+    }
+
     /// The denoiser's own check (tests): how far its exposure curve's round trip is off, at worst (relative).
     func denoiseRoundTrip() async throws -> Double {
-        try await python(1).ask(["do": "selftest"])["roundtrip"] as? Double ?? 1
+        // (A clean picture that isn't kept within the photo, the black blotches' cause, counts as failed.)
+        let answer = try await python(1).ask(["do": "selftest"])
+        return answer["settled"] as? Bool == true ? answer["roundtrip"] as? Double ?? 1 : 1
     }
 }
 

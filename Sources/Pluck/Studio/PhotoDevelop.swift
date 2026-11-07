@@ -18,7 +18,7 @@ struct PhotoAdjustments: Codable, Hashable {
     var clarity = 0.0        // softer -100 … crisper 100
     var texture = 0.0        // fine detail, -100…100
     var dehaze = 0.0         // -100…100
-    /// The starting point (nil: Neutral for RAW, As Shot for other photos).
+    /// The starting point (nil: Classic for RAW from version 3, Neutral before; As Shot for other photos).
     var profile: PhotoEngine.Profile?
     /// A creative profile from Lightroom (its name and its colour table's digest, see LookTable) and how
     /// much of it, 0…200 (100 as made). Nil: none.
@@ -32,9 +32,13 @@ struct PhotoAdjustments: Codable, Hashable {
     var moire = 0.0          // moiré reduction (RAW), 0…100
     /// How the photo is developed, as Lightroom's process versions: 1 the first engine (sRGB,
     /// colour after the profile), 2 scene-referred colour (wide gamut, CAT16, grading before the
-    /// tone curve, Whites and Blacks on the curve, real dehaze). Old edits keep their look.
+    /// tone curve, Whites and Blacks on the curve, real dehaze), 3 Lightroom's colour (linear ProPhoto working space, hue
+    /// kept through the curves, gamut mapped only at the screen or file; Classic the RAW default, Adobe's mid grey).
+    /// 4 (RAW only; other photos develop as 3): decoder 9 with half of 3's soften, its luminance noise reduction only with
+    /// the ISO (PhotoRender.source, `lumaShare`).
+    /// Old edits keep their look.
     var process = PhotoAdjustments.currentProcess
-    static let currentProcess = 2
+    static let currentProcess = 4
     /// The version of Apple's RAW decoder the photo was edited with, kept so a macOS update
     /// doesn't change how it looks (nil: not edited yet, the newest).
     var rawDecoder: String?
@@ -137,6 +141,15 @@ struct PhotoAdjustments: Codable, Hashable {
         plain.rawDecoder = nil
         plain.process = Self.currentProcess
         return plain == PhotoAdjustments()
+    }
+
+    /// These settings on the current engine (the inspector's Update), keeping the profile they had: a RAW without one was
+    /// Neutral before version 3, which would start it at Classic (about a stop brighter, more contrast).
+    func updated(isRaw: Bool) -> PhotoAdjustments {
+        var copy = self
+        if isRaw { copy.profile = PhotoEngine.Profile.starting(self, isRaw: true) }
+        copy.process = Self.currentProcess
+        return copy
     }
 
     /// These settings for another photo, which keeps its own decoder.

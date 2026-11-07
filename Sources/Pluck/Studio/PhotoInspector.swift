@@ -85,7 +85,8 @@ struct PhotoInspector: View {
                     .accessibilityAddTraits(tab == item ? .isSelected : [])
                 }
             }
-            .padding(6)
+            .padding(.horizontal, 6)
+            .frame(height: Design.Sidebar.topRowHeight)
             Divider()
             HStack {
                 Text(tab.title).font(.headline)
@@ -291,7 +292,7 @@ struct PhotoInspector: View {
         let raw = shown.map(PhotoRender.isRaw) ?? false
         return VStack(alignment: .leading, spacing: 10) {
             if !editing.histogram.isEmpty {
-                HistogramView(bins: editing.histogram) { path, share in
+                PhotoScopeView(bins: editing.histogram, data: editing.scopes) { path, share in
                     // Exposure moves in stops (the width is 4), the rest in their own range.
                     let scale = path == \PhotoAdjustments.exposure ? 4.0 : 200.0
                     change { $0.adjust[keyPath: path] = min(max($0.adjust[keyPath: path] + share * scale, path == \PhotoAdjustments.exposure ? -5 : -100),
@@ -300,9 +301,9 @@ struct PhotoInspector: View {
             }
             HStack(spacing: 8) {
                 // (Classic is As Shot on a photo that isn't RAW.)
-                Picker("Profile", selection: Binding(get: { record.adjust.profile.map { !raw && $0 == .adobe ? .asShot : $0 } ?? (raw ? .neutral : .asShot) },
+                Picker("Profile", selection: Binding(get: { record.adjust.profile.map { !raw && $0 == .adobe ? .asShot : $0 } ?? PhotoEngine.Profile.starting(record.adjust, isRaw: raw) },
                                                      set: { value in change { $0.adjust.profile = value } })) {
-                    ForEach(PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : $0 != .adobe }) { Text($0.title).tag($0) }
+                    ForEach(PhotoEngine.Profile.choices(raw: raw, process: record.adjust.process, chosen: record.adjust.profile)) { Text($0.title).tag($0) }
                 }
                 .labelsHidden()
                 .fixedSize()
@@ -320,13 +321,18 @@ struct PhotoInspector: View {
                 // A creative profile from Lightroom: how much of it.
                 slider(LocalizedStringKey(look), \.lookAmount, 0...200, neutral: 100, format: "%.0f")
             }
-            if record.adjust.process < PhotoAdjustments.currentProcess {
+            // (Process 4 changes only RAWs.)
+            if record.adjust.process < (raw ? PhotoAdjustments.currentProcess : 3) {
                 // Edited with the first engine: kept as it was until asked.
                 HStack(spacing: 8) {
                     Label("Earlier engine", systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
-                    Button("Update") { change { $0.adjust.process = PhotoAdjustments.currentProcess } }
-                        .help("Develop with the current engine: wider colour, white balance, tone curve and dehaze. The look changes a little.")
+                    Button("Update") {
+                        // (Each photo's own: change reaches editTargets in this order.)
+                        var raws = editTargets.map(PhotoRender.isRaw).makeIterator()
+                        change { $0.adjust = $0.adjust.updated(isRaw: raws.next() ?? raw) }
+                    }
+                    .help("Develop with the current engine, as Lightroom does: wider colour, its tone curve and brightness. The profile stays, but the look changes.")
                 }
                 .controlSize(.small)
                 .padding(.horizontal, 8)
@@ -570,7 +576,13 @@ struct PhotoInspector: View {
                 }
                 if modelMissing {
                     aiOffer
-                } else if on {
+                } else if denoiseAI, film.denoiserUpdate {
+                    // Version 1 (no RAW part) keeps working until this.
+                    Button("Update AI Denoise (\(FilmEngine.denoiserUpdateMB) MB)", systemImage: "arrow.down") { film.installDenoiser() }
+                        .help("Cleans RAW photos from the sensor’s own data: crisper detail, cleaner shadows.")
+                    if let problem = film.denoiserProblem { ProblemLabel(text: problem) }
+                }
+                if !modelMissing, on {
                     // Mixed live with the photo as it's drawn: never worked out again.
                     AdjustSlider(title: "Amount", value: Double(record.denoise), range: 0...100, neutral: 50, format: "%.0f") { new in
                         // (At least 1: 0 is off, which the checkbox does, and would take the slider away mid-drag.)
@@ -593,7 +605,8 @@ struct PhotoInspector: View {
             if on { denoiseAI = record.denoiseAI }
         }
         // A photo denoised before version 2 (or whose decoder settings changed) is worked out again, once.
-        .task(id: "\(shown ?? "")|\(record.denoise > 0)|\(record.denoiseAI)|\(PhotoRender.RawSettings(record.adjust).key)|\(film.denoiseEngine == .ready)") {
+        // (And once the AI denoiser's RAW part arrives: a RAW is cleaned from its mosaic then.)
+        .task(id: "\(shown ?? "")|\(record.denoise > 0)|\(record.denoiseAI)|\(PhotoRender.RawSettings(record.adjust).key)|\(film.denoiseEngine == .ready)|\(film.denoiser == .ready)|\(film.denoiserUpdate)") {
             if on { denoiseAI = record.denoiseAI }
             guard on, film.denoiseEngine == .ready, !record.denoiseAI || film.denoiser == .ready else { return }
             editing.analyse(editTargets)

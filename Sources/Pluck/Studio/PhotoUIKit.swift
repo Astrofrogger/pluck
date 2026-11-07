@@ -346,7 +346,7 @@ struct PhotoLooks: View {
 
     private var profiles: [Look] {
         let raw = PhotoRender.isRaw(path)
-        return PhotoEngine.Profile.allCases.filter { raw ? $0 != .asShot : $0 != .adobe }.map { profile in
+        return PhotoEngine.Profile.choices(raw: raw, process: record.adjust.process, chosen: record.adjust.profile).map { profile in
             var r = record
             r.adjust.profile = profile
             return Look(id: "profile-" + profile.rawValue, title: profile.title, record: r)
@@ -467,7 +467,7 @@ struct PhotoLooks: View {
                 var shown = shown
                 if shown.filmOn, FilmRoute.resolved(shown.film) != .instant { shown.filmOn = false }
                 guard let image = PhotoRender.image(path, record: shown, maxSize: 240) else { return nil }
-                return PhotoRender.picture(image, maxSize: 200)
+                return PhotoRender.picture(image, maxSize: 200, space: PhotoRender.screenSpace)
             }.value
             if Task.isCancelled { return }
             if let made { pictures[look.id] = NSImage(cgImage: made, size: .zero) }

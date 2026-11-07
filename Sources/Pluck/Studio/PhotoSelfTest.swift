@@ -15,8 +15,10 @@ enum PhotoSelfTest {
         photos = defaults.string(forKey: "PluckScreenshotPhotos") ?? ""
         lines = []
         // (Tests: only the film's speed and route, to measure quickly.)
-        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced", "tone"].contains(only) {
-            if only == "film" { await filmInstant() } else if only == "tone" { tone() } else { await filmAdvanced() }
+        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced", "tone", "real", "prophoto", "colour", "profiles", "furdump", "furtests", "lrgap", "lrtests"].contains(only) {
+            if only == "film" { await filmInstant() } else if only == "tone" { tone() } else if only == "real" { await realFile() } else if only == "furdump" { await furDump() } else if only == "furtests" { await furShadows() } else if only == "lrgap" { await lrGapDump() } else if only == "lrtests" { await lrGapFixes() }
+            else if only == "colour" { colourNoise() } else if only == "profiles" { await profiles() }
+            else if only == "prophoto" { await proPhoto() } else { await filmAdvanced() }
             lines.append("done")
             write()
             NSApp.terminate(nil)
@@ -47,6 +49,13 @@ enum PhotoSelfTest {
         lightroomExtras()
         lightroomProfiles()
         await denoise()
+        colourNoise()
+        await proPhoto()
+        await profiles()
+        await oldEditsUnchanged()
+        await process4()
+        await furShadows()
+        await lrGapFixes()
         lines.append("done")
         write()
         NSApp.terminate(nil)
@@ -54,6 +63,12 @@ enum PhotoSelfTest {
 
     static func check(_ name: String, _ ok: Bool, _ detail: @autoclosure () -> String = "") {
         lines.append(ok ? "PASS \(name)" : "FAIL \(name): \(detail())")
+        write()
+    }
+
+    /// A measurement worth keeping beside the checks (not counted).
+    static func note(_ text: String) {
+        lines.append("NOTE \(text)")
         write()
     }
 

@@ -51,6 +51,20 @@ extension PhotoSelfTest {
         check("inspector names start inside the panel", frame.width > 0 && frame.minX >= Design.Sidebar.inset - 0.5 && frame.maxX <= 280 - Design.Sidebar.inset + 0.5,
               "slider row within 8…272; got \(frame.minX)…\(frame.maxX)")
         window.close()
+        scopesWiring()
+    }
+
+    /// The Photo page's scopes read a developed image through the Edit page's maths: pure red puts the parade's red at the top and the vectorscope in red's direction.
+    static func scopesWiring() {
+        let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0)).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 300))
+        guard let data = PhotoScopes.data(red) else { check("photo scopes data", false, "no data for a red image"); return }
+        func top(_ bins: [UInt16]) -> Int { (0..<256).last { bins[$0] > 0 } ?? -1 }
+        let mid = data.width / 2 * 256
+        let r = top(Array(data.red[mid..<mid + 256])), g = top(Array(data.green[mid..<mid + 256]))
+        let want = ScopeAnalyzer.vectorPoint(red: 1, green: 0, blue: 0)
+        let at = data.vector.indices.max { data.vector[$0] < data.vector[$1] } ?? 0
+        check("photo scopes: red image", r >= 250 && g <= 5 && abs(Double(at % 256) - want.cb) <= 3 && abs(Double(at / 256) - want.cr) <= 3,
+              "parade red top >= 250, green <= 5, vector at red; got \(r), \(g), cb \(at % 256) cr \(at / 256) vs \(want)")
     }
 
     @MainActor private final class Box { var slider = CGRect.zero }

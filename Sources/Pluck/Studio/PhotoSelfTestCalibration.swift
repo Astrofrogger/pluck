@@ -27,7 +27,10 @@ extension PhotoSelfTest {
         return a
     }
 
-    private static func colourfulness(_ c: SIMD3<Float>) -> Float { (c.max() - c.min()) / max(c.max(), 1e-6) }
+    // (OkLab chroma: the profiles' density darkens a strong colour at the same chroma, which raises its HSV saturation.)
+    private static func colourfulness(_ c: SIMD3<Float>) -> Float {
+        let (_, a, b) = OkLab.from(Double(c.x), Double(c.y), Double(c.z)); return Float((a * a + b * b).squareRoot())
+    }
     private static func apart(_ a: SIMD3<Float>, _ b: SIMD3<Float>) -> Float { max(abs(a.x - b.x), abs(a.y - b.y), abs(a.z - b.z)) }
     private static func greyness(_ c: SIMD3<Float>) -> Float { c.max() - c.min() }
 

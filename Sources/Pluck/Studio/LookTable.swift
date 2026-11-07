@@ -1,4 +1,6 @@
 import Compression
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import Foundation
 import simd
 
@@ -101,22 +103,24 @@ struct LookTable {
 
     /// The table as a Core Image colour cube on sRGB steps, at `amount` (1 as the profile makes it, 0…2):
     /// the picture's colour into the table's primaries and gamma, through the table, and back, as
-    /// RefRGBtoRGBTable3D does.
-    func cube(amount: Double) -> Data {
+    /// RefRGBtoRGBTable3D does. `wide` (version 3): on ProPhoto in 1.8 steps instead (see throughWide), so colours past
+    /// sRGB reach the table as they are.
+    func cube(amount: Double, wide: Bool = false) -> Data {
         let n = Self.cubeSize
-        let encode = Self.toPCS[primaries].inverse * Self.toPCS[0], decode = encode.inverse
+        let encode = Self.toPCS[primaries].inverse * Self.toPCS[wide ? 2 : 0], decode = encode.inverse
+        let fromSteps: (Double) -> Double = wide ? { pow($0, 1.8) } : Self.fromSRGB, toSteps: (Double) -> Double = wide ? { pow($0, 1 / 1.8) } : Self.toSRGB
         var values = [Float](repeating: 1, count: n * n * n * 4)
         for b in 0..<n {
             for g in 0..<n {
                 for r in 0..<n {
                     let picture = SIMD3(Double(r), Double(g), Double(b)) / Double(n - 1)
-                    let wide = encode * picture.map(Self.fromSRGB)
-                    let inside = simd_clamp(wide, .zero, .one)
+                    let own = encode * picture.map(fromSteps)
+                    let inside = simd_clamp(own, .zero, .one)
                     let source = inside.map { Self.encode($0, gamma) }
                     let made = simd_clamp(source + amount * (lookup(source) - source), .zero, .one)
                     var back = made.map { Self.decode($0, gamma) }
-                    if extend { back += wide - inside }
-                    let out = simd_clamp(decode * back, .zero, .one).map(Self.toSRGB)
+                    if extend { back += own - inside }
+                    let out = simd_clamp(decode * back, .zero, .one).map(toSteps)
                     let index = ((b * n + g) * n + r) * 4
                     values[index] = Float(out.x); values[index + 1] = Float(out.y); values[index + 2] = Float(out.z)
                 }
@@ -172,6 +176,24 @@ struct LookTable {
         }
     }
 
+    /// A picture (linear sRGB numbers, ProPhoto's colours kept) through a `wide` cube: into linear ProPhoto, its 1.8 steps,
+    /// the cube, and back.
+    static func throughWide(_ image: CIImage, cube: Data) -> CIImage {
+        func matrix(_ m: [Double]) -> [String: Any] {
+            ["inputRVector": CIVector(x: m[0], y: m[1], z: m[2], w: 0), "inputGVector": CIVector(x: m[3], y: m[4], z: m[5], w: 0),
+             "inputBVector": CIVector(x: m[6], y: m[7], z: m[8], w: 0)]
+        }
+        let filter = CIFilter.colorCube()
+        filter.inputImage = image.applyingFilter("CIColorMatrix", parameters: matrix(PhotoEngine.toProPhoto))
+            .applyingFilter("CIColorClamp", parameters: ["inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+                                                         "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)])
+            .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1 / 1.8])
+        filter.cubeDimension = Float(cubeSize)
+        filter.cubeData = cube
+        return (filter.outputImage ?? image).applyingFilter("CIGammaAdjust", parameters: ["inputPower": 1.8])
+            .applyingFilter("CIColorMatrix", parameters: matrix(PhotoEngine.fromProPhoto)).cropped(to: image.extent)
+    }
+
     // MARK: - Kept by digest
 
     nonisolated(unsafe) private static var tables: [String: LookTable] = [:]
@@ -213,12 +235,12 @@ struct LookTable {
     }
 
     /// The cube for this table at this amount (kept: building one takes a moment).
-    static func cube(_ digest: String, amount: Double) -> Data? {
-        let key = digest + String(format: "|%.3f", amount)
+    static func cube(_ digest: String, amount: Double, wide: Bool = false) -> Data? {
+        let key = digest + String(format: "|%.3f", amount) + (wide ? "|wide" : "")
         lock.lock()
         if let data = cubes[key] { lock.unlock(); return data }
         lock.unlock()
-        guard let data = named(digest)?.cube(amount: amount) else { return nil }
+        guard let data = named(digest)?.cube(amount: amount, wide: wide) else { return nil }
         lock.lock()
         if cubes.count > 16 { cubes.removeAll() }
         cubes[key] = data

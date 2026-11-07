@@ -17,8 +17,15 @@ enum PhotoEngine {
     enum Profile: String, Codable, CaseIterable, Identifiable {
         /// `adobe` (shown as Classic): Neutral with Adobe's default tone curve on top (see adobeBase), for RAW photos whose
         /// Lightroom edit or preset starts from an Adobe profile; on other photos it's As Shot.
-        case neutral, standard, vivid, flat, monochrome, asShot, adobe
+        /// Version 3's own (ColourProfiles): Accurate, Landscape and Portrait; earlier versions show them as Neutral.
+        /// (New ones only ever at the end: the shaders know the others by their place.)
+        case neutral, standard, vivid, flat, monochrome, asShot, adobe, accurate, landscape, portrait
         var id: String { rawValue }
+        /// The profile a photo starts from (`a.profile` nil): Classic for RAW from version 3, as Lightroom starts from
+        /// Adobe Color; Neutral for RAW before; As Shot for other photos.
+        static func starting(_ a: PhotoAdjustments, isRaw: Bool) -> Profile {
+            a.profile ?? (isRaw ? (a.process >= 3 ? .adobe : .neutral) : .asShot)
+        }
         var title: String {
             switch self {
             case .neutral: String(localized: "Neutral")
@@ -28,6 +35,19 @@ enum PhotoEngine {
             case .monochrome: String(localized: "Monochrome")
             case .asShot: String(localized: "As Shot")
             case .adobe: String(localized: "Classic")
+            case .accurate: String(localized: "Accurate")
+            case .landscape: String(localized: "Landscape")
+            case .portrait: String(localized: "Portrait")
+            }
+        }
+        /// Version 3's own profiles (ColourProfiles).
+        var isNew: Bool { [.accurate, .landscape, .portrait].contains(self) }
+        /// The profiles to choose from: RAW has Classic, other photos As Shot; version 3 has its own instead of Standard and
+        /// Flat (still shown while chosen); earlier versions don't have version 3's.
+        static func choices(raw: Bool, process: Int, chosen: Profile?) -> [Profile] {
+            allCases.filter { p in
+                (raw ? p != .asShot : p != .adobe)
+                    && (process >= 3 ? ![.standard, .flat].contains(p) || p == chosen : !p.isNew || p == chosen)
             }
         }
     }
@@ -55,15 +75,18 @@ enum PhotoEngine {
     /// with it.
     /// `masks`: the masks' shapes (one per channel, see PhotoMasks.layer) for version 2;
     /// `overlay`: the mask shown in red.
+    /// `baseline`: the camera's baseline exposure (RAW), added from version 3 on top of the decoder's, as Lightroom's
+    /// brightness sits that much higher (measured: Lightroom's numbers then give about the same picture).
     static func develop(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, asShotKelvin: Double = 5500, scene: Bool = false,
-                        cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil, peak: Double = 1) -> CIImage {
+                        cacheKey: String? = nil, masks: CIImage? = nil, overlay: Int? = nil, peak: Double = 1, baseline: Double = 0) -> CIImage {
         let extent = image.extent
         let modern = a.process >= 2
         // 1. Exposure and white balance: one matrix in linear light.
-        let gain = pow(2, a.exposure)
+        let stops = a.exposure + (a.process >= 3 && isRaw ? baseline : 0)
+        let gain = pow(2, stops)
         // (Calibration first: it moves the camera's primaries, as Lightroom's does.)
         let ownBalance = whiteBalance(a, kelvin: asShotKelvin)
-        let balance = a.calibration.isDefault ? ownBalance : multiply(ownBalance, calibration(a.calibration))
+        let balance = a.calibration.isDefault ? ownBalance : multiply(ownBalance, calibration(a.calibration, proPhoto: a.process >= 3))
         let exposed = linear(image, balance.map { $0 * gain }, wide: modern)
         // 2–3. Local tone and the profile, in one pass, from two base layers (and the haze, when
         // it's taken out).
@@ -80,13 +103,15 @@ enum PhotoEngine {
         if let cacheKey {
             let key = cacheKey + "|\(a.process)|\(hazy)|\(soft)|" + balance.map { String(format: "%.4f", $0) }.joined(separator: ",")
             layers = GuideCache.shared.layers(key) { make(linear(image, balance, wide: modern)) }
-            shift = Float(a.exposure)
+            shift = Float(stops)
         } else {
             layers = make(exposed)
         }
-        let profile = a.profile ?? (isRaw ? .neutral : .asShot)
-        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile
-        let base = modern && shown == .adobe
+        let profile = Profile.starting(a, isRaw: isRaw)
+        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile.isNew && a.process < 3 ? .neutral : profile
+        // (Version 3: every profile but Neutral, Standard and Flat on Adobe's curve, at Classic's mid grey.)
+        let base = modern && (shown == .adobe || a.process >= 3 && [.accurate, .vivid, .landscape, .portrait, .monochrome].contains(shown))
+        let table = a.process >= 3 ? ColourProfiles.table(shown, isRaw: isRaw, v4: a.process >= 4) : nil
         func params(_ a: PhotoAdjustments, shift: Float) -> Params {
             var p = Params()
             p.shadows = Float(a.shadows / 100)
@@ -103,9 +128,18 @@ enum PhotoEngine {
             p.shift = shift
             p.process = Int32(min(a.process, 2))
             p.shadowTint = Float(a.calibration.shadowTint / 100)
+            p.space = a.process >= 3 ? 1 : 0
+            p.v4 = a.process >= 4 ? 1 : 0
+            p.hueSat = table == nil ? 0 : 1
+            // Process 4 with film: the profile's colour (its table, Monochrome's grey) goes into the film's light, its tone
+            // doesn't (the film's own curves do that); Accurate's light is the film's as before (2: table, 3: grey).
+            // (Not earlier processes: their film edits keep their look.)
+            if scene, a.process >= 4 { p.hueSat = shown == .monochrome ? 3 : shown == .accurate || table == nil ? 0 : 2 }
             if modern {
                 tone(a, profile: shown, into: &p, peak: peak)
-                p.curves = a.curves.isDefault && !base ? 0 : 1
+                let c = a.curves
+                // (Version 3: one curve for all three goes through RGBTone, keeping the hue.)
+                p.curves = c.isDefault && !base ? 0 : a.process >= 3 && [c.red, c.green, c.blue].allSatisfy { $0 == PhotoCurves.straight } ? 2 : 1
                 if let airlight = layers.haze?.airlight {
                     // The haze's colour, at this exposure.
                     let k = Float(cacheKey == nil ? 1 : gain)
@@ -161,9 +195,10 @@ enum PhotoEngine {
         let data = all.withUnsafeBytes { Data($0) }
         let grade = grades.withUnsafeBytes { Data($0) }
         let info = infos.withUnsafeBytes { Data($0) }
-        let curves = modern && (!a.curves.isDefault || base) ? curveTable(a.curves, base: base) : Data(count: 16)
+        let curves = modern && (!a.curves.isDefault || base)
+            ? curveTable(a.curves, base: base ? (a.process >= 4 ? adobeBaseV4 : a.process >= 3 ? adobeBaseV3 : adobeBase) : nil) : Data(count: 16)
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
-            "params": data, "grade": grade, "curves": curves, "masks": info,
+            "params": data, "grade": grade, "curves": curves, "masks": info, "table": table ?? Data(count: 16),
             "layers": [layers.large.extent, layers.small.extent, hazeLayer.extent, maskLayer.extent, glowLayer.extent, extent]
                 .flatMap { [Double($0.minX), Double($0.minY), Double($0.width), Double($0.height)] },
         ]) else { return exposed }
@@ -293,7 +328,7 @@ enum PhotoEngine {
         guard a.temperature != 0 || a.tint != 0 else { return [1, 0, 0, 0, 1, 0, 0, 0, 1] }
         let cone = a.process >= 2 ? cat16 : bradford
         let from = asShot, to = kelvin(a, asShot: asShot)
-        let s = lms(chromaticity(kelvin: from, tint: 0), cone), t = lms(chromaticity(kelvin: to, tint: a.tint), cone)
+        let s = lms(chromaticity(kelvin: from, tint: 0), cone), t = lms(chromaticity(kelvin: to, tint: a.tint, lightroom: a.process >= 3), cone)
         let d = [s[0] / t[0], s[1] / t[1], s[2] / t[2]]
         // XYZ → sRGB · cone⁻¹ · diag · cone · sRGB → XYZ
         let toXYZ = [0.4124, 0.3576, 0.1805, 0.2126, 0.7152, 0.0722, 0.0193, 0.1192, 0.9505]
@@ -306,9 +341,11 @@ enum PhotoEngine {
     /// and moved nearer to or further from it, then the matrix made again from the new primaries
     /// so white stays white (as an RGB→XYZ matrix is made from its primaries and white point).
     // Hue ±100 turns a primary ±35° (+ towards the next primary: red to yellow, green to cyan, blue to purple); Saturation ±100 is 0.5×…1.5× its distance from white.
-    static func calibration(_ c: Calibration) -> [Double] {
-        let white = (0.3127, 0.3290)
-        let primaries = [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)]
+    /// `proPhoto` (version 3): ProPhoto's primaries about D50, as Adobe's calibration moves a wide space's primaries,
+    /// given back for linear sRGB.
+    static func calibration(_ c: Calibration, proPhoto: Bool = false) -> [Double] {
+        let white = proPhoto ? (0.3457, 0.3585) : (0.3127, 0.3290)
+        let primaries = proPhoto ? [(0.7347, 0.2653), (0.1596, 0.8404), (0.0366, 0.0001)] : [(0.64, 0.33), (0.30, 0.60), (0.15, 0.06)]
         let moves = [(c.redHue, c.redSaturation), (c.greenHue, c.greenSaturation), (c.blueHue, c.blueSaturation)]
         func toXYZ(_ xy: [(Double, Double)]) -> [Double] {
             // Columns: each primary's XYZ (Y 1), then scaled so the three add up to white.
@@ -323,8 +360,14 @@ enum PhotoEngine {
             let angle = atan2(dy, dx) + move.0 / 100 * 35 * .pi / 180, reach = hypot(dx, dy) * (1 + move.1 / 100 * 0.5)
             return (white.0 + reach * cos(angle), white.1 + reach * sin(angle))
         }
-        return multiply(inverse(toXYZ(primaries)), toXYZ(moved))
+        let m = multiply(inverse(toXYZ(primaries)), toXYZ(moved))
+        return proPhoto ? multiply(fromProPhoto, multiply(m, toProPhoto)) : m
     }
+
+    /// Linear sRGB (D65) to linear ProPhoto (ROMM primaries, D50, Bradford-adapted as the DNG SDK's PCS: LookTable.toPCS)
+    /// and back, row by row. Version 3's working space; grey stays grey.
+    static let toProPhoto = [0.5292993, 0.3300508, 0.1406499, 0.0984129, 0.8734845, 0.0281026, 0.0168464, 0.1176827, 0.8654709]
+    static let fromProPhoto = inverse(toProPhoto)
 
     private static let bradford = [0.8951, 0.2664, -0.1614, -0.7502, 1.7135, 0.0367, 0.0389, -0.0685, 1.0296]
     private static let cat16 = [0.401288, 0.650173, -0.051461, -0.250268, 1.204414, 0.045854, -0.002079, 0.048952, 0.953127]
@@ -344,7 +387,22 @@ enum PhotoEngine {
     }
 
     /// A light's chromaticity (Kim et al.'s fit of the Planckian locus), moved green or magenta.
-    private static func chromaticity(kelvin t: Double, tint: Double) -> (Double, Double) {
+    /// `lightroom` (version 3): as Lightroom's Tint, the light moved off the locus (CIE 1960 uv, at right angles to it) by
+    /// 1/2000 per step, so ±100 is Lightroom's ±150, and towards green for a positive Tint: the photo balanced against a
+    /// greener light turns magenta. (Before, the light moved a third as far and the other way: the slider's green end
+    /// turned the photo magenta. Versions 1 and 2 keep that, so their edits look as they did.)
+    private static func chromaticity(kelvin t: Double, tint: Double, lightroom: Bool = false) -> (Double, Double) {
+        if lightroom {
+            let (x, y) = chromaticity(kelvin: t, tint: 0)
+            guard tint != 0 else { return (x, y) }
+            func uv(_ p: (Double, Double)) -> (Double, Double) { let d = -2 * p.0 + 12 * p.1 + 3; return (4 * p.0 / d, 6 * p.1 / d) }
+            let (u, v) = uv((x, y)), warm = uv(chromaticity(kelvin: t / 1.01, tint: 0)), cool = uv(chromaticity(kelvin: t * 1.01, tint: 0))
+            var n = (-(cool.1 - warm.1), cool.0 - warm.0)
+            let length = (n.0 * n.0 + n.1 * n.1).squareRoot()
+            n = n.1 < 0 ? (-n.0 / length, -n.1 / length) : (n.0 / length, n.1 / length)
+            let u2 = u + n.0 * tint / 2000, v2 = v + n.1 * tint / 2000, d = 2 * u2 - 8 * v2 + 4
+            return (3 * u2 / d, 2 * v2 / d)
+        }
         let t = min(max(t, 1667), 25000)
         let x: Double = t <= 4000
             ? -0.2661239e9 / (t * t * t) - 0.2343589e6 / (t * t) + 0.8776956e3 / t + 0.179910
@@ -387,6 +445,13 @@ enum PhotoEngine {
         var toneCeiling: Float = 1, overlay: Float = -1, peak: Float = 1, glowGain: Float = 1
         /// Calibration's shadows tint, -1 (green) … 1 (magenta).
         var shadowTint: Float = 0
+        /// The working space for colour: 0 linear sRGB (versions 1–2), 1 linear ProPhoto (version 3).
+        var space: Int32 = 0
+        /// Version 3: how the tone curve meets colour (0 as before, 1 Accurate's: chromaticity kept, 2 RGBTone with each
+        /// colour's hue kept) and whether the profile has a hue and saturation table (ColourProfiles).
+        var tro: Int32 = 0, hueSat: Int32 = 0
+        /// Process 4 (Highlights' top stops, see `tonedLog`).
+        var v4: Int32 = 0
     }
 
     /// The vignette's highlights and style, and the grain, for the GPU (see PhotoRender.effects).
@@ -435,11 +500,14 @@ enum PhotoEngine {
         let lo = -12.47393 - a.blacks / 100 * 2.5, hi = 4.026069 - a.whites / 100 * 2.5 + log2(max(peak, 1))
         let grey = (log2(0.18 * 1.15) - lo) / (hi - lo)
         let y0 = 0.5219
+        let v3 = a.process >= 3
         let look: Double = switch profile {
         case .standard: 1.2
-        case .vivid: 1.25
+        case .vivid: v3 ? 1.15 : 1.25
         case .flat: 0.8
         case .monochrome: 1.06
+        case .landscape: 1.1
+        case .portrait: 0.92
         default: 1
         }
         let contrast = 1 + a.contrast / 100 * (a.contrast > 0 ? 0.6 : 0.4)
@@ -463,18 +531,20 @@ enum PhotoEngine {
         p.toneLo = Float(lo); p.toneHi = Float(hi); p.toneGrey = Float(grey); p.toneY = Float(y0)
         p.toneSlope = Float(slope); p.tonePt = Float(pt); p.tonePb = Float(pb)
         p.toneFloor = Float((bottom + low) / 2); p.toneCeiling = Float((top + high) / 2)
-        p.sat = Float(profile == .vivid ? 1.35 : profile == .standard ? 1.15 : profile == .flat ? 0.95 : 1)
+        // (Version 3's Vivid has its colour from its table.)
+        p.sat = Float(profile == .vivid ? (v3 ? 1 : 1.35) : profile == .standard ? 1.15 : profile == .flat ? 0.95 : 1)
+        p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait].contains(profile) ? 2 : 0
         p.mono = profile == .monochrome ? 1 : 0
         p.peak = Float(max(peak, 1))
     }
 
     /// The curves as a table of 128 steps per channel (the master after each). `base`: Adobe's tone curve
     /// first (the Classic profile).
-    static func curveTable(_ curves: PhotoCurves, base: Bool = false) -> Data {
+    static func curveTable(_ curves: PhotoCurves, base: [Double]? = nil) -> Data {
         let master = Curve(curves.master), red = Curve(curves.red), green = Curve(curves.green), blue = Curve(curves.blue)
         var values = [Float](repeating: 0, count: 128 * 4)
         for i in 0..<128 {
-            let x = base ? adobeBase[i] : Double(i) / 127
+            let x = base?[i] ?? Double(i) / 127
             values[i * 4] = Float(master.value(red.value(x)))
             values[i * 4 + 1] = Float(master.value(green.value(x)))
             values[i * 4 + 2] = Float(master.value(blue.value(x)))
@@ -485,7 +555,31 @@ enum PhotoEngine {
     /// The Classic profile (`adobe`), on the picture's sRGB steps (128): what Neutral makes of the light, as the
     /// DNG SDK's default tone curve (dng_tone_curve_acr3_default) would make it instead. The sliders still
     /// work on Neutral's curve underneath; at their defaults, the light's grey gets Adobe's curve exactly.
-    static let adobeBase: [Double] = {
+    static let adobeBase = adobeBase(matchingNeutral: true)
+    /// Version 3: Adobe's curve on the light as it is, as Lightroom's Adobe Color (its mid grey 0.7 stop above Neutral's),
+    /// so Lightroom's Exposure gives about the same brightness.
+    static let adobeBaseV3 = adobeBase(matchingNeutral: false)
+    /// Process 4: the same, its roll into white ending `0.3` stop sooner (Lightroom's whites clip more: 0.6–3% of
+    /// the frame against 0.15–0.55%, its upper mid-tones 2–3 OkLab L ×100 brighter).
+    /// Then its brightness put on Apple's default decode's (CIRAWFilter, all defaults; the owner's pick, 2026-11-07): Pluck's
+    /// greys sat 3–7 OkLab L ×100 brighter through the mid-tones (the deep shadows and white alike), measured on the centres of
+    /// four RAWs' low-colour pixels. `appleTone` maps that lightness back, the same for every photo.
+    static let adobeBaseV4 = adobeBase(matchingNeutral: false, sooner: 0.6).map(appleTone)
+
+    /// Pluck's OkLab lightness → Apple's (grey), read linearly between the measured points.
+    static let appleTonePoints: [(pluck: Double, apple: Double)] = [
+        (0, 0), (0.146, 0.153), (0.279, 0.25), (0.401, 0.35), (0.512, 0.45), (0.622, 0.55), (0.7235, 0.65), (0.815, 0.75), (0.899, 0.85), (1, 1),
+    ]
+
+    static func appleTone(_ v: Double) -> Double {
+        let L = cbrt(max(LookTable.fromSRGB(v), 0))
+        guard L < 1 else { return v }
+        let i = appleTonePoints.lastIndex { $0.pluck <= L } ?? 0, a = appleTonePoints[i], b = appleTonePoints[min(i + 1, appleTonePoints.count - 1)]
+        let out = b.pluck > a.pluck ? a.apple + (b.apple - a.apple) * (L - a.pluck) / (b.pluck - a.pluck) : a.apple
+        return LookTable.toSRGB(out * out * out)
+    }
+
+    private static func adobeBase(matchingNeutral: Bool, sooner: Double = 0) -> [Double] {
         var p = Params()
         tone(PhotoAdjustments(), profile: .neutral, into: &p)
         // Neutral's grey (the shader's tone curve: inset and outset keep grey grey).
@@ -506,9 +600,9 @@ enum PhotoEngine {
         // scaled to keep Neutral's mid grey (the curve alone puts it 0.7 stop brighter).
         var below = -8.0, above = 4.0
         for _ in 0..<50 { let mid = (below + above) / 2; if acr3(0.18 * exp2(mid)) < neutral(0.18) { below = mid } else { above = mid } }
-        let gain = exp2((below + above) / 2)
+        let gain = matchingNeutral ? exp2((below + above) / 2) : 1
         // Above `knee` the light rolls smoothly into white at Neutral's white, rather than clipping at the curve's end.
-        let knee = 0.6, top = gain * exp2(Double(p.toneHi)) / 1.15
+        let knee = 0.6, top = gain * exp2(Double(p.toneHi) - sooner) / 1.15
         func rolled(_ t: Double) -> Double {
             guard top > 1, t > knee else { return t }
             let m = (top - knee) / (1 - knee), u = min((t - knee) / (top - knee), 1)
@@ -522,7 +616,7 @@ enum PhotoEngine {
             for _ in 0..<50 { let mid = (low + high) / 2; if neutral(exp2(mid)) < d { low = mid } else { high = mid } }
             return LookTable.toSRGB(acr3(rolled(gain * exp2((low + high) / 2))))
         }
-    }()
+    }
 
     /// dng_tone_curve_acr3_default (DNG SDK, dng_render.cpp): linear light in, linear light out, 1025 steps.
     static let adobeCurve: [Double] = [
@@ -672,6 +766,9 @@ enum PhotoEngine {
         float toneSlope, tonePt, tonePb, toneFloor;
         float toneCeiling, overlay, peak, glowGain;
         float shadowTint;
+        int space;
+        int tro, hueSat;
+        int v4;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -690,6 +787,15 @@ enum PhotoEngine {
                                              float3(-0.5876411, 1.1328999, -0.1005789),
                                              float3(-0.0728499, -0.0083494, 1.1187297));
     inline float luma2020(float3 c) { return dot(c, float3(0.2627, 0.6780, 0.0593)); }
+
+    // Linear sRGB (D65) to and from linear ProPhoto (D50, Bradford: see PhotoEngine.toProPhoto); version 3 works in ProPhoto.
+    constant float3x3 toPro = float3x3(float3(0.5292993, 0.0984129, 0.0168464),
+                                       float3(0.3300508, 0.8734845, 0.1176827),
+                                       float3(0.1406499, 0.0281026, 0.8654709));
+    constant float3x3 fromPro = float3x3(float3(2.0342895, -0.2289248, -0.0084694),
+                                         float3(-0.7273081, 1.2317166, -0.1533260),
+                                         float3(-0.3069813, -0.0027918, 1.1617954));
+    inline float lumaPro(float3 c) { return dot(c, float3(0.2880, 0.7119, 0.0001)); }
 
     inline float scbrt(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }
 
@@ -715,10 +821,9 @@ enum PhotoEngine {
     // Colours past the screen's (sRGB) brought inside, each channel's distance from the
     // brightest compressed smoothly (the ACES reference gamut compression): hue and gradation
     // kept, nothing clipped flat.
-    inline float3 compressGamut(float3 c) {
+    inline float3 compressGamut(float3 c, float3 thr = float3(0.815, 0.803, 0.880), float3 lim = float3(1.147, 1.264, 1.312)) {
         float ach = max(c.r, max(c.g, c.b));
         if (ach <= 1e-6) return max(c, 0.0);
-        const float3 thr = float3(0.815, 0.803, 0.880), lim = float3(1.147, 1.264, 1.312);
         const float pw = 1.2;
         float3 scale = (lim - thr) / pow(pow((1.0 - thr) / (lim - thr), -pw) - 1.0, 1.0 / pw);
         float3 d = (ach - c) / ach;
@@ -741,8 +846,8 @@ enum PhotoEngine {
 
     // Calibration's shadows tint (scene light): magenta (or green) strongest in the deep shadows,
     // gone by mid grey.
-    inline float3 tintShadows(float3 c, float k) {
-        float w = 1.0 - smoothstep(-6.0, 0.0, log2(max(luma(c), 1e-6) / 0.18));
+    inline float3 tintShadows(float3 c, float k, float Y) {
+        float w = 1.0 - smoothstep(-6.0, 0.0, log2(max(Y, 1e-6) / 0.18));
         float a = 0.3 * k * w;
         return c * exp2(float3(a, -a, a));
     }
@@ -773,7 +878,8 @@ enum PhotoEngine {
         float2 m = src.read(at(gid, offsets[0], uint2(src.get_width(), src.get_height()))).rg;
         float v = max(m.y - m.x * m.x, 0.0);
         float a = v / (v + eps);
-        dst.write(float4(a, m.x - a * m.x, 0, 1), gid);
+        // (And the plain mean, for version 3's Shadows: see liftBase.)
+        dst.write(float4(a, m.x - a * m.x, m.x, 1), gid);
     }
 
     // The ACES-like curve (Standard, Vivid): punchy, with a long shoulder.
@@ -802,14 +908,91 @@ enum PhotoEngine {
         return pow(clamp(v, 0.0, 1.0), 2.2);
     }
 
+    // DNG SDK's RGBTone (dng_reference.cpp, RefBaselineRGBTone), as Adobe's renderer puts its curves on ProPhoto: the
+    // brightest and darkest channels through the curve, the middle one kept where it was between them, so the hue holds.
+    inline float3 rgbTone(float3 c, float hi, float lo) {
+        float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b));
+        if (mx - mn < 1e-9) return float3(hi);
+        return lo + (hi - lo) * (c - mn) / (mx - mn);
+    }
+
+    // Accurate, near white: the colour fades to white at its brightness. How far towards the brightest a channel reaches, 1 at
+    // the edge, eased from 0.8 so it never gets there; by taking colourfulness out in OkLab, lightness and hue kept (towards
+    // white in RGB, blues went purple). Linear ProPhoto in and out.
+    inline float3 towardsWhite(float3 outc, constant Params &p) {
+        float Yo = lumaPro(outc), mx = max(outc.r, max(outc.g, outc.b));
+        float r = (mx - Yo) / max(p.peak - Yo, 1e-6);
+        if (r <= 0.8) return outc;
+        float goal = 0.8 + 0.2 * tanh((r - 0.8) / 0.2), lo = 0.0, hi = 1.0;
+        float3 o = oklab(fromPro * outc);
+        for (int i = 0; i < 12; i++) {
+            float k = 0.5 * (lo + hi);
+            float3 t = toPro * fromOklab(float3(o.x, o.yz * k));
+            float Yt2 = lumaPro(t);
+            if ((max(t.r, max(t.g, t.b)) - Yt2) / max(p.peak - Yt2, 1e-6) <= goal) lo = k; else hi = k;
+        }
+        return toPro * fromOklab(float3(o.x, o.yz * lo));
+    }
+
+    // One value through the tone curve (scene light in, picture light out).
+    inline float toneLight(float v, constant Params &p) {
+        float x = clamp((log2(max(v, 1e-10)) - p.toneLo) / (p.toneHi - p.toneLo), 0.0, 1.0);
+        return pow(clamp(toneCurve(x, p), 0.0, pow(p.peak, 1.0 / 2.2)), 2.2);
+    }
+
+    // One linear value through the curves' channel `k` (sRGB steps).
+    inline float curveLight(float v, int k, constant float4 *curve) {
+        float e = v <= 0.0031308 ? v * 12.92 : 1.055 * pow(clamp(v, 0.0, 1.0), 1.0 / 2.4) - 0.055;
+        float at = clamp(e, 0.0, 1.0) * 127.0;
+        int i0 = int(floor(at)), i1 = min(i0 + 1, 127);
+        e = mix(curve[i0][k], curve[i1][k], at - float(i0));
+        return e <= 0.04045 ? e / 12.92 : pow((e + 0.055) / 1.055, 2.4);
+    }
+
+    // Version 3's profile table (ColourProfiles), as the DNG SDK's HueSatMap (dng_reference.cpp, RefBaselineHueSatMap): in HSV
+    // of linear ProPhoto, each colour's hue turned and its saturation and value scaled, read between the table's 60 hues
+    // and 12 saturations. The same at any exposure; grey untouched.
+    constant int hsHues = 60, hsSats = 12;
+    inline float3 hueSatMap(float3 c, constant float4 *t) {
+        float mx = max(c.r, max(c.g, c.b)), mn = min(c.r, min(c.g, c.b)), d = mx - mn;
+        if (mx <= 0.0 || d <= 0.0) return c;
+        float h = c.r == mx ? (c.g - c.b) / d : c.g == mx ? 2.0 + (c.b - c.r) / d : 4.0 + (c.r - c.g) / d;
+        if (h < 0.0) h += 6.0;
+        float s = d / mx;
+        float hf = h * float(hsHues) / 6.0, fh = hf - floor(hf);
+        int h0 = int(floor(hf)) % hsHues, h1 = (h0 + 1) % hsHues;
+        float sf = min(s, 1.0) * float(hsSats - 1);
+        int s0 = min(int(floor(sf)), hsSats - 2);
+        float fs = sf - float(s0);
+        float4 e = mix(mix(t[h0 * hsSats + s0], t[h0 * hsSats + s0 + 1], fs), mix(t[h1 * hsSats + s0], t[h1 * hsSats + s0 + 1], fs), fh);
+        h = fmod(h + e.x / 60.0 + 6.0, 6.0);
+        s *= e.y;
+        float v = mx * e.z, f = h - floor(h);
+        float p = v * (1.0 - s), q = v * (1.0 - s * f), u = v * (1.0 - s * (1.0 - f));
+        switch (int(floor(h)) % 6) {
+            case 0: return float3(v, u, p);
+            case 1: return float3(q, v, p);
+            case 2: return float3(p, v, u);
+            case 3: return float3(p, q, v);
+            case 4: return float3(u, p, v);
+            default: return float3(v, p, q);
+        }
+    }
+
     // Version 2, after the local tone: grading in scene light (Rec.2020), the mixer, vibrance and
     // saturation (OkLCh), the gamut compression, the tone curve and profile, then the curves.
-    inline float3 finish(float3 c, constant Params &p, constant Grade &g, constant float4 *curve) {
-        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint);
-        c = toRec2020 * c;
+    // Version 3 (`p.space` 1) does all of it in linear ProPhoto, as Lightroom: colours past sRGB are kept (only what's
+    // outside ProPhoto is brought in), the tone curve and the curves keep hue (RGBTone), and the picture goes out still
+    // wide, for the gamut mapping to the screen's or the file's colours (PhotoRender.output).
+    inline float3 finish(float3 c, constant Params &p, constant Grade &g, constant float4 *curve, constant float4 *hs) {
+        bool pro = p.space == 1;
+        if (pro) c = toPro * c;
+        if (pro && ((p.hueSat == 1 && p.scene == 0) || p.hueSat == 2)) c = hueSatMap(c, hs);
+        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint, pro ? lumaPro(c) : luma(c));
+        if (!pro) c = toRec2020 * c;
         if (g.wheels != 0) {
             // Balance moves where shadows end and highlights begin; Blending widens or narrows both ranges.
-            float e = log2(max(luma2020(c), 1e-6) / 0.18) + g.balance;
+            float e = log2(max(pro ? lumaPro(c) : luma2020(c), 1e-6) / 0.18) + g.balance;
             float shadow = 1.0 - smoothstep(-2.0 - 2.5 * g.blend, -2.0 + 2.5 * g.blend, e);
             float light = smoothstep(1.5 - 2.0 * g.blend, 1.5 + 2.0 * g.blend, e);
             float3 ev = g.offset.rgb * 0.5 + g.offset.w + shadow * (g.lift.rgb * 0.7 + g.lift.w * 1.5)
@@ -819,9 +1002,10 @@ enum PhotoEngine {
             float3 power = exp2(-0.8 * (g.gamma.w + g.gamma.rgb * 0.75));
             c = select(c, 0.18 * pow(max(c, 0.0) / 0.18, power), c > 0.0);
         }
-        c = fromRec2020 * c;
+        if (!pro) c = fromRec2020 * c;
         if (g.mixer != 0 || g.vibrance != 0 || g.saturation != 0) {
-            float3 o = oklab(c);
+            // (OkLab is the same colours whatever the RGB they're written in.)
+            float3 o = oklab(pro ? fromPro * c : c);
             float C = length(o.yz), h = atan2(o.z, o.y) * 57.29578;
             if (h < 0) h += 360.0;
             if (g.mixer != 0 && C > 0.002) {
@@ -852,11 +1036,17 @@ enum PhotoEngine {
             C *= max(amount, 0.0);
             float r = h * 0.01745329;
             c = fromOklab(float3(o.x, C * cos(r), C * sin(r)));
+            if (pro) c = toPro * c;
         }
-        // A finished picture shown as shot keeps its colours; everything else is brought inside.
+        // A finished picture shown as shot keeps its colours; everything else is brought inside (version 3: inside
+        // ProPhoto, which only touches colours no eye sees, such as the decoder's near-black noise).
         bool asShot = p.profile == 5 && p.isRaw == 0;
-        c = asShot ? max(c, 0.0) : compressGamut(c);
+        c = asShot ? max(c, 0.0) : pro ? compressGamut(c, float3(0.97), float3(1.15)) : compressGamut(c);
+        float3 scene = c;
         if (p.scene == 1) {
+            if (p.hueSat == 3) c = float3(lumaPro(c));
+            // (The film reads sRGB light: its own space, so version 3's is brought into sRGB for it here.)
+            if (pro) c = compressGamut(fromPro * c);
             // The film makes its own curve from this light, so what the tone curve does without film happens here
             // first: Contrast steepens (or flattens) the stops around mid grey, Whites moves the brightest stops and
             // Blacks the darkest (gently enough that the light never turns back down).
@@ -869,7 +1059,21 @@ enum PhotoEngine {
 
         float3 outc;
         if (asShot) {
-            outc = clamp(c, 0.0, 1.0);
+            outc = pro ? min(c, p.peak) : clamp(c, 0.0, 1.0);
+        } else if (pro && p.tro == 1 && p.mono == 0) {
+            // Accurate: the brightness through the curve (Classic's), each colour's chromaticity kept (RGB curves as gains at
+            // its brightness); near white the colour fades smoothly to white at its brightness, so whites end white.
+            float Y = max(lumaPro(c), 1e-10), t = toneLight(Y * 1.15, p);
+            float Yt = t > 1.0 ? t : curveLight(t, 1, curve);
+            outc = max(c, 0.0) * (Yt / Y);
+            if (p.curves == 1) outc *= float3(curveLight(t, 0, curve), Yt, curveLight(t, 2, curve)) / max(Yt, 1e-10);
+            outc = towardsWhite(outc, p);
+        } else if (pro) {
+            // (Each channel first held at the curve's white, as the DNG SDK's RGBTone clamps: a tinted white past it is white.)
+            float3 v = min((p.mono != 0 ? float3(lumaPro(c)) : c) * 1.15, exp2(p.toneHi));
+            outc = rgbTone(v, toneLight(max(v.r, max(v.g, v.b)), p), toneLight(min(v.r, min(v.g, v.b)), p));
+            float Y2 = lumaPro(outc);
+            outc = p.mono != 0 ? float3(Y2) : max(Y2 + (outc - Y2) * p.sat, 0.0);
         } else {
             const float3x3 inset = float3x3(float3(0.842479062253094, 0.0423282422610123, 0.0423756549057051),
                                             float3(0.0784335999999992, 0.878468636469772, 0.0784336),
@@ -886,9 +1090,15 @@ enum PhotoEngine {
             float Y2 = luma(outc);
             outc = p.mono != 0 ? float3(Y2) : max(Y2 + (outc - Y2) * p.sat, 0.0);
         }
-        // The curves, on the picture (sRGB steps), as in Lightroom.
-        // (HDR: what's brighter than white keeps its light; the curves shape up to white.)
-        if (p.curves != 0) {
+        // The curves, on the picture (sRGB steps; version 3 on ProPhoto in sRGB steps, as Lightroom's), as in Lightroom.
+        // (HDR: what's brighter than white keeps its light; the curves shape up to white.) (Accurate has them already.)
+        if (p.tro == 1 && p.mono == 0) {
+        } else if (p.curves == 2) {
+            // One curve for all three (no red, green or blue curve of its own): through RGBTone, so the hue holds.
+            float mx = max(outc.r, max(outc.g, outc.b)), mn = min(outc.r, min(outc.g, outc.b));
+            float3 toned = rgbTone(outc, curveLight(mx, 0, curve), curveLight(mn, 0, curve));
+            outc = select(toned, outc, float3(mx) > 1.0);
+        } else if (p.curves != 0) {
             float3 bright = outc;
             float3 e = select(1.055 * pow(clamp(outc, 0.0, 1.0), 1.0 / 2.4) - 0.055, outc * 12.92, outc <= 0.0031308);
             float3 at = clamp(e, 0.0, 1.0) * 127.0;
@@ -899,7 +1109,74 @@ enum PhotoEngine {
             outc = select(pow((e + 0.055) / 1.055, 2.4), e / 12.92, e <= 0.04045);
             outc = select(outc, bright, bright > 1.0);
         }
-        return clamp(outc, 0.0, p.peak);
+        // Classic, in the shadows: the light's own colour at the curves' brightness, as Adobe's renderer keeps ratios
+        // through its curve. Per channel the toe makes dark colours more colourful (measured on a lifted shadow: red
+        // to green 0.42 in the light, 0.29 on screen against Lightroom's 0.48) and turns their noise into coloured specks.
+        // Version 3's RGBTone profiles keep each colour's own hue (OkLab) through the curves: RGBTone keeps ProPhoto's HSV hue,
+        // which isn't the eye's (bright blues went purple, darkening reds magenta).
+        if (p.tro == 2 && p.mono == 0) {
+            float3 so = oklab(fromPro * scene), to = oklab(fromPro * outc);
+            float Cs = length(so.yz);
+            if (Cs > 1e-6) outc = toPro * fromOklab(float3(to.x, so.yz * (length(to.yz) / Cs)));
+        }
+        if ((p.profile == 6 || p.tro == 2) && !asShot) {
+            float Yo = pro ? lumaPro(outc) : luma(outc), Yc = pro ? lumaPro(scene) : luma(scene);
+            float3 kept = Yc > 1e-7 ? scene * (Yo / Yc) : float3(Yo);
+            outc = mix(outc, kept, 1.0 - smoothstep(0.02, 0.3, Yo));
+        }
+        // (Version 3: back in the engine's linear sRGB numbers, colours past sRGB as they are.)
+        return pro ? fromPro * clamp(outc, 0.0, p.peak) : clamp(outc, 0.0, p.peak);
+    }
+
+    // The picture's colours brought inside the file's or screen's (`g.x` 1: Display P3, else sRGB; `g.y` the brightest it
+    // goes), as perceptual rendering does: in OkLCh, the lightness and hue kept, the colourfulness eased from 90% of
+    // what fits towards the edge (where it was as far out as ProPhoto reaches, it lands on the edge), nothing clipped.
+    inline bool fits(float3 lab, float3x3 to, float top) {
+        float3 t = to * fromOklab(lab);
+        return all(t >= -1e-4) && all(t <= top + 1e-4);
+    }
+    inline float reach(float L, float2 dir, float C, float3x3 to, float top) {
+        float lo = 0.0, hi = C;
+        for (int i = 0; i < 14; i++) { float mid = 0.5 * (lo + hi); if (fits(float3(L, dir * mid), to, top)) lo = mid; else hi = mid; }
+        return lo;
+    }
+    kernel void gamutMap(texture2d<float, access::read> src [[texture(0)]],
+                         texture2d<float, access::write> dst [[texture(1)]],
+                         constant float2 &g [[buffer(0)]],
+                         constant int2 *offsets [[buffer(1)]],
+                         uint2 gid [[thread_position_in_grid]]) {
+        if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
+        float4 px = src.read(at(gid, offsets[0], uint2(src.get_width(), src.get_height())));
+        const float3x3 toP3 = float3x3(float3(0.8225481, 0.0331828, 0.0170010), float3(0.1773356, 0.9669250, 0.0723893),
+                                       float3(0.0001162, -0.0001078, 0.9106097));
+        float3x3 to = g.x > 0.5 ? toP3 : float3x3(1.0);
+        float top = g.y;
+        float3 o = oklab(px.rgb);
+        float L = clamp(o.x, 0.0, scbrt(top)), C = length(o.yz);
+        const float knee = 0.9;
+        float3 out = px.rgb;
+        if (L <= 0.0) {
+            out = float3(0.0);
+        } else if (C > 1e-5 && !fits(float3(L, o.yz / knee), to, top)) {
+            float2 dir = o.yz / C;
+            // How far this hue reaches at this lightness here, and in ProPhoto (the most the engine holds).
+            float edge = reach(L, dir, C / knee, to, top), wide = max(reach(L, dir, max(C, 0.5), toPro, top), edge * 1.0001);
+            float r = C / max(edge, 1e-6), lim = wide / max(edge, 1e-6);
+            if (r > knee && edge > 1e-6) {
+                float u = min((r - knee) / max(lim - knee, 1e-6), 1.0), m = (lim - knee) / (1.0 - knee);
+                r = knee + (1.0 - knee) * m * u / (1.0 + (m - 1.0) * u);
+                out = fromOklab(float3(L, dir * r * edge));
+            } else {
+                out = fromOklab(float3(L, edge > 1e-6 ? o.yz : float2(0.0)));
+            }
+        } else if (o.x != L) {
+            out = fromOklab(float3(L, o.yz));
+        }
+        // (What's left over at the edge, from the halving: a hair, into the space exactly.)
+        float3 t = clamp(to * out, 0.0, top);
+        out = g.x > 0.5 ? float3x3(float3(1.2247995, -0.0420347, -0.0195253), float3(-0.2246165, 1.0419060, -0.0786332),
+                                   float3(-0.0001829, 0.0001287, 1.0981585)) * t : t;
+        dst.write(float4(out, px.a), gid);
     }
 
     // A mask's place in the mask layer and what limits it besides its shape.
@@ -909,9 +1186,28 @@ enum PhotoEngine {
         float4 col;             // colour range: hue, width, on, invert the whole mask
     };
 
+    // Version 3's Shadows (raising them), as Lightroom's: up to 2.3 stops, all of it from about 2 stops under mid grey down
+    // (the lower mid-tones too, not only the darkest), easing to nothing at mid grey; never steep enough to turn the
+    // light over. `t`: the large base, in stops from mid grey. (Measured on a RAW against Lightroom's +100.)
+    inline float shadowLift(float t, constant Params &p) {
+        return p.shadows * 2.3 / (1.0 + exp((t + 0.9) / 0.65));
+    }
+
     // The local tone (shadows, highlights, clarity, texture) as the new log brightness.
     // `Lg`: the brightness the layers follow (see guideColour), `L` the pixel's own.
-    inline float tonedLog(float L, float Lg, float2 al, float2 as, constant Params &p) {
+    // What version 3's Shadows lifts by: the large base, except where it dips under what's around it (a crease, a fold's
+    // shadow in something bright), up to a stop: there the place around counts, so the fold keeps its shadow. Never the
+    // other way (something bright beside a dark place keeps its own base: no bright halo). The place around: from the
+    // edge-following base (a = v/(v+0.03)) the variance is found again and weighed against 1 instead, the rest from the
+    // plain mean (`al.z`).
+    inline float liftBase(float Lg, float3 al, constant Params &p) {
+        float a = clamp(al.x, 0.0, 0.999), v = a * 0.03 / (1.0 - a), a2 = v / (v + 1.0);
+        float t = al.x * Lg + al.y + (1.0 - al.x) * p.shift - log2(0.18);
+        float around = a2 * Lg + (1.0 - a2) * (al.z + p.shift) - log2(0.18);
+        return t + clamp(around - t, 0.0, 1.0);
+    }
+
+    inline float tonedLog(float L, float Lg, float3 al, float2 as, constant Params &p) {
         // b moves with the exposure the layers were made without: (1 − a)·shift.
         float baseL = al.x * Lg + al.y + (1.0 - al.x) * p.shift;
         float baseS = as.x * Lg + as.y + (1.0 - as.x) * p.shift;
@@ -920,12 +1216,20 @@ enum PhotoEngine {
         // what's above mid grey, shadows what's below: the curve always keeps rising, so nothing
         // turns over into halos or grey skies, however far it goes.
         float t = baseL - log2(0.18);
-        float kh = p.highlights < 0 ? 1.0 + p.highlights * 0.62 : 1.0 + p.highlights * 0.45;
+        // (Version 3 darkens half as much: its −100 is Lightroom's; at 0.62 the upper mid-tones came out 0.3 stop dimmer and
+        // the brightest still coloured, a flat shoulder.)
+        float kh = p.highlights < 0 ? 1.0 + p.highlights * (p.space == 1 ? 0.31 : 0.62) : 1.0 + p.highlights * 0.45;
         float ks = p.shadows > 0 ? 1.0 - p.shadows * 0.6 : 1.0 - p.shadows * 0.5;
         float above = t - 0.6, below = t + 0.4;
         float softAbove = above > 8.0 ? above : log(1.0 + exp(above));
         float softBelow = below < -8.0 ? below : -log(1.0 + exp(-below));
-        float base = baseL + (kh - 1.0) * softAbove + (ks - 1.0) * softBelow;
+        float base = baseL + (kh - 1.0) * softAbove + (p.space == 1 && p.shadows > 0 ? shadowLift(liftBase(Lg, al, p), p) : (ks - 1.0) * softBelow);
+        // Process 4, lowering Highlights: the stops more than 2¼ over mid grey brought down further (0.6 more at −100, eased in
+        // over about a stop), as Lightroom's −100 does with a window: every profile but Neutral is on Adobe's curve, which shows
+        // anything over 2.5 stops as white, so a window brought down only by the even compression above stayed white there
+        // (Neutral's own shoulder showed it). The detail rides on the base, so the window keeps its texture; the base still
+        // always rises; the lawn and the upper mid-tones (Lightroom's mid grey) hardly move.
+        if (p.v4 == 1 && p.highlights < 0) { float top = (t - 2.25) * 2.0; base += p.highlights * 0.3 * (top > 16.0 ? top : log(1.0 + exp(top))); }
         float midWeight = 1.0 - abs(smoothstep(-6.0, 3.0, base - log2(0.18)) * 2.0 - 1.0);
         // (Version 2 does clarity itself, on the soft layer: see developModern.)
         float strength = p.process < 2 ? p.clarity : 0.0;
@@ -935,8 +1239,8 @@ enum PhotoEngine {
 
     // Version 2, one pixel: dehaze, local tone, then the rest (finish). `t`: how much light gets
     // through the haze there.
-    inline float3 developModern(float3 c, float3 cg, float2 al, float2 as, float t, float3 soft, float3 wide,
-                                constant Params &p, constant Grade &g, constant float4 *curve) {
+    inline float3 developModern(float3 c, float3 cg, float3 al, float2 as, float t, float3 soft, float3 wide,
+                                constant Params &p, constant Grade &g, constant float4 *curve, constant float4 *hs) {
         float L = log2(max(luma(c), 1e-5)), Lg = log2(max(luma(cg), 1e-5));
         // Dehaze: the haze taken out (or added) in scene light, from how much of the light got
         // through (the dark channel prior); the layers then work on what's left.
@@ -959,6 +1263,18 @@ enum PhotoEngine {
             L = log2(max(luma(c), 1e-5)); Lg = Ld;
         }
         float Lp = tonedLog(L, Lg, al, as, p);
+        // Version 3: what Shadows lifts gets less colourful as it comes up, as in Lightroom (a lifted warm floor: blue to
+        // green 0.33 there, 0.08 with its colour kept whole), rather than dark colours coming out deep and green.
+        // (By hue: warm colours, as that floor, the most; cool ones, as a teal pot in the shade, keep much more: Lightroom's
+        // pot red to green 0.16, here 0.44 when all lost alike.)
+        if (p.space == 1 && p.shadows > 0) {
+            // (The hue of the colour around, and only where there is one: noise in a grey has every hue, and would get a cast.)
+            float Y = luma(c);
+            float3 o = oklab(cg);
+            float C = length(o.yz), warm = C > 1e-7 ? dot(o.yz / C, float2(0.5, 0.866)) : 1.0;
+            float k = mix(1.0, mix(0.15, 1.0, smoothstep(-0.2, 0.5, warm)), smoothstep(0.03, 0.08, C / max(o.x, 1e-4)));
+            c = Y + (c - Y) * exp2(-0.28 * k * shadowLift(liftBase(Lg, al, p), p));
+        }
         // Clarity: the contrast against a soft copy of the photo (about 2% of its size), less only in
         // the extremes; a third of its base follows the edges, so it doesn't halo.
         if (p.clarity != 0) {
@@ -977,7 +1293,7 @@ enum PhotoEngine {
             float3 bloom = wide * smoothstep(0.25, 2.5, luma(wide));
             c = mix(c, soft, 0.22 * k) + bloom * 0.45 * k;
         }
-        return finish(c, p, g, curve);
+        return finish(c, p, g, curve, hs);
     }
 
     // The colour the local-tone layers follow here: the pixels around (5×5) within about a stop of this one, averaged
@@ -1017,6 +1333,7 @@ enum PhotoEngine {
                         constant Grade *gs [[buffer(3)]],
                         constant float4 *curve [[buffer(4)]],
                         constant MaskInfo *info [[buffer(5)]],
+                        constant float4 *hs [[buffer(6)]],
                         uint2 gid [[thread_position_in_grid]]) {
         if (gid.x >= dst.get_width() || gid.y >= dst.get_height()) return;
         constant Params &p = ps[0];
@@ -1032,7 +1349,8 @@ enum PhotoEngine {
         float2 t1 = float2(map[1].x * pos.x + map[1].y, map[1].z * pos.y + map[1].w);
         float2 t2 = float2(map[2].x * pos.x + map[2].y, map[2].z * pos.y + map[2].w);
         float2 uv1 = t1 / float2(large.get_width(), large.get_height()), uv2 = t2 / float2(small.get_width(), small.get_height());
-        float2 al = large.sample(smooth, uv1).rg, as = small.sample(smooth, uv2).rg;
+        float3 al = large.sample(smooth, uv1).rgb;
+        float2 as = small.sample(smooth, uv2).rg;
         if (p.process >= 2) {
             float2 t3 = float2(map[3].x * pos.x + map[3].y, map[3].z * pos.y + map[3].w);
             float through = haze.sample(smooth, t3 / float2(haze.get_width(), haze.get_height())).r;
@@ -1047,7 +1365,7 @@ enum PhotoEngine {
                 wide += glow.sample(smooth, t5 + o).rgb * p.glowGain;
             }
             wide /= 9.0;
-            float3 out = developModern(c, cg, al, as, through, soft, wide, p, gs[0], curve);
+            float3 out = developModern(c, cg, al, as, through, soft, wide, p, gs[0], curve, hs);
             // The masks: each one's own settings developed here too, mixed in where it is.
             int count = p.masks;
             if (count > 0) {
@@ -1075,7 +1393,7 @@ enum PhotoEngine {
                     if (k == int(p.overlay)) marked = w;
                     if (w < 0.002) continue;
                     float3x3 change = float3x3(m.m0.xyz, m.m1.xyz, m.m2.xyz);
-                    out = mix(out, developModern(change * c, change * cg, al, as, through, change * soft, change * wide, ps[k + 1], gs[k + 1], curve), w);
+                    out = mix(out, developModern(change * c, change * cg, al, as, through, change * soft, change * wide, ps[k + 1], gs[k + 1], curve, hs), w);
                 }
                 // The mask being edited, shown in red.
                 if (p.overlay >= 0) out = mix(out, float3(1.0, 0.12, 0.1), 0.5 * marked);
@@ -1090,7 +1408,7 @@ enum PhotoEngine {
             c = max((c - haze * 0.18) / (1.0 - haze), 0.0);
         }
 
-        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint);
+        if (p.shadowTint != 0) c = tintShadows(c, p.shadowTint, luma(c));
         // Contrast (around mid grey) and whites (the brightest stops), in scene light (the film's too).
         float flat = p.profile == 3 && p.scene == 0 ? 0.78 : 1.0;
         float contrast = flat * (1.0 + p.contrast * (p.contrast > 0 ? 0.55 : 0.45));
@@ -1233,7 +1551,13 @@ enum PhotoEngine {
         encoder.setTexture(target, index: index)
         let offsetsAt = offsetsIndex ?? bytes.count
         for (i, data) in bytes.enumerated() {
-            data.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: data.count, index: i < offsetsAt ? i : i + 1) }
+            let at = i < offsetsAt ? i : i + 1
+            // (Metal takes up to 4 KB as bytes; more, as a buffer: a profile's table.)
+            if data.count > 4096 {
+                encoder.setBuffer(data.withUnsafeBytes { buffer.device.makeBuffer(bytes: $0.baseAddress!, length: data.count) }, offset: 0, index: at)
+            } else {
+                data.withUnsafeBytes { encoder.setBytes($0.baseAddress!, length: data.count, index: at) }
+            }
         }
         // Each input's offset from the output (in the textures' top-down rows).
         var offsets: [SIMD2<Int32>] = (inputs ?? []).map { input in
@@ -1337,6 +1661,16 @@ final class EffectsPass: CIImageProcessorKernel {
     }
 }
 
+/// The gamut mapping to the file's or screen's colours (see gamutMap in the shaders).
+final class GamutPass: CIImageProcessorKernel {
+    override class var outputFormat: CIFormat { .RGBAh }
+    override class func formatForInput(at input: Int32) -> CIFormat { .RGBAh }
+    override class func roi(forInput input: Int32, arguments: [String: Any]?, outputRect: CGRect) -> CGRect { outputRect }
+    override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
+        try PhotoEngine.run("gamutMap", inputs: inputs, output: output, bytes: [(arguments?["gamut"] as? Data) ?? Data(count: 8)])
+    }
+}
+
 /// Local tone and the profile.
 final class DevelopPass: CIImageProcessorKernel {
     override class var outputFormat: CIFormat { .RGBAh }
@@ -1367,7 +1701,8 @@ final class DevelopPass: CIImageProcessorKernel {
         let bytes = map.withUnsafeBytes { Data($0) }
         try PhotoEngine.run("develop", inputs: inputs, output: output,
                             bytes: [(arguments?["params"] as? Data) ?? Data(), bytes, (arguments?["grade"] as? Data) ?? Data(),
-                                    (arguments?["curves"] as? Data) ?? Data(count: 16), (arguments?["masks"] as? Data) ?? Data(count: 96)],
+                                    (arguments?["curves"] as? Data) ?? Data(count: 16), (arguments?["masks"] as? Data) ?? Data(count: 96),
+                                    (arguments?["table"] as? Data) ?? Data(count: 16)],
                             offsetsIndex: 1)
     }
 }
@@ -1408,6 +1743,15 @@ extension PhotoEngine {
             kCIInputBackgroundImageKey: red.applyingFilter("CIBlendWithMask", parameters: [kCIInputBackgroundImageKey: image, kCIInputMaskImageKey: highlights]),
             kCIInputMaskImageKey: shadows,
         ]).cropped(to: extent)
+    }
+
+    /// A version 3 picture (still wide: ProPhoto's colours in linear sRGB numbers) brought inside Display P3 (`p3`) or sRGB,
+    /// up to `peak`, keeping each colour's lightness and hue (gamutMap).
+    static func gamutMapped(_ image: CIImage, p3: Bool, peak: Double = 1) -> CIImage {
+        let data = [Float(p3 ? 1 : 0), Float(max(peak, 1))].withUnsafeBytes { Data($0) }
+        guard !image.extent.isInfinite, let mapped = try? apply(GamutPass.self, extent: image.extent, inputs: [image], arguments: ["gamut": data])
+        else { return image }
+        return mapped
     }
 
     /// The photo in scene light at this white balance (no exposure): for measuring it.

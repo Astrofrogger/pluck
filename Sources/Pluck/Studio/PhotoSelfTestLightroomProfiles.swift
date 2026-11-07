@@ -93,13 +93,15 @@ extension PhotoSelfTest {
         let named = LightroomPresets.adjustments(["CameraProfile": "Adobe Color"]).0.profile
         let camera = LightroomPresets.adjustments(["CameraProfile": "Camera Standard", "Exposure2012": "+0.5"]).0.profile
         let byLook = LightroomPresets.adjustments(["Look.Name": "Adobe Portrait"]).0.profile
-        check("adobe base only when named", named == .adobe && camera == nil && byLook == .adobe && LightroomPresets.adjustments([:]).0.profile == nil,
-              "Adobe Color and Adobe Portrait the Adobe-like profile, others untouched; got \(String(describing: named)), \(String(describing: camera))")
-        var adobe = PhotoAdjustments(), neutral = PhotoAdjustments()
+        check("adobe base only when named", named == .adobe && camera == nil && byLook == .portrait && LightroomPresets.adjustments([:]).0.profile == nil,
+              "Adobe Color the Adobe-like profile, Adobe Portrait Portrait, others untouched; got \(String(describing: named)), \(String(describing: camera))")
+        // (Version 2's Classic: version 3's has Adobe's own mid grey, see PhotoSelfTestProPhoto.)
+        var adobe = PhotoAdjustments(), neutral = PhotoAdjustments(), oldPlain = PhotoAdjustments()
         adobe.profile = .adobe; neutral.profile = .neutral
+        adobe.process = 2; neutral.process = 2; oldPlain.process = 2
         let scene = patch(SIMD3(repeating: 0.18))
         let rawAdobe = middle(PhotoEngine.develop(scene, adobe, isRaw: true)), rawNeutral = middle(PhotoEngine.develop(scene, neutral, isRaw: true))
-        let rawDefault = middle(PhotoEngine.develop(scene, PhotoAdjustments(), isRaw: true))
+        let rawDefault = middle(PhotoEngine.develop(scene, oldPlain, isRaw: true))
         // Classic keeps Neutral's mid grey (Adobe's curve alone is 0.7 stop brighter) and has its own contrast.
         let darkAdobe = middle(PhotoEngine.develop(patch(SIMD3(repeating: 0.03)), adobe, isRaw: true))
         let darkNeutral = middle(PhotoEngine.develop(patch(SIMD3(repeating: 0.03)), neutral, isRaw: true))
@@ -113,7 +115,7 @@ extension PhotoSelfTest {
               && zip(table.dropFirst(), table.dropFirst(2)).allSatisfy { $1 > $0 } && abs(table[127] - 1) < 0.001,
               "1, 2, 4 and 8 brighter each, at most white; the table rising to white; got \(bright), \(table.suffix(3))")
         var asShot = PhotoAdjustments()
-        asShot.profile = .asShot
+        asShot.profile = .asShot; asShot.process = 2
         let jpeg = patch(SIMD3(0.3, 0.2, 0.1))
         check("adobe base not on jpeg", middle(PhotoEngine.develop(jpeg, adobe, isRaw: false)) == middle(PhotoEngine.develop(jpeg, asShot, isRaw: false)),
               "As Shot on a photo that isn't RAW")

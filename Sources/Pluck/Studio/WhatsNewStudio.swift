@@ -5,6 +5,18 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.5", items: [
+                Item(symbol: "camera.aperture", title: String(localized: "Truer RAW photos"),
+                     detail: String(localized: "RAW photos keep far more fine detail, with natural colours, cleaner shadows, deeper blacks and no dark corners. Press Update on older photos to use it.")),
+                Item(symbol: "paintpalette", title: String(localized: "More profiles"),
+                     detail: String(localized: "Accurate, Landscape and Portrait join the profiles, and with film on, the profile now colours the film too.")),
+                Item(symbol: "waveform.path.ecg", title: String(localized: "Scopes"),
+                     detail: String(localized: "Next to the histogram: a parade, a waveform and a vectorscope.")),
+                Item(symbol: "wand.and.stars", title: String(localized: "AI Denoise for RAW"),
+                     detail: String(localized: "AI Denoise now cleans RAW photos from the sensor’s own data: crisper detail, cleaner shadows.")),
+                Item(symbol: "checkmark.circle", title: String(localized: "Fixes"),
+                     detail: String(localized: "Tint goes the right way, Highlights recovers more on every profile, and the photo no longer squeezes when you resize the window.")),
+            ]),
             Release(version: "3.9.4", items: [
                 Item(symbol: "wand.and.stars", title: String(localized: "Better Denoise"),
                      detail: String(localized: "Denoise removes far more noise, and analyses each photo only once: Amount and the new Luminance and Colour sliders change live afterwards, as in Lightroom.")),

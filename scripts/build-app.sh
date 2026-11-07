@@ -73,7 +73,7 @@ if [[ "$EDITION" == studio ]]; then
 # The bridge to spektrafilm (film simulation), which Pluck downloads separately when asked, and the
 # denoiser (Pluck's own), run by the same downloaded Python.
 mkdir -p "$APP/Contents/Resources/FilmEngine"
-cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/pluck_denoise.py Resources/FilmEngine/NOTICE.txt Resources/FilmEngine/COPYING "$APP/Contents/Resources/FilmEngine/"
+cp Resources/FilmEngine/pluck_film.py Resources/FilmEngine/pluck_denoise.py Resources/FilmEngine/pluck_denoise_raw.py Resources/FilmEngine/NOTICE.txt Resources/FilmEngine/COPYING "$APP/Contents/Resources/FilmEngine/"
 # The film tables (Studio only): made once, and again only when the film data or the code changes.
 zsh scripts/film-tables.sh
 rm -rf "$APP/Contents/Resources/FilmTables"

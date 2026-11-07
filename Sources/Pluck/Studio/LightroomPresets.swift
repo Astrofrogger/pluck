@@ -160,6 +160,8 @@ enum LightroomPresets {
     /// balance is measured from the photo's; without it, a preset's.
     static func adjustments(_ crs: [String: String], base: PhotoAdjustments = .init(), asShotKelvin: Double? = nil) -> (PhotoAdjustments, unmapped: [String]) {
         var a = base
+        // Lightroom's settings mean what they do in Lightroom: the current engine (its colour, mid grey and RAW default).
+        a.process = PhotoAdjustments.currentProcess
         var used: Set<String> = []
         func number(_ key: String) -> Double? {
             guard let text = crs[key] else { return nil }
@@ -299,7 +301,10 @@ enum LightroomPresets {
         // The profile. Adobe's own (Adobe Color, Standard…) start from Classic (RAW only).
         let params = crs.reduce(into: [String: String]()) { if $1.key.hasPrefix("Look.Parameters.") { $0[String($1.key.dropFirst(16))] = $1.value } }
         let lookName = crs["Look.Name"]
-        if [crs["CameraProfile"], lookName, params["CameraProfile"]].contains(where: { $0.map(adobeProfiles.contains) == true }) { a.profile = .adobe }
+        // (Adobe Monochrome, Vivid, Landscape and Portrait have Pluck's own counterparts.)
+        if let name = [crs["CameraProfile"], lookName, params["CameraProfile"]].compactMap({ $0 }).first(where: adobeProfiles.contains) {
+            a.profile = ["Adobe Monochrome": .monochrome, "Adobe Vivid": .vivid, "Adobe Landscape": .landscape, "Adobe Portrait": .portrait][name] ?? .adobe
+        }
         // A creative profile: its colour table at its amount (Lightroom's 1 is 100%), and its own settings
         // under the preset's. One whose table can't be read is listed, by its name.
         var profiles: [String] = []

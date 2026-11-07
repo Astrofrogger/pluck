@@ -53106,64 +53106,6 @@
         }
       }
     },
-    "Develop with the current engine: wider colour, white balance, tone curve and dehaze. The look changes a little.": {
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mit der aktuellen Engine entwickeln: größerer Farbraum, Weißabgleich, Tonkurve und Dunst entfernen. Der Look ändert sich etwas."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revelar con el motor actual: color más amplio, balance de blancos, curva de tonos y eliminación de neblina. El aspecto cambia un poco."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Développer avec le moteur actuel : couleurs plus étendues, balance des blancs, courbe des tons et correction du voile. Le rendu change un peu."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sviluppa con il motore attuale: colore più ampio, bilanciamento del bianco, curva tonale e rimozione foschia. L’aspetto cambia un po’."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "現在のエンジンで現像します：より広い色域、ホワイトバランス、トーンカーブ、かすみの除去。見た目が少し変わります。"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "현재 엔진으로 현상합니다: 더 넓은 색 영역, 화이트 밸런스, 톤 커브, 안개 제거. 보이는 모습이 조금 바뀝니다."
-          }
-        },
-        "nl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ontwikkelen met de huidige engine: breder kleurbereik, witbalans, toonkromme en nevel verwijderen. De look verandert een beetje."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Revelar com o mecanismo atual: cores mais amplas, balanço de branco, curva de tons e remoção de névoa. O visual muda um pouco."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "使用当前引擎冲印：更广的色彩、白平衡、色调曲线和去雾。外观会略有变化。"
-          }
-        }
-      }
-    },
     "Developing the film…": {
       "localizations": {
         "de": {
@@ -73535,7 +73477,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fehlerbehebungen"
+            "value": "Korrekturen"
           }
         },
         "es": {
@@ -73571,7 +73513,7 @@
         "nl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Verbeteringen"
+            "value": "Oplossingen"
           }
         },
         "pt-BR": {
@@ -214055,6 +213997,818 @@
           "stringUnit": {
             "state": "translated",
             "value": "降噪能去除更多噪点，且每张照片只分析一次：之后数量以及新的明亮度和颜色滑块可实时调整，与 Lightroom 一样。"
+          }
+        }
+      }
+    },
+    "Accurate": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genau"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preciso"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fidèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fedele"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正確"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정확"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nauwkeurig"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preciso"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "准确"
+          }
+        }
+      }
+    },
+    "Landscape": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landschaft"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paisaje"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paysage"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paesaggio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "風景"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "풍경"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Landschap"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paisagem"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "风景"
+          }
+        }
+      }
+    },
+    "Portrait": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porträt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrato"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portrait"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ritratto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ポートレート"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인물"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Portret"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retrato"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "人像"
+          }
+        }
+      }
+    },
+    "Update AI Denoise (%lld MB)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Entrauschen aktualisieren (%lld MB)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actualizar reducción de ruido con IA (%lld MB)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mettre à jour le débruitage IA (%lld Mo)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiorna riduzione rumore IA (%lld MB)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIノイズ除去をアップデート（%lld MB）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 노이즈 제거 업데이트(%lld MB)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI-ruisonderdrukking bijwerken (%lld MB)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Atualizar redução de ruído com IA (%lld MB)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新 AI 降噪（%lld MB）"
+          }
+        }
+      }
+    },
+    "Cleans RAW photos from the sensor’s own data: crisper detail, cleaner shadows.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reinigt RAW-Fotos direkt aus den Sensordaten: schärfere Details, sauberere Schatten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpia las fotos RAW desde los datos del propio sensor: más detalle y sombras más limpias."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nettoie les photos RAW à partir des données du capteur : détails plus nets, ombres plus propres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulisce le foto RAW dai dati del sensore stesso: dettagli più nitidi, ombre più pulite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "センサーのデータから直接RAW写真をクリーンにします。ディテールはより鮮明に、シャドウはよりきれいに。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "센서 자체 데이터로 RAW 사진을 정리합니다. 더 선명한 디테일, 더 깨끗한 그림자."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maakt RAW-foto’s schoon vanuit de eigen sensordata: scherper detail, schonere schaduwen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limpa fotos RAW a partir dos dados do próprio sensor: detalhes mais nítidos, sombras mais limpas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直接用传感器数据清理 RAW 照片：细节更清晰，阴影更干净。"
+          }
+        }
+      }
+    },
+    "Develop with the current engine, as Lightroom does: wider colour, its tone curve and brightness. The profile stays, but the look changes.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit der aktuellen Engine entwickeln, wie Lightroom: größerer Farbraum, seine Tonkurve und Helligkeit. Das Profil bleibt, aber der Look ändert sich."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revelar con el motor actual, como Lightroom: color más amplio, su curva tonal y su brillo. El perfil se mantiene, pero el aspecto cambia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Développer avec le moteur actuel, comme Lightroom : couleurs plus étendues, sa courbe de tonalité et sa luminosité. Le profil reste, mais le rendu change."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sviluppa con il motore attuale, come Lightroom: colore più ampio, la sua curva tonale e la sua luminosità. Il profilo resta, ma l’aspetto cambia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroomと同様に現在のエンジンで現像します：より広い色域、そのトーンカーブと明るさ。プロファイルはそのままですが、見た目は変わります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lightroom처럼 현재 엔진으로 현상합니다: 더 넓은 색 영역, 해당 톤 곡선과 밝기. 프로필은 유지되지만 결과물의 느낌은 바뀝니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ontwikkelen met de huidige engine, zoals Lightroom: ruimere kleur, zijn tooncurve en helderheid. Het profiel blijft, maar de look verandert."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revelar com o motor atual, como o Lightroom: cor mais ampla, sua curva de tons e brilho. O perfil permanece, mas a aparência muda."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "像 Lightroom 一样用当前引擎显影：更广的色彩、其色调曲线和亮度。配置文件保持不变，但外观会改变。"
+          }
+        }
+      }
+    },
+    "Truer RAW photos": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Echtere RAW-Fotos"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos RAW más fieles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des photos RAW plus fidèles"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto RAW più fedeli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より忠実なRAW写真"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 사실적인 RAW 사진"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Echtere RAW-foto’s"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos RAW mais fiéis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更真实的 RAW 照片"
+          }
+        }
+      }
+    },
+    "RAW photos keep far more fine detail, with natural colours, cleaner shadows, deeper blacks and no dark corners. Press Update on older photos to use it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW-Fotos behalten viel mehr feine Details, mit natürlichen Farben, saubereren Schatten, tieferem Schwarz und ohne dunkle Ecken. Bei älteren Fotos auf „Aktualisieren“ klicken, um es zu nutzen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fotos RAW conservan mucho más detalle fino, con colores naturales, sombras más limpias, negros más profundos y sin esquinas oscuras. Pulsa Actualizar en las fotos antiguas para usarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les photos RAW gardent bien plus de détails fins, avec des couleurs naturelles, des ombres plus propres, des noirs plus profonds et sans coins sombres. Cliquez sur Mettre à jour sur les anciennes photos pour en profiter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le foto RAW conservano molti più dettagli fini, con colori naturali, ombre più pulite, neri più profondi e senza angoli scuri. Premi Aggiorna sulle foto meno recenti per usarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW写真の細部がずっと多く残り、自然な色、すっきりしたシャドウ、深い黒になり、四隅も暗くなりません。以前の写真では「アップデート」を押すと使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW 사진이 훨씬 더 많은 세부 묘사를 유지하며, 자연스러운 색상, 더 깨끗한 그림자, 더 깊은 검정을 보여 주고 모서리가 어두워지지 않습니다. 이전 사진은 업데이트를 눌러 적용하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW-foto’s houden veel meer fijn detail, met natuurlijke kleuren, schonere schaduwen, dieper zwart en geen donkere hoeken. Klik bij oudere foto’s op Werk bij om het te gebruiken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fotos RAW mantêm muito mais detalhes finos, com cores naturais, sombras mais limpas, pretos mais profundos e sem cantos escuros. Clique em Atualizar nas fotos antigas para usar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW 照片保留更多细节，色彩自然，阴影更干净，黑色更深，四角不再发暗。在较早的照片上点按“更新”即可使用。"
+          }
+        }
+      }
+    },
+    "More profiles": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mehr Profile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Más perfiles"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plus de profils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Più profili"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 많은 프로필"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meer profielen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mais perfis"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更多配置文件"
+          }
+        }
+      }
+    },
+    "Accurate, Landscape and Portrait join the profiles, and with film on, the profile now colours the film too.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Genau, Landschaft und Porträt kommen zu den Profilen hinzu, und mit Film färbt das Profil jetzt auch den Film."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preciso, Paisaje y Retrato se suman a los perfiles y, con la película activada, el perfil ahora también colorea la película."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Précis, Paysage et Portrait rejoignent les profils, et avec le film activé, le profil colore désormais aussi le film."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accurato, Paesaggio e Ritratto si aggiungono ai profili e, con la pellicola attiva, il profilo ora colora anche la pellicola."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「正確」「風景」「ポートレート」がプロファイルに加わり、フィルムをオンにしてもプロファイルがフィルムの色に反映されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "정확, 풍경, 인물 프로필이 추가되었고, 필름을 켜도 이제 프로필이 필름 색상에 반영됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nauwkeurig, Landschap en Portret komen bij de profielen, en met film aan kleurt het profiel nu ook de film."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preciso, Paisagem e Retrato chegam aos perfis e, com o filme ativado, o perfil agora também colore o filme."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增“准确”“风景”和“人像”配置文件；开启胶片时，配置文件现在也会影响胶片的色彩。"
+          }
+        }
+      }
+    },
+    "Next to the histogram: a parade, a waveform and a vectorscope.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neben dem Histogramm: Parade, Waveform und Vektorskop."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Junto al histograma: un desfile RGB, una forma de onda y un vectorscopio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "À côté de l’histogramme : une parade, une forme d’onde et un vectorscope."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accanto all’istogramma: una parata, una forma d’onda e un vettorscopio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒストグラムに加えて、パレード、波形、ベクトルスコープ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "히스토그램 옆에 퍼레이드, 파형, 벡터스코프가 추가되었습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naast het histogram: een parade, een golfvorm en een vectorscoop."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ao lado do histograma: parade, forma de onda e vectorscópio."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "直方图之外，还有分量图、波形图和矢量示波器。"
+          }
+        }
+      }
+    },
+    "AI Denoise for RAW": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Rauschreduzierung für RAW"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reducción de ruido con IA para RAW"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Réduction du bruit par IA pour le RAW"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Riduzione rumore IA per RAW"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW向けAIノイズ除去"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "RAW용 AI 노이즈 제거"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI-ruisonderdrukking voor RAW"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Redução de ruído com IA para RAW"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 RAW 的 AI 降噪"
+          }
+        }
+      }
+    },
+    "AI Denoise now cleans RAW photos from the sensor’s own data: crisper detail, cleaner shadows.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die KI-Rauschreduzierung bereinigt RAW-Fotos jetzt direkt aus den Sensordaten: schärfere Details, sauberere Schatten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La reducción de ruido con IA ahora limpia las fotos RAW a partir de los datos del propio sensor: detalle más nítido y sombras más limpias."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La réduction du bruit par IA nettoie désormais les photos RAW à partir des données du capteur : détails plus nets, ombres plus propres."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La riduzione rumore IA ora pulisce le foto RAW partendo dai dati del sensore: dettagli più nitidi, ombre più pulite."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AIノイズ除去がセンサー自体のデータからRAW写真をクリーンにします。よりシャープな細部、すっきりしたシャドウ。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 노이즈 제거가 이제 센서 자체 데이터로 RAW 사진을 정리합니다. 더 선명한 디테일, 더 깨끗한 그림자."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI-ruisonderdrukking maakt RAW-foto’s nu schoon vanuit de eigen gegevens van de sensor: scherper detail, schonere schaduwen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A redução de ruído com IA agora limpa fotos RAW a partir dos dados do próprio sensor: detalhes mais nítidos, sombras mais limpas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 降噪现在直接根据传感器数据清理 RAW 照片：细节更清晰，阴影更干净。"
+          }
+        }
+      }
+    },
+    "Tint goes the right way, Highlights recovers more on every profile, and the photo no longer squeezes when you resize the window.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tönung wirkt in die richtige Richtung, Lichter holt bei jedem Profil mehr zurück, und das Foto wird beim Ändern der Fenstergröße nicht mehr gestaucht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El matiz va en la dirección correcta, Iluminaciones recupera más en todos los perfiles y la foto ya no se deforma al cambiar el tamaño de la ventana."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La teinte va dans le bon sens, Hautes lumières récupère davantage sur tous les profils, et la photo n’est plus écrasée quand vous redimensionnez la fenêtre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La tinta va nella direzione giusta, Luci recupera di più con ogni profilo e la foto non si deforma più quando ridimensioni la finestra."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色かぶり補正が正しい方向に働き、ハイライトがどのプロファイルでもより多く復元され、ウインドウのサイズを変えても写真が歪まなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "색조가 올바른 방향으로 작동하고, 밝은 영역이 모든 프로필에서 더 많이 복원되며, 창 크기를 바꿔도 사진이 찌그러지지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tint werkt de goede kant op, Hooglichten haalt bij elk profiel meer terug, en de foto wordt niet meer samengedrukt als je het venster groter of kleiner maakt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O matiz vai na direção certa, Realces recupera mais em todos os perfis e a foto não fica mais achatada ao redimensionar a janela."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "色调现在方向正确，高光在每种配置文件下都能恢复更多，调整窗口大小时照片也不再被压扁。"
           }
         }
       }

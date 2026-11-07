@@ -58,6 +58,22 @@ The film and paper data is downloaded on request from
 [darktable-spektrafilm](https://github.com/darktable-org/darktable-spektrafilm), CC BY-SA 4.0 ©
 Andrea Volpato, with its licence.
 
+## AI Denoise (Pluck Studio; downloaded on request)
+Pluck downloads these into its own folder only when AI Denoise is asked for, and runs them as a separate
+Python program; none is part of Pluck's download.
+- [DRUNet](https://github.com/cszn/DPIR) by Kai Zhang et al., weights `drunet_color.pth` from
+  [KAIR](https://github.com/cszn/KAIR) (v1.0 release), MIT licence. Pluck's raw denoiser
+  (`FilmEngine/pluck_denoise_raw.py`) is its own code, with a fresh definition of the network shaped to load them.
+- [SCUNet](https://github.com/cszn/SCUNet) by Kai Zhang et al., Apache License 2.0; weights from KAIR. Run
+  with [spandrel](https://github.com/chaiNNer-org/spandrel), MIT licence, and PyTorch (BSD-style licence).
+- [rawpy](https://github.com/letmaik/rawpy), MIT licence, which reads RAW files with
+  [LibRaw](https://www.libraw.org), under the GNU LGPL 2.1 or the CDDL 1.0 (LibRaw is a dynamically linked
+  library inside rawpy's wheel, and can be replaced there), and [tifffile](https://github.com/cgohlke/tifffile),
+  BSD 3-clause licence.
+
+> K. Zhang, Y. Li, W. Zuo, L. Zhang, L. Van Gool, R. Timofte. "Plug-and-Play Image Restoration with Deep
+> Denoiser Prior." IEEE TPAMI, 2021.
+
 ## Depth Anything V2 Small (depth and sky masks, Pluck Studio; downloaded on request)
 
 Depth Anything V2 by Lihe Yang, Bingyi Kang, Zilong Huang, Zhen Zhao, Xiaogang Xu, Jiashi Feng and

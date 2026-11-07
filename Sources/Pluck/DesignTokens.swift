@@ -76,6 +76,8 @@ enum Design {
         /// Inside a row's highlight, to its icon and its count (so both sit 18 from the edge).
         static let rowPadding: CGFloat = 10
         static let rowHeight: CGFloat = 28
+        /// The Photo page's top row, in the middle (toolbar) and in the inspector (tabs), so their dividers line up.
+        static let topRowHeight: CGFloat = 46
         static let headerHeight: CGFloat = 28
         /// Above each section, with a hairline in the middle.
         static let sectionGap: CGFloat = 12

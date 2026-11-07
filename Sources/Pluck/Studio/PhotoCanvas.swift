@@ -95,7 +95,28 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
             layer.colorspace = space
             layer.isOpaque = true
         }
+        // The drawable follows the view ourselves (in layout): left to MTKView it could lag a resize, and the layer then
+        // stretched the last frame to the new shape, squeezing the photo.
+        autoResizeDrawable = false
+        layer?.contentsGravity = .topLeft
         delegate = self
+    }
+
+    override func layout() {
+        super.layout()
+        fitDrawable()
+    }
+
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        fitDrawable()
+    }
+
+    private func fitDrawable() {
+        let size = convertToBacking(bounds).size
+        guard size.width >= 1, size.height >= 1, size != drawableSize else { return }
+        drawableSize = size
+        needsDisplay = true
     }
 
     required init(coder: NSCoder) { fatalError("init(coder:) is not used") }
@@ -136,6 +157,7 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
 
     func draw(in view: MTKView) {
         guard let drawable = currentDrawable, let buffer = queue?.makeCommandBuffer() else { return }
+        fitDrawable()
         let size = drawableSize
         let scale = size.width / max(bounds.width, 1)
         let picture = PhotoComposite.compose(after: image, before: before, frame: target, mode: mode, split: split,

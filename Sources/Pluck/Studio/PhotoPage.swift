@@ -131,15 +131,18 @@ struct PhotoPage: View {
         return (left, right)
     }
 
+    static let titleBar: CGFloat = 32, trafficLights: CGFloat = 76
+
     var body: some View {
         let fit = Self.fitted(left: sidebarHidden ? 0 : sidebarWidth, right: inspectorHidden ? 0 : inspectorWidth, total: pageWidth - 2)
         HStack(spacing: 0) {
             if !sidebarHidden {
-                sidebar.frame(width: fit.left)
+                // (The page runs up under the title bar: the traffic lights sit above the list.)
+                sidebar.padding(.top, Self.titleBar).frame(width: fit.left)
                 ResizeHandle(width: $sidebarWidth, range: 200...300, edge: .leading)
             }
             VStack(spacing: 0) {
-                toolbar
+                toolbar.padding(.leading, sidebarHidden ? Self.trafficLights : 0)
                 Divider()
                 Group {
                     if photos.isEmpty {
@@ -186,8 +189,10 @@ struct PhotoPage: View {
             }
         }
         .onGeometryChange(for: Double.self) { $0.size.width } action: { pageWidth = $0 }
+        // No band above the toolbar: the page fills the title bar, which keeps only the traffic lights.
+        .ignoresSafeArea(.container, edges: .top)
         .frame(minWidth: 1000, minHeight: 600)
-        .navigationTitle("Photo")
+        .navigationTitle("")
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -491,7 +496,7 @@ struct PhotoPage: View {
         }
         .controlSize(.small)
         .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .frame(height: Design.Sidebar.topRowHeight)
     }
 
     private var filtering: Bool { flagFilter != nil || minRating > 0 || labelFilter != nil || checkFilter != nil }
@@ -1691,10 +1696,11 @@ struct PhotoLoupe: View {
             }
             let measured = quick
             if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(measured) }.value }
+            if primary { let counted = await Task.detached(priority: .utility) { PhotoScopes.data(measured) }.value; if !Task.isCancelled { editing.scopes = counted } }
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled, shown.isEdited else { return }
             await Task.detached(priority: .utility) {
-                if let small = PhotoRender.picture(measured, maxSize: 1200) { PhotoRender.savePreview(small, to: cached) }
+                if let small = PhotoRender.picture(measured, maxSize: 1200, space: PhotoRender.screenSpace) { PhotoRender.savePreview(small, to: cached) }
             }.value
             return
         }
@@ -1709,6 +1715,7 @@ struct PhotoLoupe: View {
                 picturePath = path
                 FilmPictures.shared.keep(film, for: cached.path)
                 if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
+                if primary { let counted = await Task.detached(priority: .utility) { PhotoScopes.data(film) }.value; if !Task.isCancelled { editing.scopes = counted } }
                 PhotoRender.savePreview(developed, to: cached)
             }
         } catch {

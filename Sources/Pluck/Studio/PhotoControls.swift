@@ -85,6 +85,8 @@ final class PhotoEditing {
     }
     /// The big picture's histogram (red, green, blue in 64 steps).
     var histogram: [[Float]] = []
+    /// The same picture counted for the parade, waveform and vectorscope.
+    var scopes: ScopeData?
     /// Photos having their noise taken out (kept here, so it goes on when you look elsewhere).
     private(set) var denoising: Set<String> = []
     private(set) var denoiseProblem: String?

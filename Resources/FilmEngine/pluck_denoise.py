@@ -2,12 +2,19 @@
 #
 # It reads one job per line on stdin (JSON) and answers one line on stdout (JSON):
 #   {"do": "denoise", "input": path, "output": path, "weights": path (AI only)}
-#                                            -> {"ok": true, "version": 2}
-#   {"do": "selftest"}                       -> {"ok": true, "roundtrip": worst relative error}
+#                                            -> {"ok": true, "version": 4}
+#   {"do": "selftest"}                       -> {"ok": true, "roundtrip": worst relative error, "settled": bool}
+#   {"do": "denoise_raw", ...}, {"do": "selftest_raw"}: a Bayer RAW's mosaic, in pluck_denoise_raw.py
 # The input is a linear sRGB float TIFF (extended: below 0 and above 1 too); the output is the
 # same light without its noise, as a half-float OpenEXR with alpha. The noise always comes out in
 # full: Pluck mixes the clean picture with the photo itself (the Amount) on the GPU, so a photo is
 # worked out only once.
+#
+# The denoisers are given what they are made for: a normally exposed picture in sRGB steps (0…1),
+# with its camera noise as it is. One gain brings the photo's middle to a normal exposure; what that
+# lifts past white is done again two stops darker (and once more) and blended in, in
+# linear light; past that (no noise to speak of) the photo is kept. Each comes back exactly through
+# the same steps. (Darker passes than needed tint a little: the network leans at a picture's ends.)
 import json
 import sys
 import traceback
@@ -15,7 +22,9 @@ import traceback
 import numpy as np
 import OpenImageIO as oiio
 
-VERSION = 2
+VERSION = 4  # PhotoRender.denoiseVersion
+LUMA = np.array([0.2126, 0.7152, 0.0722], np.float32)
+STEP, PASSES = 4, 2  # each highlights' pass is two stops darker; past the second the photo is kept
 
 
 # MARK: - Light the networks and filters are made for
@@ -28,30 +37,72 @@ def _linear(e):
     return np.where(e <= 0.04045, e / 12.92, np.power(np.maximum((e + 0.055) / 1.055, 0), 2.4))
 
 
+def _smooth(x, lo, hi):
+    t = np.clip((x - lo) / (hi - lo), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
 def exposure(rgb):
-    """The gain and black offset that bring the photo to a normal exposure (its middle at 0.25),
-    and lift its deepest noise above zero: high-ISO photos are mostly dark, and a dark picture's
-    noise is a few steps that look like texture to a filter or a network."""
-    sample = rgb[::7, ::7].reshape(-1, 3)
-    luma = sample @ np.array([0.2126, 0.7152, 0.0722], np.float32)
-    middle = float(np.median(np.maximum(luma, 0)))
-    gain = float(np.clip(0.25 / max(middle, 1e-6), 0.5, 32))
-    offset = float(np.clip(-np.percentile(sample.min(axis=1), 0.5), 0, 0.05))
-    return gain, offset
+    """The gain that puts the photo's middle at a normal exposure (18% grey)."""
+    middle = float(np.median(np.maximum(rgb[::7, ::7].reshape(-1, 3) @ LUMA, 0)))
+    return float(np.clip(0.18 / max(middle, 1e-6), 0.25, 64))
 
 
-def forward(x, gain, offset):
-    """Linear light (any value) into 0…1 sRGB steps, and what fell below the offset (kept as it is).
-    A Reinhard curve after the gain takes every highlight, however bright, below 1."""
-    s = x + offset
-    under = np.minimum(s, 0)
-    s = (s - under) * gain
-    return _srgb(s / (1 + s)).astype(np.float32), under.astype(np.float32)
+def develop(rgb, gain, run, need=None):
+    """The photo at a gain, in sRGB steps, cleaned by `run`, and back in linear light."""
+    e = _srgb(np.clip(rgb * gain, 0, 1)).astype(np.float32)
+    clean = (_linear(run(e, need)) / gain).astype(np.float32)
+    return levels(rgb, clean, gain, need)
 
 
-def inverse(e, gain, offset, under):
-    t = np.clip(_linear(e), 0, 0.999)
-    return (t / (gain * (1 - t)) + under - offset).astype(np.float32)
+def levels(noisy, clean, gain, need=None, bins=64):
+    """Puts back what the deepest shadows lose: their noise is cut off at black, so averaging it lifts nothing
+    and the clean shadows come out too dark (most in red and blue, which turned them green). Per channel, the
+    photo's mean minus the clean one at each (own level, brightness), over the whole picture: one global
+    correction, so no halo and no blotch. (It also takes out the network's slight colour leanings.)"""
+    from scipy.ndimage import gaussian_filter, map_coordinates
+    s = (slice(None, None, 2), slice(None, None, 2))
+    pick = np.ones(clean[s].shape[:2], bool) if need is None else need[s]
+    if pick.sum() < 1000:
+        return clean
+    lum = _srgb(np.clip(clean @ LUMA * gain, 0, 1)) * (bins - 1)
+    fade = (1 - _smooth(lum / (bins - 1), 0.85, 1.0)).astype(np.float32)
+    out = clean.copy()
+    for c in range(3):
+        own = _srgb(np.clip(clean[..., c] * gain, 0, 1)) * (bins - 1)
+        inside = pick & (own[s] < bins - 1) & (lum[s] < bins - 1)  # (what's past white says nothing about black)
+        k = np.rint(own[s][inside]).astype(int) * bins + np.rint(lum[s][inside]).astype(int)
+        count = gaussian_filter(np.bincount(k, minlength=bins * bins).reshape(bins, bins).astype(np.float64), 1.0)
+        diff = gaussian_filter(np.bincount(k, (noisy[s][..., c] - clean[s][..., c])[inside].astype(np.float64),
+                                           bins * bins).reshape(bins, bins), 1.0)
+        d = diff / np.maximum(count, 1) * np.minimum(count / 500, 1)  # only where there's enough to tell
+        out[..., c] += fade * map_coordinates(d, [np.clip(own, 0, bins - 1), np.clip(lum, 0, bins - 1)], order=1)
+    return out
+
+
+def clean(rgb, run):
+    """The photo without its noise, `run` cleaning a 0…1 sRGB picture (only where `need` says, if it can)."""
+    from scipy.ndimage import gaussian_filter, maximum_filter
+    gain = exposure(rgb)
+    bright = maximum_filter(gaussian_filter(np.maximum(rgb.max(axis=-1), 0), 1.0), 9)
+    out = develop(rgb, gain, run)
+    for _ in range(PASSES):
+        high = _smooth(bright * gain, 0.45, 0.85)  # near white at this gain (kept clear of it)
+        if not high.any():
+            return settle(rgb, out)
+        gain /= STEP
+        out += high[..., None] * (develop(rgb, gain, run, high > 0) - out)
+    keep = _smooth(bright * gain, 0.7, 0.95)[..., None]  # near white even at the last gain: no noise to speak of
+    out += keep * (rgb - out)
+    return settle(rgb, out)
+
+
+def settle(noisy, clean):
+    """Denoising averages: it never needs past what the photo has within 3 px. That takes off the network's
+    overshoot at the hardest edges (a leaf against the sky), and anything else gone wrong."""
+    from scipy.ndimage import maximum_filter, minimum_filter
+    clean = np.where(np.isfinite(clean), clean, noisy)
+    return np.clip(clean, minimum_filter(noisy, (7, 7, 1)), maximum_filter(noisy, (7, 7, 1))).astype(np.float32)
 
 
 # MARK: - Standard: non-local means, luma at full size and colour at half
@@ -81,7 +132,7 @@ def noise_curve(c, bins=8):
     return grid, np.interp(grid, centres, sigmas) if centres else np.full_like(grid, 1e-2)
 
 
-def standard(e):
+def standard(e, _need=None):
     from skimage.restoration import denoise_nl_means
     from scipy.ndimage import zoom
     r, g, b = e[..., 0], e[..., 1], e[..., 2]
@@ -117,14 +168,15 @@ _MODEL = None
 
 
 def _ramp(n, overlap, start, end):
-    """A tile's weight along one side: rising over the overlap, except at the picture's edge."""
+    """A tile's weight along one side: a smooth rise over the overlap, except at the picture's edge."""
     i = np.arange(n, dtype=np.float32)
-    up = np.ones(n, np.float32) if start else np.minimum((i + 1) / overlap, 1)
-    down = np.ones(n, np.float32) if end else np.minimum((n - i) / overlap, 1)
+    up = np.ones(n, np.float32) if start else np.sin(np.minimum((i + 0.5) / overlap, 1) * np.pi / 2) ** 2
+    down = np.ones(n, np.float32) if end else np.sin(np.minimum((n - i - 0.5) / overlap, 1) * np.pi / 2) ** 2
     return up * down
 
 
-def network(e, weights, tile=512, overlap=32):
+def network(e, weights, need=None, tile=512, overlap=96):
+    """SCUNet over the picture in overlapping tiles, feathered together (only the tiles `need` touches)."""
     global _MODEL
     import torch
     from spandrel import ModelLoader
@@ -142,6 +194,8 @@ def network(e, weights, tile=512, overlap=32):
         for y0 in tops:
             for x0 in lefts:
                 y1, x1 = min(y0 + tile, h), min(x0 + tile, w)
+                if need is not None and not need[y0:y1, x0:x1].any():
+                    continue
                 part = torch.from_numpy(np.ascontiguousarray(e[y0:y1, x0:x1].transpose(2, 0, 1)))[None].to(device)
                 ph, pw = (-(y1 - y0)) % 64, (-(x1 - x0)) % 64
                 if ph or pw:
@@ -153,38 +207,33 @@ def network(e, weights, tile=512, overlap=32):
     return out / np.maximum(total, 1e-6)
 
 
-def keep_means(noisy, clean, reach=32, step=8):
-    """Puts back what averaging in sRGB steps takes off the means (a few per cent in the shadows):
-    the difference, blurred far wider than any noise (worked out at an eighth of the size)."""
-    from scipy.ndimage import gaussian_filter, zoom
-    h, w = clean.shape[:2]
-    d = np.pad(noisy - clean, ((0, -h % step), (0, -w % step), (0, 0)), mode="edge")
-    small = d.reshape(d.shape[0] // step, step, d.shape[1] // step, step, 3).mean(axis=(1, 3))
-    small = gaussian_filter(small, (reach / step, reach / step, 0), mode="nearest")
-    return clean + zoom(small, (step, step, 1), order=1)[:h, :w]
-
-
 # MARK: - Jobs
 
 def denoise(job):
     buf = oiio.ImageBuf(job["input"])
-    pixels = np.asarray(buf.get_pixels(oiio.FLOAT))
-    rgb = pixels[..., :3].astype(np.float32)
-    gain, offset = exposure(rgb)
-    e, under = forward(rgb, gain, offset)
-    e = network(e, job["weights"]) if job.get("weights") else standard(e)
-    _write(job["output"], keep_means(rgb, inverse(e, gain, offset, under)))
+    rgb = np.asarray(buf.get_pixels(oiio.FLOAT))[..., :3].astype(np.float32)
+    weights = job.get("weights")
+    run = (lambda e, need: network(e, weights, need)) if weights else standard
+    _write(job["output"], clean(rgb, run))
     return {"ok": True, "version": VERSION}
 
 
 def selftest(_job=None):
-    x = np.array([-0.01, 0, 1e-4, 0.18, 1, 4], np.float64)[:, None].repeat(3, 1).astype(np.float32)
-    worst = 0.0
-    for gain, offset in [(1.0, 0.0), (8.0, 0.002), (32.0, 0.0), (0.5, 0.05)]:
-        e, under = forward(x, gain, offset)
-        back = inverse(e, gain, offset, under)
-        worst = max(worst, float(np.max(np.abs(back - x) / np.maximum(np.abs(x), 1e-2))))
-    return {"ok": True, "roundtrip": worst, "version": VERSION}
+    # Through the steps and back with nothing cleaned: exact, from black to far past white.
+    x = np.concatenate([np.zeros(64), np.geomspace(1e-4, 64, 448)]).astype(np.float32)
+    x = np.tile(x[:, None, None], (1, 64, 3))
+    x[..., 1] *= 0.5
+    back = clean(x, lambda e, need: e)
+    worst = float(np.max(np.abs(back - x) / np.maximum(np.abs(x), 1e-2)))
+    # A cleaner gone wild (all black, all white) stays finite and within the photo's light.
+    rng = np.random.default_rng(1)
+    noisy = np.clip(rng.normal(0.02, 0.005, (64, 64, 3)), -0.01, None).astype(np.float32)
+    noisy[16:48, 16:48] = 16
+    settled = True
+    for wild in (np.zeros_like, np.ones_like):
+        safe = clean(noisy, lambda e, need: wild(e))
+        settled &= bool(np.isfinite(safe).all() and safe.min() >= min(noisy.min(), 0) - 1e-3 and safe.max() <= noisy.max() + 1e-3)
+    return {"ok": True, "roundtrip": worst, "settled": settled, "version": VERSION}
 
 
 def _write(path, rgb):
@@ -211,6 +260,13 @@ def main():
                 answer = denoise(job)
             elif what == "selftest":
                 answer = selftest(job)
+            elif what in ("denoise_raw", "selftest_raw"):
+                # A Bayer RAW's own mosaic (pluck_denoise_raw.py); anything else answers unsupported.
+                import pluck_denoise_raw as raw
+                try:
+                    answer = raw.denoise_raw(job) if what == "denoise_raw" else raw.selftest()
+                except raw.Unsupported as why:
+                    answer = {"ok": False, "unsupported": str(why)}
             else:
                 answer = {"error": f"unknown job {what}"}
         except Exception as error:

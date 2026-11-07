@@ -34,7 +34,7 @@ struct StudioWindow: View {
         .background {
             if nav.page == .home { BrandGlow().ignoresSafeArea() }
         }
-        .modifier(ClearToolbarOnHome(home: nav.page == .home))
+        .modifier(ClearToolbarOnHome(home: nav.page == .home || nav.page == .photo))
         .frame(minWidth: 1120, minHeight: 680)
         .toolbar {
             // (Not on the Photo page: the room goes to the photo. ⌘, still opens Settings.)

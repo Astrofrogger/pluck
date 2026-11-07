@@ -5,16 +5,20 @@ import SwiftUI
 struct ScopesView: View {
     let data: ScopeData?
     let kind: ScopeKind
+    /// False: fill the frame it is given (the Photo page's fixed-height strip).
+    var fit = true
 
     var body: some View {
-        Canvas { context, size in
+        let canvas = Canvas { context, size in
             context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
             if let data, let picture = Self.picture(data, kind) {
                 context.draw(Image(decorative: picture, scale: 1), in: CGRect(origin: .zero, size: size))
             }
             Self.graticule(&context, size, kind)
         }
-        .aspectRatio(kind == .vectorscope ? 1 : 16.0 / 9, contentMode: .fit)
+        return Group {
+            if fit { canvas.aspectRatio(kind == .vectorscope ? 1 : 16.0 / 9, contentMode: .fit) } else { canvas }
+        }
         .clipShape(.rect(cornerRadius: Design.Radius.small))
         .accessibilityHidden(true)
     }
@@ -65,6 +69,11 @@ struct ScopesView: View {
             cross.move(to: CGPoint(x: 0, y: centre.y)); cross.addLine(to: CGPoint(x: size.width, y: centre.y))
             cross.move(to: CGPoint(x: centre.x, y: 0)); cross.addLine(to: CGPoint(x: centre.x, y: size.height))
             context.stroke(cross, with: .color(line), lineWidth: 0.5)
+            // The skin-tone (I) line: 123 degrees, between red and yellow.
+            var skin = Path()
+            skin.move(to: centre)
+            skin.addLine(to: CGPoint(x: centre.x + cos(123 * .pi / 180) * 128 * scale, y: centre.y - sin(123 * .pi / 180) * 128 * scale))
+            context.stroke(skin, with: .color(Color(red: 1, green: 0.75, blue: 0.55).opacity(0.35)), lineWidth: 0.5)
             // The 75 % targets: red, magenta, blue, cyan, green, yellow.
             for target in targets {
                 let p = ScopeAnalyzer.vectorPoint(red: target.0 * 0.75, green: target.1 * 0.75, blue: target.2 * 0.75)
