@@ -2412,7 +2412,8 @@ extension PhotoEngine {
     /// up to `peak`, keeping each colour's lightness and hue (gamutMap).
     static func gamutMapped(_ image: CIImage, p3: Bool, peak: Double = 1) -> CIImage {
         let data = [Float(p3 ? 1 : 0), Float(max(peak, 1))].withUnsafeBytes { Data($0) }
-        guard !image.extent.isInfinite, let mapped = try? apply(GamutPass.self, extent: image.extent, inputs: [image], arguments: ["gamut": data])
+        // (An empty picture, say from a file that couldn't be read, crashes the kernel: passed through.)
+        guard !image.extent.isInfinite, !image.extent.isEmpty, let mapped = try? apply(GamutPass.self, extent: image.extent, inputs: [image], arguments: ["gamut": data])
         else { return image }
         return mapped
     }

@@ -740,6 +740,17 @@ enum PhotoRender {
 
     // MARK: - Developing
 
+    /// A grid's or filmstrip's picture of an edited photo (480 px), two at a time: a screenful developing at once (every
+    /// preview made again, as after an update) blocked every thread, and Core Image's RAW decoding then never finished,
+    /// so no picture came at all (3.9.6). Nil when it can't be made or the cell went away while it waited.
+    static func thumbnail(_ path: String, record: PhotoRecord) async -> CGImage? {
+        await thumbnailGate.enter()
+        defer { Task { await thumbnailGate.leave() } }
+        guard !Task.isCancelled else { return nil }
+        return try? await develop(path, record: record, maxSize: 480)
+    }
+    static let thumbnailGate = FilmGate(slots: 2)
+
     /// The developed photo as a picture to show or save. `maxSize` 0 is full size (slow with the helper's film).
     /// A preview is developed from the kept decode; full size (for saving) from the file.
     static func develop(_ path: String, record: PhotoRecord, maxSize: Int, worker: Int = 0) async throws -> CGImage? {

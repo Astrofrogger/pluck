@@ -1081,7 +1081,7 @@ private struct PhotoCell: View {
         // Edited without a saved preview yet (an instant film too; the helper's film previews are made on view).
         let film = record.film
         let instant = !record.filmOn ? true : await Task.detached(priority: .utility) { FilmRoute.resolved(film) == .instant }.value
-        if record.isEdited, instant, let developed = try? await PhotoRender.develop(path, record: record, maxSize: 480) {
+        if record.isEdited, instant, let developed = await PhotoRender.thumbnail(path, record: record) {
             guard !Task.isCancelled else { return }
             image = NSImage(cgImage: developed, size: .zero)
             PhotoRender.savePreview(developed, to: cached)

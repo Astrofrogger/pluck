@@ -216726,6 +216726,122 @@
           }
         }
       }
+    },
+    "Photos load again": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos werden wieder geladen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las fotos vuelven a cargarse"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les photos se chargent à nouveau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le foto si caricano di nuovo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真が再び読み込まれます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진이 다시 로드됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto’s laden weer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As fotos voltam a carregar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片可以重新载入"
+          }
+        }
+      }
+    },
+    "After updating to 3.9.6, the Photo page could stay empty. Photos now load again, and a photo that can’t be read no longer makes Pluck quit.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach dem Update auf 3.9.6 konnte die Fotoseite leer bleiben. Fotos werden jetzt wieder geladen, und ein Foto, das nicht gelesen werden kann, beendet Pluck nicht mehr."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tras actualizar a 3.9.6, la página Foto podía quedarse vacía. Las fotos vuelven a cargarse y una foto que no se puede leer ya no cierra Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Après la mise à jour vers 3.9.6, la page Photo pouvait rester vide. Les photos se chargent à nouveau, et une photo illisible ne fait plus quitter Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dopo l’aggiornamento a 3.9.6, la pagina Foto poteva restare vuota. Ora le foto si caricano di nuovo e una foto illeggibile non fa più chiudere Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.9.6へのアップデート後、写真ページが空のままになることがありました。写真が再び読み込まれるようになり、読み込めない写真があってもPluckが終了しなくなりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3.9.6으로 업데이트한 후 사진 페이지가 비어 있을 수 있었습니다. 이제 사진이 다시 로드되며, 읽을 수 없는 사진 때문에 Pluck가 종료되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na de update naar 3.9.6 kon de fotopagina leeg blijven. Foto’s laden nu weer, en een foto die niet gelezen kan worden laat Pluck niet meer stoppen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Após atualizar para a 3.9.6, a página Foto podia ficar vazia. As fotos voltam a carregar, e uma foto que não pode ser lida não fecha mais o Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "更新到 3.9.6 后，照片页面可能一直空白。现在照片可以重新载入，无法读取的照片也不会再导致 Pluck 退出。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

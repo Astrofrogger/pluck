@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.7", items: [
+                Item(symbol: "photo", title: String(localized: "Photos load again"),
+                     detail: String(localized: "After updating to 3.9.6, the Photo page could stay empty. Photos now load again, and a photo that can’t be read no longer makes Pluck quit.")),
+            ]),
             Release(version: "3.9.6", items: [
                 Item(symbol: "paintpalette", title: String(localized: "Richer colour grading"),
                      detail: String(localized: "Lift, Gamma and Gain wheels, Hue vs curves, Point Colour and a Colour Warper. The Colour Grading wheels and the Colour Mixer work the same at any brightness.")),

@@ -15,8 +15,8 @@ enum PhotoSelfTest {
         photos = defaults.string(forKey: "PluckScreenshotPhotos") ?? ""
         lines = []
         // (Tests: only the film's speed and route, to measure quickly.)
-        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced", "tone", "real", "prophoto", "colour", "profiles", "furdump", "furtests", "lrgap", "lrtests", "grade", "gradetests", "filmnr", "reference", "revamp3", "revamp4a", "revamp4b"].contains(only) {
-            if only == "film" { await filmInstant() } else if only == "tone" { tone() } else if only == "real" { await realFile() } else if only == "furdump" { await furDump() } else if only == "furtests" { await furShadows() } else if only == "lrgap" { await lrGapDump() } else if only == "lrtests" { await lrGapFixes() } else if only == "grade" { await gradeDump() } else if only == "gradetests" { await gradeChecks() } else if only == "filmnr" { await filmNR() } else if only == "reference" { await oldEditsUnchanged() } else if only == "revamp3" { await revamp3() } else if only == "revamp4a" { await revamp4a() } else if only == "revamp4b" { await revamp4b() }
+        if let only = defaults.string(forKey: "PluckScreenshotOnly"), ["film", "advanced", "tone", "real", "prophoto", "colour", "profiles", "furdump", "furtests", "lrgap", "lrtests", "grade", "gradetests", "filmnr", "reference", "revamp3", "revamp4a", "revamp4b", "thumbnails"].contains(only) {
+            if only == "film" { await filmInstant() } else if only == "tone" { tone() } else if only == "real" { await realFile() } else if only == "furdump" { await furDump() } else if only == "furtests" { await furShadows() } else if only == "lrgap" { await lrGapDump() } else if only == "lrtests" { await lrGapFixes() } else if only == "grade" { await gradeDump() } else if only == "gradetests" { await gradeChecks() } else if only == "filmnr" { await filmNR() } else if only == "reference" { await oldEditsUnchanged() } else if only == "revamp3" { await revamp3() } else if only == "revamp4a" { await revamp4a() } else if only == "revamp4b" { await revamp4b() } else if only == "thumbnails" { await thumbnailsAtOnce() }
             else if only == "colour" { colourNoise() } else if only == "profiles" { await profiles() }
             else if only == "prophoto" { await proPhoto() } else { await filmAdvanced() }
             lines.append("done")
@@ -64,6 +64,7 @@ enum PhotoSelfTest {
         await revamp3()
         await revamp4a()
         await revamp4b()
+        await thumbnailsAtOnce()
         lines.append("done")
         write()
         NSApp.terminate(nil)
