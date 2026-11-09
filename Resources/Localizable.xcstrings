@@ -216842,6 +216842,122 @@
           }
         }
       }
+    },
+    "Photos in the right place": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos wieder an der richtigen Stelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos en su sitio"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les photos à la bonne place"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto al posto giusto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真が正しい位置に"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진이 올바른 위치에"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto’s op de juiste plek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotos no lugar certo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "照片位置恢复正常"
+          }
+        }
+      }
+    },
+    "The photo could show enlarged and off to the right on the Photo page. It’s centred and sharp again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf der Fotoseite konnte das Foto vergrößert und nach rechts versetzt erscheinen. Jetzt ist es wieder zentriert und scharf."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En la página Foto, la imagen podía verse ampliada y desplazada a la derecha. Ya vuelve a estar centrada y nítida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur la page Photo, l’image pouvait apparaître agrandie et décalée vers la droite. Elle est de nouveau centrée et nette."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nella pagina Foto, l’immagine poteva apparire ingrandita e spostata a destra. Ora è di nuovo centrata e nitida."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真ページで写真が拡大され右に寄って表示されることがありました。中央にくっきり表示されるようになりました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진 페이지에서 사진이 확대되어 오른쪽으로 치우쳐 보일 수 있었습니다. 이제 다시 가운데에 선명하게 표시됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op de fotopagina kon de foto vergroot en naar rechts verschoven verschijnen. Nu staat hij weer scherp in het midden."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Na página Foto, a imagem podia aparecer ampliada e deslocada para a direita. Agora está centralizada e nítida novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在照片页面上，照片可能被放大并偏向右侧。现在已恢复居中和清晰。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

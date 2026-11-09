@@ -7,6 +7,18 @@ import SwiftUI
 /// made for an advanced setting).
 extension PhotoSelfTest {
     static func filmRefresh() async {
+        // The photo's layer keeps the window's scale (else a corner of the frame shows enlarged).
+        do {
+            let canvas = PhotoCanvasView()
+            canvas.frame = CGRect(x: 0, y: 0, width: 400, height: 300)
+            let window = NSWindow(contentRect: canvas.frame, styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = canvas
+            canvas.layer?.contentsScale = window.backingScaleFactor + 1
+            canvas.fitDrawable()
+            check("photo layer follows the window's scale", canvas.layer?.contentsScale == window.backingScaleFactor, "\(canvas.layer?.contentsScale ?? 0) vs \(window.backingScaleFactor)")
+            window.close()
+        }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-filmrefresh-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }

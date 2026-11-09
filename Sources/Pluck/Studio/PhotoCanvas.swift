@@ -112,7 +112,9 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
         fitDrawable()
     }
 
-    private func fitDrawable() {
+    func fitDrawable() {
+        // (With autoResizeDrawable off MTKView leaves this alone, and with `.topLeft` a wrong scale shows a corner of the frame enlarged.)
+        if let backing = window?.backingScaleFactor, layer?.contentsScale != backing { layer?.contentsScale = backing }
         let size = convertToBacking(bounds).size
         guard size.width >= 1, size.height >= 1, size != drawableSize else { return }
         drawableSize = size

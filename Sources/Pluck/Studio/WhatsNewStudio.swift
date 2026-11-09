@@ -5,6 +5,10 @@ import Foundation
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "3.9.8", items: [
+                Item(symbol: "photo", title: String(localized: "Photos in the right place"),
+                     detail: String(localized: "The photo could show enlarged and off to the right on the Photo page. It’s centred and sharp again.")),
+            ]),
             Release(version: "3.9.7", items: [
                 Item(symbol: "photo", title: String(localized: "Photos load again"),
                      detail: String(localized: "After updating to 3.9.6, the Photo page could stay empty. Photos now load again, and a photo that can’t be read no longer makes Pluck quit.")),
