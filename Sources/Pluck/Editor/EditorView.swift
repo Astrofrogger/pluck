@@ -67,7 +67,7 @@ struct EditorView: View {
                 }
                 .help("Show or hide the sidebar (⌥⌘S)")
                 .keyboardShortcut("s", modifiers: [.command, .option])
-            }
+            }.studioFlat()
         }
         .navigationTitle(target.file.lastPathComponent)
         .focusable()
@@ -76,6 +76,10 @@ struct EditorView: View {
         .onKeyPress(phases: .down, action: key)
         .task {
             focused = true
+            #if STUDIO
+            // The Scopes window follows what's on screen.
+            ScopeHub.shared.follow(model.player, name: URL(fileURLWithPath: target.path).lastPathComponent)
+            #endif
             await model.load(ffmpeg: manager.tool("ffmpeg"), ffprobe: manager.tool("ffprobe"))
         }
         .onDisappear { if ownsModel { model.close() } else { model.player.pause() } }

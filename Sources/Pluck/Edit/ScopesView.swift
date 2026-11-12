@@ -57,7 +57,7 @@ struct ScopesView: View {
         }
     }
 
-    private static func graticule(_ context: inout GraphicsContext, _ size: CGSize, _ kind: ScopeKind) {
+    static func graticule(_ context: inout GraphicsContext, _ size: CGSize, _ kind: ScopeKind) {
         let line = Color.white.opacity(0.28)
         if kind == .vectorscope {
             let centre = CGPoint(x: size.width / 2, y: size.height / 2), scale = size.width / 256

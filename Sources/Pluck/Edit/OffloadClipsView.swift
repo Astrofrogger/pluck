@@ -9,14 +9,10 @@ struct OffloadClipGrid: View {
 
     var body: some View {
         if let clips = center.details(for: job.id), !clips.isEmpty {
-            DisclosureGroup(isExpanded: $open) {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 160), spacing: Design.Spacing.controls)],
-                          alignment: .leading, spacing: Design.Spacing.controls) {
+            OffloadFold(isOpen: $open, label: Text("\(clips.count) clips"), symbol: "film") {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 120), spacing: 10)], alignment: .leading, spacing: 10) {
                     ForEach(clips, id: \.path) { clip in ClipTile(job: job, clip: clip) }
                 }
-                .padding(.top, 6)
-            } label: {
-                Label("\(clips.count) clips", systemImage: "film.stack").font(.callout)
             }
         } else {
             Color.clear.frame(height: 0).task { await center.loadDetails(job.id) }
@@ -38,19 +34,21 @@ private struct ClipTile: View {
 
     var body: some View {
         Button { showing = true } label: {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 5) {
                 ZStack {
-                    Rectangle().fill(.quaternary)
+                    Rectangle().fill(Design.Studio.raised)
                     if let picture {
                         Image(decorative: picture, scale: 1).resizable().scaledToFill()
                     } else {
-                        Image(systemName: "film").foregroundStyle(.secondary)
+                        Image(systemName: "film").foregroundStyle(Design.Studio.textFaint)
                     }
                 }
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(.rect(cornerRadius: Design.Radius.small))
-                Text((clip.path as NSString).lastPathComponent).font(.caption).lineLimit(1).truncationMode(.middle)
+                .frame(width: 120, height: 68)
+                .clipShape(.rect(cornerRadius: 6, style: .continuous))
+                Text((clip.path as NSString).lastPathComponent).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    .lineLimit(1).truncationMode(.middle)
             }
+            .frame(width: 120, alignment: .leading)
         }
         .buttonStyle(.plain)
         .popover(isPresented: $showing) { ClipDetailsView(clip: clip) }
@@ -80,8 +78,8 @@ private struct ClipDetailsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text((clip.path as NSString).lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle)
-            ForEach(lines, id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary) }
+            Text((clip.path as NSString).lastPathComponent).font(Design.Studio.sectionTitle).lineLimit(1).truncationMode(.middle)
+            ForEach(lines, id: \.self) { Text($0).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet) }
         }
         .padding(Design.Spacing.inset)
         .frame(minWidth: 200, alignment: .leading)

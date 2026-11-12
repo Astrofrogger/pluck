@@ -215,25 +215,43 @@ enum OffloadWrap {
     }
 }
 
-/// Today's numbers of a project in one line, and the button for its wrap report.
+/// Today's numbers of a project in one line (under the new offload, while a project is on).
 struct OffloadWrapStrip: View {
     let project: OffloadProject
     @State private var center = OffloadCenter.shared
 
     private var jobs: [OffloadJob] { center.jobs.filter { $0.project == project.id } }
-    private var today: WrapStats { OffloadWrap.stats(project: project, jobs: jobs, days: OffloadWrap.range(of: .now)) }
 
     var body: some View {
-        let stats = today
-        HStack(spacing: Design.Spacing.controls) {
+        let stats = OffloadWrap.stats(project: project, jobs: jobs, days: OffloadWrap.range(of: .now))
+        HStack(spacing: 14) {
             Label("\(stats.cards) · \(ByteCountFormatter.string(fromByteCount: stats.bytes, countStyle: .file)) · \(OffloadWrap.hours(stats.duration))",
                   systemImage: "sum")
             if let busiest = stats.busiest, let person = project.person(busiest), project.operators.count > 1 {
-                Label(person.name, systemImage: "person.fill")
+                Label(person.name, systemImage: "person")
             }
-            Spacer()
+            Spacer(minLength: 0)
+        }
+        .font(Design.Studio.hint)
+        .foregroundStyle(Design.Studio.textQuiet)
+        .lineLimit(1)
+        .help("Today in this project: cards, size and hours of footage")
+    }
+}
+
+/// Back Up Project and the wrap report menu, at the top of the offloads while a project is on.
+struct OffloadWrapMenu: View {
+    let project: OffloadProject
+    @State private var center = OffloadCenter.shared
+
+    private var jobs: [OffloadJob] { center.jobs.filter { $0.project == project.id } }
+
+    var body: some View {
+        HStack(spacing: 4) {
             OffloadBackupButton(project: project)
             Menu {
+                Button("Today’s Report…") { make(OffloadWrap.range(of: .now), share: false) }
+                Divider()
                 ForEach([(String(localized: "Save…"), false), (String(localized: "Share…"), true)], id: \.1) { title, share in
                     Menu(title) {
                         Button("Today") { make(OffloadWrap.range(of: .now), share: share) }
@@ -249,17 +267,24 @@ struct OffloadWrapStrip: View {
                     }
                 }
             } label: {
-                Label("Wrap Report", systemImage: "doc.text")
-            } primaryAction: {
-                make(OffloadWrap.range(of: .now), share: false)
+                HStack(spacing: 5) {
+                    Image(systemName: "doc.text").font(.system(size: 11))
+                    Text("Wrap report")
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+                }
+                .font(Design.Studio.body)
+                .foregroundStyle(Design.Studio.textQuiet)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .contentShape(.rect)
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
             .fixedSize()
             .disabled(jobs.isEmpty)
-            .help("A PDF of the day: every card and whether it was checked, per person and camera. Click for today; the arrow has other days and sharing.")
+            .help("A PDF of the day: every card and whether it was checked, per person and camera. Today’s, or other days and sharing.")
         }
-        .font(.callout)
-        .foregroundStyle(.secondary)
         .task(id: jobs.count) { for job in jobs { await center.loadDetails(job.id) } }
     }
 

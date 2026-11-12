@@ -16,10 +16,14 @@ struct PhotoCanvas: NSViewRepresentable {
     var before: CIImage?
     var mode: BeforeAfter = .off
     var split = 0.5
+    /// The grey around the photo (0 black … 1 white).
+    var surround = Double(Design.Photo.surroundWhite)
 
     func makeNSView(context: Context) -> PhotoCanvasView { PhotoCanvasView() }
 
-    func updateNSView(_ view: PhotoCanvasView, context: Context) { view.show(image, in: frame, before: before, mode: mode, split: split) }
+    func updateNSView(_ view: PhotoCanvasView, context: Context) {
+        view.show(image, in: frame, before: before, mode: mode, split: split, surround: surround)
+    }
 }
 
 /// What the canvas draws, as a picture (also for the self-test).
@@ -36,10 +40,10 @@ enum PhotoComposite {
     /// The view (`view` points at `scale` pixels per point): the surround, then the photo or the two.
     /// With `.sideBySide` `frame` is the "after" in the right half and "before" gets the left half's.
     static func compose(after: CIImage?, before: CIImage?, frame: CGRect, mode: BeforeAfter, split: Double,
-                        view: CGSize, scale: CGFloat) -> CIImage {
+                        view: CGSize, scale: CGFloat, surround: Double? = nil) -> CIImage {
         let size = CGSize(width: view.width * scale, height: view.height * scale)
         let screen = CGRect(origin: .zero, size: size)
-        let grey = Design.Photo.surroundWhite
+        let grey = CGFloat(surround ?? Double(Design.Photo.surroundWhite))
         var picture = CIImage(color: CIColor(red: grey, green: grey, blue: grey, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!) ?? .black)
             .cropped(to: screen)
         /// `clip` is in pixels from the bottom left.
@@ -145,8 +149,13 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
         headroomTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in check() }
     }
 
-    func show(_ image: CIImage?, in frame: CGRect, before: CIImage? = nil, mode: BeforeAfter = .off, split: Double = 0.5) {
-        guard image !== self.image || frame != target || before !== self.before || mode != self.mode || split != self.split else { return }
+    private var surround = Double(Design.Photo.surroundWhite)
+
+    func show(_ image: CIImage?, in frame: CGRect, before: CIImage? = nil, mode: BeforeAfter = .off, split: Double = 0.5,
+              surround: Double = Double(Design.Photo.surroundWhite)) {
+        guard image !== self.image || frame != target || before !== self.before || mode != self.mode || split != self.split
+                || surround != self.surround else { return }
+        self.surround = surround
         self.image = image
         target = frame
         self.before = before
@@ -163,7 +172,7 @@ final class PhotoCanvasView: MTKView, MTKViewDelegate {
         let size = drawableSize
         let scale = size.width / max(bounds.width, 1)
         let picture = PhotoComposite.compose(after: image, before: before, frame: target, mode: mode, split: split,
-                                             view: bounds.size, scale: scale)
+                                             view: bounds.size, scale: scale, surround: surround)
         let destination = CIRenderDestination(width: Int(size.width), height: Int(size.height), pixelFormat: colorPixelFormat,
                                               commandBuffer: buffer) { drawable.texture }
         destination.colorSpace = space

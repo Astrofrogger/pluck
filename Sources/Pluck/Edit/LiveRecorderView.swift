@@ -16,17 +16,36 @@ struct LiveRecorderView: View {
     /// One session for the app, so a recording keeps going when the window closes.
     @MainActor static let shared = LiveSession()
 
+    private var canBuild: Bool { session.state == .finished && Resolve.isInstalled }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            controls
-            HStack(alignment: .top, spacing: Design.Spacing.section) {
-                Pane { markerList }.frame(minWidth: 300)
-                Pane { transcript }.frame(minWidth: 340)
+        VStack(spacing: Design.Studio.panelGap) {
+            linkPanel
+            HStack(spacing: Design.Studio.panelGap) {
+                markerPanel
+                transcriptPanel
             }
-            footer
         }
-        .padding(Design.Spacing.window)
-        .frame(minWidth: 820, minHeight: 600)
+        .font(Design.Studio.body)
+        .foregroundStyle(Design.Studio.text)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: 8) {
+                    if let file = session.file, !session.isRunning {
+                        Button { NSWorkspace.shared.activateFileViewerSelecting([file]) } label: {
+                            Image(systemName: "folder").font(.system(size: 13)).foregroundStyle(Design.Studio.textQuiet)
+                                .frame(width: 28, height: 28).contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Show in Finder")
+                        .accessibilityLabel(Text("Show in Finder"))
+                    }
+                    Button(action: build) { Label("Build in DaVinci", systemImage: "film").labelStyle(.titleAndIcon) }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: canBuild, height: canBuild ? 32 : 28))
+                        .disabled(!canBuild)
+                }
+            }.studioFlat()
+        }
         .task {
             guard LocalAI.canTranscribe, #available(macOS 26, *) else { return }
             languages = await OnDeviceSpeech.languages()
@@ -39,141 +58,221 @@ struct LiveRecorderView: View {
 
     // MARK: - Parts
 
-    private var controls: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            InputBar(symbol: "dot.radiowaves.left.and.right", prompt: Text("Paste a live stream link (YouTube, Twitch…)"),
-                     text: $link, onSubmit: record) {
-                if session.isRunning {
-                    Button(action: session.stop) { Label("Stop", systemImage: "stop.fill") }
-                        .buttonStyle(BarCapsuleButtonStyle(tint: .red))
-                } else {
-                    Button(action: record) { Label("Record", systemImage: "record.circle") }
-                        .buttonStyle(BarCapsuleButtonStyle())
-                        .disabled(Links.validated(link) == nil)
-                }
-            }
-            .help("Records a live stream and marks cheers, music and silence as it goes, with a live transcript and highlights for the edit.")
-            HStack(spacing: 16) {
-                Toggle("From the start of the stream", isOn: $fromStart)
-                    .help("YouTube streams can be recorded from where they began, not just from now")
-                if LocalAI.canTranscribe {
-                    Toggle("Transcribe", isOn: $transcribe)
-                    if transcribe {
-                        Picker("Spoken language", selection: $language) {
-                            ForEach(languages, id: \.identifier) { locale in
-                                Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(Optional(locale))
-                            }
-                        }
-                        .labelsHidden()
-                        .fixedSize()
-                    }
-                }
-                Spacer()
-            }
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .font(.callout)
-            .padding(.horizontal, 4)
-            .disabled(session.isRunning)
-        }
-    }
-
-    private var markerList: some View {
-        List {
-            if !session.highlights.isEmpty {
-                Section("Highlights") {
-                    ForEach(session.highlights) { highlight in
-                        HStack {
-                            Image(systemName: "star.fill").foregroundStyle(.red).accessibilityHidden(true)
-                            Text(time(highlight.start) + " – " + time(highlight.end)).monospacedDigit()
-                            Text(highlight.reason).foregroundStyle(.secondary)
-                        }
-                    }
-                }
-            }
-            Section("Markers") {
-                if session.events.isEmpty {
-                    Text(session.isRunning ? "Listening…" : "No markers yet.").foregroundStyle(.secondary)
-                }
-                ForEach(session.events.reversed()) { event in
-                    HStack {
-                        Image(systemName: event.kind.symbol).frame(width: 20).accessibilityHidden(true)
-                        Text(time(event.time)).monospacedDigit()
-                        Text(event.kind.label)
-                        Spacer()
-                        if event.kind == .cheer {
-                            Text(String(format: "+%.0f dB", event.strength)).foregroundStyle(.secondary).font(.caption)
-                        } else if event.duration > 0 {
-                            Text(Format.duration(event.duration)).foregroundStyle(.secondary).font(.caption)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder private var transcript: some View {
-        VStack(spacing: 0) {
-            PaneSearchField(prompt: "Find what was said", text: $search)
-            List {
-                if search.isEmpty {
-                    ForEach(Array(session.lines.enumerated()), id: \.offset) { _, line in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(time(line.time)).monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
-                            Text(line.text).textSelection(.enabled)
-                        }
-                    }
-                } else {
-                    let found = session.find(search)
-                    if found.isEmpty { Text("Not said yet.").foregroundStyle(.secondary) }
-                    ForEach(Array(found.enumerated()), id: \.offset) { _, hit in
-                        HStack(alignment: .firstTextBaseline) {
-                            Text(time(hit.time)).monospacedDigit().foregroundStyle(.tint).frame(width: 64, alignment: .leading)
-                            Text(hit.line).textSelection(.enabled)
-                        }
-                    }
-                }
-            }
-            .scrollContentBackground(.hidden)
-            .overlay {
-                if session.words.isEmpty {
-                    Text(transcribe && LocalAI.canTranscribe ? "The transcript appears here as it’s spoken." : "Transcription is off.")
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-
-    private var footer: some View {
+    private var linkPanel: some View {
         HStack(spacing: 12) {
+            Image(systemName: "dot.radiowaves.left.and.right").font(.system(size: 14))
+                .foregroundStyle(session.state == .recording ? Design.Brand.pink : Design.Studio.textQuiet)
+                .accessibilityHidden(true)
+            TextField(text: $link, prompt: Text("Paste a live stream link (YouTube, Twitch…)").foregroundStyle(Design.Studio.textQuiet)) {
+                Text("Live stream link")
+            }
+            .textFieldStyle(.plain)
+            .font(.system(size: 15))
+            .onSubmit(record)
+            .disabled(session.isRunning)
+            stateLine
+            if session.isRunning {
+                Button(action: session.stop) {
+                    Label("Stop", systemImage: "stop").labelStyle(.titleAndIcon)
+                        .font(Design.Studio.body)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background(Design.Studio.bad, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Button(action: record) { Label("Record", systemImage: "record.circle").labelStyle(.titleAndIcon) }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .disabled(Links.validated(link) == nil)
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .frame(height: 48)
+        .studioBox(outline: session.state == .recording ? Self.recordingLine : nil)
+        .help("Records a live stream and marks cheers, music and silence as it goes, with a live transcript and highlights for the edit.")
+        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
+        .studioPanel()
+    }
+
+    /// The deep plum's first stop: the link field's edge while it records (as on the board).
+    private static let recordingLine = Design.rgb(0x8E4C64)
+
+    /// What the session is doing, small, at the end of the link field.
+    @ViewBuilder private var stateLine: some View {
+        HStack(spacing: 6) {
             switch session.state {
             case .recording:
-                StatusChip(text: Text("Recording \(time(Date.now.timeIntervalSince(session.startedAt ?? .now))) · \(ByteCountFormatter.string(fromByteCount: session.bytes, countStyle: .file))"),
-                           colour: .red)
-                    .monospacedDigit()
+                Circle().fill(Design.Studio.bad).frame(width: 8, height: 8).accessibilityHidden(true)
+                Text("Recording \(time(Date.now.timeIntervalSince(session.startedAt ?? .now))) · \(ByteCountFormatter.string(fromByteCount: session.bytes, countStyle: .file))")
             case .analysing:
-                StatusChip(text: Text("Analysing… \(time(session.analysed))"), colour: .orange, busy: true)
-                    .monospacedDigit()
+                PlumSpinner()
+                Text("Analysing… \(time(session.analysed))")
             case .finished:
-                StatusChip(text: Text(String(AttributedString(localized: "^[\(session.events.count) marker](inflect: true), ^[\(session.highlights.count) highlight](inflect: true)").characters)))
+                Text(String(AttributedString(localized: "^[\(session.events.count) marker](inflect: true), ^[\(session.highlights.count) highlight](inflect: true)").characters))
             case .failed(let message):
-                ProblemLabel(text: message).lineLimit(2)
+                Image(systemName: "exclamationmark.triangle").foregroundStyle(Design.Studio.bad).accessibilityHidden(true)
+                Text(message).foregroundStyle(Design.Studio.bad).lineLimit(2)
             case .idle:
-                PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
-                    .fixedSize()
+                Label("Runs on this Mac. Nothing is uploaded.", systemImage: "lock.shield").foregroundStyle(Design.Studio.textFaint)
             }
             if let problem = session.transcriptionProblem {
-                Text(problem).font(.callout).foregroundStyle(.orange).lineLimit(1)
+                Text(verbatim: "·")
+                Text(problem).foregroundStyle(Design.Studio.warn).lineLimit(1)
             }
-            Spacer()
-            if let status { Text(status).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
-            if let file = session.file, !session.isRunning {
-                RowButton(symbol: "magnifyingglass", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
-            }
-            Button("Build in DaVinci", systemImage: "film.stack", action: build)
-                .buttonStyle(GlassCapsuleButtonStyle())
-                .disabled(session.state != .finished || !Resolve.isInstalled)
         }
+        .font(Design.Studio.hint)
+        .foregroundStyle(Design.Studio.textQuiet)
+        .monospacedDigit()
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var markerPanel: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 6) {
+                if !session.highlights.isEmpty {
+                    heading("Highlights", count: session.highlights.count)
+                    ForEach(session.highlights) { highlight in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(Design.Brand.pink).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(time(highlight.start) + " – " + time(highlight.end)).monospacedDigit()
+                                Text(highlight.reason).foregroundStyle(Design.Studio.textQuiet)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 6)
+                    }
+                }
+                heading("Markers", count: session.events.count)
+                    .padding(.top, session.highlights.isEmpty ? 0 : 12)
+                if session.events.isEmpty {
+                    Text(session.isRunning ? "Listening…" : "No markers yet.").foregroundStyle(Design.Studio.textQuiet)
+                        .padding(.horizontal, 6)
+                }
+                ForEach(session.events.reversed()) { event in
+                    HStack(spacing: 10) {
+                        Image(systemName: event.kind.symbol).font(.system(size: 13)).foregroundStyle(Design.Studio.textQuiet)
+                            .frame(width: 16).accessibilityHidden(true)
+                        Text(time(event.time)).monospacedDigit().foregroundStyle(Design.Studio.textQuiet).frame(width: 56, alignment: .leading)
+                        Text(event.kind.label)
+                        Spacer(minLength: 0)
+                        Group {
+                            if event.kind == .cheer {
+                                Text(String(format: "+%.0f dB", event.strength))
+                            } else if event.duration > 0 {
+                                Text(Format.duration(event.duration))
+                            }
+                        }
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
+                    }
+                    .frame(height: 36)
+                    .padding(.horizontal, 6)
+                }
+                if let status {
+                    Text(status).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
+                        .padding(.horizontal, 6).padding(.top, 12)
+                }
+            }
+            .padding(.vertical, 20)
+            .padding(.horizontal, 16)
+        }
+        .frame(width: 380)
+        .frame(maxHeight: .infinity)
+        .studioPanel()
+    }
+
+    private func heading(_ title: LocalizedStringKey, count: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(Design.Studio.sectionTitle)
+            Text(verbatim: "\(count)").foregroundStyle(Design.Studio.textQuiet)
+        }
+        .padding(.horizontal, 6)
+    }
+
+    private var transcriptPanel: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 14) {
+                Text("Transcript").font(Design.Studio.sectionTitle)
+                Spacer(minLength: 0)
+                HStack(spacing: 14) {
+                    QuietSwitch(title: "From the start", isOn: $fromStart)
+                        .help("YouTube streams can be recorded from where they began, not just from now")
+                    if LocalAI.canTranscribe {
+                        HStack(spacing: 0) {
+                            QuietSwitch(title: "Transcribe", isOn: $transcribe)
+                            if transcribe { languageMenu }
+                        }
+                    }
+                }
+                .disabled(session.isRunning)
+                SearchBox(prompt: "Find what was said", text: $search).frame(width: 240)
+            }
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    if search.isEmpty {
+                        // Newest first, as it comes in.
+                        ForEach(Array(session.lines.enumerated().reversed()), id: \.offset) { _, line in
+                            lineRow(line.time, line.text, highlighted: false)
+                        }
+                    } else {
+                        let found = session.find(search)
+                        if found.isEmpty { Text("Not said yet.").foregroundStyle(Design.Studio.textQuiet) }
+                        ForEach(Array(found.enumerated()), id: \.offset) { _, hit in
+                            lineRow(hit.time, hit.line, highlighted: true)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .overlay {
+                if session.words.isEmpty, search.isEmpty {
+                    Text(transcribe && LocalAI.canTranscribe ? "The transcript appears here as it’s spoken." : "Transcription is off.")
+                        .foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
+        }
+        .padding(.vertical, 20)
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .studioPanel()
+    }
+
+    private func lineRow(_ seconds: Double, _ text: String, highlighted: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 14) {
+            Text(time(seconds)).monospacedDigit().foregroundStyle(highlighted ? Design.Brand.pink : Design.Studio.textQuiet)
+                .frame(width: 56, alignment: .leading)
+            Text(text).textSelection(.enabled).lineSpacing(3)
+        }
+        .padding(.vertical, 7)
+    }
+
+    private var languageMenu: some View {
+        Menu {
+            Picker("Spoken language", selection: $language) {
+                ForEach(languages, id: \.identifier) { locale in
+                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(Optional(locale))
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            HStack(spacing: 5) {
+                Text(verbatim: language.flatMap { Locale.current.localizedString(forIdentifier: $0.identifier) } ?? "")
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(Design.Studio.textQuiet)
+            .padding(.horizontal, 8)
+            .frame(height: 28)
+            .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text("Spoken language"))
     }
 
     private func time(_ seconds: Double) -> String {
@@ -198,5 +297,60 @@ struct LiveRecorderView: View {
                 status = error.localizedDescription
             }
         }
+    }
+}
+
+/// A switch with its name in quiet grey on the right (the transcript header's switches).
+private struct QuietSwitch: View {
+    let title: LocalizedStringKey
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Toggle(title, isOn: $isOn).toggleStyle(StudioSwitchStyle())
+            Text(title).foregroundStyle(Design.Studio.textQuiet)
+        }
+        .frame(height: 28)
+        .contentShape(.rect)
+        .onTapGesture { isOn.toggle() }
+    }
+}
+
+/// A small plum arc going round: the analysis at work.
+private struct PlumSpinner: View {
+    @State private var turning = false
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Design.Studio.line, lineWidth: 2)
+            Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(turning ? 360 : 0))
+        }
+        .frame(width: 11, height: 11)
+        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
+        .accessibilityLabel(Text("Working"))
+    }
+}
+
+/// A panel's search field: a dark 30 pt box with a magnifier.
+private struct SearchBox: View {
+    let prompt: LocalizedStringKey
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+            TextField(text: $text, prompt: Text(prompt).foregroundStyle(Design.Studio.textQuiet)) { Text(prompt) }
+                .textFieldStyle(.plain)
+                .font(Design.Studio.body)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Design.Studio.textQuiet) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Clear"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
     }
 }

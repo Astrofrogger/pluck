@@ -34,7 +34,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         }
     }
 
-    var name: LocalizedStringKey {
+    var name: LocalizedStringResource {
         switch self {
         case .derush: "Derush Footage"
         case .offload: "Offload"
@@ -50,7 +50,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         }
     }
 
-    var detail: LocalizedStringKey {
+    var detail: LocalizedStringResource {
         switch self {
         case .derush: "Sort a shoot into a timeline of usable takes, for DaVinci Resolve."
         case .offload: "Copy a card to several drives, every file checked."

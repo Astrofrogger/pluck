@@ -272,18 +272,18 @@ struct OffloadBackupQuestionCard: View {
 
     var body: some View {
         let name = OffloadProjects.shared.project(question.project)?.name ?? ""
-        Card {
-            CardHeader(symbol: "externaldrive.badge.timemachine",
-                       title: Text("Back up \(name) to \(OffloadCenter.volumeName(question.drive))?"),
-                       subtitle: Text("\(ByteCountFormatter.string(fromByteCount: question.bytes, countStyle: .file)) new")) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Button("Not Now") { Task { await center.answer(question, backUp: false) } }
-                        .buttonStyle(.bordered)
-                    Button("Back Up") { Task { await center.answer(question, backUp: true) } }
-                        .buttonStyle(.borderedProminent)
-                }
+        OffloadBoxHeader(symbol: "externaldrive.badge.timemachine",
+                         title: Text("Back up \(name) to \(OffloadCenter.volumeName(question.drive))?"),
+                         subtitle: Text("\(ByteCountFormatter.string(fromByteCount: question.bytes, countStyle: .file)) new")) {
+            HStack(spacing: 8) {
+                Button("Not Now") { Task { await center.answer(question, backUp: false) } }
+                    .buttonStyle(StudioFlatButtonStyle())
+                Button("Back Up") { Task { await center.answer(question, backUp: true) } }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
         }
+        .padding(16)
+        .studioBox()
     }
 }
 
@@ -294,8 +294,12 @@ struct OffloadBackupButton: View {
     @State private var showing = false
 
     var body: some View {
-        Button { showing = true } label: { Label("Back Up Project", systemImage: "externaldrive.badge.timemachine") }
-            .buttonStyle(.borderless)
+        Button { showing = true } label: {
+            Label("Back Up Project", systemImage: "externaldrive.badge.timemachine")
+                .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                .padding(.horizontal, 8).frame(height: 28).contentShape(.rect)
+        }
+            .buttonStyle(.plain)
             .help("Copies the whole project to backup drives: only what isn’t there yet, every file checked")
             .popover(isPresented: $showing, arrowEdge: .bottom) { OffloadBackupChooser(project: project) { showing = false } }
     }
@@ -314,11 +318,14 @@ private struct OffloadBackupChooser: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.controls) {
-            Text("Back Up Project").font(.headline)
+            Text("Back Up Project").font(Design.Studio.sectionTitle)
             ForEach(drives, id: \.self) { path in
                 let connected = FileManager.default.fileExists(atPath: path)
                 let new = pending[path]
-                Toggle(isOn: Binding(get: { chosen.contains(path) }, set: { if $0 { chosen.insert(path) } else { chosen.remove(path) } })) {
+                HStack(spacing: 10) {
+                    Toggle(OffloadCenter.volumeName(URL(fileURLWithPath: path)),
+                           isOn: Binding(get: { chosen.contains(path) }, set: { if $0 { chosen.insert(path) } else { chosen.remove(path) } }))
+                        .toggleStyle(StudioSwitchStyle())
                     HStack {
                         Label(OffloadCenter.volumeName(URL(fileURLWithPath: path)), systemImage: "externaldrive")
                         Spacer()
@@ -329,21 +336,15 @@ private struct OffloadBackupChooser: View {
                                                    : String(localized: "\(ByteCountFormatter.string(fromByteCount: new.bytes, countStyle: .file)) new")) }
                             else { ProgressView().controlSize(.small) }
                         }
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Design.Studio.textQuiet)
                     }
                 }
                 .disabled(!connected || new?.files == 0)
                 .help(path)
             }
-            Button("Add a Backup Drive…", systemImage: "plus", action: addDrive)
-                .buttonStyle(.borderless)
+            StudioDashedButton(title: "Add a Backup Drive…", height: 32, action: addDrive)
             if chosen.count > 1 {
-                Picker("", selection: $parallel) {
-                    Text("One by One").tag(false)
-                    Text("All at Once").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+                StudioSegmented(options: [(false, "One by One"), (true, "All at Once")], selection: $parallel)
             }
             HStack {
                 Spacer()
@@ -355,12 +356,13 @@ private struct OffloadBackupChooser: View {
                         close()
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(StudioFlatButtonStyle(prominent: true))
                 .keyboardShortcut(.defaultAction)
                 .disabled(chosen.isEmpty || starting)
             }
         }
-        .font(.callout)
+        .font(Design.Studio.body)
+        .foregroundStyle(Design.Studio.text)
         .padding(Design.Spacing.inset)
         .frame(width: 320)
         .task(id: drives) { await work() }

@@ -70,11 +70,11 @@ struct BrandPackView: View {
     enum Backdrop: String, CaseIterable, Identifiable {
         case picture, checker, black
         var id: String { rawValue }
-        var label: LocalizedStringKey {
+        var label: String {
             switch self {
-            case .picture: "Over a Picture"
-            case .checker: "See-Through"
-            case .black: "Black"
+            case .picture: String(localized: "Over a picture")
+            case .checker: String(localized: "See-through")
+            case .black: String(localized: "Black")
             }
         }
     }
@@ -82,15 +82,18 @@ struct BrandPackView: View {
     private var template: MotionTemplate { MotionTemplate.all.first { $0.id == templateID } ?? .slab }
     private var placement: MotionPlacement { kit.placement(template) }
 
+    // Layout board ToolBrand: the templates, the stage, and a 320 pt inspector.
     var body: some View {
-        HSplitView {
-            gallery.frame(minWidth: 190, idealWidth: 210, maxWidth: 260)
-            VStack(spacing: 0) {
+        HStack(spacing: Design.Studio.panelGap) {
+            gallery.frame(width: 220).frame(maxHeight: .infinity).studioPanel()
+            VStack(spacing: 14) {
                 stage
                 transport
             }
-            .frame(minWidth: 440)
-            inspector.frame(minWidth: 270, idealWidth: 300, maxWidth: 340)
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .studioPanel()
+            inspector
         }
         .frame(minWidth: 960, minHeight: 600)
         .onChange(of: templateID) { started = .now; scrub = 0; playing = true }
@@ -102,17 +105,44 @@ struct BrandPackView: View {
 
     // MARK: - The templates
 
+    private func heading(_ category: MotionTemplate.Category) -> LocalizedStringKey {
+        switch category {
+        case .lowerThird: "Lower thirds"
+        case .title: "Titles & chapters"
+        case .logo: "Logo & end"
+        case .social: "Social"
+        }
+    }
+
     private var gallery: some View {
-        List(selection: Binding(get: { Optional(templateID) }, set: { if let id = $0 { templateID = id } })) {
-            ForEach(MotionTemplate.Category.allCases) { category in
-                Section(category.label) {
-                    ForEach(MotionTemplate.all.filter { $0.category == category }) { item in
-                        Text(item.name).tag(item.id)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Brand Pack").font(.system(size: 20, weight: .medium)).foregroundStyle(Design.Studio.text).padding(.horizontal, 10)
+                ForEach(MotionTemplate.Category.allCases) { category in
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(heading(category)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+                            .padding(.horizontal, 10).padding(.bottom, 4)
+                            .accessibilityAddTraits(.isHeader)
+                        ForEach(MotionTemplate.all.filter { $0.category == category }) { item in
+                            let on = item.id == templateID
+                            Button { templateID = item.id } label: {
+                                Text(item.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 10)
+                                    .frame(height: 30)
+                                    .background(on ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                                    .contentShape(.rect)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityAddTraits(on ? .isSelected : [])
+                        }
                     }
                 }
             }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 20)
         }
-        .listStyle(.sidebar)
+        .scrollIndicators(.never)
     }
 
     // MARK: - The picture
@@ -133,7 +163,7 @@ struct BrandPackView: View {
                 }
             }
             .frame(width: size.width, height: size.height)
-            .clipShape(.rect(cornerRadius: Design.Radius.thumbnail))
+            .clipShape(.rect(cornerRadius: 10, style: .continuous))
             .contentShape(.rect)
             // Drag the graphic where it goes.
             .gesture(DragGesture(minimumDistance: 2).onChanged { drag in
@@ -143,7 +173,6 @@ struct BrandPackView: View {
             .help("Drag to move it")
             .position(x: geo.size.width / 2, y: geo.size.height / 2)
         }
-        .padding(16)
     }
 
     @ViewBuilder private var backdropView: some View {
@@ -178,182 +207,230 @@ struct BrandPackView: View {
         return context.makeImage()
     }
 
+    /// Play or pause, where it is, the scrub bar, the length, the format and what's behind.
     private var transport: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 12) {
             Button {
                 if playing { scrub = loopTime(.now); playing = false } else { started = .now.addingTimeInterval(-scrub); playing = true }
             } label: {
-                Image(systemName: playing ? "pause.fill" : "play.fill").frame(width: 18)
+                Image(systemName: playing ? "pause.fill" : "play.fill").font(.system(size: 12)).frame(width: 28, height: 28).contentShape(.rect)
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.plain)
+            .foregroundStyle(Design.Studio.text)
             .keyboardShortcut(.space, modifiers: [])
-            Slider(value: Binding(get: { playing ? 0 : scrub }, set: { scrub = $0; playing = false }), in: 0...max(placement.duration, 0.1))
-                .controlSize(.small)
-            Picker("Format", selection: $format) {
+            .accessibilityLabel(Text(playing ? "Pause" : "Play"))
+            TimelineView(.animation(paused: !playing)) { timeline in
+                let t = playing ? loopTime(timeline.date) : scrub
+                HStack(spacing: 12) {
+                    Text(verbatim: seconds(t)).frame(minWidth: 34, alignment: .leading)
+                    ScrubBar(value: Binding(get: { t }, set: { scrub = $0; playing = false }), range: 0...max(placement.duration, 0.1))
+                    Text(verbatim: seconds(placement.duration))
+                }
+                .font(Design.Studio.hint.monospacedDigit())
+                .foregroundStyle(Design.Studio.textQuiet)
+            }
+            LogoKitMenu(title: "Format", shown: format.label.components(separatedBy: " ").first ?? format.label, selection: $format) {
                 ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
             }
-            .labelsHidden()
-            .fixedSize()
             if !template.fullFrame || kit.style.background == nil {
-                Picker("Behind", selection: $backdrop) {
+                LogoKitMenu(title: "Behind", shown: backdrop.label, selection: $backdrop) {
                     ForEach(Backdrop.allCases) { Text($0.label).tag($0) }
                 }
-                .labelsHidden()
-                .fixedSize()
                 .help("What the preview shows behind it (the export is see-through)")
             }
         }
-        .controlSize(.small)
-        .padding(.horizontal, 16)
-        .padding(.bottom, 12)
     }
+
+    private func seconds(_ t: Double) -> String { t.formatted(.number.precision(.fractionLength(1))) + " s" }
 
     // MARK: - Settings
 
+    private var colours: [(title: LocalizedStringKey, path: WritableKeyPath<MotionStyle, MotionColor>, help: LocalizedStringKey)] {
+        [("Accent", \.accent, ""), ("Blend", \.accent2, "The accent's partner: gradients run from one to the other"),
+         ("Plates", \.secondary, ""), ("Text", \.text, "")]
+    }
+
+    /// Whether the size, place or timing differ from how the template comes.
+    private var layoutChanged: Bool {
+        var fresh = template.placement
+        fresh.texts = placement.texts
+        return fresh != placement
+    }
+
     private var inspector: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                section("Text") {
-                    ForEach(template.fields) { field in
-                        TextField(field.label, text: textBinding(field.key), prompt: Text(verbatim: field.placeholder), axis: .vertical)
-                            .textFieldStyle(.roundedBorder)
-                            .lineLimit(1...4)
-                    }
-                    if template.category == .logo { logoRow }
-                }
-                section("Brand") {
-                    fontRow("Titles", font: Binding(get: { kit.style.titleFont }, set: { kit.style.titleFont = $0 }))
-                    labelled("Weight") { Slider(value: Binding(get: { kit.style.titleWeight }, set: { kit.style.titleWeight = $0 }), in: 0...1) }
-                    fontRow("Text", font: Binding(get: { kit.style.bodyFont }, set: { kit.style.bodyFont = $0 }))
-                    HStack(spacing: 12) {
-                        colorWell("Accent", Binding(get: { kit.style.accent }, set: { kit.style.accent = $0 }))
-                        colorWell("Blend", Binding(get: { kit.style.accent2 }, set: { kit.style.accent2 = $0 }))
-                            .help("The accent's partner: gradients run from one to the other")
-                        colorWell("Plates", Binding(get: { kit.style.secondary }, set: { kit.style.secondary = $0 }))
-                        colorWell("Text", Binding(get: { kit.style.text }, set: { kit.style.text = $0 }))
-                    }
-                    HStack(spacing: 8) {
-                        Toggle("Background", isOn: Binding(get: { kit.style.background != nil },
-                                                           set: { kit.style.background = $0 ? (kit.style.background ?? MotionColor(r: 0.06, g: 0.06, b: 0.07)) : nil }))
-                            .toggleStyle(.checkbox)
-                            .help("Behind titles, chapters and cards; off: see-through")
-                        if kit.style.background != nil {
-                            ColorPicker("Background", selection: colorBinding(Binding(get: { kit.style.background ?? .ink }, set: { kit.style.background = $0 })),
-                                        supportsOpacity: false)
-                                .labelsHidden()
-                        }
-                    }
-                    if kit.style.background != nil {
-                        HStack(spacing: 14) {
-                            Toggle("Moving light", isOn: Binding(get: { kit.style.moving }, set: { kit.style.moving = $0 }))
-                                .help("The colours drift behind the cards, with light passing over")
-                            Toggle("Grain", isOn: Binding(get: { kit.style.grain }, set: { kit.style.grain = $0 }))
-                                .help("Film grain over the cards")
-                        }
-                        .toggleStyle(.checkbox)
-                        .font(.callout)
-                    }
-                    labelled("Glow") { Slider(value: Binding(get: { kit.style.glow }, set: { kit.style.glow = $0 }), in: 0...1) }
-                    labelled("Corners") { Slider(value: Binding(get: { kit.style.roundness }, set: { kit.style.roundness = $0 }), in: 0...1) }
-                }
-                section("Place") {
-                    labelled("Size") {
-                        Slider(value: placementBinding(\.scale), in: 0.4...2.5)
-                        Text(String(format: "%.0f%%", placement.scale * 100)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                    }
-                    HStack(alignment: .top) {
-                        positionGrid
-                        Spacer()
-                        if template.canAlign {
-                            Picker("Align", selection: placementBinding(\.align)) {
-                                ForEach(MotionAlign.allCases) { Image(systemName: $0.symbol).tag($0) }
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+                    LogoKitFold(Text("Text"), key: "brandFoldText") {
+                        VStack(spacing: 6) {
+                            ForEach(template.fields) { field in
+                                TextField(field.label, text: textBinding(field.key), prompt: Text(verbatim: field.placeholder).foregroundStyle(Design.Studio.textQuiet),
+                                          axis: .vertical)
+                                    .textFieldStyle(.plain)
+                                    .font(Design.Studio.body)
+                                    .foregroundStyle(Design.Studio.text)
+                                    .lineLimit(1...4)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 8)
+                                    .frame(minHeight: 30)
+                                    .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
                             }
-                            .pickerStyle(.segmented)
-                            .labelsHidden()
-                            .fixedSize()
+                        }
+                        .padding(.top, 4)
+                        if template.category == .logo { logoRow }
+                    }
+                    LogoKitFold(Text("Brand"), key: "brandFoldBrand") {
+                        fontRow("Titles", font: Binding(get: { kit.style.titleFont }, set: { kit.style.titleFont = $0 }))
+                        SliderRow(title: "Weight", value: Binding(get: { kit.style.titleWeight }, set: { kit.style.titleWeight = $0 }), range: 0...1)
+                        fontRow("Text", font: Binding(get: { kit.style.bodyFont }, set: { kit.style.bodyFont = $0 }))
+                        HStack(alignment: .top) {
+                            ForEach(colours.indices, id: \.self) { index in
+                                let item = colours[index]
+                                if index > 0 { Spacer(minLength: 0) }
+                                VStack(spacing: 5) {
+                                    LogoKitWell(title: item.title, colour: colorBinding(Binding(get: { kit.style[keyPath: item.path] },
+                                                                                                 set: { kit.style[keyPath: item.path] = $0 })))
+                                    Text(item.title).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                                }
+                                .help(Text(item.help))
+                            }
+                        }
+                        .padding(.vertical, 6)
+                        StudioField(label: "Background") {
+                            if kit.style.background != nil {
+                                LogoKitWell(title: "Background", colour: colorBinding(Binding(get: { kit.style.background ?? .ink }, set: { kit.style.background = $0 })))
+                            }
+                            Toggle("Background", isOn: Binding(get: { kit.style.background != nil },
+                                                               set: { kit.style.background = $0 ? (kit.style.background ?? MotionColor(r: 0.06, g: 0.06, b: 0.07)) : nil }))
+                                .toggleStyle(StudioSwitchStyle())
+                        }
+                        .help("Behind titles, chapters and cards; off: see-through")
+                        if kit.style.background != nil {
+                            StudioField(label: "Moving light") {
+                                Toggle("Moving light", isOn: Binding(get: { kit.style.moving }, set: { kit.style.moving = $0 })).toggleStyle(StudioSwitchStyle())
+                            }
+                            .help("The colours drift behind the cards, with light passing over")
+                            StudioField(label: "Grain") {
+                                Toggle("Grain", isOn: Binding(get: { kit.style.grain }, set: { kit.style.grain = $0 })).toggleStyle(StudioSwitchStyle())
+                            }
+                            .help("Film grain over the cards")
+                        }
+                        SliderRow(title: "Glow", value: Binding(get: { kit.style.glow }, set: { kit.style.glow = $0 }), range: 0...1)
+                        SliderRow(title: "Corners", value: Binding(get: { kit.style.roundness }, set: { kit.style.roundness = $0 }), range: 0...1)
+                    }
+                    LogoKitFold(Text("Place"), key: "brandFoldPlace", accessory: layoutChanged ? AnyView(resetButton) : nil) {
+                        SliderRow(title: "Size", value: placementBinding(\.scale), range: 0.4...2.5,
+                                  shown: String(format: "%.0f%%", placement.scale * 100))
+                        StudioField(label: "Position") { positionGrid }
+                        if template.canAlign {
+                            StudioField(label: "Align") {
+                                StudioSegmented(options: [(value: MotionAlign.left, title: "Left" as LocalizedStringKey), (value: .center, title: "Centre"), (value: .right, title: "Right")], selection: placementBinding(\.align))
+                            }
                         }
                     }
-                    Text("Or drag it on the picture.").font(.caption).foregroundStyle(.secondary)
-                }
-                section("Timing") {
-                    labelled("Length") {
-                        Slider(value: placementBinding(\.duration), in: 2...(template.id == "progress" ? 600 : 20))
-                        Text(Format.duration(placement.duration)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
-                    }
-                    labelled("Speed") {
-                        Slider(value: placementBinding(\.speed), in: 0.5...2)
-                        Text(String(format: "%.1f×", placement.speed)).monospacedDigit().foregroundStyle(.secondary).frame(width: 40, alignment: .trailing)
+                    LogoKitFold(Text("Timing"), key: "brandFoldTiming", open: false) {
+                        SliderRow(title: "Length", value: placementBinding(\.duration), range: 2...(template.id == "progress" ? 600 : 20),
+                                  shown: Format.duration(placement.duration))
+                        SliderRow(title: "Speed", value: placementBinding(\.speed), range: 0.5...2, shown: String(format: "%.1f×", placement.speed))
                     }
                 }
-                HStack {
-                    Button("Reset Layout") { kit.resetLayout(template) }
-                        .buttonStyle(.link)
-                    Spacer()
-                    Picker("Frame Rate", selection: $frameRate) {
-                        ForEach([24, 25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .controlSize(.small)
-                }
-                exportRow
             }
-            .padding(16)
+            .scrollIndicators(.never)
+            exportRow.padding(.top, 14)
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(width: 320)
+        .frame(maxHeight: .infinity)
+        .studioPanel()
+    }
+
+    private var resetButton: some View {
+        Button { kit.resetLayout(template) } label: { Image(systemName: "arrow.counterclockwise").font(.system(size: 11)) }
+            .buttonStyle(.plain)
+            .foregroundStyle(Design.Studio.textQuiet)
+            .help("Reset Layout")
+            .accessibilityLabel(Text("Reset Layout"))
     }
 
     private var logoRow: some View {
-        HStack(spacing: 8) {
+        StudioField(label: "Logo") {
             if loadingLogo { ProgressView().controlSize(.small) }
-            Button(logoFile == nil ? "Add a Logo…" : logoFile!.lastPathComponent) { chooseLogo() }
-                .lineLimit(1)
-                .help("The logo animates as the Logo Animator would; its colours can become the brand's")
             if logo != nil {
                 Button("Use Its Colours") { useLogoColours() }
-                    .buttonStyle(.link)
+                    .buttonStyle(.plain)
+                    .font(Design.Studio.body)
+                    .foregroundStyle(Design.Studio.textQuiet)
             }
+            Button { chooseLogo() } label: {
+                Text(verbatim: logoFile?.lastPathComponent ?? String(localized: "Add a Logo…")).lineLimit(1).truncationMode(.middle).frame(maxWidth: 140)
+            }
+            .buttonStyle(StudioFlatButtonStyle())
+            .help("The logo animates as the Logo Animator would; its colours can become the brand's")
         }
     }
 
+    /// Frame rate, Export all and Fusion; Export; the format note and how the export goes.
     private var exportRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Button("Export…", systemImage: "square.and.arrow.up") { export([template]) }
-                    .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled(exporting != nil)
-                Button("Export All…") { export(MotionTemplate.all.filter { $0.category != .logo || logo != nil || $0.id == "sting" }) }
-                    .buttonStyle(GlassCapsuleButtonStyle())
+                LogoKitMenu(title: "Frame Rate", shown: "\(frameRate) fps", selection: $frameRate) {
+                    ForEach([24, 25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
+                }
+                .padding(.leading, 8)
+                Spacer(minLength: 0)
+                Button("Export all…") { export(MotionTemplate.all.filter { $0.category != .logo || logo != nil || $0.id == "sting" }) }
+                    .buttonStyle(StudioFlatButtonStyle())
                     .disabled(exporting != nil)
                     .help("Every template, each as its own file")
                 fusionMenu
             }
-            if let exporting {
-                ProgressView(value: exporting)
-            } else if let fusionDone {
-                DoneLabel(text: fusionDone.path.hasPrefix(FusionExport.resolveTitles.path)
-                          ? Text("In Resolve’s Titles, under Pluck") : Text("Saved \(fusionDone.lastPathComponent)"), file: fusionDone)
-            } else if let done {
-                DoneLabel(text: Text("Saved \(done.lastPathComponent)"), file: done)
+            Button { export([template]) } label: {
+                Label("Export…", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
             }
-            if let problem { ProblemLabel(text: problem) }
-            Text(template.fullFrame && kit.style.background != nil ? "MP4 with its background." : "ProRes 4444 with transparency, for over the picture.")
-                .font(.caption).foregroundStyle(.secondary)
+            .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+            .disabled(exporting != nil)
+            Text(template.fullFrame && kit.style.background != nil ? "MP4 with its background" : "ProRes 4444 with transparency")
+                .font(Design.Studio.hint)
+                .foregroundStyle(Design.Studio.textFaint)
+                .frame(maxWidth: .infinity)
+            if let exporting {
+                StudioProgress(share: exporting)
+            } else if let fusionDone {
+                LogoKitDone(text: fusionDone.path.hasPrefix(FusionExport.resolveTitles.path)
+                            ? Text("In Resolve’s Titles, under Pluck") : Text("Saved \(fusionDone.lastPathComponent)"), file: fusionDone)
+            } else if let done {
+                LogoKitDone(text: Text("Saved \(done.lastPathComponent)"), file: done)
+            }
+            if let problem { LogoKitProblem(text: problem) }
         }
     }
 
     /// The templates as Fusion titles: built from Resolve's own nodes, so text, fonts, colours,
     /// place and size stay editable there.
     private var fusionMenu: some View {
-        Menu("Fusion") {
+        Menu {
             Button("Add to DaVinci Resolve") { addToResolve([template]) }
                 .disabled(!FusionExport.hasResolve)
             Button("Add All to DaVinci Resolve") { addToResolve(MotionTemplate.all) }
                 .disabled(!FusionExport.hasResolve)
             Divider()
             Button("Save as Fusion Title…") { saveFusion() }
+        } label: {
+            HStack(spacing: 6) {
+                Text("Fusion")
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .font(Design.Studio.body)
+            .foregroundStyle(Design.Studio.text)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            .contentShape(.rect)
         }
         .menuStyle(.button)
-        .buttonStyle(GlassCapsuleButtonStyle())
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("As a Fusion title for DaVinci Resolve: text, fonts, colours, place and size stay editable there")
     }
@@ -372,51 +449,28 @@ struct BrandPackView: View {
                                 if template.canAlign { p.align = x < 0.3 ? .left : x > 0.7 ? .right : .center }
                             }
                         } label: {
-                            RoundedRectangle(cornerRadius: 2)
-                                .fill(on ? Color.accentColor : Color.primary.opacity(0.15))
-                                .frame(width: 16, height: 10)
+                            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                                .fill(on ? Design.Brand.pink : Design.Studio.line)
+                                .frame(width: 18, height: 12)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
             }
         }
-        .help("Where it sits")
+        .help("Where it sits. Or drag it on the picture.")
     }
 
     // MARK: - Pieces
 
-    private func section<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary).textCase(.uppercase)
-            content()
-        }
-    }
-
-    private func labelled<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
-        HStack(spacing: 8) {
-            Text(title).frame(width: 56, alignment: .leading).foregroundStyle(.secondary)
-            content()
-        }
-        .font(.callout)
-        .controlSize(.small)
-    }
-
     private static let fonts: [String] = NSFontManager.shared.availableFontFamilies.filter { !$0.hasPrefix(".") }.sorted()
 
     private func fontRow(_ title: LocalizedStringKey, font: Binding<String>) -> some View {
-        labelled(title) {
-            Picker(title, selection: font) {
+        StudioField(label: title) {
+            LogoKitMenu(title: title, shown: font.wrappedValue, selection: font) {
                 ForEach(Self.fonts, id: \.self) { Text($0).font(.custom($0, size: 13)).tag($0) }
             }
-            .labelsHidden()
-        }
-    }
-
-    private func colorWell(_ title: LocalizedStringKey, _ color: Binding<MotionColor>) -> some View {
-        VStack(spacing: 3) {
-            ColorPicker(title, selection: colorBinding(color), supportsOpacity: false).labelsHidden()
-            Text(title).font(.caption2).foregroundStyle(.secondary)
         }
     }
 
@@ -540,6 +594,59 @@ struct BrandPackView: View {
             }
             exporting = nil
         }
+    }
+}
+
+/// An inspector slider row as on the board: a quiet 84 pt name, a plum-filled track with a white
+/// dot, and the value (when it has one to show) on the right.
+private struct SliderRow: View {
+    let title: LocalizedStringKey
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    var shown = ""
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Text(title).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).frame(width: 84, alignment: .leading)
+            ScrubBar(value: $value, range: range)
+            Text(verbatim: shown).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                .frame(width: 36, alignment: .trailing)
+        }
+        .frame(height: 34)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: shown.isEmpty ? value.formatted(.percent.precision(.fractionLength(0))) : shown))
+        .accessibilityAdjustableAction { direction in
+            let step = (range.upperBound - range.lowerBound) / 20
+            value = min(max(value + (direction == .increment ? step : -step), range.lowerBound), range.upperBound)
+        }
+    }
+}
+
+/// StudioSlider's shape with the board's plum fill: a 3 pt track, plum up to a 12 pt white dot.
+private struct ScrubBar: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(geometry.size.width, 1)
+            let span = max(range.upperBound - range.lowerBound, 0.0001)
+            let x = CGFloat((min(max(value, range.lowerBound), range.upperBound) - range.lowerBound) / span) * width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Design.Studio.line).frame(height: Design.Studio.sliderTrack)
+                Capsule().fill(LinearGradient(colors: [Design.Brand.pink, Design.Brand.violet], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: x, height: Design.Studio.sliderTrack)
+                Circle().fill(Design.Studio.text).frame(width: Design.Studio.sliderDot, height: Design.Studio.sliderDot)
+                    .offset(x: x - Design.Studio.sliderDot / 2)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                value = range.lowerBound + Double(min(max(drag.location.x / width, 0), 1)) * span
+            })
+        }
+        .frame(height: 12)
     }
 }
 

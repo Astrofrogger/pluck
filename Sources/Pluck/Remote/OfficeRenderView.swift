@@ -1,44 +1,246 @@
 import AppKit
 import SwiftUI
 
-/// The Edit Anywhere window: render and search footage on another Mac (the host) from this one,
-/// or share this Mac as the host others connect to. Laid out like the main window: cards with
-/// the download rows' fill, glass bars and round glass buttons.
+/// The Edit Anywhere tool: render and search footage on another Mac (the host) from this one,
+/// or share this Mac as the host others connect to. Board ToolAnywhere: a 280 pt panel with the
+/// two sides and the host, and the chosen pane on the right.
 struct OfficeRenderView: View {
     enum Side: String { case home, office }
     @AppStorage("officeRenderSide") private var side = Side.home
 
     var body: some View {
-        ScrollView {
-            Group {
-                switch side {
-                case .home: HomeRenderView()
-                case .office: OfficeSideView()
-                }
+        Group {
+            switch side {
+            case .home: HomeRenderView(side: $side)
+            case .office: OfficeSideView(side: $side)
             }
-            .padding(Design.Spacing.window)
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
         }
-        .softTopScrollEdge()
-        .frame(minWidth: 620, minHeight: 600)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Picker("This Mac", selection: $side) {
-                    Label("Use Another Mac", systemImage: "laptopcomputer").tag(Side.home)
-                    Label("Share This Mac", systemImage: "desktopcomputer").tag(Side.office)
-                }
-                .pickerStyle(.segmented)
-                .labelStyle(.titleAndIcon)
+        .foregroundStyle(Design.Studio.text)
+        .frame(minWidth: 760, minHeight: 600)
+    }
+}
+
+// MARK: - Shared pieces
+
+/// The left panel: the title, the two sides, then what the side puts in it, and a faint footnote.
+private struct AnywhereSidebar<Content: View>: View {
+    @Binding var side: OfficeRenderView.Side
+    var footnote: LocalizedStringKey?
+    var footnoteDetail: Text?
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Edit Anywhere").font(.system(size: 20)).padding(.horizontal, 8)
+            WideSegmented(options: [(.home, "Use another Mac"), (.office, "Share this Mac")], selection: $side)
+                .padding(.horizontal, 8)
                 .help("Use another Mac from this one, or share this Mac with others")
+            content
+            Spacer(minLength: 0)
+            if let footnote {
+                StudioFootnote(text: footnote, symbol: "checkmark.shield")
+                    .help(footnoteDetail ?? Text(footnote))
             }
         }
+        .padding(.vertical, 20)
+        .padding(.horizontal, 12)
+        .frame(width: 280)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .studioPanel()
+    }
+}
+
+/// StudioSegmented, but each choice takes an even share of the full width (board ToolAnywhere).
+private struct WideSegmented<Value: Hashable>: View {
+    let options: [(value: Value, title: LocalizedStringKey)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let on = option.value == selection
+                Button { selection = option.value } label: {
+                    Text(option.title)
+                        .font(Design.Studio.body)
+                        .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 24)
+                        .background(on ? Design.Studio.line : .clear, in: .rect(cornerRadius: 6, style: .continuous))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Design.Studio.backdrop, in: .rect(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// A row in the left panel's list: raised grey when it's the one shown.
+private struct NavRow: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    let selected: Bool
+    var badge: Text?
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(Design.Studio.textQuiet).frame(width: 16)
+                Text(title).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                Spacer(minLength: 0)
+                if let badge { badge.font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 32)
+            .background(selected ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+}
+
+/// The right panel, scrolling, with the board's 24/28 pt insets.
+private struct AnywherePane<Content: View>: View {
+    var scrolls = true
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        Group {
+            if scrolls {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) { content }
+                        .padding(.horizontal, 28)
+                        .padding(.vertical, 24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollIndicators(.never)
+            } else {
+                VStack(spacing: 16) { content }
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 24)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .studioPanel()
+    }
+}
+
+/// A pane's or section's title, with a quiet line under it.
+private struct PaneHeader<Trailing: View>: View {
+    let title: Text
+    var subtitle: Text?
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                title.font(Design.Studio.sectionTitle)
+                if let subtitle {
+                    subtitle.font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 0)
+            trailing
+        }
+    }
+}
+
+extension PaneHeader where Trailing == EmptyView {
+    init(title: Text, subtitle: Text? = nil) {
+        self.init(title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// A menu's label in a box: the choice in full text, a small quiet chevron, no button behind it.
+private struct PlainMenuLabel: View {
+    let title: String
+    var quiet = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(verbatim: title).lineLimit(1).truncationMode(.middle)
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+        }
+        .font(Design.Studio.body)
+        .foregroundStyle(quiet ? Design.Studio.textQuiet : Design.Studio.text)
+        .frame(height: 28)
+        .contentShape(.rect)
+    }
+}
+
+/// A small icon button in a row (cancel, remove, show in Finder).
+private struct IconButton: View {
+    let symbol: String
+    let label: LocalizedStringKey
+    var tint = Design.Studio.textQuiet
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(tint)
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .help(label)
+    }
+}
+
+/// A pink text link ("It’s spelled right", "Clear finished").
+private struct PinkLink: View {
+    let title: LocalizedStringKey
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) { Text(title).font(Design.Studio.hint).foregroundStyle(Design.Brand.pink) }
+            .buttonStyle(.plain)
+    }
+}
+
+/// What went wrong, in the bad colour.
+private struct ProblemLine: View {
+    let text: String
+    var colour = Design.Studio.bad
+
+    var body: some View {
+        Label(text, systemImage: "exclamationmark.triangle")
+            .font(Design.Studio.body)
+            .foregroundStyle(colour)
+            .fixedSize(horizontal: false, vertical: true)
+            .textSelection(.enabled)
+    }
+}
+
+extension View {
+    /// A text field's dark box on a panel (raised when it sits in a box).
+    fileprivate func anywhereInput(inBox: Bool = false, height: CGFloat = 32) -> some View {
+        padding(.horizontal, 10)
+            .frame(height: height)
+            .background(inBox ? Design.Studio.raised : Design.Studio.backdrop,
+                        in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+    }
+
+    /// A menu with no system button look.
+    fileprivate func plainMenu() -> some View {
+        menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
     }
 }
 
 // MARK: - At home
 
 private struct HomeRenderView: View {
+    @Binding var side: OfficeRenderView.Side
     @State private var client = OfficeRenderClient.shared
     @State private var address = ""
     @State private var code = ""
@@ -61,11 +263,31 @@ private struct HomeRenderView: View {
     enum Pane: String { case render, archive, proxies }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
+        HStack(spacing: Design.Studio.panelGap) {
+            AnywhereSidebar(side: $side, footnote: client.office != nil ? "Private and encrypted" : nil,
+                            footnoteDetail: Text("Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet.")) {
+                if let office = client.office {
+                    hostBox(office)
+                    VStack(spacing: 2) {
+                        NavRow(symbol: "play.rectangle", title: "Render", selected: pane == .render) { pane = .render }
+                        NavRow(symbol: "sparkle.magnifyingglass", title: "Search the archive", selected: pane == .archive) { pane = .archive }
+                        NavRow(symbol: "arrow.up.arrow.down", title: "Files", selected: pane == .proxies) { pane = .proxies }
+                    }
+                }
+            }
             if let office = client.office {
-                paired(office)
+                AnywherePane {
+                    switch pane {
+                    case .archive: ArchiveSearchPane(host: office.name)
+                    case .proxies:
+                        ProxiesPane()
+                        SendPane().padding(.top, 12)
+                    case .render: renderPane(office)
+                    }
+                    activity
+                }
             } else {
-                welcome
+                AnywherePane(scrolls: false) { welcome }
             }
         }
         .onAppear { client.load() }
@@ -89,60 +311,54 @@ private struct HomeRenderView: View {
     // MARK: Not connected yet
 
     private var welcome: some View {
-        VStack(spacing: 22) {
-            VStack(spacing: 10) {
-                Image(systemName: "globe.europe.africa")
-                    .font(.system(size: 40, weight: .regular))
-                    .foregroundStyle(.tint)
-                    .frame(width: 84, height: 84)
-                    .background(Color.accentColor.opacity(0.12), in: .circle)
+        VStack(spacing: 18) {
+            Spacer(minLength: 0)
+            VStack(spacing: 8) {
+                StudioTile(symbol: "globe.europe.africa", colour: Design.Studio.textQuiet)
                     .accessibilityHidden(true)
-                Text("Edit from anywhere").font(.title2.weight(.semibold))
+                    .padding(.bottom, 6)
+                Text("Edit from anywhere").font(Design.Studio.pageTitle)
                 Text("Render on another Mac and search its footage, from home or on the road.")
+                    .font(Design.Studio.body)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Design.Studio.textQuiet)
                     .frame(maxWidth: 420)
             }
-            .padding(.top, 28)
 
-            VStack(spacing: Design.Spacing.controls) {
-                GlassGroup(spacing: Design.Spacing.controls) {
-                    HStack(spacing: Design.Spacing.controls) {
-                        HStack(spacing: Design.Spacing.controls) {
-                            Image(systemName: "envelope.open")
-                                .font(.system(size: Design.Size.icon - 2, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .accessibilityHidden(true)
-                            TextField("Paste the invitation link you received", text: $inviteText)
-                                .textFieldStyle(.plain)
-                                .font(Design.Typography.control)
-                                .onSubmit(joinTyped)
-                        }
-                        .barControl()
-                        Button("Join", action: joinTyped)
-                            .buttonStyle(BarCapsuleButtonStyle())
-                            .disabled(PrivateNetwork.Invitation(link: inviteText) == nil || working)
-                    }
+            VStack(spacing: 10) {
+                HStack(spacing: 12) {
+                    Image(systemName: "envelope.open")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Design.Studio.textQuiet)
+                        .accessibilityHidden(true)
+                    TextField("Paste the invitation link you received", text: $inviteText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 15))
+                        .onSubmit(joinTyped)
+                    Button("Join", action: joinTyped)
+                        .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                        .disabled(PrivateNetwork.Invitation(link: inviteText) == nil || working)
                 }
-                .frame(maxWidth: 560)
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
+                .frame(height: 48)
+                .studioBox(outline: Design.Studio.line)
                 activity
             }
+            .frame(maxWidth: 560)
 
-            Button(pairingWithCode ? "Hide pairing with a code" : "On the same network? Pair with a code instead") {
+            PinkLink(title: pairingWithCode ? "Hide pairing with a code" : "On the same network? Pair with a code instead") {
                 withAnimation(.snappy(duration: 0.25)) { pairingWithCode.toggle() }
             }
-            .buttonStyle(.link)
-            .font(.callout)
 
             if pairingWithCode {
                 codePairing
                     .frame(maxWidth: 560)
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
-
-            PageNote(text: Text("Private and encrypted. Invitations and codes work once."),
-                     detail: Text("Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet."))
-                .padding(.top, 8)
+            Spacer(minLength: 0)
+            StudioFootnote(text: "Private and encrypted. Invitations and codes work once.", symbol: "checkmark.shield")
+                .help("Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet.")
         }
         .frame(maxWidth: .infinity)
         .onAppear { finder.start() }
@@ -153,37 +369,43 @@ private struct HomeRenderView: View {
     }
 
     private var codePairing: some View {
-        Card {
-            CardHeader(symbol: "number", title: Text("Pair with a code"),
-                       subtitle: Text("On the host Mac: Share This Mac → Pair a Mac."))
-            VStack(spacing: Design.Spacing.controls) {
-                if !finder.found.isEmpty {
-                    Picker("Host Mac", selection: $picked) {
-                        ForEach(finder.found) { Text($0.name).tag(Optional($0)) }
-                        Text("Other (type its address)").tag(OfficeFinder.Found?.none)
+        VStack(alignment: .leading, spacing: 12) {
+            PaneHeader(title: Text("Pair with a code"), subtitle: Text("On the host Mac: Share this Mac → Pair a Mac."))
+            if !finder.found.isEmpty {
+                StudioField(label: "Host Mac") {
+                    Menu {
+                        Picker("Host Mac", selection: $picked) {
+                            ForEach(finder.found) { Text($0.name).tag(Optional($0)) }
+                            Text("Other (type its address)").tag(OfficeFinder.Found?.none)
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        PlainMenuLabel(title: picked?.name ?? String(localized: "Other (type its address)"))
                     }
-                    .pickerStyle(.menu)
-                }
-                if picked == nil {
-                    TextField("Host Mac address", text: $address, prompt: Text("Its address on the local network, e.g. 10.0.0.13"))
-                        .textFieldStyle(.plain)
-                        .font(Design.Typography.control)
-                        .barControl()
-                }
-                HStack(spacing: Design.Spacing.controls) {
-                    TextField("Pairing code", text: $code, prompt: Text(verbatim: "XXXX-XXXX-XXXX"))
-                        .textFieldStyle(.plain)
-                        .font(Design.Typography.control.monospaced())
-                        .barControl()
-                    Button("Pair") {
-                        let target: OfficeRenderClient.Target = picked.map { .found($0.endpoint) } ?? .address(address)
-                        Task { await run { try await client.pair(target, code: code); code = "" } }
-                    }
-                    .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled((picked == nil && address.trimmingCharacters(in: .whitespaces).isEmpty) || OfficeLink.normalised(code) == nil || working)
+                    .plainMenu()
                 }
             }
+            if picked == nil {
+                TextField("Host Mac address", text: $address, prompt: Text("Its address on the local network, e.g. 10.0.0.13"))
+                    .textFieldStyle(.plain)
+                    .font(Design.Studio.body)
+                    .anywhereInput(inBox: true)
+            }
+            HStack(spacing: 10) {
+                TextField("Pairing code", text: $code, prompt: Text(verbatim: "XXXX-XXXX-XXXX"))
+                    .textFieldStyle(.plain)
+                    .font(Design.Studio.body.monospaced())
+                    .anywhereInput(inBox: true)
+                Button("Pair") {
+                    let target: OfficeRenderClient.Target = picked.map { .found($0.endpoint) } ?? .address(address)
+                    Task { await run { try await client.pair(target, code: code); code = "" } }
+                }
+                .buttonStyle(StudioFlatButtonStyle(height: 32))
+                .disabled((picked == nil && address.trimmingCharacters(in: .whitespaces).isEmpty) || OfficeLink.normalised(code) == nil || working)
+            }
         }
+        .padding(16)
+        .studioBox()
     }
 
     /// Joining or pairing in progress, or what went wrong.
@@ -192,75 +414,71 @@ private struct HomeRenderView: View {
         if joining {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Connecting… The first time takes up to a minute.").foregroundStyle(.secondary)
+                Text("Connecting… The first time takes up to a minute.").foregroundStyle(Design.Studio.textQuiet)
             }
-            .font(.callout)
+            .font(Design.Studio.body)
         } else if let problem {
-            Label(problem, systemImage: "exclamationmark.triangle.fill")
-                .font(.callout)
-                .foregroundStyle(.orange)
-                .fixedSize(horizontal: false, vertical: true)
+            ProblemLine(text: problem)
         }
     }
 
     // MARK: Connected
 
-    @ViewBuilder
-    private func paired(_ office: OfficeRenderClient.Office) -> some View {
-        Card {
-            CardHeader(symbol: "desktopcomputer", title: Text(office.name),
-                       subtitle: office.network != nil ? Text("Connected from anywhere") : Text("Connected on the local network (\(office.address))"),
-                       tint: .green) {
-                Menu {
-                    Button("Unpair This Mac", role: .destructive) { client.forget(); projects = []; project = nil }
-                } label: {
-                    Image(systemName: "ellipsis")
+    /// The host Mac: a tile in the good colour, its name, how it's connected, and ⋯ with Unpair.
+    private func hostBox(_ office: OfficeRenderClient.Office) -> some View {
+        HStack(spacing: 10) {
+            StudioTile(symbol: "desktopcomputer", colour: Design.Studio.good, size: 32)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(office.name).font(Design.Studio.body).lineLimit(1)
+                Group {
+                    if office.network != nil {
+                        Text("Connected from anywhere")
+                    } else {
+                        Text("Connected on the local network (\(office.address))")
+                    }
                 }
-                .menuStyle(.button)
-                .buttonStyle(BarButtonStyle())
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Forget the host Mac on this Mac. Remove this Mac on the host Mac too.")
+                .font(Design.Studio.hint)
+                .foregroundStyle(Design.Studio.good)
+                .lineLimit(1)
+                .truncationMode(.middle)
             }
+            Spacer(minLength: 0)
+            Menu {
+                Button("Unpair This Mac", role: .destructive) { client.forget(); projects = []; project = nil }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Design.Studio.textQuiet)
+                    .frame(width: 28, height: 28)
+                    .contentShape(.rect)
+            }
+            .plainMenu()
+            .help("Forget the host Mac on this Mac. Remove this Mac on the host Mac too.")
         }
-
-        Picker("", selection: $pane) {
-            Label("Render", systemImage: "play.rectangle").tag(Pane.render)
-            Label("Search the Archive", systemImage: "sparkle.magnifyingglass").tag(Pane.archive)
-            Label("Files", systemImage: "arrow.up.arrow.down").tag(Pane.proxies)
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-        .frame(maxWidth: .infinity)
-
-        switch pane {
-        case .archive: ArchiveSearchPane()
-        case .proxies:
-            ProxiesPane()
-            SendPane()
-        case .render: renderPane
-        }
-        activity
+        .padding(12)
+        .studioBox()
+        .padding(.horizontal, 4)
     }
 
     @ViewBuilder
-    private var renderPane: some View {
-        Card {
-            CardHeader(symbol: "play.rectangle.on.rectangle", title: Text("Render on the host Mac"),
-                       subtitle: Text("With the originals on its storage; you get a small preview back.")) {
-                Button {
-                    Task { await run { projects = try await client.projects() } }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+    private func renderPane(_ office: OfficeRenderClient.Office) -> some View {
+        HStack {
+            Text("Render on \(office.name)").font(Design.Studio.sectionTitle)
+            Spacer()
+            if working { ProgressView().controlSize(.small) }
+            IconButton(symbol: "arrow.clockwise", label: projects.isEmpty ? "Load the projects" : "Reload the projects") {
+                Task {
+                    await run { projects = try await client.projects() }
+                    await run { try await client.refresh() }
                 }
-                .buttonStyle(BarButtonStyle())
-                .disabled(working)
-                .help(projects.isEmpty ? "Load the projects" : "Reload the projects")
             }
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 10) {
-                GridRow {
-                    Text("Project").foregroundStyle(.secondary)
+            .disabled(working)
+        }
+
+        HStack(spacing: 18) {
+            HStack(spacing: 8) {
+                Text("Project").foregroundStyle(Design.Studio.textQuiet)
+                Menu {
                     Picker("Project", selection: $project) {
                         Text(projects.isEmpty ? String(localized: "Load the projects first") : String(localized: "Choose…"))
                             .tag(OfficeRenderClient.Project?.none)
@@ -268,39 +486,56 @@ private struct HomeRenderView: View {
                             Text((project.folder + [project.name]).joined(separator: " › ")).tag(Optional(project))
                         }
                     }
-                    .labelsHidden()
+                    .pickerStyle(.inline)
+                } label: {
+                    PlainMenuLabel(title: project.map { ($0.folder + [$0.name]).joined(separator: " › ") }
+                                   ?? (projects.isEmpty ? String(localized: "Load the projects first") : String(localized: "Choose…")),
+                                   quiet: project == nil)
                 }
-                GridRow {
-                    Text("Timeline").foregroundStyle(.secondary)
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .layoutPriority(1)
+            }
+            HStack(spacing: 8) {
+                Text("Timeline").foregroundStyle(Design.Studio.textQuiet)
+                Menu {
                     Picker("Timeline", selection: $timeline) {
                         ForEach(timelines, id: \.self) { Text($0).tag($0) }
                     }
-                    .labelsHidden()
-                    .disabled(timelines.isEmpty)
+                    .pickerStyle(.inline)
+                } label: {
+                    PlainMenuLabel(title: timeline.isEmpty ? "—" : timeline, quiet: timeline.isEmpty)
                 }
-                GridRow {
-                    Text("Preset").foregroundStyle(.secondary)
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .disabled(timelines.isEmpty)
+            }
+            HStack(spacing: 8) {
+                Text("Preset").foregroundStyle(Design.Studio.textQuiet)
+                Menu {
                     Picker("Render preset", selection: $preset) {
                         ForEach(presets, id: \.self) { Text($0).tag($0) }
                     }
-                    .labelsHidden()
-                    .disabled(presets.isEmpty)
-                }
-            }
-            HStack {
-                if working { ProgressView().controlSize(.small) }
-                Spacer()
-                Button {
-                    guard let project else { return }
-                    Task { await run { try await client.render(project, timeline: timeline, preset: preset) } }
+                    .pickerStyle(.inline)
                 } label: {
-                    Label("Render", systemImage: "play.fill")
+                    PlainMenuLabel(title: preset.isEmpty ? "—" : preset, quiet: preset.isEmpty)
                 }
-                .buttonStyle(BarCapsuleButtonStyle())
-                .disabled(project == nil || timeline.isEmpty || preset.isEmpty || working)
-                .help("Opening a project switches DaVinci Resolve on the host Mac to it")
+                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                .disabled(presets.isEmpty)
             }
+            Spacer(minLength: 0)
+            Button {
+                guard let project else { return }
+                Task { await run { try await client.render(project, timeline: timeline, preset: preset) } }
+            } label: {
+                Label("Render", systemImage: "play.fill")
+            }
+            .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+            .disabled(project == nil || timeline.isEmpty || preset.isEmpty || working)
+            .help("Opening a project switches DaVinci Resolve on the host Mac to it")
         }
+        .font(Design.Studio.body)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .studioBox()
         .onChange(of: project) { _, project in
             timelines = []; presets = []; timeline = ""; preset = ""
             guard let project else { return }
@@ -315,89 +550,85 @@ private struct HomeRenderView: View {
             }
         }
 
-        HStack {
-            Text("Renders").font(.headline)
-            Spacer()
-            Button {
-                Task { await run { try await client.refresh() } }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
-            }
-            .buttonStyle(.borderless)
-            .labelStyle(.iconOnly)
-            .help("Refresh")
+        Text("Opening a project switches DaVinci Resolve on \(office.name) to it.")
+            .font(Design.Studio.hint)
+            .foregroundStyle(Design.Studio.textFaint)
+
+        HStack(spacing: 8) {
+            Text("Renders").font(Design.Studio.sectionTitle)
+            Text(verbatim: "\(client.jobs.count)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
         }
-        .padding(.top, 4)
+        .padding(.top, 8)
         if client.jobs.isEmpty {
-            Text("Nothing rendered on the host Mac yet.")
-                .foregroundStyle(.secondary)
+            Text("Nothing rendered on \(office.name) yet.")
+                .font(Design.Studio.body)
+                .foregroundStyle(Design.Studio.textQuiet)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 18)
         } else {
-            VStack(spacing: 8) {
-                ForEach(client.jobs) { job in row(job) }
-            }
+            ForEach(client.jobs) { job in row(job) }
         }
     }
 
     private func row(_ job: OfficeRenderClient.Job) -> some View {
         let (symbol, colour) = Self.look(job.state)
-        return HStack(spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: Design.Size.icon, weight: .semibold))
-                .foregroundStyle(colour)
-                .frame(width: 40, height: 40)
-                .background(colour.opacity(0.14), in: .rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
-                .accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(job.timeline).fontWeight(.semibold).lineLimit(1)
-                Text(verbatim: "\(job.project) · \(job.preset) · \(job.device)")
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                switch job.state {
-                case "rendering":
-                    ProgressView(value: job.progress).tint(colour)
-                    if let remaining = job.remaining, remaining > 0 {
-                        Text("About \(Duration.seconds(remaining).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 2))) left")
-                            .font(.caption).foregroundStyle(.secondary)
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                StudioTile(symbol: symbol, colour: colour).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(job.timeline).font(.system(size: 13)).lineLimit(1)
+                    Text(verbatim: "\(job.project) · \(job.preset) · \(job.device)")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if job.state == "rendering" {
+                    Text(job.progress, format: .percent.precision(.fractionLength(0)))
+                        .font(.system(size: 13).monospacedDigit())
+                    IconButton(symbol: "xmark", label: "Cancel the render") {
+                        Task { await run { try await client.cancel(job) } }
                     }
-                case "done":
-                    Text(job.makingPreview ? String(localized: "Rendered · making the preview…")
-                         : job.file.map { String(localized: "Rendered · \($0)") } ?? String(localized: "Rendered"))
-                        .font(.caption).foregroundStyle(.green).lineLimit(1).truncationMode(.middle)
-                default:
-                    Text(job.problem ?? (job.state == "cancelled" ? String(localized: "Cancelled") : String(localized: "Failed")))
-                        .font(.caption).foregroundStyle(.red).lineLimit(2)
-                }
-            }
-            Spacer(minLength: 8)
-            if job.state == "rendering" {
-                RowButton(symbol: "xmark", label: "Cancel the render") {
-                    Task { await run { try await client.cancel(job) } }
-                }
-            } else if let size = job.previewSize {
-                if let fraction = downloading[job.id] {
-                    ProgressView(value: fraction).frame(width: 70)
-                } else {
-                    RowButton(symbol: "arrow.down", label: "Get the preview (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))") {
-                        fetch(job)
+                } else if let size = job.previewSize {
+                    if let fraction = downloading[job.id] {
+                        StudioProgress(share: fraction).frame(width: 70)
+                    } else {
+                        Button { fetch(job) } label: {
+                            Label("Get preview · \(ByteCountFormatter.string(fromByteCount: size, countStyle: .file))", systemImage: "arrow.down")
+                        }
+                        .buttonStyle(StudioFlatButtonStyle())
+                        .help("Get the preview (\(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)))")
                     }
                 }
             }
+            switch job.state {
+            case "rendering":
+                StudioProgress(share: job.progress)
+                if let remaining = job.remaining, remaining > 0 {
+                    Text("About \(Duration.seconds(remaining).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 2))) left")
+                        .font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                }
+            case "done":
+                Text(job.makingPreview ? String(localized: "Rendered · making the preview…")
+                     : job.file.map { String(localized: "Rendered · \($0)") } ?? String(localized: "Rendered"))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.good).lineLimit(1).truncationMode(.middle)
+            case "cancelled":
+                Text(job.problem ?? String(localized: "Cancelled"))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
+            default:
+                Text(job.problem ?? String(localized: "Failed"))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).lineLimit(2)
+            }
         }
-        .padding(12)
-        .background {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .fill(.fill.quaternary)
-                .opacity(0.6)
-        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .studioBox()
     }
 
     private static func look(_ state: String) -> (String, Color) {
         switch state {
-        case "rendering": ("film", .accentColor)
-        case "done": ("checkmark", .green)
-        case "cancelled": ("xmark", .secondary)
-        default: ("exclamationmark.triangle", .red)
+        case "rendering": ("film", Design.Studio.text)
+        case "done": ("checkmark", Design.Studio.good)
+        case "cancelled": ("xmark", Design.Studio.textQuiet)
+        default: ("exclamationmark.triangle", Design.Studio.bad)
         }
     }
 
@@ -439,9 +670,11 @@ private struct HomeRenderView: View {
 // MARK: - On the office Mac
 
 private struct OfficeSideView: View {
+    @Binding var side: OfficeRenderView.Side
     @State private var server = OfficeRenderServer.shared
     @AppStorage(OfficeRenderServer.enabledKey) private var enabled = false
     @AppStorage(OfficeRenderServer.folderKey) private var folder = ""
+    @AppStorage("editAnywhereSharePane") private var section = Section.renders
     @State private var token = ""
     @State private var tokenSaved = false
     @State private var confirmDisconnect = false
@@ -454,152 +687,131 @@ private struct OfficeSideView: View {
     @State private var inbox = OfficeInbox.shared
     @State private var inboxProblem: String?
 
+    enum Section: String { case renders, anywhere, footage, inbox, devices }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            Card {
-                CardHeader(symbol: "desktopcomputer", title: Text("Share this Mac"),
-                           subtitle: Text("Paired Macs render and search footage on this Mac. Keep Pluck and DaVinci Resolve open.")) {
-                    Toggle("On", isOn: Binding(get: { enabled }, set: { server.setEnabled($0) }))
-                        .toggleStyle(.switch)
-                        .labelsHidden()
-                }
-                if let problem = server.problem {
-                    Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
+        HStack(spacing: Design.Studio.panelGap) {
+            AnywhereSidebar(side: $side, footnote: "Only Macs you pair get in",
+                            footnoteDetail: Text("Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews, search the footage folders, fetch proxies or copies of them, and send files into their own folder in the inbox.")) {
+                shareBox
+                if enabled {
+                    let rendering = server.jobs.filter { $0.state == .rendering }.count
+                    VStack(spacing: 2) {
+                        NavRow(symbol: "film", title: "Renders", selected: section == .renders,
+                               badge: rendering > 0 ? Text(verbatim: "\(rendering)") : nil) { section = .renders }
+                        NavRow(symbol: "globe.europe.africa", title: "From anywhere", selected: section == .anywhere) { section = .anywhere }
+                        NavRow(symbol: "sparkle.magnifyingglass", title: "Footage", selected: section == .footage) { section = .footage }
+                        NavRow(symbol: "tray.and.arrow.down", title: "Files from paired Macs", selected: section == .inbox) { section = .inbox }
+                        NavRow(symbol: "laptopcomputer.and.iphone", title: "Paired Macs", selected: section == .devices,
+                               badge: server.devices.isEmpty ? nil : Text(verbatim: "\(server.devices.count)")) { section = .devices }
+                    }
                 }
             }
-
             if enabled {
-                rendersCard
-                anywhereCard
-                archiveCard
-                inboxCard
-                devicesCard
+                AnywherePane {
+                    switch section {
+                    case .renders: rendersCard
+                    case .anywhere: anywhereCard
+                    case .footage: archiveCard
+                    case .inbox: inboxCard
+                    case .devices: devicesCard
+                    }
+                }
+            } else {
+                AnywherePane(scrolls: false) {
+                    Spacer(minLength: 0)
+                    StudioTile(symbol: "desktopcomputer", colour: Design.Studio.textQuiet)
+                    Text("Share this Mac").font(Design.Studio.sectionTitle)
+                    Text("Paired Macs render and search footage on this Mac. Keep Pluck and DaVinci Resolve open.")
+                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                        .multilineTextAlignment(.center).frame(maxWidth: 420)
+                    Spacer(minLength: 0)
+                }
             }
-
-            PageNote(text: Text("Only Macs you pair get in. Never open to the internet."),
-                     detail: Text("Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews, search the footage folders, fetch proxies or copies of them, and send files into their own folder in the inbox."))
-                .padding(.top, 4)
         }
         .sheet(item: $invitation) { link in InvitationSheet(link: link.url) }
     }
 
+    /// The switch that shares this Mac, at the top of the left panel.
+    private var shareBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                StudioTile(symbol: "desktopcomputer", colour: enabled ? Design.Studio.good : Design.Studio.textQuiet, size: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Share this Mac").font(Design.Studio.body)
+                    Text(enabled ? "On" : "Off").font(Design.Studio.hint)
+                        .foregroundStyle(enabled ? Design.Studio.good : Design.Studio.textQuiet)
+                }
+                Spacer(minLength: 0)
+                Toggle("Share this Mac", isOn: Binding(get: { enabled }, set: { server.setEnabled($0) }))
+                    .toggleStyle(StudioSwitchStyle())
+            }
+            .help("Paired Macs render and search footage on this Mac. Keep Pluck and DaVinci Resolve open.")
+            if let problem = server.problem {
+                Text(problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(12)
+        .studioBox()
+        .padding(.horizontal, 4)
+    }
+
     // MARK: Renders
 
+    @ViewBuilder
     private var rendersCard: some View {
-        Card {
-            let rendering = server.jobs.filter { $0.state == .rendering }.count
-            CardHeader(symbol: "film", title: Text("Renders"),
-                       subtitle: Text("Where renders for paired Macs go.")) {
-                if rendering > 0 {
-                    StatusChip(text: Text("^[\(rendering) render](inflect: true) running"), colour: .accentColor, busy: true)
-                }
+        let rendering = server.jobs.filter { $0.state == .rendering }.count
+        PaneHeader(title: Text("Renders"), subtitle: Text("Where renders for paired Macs go.")) {
+            if rendering > 0 {
+                StudioChip(text: Text("^[\(rendering) render](inflect: true) running"), symbol: "circle.dotted")
             }
-            HStack(spacing: Design.Spacing.controls) {
-                HStack(spacing: 8) {
-                    Image(systemName: "folder.fill").foregroundStyle(folder.isEmpty ? Color.orange : Color.accentColor)
-                        .accessibilityHidden(true)
-                    Text(folder.isEmpty ? String(localized: "No render folder chosen yet") : folder)
-                        .lineLimit(1).truncationMode(.middle)
-                        .foregroundStyle(folder.isEmpty ? .secondary : .primary)
-                        .help(folder)
-                }
-                .font(Design.Typography.control)
+        }
+        HStack(spacing: 10) {
+            Image(systemName: "folder").foregroundStyle(folder.isEmpty ? Design.Studio.warn : Design.Studio.textQuiet)
+                .accessibilityHidden(true)
+            Text(folder.isEmpty ? String(localized: "No render folder chosen yet") : folder)
+                .lineLimit(1).truncationMode(.middle)
+                .foregroundStyle(folder.isEmpty ? Design.Studio.textQuiet : Design.Studio.text)
+                .help(folder)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .barControl()
-                Button("Choose…") { chooseFolder() }
-                    .buttonStyle(GlassCapsuleButtonStyle())
-            }
-            if server.jobs.contains(where: { $0.state != .rendering }) {
-                HStack {
-                    Text("^[\(server.jobs.count) render](inflect: true) in the list").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Clear Finished") { server.clearFinished() }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                }
+            Button("Choose…") { chooseFolder() }
+                .buttonStyle(StudioFlatButtonStyle())
+        }
+        .font(Design.Studio.body)
+        .padding(.leading, 16)
+        .padding(.trailing, 10)
+        .frame(height: 48)
+        .studioBox()
+        if server.jobs.contains(where: { $0.state != .rendering }) {
+            HStack {
+                Text("^[\(server.jobs.count) render](inflect: true) in the list").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Spacer()
+                PinkLink(title: "Clear finished") { server.clearFinished() }
             }
         }
     }
 
     // MARK: From anywhere
 
+    @ViewBuilder
     private var anywhereCard: some View {
-        Card {
-            CardHeader(symbol: "globe.europe.africa", title: Text("From anywhere"),
-                       subtitle: Text("Other Macs connect from anywhere over a private network built into Pluck.")) {
-                HStack(spacing: 8) {
-                    anywhereStatus
-                    if PrivateNetwork.helper != nil, server.network.hasJoined || PrivateNetwork.Account.token != nil || tokenSaved {
-                        Menu {
-                            Button("Disconnect…", role: .destructive) { confirmDisconnect = true }
-                        } label: {
-                            Image(systemName: "ellipsis")
-                        }
-                        .menuStyle(.button)
-                        .buttonStyle(BarButtonStyle())
-                        .menuIndicator(.hidden)
-                        .scaleEffect(0.82)
-                        .fixedSize()
-                        .help("Take this Mac off the private network")
+        PaneHeader(title: Text("From anywhere"),
+                   subtitle: Text("Other Macs connect from anywhere over a private network built into Pluck.")) {
+            HStack(spacing: 6) {
+                anywhereStatus
+                if PrivateNetwork.helper != nil, server.network.hasJoined || PrivateNetwork.Account.token != nil || tokenSaved {
+                    Menu {
+                        Button("Disconnect…", role: .destructive) { confirmDisconnect = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Design.Studio.textQuiet)
+                            .frame(width: 28, height: 28)
+                            .contentShape(.rect)
                     }
-                }
-            }
-            if PrivateNetwork.helper == nil {
-                Text("This build of Pluck doesn’t have the private network part.").foregroundStyle(.secondary)
-            } else if !server.network.hasJoined && PrivateNetwork.Account.token == nil && !tokenSaved {
-                HStack(spacing: Design.Spacing.controls) {
-                    HStack(spacing: Design.Spacing.controls) {
-                        Image(systemName: "key").foregroundStyle(.secondary).accessibilityHidden(true)
-                        SecureField("Tailscale access token", text: $token, prompt: Text("Tailscale access token (tskey-api-…)"))
-                            .textFieldStyle(.plain)
-                            .font(Design.Typography.control)
-                    }
-                    .barControl()
-                    Button("Connect") {
-                        server.connectAccount(token: token)
-                        token = ""
-                        tokenSaved = true
-                    }
-                    .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled(!token.trimmingCharacters(in: .whitespaces).hasPrefix("tskey-api-"))
-                }
-                Link("Where do I get a token?", destination: URL(string: "https://login.tailscale.com/admin/settings/keys")!)
-                    .font(.caption)
-                    .help("In your Tailscale account: Settings → Keys → Generate access token. Nobody else needs an account or the Tailscale app.")
-            } else {
-                switch server.network.state {
-                case .running(let name, let address):
-                    HStack {
-                        Text("Reachable as \(name.isEmpty ? address : name)")
-                            .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        Spacer()
-                        if inviting { ProgressView().controlSize(.small) }
-                        Button {
-                            makeInvitation()
-                        } label: {
-                            Label("Invite a Mac", systemImage: "envelope")
-                        }
-                        .buttonStyle(BarCapsuleButtonStyle())
-                        .disabled(inviting)
-                        .help("A one-time link for the Mac you want to connect, valid for a day")
-                    }
-                case .failed(let message):
-                    HStack {
-                        Text(message).font(.callout).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true)
-                        Spacer()
-                        Button("Try Again") { server.startNetwork() }.buttonStyle(GlassCapsuleButtonStyle())
-                    }
-                case .off:
-                    HStack {
-                        Spacer()
-                        Button("Connect") { server.startNetwork() }.buttonStyle(BarCapsuleButtonStyle())
-                    }
-                case .starting:
-                    EmptyView()
-                }
-                if let problem = server.networkProblem ?? inviteProblem {
-                    Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange).font(.callout)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .plainMenu()
+                    .help("Take this Mac off the private network")
                 }
             }
         }
@@ -612,66 +824,127 @@ private struct OfficeSideView: View {
         } message: {
             Text("Macs on this network keep working. Macs elsewhere can’t reach this one until you connect again with a Tailscale access token and invite them again. You can remove its old entry in Tailscale’s admin page.")
         }
+        if PrivateNetwork.helper == nil {
+            Text("This build of Pluck doesn’t have the private network part.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+        } else if !server.network.hasJoined && PrivateNetwork.Account.token == nil && !tokenSaved {
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "key").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet).accessibilityHidden(true)
+                    SecureField("Tailscale access token", text: $token, prompt: Text("Tailscale access token (tskey-api-…)"))
+                        .textFieldStyle(.plain)
+                        .font(Design.Studio.body)
+                }
+                .anywhereInput()
+                Button("Connect") {
+                    server.connectAccount(token: token)
+                    token = ""
+                    tokenSaved = true
+                }
+                .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                .disabled(!token.trimmingCharacters(in: .whitespaces).hasPrefix("tskey-api-"))
+            }
+            PinkLink(title: "Where do I get a token?") {
+                NSWorkspace.shared.open(URL(string: "https://login.tailscale.com/admin/settings/keys")!)
+            }
+            .help("In your Tailscale account: Settings → Keys → Generate access token. Nobody else needs an account or the Tailscale app.")
+        } else {
+            switch server.network.state {
+            case .running(let name, let address):
+                HStack(spacing: 10) {
+                    Text("Reachable as \(name.isEmpty ? address : name)")
+                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    if inviting { ProgressView().controlSize(.small) }
+                    Button {
+                        makeInvitation()
+                    } label: {
+                        Label("Invite a Mac", systemImage: "envelope")
+                    }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .disabled(inviting)
+                    .help("A one-time link for the Mac you want to connect, valid for a day")
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 8)
+                .frame(height: 48)
+                .studioBox()
+            case .failed(let message):
+                HStack {
+                    ProblemLine(text: message, colour: Design.Studio.warn)
+                    Spacer()
+                    Button("Try again") { server.startNetwork() }.buttonStyle(StudioFlatButtonStyle())
+                }
+            case .off:
+                HStack {
+                    Spacer()
+                    Button("Connect") { server.startNetwork() }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                }
+            case .starting:
+                EmptyView()
+            }
+            if let problem = server.networkProblem ?? inviteProblem {
+                ProblemLine(text: problem, colour: Design.Studio.warn)
+            }
+        }
     }
 
     @ViewBuilder
     private var anywhereStatus: some View {
         if PrivateNetwork.helper != nil {
             if !server.network.hasJoined && PrivateNetwork.Account.token == nil && !tokenSaved {
-                StatusChip(text: Text("Not set up"), colour: .secondary)
+                StudioChip(text: Text("Not set up"))
             } else {
                 switch server.network.state {
-                case .running: StatusChip(text: Text("Ready"), colour: .green)
-                case .starting: StatusChip(text: Text("Connecting"), colour: .accentColor, busy: true)
-                case .failed: StatusChip(text: Text("Problem"), colour: .orange)
-                case .off: StatusChip(text: Text("Off"), colour: .secondary)
+                case .running: StudioChip(text: Text("Ready"), colour: Design.Studio.good, tinted: true)
+                case .starting: StudioChip(text: Text("Connecting"), symbol: "circle.dotted")
+                case .failed: StudioChip(text: Text("Problem"), colour: Design.Studio.warn, tinted: true)
+                case .off: StudioChip(text: Text("Off"))
                 }
             }
         }
     }
 
-    // MARK: Footage
-
     // MARK: Inbox
 
+    @ViewBuilder
     private var inboxCard: some View {
-        Card {
-            CardHeader(symbol: "tray.and.arrow.down", title: Text("Files from paired Macs"),
-                       subtitle: Text("What they send arrives here, in a folder per Mac.")) {
-                if let receiving = inbox.receiving {
-                    StatusChip(text: Text("Receiving \(receiving)"), colour: .accentColor, busy: true)
-                }
+        PaneHeader(title: Text("Files from paired Macs"),
+                   subtitle: Text("What they send arrives here, in a folder per Mac.")) {
+            if let receiving = inbox.receiving {
+                StudioChip(text: Text("Receiving \(receiving)"), symbol: "circle.dotted")
             }
-            CardField(label: Text("Saved in")) {
-                HStack(spacing: 8) {
-                    Text(inbox.folder.lastPathComponent)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .help(inbox.folder.path)
-                    Menu("Change") {
-                        Button("Choose a Folder…", action: chooseInbox)
-                        Button("Show in Finder") {
-                            try? FileManager.default.createDirectory(at: inbox.folder, withIntermediateDirectories: true)
-                            NSWorkspace.shared.activateFileViewerSelecting([inbox.folder])
-                        }
-                    }
-                    .menuStyle(.button)
-                    .buttonStyle(.link)
-                    .fixedSize()
-                }
-            }
-            if inbox.receiving != nil { ProgressView(value: inbox.progress) }
-            ForEach(Array(inbox.recent.prefix(3).enumerated()), id: \.offset) { _, file in
-                Label {
-                    Text("\(file.name) from \(file.from), \(file.at.formatted(.relative(presentation: .named)))")
-                        .lineLimit(1).truncationMode(.middle)
-                } icon: {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                }
-                .font(.callout)
-            }
-            if let inboxProblem { ProblemLabel(text: inboxProblem) }
         }
+        StudioField(label: "Saved in") {
+            Text(inbox.folder.lastPathComponent)
+                .font(Design.Studio.body)
+                .foregroundStyle(Design.Studio.textQuiet)
+                .lineLimit(1)
+                .help(inbox.folder.path)
+            Menu {
+                Button("Choose a Folder…", action: chooseInbox)
+                Button("Show in Finder") {
+                    try? FileManager.default.createDirectory(at: inbox.folder, withIntermediateDirectories: true)
+                    NSWorkspace.shared.activateFileViewerSelecting([inbox.folder])
+                }
+            } label: {
+                PlainMenuLabel(title: String(localized: "Change"))
+            }
+            .plainMenu()
+        }
+        if inbox.receiving != nil { StudioProgress(share: inbox.progress) }
+        ForEach(Array(inbox.recent.prefix(3).enumerated()), id: \.offset) { _, file in
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle").foregroundStyle(Design.Studio.good)
+                Text("\(file.name) from \(file.from), \(file.at.formatted(.relative(presentation: .named)))")
+                    .lineLimit(1).truncationMode(.middle)
+                Spacer(minLength: 0)
+            }
+            .font(Design.Studio.body)
+            .padding(.horizontal, 14)
+            .frame(height: 40)
+            .studioBox()
+        }
+        if let inboxProblem { ProblemLine(text: inboxProblem) }
     }
 
     private func chooseInbox() {
@@ -690,159 +963,146 @@ private struct OfficeSideView: View {
         }
     }
 
+    // MARK: Footage
+
+    @ViewBuilder
     private var archiveCard: some View {
-        Card {
-            CardHeader(symbol: "sparkle.magnifyingglass", title: Text("Footage"),
-                       subtitle: Text("Paired Macs search it by what’s in the picture, fetch the shots they need, or fetch proxies of whole folders.")) {
-                if archive.working != nil {
-                    StatusChip(text: Text("Looking"), colour: .accentColor, busy: true)
-                } else if !archive.folders.isEmpty {
-                    StatusChip(text: Text("\(archive.indexes.count) of \(archive.fileCount) searchable"), colour: .green)
-                }
+        PaneHeader(title: Text("Footage"),
+                   subtitle: Text("Paired Macs search it by what’s in the picture, fetch the shots they need, or fetch proxies of whole folders.")) {
+            if archive.working != nil {
+                StudioChip(text: Text("Looking"), symbol: "circle.dotted")
+            } else if !archive.folders.isEmpty {
+                StudioChip(text: Text("\(archive.indexes.count) of \(archive.fileCount) searchable"), colour: Design.Studio.good, tinted: true)
             }
-            if !archive.folders.isEmpty {
-                VStack(spacing: 6) {
-                    ForEach(archive.folders, id: \.self) { folder in
-                        HStack(spacing: 10) {
-                            Image(systemName: "folder.fill").foregroundStyle(.tint).accessibilityHidden(true)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(folder.lastPathComponent).lineLimit(1)
-                                Text(folder.deletingLastPathComponent().path).font(.caption).foregroundStyle(.secondary)
-                                    .lineLimit(1).truncationMode(.middle)
-                            }
-                            Spacer()
-                            RowButton(symbol: "minus", label: "Stop searching this folder") { archive.remove(folder) }
-                        }
-                    }
-                }
-            }
-            if let working = archive.working {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: archive.progress)
-                    Text("Looking at “\(working)” (\(archive.queued) more)").font(.caption).foregroundStyle(.secondary)
+        }
+        ForEach(archive.folders, id: \.self) { folder in
+            HStack(spacing: 12) {
+                StudioTile(symbol: "folder", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(folder.lastPathComponent).font(Design.Studio.body).lineLimit(1)
+                    Text(folder.deletingLastPathComponent().path).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                         .lineLimit(1).truncationMode(.middle)
                 }
-            }
-            if !archive.folders.isEmpty {
-                CardField(label: Text("Proxies saved in")) {
-                    HStack(spacing: 8) {
-                        Text(proxies.chosenFolder?.lastPathComponent ?? String(localized: "Pluck’s own folder"))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .help(proxies.chosenFolder?.path ?? String(localized: "Kept in Pluck’s own folder and removed after three weeks without use"))
-                        Menu("Change") {
-                            Button("Choose a Folder…", action: chooseProxyFolder)
-                            if proxies.chosenFolder != nil {
-                                Button("Use Pluck’s Own Folder") { try? proxies.choose(nil) }
-                            }
-                            if let folder = proxies.chosenFolder {
-                                Divider()
-                                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
-                            }
-                        }
-                        .menuStyle(.button)
-                        .buttonStyle(.link)
-                        .fixedSize()
-                    }
-                }
-                .help("Where proxies that paired Macs ask for are made on this Mac, for example next to the project on your storage")
-                if let proxyProblem { ProblemLabel(text: proxyProblem) }
-            }
-            if let making = proxies.working {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: proxies.progress)
-                    Text("Making a proxy of “\(making)” (\(proxies.queued) more)").font(.caption).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-            }
-            HStack {
-                Button {
-                    addArchiveFolder()
-                } label: {
-                    Label("Add Folder…", systemImage: "plus")
-                }
-                .buttonStyle(GlassCapsuleButtonStyle())
                 Spacer()
-                if !archive.folders.isEmpty, archive.working == nil {
-                    Button("Look Again") { archive.scan() }
-                        .buttonStyle(.link)
-                        .font(.caption)
-                        .help("Look for new footage now (it also happens by itself every few hours)")
-                }
+                IconButton(symbol: "minus", label: "Stop searching this folder") { archive.remove(folder) }
             }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .studioBox()
+        }
+        if let working = archive.working {
+            VStack(alignment: .leading, spacing: 6) {
+                StudioProgress(share: archive.progress)
+                Text("Looking at “\(working)” (\(archive.queued) more)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+        }
+        if !archive.folders.isEmpty {
+            StudioField(label: "Proxies in") {
+                Text(proxies.chosenFolder?.lastPathComponent ?? String(localized: "Pluck’s own folder"))
+                    .font(Design.Studio.body)
+                    .foregroundStyle(Design.Studio.textQuiet)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(proxies.chosenFolder?.path ?? String(localized: "Kept in Pluck’s own folder and removed after three weeks without use"))
+                Menu {
+                    Button("Choose a Folder…", action: chooseProxyFolder)
+                    if proxies.chosenFolder != nil {
+                        Button("Use Pluck’s Own Folder") { try? proxies.choose(nil) }
+                    }
+                    if let folder = proxies.chosenFolder {
+                        Divider()
+                        Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
+                    }
+                } label: {
+                    PlainMenuLabel(title: String(localized: "Change"))
+                }
+                .plainMenu()
+            }
+            .help("Where proxies that paired Macs ask for are made on this Mac, for example next to the project on your storage")
+            if let proxyProblem { ProblemLine(text: proxyProblem) }
+        }
+        if let making = proxies.working {
+            VStack(alignment: .leading, spacing: 6) {
+                StudioProgress(share: proxies.progress)
+                Text("Making a proxy of “\(making)” (\(proxies.queued) more)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    .lineLimit(1).truncationMode(.middle)
+            }
+        }
+        StudioDashedButton(title: "Add a folder…") { addArchiveFolder() }
+        if !archive.folders.isEmpty, archive.working == nil {
+            PinkLink(title: "Look again") { archive.scan() }
+                .help("Look for new footage now (it also happens by itself every few hours)")
         }
     }
 
     // MARK: Paired Macs
 
+    @ViewBuilder
     private var devicesCard: some View {
-        Card {
-            CardHeader(symbol: "laptopcomputer.and.iphone", title: Text("Paired Macs")) {
-                if !server.devices.isEmpty {
-                    StatusChip(text: Text("\(server.devices.count)"), colour: .accentColor)
-                }
-            }
-            if server.devices.isEmpty {
-                Text("None yet. Invite a Mac, or pair one on the same network with a code.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(server.devices) { device in
-                HStack(spacing: 10) {
-                    Image(systemName: "laptopcomputer").foregroundStyle(.secondary).frame(width: 22).accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(device.name)
-                        Group {
-                            if let seen = server.lastSeen[device.id] {
-                                Text("Last seen \(seen.formatted(.relative(presentation: .named)))")
-                            } else {
-                                Text("Paired \(device.added.formatted(date: .abbreviated, time: .omitted))")
-                            }
+        PaneHeader(title: Text("Paired Macs"))
+        if server.devices.isEmpty {
+            Text("None yet. Invite a Mac, or pair one on the same network with a code.")
+                .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+        }
+        ForEach(server.devices) { device in
+            HStack(spacing: 12) {
+                StudioTile(symbol: "laptopcomputer", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(device.name).font(Design.Studio.body)
+                    Group {
+                        if let seen = server.lastSeen[device.id] {
+                            Text("Last seen \(seen.formatted(.relative(presentation: .named)))")
+                        } else {
+                            Text("Paired \(device.added.formatted(date: .abbreviated, time: .omitted))")
                         }
-                        .font(.caption).foregroundStyle(.secondary)
                     }
-                    Spacer()
-                    RowButton(symbol: "xmark", label: "Remove: it can’t connect any more until it’s paired again", tint: .red) {
-                        server.remove(device)
-                    }
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+                Spacer()
+                IconButton(symbol: "xmark", label: "Remove: it can’t connect any more until it’s paired again", tint: Design.Studio.bad) {
+                    server.remove(device)
                 }
             }
-            if let pairing = server.pairing {
-                codePanel(pairing)
-            } else {
-                HStack {
-                    if let name = server.justPaired {
-                        Label("\(name) is paired.", systemImage: "checkmark.circle.fill").foregroundStyle(.green).font(.callout)
-                    }
-                    Spacer()
-                    Button("Pair a Mac on This Network…") { server.startPairing() }
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                        .disabled(!server.isRunning)
-                        .help("For a Mac on the same network; Macs elsewhere get an invitation")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .studioBox()
+        }
+        if let pairing = server.pairing {
+            codePanel(pairing)
+        } else {
+            HStack {
+                if let name = server.justPaired {
+                    Label("\(name) is paired.", systemImage: "checkmark.circle").foregroundStyle(Design.Studio.good).font(Design.Studio.body)
                 }
+                Spacer()
+                Button("Pair a Mac on this network…") { server.startPairing() }
+                    .buttonStyle(StudioFlatButtonStyle())
+                    .disabled(!server.isRunning)
+                    .help("For a Mac on the same network; Macs elsewhere get an invitation")
             }
         }
     }
 
     private func codePanel(_ pairing: (code: String, expires: Date)) -> some View {
         VStack(spacing: 8) {
-            Text("On the other Mac, open Tools → Edit Anywhere and type:").font(.callout).foregroundStyle(.secondary)
+            Text("On the other Mac, open Tools → Edit Anywhere and type:").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             Text(OfficeLink.formatted(pairing.code))
                 .font(.system(size: 30, weight: .semibold, design: .monospaced))
                 .textSelection(.enabled)
             if let address = OfficeRenderServer.addresses().first {
-                Text("Address \(address)").font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                Text("Address \(address)").font(Design.Studio.body.monospaced()).foregroundStyle(Design.Studio.textQuiet).textSelection(.enabled)
             }
             HStack {
                 Text("Works once, until \(pairing.expires.formatted(date: .omitted, time: .shortened)).")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 Spacer()
-                Button("Cancel") { server.cancelPairing() }.buttonStyle(.link).font(.caption)
+                PinkLink(title: "Cancel") { server.cancelPairing() }
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity)
-        .background(Color.accentColor.opacity(0.1), in: .rect(cornerRadius: Design.Radius.box, style: .continuous))
+        .studioBox(outline: Design.rgb(0x8E4C64))
     }
 
     // MARK: Actions
@@ -909,50 +1169,54 @@ private struct InvitationSheet: View {
     @State private var copied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "envelope.badge", title: Text("Invite a Mac"),
-                        subtitle: Text("Send this link to the Mac you want to connect. When it’s clicked there, Pluck joins this Mac’s private network and pairs with it."),
-                        subtitleIsName: false)
+        VStack(alignment: .leading, spacing: 16) {
+            PaneHeader(title: Text("Invite a Mac"),
+                       subtitle: Text("Send this link to the Mac you want to connect. When it’s clicked there, Pluck joins this Mac’s private network and pairs with it."))
             HStack(spacing: 8) {
-                Image(systemName: "link").foregroundStyle(.secondary).accessibilityHidden(true)
+                Image(systemName: "link").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet).accessibilityHidden(true)
                 Text(link.absoluteString)
-                    .font(.callout.monospaced())
+                    .font(Design.Studio.body.monospaced())
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .textSelection(.enabled)
+                Spacer(minLength: 0)
             }
-            .barControl()
+            .anywhereInput()
             Label("Works once, for 24 hours, for the first Mac that uses it. Send it only to people you trust.",
                   systemImage: "lock.shield")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            HStack(spacing: Design.Spacing.controls) {
+                .font(Design.Studio.hint)
+                .foregroundStyle(Design.Studio.textQuiet)
+            HStack(spacing: 10) {
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(link.absoluteString, forType: .string)
                     copied = true
                 } label: {
-                    Label(copied ? "Copied" : "Copy Link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    Label(copied ? "Copied" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")
                 }
-                .buttonStyle(BarCapsuleButtonStyle())
+                .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
                 ShareLink(item: link, subject: Text("Edit Anywhere invitation"),
                           message: Text("Click this link on your Mac to connect Pluck to the host Mac:")) {
                     Label("Share…", systemImage: "square.and.arrow.up")
                 }
-                .buttonStyle(GlassCapsuleButtonStyle())
+                .buttonStyle(StudioFlatButtonStyle(height: 32))
                 Spacer()
                 Button("Done") { dismiss() }
+                    .buttonStyle(StudioFlatButtonStyle(height: 32))
                     .keyboardShortcut(.defaultAction)
             }
         }
+        .foregroundStyle(Design.Studio.text)
         .padding(Design.Spacing.sheet)
         .frame(width: 480)
+        .background(Design.Studio.panel)
     }
 }
 
 /// Searching the office footage from here: what's in the picture, the shot size, the camera
 /// move; each shot can be fetched as a light copy with a second of handles.
 private struct ArchiveSearchPane: View {
+    let host: String
     @State private var client = OfficeRenderClient.shared
     @State private var query = ""
     @State private var movement: VisualIndex.Movement?
@@ -966,60 +1230,58 @@ private struct ArchiveSearchPane: View {
     @State private var fetched: [String: URL] = [:]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            GlassGroup(spacing: Design.Spacing.controls) {
-                HStack(spacing: Design.Spacing.controls) {
-                    HStack(spacing: Design.Spacing.controls) {
-                        Image(systemName: "magnifyingglass")
-                            .font(.system(size: Design.Size.icon - 2, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .accessibilityHidden(true)
-                        TextField("Search", text: $query, prompt: Text("Describe a shot: “crowd with confetti”, “drone over the stage”"))
-                            .textFieldStyle(.plain)
-                            .font(Design.Typography.control)
-                            .onSubmit { search() }
-                    }
-                    .barControl()
-                    filter(movement?.label ?? String(localized: "Any Movement"), symbol: "video", active: movement != nil) {
-                        Button("Any Movement") { movement = nil }
-                        Divider()
-                        ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
-                    }
-                    filter(framing?.label ?? String(localized: "Any Framing"), symbol: "viewfinder", active: framing != nil) {
-                        Button("Any Framing") { framing = nil }
-                        Divider()
-                        ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
-                    }
-                    Button(action: search) {
-                        Image(systemName: "arrow.right")
-                    }
-                    .buttonStyle(BarButtonStyle(prominent: true))
-                    .disabled(searching)
-                    .accessibilityLabel("Search")
-                    .help("Search")
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Search \(host)’s footage").font(Design.Studio.sectionTitle)
+            HStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Design.Studio.textQuiet)
+                        .accessibilityHidden(true)
+                    TextField("Search", text: $query, prompt: Text("Describe a shot: “crowd with confetti”, “drone over the stage”"))
+                        .textFieldStyle(.plain)
+                        .font(Design.Studio.body)
+                        .onSubmit { search() }
                 }
+                .anywhereInput()
+                filter(movement?.label ?? String(localized: "Any movement")) {
+                    Button("Any Movement") { movement = nil }
+                    Divider()
+                    ForEach(VisualIndex.Movement.allCases, id: \.self) { m in Button(m.label) { movement = m } }
+                }
+                filter(framing?.label ?? String(localized: "Any framing")) {
+                    Button("Any Framing") { framing = nil }
+                    Divider()
+                    ForEach(VisualIndex.Framing.allCases, id: \.self) { f in Button(f.label) { framing = f } }
+                }
+                Button("Search", action: search)
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .disabled(searching)
             }
             HStack(spacing: 8) {
                 if searching {
                     ProgressView().controlSize(.small)
                     Text("Searching the footage…")
                 } else if let problem {
-                    Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    ProblemLine(text: problem)
                 } else if let status {
                     Text(status.folders == 0 ? String(localized: "The host Mac has no footage folders to search yet. Add them there, under Edit Anywhere.")
                          : status.working ? String(localized: "\(status.indexed) of \(status.files) files searchable; the host Mac is still looking at the rest.")
                          : String(localized: "\(status.indexed) files searchable."))
                 }
             }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            .font(Design.Studio.hint)
+            .foregroundStyle(Design.Studio.textQuiet)
 
             if searched && hits.isEmpty && !searching {
-                ContentUnavailableView("Nothing found", systemImage: "sparkle.magnifyingglass",
-                                       description: Text("Try other words."))
-                    .frame(minHeight: 180)
+                VStack(spacing: 6) {
+                    Image(systemName: "sparkle.magnifyingglass").font(.system(size: 22)).foregroundStyle(Design.Studio.textQuiet)
+                    Text("Nothing found").font(Design.Studio.sectionTitle)
+                    Text("Try other words.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                }
+                .frame(maxWidth: .infinity, minHeight: 180)
             } else {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 10)], spacing: 10) {
                     ForEach(hits) { hit in card(hit) }
                 }
             }
@@ -1027,23 +1289,14 @@ private struct ArchiveSearchPane: View {
         .task { status = try? await client.archiveStatus() }
     }
 
-    /// A filter menu with the search field's height and look (as in Find Shots).
-    private func filter<Items: View>(_ title: String, symbol: String, active: Bool, @ViewBuilder items: () -> Items) -> some View {
+    /// A filter menu: the choice and a chevron on raised grey.
+    private func filter<Items: View>(_ title: String, @ViewBuilder items: () -> Items) -> some View {
         Menu {
             items()
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: symbol)
-                Image(systemName: "chevron.down").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            }
-            .font(Design.Typography.control)
-            .foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.primary))
+            StudioMenuLabel(title: title)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
-        .menuIndicator(.hidden)
-        .fixedSize()
-        .barControl()
+        .plainMenu()
         .help(title)
     }
 
@@ -1054,39 +1307,35 @@ private struct ArchiveSearchPane: View {
                     if let data = hit.thumbnail, let image = NSImage(data: data) {
                         Image(nsImage: image).resizable().aspectRatio(16 / 9, contentMode: .fill)
                     } else {
-                        Rectangle().fill(.quaternary)
+                        Rectangle().fill(Design.Studio.raised)
                     }
                 }
                 .frame(height: 112)
                 .frame(maxWidth: .infinity)
-                .clipShape(.rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
+                .clipShape(.rect(cornerRadius: 8, style: .continuous))
                 Text(Duration.seconds(hit.end - hit.start).formatted(.time(pattern: .minuteSecond)))
-                    .font(.caption2.weight(.semibold).monospacedDigit())
+                    .font(Design.Studio.hint.monospacedDigit())
                     .foregroundStyle(.white)
                     .padding(.horizontal, 5)
                     .padding(.vertical, 2)
-                    .background(.black.opacity(0.6), in: .rect(cornerRadius: Design.Radius.badge))
+                    .background(.black.opacity(0.6), in: .rect(cornerRadius: 4))
                     .padding(6)
             }
-            Text(hit.description).font(.callout).lineLimit(2).help(hit.description)
+            Text(hit.description).font(Design.Studio.body).lineLimit(2).help(hit.description)
             HStack(spacing: 6) {
-                Text(hit.place).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).help(hit.place)
+                Text(hit.place).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle).help(hit.place)
                 Spacer(minLength: 4)
                 if let url = fetched[hit.id] {
-                    RowButton(symbol: "magnifyingglass", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                    IconButton(symbol: "magnifyingglass", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                 } else if let progress = fetching[hit.id] {
-                    ProgressView(value: progress).frame(width: 50)
+                    StudioProgress(share: progress).frame(width: 50)
                 } else {
-                    RowButton(symbol: "arrow.down", label: "Get a light 1080p copy of this shot, with a second either side") { fetch(hit) }
+                    IconButton(symbol: "arrow.down", label: "Get a light 1080p copy of this shot, with a second either side") { fetch(hit) }
                 }
             }
         }
         .padding(10)
-        .background {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .fill(.fill.quaternary)
-                .opacity(0.6)
-        }
+        .studioBox()
     }
 
     private func search() {
@@ -1132,72 +1381,96 @@ private struct ProxiesPane: View {
     @State private var problem: String?
 
     var body: some View {
-        Card {
-            CardHeader(symbol: "arrow.down.circle", title: Text("From the host Mac"),
+        VStack(alignment: .leading, spacing: 12) {
+            PaneHeader(title: Text("From the host Mac"),
                        subtitle: Text("Proxies of a footage folder to edit with, or the originals. Each file comes as soon as it’s ready.")) {
                 if loading { ProgressView().controlSize(.small) }
             }
-            CardField(label: Text("Format")) {
-                Picker("Format", selection: $format) {
-                    ForEach(OfficeProxies.Format.allCases) { Text($0.label).tag($0) }
-                }
-                .fixedSize()
-                .help(format.detail)
-            }
-            CardField(label: Text("Save in")) {
+            HStack(spacing: 24) {
                 HStack(spacing: 8) {
-                    Text(URL(fileURLWithPath: parent).lastPathComponent)
-                        .foregroundStyle(.secondary)
-                        .help(parent)
-                    Button("Change…", action: choose)
-                        .buttonStyle(.link)
+                    Text("Format").foregroundStyle(Design.Studio.textQuiet)
+                    Menu {
+                        Picker("Format", selection: $format) {
+                            ForEach(OfficeProxies.Format.allCases) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        PlainMenuLabel(title: format.label)
+                    }
+                    .plainMenu()
+                    .help(format.detail)
                 }
+                HStack(spacing: 8) {
+                    Text("Save in").foregroundStyle(Design.Studio.textQuiet)
+                    Button(action: choose) {
+                        PlainMenuLabel(title: URL(fileURLWithPath: parent).lastPathComponent)
+                    }
+                    .buttonStyle(.plain)
+                    .help(parent)
+                }
+                Spacer(minLength: 0)
             }
-            if let problem { ProblemLabel(text: problem) }
-        }
+            .font(Design.Studio.body)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .studioBox()
+            if let problem { ProblemLine(text: problem) }
 
-        if sync.folders.isEmpty, !loading {
-            Card {
-                CardHeader(symbol: "folder", title: Text("No footage shared yet"),
-                           subtitle: Text("On the host Mac, add a folder under Footage in Edit Anywhere → Share This Mac."))
+            if sync.folders.isEmpty, !loading {
+                HStack(spacing: 12) {
+                    StudioTile(symbol: "folder", colour: Design.Studio.textQuiet)
+                    PaneHeader(title: Text("No footage shared yet"),
+                               subtitle: Text("On the host Mac, add a folder under Footage in Edit Anywhere → Share this Mac."))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .studioBox()
             }
+            ForEach(sync.folders) { folder in
+                folderRow(folder)
+            }
+            Text("In DaVinci Resolve, select the clips in the media pool, choose Link Proxy Media and pick the folder here: Resolve matches the proxies by name. Back on the host Mac, the project uses the originals.")
+                .font(Design.Studio.hint)
+                .foregroundStyle(Design.Studio.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        ForEach(sync.folders) { folder in
-            folderRow(folder)
-        }
-        Text("In DaVinci Resolve, select the clips in the media pool, choose Link Proxy Media and pick the folder here: Resolve matches the proxies by name. Back on the host Mac, the project uses the originals.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .fixedSize(horizontal: false, vertical: true)
-            .task { await load() }
+        .task { await load() }
     }
 
-    @ViewBuilder
     private func folderRow(_ folder: ProxySync.Folder) -> some View {
         let job = sync.jobs.first { $0.folder == folder.id && $0.format == format }
         let state = job.flatMap { sync.progress[$0.id] }
-        ItemRow(symbol: "folder.fill", title: Text(folder.name), subtitle: Text(subtitle(folder, job: job, state: state))) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 12) {
+                StudioTile(symbol: "folder", colour: Design.Studio.textQuiet).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(folder.name).font(.system(size: 13)).lineLimit(1)
+                    Text(subtitle(folder, job: job, state: state)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                }
+                Spacer(minLength: 8)
+                if let job {
+                    IconButton(symbol: "folder", label: "Show in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: job.destination)])
+                    }
+                    IconButton(symbol: "xmark", label: "Stop Fetching") { sync.remove(job) }
+                } else if starting == folder.id {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Button(format == .original ? "Fetch" : "Make proxies") { start(folder) }
+                        .buttonStyle(StudioFlatButtonStyle())
+                        .disabled(folder.files == 0)
+                }
+            }
             if let state, state.total > 0, state.here < state.total {
-                ProgressView(value: Double(state.here) + (state.fetching != nil ? state.fraction : 0), total: Double(state.total))
-                    .padding(.top, 4)
+                StudioProgress(share: (Double(state.here) + (state.fetching != nil ? state.fraction : 0)) / Double(state.total))
             }
             if let problem = state?.problem {
-                Text(problem).font(.caption).foregroundStyle(.orange).lineLimit(2)
-            }
-        } actions: {
-            if let job {
-                RowButton(symbol: "folder", label: "Show in Finder") {
-                    NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: job.destination)])
-                }
-                RowButton(symbol: "xmark", label: "Stop Fetching") { sync.remove(job) }
-            } else if starting == folder.id {
-                ProgressView().controlSize(.small)
-            } else {
-                Button(format == .original ? "Fetch" : "Make Proxies") { start(folder) }
-                    .buttonStyle(GlassCapsuleButtonStyle())
-                    .disabled(folder.files == 0)
+                Text(problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2)
             }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .studioBox()
     }
 
     private func subtitle(_ folder: ProxySync.Folder, job: ProxySync.Job?, state: ProxySync.Progress?) -> String {
@@ -1253,46 +1526,55 @@ private struct SendPane: View {
     @State private var targeted = false
 
     var body: some View {
-        Card {
-            CardHeader(symbol: "arrow.up.circle", title: Text("To the host Mac"),
+        VStack(alignment: .leading, spacing: 12) {
+            PaneHeader(title: Text("To the host Mac"),
                        subtitle: Text("Folders here stay in step: new and changed files go up by themselves, into this Mac’s folder in the host’s inbox.")) {
                 if let sending = sync.sending {
-                    StatusChip(text: Text("Sending \(sending)"), colour: .accentColor, busy: true)
+                    StudioChip(text: Text("Sending \(sending)"), symbol: "circle.dotted")
                 } else if let lastSent = sync.lastSent {
-                    StatusChip(text: Text("Sent \(lastSent.formatted(.relative(presentation: .named)))"))
+                    StudioChip(text: Text("Sent \(lastSent.formatted(.relative(presentation: .named)))"))
                 }
             }
             if sync.sending != nil {
-                ProgressView(value: sync.fraction)
+                StudioProgress(share: sync.fraction)
                 if sync.waiting > 0 {
-                    Text("^[\(sync.waiting) more file](inflect: true) to send").font(.caption).foregroundStyle(.secondary)
+                    Text("^[\(sync.waiting) more file](inflect: true) to send").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 }
             }
             ForEach(sync.folders) { folder in
-                ItemRow(symbol: "folder.fill", title: Text(folder.url.lastPathComponent),
-                        subtitle: Text("^[\(folder.sent.count) file](inflect: true) on the host Mac")) {
-                    EmptyView()
-                } actions: {
-                    RowButton(symbol: "folder", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
-                    RowButton(symbol: "minus", label: "Stop Sending This Folder") { sync.remove(folder) }
+                HStack(spacing: 12) {
+                    StudioTile(symbol: "folder", colour: Design.Studio.textQuiet).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(folder.url.lastPathComponent).font(.system(size: 13)).lineLimit(1)
+                        Text("^[\(folder.sent.count) file](inflect: true) on the host Mac").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                    Spacer(minLength: 8)
+                    IconButton(symbol: "folder", label: "Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) }
+                    IconButton(symbol: "minus", label: "Stop Sending This Folder") { sync.remove(folder) }
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .studioBox()
             }
             if !sync.files.isEmpty {
-                Text("^[\(sync.files.count) file](inflect: true) waiting to be sent").font(.callout).foregroundStyle(.secondary)
+                Text("^[\(sync.files.count) file](inflect: true) waiting to be sent").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
-            if let problem = sync.problem { ProblemLabel(text: problem) }
-            HStack {
-                Button("Add Folder…", systemImage: "plus") { choose(folders: true) }
-                    .buttonStyle(GlassCapsuleButtonStyle())
-                Button("Send Files…", systemImage: "paperplane") { choose(folders: false) }
-                    .buttonStyle(GlassCapsuleButtonStyle())
+            if let problem = sync.problem { ProblemLine(text: problem) }
+            HStack(spacing: 8) {
+                Button("Add folder…", systemImage: "plus") { choose(folders: true) }
+                    .buttonStyle(StudioFlatButtonStyle())
+                Button("Send files…", systemImage: "paperplane") { choose(folders: false) }
+                    .buttonStyle(StudioFlatButtonStyle())
                 Spacer()
             }
         }
+        .padding(8)
         .overlay {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .strokeBorder(Color.accentColor, lineWidth: targeted ? 2 : 0)
+            RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+                .strokeBorder(Design.Brand.gradient, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                .opacity(targeted ? 1 : 0)
         }
+        .padding(-8)
         .onDrop(of: [.fileURL], isTargeted: $targeted) { providers in
             Task {
                 var urls: [URL] = []

@@ -247,9 +247,12 @@ struct PhotoMaskPanel: View {
     }
 
     /// The colour at an OkLCh hue, for the colour range's swatch.
-    static func swatch(_ hue: Double) -> Color {
+    /// A hue at full strength (as vivid as the screen shows it), for the colour tools' pictures.
+    static func vivid(_ hue: Double) -> Color { swatch(hue, chroma: 0.32) }
+
+    static func swatch(_ hue: Double, chroma: Double = 0.13) -> Color {
         let r = hue * .pi / 180
-        let (lr, lg, lb) = OkLab.to(0.7, 0.13 * cos(r), 0.13 * sin(r))
+        let (lr, lg, lb) = OkLab.to(0.7, chroma * cos(r), chroma * sin(r))
         func e(_ v: Double) -> Double { DevelopLUT.encode(min(max(v, 0), 1)) }
         return Color(red: e(lr), green: e(lg), blue: e(lb))
     }

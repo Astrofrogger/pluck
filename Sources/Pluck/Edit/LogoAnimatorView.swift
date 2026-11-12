@@ -86,30 +86,27 @@ struct LogoAnimatorView: View {
         }
     }
 
+    // Layout board ToolLogo: the preview panel, and a 320 pt inspector.
     var body: some View {
-        ToolPage {
-            if animation == nil {
-                ToolWelcome(symbol: "wand.and.stars", title: Text("Logo Animator"),
-                            subtitle: Text("Takes your logo apart into its shapes and animates them in, smooth and refined."))
-                DropZone(text: loading ? Text("Taking the logo apart…") : Text("Drop a logo here: PNG, SVG, PDF or JPG."),
-                         targeted: dropTargeted, busy: loading)
-                Button("Choose Logo…", systemImage: "photo", action: choose)
-                    .buttonStyle(BarCapsuleButtonStyle())
-                    .disabled(loading)
-                    .frame(maxWidth: .infinity)
-                if let problem { ProblemLabel(text: problem) }
-            } else {
-                preview
-                    .aspectRatio(format.aspect, contentMode: .fit)
-                    .frame(maxHeight: 420)
-                    .frame(maxWidth: .infinity)
-                actionBar
-                if let problem { ProblemLabel(text: problem) }
-                cards
+        HStack(spacing: Design.Studio.panelGap) {
+            VStack(spacing: 18) {
+                header
+                if animation == nil { emptyStage } else { stage; transport }
             }
-            PageNote(text: Text("Runs on this Mac."), symbol: "desktopcomputer")
+            .padding(.top, 20)
+            .padding(.horizontal, 28)
+            .padding(.bottom, 22)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .studioPanel()
+            inspector
         }
-        .frame(minWidth: 620, minHeight: 600)
+        .frame(minWidth: 760, minHeight: 600)
+        .onChange(of: style) { restart() }
+        .onChange(of: edits) { redesign() }
+        .onChange(of: output) { redesign() }
+        .onChange(of: format) { redesign() }
+        .onChange(of: outro) { restart() }
+        .onChange(of: length) { restart() }
         .task {
             if let file = Self.openFile {
                 Self.openFile = nil
@@ -129,168 +126,252 @@ struct LogoAnimatorView: View {
         }
     }
 
-    /// The logo in use and what to do with it, like the main window's bar.
-    private var actionBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            GlassGroup(spacing: Design.Spacing.controls) {
-                HStack(spacing: Design.Spacing.controls) {
-                    FileCapsule(file: file, symbol: "photo")
-                        .help(sourceNote)
-                    Button("Change…", action: choose)
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                    Button("Save as SVG", action: saveVector)
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                        .help("The logo as a vector file: traced colour by colour into smooth curves")
-                    Button("Export", systemImage: "square.and.arrow.up", action: export)
-                        .buttonStyle(BarCapsuleButtonStyle())
-                        .keyboardShortcut(.defaultAction)
-                        .disabled(exporting != nil)
+    /// The title, and the logo in use with Change… on the right.
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("Logo Animator").font(Design.Studio.pageTitle.weight(.medium)).foregroundStyle(Design.Studio.text)
+            Spacer(minLength: 0)
+            if let file, animation != nil {
+                HStack(spacing: 6) {
+                    Image(systemName: "wand.and.stars").font(.system(size: 12))
+                    Text(verbatim: file.lastPathComponent).lineLimit(1).truncationMode(.middle)
                 }
-            }
-            if let exporting {
-                HStack(spacing: Design.Spacing.controls) {
-                    ProgressView(value: exporting)
-                    Button("Stop") { exportTask?.cancel() }
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                        .keyboardShortcut(.cancelAction)
+                .font(Design.Studio.body)
+                .foregroundStyle(Design.Studio.textQuiet)
+                .help(sourceNote)
+                Button(action: choose) {
+                    Text("Change…").padding(.horizontal, 8).frame(height: 28).contentShape(.rect)
                 }
-            } else if let done {
-                DoneLabel(text: Text(done.lastPathComponent), file: done)
+                .buttonStyle(.plain)
+                .font(Design.Studio.body)
+                .foregroundStyle(Design.Studio.textQuiet)
+                .disabled(loading)
             }
         }
     }
 
-    @ViewBuilder private var cards: some View {
-        Card {
-            CardHeader(symbol: "sparkles", title: Text("Animation"), subtitle: animationDetail)
-            CardField(label: Text("Style")) {
-                HStack(spacing: Design.Spacing.controls) {
-                    if usesDesign {
-                        Button("Another Idea", systemImage: "dice") {
-                            // A new idea starts again from it, without the changes to the last one.
-                            edits = LogoDesignEdits(feel: edits.feel, seed: edits.seed + 1)
-                            selectedPart = nil
-                        }
-                        .buttonStyle(GlassCapsuleButtonStyle())
-                        .help("Another animation designed for this logo")
-                    }
-                    Picker("Animation", selection: $style) {
-                        ForEach(LogoAnimation.Style.allCases) { Text($0.label).tag($0) }
-                    }
-                    .fixedSize()
-                }
+    /// No logo yet: the preview's place as a dashed drop area.
+    private var emptyStage: some View {
+        VStack(spacing: 12) {
+            if loading {
+                ProgressView().controlSize(.small)
+                Text("Taking the logo apart…").foregroundStyle(Design.Studio.textQuiet)
+            } else {
+                Image(systemName: "wand.and.stars").font(.system(size: 22)).foregroundStyle(Design.Studio.textQuiet)
+                Text("Drop a logo here: PNG, SVG, PDF or JPG.").foregroundStyle(Design.Studio.textQuiet)
+                Button("Choose Logo…", action: choose).buttonStyle(StudioFlatButtonStyle())
             }
-            .onChange(of: style) { restart() }
-            .onChange(of: edits) { redesign() }
-            .onChange(of: output) { redesign() }
-            .onChange(of: format) { redesign() }
+            if let problem { LogoKitProblem(text: problem).frame(maxWidth: 360) }
+        }
+        .font(Design.Studio.body)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(dropTargeted ? Design.Brand.pink : Design.Studio.line, style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [4, 3]))
+        }
+        .help("Takes your logo apart into its shapes and animates them in, smooth and refined. Runs on this Mac.")
+    }
+
+    /// The preview filling the panel: a checkerboard for transparent, else the background colour.
+    private var stage: some View {
+        ZStack(alignment: .bottomLeading) {
+            if background == .transparent {
+                Checkerboard()
+            } else {
+                Color(cgColor: backgroundColour ?? CGColor(gray: 0, alpha: 1))
+            }
+            preview
+                .aspectRatio(format.aspect, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if usesDesign {
+                StudioChip(text: Text("Click a part to change how it moves")).padding(14).allowsHitTesting(false)
+            }
+        }
+        .clipShape(.rect(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Design.Brand.pink, lineWidth: dropTargeted ? 2 : 0)
+        }
+    }
+
+    /// Play, when each part comes in, and the length.
+    private var transport: some View {
+        HStack(spacing: 14) {
+            Button(action: restart) {
+                Image(systemName: "play.fill").font(.system(size: 12)).frame(width: 28, height: 28).contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Design.Studio.text)
+            .help("Play from the start")
+            .accessibilityLabel(Text("Play from the start"))
             if usesDesign, let animation = shownAnimation, let design {
-                CardField(label: Text("Feel")) {
-                    Picker("Feel", selection: Binding(get: { edits.feel ?? animation.profile.personality(mood: nil) }, set: { edits.feel = $0 })) {
-                        ForEach(LogoProfile.Personality.allCases) { Text($0.label).tag($0) }
+                LogoTimingStrip(animation: animation, design: design, edits: $edits, selected: $selectedPart)
+            } else {
+                Spacer(minLength: 0)
+            }
+            Text(verbatim: (plan?.total ?? 0).formatted(.number.precision(.fractionLength(1))) + " s")
+                .font(Design.Studio.hint.monospacedDigit())
+                .foregroundStyle(Design.Studio.textQuiet)
+        }
+    }
+
+    // MARK: - Inspector
+
+    private var inspector: some View {
+        VStack(spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+                    if usesDesign, let animation = shownAnimation, let selectedPart, animation.elements.indices.contains(selectedPart) {
+                        LogoPartFold(animation: animation, part: selectedPart, edits: $edits)
                     }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("Calm: unhurried and gentle. Premium: slow, settling with care. Playful: quick and springy. Bold: fast and sharp.")
-                }
-                CardField(label: Text("Timing")) {
-                    LogoTimingStrip(animation: animation, design: design, edits: $edits, selected: $selectedPart)
-                        .frame(maxWidth: 340)
+                    animationFold
+                    videoFold
                 }
             }
-            CardField(label: Text("Outro")) {
-                Picker("Outro", selection: $outro) {
+            .scrollIndicators(.never)
+            foot.padding(.top, 14)
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .frame(width: 320)
+        .frame(maxHeight: .infinity)
+        .studioPanel()
+    }
+
+    private var animationFold: some View {
+        LogoKitFold(Text("Animation"), key: "logoFoldAnimation") {
+            StudioField(label: "Style") {
+                LogoKitMenu(title: "Animation", shown: style.label, selection: $style) {
+                    ForEach(LogoAnimation.Style.allCases) { Text($0.label).tag($0) }
+                }
+                .help(animationDetail)
+                if usesDesign {
+                    Button {
+                        // A new idea starts again from it, without the changes to the last one.
+                        edits = LogoDesignEdits(feel: edits.feel, seed: edits.seed + 1)
+                        selectedPart = nil
+                    } label: {
+                        Image(systemName: "dice").font(.system(size: 13)).frame(width: 28, height: 28).contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Design.Studio.textQuiet)
+                    .help("Another animation designed for this logo")
+                    .accessibilityLabel(Text("Another Idea"))
+                }
+            }
+            if editUndone {
+                LogoKitProblem(text: String(localized: "That change wouldn’t end on the logo exactly, so it was undone."))
+            }
+            if usesDesign, let animation = shownAnimation, design != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Feel").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    LogoKitSegmented(options: LogoProfile.Personality.allCases.map { ($0, $0.label) },
+                                     selection: Binding(get: { edits.feel ?? animation.profile.personality(mood: nil) }, set: { edits.feel = $0 }))
+                        .help("Calm: unhurried and gentle. Premium: slow, settling with care. Playful: quick and springy. Bold: fast and sharp.")
+                }
+                .padding(.vertical, 4)
+            }
+            StudioField(label: "Outro") {
+                LogoKitMenu(title: "Outro", shown: outro.label, selection: $outro) {
                     ForEach(LogoAnimation.Outro.allCases) { Text($0.label).tag($0) }
                 }
-                .fixedSize()
             }
-            .onChange(of: outro) { restart() }
-            CardField(label: Text("Length")) {
-                Picker("Length", selection: $length) {
+            StudioField(label: "Length") {
+                LogoKitMenu(title: "Length", shown: length > 0 ? seconds(length) : automaticLength, selection: $length) {
                     Text(automaticLength).tag(0.0)
                     Divider()
-                    ForEach([3.0, 4, 5, 6, 8, 10, 15, 20], id: \.self) { seconds in
-                        Text(Duration.seconds(seconds).formatted(.units(allowed: [.seconds], width: .abbreviated))).tag(seconds)
-                    }
+                    ForEach([3.0, 4, 5, 6, 8, 10, 15, 20], id: \.self) { Text(seconds($0)).tag($0) }
                 }
-                .fixedSize()
             }
-            .onChange(of: length) { restart() }
             if let plan, plan.speed > 1.01 {
-                Text("The moves play a little faster to fit.").font(.caption).foregroundStyle(.secondary)
+                Text("The moves play a little faster to fit.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             }
         }
-        if usesDesign, let animation = shownAnimation, let selectedPart, animation.elements.indices.contains(selectedPart) {
-            LogoPartCard(animation: animation, part: selectedPart, edits: $edits) { self.selectedPart = nil }
-        }
-        Card {
-            CardHeader(symbol: "film", title: Text("Video"), subtitle: animation.map { Text($0.profile.summary) })
-            CardField(label: Text("Output")) {
-                Picker("Output", selection: $output) {
-                    ForEach(LogoOutput.allCases) { Text($0.label).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .help(output.help)
+    }
+
+    private func seconds(_ value: Double) -> String {
+        Duration.seconds(value).formatted(.units(allowed: [.seconds], width: .abbreviated))
+    }
+
+    private var videoFold: some View {
+        LogoKitFold(Text("Video"), key: "logoFoldVideo", help: animation?.profile.summary ?? "") {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Output").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                LogoKitSegmented(options: LogoOutput.allCases.map { ($0, $0.label) }, selection: $output)
+                    .help(output.help)
             }
-            CardField(label: Text("Format")) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Picker("Size", selection: $resolution) {
-                        Text("HD").tag(1)
-                        Text("4K").tag(2)
-                    }
-                    .labelsHidden()
-                    .fixedSize()
-                    .help("HD (1920 pixels across in landscape) or 4K (3840)")
-                    Picker("Format", selection: $format) {
-                        ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
-                    }
-                    .fixedSize()
-                    .help(isTall && stackedAnimation != nil ? String(localized: "Tall formats put the symbol above the name") : String(localized: "The shape of the video"))
+            .padding(.vertical, 4)
+            StudioField(label: "Format") {
+                LogoKitMenu(title: "Size", shown: resolution == 2 ? "4K" : "HD", selection: $resolution) {
+                    Text("HD").tag(1)
+                    Text("4K").tag(2)
                 }
+                .help("HD (1920 pixels across in landscape) or 4K (3840)")
+                LogoKitMenu(title: "Format", shown: format.label.components(separatedBy: " ").first ?? format.label, selection: $format) {
+                    ForEach(Deliverables.Format.allCases) { Text($0.label).tag($0) }
+                }
+                .help(isTall && stackedAnimation != nil ? String(localized: "Tall formats put the symbol above the name") : String(localized: "The shape of the video"))
             }
             if output != .still {
-                CardField(label: Text("File")) {
-                    Picker("File", selection: $fileKind) {
+                StudioField(label: "File") {
+                    LogoKitMenu(title: "File", shown: fileKind.label, selection: $fileKind) {
                         ForEach(LogoFile.allCases) { Text($0.label).tag($0) }
                     }
-                    .fixedSize()
                     .help(fileKind.help)
                 }
             }
-            CardField(label: Text("Background")) {
-                HStack {
-                    if background == .colour {
-                        ColorPicker("Colour", selection: colour, supportsOpacity: false)
-                    }
-                    Picker("Background", selection: $background) {
-                        ForEach(Background.allCases) { Text($0.label).tag($0) }
-                    }
-                    .fixedSize()
+            StudioField(label: "Background") {
+                if background == .colour { LogoKitWell(title: "Colour", colour: colour) }
+                LogoKitMenu(title: "Background", shown: background == .transparent ? String(localized: "Transparent") : background.label,
+                            selection: $background) {
+                    ForEach(Background.allCases) { Text($0.label).tag($0) }
                 }
             }
-            CardField(label: Text("Frame rate")) {
-                Picker("Frame rate", selection: $frameRate) {
+            StudioField(label: "Frame rate") {
+                LogoKitMenu(title: "Frame rate", shown: "\(frameRate) fps", selection: $frameRate) {
                     ForEach([25, 30, 50, 60], id: \.self) { Text("\($0) fps").tag($0) }
                 }
-                .fixedSize()
             }
             if output != .still && output != .loop && fileKind.resolved(transparent: background == .transparent).carriesSound {
-                CardField(label: Text("Sound")) {
-                    Picker("Sound", selection: $sound) {
+                StudioField(label: "Sound") {
+                    LogoKitMenu(title: "Sound", shown: sound.label, selection: $sound) {
                         ForEach(LogoSound.allCases) { Text($0.label).tag($0) }
                     }
-                    .fixedSize()
                     .help(sound.help)
                 }
             }
-            Button("Export Motion Kit…", systemImage: "square.stack.3d.up") { exportKit() }
-                .buttonStyle(GlassCapsuleButtonStyle())
-                .disabled(exporting != nil)
-                .help("Reveal, Intro, Sting and Loop videos and the Still, in one folder")
         }
+    }
+
+    /// Save as SVG and the motion kit, Export, and how the export goes.
+    private var foot: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                Button(action: saveVector) { Text("Save as SVG").frame(maxWidth: .infinity) }
+                    .help("The logo as a vector file: traced colour by colour into smooth curves")
+                Button { exportKit() } label: { Text("Motion kit…").frame(maxWidth: .infinity) }
+                    .disabled(exporting != nil)
+                    .help("Reveal, Intro, Sting and Loop videos and the Still, in one folder")
+            }
+            .buttonStyle(StudioFlatButtonStyle())
+            Button(action: export) {
+                Label("Export", systemImage: "square.and.arrow.up").frame(maxWidth: .infinity)
+            }
+            .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+            .keyboardShortcut(.defaultAction)
+            .disabled(exporting != nil)
+            if let exporting {
+                HStack(spacing: 10) {
+                    StudioProgress(share: exporting)
+                    Button("Stop") { exportTask?.cancel() }
+                        .buttonStyle(StudioFlatButtonStyle())
+                        .keyboardShortcut(.cancelAction)
+                }
+            } else if let done {
+                LogoKitDone(text: Text(verbatim: done.lastPathComponent), file: done)
+            }
+            if let problem, animation != nil { LogoKitProblem(text: problem) }
+        }
+        .disabled(animation == nil)
     }
 
     /// What the chosen animation does (for Automatic: why it chose it).
@@ -362,15 +443,10 @@ struct LogoAnimatorView: View {
         return String(localized: "Automatic (\(seconds) s)")
     }
 
+    /// The logo playing, at the video's shape; click a part to change it.
     @ViewBuilder private var preview: some View {
-        ZStack {
-            // A checkerboard shows what's transparent.
-            if background == .transparent {
-                Checkerboard().clipShape(.rect(cornerRadius: Design.Radius.card, style: .continuous))
-            } else {
-                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color(cgColor: backgroundColour ?? CGColor(gray: 0, alpha: 1)))
-            }
-            if let animation = shownAnimation, let plan {
+        if let animation = shownAnimation, let plan {
+            ZStack {
                 TimelineView(.animation) { context in
                     // The whole video, then a short pause before it plays again (a loop: no pause; a still: its last frame).
                     let loop = plan.total + (output == .loop ? 0 : 0.8)
@@ -392,30 +468,18 @@ struct LogoAnimatorView: View {
                             }
                         if let selectedPart, animation.elements.indices.contains(selectedPart) {
                             let box = animation.box(of: selectedPart, canvas: canvas)
-                            RoundedRectangle(cornerRadius: 4)
-                                .strokeBorder(Design.Brand.gradient, lineWidth: 2)
-                                .frame(width: box.width * scale + 8, height: box.height * scale + 8)
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .strokeBorder(Design.Brand.pink, lineWidth: 2)
+                                .frame(width: box.width * scale + 12, height: box.height * scale + 12)
                                 .position(x: box.midX * scale, y: box.midY * scale)
                                 .allowsHitTesting(false)
                         }
                     }
                     .help("Click a part to change how it moves")
                 }
-            } else if loading {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("Taking the logo apart…")
-                }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(.regularMaterial, in: Capsule())
             }
+            .accessibilityLabel(String(localized: "Animation preview"))
         }
-        .overlay {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .strokeBorder(Color.accentColor, lineWidth: dropTargeted ? 3 : 0)
-        }
-        .accessibilityLabel(String(localized: "Animation preview"))
     }
 
     private func restart() { started = .now }
@@ -596,7 +660,7 @@ extension LogoAnimatorView {
     }
 }
 
-/// The grey checkerboard that stands for transparency.
+/// The dark checkerboard that stands for transparency (#202024 and #18181B, as on the board).
 private struct Checkerboard: View {
     var body: some View {
         Canvas { context, size in
@@ -605,7 +669,7 @@ private struct Checkerboard: View {
                 for column in 0..<Int(size.width / square) + 1 {
                     let light = (row + column) % 2 == 0
                     context.fill(Path(CGRect(x: Double(column) * square, y: Double(row) * square, width: square, height: square)),
-                                 with: .color(light ? Color(white: 0.82) : Color(white: 0.68)))
+                                 with: .color(light ? Design.rgb(0x202024) : Design.rgb(0x18181B)))
                 }
             }
         }

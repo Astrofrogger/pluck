@@ -33,6 +33,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        #if STUDIO
+        // Thin scrollers that float over the content and show only while scrolling, even when the
+        // Mac is set to always show them: no wide scroll columns next to panels (owner, 2026-11-12).
+        // (Not saved: only for this run, so basic Pluck, which shares the settings, keeps the Mac's.)
+        var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+        arguments["AppleShowScrollBars"] = "WhenScrolling"
+        UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+        #endif
         // Before anything writes preferences: an empty set means a fresh install, not an update.
         WhatsNew.prepare()
     }

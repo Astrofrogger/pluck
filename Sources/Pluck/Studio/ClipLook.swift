@@ -326,7 +326,7 @@ struct ClipLookEditor: View {
             Picker("On the Picture", selection: $viewer) {
                 ForEach(ViewerControls.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
             }
-            .pickerStyle(.segmented)
+            .pickerStyle(.segmented).tint(Design.Studio.line)
             .labelsHidden()
             .controlSize(.small)
             .padding(.horizontal, 8)
@@ -334,7 +334,7 @@ struct ClipLookEditor: View {
             FoldSection(title: "Transform", key: "clip-transform") {
                 row("Scaling") {
                     Picker("Scaling", selection: binding(\.scaling)) { ForEach(ClipLook.Scaling.allCases) { Text($0.title).tag($0) } }
-                        .pickerStyle(.segmented).labelsHidden()
+                        .pickerStyle(.segmented).tint(Design.Studio.line).labelsHidden()
                 }
                 slider("Zoom", \.zoom, 0.1...5, format: "%.2f×", reset: 1)
                 slider("Position X", \.x, -1...1, format: "%+.0f%%", scale: 100)
@@ -362,10 +362,11 @@ struct ClipLookEditor: View {
                         }
                         if on { viewer = .dynamicZoom }
                     }))
-                    .toggleStyle(.switch).labelsHidden()
+                    .toggleStyle(StudioSwitchStyle()).labelsHidden()
                     Spacer()
                     if look.hasDynamicZoom {
                         Button { change(true) { $0.swapDynamicZoom() } } label: { Label("Swap", systemImage: "arrow.left.arrow.right") }
+                            .buttonStyle(StudioFlatButtonStyle())
                             .help("Zoom the other way: start where it ends")
                     }
                 }
@@ -434,7 +435,7 @@ struct ClipLookEditor: View {
             }
             if parts.contains(.picture), !look.isDefault {
                 Button("Reset Picture") { change(true) { $0 = ClipLook() } }
-                    .buttonStyle(.link)
+                    .buttonStyle(StudioFlatButtonStyle())
                     .padding(.horizontal, 8)
             }
         }
@@ -455,45 +456,32 @@ struct ClipLookEditor: View {
         .frame(minHeight: Design.Sidebar.sliderHeight)
     }
 
+    // Studio's sliders (as on the Photo page): thin, plum from the default, the value when changed or pointed at;
+    // one undo step per change.
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipLook, Double>, _ range: ClosedRange<Double>,
                         format: String, scale: Double = 1, reset: Double = 0) -> some View {
         let value = look[keyPath: path]
-        return row(title) {
-            Slider(value: Binding(get: { value }, set: { new in change(false) { $0[keyPath: path] = new } }), in: range) { editing in
-                if !editing { change(true) { _ in } }
-            }
-            Text(String(format: format, value * scale)).font(.caption.monospacedDigit())
-                .foregroundStyle(value == reset ? .tertiary : .secondary)
-                .frame(minWidth: 46, alignment: .trailing)
-                .fixedSize()
-                .onTapGesture(count: 2) { change(true) { $0[keyPath: path] = reset } }
-                .help("Double-click to reset")
+        return AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
+                            label: String(format: format, value * scale), done: { change(true) { _ in } }) { new in
+            change(false) { $0[keyPath: path] = new }
         }
     }
 
     private func colourSlider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipColor, Double>, _ range: ClosedRange<Double>,
                               _ format: String, reset: Double = 0) -> some View {
         let value = look.color[keyPath: path]
-        return row(title) {
-            Slider(value: Binding(get: { value }, set: { new in change(false) { $0.color[keyPath: path] = new } }), in: range) { editing in
-                if !editing { change(true) { _ in } }
-            }
-            Text(String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == reset ? .tertiary : .secondary)
-                .frame(minWidth: 46, alignment: .trailing)
-                .fixedSize()
-                .onTapGesture(count: 2) { change(true) { $0.color[keyPath: path] = reset } }
+        return AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
+                            done: { change(true) { _ in } }) { new in
+            change(false) { $0.color[keyPath: path] = new }
         }
     }
 
     /// A dynamic zoom frame's size (how far in), as a zoom.
     private func frameSlider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipLook, ClipLook.ZoomFrame?>) -> some View {
         let frame = look[keyPath: path] ?? ClipLook.ZoomFrame()
-        return row(title) {
-            Slider(value: Binding(get: { 1 / frame.size }, set: { z in
-                change(false) { var f = $0[keyPath: path] ?? .init(); f.size = 1 / z; $0[keyPath: path] = f.fitted() }
-            }), in: 1...4) { editing in if !editing { change(true) { _ in } } }
-            Text(String(format: "%.2f×", 1 / frame.size)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                .frame(width: 46, alignment: .trailing)
+        return AdjustSlider(title: title, value: 1 / frame.size, range: 1...4, neutral: 1, format: "%.2f×",
+                            label: String(format: "%.2f×", 1 / frame.size), done: { change(true) { _ in } }) { z in
+            change(false) { var f = $0[keyPath: path] ?? .init(); f.size = 1 / z; $0[keyPath: path] = f.fitted() }
         }
     }
 }

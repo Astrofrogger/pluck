@@ -382,12 +382,12 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     Label(speakerProblem, systemImage: "exclamationmark.triangle").foregroundStyle(.secondary).lineLimit(2)
                 } else {
                     Button("Find Speakers", systemImage: "person.2.wave.2", action: findSpeakers)
-                        .buttonStyle(.link)
+                        .rowActionStyle()
                         .help("Label who says what, with local AI on this Mac (up to four speakers)")
                 }
             }
             Button("Names", systemImage: "character.book.closed") { namesShown = true }
-                .buttonStyle(.link)
+                .rowActionStyle()
                 .help("Names of people and companies to spell right: in this transcript and every one after it")
                 .popover(isPresented: $namesShown, arrowEdge: .top) {
                     VStack(alignment: .leading, spacing: 8) {
@@ -516,7 +516,7 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     .buttonStyle(BrandButtonStyle())
                     .help("The ticked passages as clips on a project’s timeline, in story order: drag them to rearrange")
                     Button("Keep Only These", systemImage: "scissors", action: keepOnlyStory)
-                        .buttonStyle(.link)
+                        .rowActionStyle()
                         .help("Cut everything else out of this file’s edit, in the order they were filmed (⌘Z undoes it)")
                 }
                 .disabled(!storyBeats.contains(where: \.kept))
@@ -688,7 +688,7 @@ struct EditorAIPanel<Model: FileEditing>: View {
                 }
                 if transcript?.chapters?.isEmpty ?? true, item?.aiStatus == nil {
                     Button("Add Chapters", systemImage: "list.number") { run(AIStudio.LanguageAsk.Action.chapters) }
-                        .buttonStyle(.link)
+                        .rowActionStyle()
                         .font(.callout)
                         .help("Chapters on the timeline, from what's said")
                 }
@@ -860,17 +860,17 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     let fillers = model.markers.filter { $0.kind == .filler }
                     SidebarRow(symbol: "star", title: Text("Best Moments"), detail: moments.isEmpty ? nil : Text(verbatim: "\(moments.count)")) {
                         Button(moments.isEmpty ? "Find" : "Again") { findMoments() }
-                            .buttonStyle(.link)
+                            .rowActionStyle()
                             .help("The strongest moments for a short, chosen from what’s said")
                     }
                     SidebarRow(symbol: "text.badge.minus", title: Text("Filler Words"), detail: fillers.isEmpty ? nil : Text(verbatim: "\(fillers.count)")) {
                         if fillers.isEmpty {
                             Button("Find") { findFillers() }
-                                .buttonStyle(.link)
+                                .rowActionStyle()
                                 .help("Every “um”, “uh” and “like”")
                         } else {
                             Button("Cut All") { model.cutOut(fillers.compactMap(\.span)) }
-                                .buttonStyle(.link)
+                                .rowActionStyle()
                                 .help("Cut every filler word out of the edit (⌘Z undoes it)")
                         }
                     }

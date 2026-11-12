@@ -32,6 +32,8 @@ struct FormatMenu: View {
     /// In the main window's bar: drawn as a bar control (see `Design`), the same height and
     /// glass as the link field and buttons next to it.
     var inBar = false
+    /// Studio's drop zone: a flat raised button, as in the layout reference.
+    var studio = false
     private var format = FormatSettings()
     @Environment(\.openPluckSettings) private var openSettings
 
@@ -84,7 +86,9 @@ struct FormatMenu: View {
             Divider()
             Button("More Settings…") { openSettings() }
         } label: {
-            if inBar {
+            if studio {
+                StudioMenuLabel(title: format.options.label, quiet: true)
+            } else if inBar {
                 HStack(spacing: 6) {
                     Image(systemName: format.options.symbol)
                         .font(.system(size: Design.Size.icon - 2, weight: .medium))
@@ -105,7 +109,8 @@ struct FormatMenu: View {
             }
         }
         .menuStyle(.button)
-        .modifier(BarMenuLook(inBar: inBar))
+        .modifier(BarMenuLook(inBar: inBar || studio))
+        .focusEffectDisabled()
         .fixedSize()
         .help("Output format: \(format.options.longLabel)")
     }

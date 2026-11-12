@@ -187,16 +187,17 @@ struct FinderPaneView: View {
             }
         }
         .frame(minWidth: 280, minHeight: 220)
-        .background(.background)
+        // Studio: the same grey as the panel around it, not the Mac's window grey.
+        .background(Edition.isStudio ? AnyShapeStyle(Design.Studio.panel) : AnyShapeStyle(.background))
         // The pane in front: a line along its top when there are several.
         .overlay(alignment: .top) {
             if workspace.panes.count > 1 {
-                Rectangle().fill(isFront ? Color.accentColor : Color.clear).frame(height: 2)
+                Rectangle().fill(isFront ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear)).frame(height: 2)
             }
         }
         .overlay {
             if dropping {
-                RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(Color.accentColor, lineWidth: 3).padding(3).allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: Design.Radius.box).strokeBorder(.tint, lineWidth: 3).padding(3).allowsHitTesting(false)
             }
         }
         .simultaneousGesture(TapGesture().onEnded { workspace.focus(pane) })
@@ -426,7 +427,7 @@ private struct FinderIconTile: View {
                 .padding(.horizontal, 6)
                 .padding(.vertical, 1)
                 .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(selected ? Color.accentColor : Color.clear, in: .rect(cornerRadius: 4))
+                .background(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
             if item.isClip, let summary = thumbs.summaries[item.url] {
                 Text(Self.caption(summary)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -671,6 +672,8 @@ private struct FinderListView: View {
             pane.selection = urls
             pane.openSelection()
         }
+        // The panel's grey shows through (Studio), like the other views.
+        .scrollContentBackground(Edition.isStudio ? .hidden : .automatic)
     }
 
     private var rows: [FinderRow] {
@@ -752,7 +755,7 @@ private struct FinderColumn: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
                     .foregroundStyle(on ? Color.white : Color.primary)
-                    .background(on ? Color.accentColor : Color.clear, in: .rect(cornerRadius: 4))
+                    .background(on ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
                     .contentShape(.rect)
                     .onTapGesture(count: 2) { if item.isFolder || current { pane.open(item) } else { pane.open(item, in: folder) } }
                     .simultaneousGesture(TapGesture().onEnded {

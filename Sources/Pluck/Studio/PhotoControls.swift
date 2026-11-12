@@ -65,6 +65,8 @@ final class PhotoEditing {
     var pointOverlay = false
     /// What's typed in the Adjust panel's search (tools whose name matches show).
     var toolQuery = ""
+    /// "Find a tool" shown (⌘F); it hides again when cleared.
+    var findingTool = false
     /// The keyboard shortcuts shown (? or the … menu).
     var showingKeys = false
     /// A look being pointed at in Looks: shown on the big photo until the pointer leaves.
@@ -155,10 +157,15 @@ struct CurvesEditor: View {
     @State private var origin: CurvePoint?
     /// The Colour Warper shown instead of a curve.
     @State private var warping: Bool
+    /// Only one part, each in its own section: the tone curves, the colour curves, or the Warper (nil: all).
+    enum Part { case tone, colour, warper }
+    let part: Part?
 
-    init(curves: PhotoCurves, colour: Bool = false, start: Channel = .master, warper: Bool = false, change: @escaping (PhotoCurves) -> Void) {
+    init(curves: PhotoCurves, colour: Bool = false, start: Channel = .master, warper: Bool = false, part: Part? = nil,
+         change: @escaping (PhotoCurves) -> Void) {
         self.curves = curves
         self.colour = colour
+        self.part = part
         self.change = change
         _channel = State(initialValue: start)
         _warping = State(initialValue: warper)
@@ -221,8 +228,27 @@ struct CurvesEditor: View {
     var body: some View {
         let c = shownChannel, warper = warping && colour, warped = !(curves.warp?.isDefault ?? true)
         VStack(alignment: .leading, spacing: 8) {
+            if part == .colour {
+                // The colour curves by name, not as small swatches.
+                HStack(spacing: 8) {
+                    Picker("Curve", selection: Binding(get: { c }, set: { channel = $0; warping = false })) {
+                        ForEach(Channel.allCases.filter { $0.kind != nil }) { item in item.title.tag(item) }
+                    }
+                    .pickerStyle(.menu)
+                    .labelsHidden()
+                    .fixedSize()
+                    Spacer()
+                    if edited(c) {
+                        Button { set([], c) } label: { Image(systemName: "arrow.counterclockwise") }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .help("Reset")
+                            .accessibilityLabel(Text("Reset"))
+                    }
+                }
+            } else if part != .warper {
             HStack(spacing: colour ? 2 : 4) {
-                ForEach(Channel.allCases.filter { colour || $0.kind == nil }) { item in
+                ForEach(Channel.allCases.filter { (colour && part == nil) || $0.kind == nil }) { item in
                     Button { channel = item; warping = false } label: {
                         Group {
                             if let kind = item.kind {
@@ -244,7 +270,7 @@ struct CurvesEditor: View {
                     .accessibilityAddTraits(c == item && !warper ? .isSelected : [])
                     if item == .blue, colour { Divider().frame(height: 12) }
                 }
-                if colour {
+                if colour && part == nil {
                     Button { warping = true } label: {
                         ColourWarper.disc.frame(width: 12, height: 12).clipShape(Circle())
                             .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 2).padding(-3).opacity(warper ? 1 : 0))
@@ -269,6 +295,7 @@ struct CurvesEditor: View {
                         .accessibilityLabel(Text("Reset"))
                 }
             }
+            }
             if warper {
                 ColourWarper(warp: curves.warp ?? ColourWarp()) { w in var new = curves; new.warp = w.isDefault ? nil : w; change(new) }
             } else {
@@ -277,7 +304,7 @@ struct CurvesEditor: View {
                 ZStack {
                     RoundedRectangle(cornerRadius: Design.Radius.small).fill(.black.opacity(0.25))
                     if let kind = c.kind {
-                        CurveBackdrop(kind: kind).opacity(0.55).clipShape(.rect(cornerRadius: Design.Radius.small))
+                        CurveBackdrop(kind: kind).opacity(0.85).clipShape(.rect(cornerRadius: Design.Radius.small))
                     }
                     grid(size, flat: c.kind != nil)
                     // The other channels, faintly.
@@ -400,7 +427,7 @@ struct CurveBackdrop: View {
     let kind: HueCurves.Kind
 
     var body: some View {
-        let hues = LinearGradient(colors: stride(from: 0.0, through: 360, by: 20).map { PhotoMaskPanel.swatch($0) }, startPoint: .leading, endPoint: .trailing)
+        let hues = LinearGradient(colors: stride(from: 0.0, through: 360, by: 20).map { PhotoMaskPanel.vivid($0) }, startPoint: .leading, endPoint: .trailing)
         ZStack {
             switch kind {
             case .hueHue: hues
@@ -408,8 +435,8 @@ struct CurveBackdrop: View {
             case .hueLum: hues; LinearGradient(colors: [.white.opacity(0.35), .clear, .black], startPoint: .top, endPoint: .bottom)
             case .lumSat:
                 LinearGradient(colors: [.black, .white], startPoint: .leading, endPoint: .trailing)
-                LinearGradient(colors: [PhotoMaskPanel.swatch(40).opacity(0.5), .clear], startPoint: .top, endPoint: .bottom)
-            case .satSat: LinearGradient(colors: [Color(white: 0.5), PhotoMaskPanel.swatch(29)], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(colors: [PhotoMaskPanel.vivid(40).opacity(0.6), .clear], startPoint: .top, endPoint: .bottom)
+            case .satSat: LinearGradient(colors: [Color(white: 0.5), PhotoMaskPanel.vivid(29)], startPoint: .leading, endPoint: .trailing)
             }
         }
     }
@@ -429,7 +456,7 @@ struct ColourWarper: View {
     static var disc: some View {
         ZStack {
             // (An angular gradient runs clockwise on screen.)
-            AngularGradient(colors: stride(from: 0.0, through: 360, by: 15).map { PhotoMaskPanel.swatch(360 - $0) }, center: .center)
+            AngularGradient(colors: stride(from: 0.0, through: 360, by: 15).map { PhotoMaskPanel.vivid(360 - $0) }, center: .center)
             EllipticalGradient(colors: [Color(white: 0.5), Color(white: 0.5).opacity(0)], center: .center, startRadiusFraction: 0, endRadiusFraction: 0.5)
         }
     }
@@ -585,8 +612,10 @@ struct ColorWheelsEditor: View {
                 let r = min(geo.size.width, geo.size.height) / 2
                 let center = CGPoint(x: geo.size.width / 2, y: geo.size.height / 2)
                 ZStack {
-                    Circle().fill(AngularGradient(colors: [.red, .pink, .blue, .cyan, .green, .yellow, .red], center: .center))
-                        .saturation(0.55)
+                    // Full colour round the rim (red, magenta, blue, cyan, green, yellow), as in other editors.
+                    Circle().fill(AngularGradient(colors: stride(from: 360.0, through: 0, by: -30).map {
+                        Color(hue: $0.truncatingRemainder(dividingBy: 360) / 360, saturation: 0.95, brightness: 1)
+                    }, center: .center))
                     Circle().fill(RadialGradient(colors: [.gray, .gray.opacity(0)], center: .center, startRadius: 0, endRadius: r))
                     Circle().strokeBorder(.black.opacity(0.3), lineWidth: 1)
                     Path { p in
@@ -782,21 +811,20 @@ struct FoldSection<Content: View>: View {
             Button {
                 withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
             } label: {
-                // The same header as the Adjust folds: chevron in the gutter, the name Title Case.
+                // The same header as the Adjust folds: the name, the chevron on the right.
                 HStack(spacing: 0) {
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .foregroundStyle(.tertiary)
-                        .frame(width: Design.Sidebar.rowPadding)
-                    Text(title).font(Design.Sidebar.header).foregroundStyle(.secondary)
+                    Text(title).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
                     Spacer()
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(isOpen ? 90 : 0))
+                        .foregroundStyle(Design.Studio.textFaint)
                 }
-                .padding(.trailing, Design.Sidebar.rowPadding)
+                .padding(.horizontal, Design.Sidebar.rowPadding)
                 .frame(height: Design.Sidebar.foldHeight)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            if isOpen { content }
+            if isOpen { content.padding(.bottom, Design.Studio.sectionGap - Design.Sidebar.sectionGap) }
         }
     }
 }
@@ -924,7 +952,7 @@ struct ColorMixerEditor: View {
     }
 
     /// The band's colour (its OkLCh hue, as a swatch).
-    static func colour(_ band: ColorMixer.Band) -> Color { PhotoMaskPanel.swatch(band.hue) }
+    static func colour(_ band: ColorMixer.Band) -> Color { PhotoMaskPanel.vivid(band.hue) }
     /// A picked colour as it was on the photo.
     static func colour(_ point: ColourPoint) -> Color {
         let L = min(max(point.lum, 0.2), 0.95), C = point.sat * L, r = point.hue * .pi / 180

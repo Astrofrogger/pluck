@@ -5,6 +5,8 @@ import SwiftUI
 /// Pluck Studio's one window: a page at a time, with the page bar along the bottom, like an
 /// editing program. Only Settings opens a window of its own.
 struct StudioWindow: View {
+    /// The window's own coordinates (from its top left), for views that compare with AppKit events.
+    static let space = "studioWindow"
     @Environment(DownloadManager.self) private var manager
     @Environment(AIStudio.self) private var ai
     @Environment(AppUpdater.self) private var appUpdater
@@ -17,6 +19,12 @@ struct StudioWindow: View {
         VStack(spacing: 0) {
             page
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                // The page floats as a rounded panel on the backdrop (brandbook v1); on Home the glow shows through.
+                // A background, not a clip: pages that reach under the title bar keep their top.
+                // Library draws its own panels (sidebar, grid, details) on the backdrop.
+                .background(Design.Studio.panel.opacity([.library, .photo, .edit, .tools].contains(nav.page) ? 0 : 1),
+                            in: RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous))
+                .padding(.horizontal, Design.Studio.panelGap)
                 // An update installing, over every page (Home shows it at its top).
                 .overlay(alignment: .bottom) {
                     if appUpdater.status == .installing, nav.page != .home {
@@ -32,17 +40,23 @@ struct StudioWindow: View {
         }
         // Home's glow runs under the whole window: title bar, page and page bar.
         .background {
-            if nav.page == .home { BrandGlow().ignoresSafeArea() }
+            Design.Studio.backdrop.ignoresSafeArea()
         }
-        .modifier(ClearToolbarOnHome(home: nav.page == .home || nav.page == .photo))
+        .coordinateSpace(name: Self.space)
+        // Always dark: neutral dark surroundings for judging colour (owner's choice, 2026-11-12).
+        .preferredColorScheme(.dark)
+        // What's chosen is plum, never the Mac's blue (segmented controls, tabs, toggles).
+        .tint(Design.Brand.pink)
+        .modifier(ClearToolbar(clear: nav.page == .photo))
         .frame(minWidth: 1120, minHeight: 680)
         .toolbar {
             // (Not on the Photo page: the room goes to the photo. ⌘, still opens Settings.)
-            if nav.page != .photo {
+            // (Library puts its own last, after its panel buttons, as in the reference.)
+            if ![.photo, .library, .home, .edit].contains(nav.page) {
                 ToolbarItem(placement: .primaryAction) {
-                    Button { openSettings() } label: { Label("Settings", systemImage: "gearshape") }
+                    Button { openSettings() } label: { Label("Settings", systemImage: "slider.horizontal.3") }
                         .help("Settings (⌘,)")
-                }
+                }.studioFlat()
             }
         }
         .modifier(DownloadSheets())
@@ -86,13 +100,16 @@ struct StudioWindow: View {
     }
 }
 
-/// On Home the title bar lets the glow through.
-private struct ClearToolbarOnHome: ViewModifier {
-    let home: Bool
+/// The title bar in the backdrop's colour; see-through on Home (the glow) and Photo (its own top
+/// row sits there), so pages never scroll up under it.
+private struct ClearToolbar: ViewModifier {
+    let clear: Bool
 
     func body(content: Content) -> some View {
         if #available(macOS 15, *) {
-            content.toolbarBackgroundVisibility(home ? .hidden : .automatic, for: .windowToolbar)
+            content
+                .toolbarBackground(Design.Studio.backdrop, for: .windowToolbar)
+                .toolbarBackgroundVisibility(clear ? .hidden : .visible, for: .windowToolbar)
         } else {
             content
         }
@@ -104,50 +121,90 @@ private struct ClearToolbarOnHome: ViewModifier {
 /// The pages along the bottom of the window (⌘1 to ⌘5).
 private struct PageBar: View {
     @Bindable var nav: StudioNavigator
-    @Environment(DownloadManager.self) private var manager
 
     var body: some View {
         HStack(spacing: 4) {
             ForEach(StudioNavigator.Page.allCases) { page in
-                Button { nav.show(page) } label: { item(page) }
-                    .buttonStyle(.plain)
-                    .keyboardShortcut(page.shortcut, modifiers: .command)
-                    .help(Text(page.title))
+                PageButton(page: page, nav: nav)
             }
         }
-        .padding(.vertical, 6)
         .frame(maxWidth: .infinity)
-        .overlay(alignment: .trailing) { ExportChip(nav: nav).padding(.trailing, Design.Spacing.inset) }
-        .background(nav.page == .home ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.bar))
-        .overlay(alignment: .top) { if nav.page != .home { Divider() } }
-    }
-
-    private func item(_ page: StudioNavigator.Page) -> some View {
-        let on = nav.page == page
-        return VStack(spacing: 3) {
-            Image(systemName: page.symbol)
-                .font(.system(size: 15, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(.secondary))
-                .frame(height: 18)
-                .overlay(alignment: .topTrailing) {
-                    if page == .home, manager.activeCount > 0 {
-                        Circle().fill(Color.accentColor).frame(width: 6, height: 6).offset(x: 5, y: -1)
-                    }
-                }
-            Text(page.title)
-                .font(.system(size: 10, weight: on ? .semibold : .regular))
-                .foregroundStyle(on ? .primary : .secondary)
-        }
-        .frame(width: 72, height: 40)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.small, style: .continuous)
-            .fill(on ? Color.primary.opacity(0.08) : .clear))
-        .overlay(alignment: .bottom) {
-            if on {
-                Capsule().fill(Design.Brand.gradient).frame(width: 22, height: 3).offset(y: 5)
-                    .shadow(color: Design.Brand.pink.opacity(0.6), radius: 4)
+        .frame(height: 52)
+        .overlay(alignment: .leading) { StudioMark().frame(width: 20, height: 20).padding(.leading, 16) }
+        .overlay(alignment: .trailing) {
+            HStack(spacing: 12) {
+                ExportChip(nav: nav)
+                DownloadStatus()
             }
+            .padding(.trailing, 16)
         }
-        .contentShape(.rect)
+    }
+}
+
+/// "3 downloading" and a ring for how far they are together, while downloads run; a click goes Home.
+private struct DownloadStatus: View {
+    @Environment(DownloadManager.self) private var manager
+
+    var body: some View {
+        let active = manager.items.filter(\.isActive)
+        if !active.isEmpty {
+            let done = active.reduce(0) { $0 + $1.progress } / Double(active.count)
+            Button { StudioNavigator.shared.show(.home) } label: {
+                HStack(spacing: 8) {
+                    Text("\(active.count) downloading").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    ZStack {
+                        Circle().stroke(Design.Studio.line, lineWidth: 2.5)
+                        Circle().trim(from: 0, to: max(done, 0.03))
+                            .stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .frame(width: 14, height: 14)
+                    .animation(.smooth, value: done)
+                }
+            }
+            .buttonStyle(.plain)
+            .help("Show the downloads")
+        }
+    }
+}
+
+/// One page in the bar: icon and name; the page shown is filled with plum and glows softly.
+private struct PageButton: View {
+    let page: StudioNavigator.Page
+    @Bindable var nav: StudioNavigator
+    @Environment(DownloadManager.self) private var manager
+    @State private var hovering = false
+
+    var body: some View {
+        let on = nav.page == page
+        Button { nav.show(page) } label: {
+            HStack(spacing: 7) {
+                Image(systemName: page.symbol)
+                    .font(.system(size: 13))
+                    .overlay(alignment: .topTrailing) {
+                        if page == .home, manager.activeCount > 0 {
+                            Circle().fill(Design.Brand.pink).frame(width: 6, height: 6).offset(x: 4, y: -2)
+                        }
+                    }
+                Text(page.title).font(Design.Studio.body)
+            }
+            .foregroundStyle(on ? Color.white : hovering ? Design.Studio.text : Design.Studio.textQuiet)
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background {
+                let shape = RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous)
+                if on {
+                    shape.fill(Design.Brand.deep).shadow(color: Design.Brand.pink.opacity(0.5), radius: 6)
+                } else if hovering {
+                    shape.fill(Design.Studio.raised)
+                }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .keyboardShortcut(page.shortcut, modifiers: .command)
+        .help(Text(page.title))
+        .onHover { hovering = $0 }
         .animation(.snappy(duration: 0.2), value: on)
     }
 }
@@ -184,11 +241,7 @@ private struct EditPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !nav.tabs.isEmpty {
-                TabStrip(nav: nav)
-                Divider()
-            }
-            // With a project open, the project; otherwise the project manager.
+            // With a project open, the project; otherwise the project manager. (Its tabs are in the title bar.)
             if let tab = nav.current, let project = tab.project {
                 // The project's own media and the libraries are in its panel (EditSidePanel).
                 ProjectView(model: project)
@@ -198,17 +251,18 @@ private struct EditPage: View {
             }
         }
         .toolbar {
+            // The open projects and files, right of the window's buttons (layout reference, page 3).
             ToolbarItem(placement: .navigation) {
-                Button {
-                    withAnimation(.snappy) { mediaShown.toggle() }
-                } label: {
-                    Label("Media", systemImage: "sidebar.left")
-                }
-                .help("Show or hide the media (⌥⌘L)")
-                .keyboardShortcut("l", modifiers: [.command, .option])
-            }
+                TabStrip(nav: nav)
+                    .frame(maxWidth: 720, alignment: .leading)
+                    .background {
+                        // ⌥⌘L still shows or hides the media.
+                        Button("") { withAnimation(.snappy) { mediaShown.toggle() } }
+                            .keyboardShortcut("l", modifiers: [.command, .option]).opacity(0).accessibilityHidden(true)
+                    }
+            }.studioFlat()
         }
-        .navigationTitle(nav.current?.title ?? String(localized: "Edit"))
+        .navigationTitle("")
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             Task { @MainActor in
                 var files: [URL] = []
@@ -266,11 +320,10 @@ private struct TabStrip: View {
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("New project or open a file")
+                .foregroundStyle(Design.Studio.textQuiet)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 4)
         }
-        .background(.background.secondary)
     }
 }
 
@@ -289,15 +342,7 @@ private struct TabChip: View {
     @State private var middleClick: Any?
 
     var body: some View {
-        HStack(spacing: 6) {
-            Button(action: close) {
-                Image(systemName: "xmark").font(.system(size: 9, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .opacity(hovering || on ? 1 : 0)
-            .accessibilityLabel("Close")
-            .help("Close")
-            if project { Image(systemName: "rectangle.stack").font(.caption).foregroundStyle(Design.Brand.gradient) }
+        HStack(spacing: 8) {
             if editing {
                 TextField("Name", text: $name)
                     .textFieldStyle(.plain)
@@ -309,17 +354,22 @@ private struct TabChip: View {
             } else {
                 Text(title).lineLimit(1).truncationMode(.middle)
             }
+            Button(action: close) {
+                Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .buttonStyle(.plain)
+            .opacity(hovering || on ? 1 : 0)
+            .accessibilityLabel("Close")
+            .help("Close")
         }
-        .font(.callout)
-        .foregroundStyle(on ? .primary : .secondary)
-        .padding(.horizontal, 10)
-        .frame(height: 24)
+        .font(Design.Studio.body)
+        .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+        .padding(.leading, 12)
+        .padding(.trailing, 10)
+        .frame(height: 28)
         .frame(maxWidth: 220)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.small, style: .continuous)
-            .fill(on ? Color.primary.opacity(0.1) : hovering ? Color.primary.opacity(0.05) : .clear))
-        .overlay(alignment: .bottom) {
-            if on { Capsule().fill(Design.Brand.gradient).frame(height: 2).padding(.horizontal, 8) }
-        }
+        .background(RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous)
+            .fill(on ? Design.Studio.panel : hovering ? Design.Studio.panel.opacity(0.5) : .clear))
         .contentShape(.rect)
         .onTapGesture(count: 2) { startRenaming() }
         .onTapGesture(perform: select)
@@ -846,38 +896,108 @@ struct FileThumbnail: View {
 private struct ToolsPage: View {
     @Bindable var nav: StudioNavigator
 
-    /// (Library, Search and the Player are pages of their own.)
-    private var tools: [PluckTool] { PluckTool.allCases.filter { ![.library, .findShots, .rawPlayer].contains($0) } }
-
     var body: some View {
         if let tool = nav.tool {
             toolView(tool)
+                // Layout boards 6a–6h: "‹ Tools" on the left of the title bar, no window title.
+                .navigationTitle("")
                 .toolbar {
                     ToolbarItem(placement: .navigation) {
-                        if let back = nav.toolBack {
-                            Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
-                                .help("Back to the folder (Esc)")
-                        } else {
-                            Button { nav.tool = nil } label: { Label("Tools", systemImage: "chevron.left") }
-                                .help("All tools")
+                        Group {
+                            if let back = nav.toolBack {
+                                Button(action: back.action) { Label(back.title, systemImage: "chevron.left") }
+                                    .help("Back to the folder (Esc)")
+                            } else {
+                                Button { nav.tool = nil } label: { Label("Tools", systemImage: "chevron.left") }
+                                    .help("All tools")
+                            }
                         }
-                    }
+                        .labelStyle(.titleAndIcon)
+                        .buttonStyle(.plain)
+                        .font(Design.Studio.body)
+                        .foregroundStyle(Design.Studio.text)
+                        .padding(.horizontal, 8)
+                    }.studioFlat()
                 }
         } else {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200, maximum: 280), spacing: 18)], spacing: 18) {
-                    ForEach(tools) { tool in
-                        Button { nav.tool = tool } label: { ToolTile(tool: tool) }
-                            .buttonStyle(.plain)
-                            .help(Text(tool.detail))
+            // Layout reference, page 6: the tools in groups, and what's running on the right.
+            let panel = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+            HStack(spacing: Design.Studio.panelGap) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 26) {
+                        HStack {
+                            Text("Tools").font(Design.Studio.pageTitle)
+                            Spacer()
+                            HStack(spacing: 8) {
+                                Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+                                TextField("Find a tool", text: $find).textFieldStyle(.plain).font(Design.Studio.body)
+                            }
+                            .padding(.horizontal, 10)
+                            .frame(width: 280, height: 30)
+                            .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                        }
+                        ForEach(Self.groups.indices, id: \.self) { index in
+                            let group = Self.groups[index]
+                            let shown = group.tools.filter(matches)
+                            if !shown.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(group.title).font(Design.Studio.sectionTitle)
+                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                                        ForEach(shown) { tool in
+                                            Button { open(tool) } label: { ToolCard(tool: tool) }
+                                                .buttonStyle(.plain)
+                                                .help(Text(tool.detail))
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
+                    .padding(.horizontal, 32)
+                    .padding(.vertical, 28)
                 }
-                .padding(32)
-                .frame(maxWidth: 900)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Design.Studio.panel, in: panel)
+                .clipShape(panel)
+                ToolsActivity(recent: recentTools, open: open)
+                    .frame(width: 320)
+                    .background(Design.Studio.panel, in: panel)
+                    .clipShape(panel)
             }
-            .navigationTitle("Tools")
+            .navigationTitle("")
         }
+    }
+
+    @State private var find = ""
+    /// The tools opened last, newest first ("id|seconds since 1970").
+    @AppStorage("recentTools") private var recentRaw = ""
+
+    /// The page's groups (Search and the Player are the Library's, so not here).
+    static let groups: [(title: LocalizedStringResource, tools: [PluckTool])] = [
+        ("Footage", [.derush, .offload, .liveRecorder, .deliveryCheck]),
+        ("Motion & Music", [.logoAnimator, .brandPack, .musicFit]),
+        ("Delivery & Team", [.officeRender]),
+    ]
+
+    private func matches(_ tool: PluckTool) -> Bool {
+        let words = find.trimmingCharacters(in: .whitespaces)
+        return words.isEmpty || [tool.name, tool.detail, tool.cardName, tool.cardLine]
+            .contains { String(localized: $0).localizedCaseInsensitiveContains(words) }
+    }
+
+    private var recentTools: [(tool: PluckTool, when: Date)] {
+        recentRaw.split(separator: ",").compactMap { item in
+            let parts = item.split(separator: "|")
+            guard parts.count == 2, let tool = PluckTool(rawValue: String(parts[0])), let seconds = Double(parts[1]) else { return nil }
+            return (tool, Date(timeIntervalSince1970: seconds))
+        }
+    }
+
+    private func open(_ tool: PluckTool) {
+        var list = recentTools.filter { $0.tool != tool }
+        list.insert((tool, .now), at: 0)
+        recentRaw = list.prefix(5).map { "\($0.tool.rawValue)|\(Int($0.when.timeIntervalSince1970))" }.joined(separator: ",")
+        nav.open(tool)
     }
 
     @ViewBuilder private func toolView(_ tool: PluckTool) -> some View {
@@ -895,34 +1015,146 @@ private struct ToolsPage: View {
     }
 }
 
-private struct ToolTile: View {
+/// A tool: its symbol on a raised tile, its name and one line on what it's for (layout reference, page 6).
+private struct ToolCard: View {
     let tool: PluckTool
     @State private var hovering = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        HStack(spacing: 14) {
             Image(systemName: tool.symbol)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 46, height: 46)
-                .background(tool.tint.gradient, in: .rect(cornerRadius: 12))
-                .shadow(color: tool.tint.opacity(hovering ? 0.6 : 0.3), radius: hovering ? 12 : 6, y: 4)
-            Text(tool.name).font(.headline)
+                .font(.system(size: 15))
+                .foregroundStyle(Design.Studio.text)
+                .frame(width: 40, height: 40)
+                .background(hovering ? Design.Studio.line : Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(tool.cardName).font(.system(size: 13)).foregroundStyle(Design.Studio.text).lineLimit(1)
+                Text(tool.cardLine).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+            }
+            Spacer(minLength: 0)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
-        .background {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .fill(LinearGradient(colors: [tool.tint.opacity(hovering ? 0.22 : 0.12), Color.primary.opacity(0.03)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing))
-        }
-        .overlay {
-            RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous)
-                .strokeBorder(tool.tint.opacity(hovering ? 0.5 : 0.15), lineWidth: 1)
-        }
-        .scaleEffect(hovering ? 1.02 : 1)
-        .animation(.snappy(duration: 0.18), value: hovering)
+        .padding(.horizontal, 16)
+        .frame(height: 76)
+        .background(hovering ? Design.Studio.raised : Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
         .contentShape(.rect)
         .onHover { hovering = $0 }
+    }
+}
+
+/// What tools are doing now (offloads copying, a derush), and the tools opened last.
+private struct ToolsActivity: View {
+    let recent: [(tool: PluckTool, when: Date)]
+    let open: (PluckTool) -> Void
+    @State private var offload = OffloadCenter.shared
+    @State private var derush = DerushView.shared
+
+    private var copying: [OffloadJob] { offload.jobs.filter { offload.states[$0.id] == .copying } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("Running").font(Design.Studio.sectionTitle)
+                Spacer()
+                Text(verbatim: "\(copying.count + (derush.running ? 1 : 0))").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if copying.isEmpty && !derush.running {
+                Text("Nothing running").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            ForEach(copying, id: \.id) { job in
+                let live = offload.live[job.id] ?? .init()
+                let share = min(Double(live.bytes) / Double(max(job.work, 1)), 1)
+                let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+                let left = live.speed > 0 ? Double(job.work - live.bytes) / live.speed : 0
+                card(symbol: PluckTool.offload.symbol, title: Text("Offload · \(job.name)"),
+                     detail: live.checking ? Text("To \(job.roots.count) drives · checking") : Text("To \(job.roots.count) drives"),
+                     share: share,
+                     footer: (Text("\(bytes(Int64(share * Double(job.totalBytes)))) of \(bytes(job.totalBytes))"),
+                              Text(verbatim: "\(bytes(Int64(live.speed)))/s" + (left > 0 ? " · \(Format.duration(left))" : "")))) { open(.offload) }
+            }
+            if derush.running {
+                let all = derush.clips.count, done = derush.clips.filter { $0.state == .done }.count
+                card(symbol: PluckTool.derush.symbol, title: Text("Derush"), detail: Text("Take \(min(done + 1, all)) of \(all)"),
+                     share: all == 0 ? 0 : Double(done) / Double(all)) { open(.derush) }
+            }
+            if !recent.isEmpty {
+                Text("Recent").font(Design.Studio.sectionTitle).padding(.top, 8)
+                VStack(spacing: 0) {
+                    ForEach(recent.prefix(5), id: \.tool) { item in
+                        Button { open(item.tool) } label: {
+                            HStack(spacing: 10) {
+                                Image(systemName: item.tool.symbol).font(.system(size: 13)).foregroundStyle(Design.Studio.text).frame(width: 18)
+                                Text(item.tool.cardName).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                                Spacer()
+                                Text(item.when, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                            }
+                            .padding(.horizontal, 6)
+                            .frame(height: 40)
+                            .contentShape(.rect)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+    }
+
+    private func card(symbol: String, title: Text, detail: Text, share: Double, footer: (Text, Text)? = nil, open: @escaping () -> Void) -> some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Image(systemName: symbol).font(.system(size: 14)).foregroundStyle(Design.Studio.text)
+                        .frame(width: 32, height: 32)
+                        .background(Design.Studio.raised, in: .rect(cornerRadius: 8, style: .continuous))
+                    VStack(alignment: .leading, spacing: 2) {
+                        title.font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                        detail.font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                    Text(share, format: .percent.precision(.fractionLength(0))).font(Design.Studio.body.monospacedDigit())
+                }
+                Capsule().fill(Design.Studio.line).frame(height: 3)
+                    .overlay(alignment: .leading) {
+                        GeometryReader { g in Capsule().fill(Design.Brand.gradient).frame(width: g.size.width * share, height: 3) }
+                    }
+                if let footer {
+                    HStack { footer.0; Spacer(); footer.1 }
+                        .font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                }
+            }
+            .padding(14)
+            .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+extension PluckTool {
+    /// The short name on the Tools page (layout reference, page 6).
+    var cardName: LocalizedStringResource {
+        switch self {
+        case .derush: "Derush"
+        case .musicFit: "Fit Music"
+        default: name
+        }
+    }
+
+    /// One line that fits a card; the full sentence is the card's help.
+    var cardLine: LocalizedStringResource {
+        switch self {
+        case .derush: "Sort a shoot into usable takes"
+        case .offload: "Copy cards to several drives, checked"
+        case .rawPlayer: "Camera raw, timecode and LUTs"
+        case .findShots: "Find a moment by word or picture"
+        case .liveRecorder: "Record a stream, mark moments"
+        case .deliveryCheck: "Look over an export before sending"
+        case .logoAnimator: "Animated intro from a logo"
+        case .brandPack: "Lower thirds and cards in brand colours"
+        case .musicFit: "Make a song as long as the edit"
+        case .officeRender: "Render on another Mac"
+        case .library: "Everything Pluck saved"
+        }
     }
 }

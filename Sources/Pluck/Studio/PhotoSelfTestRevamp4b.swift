@@ -69,7 +69,7 @@ extension PhotoSelfTest {
         let odd = try? JSONDecoder().decode(ColourWarp.self, from: Data(#"{"turn":[1,2,3],"scale":[1,1,1]}"#.utf8))
         let old = try? JSONDecoder().decode(PhotoCurves.self, from: Data(#"{"master":[{"x":0,"y":0},{"x":1,"y":1}],"red":[{"x":0,"y":0},{"x":1,"y":1}],"green":[{"x":0,"y":0},{"x":1,"y":1}],"blue":[{"x":0,"y":0},{"x":1,"y":1}]}"#.utf8))
         check("warper untouched renders as none", differ == 0 && PhotoEngine.colourTools(flat) == nil && flat.curves.isDefault
-              && !bent.curves.isDefault && AdjustSection.curves.isEdited(bent) && back == bent && odd?.isDefault == true && old?.warp == nil,
+              && !bent.curves.isDefault && AdjustSection.warper.isEdited(bent) && back == bent && odd?.isDefault == true && old?.warp == nil,
               "pixels differ \(differ), round trip \(back == bent), other size \(String(describing: odd?.isDefault)), old \(String(describing: old?.warp))")
     }
 

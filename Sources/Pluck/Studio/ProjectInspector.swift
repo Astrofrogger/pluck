@@ -62,9 +62,8 @@ struct ProjectInspector: View {
     var body: some View {
         VStack(spacing: 0) {
             InspectorTabBar(tabs: Tab.allCases, selection: $tab, symbol: \.symbol) { Text($0.title) }
-            Divider()
             Text(tab.title)
-                .font(.headline)
+                .font(Design.Studio.sectionTitle)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 14)
                 .padding(.top, 12)
@@ -81,7 +80,7 @@ struct ProjectInspector: View {
             }
             .frame(maxHeight: .infinity, alignment: .top)
         }
-        .background(.background.secondary)
+        // (The page draws the panel's grey around it.)
     }
 }
 
@@ -398,7 +397,7 @@ private struct ProjectClipPanel: View {
             }
             HStack {
                 Toggle("Lower under speech", isOn: Binding(get: { song.duck != nil }, set: { on in model.setMusic(song.id) { $0.duck = on ? -12 : nil } }))
-                    .toggleStyle(.switch)
+                    .toggleStyle(StudioSwitchStyle())
                     .controlSize(.small)
                     .help("The song drops while someone speaks in the clips, and comes back after")
                 Spacer()
@@ -502,6 +501,7 @@ private struct ProjectTextTab: View {
         VStack(spacing: 8) {
             Picker("Text", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
                 .pickerStyle(.segmented)
+                .tint(Design.Studio.line)
                 .labelsHidden()
                 .controlSize(.small)
                 .padding(.horizontal, 14)
@@ -534,6 +534,7 @@ private struct ProjectAITab: View {
         VStack(spacing: 8) {
             Picker("Local AI", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
                 .pickerStyle(.segmented)
+                .tint(Design.Studio.line)
                 .labelsHidden()
                 .controlSize(.small)
                 .padding(.horizontal, 14)
@@ -598,7 +599,7 @@ private struct ProjectStoryPanel: View {
                     Button("Transcribe \(missing.count) Files", systemImage: "waveform") {
                         ai.transcribeInBackground(manager.addLocalFiles(missing.map { URL(fileURLWithPath: $0) }))
                     }
-                    .buttonStyle(.link)
+                    .buttonStyle(StudioFlatButtonStyle())
                     .padding(.horizontal, 8)
                 }
                 TextField("About (optional): the new building…", text: $focus)
@@ -730,6 +731,7 @@ private struct ProjectTitlesPanel: View {
                             Text("Bottom").tag(0.85)
                         }
                         .pickerStyle(.segmented)
+                .tint(Design.Studio.line)
                         .labelsHidden()
                     }
                 }
@@ -796,7 +798,7 @@ private struct MotionTitleEditor: View {
                 }
                 Toggle("Background", isOn: Binding(get: { motion.style.plates != false },
                                                    set: { on in model.setMotion(item.id, record: true) { $0.style.plates = on ? nil : false } }))
-                    .toggleStyle(.switch)
+                    .toggleStyle(StudioSwitchStyle())
                     .labelsHidden()
                     .help("Off: just the words, see-through behind them")
             }
@@ -843,6 +845,7 @@ private struct ProjectExportPanel: View {
                     Label("Audio", systemImage: "waveform").tag(true)
                 }
                 .pickerStyle(.segmented)
+                .tint(Design.Studio.line)
                 .labelsHidden()
                 .padding(.horizontal, 8)
                 Picker("Part", selection: Binding(get: { shown }, set: { part = $0 })) {
@@ -851,6 +854,7 @@ private struct ProjectExportPanel: View {
                     Text("Each Clip").tag(Part.each)
                 }
                 .pickerStyle(.segmented)
+                .tint(Design.Studio.line)
                 .labelsHidden()
                 .padding(.horizontal, 8)
                 .help("The whole edit, only from the in to the out point (I and O), or each clip as a file of its own")
@@ -930,7 +934,7 @@ private struct ProjectSubtitlesPanel: View {
                 let missing = files.filter { !transcribed.contains($0) }
                 HStack {
                     Toggle("Show and burn in", isOn: Binding(get: { model.project.subtitlesOn == true }, set: { model.setSubtitles(on: $0) }))
-                        .toggleStyle(.switch)
+                        .toggleStyle(StudioSwitchStyle())
                         .controlSize(.small)
                     Spacer()
                     Button("Export…", systemImage: "square.and.arrow.down") {
@@ -949,7 +953,7 @@ private struct ProjectSubtitlesPanel: View {
                             Button("Transcribe Them", systemImage: "waveform") {
                                 ai.transcribeInBackground(manager.addLocalFiles(missing.map { URL(fileURLWithPath: $0) }))
                             }
-                            .buttonStyle(.link)
+                            .buttonStyle(StudioFlatButtonStyle())
                         }
                     }
                     .padding(.horizontal, 8)

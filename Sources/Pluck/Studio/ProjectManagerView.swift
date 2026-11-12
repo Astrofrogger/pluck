@@ -36,16 +36,21 @@ struct ProjectManagerView: View {
     }
 
     var body: some View {
+        // Two floating panels, as Library: the places, and the projects.
+        let panel = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
         HStack(spacing: 0) {
             if sidebarShown {
                 sidebar.frame(width: sidebarWidth)
+                    .background(Design.Studio.panel, in: panel)
+                    .clipShape(panel)
                 ResizeHandle(width: $sidebarWidth, range: Design.Sidebar.widthRange, edge: .leading)
             }
             VStack(spacing: 0) {
                 bar
-                Divider()
                 if listView { list } else { grid }
             }
+            .background(Design.Studio.panel, in: panel)
+            .clipShape(panel)
         }
         .background { shortcuts }
         .task(id: nav.projectsChanged) {
@@ -117,7 +122,7 @@ struct ProjectManagerView: View {
                 .padding(.bottom, 20)
             }
         }
-        .background(.background.secondary)
+        // (The page draws the panel's grey around it.)
     }
 
     private func count(_ place: ProjectStore.Place) -> Int { ProjectStore.shown(projects, in: place, recent: recentIDs).count }
@@ -225,51 +230,69 @@ struct ProjectManagerView: View {
                     .focused($searchFocused)
                     .onExitCommand { search = ""; searchFocused = false }
             }
+            .font(Design.Studio.body)
             .padding(.horizontal, 10)
             .frame(width: 220, height: 28)
-            .background(Capsule().fill(Color.primary.opacity(0.06)))
+            .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
             .help("Search (⌘F)")
             Spacer(minLength: 0)
-            Picker("Sort", selection: $sort) {
-                Text("Name").tag(ProjectStore.Sort.name)
-                Text("Changed").tag(ProjectStore.Sort.changed)
-                Text("Created").tag(ProjectStore.Sort.created)
-                Text("Length").tag(ProjectStore.Sort.length)
+            Menu {
+                Picker("Sort", selection: $sort) {
+                    Text("Name").tag(ProjectStore.Sort.name)
+                    Text("Changed").tag(ProjectStore.Sort.changed)
+                    Text("Created").tag(ProjectStore.Sort.created)
+                    Text("Length").tag(ProjectStore.Sort.length)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                StudioMenuLabel(title: sortTitle)
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
             .fixedSize()
             .help("Sort")
             .onChange(of: sort) { ascending = sort.ascendingFirst }
             if !listView {
-                Slider(value: $cardSize, in: 160...360)
-                    .controlSize(.small)
-                    .frame(width: 90)
-                    .help("Size")
-                    .accessibilityLabel("Size")
+                HStack(spacing: 6) {
+                    Image(systemName: "square").font(.system(size: 9))
+                    StudioSlider(value: $cardSize, range: 160...360).frame(width: 72)
+                    Image(systemName: "square").font(.system(size: 14))
+                }
+                .foregroundStyle(Design.Studio.textQuiet)
+                .help("Size")
+                .accessibilityLabel("Size")
             }
-            Picker("View", selection: $listView) {
-                Image(systemName: "square.grid.2x2").help("Grid").tag(false)
-                Image(systemName: "list.bullet").help("List").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            Button(action: openFiles) { Image(systemName: "doc") }
+            StudioSegmented(options: [(false, LocalizedStringKey("\(Image(systemName: "square.grid.2x2"))")),
+                                      (true, LocalizedStringKey("\(Image(systemName: "list.bullet"))"))],
+                            selection: $listView)
+                .help("Grid or list")
+            Button(action: openFiles) { Image(systemName: "doc").frame(width: 28, height: 28).contentShape(.rect) }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Design.Studio.textQuiet)
                 .help("Open…")
                 .accessibilityLabel("Open…")
             if place == .trash {
                 Button("Empty Trash") { search = ""; emptying = true }
+                    .buttonStyle(StudioFlatButtonStyle())
                     .disabled(shown.isEmpty)
             } else {
-                Button("New Project", systemImage: "plus") { newProject() }
-                    .buttonStyle(BrandButtonStyle(large: false))
+                Button { newProject() } label: { Label("New Project", systemImage: "plus") }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
         }
         .padding(.horizontal, Design.Spacing.inset)
         .frame(height: Design.Size.control)
+    }
+
+    private var sortTitle: String {
+        switch sort {
+        case .name: String(localized: "Name")
+        case .changed: String(localized: "Changed")
+        case .created: String(localized: "Created")
+        case .length: String(localized: "Length")
+        default: String(localized: "Sort")
+        }
     }
 
     private func newProject() {

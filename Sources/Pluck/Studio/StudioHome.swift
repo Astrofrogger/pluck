@@ -1,43 +1,67 @@
 import AVFoundation
 import SwiftUI
 
-/// The small title over each part of Home.
-private struct HomeHeading: View {
-    let title: LocalizedStringKey
+// Pluck Studio's Home, as in page 1 of the 2026-11-12 layout reference: Continue, New from
+// subscriptions, Downloading. (The paste field is in ContentView.)
 
-    var body: some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .textCase(.uppercase)
-            .foregroundStyle(.secondary)
-    }
-}
-
-/// A panel on Home: a small title, and rows under it.
-private struct HomeCard<Content: View, Trailing: View>: View {
+/// A part of Home: its title, and something small on the right.
+private struct HomeSection<Trailing: View, Content: View>: View {
     let title: LocalizedStringKey
     @ViewBuilder var trailing: Trailing
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                HomeHeading(title: title)
-                Spacer()
-                trailing
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Spacer(minLength: 8)
+                trailing.font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
             content
         }
-        .padding(16)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 
-// MARK: - Continue editing
+/// A small dark label on a picture: "Project", "12:04".
+private struct PictureChip: View {
+    let text: String
 
-/// Home's files edited lately, as big cards: click one to carry on where you left off.
+    var body: some View {
+        Text(verbatim: text)
+            .font(Design.Studio.hint.monospacedDigit())
+            .foregroundStyle(Design.Studio.text)
+            .padding(.horizontal, 6)
+            .frame(height: 18)
+            .background(Color(red: 15 / 255, green: 15 / 255, blue: 17 / 255).opacity(0.72), in: .rect(cornerRadius: 5, style: .continuous))
+    }
+}
+
+/// A 16:9 picture with Studio's corners and the plum outline under the pointer.
+private struct HomePicture<Picture: View>: View {
+    let hovering: Bool
+    @ViewBuilder var picture: Picture
+
+    var body: some View {
+        Color.clear
+            .aspectRatio(16 / 9, contentMode: .fit)
+            .overlay { picture }
+            .background(Design.Studio.raised)
+            .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            // Calm hover: a plum outline just outside the picture, nothing moves.
+            .overlay {
+                RoundedRectangle(cornerRadius: Design.Studio.controlRadius + 3, style: .continuous)
+                    .strokeBorder(Design.Brand.gradient, lineWidth: 2)
+                    .padding(-3)
+                    .opacity(hovering ? 1 : 0)
+            }
+            .animation(.snappy(duration: 0.18), value: hovering)
+    }
+}
+
+// MARK: - Continue
+
+/// Files and projects edited lately: click one to carry on where you left off.
 struct ContinueEditing: View {
     @State private var nav = StudioNavigator.shared
 
@@ -51,9 +75,10 @@ struct ContinueEditing: View {
 
     var body: some View {
         if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                HomeHeading(title: "Continue Editing")
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 4), alignment: .leading, spacing: 16) {
+            HomeSection(title: "Continue") {
+                Button("All projects") { nav.show(.edit) }.buttonStyle(.plain)
+            } content: {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 4), alignment: .leading, spacing: 18) {
                     ForEach(items.prefix(4), id: \.self) { key in
                         if let id = StudioNavigator.projectID(in: key), let project = ProjectStore.load(id) {
                             EditCard(file: project.clips.first?.file, project: project, edited: nav.recentDates[key]) { nav.open(project) }
@@ -80,68 +105,32 @@ private struct EditCard: View {
     var project: Project?
     let edited: Date?
     let open: () -> Void
-    @State private var length: Double?
     @State private var hovering = false
+
+    private var kind: String {
+        if project != nil { return String(localized: "Project") }
+        guard let file else { return "" }
+        return Converting.isVideo(file) ? String(localized: "Video") : String(localized: "Audio")
+    }
 
     var body: some View {
         Button(action: open) {
-            VStack(alignment: .leading, spacing: 6) {
-                Color.clear
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .overlay {
-                        if let file { FileThumbnail(file: file, audio: !Converting.isVideo(file)) } else { Color.primary.opacity(0.08) }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        if project != nil {
-                            Label("Project", systemImage: "rectangle.stack")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 6).padding(.vertical, 3)
-                                .background(Capsule().fill(Design.Brand.gradient))
-                                .foregroundStyle(.white)
-                                .padding(6)
-                        }
-                    }
-                    .overlay(alignment: .bottomTrailing) {
-                        if let length {
-                            Text(Format.duration(length))
-                                .font(.caption2.monospacedDigit().weight(.semibold))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(.black.opacity(0.65), in: .rect(cornerRadius: 4))
-                                .foregroundStyle(.white)
-                                .padding(6)
-                        }
-                    }
-                    .overlay {
-                        // Under the pointer: dimmed a little, with a play button.
-                        ZStack {
-                            Color.black.opacity(0.25)
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 44, height: 44)
-                                .background(Circle().fill(Design.Brand.gradient))
-                                .shadow(color: .black.opacity(0.3), radius: 6, y: 2)
-                        }
-                        .opacity(hovering ? 1 : 0)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: Design.Radius.box, style: .continuous)
-                            .strokeBorder(Design.Brand.gradient, lineWidth: 2)
-                            .opacity(hovering ? 1 : 0)
-                    }
-                    .shadow(color: .black.opacity(hovering ? 0.35 : 0.15), radius: hovering ? 14 : 6, y: hovering ? 8 : 3)
-                    .scaleEffect(hovering ? 1.03 : 1)
-                    .animation(.snappy(duration: 0.18), value: hovering)
-                Text(project?.name ?? file?.deletingPathExtension().lastPathComponent ?? "")
-                    .font(.callout.weight(.medium))
-                    .lineLimit(1)
-                if let edited {
-                    Text("Edited \(edited, format: .relative(presentation: .named))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 9) {
+                HomePicture(hovering: hovering) {
+                    if let file { FileThumbnail(file: file, audio: !Converting.isVideo(file)) }
+                }
+                .overlay(alignment: .bottomLeading) { PictureChip(text: kind).padding(8) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(project?.name ?? file?.deletingPathExtension().lastPathComponent ?? "")
+                        .font(Design.Studio.body)
+                        .foregroundStyle(Design.Studio.text)
                         .lineLimit(1)
+                    if let edited {
+                        Text("Edited \(edited, format: .relative(presentation: .named))")
+                            .font(Design.Studio.hint)
+                            .foregroundStyle(Design.Studio.textQuiet)
+                            .lineLimit(1)
+                    }
                 }
             }
             .contentShape(.rect)
@@ -149,110 +138,147 @@ private struct EditCard: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(project?.name ?? file?.lastPathComponent ?? "")
-        .task(id: file) {
-            if let project { length = project.duration; return }
-            if let file, let seconds = try? await AVURLAsset(url: file).load(.duration).seconds, seconds.isFinite, seconds > 0 {
-                length = seconds
-            }
-        }
     }
 }
 
-// MARK: - Subscriptions and downloads
+// MARK: - New from subscriptions and Downloading
 
-/// Home's two panels: what's new from subscriptions, and the downloads.
+/// Home's bottom row: what subscriptions brought in lately (left), and the downloads (right).
 struct HomeActivity: View {
     @Binding var allDownloads: Bool
     @Environment(DownloadManager.self) private var manager
     @State private var subscriptions = Subscriptions.shared
+    @State private var library = LibraryStore.shared
     @State private var nav = StudioNavigator.shared
 
-    private var followed: [Subscription] {
-        subscriptions.list.sorted { ($0.lastFound ?? $0.added) > ($1.lastFound ?? $1.added) }
+    /// The newest saved videos that came from a subscription, with the subscription.
+    private var fresh: [(entry: LibraryStore.Entry, subscription: Subscription)] {
+        var found: [(entry: LibraryStore.Entry, subscription: Subscription)] = []
+        for subscription in subscriptions.list {
+            let downloaded = Set(subscription.downloaded)
+            for entry in library.entries where entry.source.map({ downloaded.contains(Links.identity($0)) }) ?? false {
+                found.append((entry, subscription))
+            }
+        }
+        return Array(found.sorted { $0.entry.added > $1.entry.added }.prefix(6))
     }
 
     var body: some View {
-        if !followed.isEmpty || !manager.items.isEmpty {
-            HStack(alignment: .top, spacing: 16) {
-                if !followed.isEmpty {
-                    HomeCard(title: "New from Your Subscriptions") {
-                        EmptyView()
+        let fresh = fresh
+        if !fresh.isEmpty || !manager.items.isEmpty {
+            HStack(alignment: .top, spacing: 32) {
+                if !fresh.isEmpty {
+                    HomeSection(title: "New from subscriptions") {
+                        Text("\(fresh.count) new")
                     } content: {
-                        ForEach(followed.prefix(5)) { subscription in
-                            subscriptionRow(subscription)
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), alignment: .leading, spacing: 14) {
+                            ForEach(fresh, id: \.entry.id) { pair in
+                                HomeVideoCard(entry: pair.entry, channel: pair.subscription.title) {
+                                    nav.showLibrary(.subscription(pair.subscription.id, pair.subscription.title))
+                                }
+                            }
                         }
                     }
                 }
                 if !manager.items.isEmpty {
-                    HomeCard(title: "Downloads") {
-                        Button(allDownloads ? "Show Less" : "See All") { withAnimation(.snappy) { allDownloads.toggle() } }
-                            .buttonStyle(.plain)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                    } content: {
-                        ForEach(manager.items.prefix(5)) { item in
-                            DownloadLine(item: item)
-                        }
-                    }
+                    downloading.frame(width: fresh.isEmpty ? nil : 360)
                 }
             }
         }
     }
 
-    private func subscriptionRow(_ subscription: Subscription) -> some View {
-        let fresh = subscription.lastFound.map { Date.now.timeIntervalSince($0) < 3 * 86_400 } ?? false
-        return Button {
-            nav.showLibrary(.subscription(subscription.id, subscription.title))
-        } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(fresh ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.secondary.opacity(0.4)))
-                    .frame(width: 7, height: 7)
-                Text(subscription.title).lineLimit(1)
-                Spacer(minLength: 8)
-                if subscriptions.checking.contains(subscription.id) {
-                    ProgressView().controlSize(.mini)
-                } else if let found = subscription.lastFound {
-                    Text(found, format: .relative(presentation: .named))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+    private var downloading: some View {
+        let active = manager.items.filter(\.isActive)
+        return HomeSection(title: "Downloading") {
+            HStack(spacing: 14) {
+                if manager.hasFinished {
+                    Button("Clear finished") { withAnimation { manager.clearFinished() } }.buttonStyle(.plain)
+                }
+                if manager.items.count > 4 {
+                    Button(allDownloads ? "Show less" : "See all") { withAnimation(.snappy) { allDownloads.toggle() } }.buttonStyle(.plain)
+                }
+                if !active.isEmpty {
+                    Button("Pause all") { for item in active { manager.pause(item) } }.buttonStyle(.plain)
                 }
             }
-            .font(.callout)
-            .frame(minHeight: 22)
+        } content: {
+            VStack(spacing: 0) {
+                ForEach(Array(manager.items.prefix(4).enumerated()), id: \.element.id) { index, item in
+                    DownloadLine(item: item)
+                    if index < min(manager.items.count, 4) - 1 {
+                        Rectangle().fill(Design.rgb(0x1F1F23)).frame(height: 1)
+                    }
+                }
+            }
+            .padding(.horizontal, Design.Studio.panelInset)
+            .padding(.vertical, 6)
+            .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
+        }
+    }
+}
+
+/// A video a subscription brought in: picture with its length, name, the subscription.
+private struct HomeVideoCard: View {
+    let entry: LibraryStore.Entry
+    let channel: String
+    let open: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: open) {
+            VStack(alignment: .leading, spacing: 7) {
+                HomePicture(hovering: hovering) {
+                    AsyncImage(url: entry.thumbnail) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                }
+                .overlay(alignment: .bottomTrailing) {
+                    if let duration = entry.duration, duration > 0 { PictureChip(text: Format.duration(duration)).padding(6) }
+                }
+                Text(entry.title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                Text(verbatim: channel).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).padding(.top, -4)
+            }
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
         .help("Show in the Library")
     }
 }
 
-/// One download on Home, in a line: how far it is, or that it's done.
+/// One download: picture, name, how far it is, and a thin bar.
 private struct DownloadLine: View {
     let item: DownloadItem
     @Environment(DownloadManager.self) private var manager
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Text(item.title).lineLimit(1)
-                Spacer(minLength: 8)
-                trailing
-            }
-            .font(.callout)
-            if item.isActive {
-                // A slim bar in Pluck's colours.
+        HStack(spacing: 12) {
+            Color.clear
+                .frame(width: 56, height: 32)
+                .overlay {
+                    AsyncImage(url: item.thumbnail) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                }
+                .background(Design.Studio.raised)
+                .clipShape(.rect(cornerRadius: 5, style: .continuous))
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Text(item.title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                    Spacer(minLength: 8)
+                    state
+                }
                 GeometryReader { geometry in
-                    Capsule().fill(Color.primary.opacity(0.08))
+                    Capsule().fill(Design.Studio.line)
                         .overlay(alignment: .leading) {
-                            Capsule().fill(Design.Brand.gradient).frame(width: geometry.size.width * max(item.progress, 0.02))
+                            Capsule().fill(Design.Brand.gradient).frame(width: geometry.size.width * shownProgress)
                         }
                 }
-                .frame(height: 4)
+                .frame(height: Design.Studio.sliderTrack)
                 .animation(.smooth, value: item.progress)
             }
         }
-        .frame(minHeight: 22)
+        .frame(height: 56)
         .contentShape(.rect)
         .onTapGesture {
             if let file = item.existingFile, EditorTarget.canOpen(file) { StudioNavigator.shared.open(EditorTarget(path: file.path)) }
@@ -260,22 +286,38 @@ private struct DownloadLine: View {
         .help(item.existingFile != nil ? Text("Open in the Editor") : Text(item.title))
     }
 
-    @ViewBuilder private var trailing: some View {
+    private var shownProgress: Double {
         switch item.state {
-        case .failed:
-            Button("Retry") { manager.retry(item) }
-                .buttonStyle(.plain)
-                .foregroundStyle(.orange)
-        case .finished:
-            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .paused:
-            Image(systemName: "pause.circle").foregroundStyle(.secondary)
-        case .cancelled:
-            Image(systemName: "xmark.circle").foregroundStyle(.secondary)
-        default:
-            Text(item.progress, format: .percent.precision(.fractionLength(0)))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+        case .finished: 1
+        case .queued: 0
+        default: max(item.progress, 0)
         }
+    }
+
+    @ViewBuilder private var state: some View {
+        Group {
+            switch item.state {
+            case .failed:
+                Button("Retry") { manager.retry(item) }.buttonStyle(.plain).foregroundStyle(.orange)
+            case .finished:
+                Text("Done")
+            case .paused:
+                Text("Paused")
+            case .cancelled:
+                Text("Stopped")
+            case .queued:
+                Text("Waiting")
+            default:
+                if let eta = item.eta, eta > 0 {
+                    Text("\(item.progress, format: .percent.precision(.fractionLength(0))) · \(Format.duration(eta))")
+                } else {
+                    Text(item.progress, format: .percent.precision(.fractionLength(0)))
+                }
+            }
+        }
+        .font(Design.Studio.hint.monospacedDigit())
+        .foregroundStyle(Design.Studio.textQuiet)
+        .lineLimit(1)
+        .fixedSize()
     }
 }

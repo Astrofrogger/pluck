@@ -33,6 +33,11 @@ struct ContentView: View {
     @State private var lastAutofilled: String?
     @State private var isTargeted = false
     @FocusState private var fieldFocused: Bool
+    #if STUDIO
+    /// Home's search (title bar): it opens the Library with the words.
+    @State private var homeSearch = ""
+    @FocusState private var homeSearchFocused: Bool
+    #endif
 
     private var trimmed: String { urlText.trimmingCharacters(in: .whitespacesAndNewlines) }
     /// Several links pasted at once (one per line, or separated by spaces) download together.
@@ -91,8 +96,8 @@ struct ContentView: View {
             #endif
         }
         .frame(minWidth: 560, minHeight: 400)
-        .navigationTitle("Pluck")
-        .navigationSubtitle(subtitle)
+        .navigationTitle(Edition.isStudio ? "" : "Pluck")
+        .navigationSubtitle(Edition.isStudio ? "" : subtitle)
         .toolbar { toolbarContent }
         .overlay { if isTargeted { dropHighlight } }
         .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
@@ -269,23 +274,16 @@ struct ContentView: View {
     private var studioHome: some View {
         GeometryReader { geometry in
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+            VStack(alignment: .leading, spacing: 40) {
+                // One big place to paste or drop (layout reference, page 1).
                 VStack(spacing: 14) {
-                    Text("What are we working on?")
-                        .font(.system(size: 30, weight: .bold))
-                        .foregroundStyle(LinearGradient(colors: [.primary, .primary.opacity(0.75)], startPoint: .top, endPoint: .bottom))
-                        .overlay(alignment: .bottom) {
-                            Capsule().fill(Design.Brand.gradient).frame(width: 56, height: 4).offset(y: 12)
-                        }
-                        .padding(.bottom, 10)
-                    inputBar
+                    studioDropZone
                     if clipping {
                         clipBar.transition(.move(edge: .top).combined(with: .opacity))
                     }
                 }
-                .frame(maxWidth: 680)
                 .frame(maxWidth: .infinity)
-                .padding(.top, homeIsEmpty ? 0 : 40)
+                .padding(.top, homeIsEmpty ? 0 : 64)
 
                 ContinueEditing()
                 HomeActivity(allDownloads: $allDownloads)
@@ -305,13 +303,84 @@ struct ContentView: View {
             }
             .padding(.horizontal, 32)
             .padding(.bottom, 32)
-            .frame(maxWidth: 1080)
+            .frame(maxWidth: 1040 + 64)
             .frame(maxWidth: .infinity)
             // Nothing yet (a fresh Pluck): the start sits in the middle of the page.
             .frame(minHeight: geometry.size.height - (homeIsEmpty ? 60 : 0), alignment: homeIsEmpty ? .center : .top)
         }
         .scrollContentBackground(.hidden)
         }
+    }
+
+    /// The paste field (owner's pick "A", 2026-11-12): one slim field with the link icon, the format and
+    /// Open… inside it; with a link in it, the clip button and Download instead of Open….
+    private var studioDropZone: some View {
+        let field = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+        let filled = !urlText.isEmpty
+        return HStack(spacing: 12) {
+            Image(systemName: "link")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(filled ? Design.Brand.pink : Design.Studio.textQuiet)
+                .accessibilityHidden(true)
+            TextField("Paste a link or drop files", text: $urlText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 15))
+                .focused($fieldFocused)
+                .onSubmit(submit)
+            if isMultiple {
+                Text("\(fieldLinks.count) links").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            FormatMenu(inBar: true, studio: true)
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { clipping.toggle() }
+            } label: {
+                Image(systemName: "scissors")
+                    .foregroundStyle(clipping ? Design.Brand.pink : Design.Studio.textQuiet)
+                    .frame(width: 32, height: 32)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .disabled(isMultiple)
+            .accessibilityLabel(clipping ? "Download Whole Video" : "Download a Clip")
+            .help(clipping ? "Download the whole video" : "Download only part of the video")
+            if filled {
+                Button(action: submit) {
+                    Text(isSearch ? "Search" : "Download")
+                        .font(Design.Studio.body)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .frame(height: 32)
+                        .background(Design.Brand.deep, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                }
+                .buttonStyle(.plain)
+                .disabled(!(isValid || isSearch) || (clipping && clip == nil))
+                .keyboardShortcut(.defaultAction)
+                .help(isSearch ? String(localized: "Search YouTube") : String(localized: "Download"))
+            } else {
+                Rectangle().fill(Design.Studio.line).frame(width: 1, height: 18)
+                Button { openFilesToEdit() } label: {
+                    Text("Open…").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                        .padding(.horizontal, 10).frame(height: 32).contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Open files to edit")
+            }
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .frame(height: 48)
+        .background(Design.Studio.backdrop, in: field)
+        .overlay(field.strokeBorder(filled ? Design.Brand.deep : LinearGradient(colors: [Design.Studio.line], startPoint: .top, endPoint: .bottom), lineWidth: 1))
+        .animation(.snappy(duration: 0.2), value: filled)
+    }
+
+    /// Open…: files picked to edit open on the Edit page.
+    private func openFilesToEdit() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        guard panel.runModal() == .OK else { return }
+        for url in panel.urls where EditorTarget.canOpen(url) { StudioNavigator.shared.open(EditorTarget(path: url.path)) }
     }
 
     /// Nothing to show under the field yet: no files edited, no downloads, no subscriptions.
@@ -653,6 +722,31 @@ struct ContentView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        #if STUDIO
+        ToolbarItem(placement: .principal) {
+            StudioSearchField(text: $homeSearch, prompt: "Search everything", key: "⌘K", focused: $homeSearchFocused)
+                .onSubmit {
+                    LibraryView.startSearch = homeSearch
+                    homeSearch = ""
+                    StudioNavigator.shared.show(.library)
+                }
+                .background {
+                    Button("") { homeSearchFocused = true }.keyboardShortcut("k").opacity(0).accessibilityHidden(true)
+                }
+        }.studioFlat()
+        ToolbarItem {
+            Button {
+                NSWorkspace.shared.open(URL(fileURLWithPath: downloadPath))
+            } label: {
+                Label("Show Downloads Folder", systemImage: "arrow.down.to.line")
+            }
+            .help("Open \((downloadPath as NSString).abbreviatingWithTildeInPath)")
+        }.studioFlat()
+        ToolbarItem {
+            Button { openSettings() } label: { Label("Settings", systemImage: "slider.horizontal.3") }
+                .help("Settings (⌘,)")
+        }.studioFlat()
+        #else
         ToolbarItemGroup(placement: .primaryAction) {
             Button {
                 NSWorkspace.shared.open(URL(fileURLWithPath: downloadPath))
@@ -684,7 +778,8 @@ struct ContentView: View {
             }
             .help("Settings (⌘,)")
             #endif
-        }
+        }.studioFlat()
+        #endif
     }
 }
 

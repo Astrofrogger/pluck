@@ -11,38 +11,44 @@ struct EditSidePanel: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // As in the reference: the tabs, then + to add media. Moving or hiding the panel: right-click,
+            // or ⌥⌘P and ⌥⌘L.
             HStack(spacing: 4) {
                 InspectorTabBar(tabs: EditLibraryTab.allCases, selection: $tab, symbol: \.symbol) { Text($0.title) }
-                Menu {
-                    Picker("Panel", selection: $position) {
-                        ForEach(EditPanelPosition.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    Image(systemName: position.next.symbol)
-                } primaryAction: {
-                    withAnimation(.snappy) { position = position.next }
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .help("Move the panel: bottom, top or full height (⌥⌘P). Hold for the list.")
-                Button {
-                    withAnimation(.snappy) { shown = false }
-                } label: {
-                    Image(systemName: "xmark")
+                Button(action: addMedia) {
+                    Image(systemName: "plus").font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Design.Studio.textQuiet)
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help("Hide the panel (⌥⌘L)")
-                .padding(.trailing, Design.Sidebar.rowPadding)
+                .help("Add media")
+                .padding(.trailing, 6)
             }
-            .frame(height: Design.Size.control)
-            Divider()
+            .frame(height: 44)
+            .contextMenu {
+                Picker("Panel", selection: $position) {
+                    ForEach(EditPanelPosition.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+                }
+                .pickerStyle(.inline)
+                Divider()
+                Button("Hide the Panel (⌥⌘L)") { withAnimation(.snappy) { shown = false } }
+            }
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
-        .background(.background.secondary)
+        // (The page draws the panel's grey around it.)
+    }
+
+    private func addMedia() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.movie, .audio]
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Add")
+        guard panel.runModal() == .OK else { return }
+        let files = panel.urls
+        Task { await model.add(files) }
+        AppDelegate.shared?.ai.imported(files)
     }
 
     @ViewBuilder private var content: some View {

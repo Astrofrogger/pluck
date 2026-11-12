@@ -297,7 +297,9 @@ struct SidebarRow<Trailing: View>: View {
         .padding(.trailing, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.rowHeight)
         .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-            .fill(selected ? Design.Brand.chosenFill : AnyShapeStyle(hovering ? Color.primary.opacity(0.06) : .clear)))
+            // Studio: the raised grey of the reference, plum is for the work itself.
+            .fill(selected ? (Edition.isStudio ? AnyShapeStyle(Design.Studio.raised) : Design.Brand.chosenFill)
+                           : AnyShapeStyle(hovering ? (Edition.isStudio ? Design.Studio.raised.opacity(0.6) : Color.primary.opacity(0.06)) : .clear)))
         .contentShape(.rect)
         .onHover { hovering = $0 }
     }

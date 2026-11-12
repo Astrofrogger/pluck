@@ -449,11 +449,9 @@ struct OffloadPhoneView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            Toggle("Show on My Phone", isOn: Binding(get: { phone.on }, set: { phone.on = $0 }))
-                .toggleStyle(.switch)
-                .font(.headline)
+            StudioSwitchRow(title: "Show on My Phone", isOn: Binding(get: { phone.on }, set: { phone.on = $0 }))
             if let problem = phone.problem {
-                ProblemLabel(text: problem)
+                OffloadNote(symbol: "exclamationmark.triangle", text: Text(problem), colour: Design.Studio.warn)
             }
             if phone.on {
                 if let link = phone.link, let qr = LibrarySharingView.qrCode(link.absoluteString) {
@@ -467,16 +465,16 @@ struct OffloadPhoneView: View {
                         .accessibilityLabel("QR code for the phone page")
                     HStack(spacing: 6) {
                         Text(link.absoluteString)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                            .font(Design.Studio.hint.monospaced())
+                            .foregroundStyle(Design.Studio.textQuiet)
                             .lineLimit(1)
                             .truncationMode(.middle)
                             .textSelection(.enabled)
                         Button {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.setString(link.absoluteString, forType: .string)
-                        } label: { Image(systemName: "doc.on.doc") }
-                            .buttonStyle(.borderless)
+                        } label: { Image(systemName: "doc.on.doc").foregroundStyle(Design.Studio.textQuiet) }
+                            .buttonStyle(.plain)
                             .help("Copy Link")
                     }
                 } else if phone.port != nil {

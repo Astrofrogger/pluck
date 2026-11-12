@@ -197,6 +197,7 @@ struct DerushView: View {
     @State private var session = DerushView.shared
     @State private var selection: URL?
     @State private var search = ""
+    @State private var tab = Tab.shots
     @AppStorage("derushTranscribe") private var transcribe = true
     @AppStorage("derushPicture") private var lookAtPicture = true
     @AppStorage("derushKind") private var kind: ShootPlan.Kind = .corporate
@@ -206,6 +207,8 @@ struct DerushView: View {
     @State private var status: String?
     @State private var dropTargeted = false
 
+    private enum Tab: Hashable { case shots, highlights, markers, transcript }
+
     /// One for the app, so analysis keeps going when the window closes.
     @MainActor static let shared = DerushSession()
 
@@ -213,75 +216,12 @@ struct DerushView: View {
     private var done: [DerushSession.Clip] { session.clips.filter { $0.state == .done } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            VStack(alignment: .leading, spacing: 12) {
-                GlassGroup(spacing: Design.Spacing.controls) {
-                    HStack(spacing: Design.Spacing.controls) {
-                        BarPicker(symbol: "film", label: Text("Video"), selection: $kind, current: Text(kind.label)) {
-                            ForEach(ShootPlan.Kind.allCases) { Text($0.label).tag($0) }
-                        }
-                        .help("The selects are picked for this kind of video. Changing it re-picks straight away, without analysing again.")
-                        Button("Add Files…") { pick(folders: false) }
-                            .buttonStyle(GlassCapsuleButtonStyle())
-                        Button("Add Folder…") { pick(folders: true) }
-                            .buttonStyle(GlassCapsuleButtonStyle())
-                        if !session.clips.isEmpty, !session.running {
-                            RowButton(symbol: "trash", label: "Clear") { session.clear(); selection = nil }
-                        }
-                        Spacer()
-                        if session.running {
-                            Button(action: session.stop) { Label("Stop", systemImage: "stop.fill") }
-                                .buttonStyle(BarCapsuleButtonStyle(tint: .red))
-                        } else {
-                            Button { session.start(language: transcribe ? language : nil, lookAtPicture: lookAtPicture, kind: kind) } label: { Label("Analyse", systemImage: "waveform.badge.magnifyingglass") }
-                                .buttonStyle(BarCapsuleButtonStyle())
-                                .disabled(!session.clips.contains { $0.state != .done })
-                        }
-                    }
-                }
-                HStack(spacing: 16) {
-                    Toggle("Look at the picture", isOn: $lookAtPicture)
-                        .help("Judges every shot for focus, light, shake, faces, action and its look. Slower than listening only.")
-                    if LocalAI.canTranscribe {
-                        Toggle("Transcribe", isOn: $transcribe)
-                        if transcribe {
-                            Picker("Spoken language", selection: $language) {
-                                ForEach(languages, id: \.identifier) { locale in
-                                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(Optional(locale))
-                                }
-                            }
-                            .labelsHidden()
-                            .fixedSize()
-                        }
-                    }
-                    Spacer()
-                }
-                .toggleStyle(.switch)
-                .controlSize(.small)
-                .font(.callout)
-                .padding(.horizontal, 4)
-                .disabled(session.running)
-            }
-            if session.clips.isEmpty {
-                ScrollView {
-                    VStack(spacing: Design.Spacing.section) {
-                        ToolWelcome(symbol: "film.stack", title: Text("Derush Footage"),
-                                    subtitle: Text("Pluck goes through your raw footage: every shot for focus, light, faces, action and its look, plus cheers, music and the most quotable lines. Then it looks at the whole shoot and picks selects for the kind of video you’re making."))
-                        DropZone(symbol: "film.stack", text: Text("Drop clips or a folder here, or use Add Folder…"), targeted: dropTargeted)
-                    }
-                    .frame(maxWidth: 680)
-                    .frame(maxWidth: .infinity)
-                }
-            } else {
-                HStack(alignment: .top, spacing: Design.Spacing.section) {
-                    Pane { clipList }.frame(minWidth: 300, idealWidth: 340, maxWidth: 420)
-                    Pane { detail }.frame(minWidth: 380)
-                }
-            }
-            footer
+        HStack(spacing: Design.Studio.panelGap) {
+            clipPanel
+            detailPanel
         }
-        .padding(Design.Spacing.window)
-        .frame(minWidth: 900, minHeight: 620)
+        .font(Design.Studio.body)
+        .foregroundStyle(Design.Studio.text)
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
             Task {
                 var urls: [URL] = []
@@ -301,6 +241,27 @@ struct DerushView: View {
             if ready { session.buildWhenReady = false; build() }
         }
         .sheet(isPresented: $showingOverview) { overviewSheet }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                HStack(spacing: 8) {
+                    if session.planning {
+                        PlumSpinner()
+                        Text("Looking at the whole shoot…").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    } else if let plan = session.plan {
+                        Button { showingOverview = true } label: {
+                            Text("Shoot overview · ^[\(plan.picks.count) pick](inflect: true)")
+                        }
+                        .buttonStyle(StudioFlatButtonStyle())
+                    }
+                    Button(action: build) {
+                        Label("Build in DaVinci", systemImage: "film")
+                            .labelStyle(.titleAndIcon)
+                    }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .disabled(done.isEmpty || session.running || !Resolve.isInstalled)
+                }
+            }.studioFlat()
+        }
         .task {
             session.manager = LibraryServer.shared.manager
             guard LocalAI.canTranscribe, #available(macOS 26, *) else { return }
@@ -310,32 +271,159 @@ struct DerushView: View {
         }
     }
 
+    // MARK: - Clips (left)
+
+    private var clipPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 4) {
+                Text("Derush").font(Design.Studio.pageTitle)
+                Spacer()
+                Menu {
+                    Button("Add Files…") { pick(folders: false) }
+                    Button("Add Folder…") { pick(folders: true) }
+                } label: {
+                    IconLabel(symbol: "plus")
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help("Add clips")
+                .accessibilityLabel(Text("Add clips"))
+                Button { session.clear(); selection = nil } label: { IconLabel(symbol: "trash") }
+                    .buttonStyle(.plain)
+                    .disabled(session.clips.isEmpty || session.running)
+                    .help("Clear")
+                    .accessibilityLabel(Text("Clear"))
+            }
+            .padding(.horizontal, 6)
+            Menu {
+                Picker("Video", selection: $kind) {
+                    ForEach(ShootPlan.Kind.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                QuietMenuLabel(symbol: "film", title: kind.label)
+            }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .padding(.horizontal, 2)
+            .help("The selects are picked for this kind of video. Changing it re-picks straight away, without analysing again.")
+            clipList
+            VStack(alignment: .leading, spacing: 2) {
+                StudioSwitchRow(title: "Look at the picture", isOn: $lookAtPicture)
+                    .help("Judges every shot for focus, light, shake, faces, action and its look. Slower than listening only.")
+                if LocalAI.canTranscribe {
+                    HStack(spacing: 0) {
+                        StudioSwitchRow(title: "Transcribe", isOn: $transcribe)
+                        Spacer()
+                        if transcribe { languageMenu }
+                    }
+                }
+            }
+            .padding(.horizontal, 6)
+            .disabled(session.running)
+            if let status {
+                Text(status).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
+                    .padding(.horizontal, 6)
+            }
+            if session.running {
+                VStack(spacing: 10) {
+                    HStack(spacing: 8) {
+                        PlumSpinner()
+                        Text("\(done.count) of \(session.clips.count) clips").monospacedDigit()
+                        Spacer()
+                        Button(action: session.stop) {
+                            Label("Stop", systemImage: "stop").labelStyle(.titleAndIcon)
+                        }
+                        .buttonStyle(StudioFlatButtonStyle())
+                    }
+                    StudioProgress(share: (Double(done.count) + (session.pictureProgress ?? 0)) / Double(max(session.clips.count, 1)))
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .studioBox()
+            } else {
+                Button { session.start(language: transcribe ? language : nil, lookAtPicture: lookAtPicture, kind: kind) } label: {
+                    Label("Analyse", systemImage: "waveform.badge.magnifyingglass").labelStyle(.titleAndIcon)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                .disabled(!session.clips.contains { $0.state != .done })
+                StudioFootnote(text: "Runs on this Mac. Nothing is uploaded.")
+            }
+        }
+        .padding(.top, 20)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 16)
+        .frame(width: 340)
+        .frame(maxHeight: .infinity)
+        .studioPanel()
+    }
+
+    private var languageMenu: some View {
+        Menu {
+            Picker("Spoken language", selection: $language) {
+                ForEach(languages, id: \.identifier) { locale in
+                    Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(Optional(locale))
+                }
+            }
+            .pickerStyle(.inline)
+        } label: {
+            QuietMenuLabel(title: language.flatMap { Locale.current.localizedString(forIdentifier: $0.identifier) } ?? "")
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text("Spoken language"))
+    }
+
     private var clipList: some View {
-        List(selection: $selection) {
-            ForEach(session.clips) { clip in
-                HStack(spacing: 8) {
-                    switch clip.state {
-                    case .waiting: Image(systemName: "circle.dotted").foregroundStyle(.tertiary)
-                    case .working: ProgressView().controlSize(.small)
-                    case .done: Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                    }
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(clip.file.lastPathComponent).lineLimit(1).truncationMode(.middle)
-                        Text(summary(clip)).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                .tag(clip.file)
-                .contextMenu {
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clip.file]) }
-                    Button("Remove") { session.remove(clip.file) }.disabled(session.running)
+        ScrollView {
+            LazyVStack(spacing: 2) {
+                ForEach(session.clips) { clip in
+                    Button { selection = clip.file } label: { clipRow(clip) }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(clip.file == selection ? .isSelected : [])
+                        .contextMenu {
+                            Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clip.file]) }
+                            Button("Remove") { session.remove(clip.file) }.disabled(session.running)
+                        }
                 }
             }
         }
+        .frame(maxHeight: .infinity, alignment: .top)
         .overlay {
-            if dropTargeted {
-                RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
+            if dropTargeted, !session.clips.isEmpty {
+                RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Design.Brand.pink, lineWidth: 2)
             }
         }
+    }
+
+    private func clipRow(_ clip: DerushSession.Clip) -> some View {
+        HStack(spacing: 10) {
+            Group {
+                switch clip.state {
+                case .waiting: Image(systemName: "circle.dotted").foregroundStyle(Design.Studio.textFaint)
+                case .working: PlumSpinner()
+                case .done: Image(systemName: "checkmark").foregroundStyle(Design.Studio.good)
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .frame(width: 14)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(clip.file.lastPathComponent).lineLimit(1).truncationMode(.middle)
+                Text(summary(clip)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit().lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 44)
+        .background(clip.file == selection ? Design.Studio.raised : .clear, in: .rect(cornerRadius: 8, style: .continuous))
+        .contentShape(.rect)
     }
 
     private func summary(_ clip: DerushSession.Clip) -> String {
@@ -352,123 +440,200 @@ struct DerushView: View {
         }
     }
 
-    @ViewBuilder private var detail: some View {
-        VStack(spacing: 0) {
-            PaneSearchField(prompt: "Find what was said in all clips", text: $search)
-            List {
+    // MARK: - The clip (right)
+
+    private var detailPanel: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            if session.clips.isEmpty {
+                dropArea
+            } else {
+                HStack(spacing: 14) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        if let clip = selected {
+                            Text(clip.file.lastPathComponent).font(Design.Studio.sectionTitle).lineLimit(1).truncationMode(.middle)
+                            Text(detailSummary(clip)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    SearchBox(prompt: "Find what was said in all clips", text: $search).frame(width: 280)
+                }
                 if !search.isEmpty {
-                    let found = session.find(search)
-                    if found.isEmpty { Text("Not found.").foregroundStyle(.secondary) }
-                    ForEach(Array(found.enumerated()), id: \.offset) { _, hit in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(hit.clip.lastPathComponent + " · " + time(hit.time)).font(.caption).foregroundStyle(.tint)
-                            Text(hit.line).textSelection(.enabled)
-                        }
-                    }
+                    ScrollView { searchResults.frame(maxWidth: .infinity, alignment: .leading) }
                 } else if let clip = selected {
-                    if !clip.highlights.isEmpty {
-                        Section("Highlights") {
-                            ForEach(clip.highlights, id: \.rowID) { highlight in
-                                HStack(alignment: .firstTextBaseline) {
-                                    Image(systemName: "star.fill").foregroundStyle(.red).accessibilityHidden(true)
-                                    Text(time(highlight.start)).monospacedDigit()
-                                    Text(highlight.reason).foregroundStyle(.secondary).lineLimit(2)
-                                }
-                            }
-                        }
-                    }
-                    if let shots = clip.index?.shots, !shots.isEmpty {
-                        Section("Shots") {
-                            ForEach(shots, id: \.rowID) { shot in shotRow(clip.file, shot) }
-                        }
-                    }
-                    if !clip.events.isEmpty {
-                        Section("Markers") {
-                            ForEach(clip.events, id: \.rowID) { event in
-                                HStack {
-                                    Image(systemName: event.kind.symbol).frame(width: 20).accessibilityHidden(true)
-                                    Text(time(event.time)).monospacedDigit()
-                                    Text(event.kind.label)
-                                }
-                            }
-                        }
-                    }
-                    if !clip.lines.isEmpty {
-                        Section("Transcript") {
-                            ForEach(Array(clip.lines.enumerated()), id: \.offset) { _, line in
-                                HStack(alignment: .firstTextBaseline) {
-                                    Text(time(line.time)).monospacedDigit().foregroundStyle(.secondary).frame(width: 64, alignment: .leading)
-                                    Text(line.text).textSelection(.enabled)
-                                }
-                            }
-                        }
-                    }
-                    if clip.state != .done { Text("Not analysed yet.").foregroundStyle(.secondary) }
+                    StudioSegmented(options: [(Tab.shots, "Shots"), (Tab.highlights, "Highlights"),
+                                              (Tab.markers, "Markers"), (Tab.transcript, "Transcript")],
+                                    selection: $tab)
+                    ScrollView { tabContent(clip).frame(maxWidth: .infinity, alignment: .leading) }
                 } else {
-                    Text("Select a clip to see its highlights, shots, markers and transcript.").foregroundStyle(.secondary)
+                    quiet("Select a clip to see its highlights, shots, markers and transcript.")
+                    Spacer()
+                }
+            }
+        }
+        .padding(.vertical, 20)
+        .padding(.horizontal, 28)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .studioPanel()
+    }
+
+    private var dropArea: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "film.stack").font(.system(size: 24)).foregroundStyle(dropTargeted ? Design.Brand.pink : Design.Studio.textQuiet)
+            Text("Drop clips or a folder here, or use Add Folder…").foregroundStyle(Design.Studio.textQuiet)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(dropTargeted ? Design.Brand.pink : Design.Studio.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
+        .contentShape(.rect)
+        .onTapGesture { pick(folders: true) }
+        .help("Pluck goes through your raw footage: every shot for focus, light, faces, action and its look, plus cheers, music and the most quotable lines. Then it looks at the whole shoot and picks selects for the kind of video you’re making.")
+    }
+
+    private func detailSummary(_ clip: DerushSession.Clip) -> String {
+        guard clip.state == .done else { return summary(clip) }
+        let counts = String(AttributedString(localized: "^[\(clip.events.count) marker](inflect: true) · ^[\(clip.highlights.count) highlight](inflect: true) · ^[\(clip.index?.shots.count ?? 0) shot](inflect: true)").characters)
+        return time(clip.length) + " · " + counts
+    }
+
+    private var searchResults: some View {
+        let found = session.find(search)
+        return LazyVStack(alignment: .leading, spacing: 0) {
+            if found.isEmpty { quiet("Not found.") }
+            ForEach(Array(found.enumerated()), id: \.offset) { _, hit in
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(hit.clip.lastPathComponent + " · " + time(hit.time)).font(Design.Studio.hint)
+                        .foregroundStyle(Design.Brand.pink).monospacedDigit()
+                    Text(hit.line).textSelection(.enabled).lineSpacing(3)
+                }
+                .padding(.vertical, 7)
+            }
+        }
+    }
+
+    @ViewBuilder private func tabContent(_ clip: DerushSession.Clip) -> some View {
+        if clip.state != .done {
+            quiet("Not analysed yet.")
+        } else {
+            switch tab {
+            case .shots:
+                if let shots = clip.index?.shots, !shots.isEmpty {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 0), spacing: 16, alignment: .top), count: 4),
+                              alignment: .leading, spacing: 22) {
+                        ForEach(shots, id: \.rowID) { shot in shotCard(clip.file, shot) }
+                    }
+                } else {
+                    quiet("Nothing here.")
+                }
+            case .highlights:
+                if clip.highlights.isEmpty { quiet("Nothing here.") }
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(clip.highlights, id: \.rowID) { highlight in
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(Design.Brand.pink).accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(time(highlight.start) + " – " + time(highlight.end)).monospacedDigit()
+                                Text(highlight.reason).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                    }
+                }
+            case .markers:
+                if clip.events.isEmpty { quiet("Nothing here.") }
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(clip.events, id: \.rowID) { event in
+                        HStack(spacing: 10) {
+                            Image(systemName: event.kind.symbol).font(.system(size: 13)).foregroundStyle(Design.Studio.textQuiet)
+                                .frame(width: 16).accessibilityHidden(true)
+                            Text(time(event.time)).monospacedDigit().foregroundStyle(Design.Studio.textQuiet).frame(width: 56, alignment: .leading)
+                            Text(event.kind.label)
+                        }
+                        .frame(height: 36)
+                    }
+                }
+            case .transcript:
+                if clip.lines.isEmpty { quiet("Nothing here.") }
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(clip.lines.enumerated()), id: \.offset) { _, line in
+                        HStack(alignment: .firstTextBaseline, spacing: 14) {
+                            Text(time(line.time)).monospacedDigit().foregroundStyle(Design.Studio.textQuiet).frame(width: 56, alignment: .leading)
+                            Text(line.text).textSelection(.enabled).lineSpacing(3)
+                        }
+                        .padding(.vertical, 7)
+                    }
                 }
             }
         }
     }
 
-    private func shotRow(_ file: URL, _ shot: VisualIndex.Shot) -> some View {
+    private func quiet(_ text: LocalizedStringKey) -> some View {
+        Text(text).foregroundStyle(Design.Studio.textQuiet)
+    }
+
+    private func shotCard(_ file: URL, _ shot: VisualIndex.Shot) -> some View {
         let judged = session.score(file, shot, kind: kind)
         let pick = session.isPick(file, shot)
-        return HStack(alignment: .top, spacing: 10) {
+        return VStack(alignment: .leading, spacing: 8) {
             ShotThumbnail(url: VisualIndex.thumbnailURL(path: file.path, start: shot.start))
-                .frame(width: 96, height: 54)
-                .clipShape(RoundedRectangle(cornerRadius: Design.Radius.small))
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .clipShape(.rect(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .topLeading) {
                     if pick {
-                        Image(systemName: "star.fill").foregroundStyle(.red)
+                        Image(systemName: "star.fill").font(.system(size: 12)).foregroundStyle(Design.Brand.pink)
+                            .padding(8)
                             .accessibilityLabel(Text("Pick"))
                     }
-                    Text(time(shot.start)).monospacedDigit().foregroundStyle(.secondary)
-                    Text(shot.description).lineLimit(2)
                 }
-                HStack(spacing: 4) {
-                    Chip(text: Text(verbatim: "\(Int((judged.score * 100).rounded()))"), tint: judged.score >= 0.5 ? .green : .secondary)
-                        .help("How usable and interesting the shot is for this kind of video")
-                    Chip(text: Text(shot.framing.label))
-                    if shot.movement != .still { Chip(text: Text(shot.movement.label)) }
-                    if shot.smooth == true {
-                        Chip(text: Text("Speed ramp"), tint: .teal)
-                            .help("A smooth, even camera move: good for a speed ramp")
-                    }
-                    if let look = shot.quality?.look, !look.isEmpty { Chip(text: Text(verbatim: look), tint: .purple) }
-                    if let emotion = shot.quality?.emotion, !emotion.isEmpty { Chip(text: Text(verbatim: emotion), tint: .blue) }
-                    ForEach(judged.problems, id: \.self) { Chip(text: Text($0.label), tint: .orange) }
+            HStack(spacing: 8) {
+                Text(time(shot.start)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
+                Spacer(minLength: 0)
+                StudioChip(text: Text(verbatim: "\(Int((judged.score * 100).rounded()))").monospacedDigit(), colour: Design.Studio.text)
+                    .help("How usable and interesting the shot is for this kind of video")
+            }
+            Text(shot.description).lineSpacing(3).fixedSize(horizontal: false, vertical: true)
+            ChipFlow {
+                StudioChip(text: Text(shot.framing.label))
+                if shot.movement != .still { StudioChip(text: Text(shot.movement.label)) }
+                if shot.smooth == true {
+                    StudioChip(text: Text("Speed ramp"))
+                        .help("A smooth, even camera move: good for a speed ramp")
                 }
+                if let look = shot.quality?.look, !look.isEmpty { StudioChip(text: Text(verbatim: look)) }
+                if let emotion = shot.quality?.emotion, !emotion.isEmpty { StudioChip(text: Text(verbatim: emotion)) }
+                ForEach(judged.problems, id: \.self) { StudioChip(text: Text($0.label), colour: Design.Studio.warn) }
             }
         }
-        .padding(.vertical, 2)
     }
 
+    // MARK: - Shoot overview
+
     private var overviewSheet: some View {
-        VStack(alignment: .leading, spacing: Design.Spacing.section) {
-            SheetHeader(symbol: "text.page.badge.magnifyingglass", title: Text("Shoot Overview"),
-                        subtitle: Text(kind.label), subtitleIsName: false)
+        VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Shoot Overview").font(Design.Studio.pageTitle)
+                Text(kind.label).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
             ScrollView {
-                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
                     if let overview = session.plan?.overview {
                         if !overview.story.isEmpty {
-                            overviewList(Text("The story the footage tells"), overview.story, symbol: "film")
+                            overviewList(Text("The story the footage tells"), overview.story)
                         }
                         if !overview.missing.isEmpty {
-                            overviewList(Text("Missing or thin"), overview.missing, symbol: "exclamationmark.circle")
+                            overviewList(Text("Missing or thin"), overview.missing)
                         }
                     }
                     if let plan = session.plan {
                         VStack(alignment: .leading, spacing: 6) {
-                            Text("What was shot").font(.headline)
+                            Text("What was shot").font(Design.Studio.sectionTitle)
                             ForEach(plan.topics) { topic in
                                 HStack(alignment: .firstTextBaseline) {
                                     Text(topic.name).lineLimit(1)
                                     Spacer()
-                                    Text("^[\(topic.shots.count) shot](inflect: true)").foregroundStyle(.secondary).monospacedDigit()
+                                    Text("^[\(topic.shots.count) shot](inflect: true)").foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
                                 }
-                                .font(.callout)
                             }
                         }
                     }
@@ -476,54 +641,31 @@ struct DerushView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             HStack {
-                Label("Written by the local AI on this Mac.", systemImage: "lock.shield").noteStyle()
+                Label("Written by the local AI on this Mac.", systemImage: "lock.shield")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
                 Spacer()
-                Button("Done") { showingOverview = false }.keyboardShortcut(.defaultAction)
+                Button("Done") { showingOverview = false }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(Design.Spacing.window)
+        .font(Design.Studio.body)
+        .foregroundStyle(Design.Studio.text)
+        .padding(Design.Spacing.sheet)
         .frame(width: 520, height: 560)
+        .background(Design.Studio.panel)
     }
 
-    private func overviewList(_ title: Text, _ items: [String], symbol: String) -> some View {
+    private func overviewList(_ title: Text, _ items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Label { title } icon: { Image(systemName: symbol) }.font(.headline)
+            title.font(Design.Studio.sectionTitle)
             ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(verbatim: "•").foregroundStyle(.secondary)
+                    Text(verbatim: "•").foregroundStyle(Design.Studio.textQuiet)
                     Text(verbatim: item).textSelection(.enabled)
                 }
             }
         }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 12) {
-            if session.running {
-                StatusChip(text: Text("\(done.count) of \(session.clips.count) clips"), colour: .orange, busy: true)
-                    .monospacedDigit()
-            } else {
-                PageNote(text: Text("Runs on this Mac. Nothing is uploaded."), symbol: "lock.shield")
-                    .fixedSize()
-            }
-            Spacer()
-            if let status { Text(status).font(.callout).foregroundStyle(.secondary).lineLimit(1) }
-            if session.planning {
-                ProgressView().controlSize(.small)
-                Text("Looking at the whole shoot…").foregroundStyle(.secondary)
-            } else if let plan = session.plan {
-                Button {
-                    showingOverview = true
-                } label: {
-                    Text("Shoot Overview (^[\(plan.picks.count) pick](inflect: true))")
-                }
-                .buttonStyle(GlassCapsuleButtonStyle())
-            }
-            Button("Build in DaVinci", systemImage: "film.stack", action: build)
-                .buttonStyle(BarCapsuleButtonStyle())
-                .disabled(done.isEmpty || session.running || !Resolve.isInstalled)
-        }
-        .font(.callout)
     }
 
     private func time(_ seconds: Double) -> String {
@@ -627,19 +769,110 @@ struct DerushView: View {
 }
 
 
-/// A small coloured label (score, framing, look…).
-private struct Chip: View {
-    var text: Text
-    var tint: Color = .secondary
+/// A 28 pt icon button's face (+, trash), quiet grey as on the boards.
+private struct IconLabel: View {
+    let symbol: String
 
     var body: some View {
-        text
-            .font(.caption2)
-            .lineLimit(1)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .foregroundStyle(tint)
-            .background(tint.opacity(0.12), in: Capsule())
+        Image(systemName: symbol)
+            .font(.system(size: 13))
+            .foregroundStyle(Design.Studio.textQuiet)
+            .frame(width: 28, height: 28)
+            .contentShape(.rect)
+    }
+}
+
+/// A quiet menu's face: optional symbol, the choice, a small chevron, no button behind it.
+private struct QuietMenuLabel: View {
+    var symbol: String?
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 5) {
+            if let symbol { Image(systemName: symbol).font(.system(size: 12)) }
+            Text(verbatim: title)
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+        }
+        .font(Design.Studio.body)
+        .foregroundStyle(Design.Studio.textQuiet)
+        .padding(.horizontal, 8)
+        .frame(height: 28)
+        .contentShape(.rect)
+    }
+}
+
+/// A small plum arc going round: a clip or a run at work.
+private struct PlumSpinner: View {
+    @State private var turning = false
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Design.Studio.line, lineWidth: 2)
+            Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(turning ? 360 : 0))
+        }
+        .frame(width: 11, height: 11)
+        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
+        .accessibilityLabel(Text("Working"))
+    }
+}
+
+/// A panel's search field: a dark 30 pt box with a magnifier.
+private struct SearchBox: View {
+    let prompt: LocalizedStringKey
+    @Binding var text: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+            TextField(text: $text, prompt: Text(prompt).foregroundStyle(Design.Studio.textQuiet)) { Text(prompt) }
+                .textFieldStyle(.plain)
+                .font(Design.Studio.body)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Design.Studio.textQuiet) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(Text("Clear"))
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: 30)
+        .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+    }
+}
+
+/// Chips in rows that wrap, 4 pt apart.
+private struct ChipFlow: Layout {
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(width: proposal.width ?? .infinity, subviews)
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0, height: rows.last.map { $0.y + $0.height } ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(width: bounds.width, subviews) {
+            var x = bounds.minX
+            for index in row.items {
+                let size = subviews[index].sizeThatFits(.unspecified)
+                subviews[index].place(at: CGPoint(x: x, y: bounds.minY + row.y), proposal: ProposedViewSize(size))
+                x += size.width + 4
+            }
+        }
+    }
+
+    private func arrange(width: CGFloat, _ subviews: Subviews) -> [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] {
+        var rows: [(items: [Int], y: CGFloat, width: CGFloat, height: CGFloat)] = []
+        for index in subviews.indices {
+            let size = subviews[index].sizeThatFits(.unspecified)
+            if var last = rows.last, last.width + 4 + size.width <= width {
+                last.items.append(index)
+                last.width += 4 + size.width
+                last.height = max(last.height, size.height)
+                rows[rows.count - 1] = last
+            } else {
+                let y = rows.last.map { $0.y + $0.height + 4 } ?? 0
+                rows.append(([index], y, size.width, size.height))
+            }
+        }
+        return rows
     }
 }
 
@@ -649,19 +882,17 @@ private struct ShotThumbnail: View {
     @State private var image: NSImage?
 
     var body: some View {
-        ZStack {
-            Rectangle().fill(.quaternary)
-            if let image { Image(nsImage: image).resizable().scaledToFill() }
-        }
-        .task(id: url) {
-            let url = url
-            image = await Task.detached { NSImage(contentsOf: url) }.value
-        }
+        Rectangle().fill(Design.Studio.raised)
+            .overlay { if let image { Image(nsImage: image).resizable().scaledToFill() } }
+            .clipped()
+            .task(id: url) {
+                let url = url
+                image = await Task.detached { NSImage(contentsOf: url) }.value
+            }
     }
 }
 
-// Rows from different sections share one List, so their ids must not collide (a highlight and a
-// shot at the same second would otherwise show the same row).
+// Rows from different lists share id styles, so keep them distinct.
 private extension SoundTagger.Highlight { var rowID: String { "highlight \(start)" } }
 private extension SoundTagger.Event { var rowID: String { "event \(id)" } }
 private extension VisualIndex.Shot { var rowID: String { "shot \(start)" } }

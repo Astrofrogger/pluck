@@ -91,6 +91,12 @@ struct ProjectView: View {
         .toolbar {
             // The edit going out: to DaVinci Resolve, or exported.
             ToolbarItemGroup(placement: .primaryAction) {
+                Button { model.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
+                    .disabled(!model.canUndo)
+                    .help("Undo (⌘Z)")
+                Button { model.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
+                    .disabled(!model.canRedo)
+                    .help("Redo (⇧⌘Z)")
                 if ProjectResolve.isAvailable {
                     let label = Group {
                         if model.sendingToResolve {
@@ -119,19 +125,31 @@ struct ProjectView: View {
                 Button {
                     withAnimation(.snappy) { tab = .export; sidebarShown = true; keepInspector = true }
                 } label: {
-                    Label("Export", systemImage: "square.and.arrow.up").labelStyle(.titleAndIcon)
+                    HStack(spacing: 6) {
+                        Image(systemName: "square.and.arrow.up").font(.system(size: 12, weight: .medium))
+                        Text("Export")
+                    }
+                    .font(Design.Studio.body)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 28)
+                    .background(Design.Brand.deep, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
                 }
+                .buttonStyle(.plain)
                 .disabled(model.project.clips.isEmpty)
                 .keyboardShortcut("e", modifiers: .command)
                 .help("Export (⌘E)")
-            }
+            }.studioFlat()
+            // ⌥⌘S still shows or hides the inspector (no button: the reference's title bar has none).
             ToolbarItem {
-                Button { withAnimation(.snappy) { sidebarShown.toggle(); keepInspector = sidebarShown } } label: { Label("Sidebar", systemImage: "sidebar.right") }
-                    .help("Show or hide the sidebar (⌥⌘S)")
+                Button("") { withAnimation(.snappy) { sidebarShown.toggle(); keepInspector = sidebarShown } }
                     .keyboardShortcut("s", modifiers: [.command, .option])
-            }
+                    .opacity(0)
+                    .frame(width: 0)
+                    .accessibilityHidden(true)
+            }.studioFlat()
         }
-        .navigationTitle(model.project.name)
+        .navigationTitle("")
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -143,7 +161,10 @@ struct ProjectView: View {
             focused = true
             // The media panel beside it hands on the keys that put its media in (it keeps the focus).
             Self.forward = key
+            // The Scopes window follows what's on screen.
+            ScopeHub.shared.follow(model.player, name: model.project.name)
         }
+        .onChange(of: ObjectIdentifier(model)) { ScopeHub.shared.follow(model.player, name: model.project.name) }
         .task {
             // Tests: -PluckScreenshotAspect <9:16> reframes the project.
             if ScreenshotMode.scene == "project", let aspect = UserDefaults.standard.string(forKey: "PluckScreenshotAspect") {
@@ -216,33 +237,57 @@ struct ProjectView: View {
     // MARK: - Parts of the page
 
     /// The transport and the space around the picture, counted with the timeline's row.
-    private static let transportHeight = 70.0
+    private static let transportHeight = 90.0
 
     /// The picture (a 16:9 area, as large as fits) and the transport under it.
     private var viewer: some View {
-        VStack(spacing: Design.Spacing.controls) {
+        VStack(spacing: 0) {
+            HStack {
+                Text(verbatim: "\(model.project.name) · \(Self.rate(model.frameRate)) fps · ")
+                    + Text("^[\(model.project.clips.count) clip](inflect: true)")
+            }
+            .font(Design.Studio.body)
+            .foregroundStyle(Design.Studio.textQuiet)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 34)
             picture
                 .aspectRatio(16 / 9, contentMode: .fit)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                .padding(.horizontal, 8)
             transport
+                .padding(.horizontal, 14)
+                .frame(height: 48)
             if voiceOverShown || recorder.isActive {
                 VoiceOverBar(recorder: recorder, model: model, muteTimeline: $muteTimeline) {
                     withAnimation(.snappy) { voiceOverShown = false }
                     recorder.state = .idle
                 }
+                .padding(.horizontal, 12)
+                .padding(.bottom, 10)
             }
         }
-        .padding([.horizontal, .top], Design.Spacing.window)
-        .padding(.bottom, Design.Spacing.controls)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Design.Studio.panel, in: Self.panel)
+        .clipShape(Self.panel)
     }
+
+    /// "25", "23.976", "29.97".
+    private static func rate(_ fps: Double) -> String {
+        fps.rounded() == fps ? String(Int(fps)) : String(format: "%.3g", fps)
+    }
+
+    private static let panel = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
 
     private var inspector: some View {
         HStack(spacing: 0) {
             ResizeHandle(width: $sidebarWidth, range: 280...560, edge: .trailing)
             ProjectInspector(model: model, tab: Binding(get: { tab }, set: { tab = $0 }))
                 .frame(width: sidebarWidth)
-                .clipped()
+                .background(Design.Studio.panel, in: Self.panel)
+                .clipShape(Self.panel)
         }
     }
 
@@ -250,6 +295,8 @@ struct ProjectView: View {
         HStack(spacing: 0) {
             EditSidePanel(model: model, tab: $libraryTab, position: $panelPosition)
                 .frame(width: panelWidth)
+                .background(Design.Studio.panel, in: Self.panel)
+                .clipShape(Self.panel)
             ResizeHandle(width: $panelWidth, range: Design.Sidebar.widthRange, edge: .leading)
         }
         .transition(.move(edge: .leading))
@@ -268,6 +315,8 @@ struct ProjectView: View {
         .padding(.horizontal, Design.Spacing.inset)
         .padding(.top, Design.Spacing.controls)
         .padding(.bottom, Design.Spacing.inset)
+        .background(Design.Studio.panel, in: Self.panel)
+        .clipShape(Self.panel)
         .fixedSize(horizontal: false, vertical: true)
         .onGeometryChange(for: Double.self) { $0.size.height } action: { baseHeight = max($0 - grow, 0) }
     }
@@ -276,7 +325,7 @@ struct ProjectView: View {
 
     private var picture: some View {
         ZStack {
-            Color.black
+            Color.clear
             if model.project.clips.isEmpty {
                 VStack(spacing: Design.Spacing.section) {
                     DropZone(symbol: "rectangle.stack.badge.plus", text: Text("Drop videos here, or drag them from Media"), targeted: dropTargeted)
@@ -333,42 +382,55 @@ struct ProjectView: View {
     // MARK: - Transport
 
     private var transport: some View {
-        HStack(spacing: Design.Spacing.controls) {
-            // The side labels give way first when the viewer is narrow (the controls never do).
-            Text("^[\(model.project.clips.count) clip](inflect: true)").font(.callout).foregroundStyle(.secondary)
-                .lineLimit(1)
-                .layoutPriority(-1)
-            Spacer(minLength: 8)
-            GlassGroup(spacing: Design.Spacing.controls) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Button { model.seek(to: 0) } label: { Image(systemName: "backward.end.fill") }
-                        .buttonStyle(BarButtonStyle()).help("To the start")
-                    Button { model.step(frames: -1) } label: { Image(systemName: "backward.frame.fill") }
-                        .buttonStyle(BarButtonStyle()).help("Back one frame (←)")
-                    Button { model.togglePlay() } label: { Image(systemName: model.isPlaying ? "pause.fill" : "play.fill") }
-                        .buttonStyle(BarButtonStyle(prominent: true)).help("Play or pause (Space)")
-                        .disabled(recorder.isActive)
-                    Button { model.step(frames: 1) } label: { Image(systemName: "forward.frame.fill") }
-                        .buttonStyle(BarButtonStyle()).help("Forward one frame (→)")
-                    Button { model.seek(to: model.duration) } label: { Image(systemName: "forward.end.fill") }
-                        .buttonStyle(BarButtonStyle()).help("To the end")
-                    Button {
-                        if recorder.isActive { Task { await recorder.stop() } } else { withAnimation(.snappy) { voiceOverShown.toggle() } }
-                    } label: {
-                        Image(systemName: "mic.fill").foregroundStyle(recorder.isActive ? AnyShapeStyle(Design.Brand.pink) : AnyShapeStyle(.primary))
-                    }
-                    .buttonStyle(BarButtonStyle()).help("Record a voice-over")
-                }
-            }
+        HStack(spacing: 6) {
             Text(model.timecode(model.time, full: true))
-                .font(.system(size: 20, weight: .medium).monospacedDigit())
-                .fixedSize()
+                .font(.system(size: 13, weight: .medium).monospacedDigit())
+                .frame(width: 120, alignment: .leading)
+                .help("The playhead; the edit is \(Format.duration(model.duration)) long")
             Spacer(minLength: 8)
-            Text(Format.duration(model.duration)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
-                .help("The length of the edit")
-                .lineLimit(1)
-                .layoutPriority(-1)
+            HStack(spacing: 4) {
+                transportButton("backward.frame.fill", "Back one frame (←). Home: to the start") { model.step(frames: -1) }
+                Button { model.togglePlay() } label: {
+                    Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Design.Studio.text)
+                        .frame(width: 36, height: 32)
+                        .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Play or pause (Space)")
+                .disabled(recorder.isActive)
+                transportButton("forward.frame.fill", "Forward one frame (→). End: to the end") { model.step(frames: 1) }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 2) {
+                Button {
+                    if recorder.isActive { Task { await recorder.stop() } } else { withAnimation(.snappy) { voiceOverShown.toggle() } }
+                } label: {
+                    Image(systemName: "mic")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(recorder.isActive || voiceOverShown ? Design.Brand.pink : Design.Studio.textQuiet)
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help("Record a voice-over")
+            }
+            .frame(width: 120, alignment: .trailing)
         }
+    }
+
+    private func transportButton(_ symbol: String, _ help: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(Design.Studio.text)
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(Text(help))
     }
 
     private var footer: some View {
@@ -585,54 +647,56 @@ private struct ProjectToolbar: View {
     @State private var marksShown = false
 
     var body: some View {
-        // With words beside the main tools when there's room, symbols alone when not.
-        ViewThatFits(in: .horizontal) {
-            row(words: true)
-            row(words: false)
-        }
-        .padding(.horizontal, 4)
-        .frame(height: 36)
-        .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.fill.quaternary))
+        row
+            .frame(height: 38)
     }
 
-    private func row(words: Bool) -> some View {
+    /// As in the layout reference: the tools, then the edits at the playhead, then Add, Marks and Pacing;
+    /// the length and the zoom on the right.
+    private var row: some View {
         HStack(spacing: 2) {
-            HStack(spacing: 0) {
-                tool("cursorarrow", "Selection tool: click a clip to select it, drag to move it (A)", on: model.tool == .select) { model.tool = .select }
-                tool("scissors", "Blade tool: click a clip to cut it there (B)", on: model.tool == .blade) { model.tool = .blade }
-                tool("arrow.left.and.line.vertical.and.arrow.right", "Trim tool: drag a cut to move it between two clips, or the middle of a clip to show another part of it (T)",
-                     on: model.tool == .trim) { model.tool = .trim }
-            }
-            .padding(2)
-            .background(RoundedRectangle(cornerRadius: Design.Radius.control).fill(.black.opacity(0.25)))
+            tool("cursorarrow", "Selection tool: click a clip to select it, drag to move it (A)", on: model.tool == .select) { model.tool = .select }
+            tool("scissors", "Blade tool: click a clip to cut it there (B)", on: model.tool == .blade) { model.tool = .blade }
+            tool("arrow.left.and.line.vertical.and.arrow.right", "Trim tool: drag a cut to move it between two clips, or the middle of a clip to show another part of it (T)",
+                 on: model.tool == .trim) { model.tool = .trim }
+            tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
             divider
-            tool("square.split.1x2", "Split at the Playhead (⌘B)", words ? "Split" : nil) { model.split(at: model.time) }
-            tool("pause.rectangle", "Freeze Frame: hold the frame at the playhead (⇧F)", words ? "Freeze" : nil) { model.freezeFrame() }
+            tool("square.split.1x2", "Split at the Playhead (⌘B)") { model.split(at: model.time) }
+            tool("pause.rectangle", "Freeze Frame: hold the frame at the playhead (⇧F)") { model.freezeFrame() }
                 .disabled(model.project.clips.isEmpty)
-            tool("bookmark", "Add a Marker at the Playhead (M)", words ? "Marker" : nil) { model.addMarker() }
+            tool("bookmark", "Add a Marker at the Playhead (M)") { model.addMarker() }
             tool("trash", "Delete (⌫)") { model.deleteSelection() }
                 .disabled(model.selected.isEmpty && model.selectedTitle == nil)
-            tool("arrow.uturn.backward", "Undo (⌘Z)") { model.undo() }
-                .disabled(!model.canUndo)
-            tool("arrow.uturn.forward", "Redo (⇧⌘Z)") { model.redo() }
-                .disabled(!model.canRedo)
             divider
-            tool("film.stack", "Add Videos…", words ? "Video" : nil) { addMedia() }
-            tool("music.note", "Add Music…", words ? "Music" : nil) { addMusic() }
-            tool("textformat", "Add a Title at the Playhead (⌘T)", words ? "Title" : nil) { model.addTitle(at: model.time) }
-            tool("camera.filters", "Add a look over the clips chosen, between in and out, or for 5 s from the playhead", words ? "Look" : nil) {
-                model.addAdjustmentHere()
+            Menu {
+                Button("Videos…", systemImage: "film.stack") { addMedia() }
+                Button("Music…", systemImage: "music.note") { addMusic() }
+                Button("Title at the Playhead (⌘T)", systemImage: "textformat") { model.addTitle(at: model.time) }
+                Button("Look", systemImage: "camera.filters") { model.addAdjustmentHere() }
+                    .help("A look over the clips chosen, between in and out, or for 5 s from the playhead")
+                Divider()
+                Button("Still: Save the Frame as a Picture", systemImage: "camera") { model.saveFrame() }
+                    .disabled(model.project.clips.isEmpty)
+            } label: {
+                textLabel("plus", "Add", menu: true)
             }
-            divider
-            tool("point.forward.to.point.capsulepath", "Snapping (N)", on: model.snapping) { model.snapping.toggle() }
-            tool("bookmark", "Markers: the list, and what was found in the clip (M adds one)", words ? "Marks" : nil, on: marksShown) { marksShown.toggle() }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Add videos, music, a title, a look, or save a still")
+            Button { marksShown.toggle() } label: { textLabel("bookmark", "Marks", on: marksShown) }
+                .buttonStyle(.plain)
+                .help("Markers: the list, and what was found in the clip (M adds one)")
                 .popover(isPresented: $marksShown, arrowEdge: .bottom) {
                     ProjectMarksPanel(model: model)
                         .frame(width: 320, height: 420)
                         .padding(.top, 12)
                 }
             // Right-click for the two thresholds.
-            tool("gauge.with.dots.needle.33percent", "Show long shots, very short clips and jump cuts", words ? "Pacing" : nil, on: pacing) { pacing.toggle() }
+            Button { pacing.toggle() } label: { textLabel("gauge.with.dots.needle.33percent", "Pacing", on: pacing) }
+                .buttonStyle(.plain)
+                .help("Show long shots, very short clips and jump cuts (right-click for the thresholds)")
                 .contextMenu {
                     Picker("Long shot after", selection: $pacingLong) {
                         ForEach([4.0, 6, 8, 10, 12, 15, 20], id: \.self) { Text("\(Int($0)) s").tag($0) }
@@ -656,26 +720,43 @@ private struct ProjectToolbar: View {
                 }
                 .pickerStyle(.inline)
             } label: {
-                Image(systemName: "aspectratio")
+                Image(systemName: "aspectratio").font(.system(size: 13, weight: .medium)).foregroundStyle(Design.Studio.textQuiet)
+                    .frame(width: 28, height: 28)
             }
-            .menuStyle(.borderlessButton)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
             .help("The frame’s shape: each clip is filled and framed on its subject")
-            tool("camera", "Save the Frame at the Playhead as a Picture", words ? "Still" : nil) { model.saveFrame() }
-                .disabled(model.project.clips.isEmpty)
-            Spacer(minLength: 4)
-            Image(systemName: "minus.magnifyingglass").font(.caption).foregroundStyle(.secondary)
-            Slider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), in: 0...log(max(min(model.duration / 2, 400), 1.01)))
-                .controlSize(.mini)
-                .frame(minWidth: 50, maxWidth: 110)
+            Spacer(minLength: 8)
+            Text("\(Format.duration(model.duration)) total").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                .padding(.trailing, 8)
+                .lineLimit(1)
+            Image(systemName: "minus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+            StudioSlider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), range: 0...log(max(min(model.duration / 2, 400), 1.01)))
+                .frame(width: 96)
                 .help("Zoom the timeline (⌘+ and ⌘−)")
                 .accessibilityLabel(Text("Zoom"))
-            Image(systemName: "plus.magnifyingglass").font(.caption).foregroundStyle(.secondary)
+            Image(systemName: "plus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
         }
     }
 
-    private var divider: some View { Divider().frame(height: 16).padding(.horizontal, 4) }
+    /// A raised text button of the bar ("Add ⌄", "Marks"); plum when it's on.
+    private func textLabel(_ symbol: String, _ title: LocalizedStringKey, on: Bool = false, menu: Bool = false) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 11, weight: .medium))
+            Text(title)
+            if menu { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet) }
+        }
+        .font(Design.Studio.body)
+        .foregroundStyle(on ? Design.Brand.pink : Design.Studio.text)
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+        .contentShape(.rect)
+    }
+
+    private var divider: some View { Rectangle().fill(Design.Studio.line).frame(width: 1, height: 18).padding(.horizontal, 6) }
 
     private func tool(_ symbol: String, _ label: LocalizedStringKey, _ title: LocalizedStringKey? = nil, on: Bool = false,
                       action: @escaping () -> Void) -> some View {
@@ -699,11 +780,11 @@ private struct ProjectToolButton: View {
                 Image(systemName: symbol).font(.system(size: 13, weight: .medium))
                 if let title { Text(title).font(.callout).lineLimit(1).fixedSize() }
             }
-                .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.primary))
+                .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
                 .padding(.horizontal, title == nil ? 0 : 7)
-                .frame(minWidth: 30, minHeight: 28)
-                .background(RoundedRectangle(cornerRadius: Design.Radius.small)
-                    .fill(on ? Design.Brand.chosenFill : AnyShapeStyle(hovering && isEnabled ? Color.primary.opacity(0.08) : .clear)))
+                .frame(minWidth: 28, minHeight: 28)
+                .background(RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous)
+                    .fill(on ? AnyShapeStyle(Design.Studio.raised) : AnyShapeStyle(hovering && isEnabled ? Design.Studio.raised.opacity(0.6) : .clear)))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)

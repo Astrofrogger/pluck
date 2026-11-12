@@ -18,16 +18,16 @@ struct LogoTimingStrip: View {
     var body: some View {
         let rows = rows
         let total = max(design.spec.duration, 0.5) * 1.15
-        let height: CGFloat = rows.count > 24 ? 3 : 5
+        let height: CGFloat = rows.count > 24 ? 3 : 5, gap: CGFloat = rows.count > 12 ? 2 : 5
         GeometryReader { geometry in
             let width = geometry.size.width
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: gap) {
                 ForEach(rows, id: \.part) { row in
                     let moved = dragging?.part == row.part ? dragging : nil
                     let start = row.span.lowerBound + (moved?.start ?? 0), end = row.span.upperBound + (moved?.end ?? 0)
                     ZStack(alignment: .trailing) {
                         Capsule()
-                            .fill(selected == row.part ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.secondary.opacity(0.45)))
+                            .fill(selected == row.part ? AnyShapeStyle(LinearGradient(colors: [Design.Brand.pink, Design.Brand.violet], startPoint: .leading, endPoint: .trailing)) : AnyShapeStyle(Design.rgb(0x4A4A50)))
                         // The end, to drag for length.
                         Capsule().fill(.white.opacity(selected == row.part ? 0.9 : 0)).frame(width: 3)
                             .contentShape(.rect.inset(by: -6))
@@ -49,7 +49,7 @@ struct LogoTimingStrip: View {
                 }
             }
         }
-        .frame(height: CGFloat(rows.count) * (height + 2))
+        .frame(height: CGFloat(rows.count) * (height + gap) - gap)
         .help("When each part comes in. Drag a bar to move it, its end to make it quicker or slower; click one to change it.")
         .accessibilityLabel(String(localized: "Timing of the parts"))
     }
@@ -66,12 +66,12 @@ struct LogoTimingStrip: View {
     }
 }
 
-/// The part chosen in the preview: when it comes in, from where, how it moves and eases.
-struct LogoPartCard: View {
+/// The part chosen in the preview, as the inspector's first fold: when it comes in, how it
+/// moves, from where and how it eases (layout board ToolLogo).
+struct LogoPartFold: View {
     let animation: LogoAnimation
     let part: Int
     @Binding var edits: LogoDesignEdits
-    let close: () -> Void
 
     private var edit: Binding<LogoDesignEdits.PartEdit> {
         Binding { edits.parts[part] ?? .init() } set: { edits.parts[part] = $0.isEmpty ? nil : $0 }
@@ -92,68 +92,66 @@ struct LogoPartCard: View {
         }
     }
 
+    private var asDesigned: String { String(localized: "As designed") }
+
     var body: some View {
-        Card {
-            CardHeader(symbol: "square.on.circle", title: Text("Part"), subtitle: name) {
-                Button("Done", action: close)
-                    .buttonStyle(GlassCapsuleButtonStyle())
-            }
-            CardField(label: Text("Order")) {
-                HStack(spacing: Design.Spacing.controls) {
-                    Button("Earlier", systemImage: "arrow.left") { edit.wrappedValue.delay = (edit.wrappedValue.delay - 0.1).rounded(toPlaces: 2) }
-                        .help("Comes in a tenth of a second sooner")
-                    Button("Later", systemImage: "arrow.right") { edit.wrappedValue.delay = (edit.wrappedValue.delay + 0.1).rounded(toPlaces: 2) }
-                        .help("Comes in a tenth of a second later")
+        LogoKitFold(Text("Part · ") + name, key: "logoFoldPart") {
+            StudioField(label: "Order") {
+                Button { edit.wrappedValue.delay = (edit.wrappedValue.delay - 0.1).rounded(toPlaces: 2) } label: {
+                    Label("Earlier", systemImage: "arrow.left")
                 }
-                .buttonStyle(GlassCapsuleButtonStyle())
-            }
-            CardField(label: Text("Enter from")) {
-                Picker("Enter from", selection: edit.from) {
-                    Text("As Designed").tag(LogoDesignEdits.Direction?.none)
-                    Divider()
-                    ForEach(LogoDesignEdits.Direction.allCases) { Text($0.label).tag(LogoDesignEdits.Direction?.some($0)) }
+                .help("Comes in a tenth of a second sooner")
+                Button { edit.wrappedValue.delay = (edit.wrappedValue.delay + 0.1).rounded(toPlaces: 2) } label: {
+                    HStack(spacing: 6) { Text("Later"); Image(systemName: "arrow.right") }
                 }
-                .labelsHidden()
-                .fixedSize()
-                .help("The side it moves in from")
+                .help("Comes in a tenth of a second later")
             }
-            CardField(label: Text("Motion")) {
+            .buttonStyle(StudioFlatButtonStyle())
+            StudioField(label: "Motion") {
                 if isHero {
-                    Picker("Motion", selection: $edits.hero) {
+                    LogoKitMenu(title: "Motion", shown: edits.hero?.label ?? asDesigned, selection: $edits.hero) {
                         Text("As Designed").tag(LogoAnimation.HeroMove?.none)
                         Divider()
                         ForEach(animation.heroMoves().map(\.move)) { Text($0.label).tag(LogoAnimation.HeroMove?.some($0)) }
                     }
-                    .labelsHidden()
-                    .fixedSize()
                     .help("The hero's move: the ones that suit this logo")
                 } else {
-                    Picker("Motion", selection: edit.motion) {
+                    LogoKitMenu(title: "Motion", shown: edit.wrappedValue.motion?.label ?? asDesigned, selection: edit.motion) {
                         Text("As Designed").tag(LogoDesignEdits.Motion?.none)
                         Divider()
                         ForEach(LogoDesignEdits.Motion.allCases) { Text($0.label).tag(LogoDesignEdits.Motion?.some($0)).help($0.help) }
                     }
-                    .labelsHidden()
-                    .fixedSize()
                     .help("How it comes in")
                 }
             }
-            CardField(label: Text("Ease")) {
-                Picker("Ease", selection: edit.ease) {
+            StudioField(label: "Enter from") {
+                LogoKitMenu(title: "Enter from", shown: edit.wrappedValue.from?.label ?? asDesigned, selection: edit.from) {
+                    Text("As Designed").tag(LogoDesignEdits.Direction?.none)
+                    Divider()
+                    ForEach(LogoDesignEdits.Direction.allCases) { Text($0.label).tag(LogoDesignEdits.Direction?.some($0)) }
+                }
+                .help("The side it moves in from")
+            }
+            StudioField(label: "Ease") {
+                LogoKitMenu(title: "Ease", shown: edit.wrappedValue.ease?.label ?? asDesigned, selection: edit.ease) {
                     Text("As Designed").tag(LogoDesignEdits.Ease?.none)
                     Divider()
                     ForEach(LogoDesignEdits.Ease.allCases) { Text($0.label).tag(LogoDesignEdits.Ease?.some($0)).help($0.help) }
                 }
-                .labelsHidden()
-                .fixedSize()
                 .help("How it settles into place")
             }
             if !(edits.parts[part]?.isEmpty ?? true) || (isHero && edits.hero != nil) {
-                Button("Back to As Designed") {
-                    edits.parts[part] = nil
-                    if isHero { edits.hero = nil }
+                HStack {
+                    Spacer()
+                    Button("Back to As Designed") {
+                        edits.parts[part] = nil
+                        if isHero { edits.hero = nil }
+                    }
+                    .buttonStyle(.plain)
+                    .font(Design.Studio.body)
+                    .foregroundStyle(Design.Studio.textQuiet)
                 }
-                .buttonStyle(.link)
+                .frame(height: 28)
             }
         }
     }
@@ -184,5 +182,161 @@ extension LogoAnimation {
         let fit = rect.width / size.width
         let b = elements[part].box
         return CGRect(x: rect.minX + b.minX * fit, y: canvas.height - rect.maxY + b.minY * fit, width: b.width * fit, height: b.height * fit)
+    }
+}
+
+// MARK: - Inspector pieces shared by Logo Animator and Brand Pack (layout boards ToolLogo, ToolBrand)
+
+/// An inspector section: its name (14 medium) and a chevron, opens and closes; remembered.
+struct LogoKitFold<Content: View>: View {
+    let title: Text
+    var help = ""
+    var accessory: AnyView?
+    @ViewBuilder var content: Content
+    @AppStorage private var isOpen: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(_ title: Text, key: String, open: Bool = true, help: String = "", accessory: AnyView? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.help = help
+        self.accessory = accessory
+        self.content = content()
+        _isOpen = AppStorage(wrappedValue: open, key)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button {
+                if reduceMotion { isOpen.toggle() } else { withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() } }
+            } label: {
+                HStack(spacing: 8) {
+                    title.font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text).lineLimit(1)
+                    Spacer(minLength: 0)
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Design.Studio.textFaint)
+                }
+                .frame(height: 30)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .help(Text(verbatim: help))
+            .accessibilityHint(Text(isOpen ? "Closes the section" : "Opens the section"))
+            .overlay(alignment: .trailing) { accessory.padding(.trailing, 20) }
+            if isOpen { content }
+        }
+    }
+}
+
+/// A menu as on the boards: what's chosen and a small chevron, no box; the choices as a list.
+struct LogoKitMenu<Value: Hashable, Options: View>: View {
+    let title: LocalizedStringKey
+    let shown: String
+    @Binding var selection: Value
+    @ViewBuilder var options: Options
+
+    var body: some View {
+        Menu {
+            Picker(selection: $selection) { options } label: { Text(title) }
+                .pickerStyle(.inline)
+                .labelsHidden()
+        } label: {
+            HStack(spacing: 5) {
+                Text(verbatim: shown).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .font(Design.Studio.body)
+            .foregroundStyle(Design.Studio.text)
+            .frame(height: 28)
+            .contentShape(.rect)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .accessibilityLabel(Text(title))
+        .accessibilityValue(Text(verbatim: shown))
+    }
+}
+
+/// StudioSegmented's look, stretched to the inspector's width (Feel, Output).
+struct LogoKitSegmented<Value: Hashable>: View {
+    let options: [(value: Value, title: String)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let on = option.value == selection
+                Button { selection = option.value } label: {
+                    Text(verbatim: option.title)
+                        .font(Design.Studio.body)
+                        .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 24)
+                        .background(on ? Design.Studio.line : .clear, in: .rect(cornerRadius: 6, style: .continuous))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(Design.Studio.backdrop, in: .rect(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// A 44 × 26 colour swatch; clicking it opens the colour panel (the system well, unseen, on top).
+struct LogoKitWell: View {
+    let title: LocalizedStringKey
+    @Binding var colour: Color
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 6, style: .continuous)
+            .fill(colour)
+            .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Design.Studio.line, lineWidth: 1) }
+            .frame(width: 44, height: 26)
+            .overlay {
+                ColorPicker(title, selection: $colour, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 44, height: 26)
+                    .opacity(0.02)
+            }
+    }
+}
+
+/// What was made, and a way to show it.
+struct LogoKitDone: View {
+    let text: Text
+    var file: URL?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "checkmark.circle.fill").foregroundStyle(Design.Studio.good)
+            text.foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 0)
+            if let file {
+                Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(Design.Studio.textQuiet)
+            }
+        }
+        .font(Design.Studio.body)
+    }
+}
+
+/// What went wrong, in one calm line.
+struct LogoKitProblem: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Design.Studio.warn)
+            Text(verbatim: text).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .font(Design.Studio.body)
     }
 }

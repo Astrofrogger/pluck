@@ -7,7 +7,7 @@ import UniformTypeIdentifiers
 struct PhotoPage: View {
     @State private var catalog = PhotoCatalog.shared
     @State private var folders = FootageFolders.shared
-    @AppStorage("photoSidebarWidth") private var inspectorWidth = 310.0
+    @AppStorage("photoInspectorWidth") private var inspectorWidth = 384.0
     @AppStorage("photoInspectorTab") private var tab = PhotoInspector.Tab.adjust
     @AppStorage("photoGridSize") private var gridSize = 180.0
     @AppStorage("photoAutoAdvance") private var autoAdvance = true
@@ -29,6 +29,13 @@ struct PhotoPage: View {
     /// The moments opened in place: a photo of each (its first when opened), so it stays open when regrouped.
     @State private var openMoments: Set<String> = []
     @State private var momentsCache = MomentsCache()
+    /// Cull: how many photos side by side, zoom together, zoomed in, and where.
+    @AppStorage("cullCount") private var cullCount = 4
+    @AppStorage("cullSync") private var cullSync = true
+    @AppStorage(Design.Photo.surroundKey) private var surroundWhite = 0.16
+    @State private var cullZoomed = false
+    @State private var cullAnchor = UnitPoint.center
+    @State private var cullCache = MomentsCache()
     @State private var checks = PhotoChecks.shared
     @State private var importing = false
     @State private var importAlbum: UUID?
@@ -134,58 +141,72 @@ struct PhotoPage: View {
     static let titleBar: CGFloat = 32, trafficLights: CGFloat = 76
 
     var body: some View {
-        let fit = Self.fitted(left: sidebarHidden ? 0 : sidebarWidth, right: inspectorHidden ? 0 : inspectorWidth, total: pageWidth - 2)
-        HStack(spacing: 0) {
-            if !sidebarHidden {
-                // (The page runs up under the title bar: the traffic lights sit above the list.)
-                sidebar.padding(.top, Self.titleBar).frame(width: fit.left)
-                ResizeHandle(width: $sidebarWidth, range: 200...300, edge: .leading)
-            }
-            VStack(spacing: 0) {
-                toolbar.padding(.leading, sidebarHidden ? Self.trafficLights : 0)
-                Divider()
-                Group {
-                    if photos.isEmpty {
-                        empty
-                    } else if view == .cull, let focus {
-                        VStack(spacing: 0) {
+        let fit = Self.fitted(left: sidebarHidden || view != .grid ? 0 : sidebarWidth, right: inspectorHidden || !(view == .edit || view == .compare) ? 0 : inspectorWidth, total: pageWidth - 16)
+        // Layout reference, page 4: a title row across the window, then floating panels: the photo
+        // on its grey with the filmstrip under it, and the inspector; Browse adds the albums.
+        let panel = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+        let showsAlbums = !sidebarHidden && view == .grid
+        let strip = !photos.isEmpty && focus != nil && view != .grid
+        VStack(spacing: 0) {
+            toolbar.padding(.leading, Self.trafficLights)
+            if view == .cull, focus != nil, !photos.isEmpty {
+                PhotoCullPage(moments: cullMoments, all: filtered, focus: $focus, selection: $selection, count: cullCount,
+                              sync: cullSync, zoomed: cullZoomed, anchor: $cullAnchor)
+            } else {
+            HStack(spacing: 0) {
+                if showsAlbums {
+                    sidebar.frame(width: fit.left)
+                        .background(Design.Studio.panel, in: panel)
+                        .clipShape(panel)
+                    ResizeHandle(width: $sidebarWidth, range: 200...300, edge: .leading)
+                }
+                VStack(spacing: Design.Studio.panelGap) {
+                    Group {
+                        if photos.isEmpty {
+                            empty
+                        } else if view == .cull, let focus {
                             PhotoCullView(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus))
-                            filmstrip
-                        }
-                    } else if view == .compare, let focus {
-                        VStack(spacing: 0) {
+                        } else if view == .compare, let focus {
                             HStack(spacing: 2) {
                                 PhotoLoupe(path: focus, record: catalog.record(focus), linked: true)
                                 if let other = compared(with: focus) {
                                     PhotoLoupe(path: other, record: catalog.record(other), linked: true, primary: false)
                                 }
                             }
-                            filmstrip
-                        }
-                    } else if view == .edit, let focus {
-                        VStack(spacing: 0) {
+                        } else if view == .edit, let focus {
                             PhotoLoupe(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus).prefix(2).map { ($0, catalog.record($0)) })
-                            filmstrip
+                        } else {
+                            grid
                         }
-                    } else {
-                        grid
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(strip ? Color(white: surroundWhite) : Design.Studio.panel, in: panel)
+                    .clipShape(panel)
+                    .contextMenu { if strip { surroundPicker } }
+                    .overlay(alignment: .bottom) { if strip { photoCounter.padding(.bottom, 14) } }
+                    if strip {
+                        filmstrip
+                            .background(Design.Studio.panel, in: panel)
+                            .clipShape(panel)
                     }
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-                Task { @MainActor in
-                    var urls: [URL] = []
-                    for provider in providers { if let url = await provider.load(URL.self) { urls.append(url) } }
-                    importPhotos(urls)
+                .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
+                    Task { @MainActor in
+                        var urls: [URL] = []
+                        for provider in providers { if let url = await provider.load(URL.self) { urls.append(url) } }
+                        importPhotos(urls)
+                    }
+                    return true
                 }
-                return true
+                // Browse is for looking and choosing: no edit tools beside the photos (owner, 2026-11-12).
+                if !inspectorHidden && (view == .edit || view == .compare) {
+                    ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
+                    PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
+                        .frame(width: fit.right)
+                        .background(Design.Studio.panel, in: panel)
+                        .clipShape(panel)
+                }
             }
-            if !inspectorHidden {
-                ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
-                PhotoInspector(tab: $tab, paths: Array(selection.isEmpty ? (focus.map { [$0] } ?? []) : selection).sorted(), focus: focus)
-                    .frame(width: fit.right)
-                    .clipped()
             }
         }
         .onGeometryChange(for: Double.self) { $0.size.width } action: { pageWidth = $0 }
@@ -205,6 +226,11 @@ struct PhotoPage: View {
         .onChange(of: focus) { old, new in PhotoPasteboard.focusMoved(from: old, to: new) }
         .onChange(of: selection) { old, new in if old != new { editing.syncAll = true } }
         .onChange(of: momentsOn) { keepToShown() }
+        // A filter chosen in Edit or Cull (Picks after culling): the photo shown is one that passes.
+        .onChange(of: flagFilter) { keepFocusInFilter() }
+        .onChange(of: minRating) { keepFocusInFilter() }
+        .onChange(of: labelFilter) { keepFocusInFilter() }
+        .onChange(of: checkFilter) { keepFocusInFilter() }
         .onChange(of: selection, initial: true) { editing.levelCount = pasteTargets.count }
         .onChange(of: focus) { editing.levelCount = pasteTargets.count }
         .sheet(item: $copySheet) { mode in
@@ -218,6 +244,8 @@ struct PhotoPage: View {
             return .handled
         }
         .onAppear {
+            // The Scopes window follows what's on screen: back to the photo.
+            ScopeHub.shared.showPhoto()
             PhotoPasteboard.perform = { perform($0) }
             SpeedEditor.shared.context = {
                 guard view == .edit, let focus else { return nil }
@@ -369,7 +397,6 @@ struct PhotoPage: View {
             .padding(.top, Design.Sidebar.inset)
             .padding(.bottom, 20)
         }
-        .background(.background.secondary)
         .alert("Rename Album", isPresented: Binding(get: { renamingAlbum != nil }, set: { if !$0 { renamingAlbum = nil } })) {
             TextField("Name", text: $albumName)
             Button("Rename") { if let id = renamingAlbum { catalog.rename(id, to: albumName) }; renamingAlbum = nil }
@@ -438,71 +465,200 @@ struct PhotoPage: View {
 
     private var toolbar: some View {
         HStack(spacing: 10) {
-            Picker("Mode", selection: Binding(get: { editingMode }, set: { edit in
-                if edit { if focus == nil { focus = photos.first }; view = .edit } else { view = .grid }
-            })) {
-                Text("Browse").tag(false)
-                Text("Edit").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .help("Browse (\(Shortcuts.shared.shortcut(.photoGrid).label)) or edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
-            if editingMode {
-                Toggle(isOn: Binding(get: { view == .compare }, set: { view = $0 ? .compare : .edit })) {
-                    Image(systemName: "rectangle.split.2x1")
+            StudioSegmented(ground: Design.Studio.panel,
+                            options: [(ViewMode.grid, LocalizedStringKey("Browse")), (ViewMode.cull, LocalizedStringKey("Cull")), (ViewMode.edit, LocalizedStringKey("Edit"))],
+                            selection: Binding(get: { view == .compare ? .edit : view }, set: { mode in
+                                if mode != .grid, focus == nil { focus = photos.first }
+                                view = mode
+                            }))
+                .help("Browse (\(Shortcuts.shared.shortcut(.photoGrid).label)), one at a time (\(Shortcuts.shared.shortcut(.photoCull).label)) or edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
+                // What follows lines up with Browse's photos panel (right of the albums), in every mode,
+                // so Filter stays in one place.
+                .frame(width: !sidebarHidden ? max(albumsWidth + Design.Studio.panelGap - Self.trafficLights - 10, 0) : nil,
+                       alignment: .leading)
+            if view == .cull, focus != nil {
+                filterMenu()
+                Spacer(minLength: 12)
+                cullProgress
+                Spacer(minLength: 12)
+                StudioSegmented(ground: Design.Studio.panel,
+                                options: [(1, LocalizedStringKey("1")), (2, LocalizedStringKey("2")), (4, LocalizedStringKey("4")), (6, LocalizedStringKey("6"))],
+                                selection: $cullCount)
+                    .help("Photos side by side")
+                titleButton("link", on: cullSync, help: "Zoom them all together") { cullSync.toggle() }
+                surroundMenu
+                Button { cullZoomed.toggle() } label: {
+                    Text(cullZoomed ? "100 %" : "Fit").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                        .padding(.horizontal, 10).frame(height: 28)
+                        .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
                 }
-                .toggleStyle(.button)
-                .help("Compare with the next photo, zoomed together (\(Shortcuts.shared.shortcut(.photoCompare).label))")
-                .accessibilityLabel(Text("Compare"))
-                Toggle(isOn: $editing.cropping) { Image(systemName: "crop") }
-                    .toggleStyle(.button)
-                    .help("Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))")
-                    .accessibilityLabel(Text("Crop"))
-                Image(systemName: editing.asShot ? "circle.lefthalf.filled.inverse" : "circle.lefthalf.filled")
-                    .frame(width: 26, height: 20)
-                    .background(RoundedRectangle(cornerRadius: 5).fill(Color.primary.opacity(editing.asShot ? 0.2 : 0.08)))
-                    .contentShape(.rect)
-                    .onLongPressGesture(minimumDuration: 0, perform: {}, onPressingChanged: { editing.asShot = $0 })
-                    .help("Hold to see it as shot (or hold \\)")
-                    .accessibilityLabel(Text("Hold to see it as shot"))
-                    .accessibilityAddTraits(.isButton)
+                .buttonStyle(.plain)
+                .help("Fit or zoomed in (Z); click a photo to choose where")
+            } else if view != .grid, let focus {
+                filterMenu()
+                Spacer(minLength: 12)
+                PhotoTitle(path: focus, rating: catalog.record(focus).rating)
+                Spacer(minLength: 12)
+                titleButton("arrow.uturn.backward", help: "Undo (⌘Z)") { catalog.undo(); dropGoneCopies() }
                 beforeAfterMenu
-                hdrToggle
-            } else {
-                Toggle(isOn: Binding(get: { view == .cull }, set: { one in
-                    if one, focus == nil { focus = photos.first }
-                    view = one ? .cull : .grid
-                })) {
-                    Image(systemName: "rectangle")
+                surroundMenu
+                titleButton("exclamationmark.triangle", on: editing.showClipping,
+                            help: "Show clipping (\(Shortcuts.shared.shortcut(.photoClipping).label))") { editing.showClipping.toggle() }
+                Button { editing.zoomed.toggle() } label: {
+                    Text(editing.zoomed ? "100 %" : "Fit").font(Design.Studio.body).foregroundStyle(Design.Studio.text).frame(minWidth: 28, minHeight: 28)
                 }
-                .toggleStyle(.button)
-                .help("One at a time, to cull quickly (\(Shortcuts.shared.shortcut(.photoCull).label))")
-                .accessibilityLabel(Text("One at a time"))
+                .buttonStyle(.plain)
+                .help("Fit or 100 % (Z)")
+            } else {
+                filterMenu()
+                Spacer()
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+                    TextField("Find", text: $search).textFieldStyle(.plain).font(Design.Studio.body).frame(maxWidth: 150)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(Design.Studio.panel, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                .help("Find photos by what’s in them, the text in them or their name")
+                Text("^[\(photos.count) photo](inflect: true)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                moreMenu
+                Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
-            filterMenu
-            Spacer()
-            HStack(spacing: 4) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Find", text: $search).textFieldStyle(.plain).frame(maxWidth: 150)
-            }
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
-            .help("Find photos by what’s in them, the text in them or their name")
-            Text("^[\(photos.count) photo](inflect: true)").font(.callout).foregroundStyle(.secondary)
-            moreMenu
-            Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
-                .buttonStyle(BrandButtonStyle(large: false))
         }
         .controlSize(.small)
+        .padding(.trailing, 14)
+        .frame(height: 44)
+    }
+
+    private func keepFocusInFilter() {
+        guard view != .grid, let focus, !photos.contains(focus) else { return }
+        self.focus = photos.first
+        selection = photos.first.map { [$0] } ?? []
+    }
+
+    /// The albums' width as drawn in Browse.
+    private var albumsWidth: Double {
+        // Browse: as drawn. Cull and Edit: the albums' own width, so Filter doesn't drift while the window is resized.
+        view == .grid ? Self.fitted(left: sidebarHidden ? 0 : sidebarWidth, right: 0, total: pageWidth - 16).left
+                      : min(max(sidebarWidth, 200), 300)
+    }
+
+    /// The moments to cull: every photo shown, in moments, the ranking's top photo of each marked.
+    private var cullMoments: [CullMoment] {
+        CullMoment.all(filtered, listing: cullCache.listing(filtered, checks: checks.checks, style: styles.chosenStyle, expanded: []))
+    }
+
+    /// "212 / 840", a thin bar, how many kept and rejected.
+    private var cullProgress: some View {
+        let all = filtered
+        let flags = all.map { catalog.record($0).flag }
+        let kept = flags.filter { $0 == .pick }.count, rejected = flags.filter { $0 == .reject }.count
+        let decided = kept + rejected
+        return HStack(spacing: 14) {
+            (Text(verbatim: "\(decided) ").foregroundStyle(Design.Studio.text) + Text(verbatim: "/ \(all.count)").foregroundStyle(Design.Studio.textQuiet))
+                .font(Design.Studio.body.monospacedDigit())
+            Capsule().fill(Design.Studio.line).frame(width: 160, height: 3)
+                .overlay(alignment: .leading) {
+                    Capsule().fill(Design.Brand.gradient).frame(width: 160 * (all.isEmpty ? 0 : Double(decided) / Double(all.count)), height: 3)
+                }
+            Label { Text(verbatim: "\(kept)") } icon: { Image(systemName: "checkmark").font(.system(size: 10)) }
+                .foregroundStyle(Design.Studio.text)
+            Label { Text(verbatim: "\(rejected)") } icon: { Image(systemName: "xmark").font(.system(size: 10)) }
+                .foregroundStyle(Design.Studio.textQuiet)
+        }
+        .font(Design.Studio.body.monospacedDigit())
         .padding(.horizontal, 14)
-        .frame(height: Design.Sidebar.topRowHeight)
+        .frame(height: 30)
+        .background(Design.Studio.panel, in: .capsule)
+    }
+
+    /// To the next (or previous) moment's top photo.
+    private func moveMoment(_ step: Int) {
+        let list = cullMoments
+        guard !list.isEmpty else { return }
+        let index = list.firstIndex { $0.members.contains(focus ?? "") } ?? 0
+        let next = list[min(max(index + step, 0), list.count - 1)].top
+        focus = next
+        selection = [next]
+    }
+
+    /// To the photo before or after, through every photo (moments' hidden photos too).
+    private func stepInCull(_ step: Int) {
+        let list = filtered
+        guard !list.isEmpty else { return }
+        let index = focus.flatMap { list.firstIndex(of: $0) } ?? -1
+        let next = list[min(max(index + step, 0), list.count - 1)]
+        focus = next
+        selection = [next]
+    }
+
+    /// T: keep the photo in focus, reject the rest of its moment, on to the next moment.
+    private func topPick() {
+        guard let focus, let moment = cullMoments.first(where: { $0.members.contains(focus) }) else { return }
+        catalog.update([focus]) { $0.flag = .pick }
+        let rest = moment.members.filter { $0 != focus }
+        if !rest.isEmpty { catalog.update(rest) { $0.flag = .reject } }
+        moveMoment(1)
+    }
+
+    /// The background under the photo: black, the important greys, white.
+    private var surroundPicker: some View {
+        Picker("Background", selection: $surroundWhite) {
+            ForEach(Design.Photo.surrounds, id: \.white) { Text($0.title).tag($0.white) }
+        }
+        .pickerStyle(.inline)
+    }
+
+    private var surroundMenu: some View {
+        Menu { surroundPicker } label: {
+            Image(systemName: "square.inset.filled")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Design.Studio.textQuiet)
+                .frame(width: 28, height: 28)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Background under the photo")
+        .accessibilityLabel(Text("Background under the photo"))
+    }
+
+    /// A small icon button in the title row; plum when it's on.
+    private func titleButton(_ symbol: String, on: Bool = false, help: LocalizedStringKey, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(on ? Design.Brand.pink : Design.Studio.textQuiet)
+                .frame(width: 28, height: 28)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .help(Text(help))
+        .accessibilityLabel(Text(help))
+    }
+
+    /// "48 / 312" with arrows either side, over the photo.
+    private var photoCounter: some View {
+        let index = focus.flatMap { photos.firstIndex(of: $0) } ?? 0
+        return HStack(spacing: 2) {
+            titleButton("chevron.left", help: "Previous photo") { move(-1) }
+            Text(verbatim: "\(index + 1) / \(photos.count)")
+                .font(Design.Studio.hint.monospacedDigit())
+                .foregroundStyle(Design.Studio.textQuiet)
+                .padding(.horizontal, 6)
+            titleButton("chevron.right", help: "Next photo") { move(1) }
+        }
+        .padding(.horizontal, 6)
+        .frame(height: 30)
+        .background(Design.rgb(0x0F0F11).opacity(0.78), in: .capsule)
     }
 
     private var filtering: Bool { flagFilter != nil || minRating > 0 || labelFilter != nil || checkFilter != nil }
 
     /// One menu for every filter: flag, rating, colour label.
-    private var filterMenu: some View {
+    private func filterMenu(ground: Color = Design.Studio.panel) -> some View {
         Menu {
             Picker("Flag", selection: $flagFilter) {
                 Text("All").tag(PhotoRecord.Flag?.none)
@@ -540,8 +696,21 @@ struct PhotoPage: View {
                 Button("Show All") { flagFilter = nil; minRating = 0; labelFilter = nil; checkFilter = nil }
             }
         } label: {
-            Label(filterTitle, systemImage: filtering ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+            HStack(spacing: 6) {
+                Image(systemName: "line.3.horizontal.decrease").font(.system(size: 11, weight: .medium))
+                Text(verbatim: filterTitle)
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .font(Design.Studio.body)
+            .foregroundStyle(filtering ? Design.Brand.pink : Design.Studio.text)
+            .padding(.horizontal, 10)
+            .frame(height: 28)
+            .background(ground, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            .contentShape(.rect)
         }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
         .fixedSize()
         .help("Show only some photos")
     }
@@ -627,16 +796,16 @@ struct PhotoPage: View {
                 LazyHStack(spacing: 6) {
                     ForEach(photos, id: \.self) { path in
                         PhotoCell(path: path, record: catalog.record(path), selected: selection.contains(path) || focus == path, compact: true)
-                            .frame(width: 96, height: 72)
+                            .frame(height: 56)
+                            .opacity(selection.contains(path) || focus == path ? 1 : 0.85)
                             .id(path)
                             .onTapGesture { click(path) }
                     }
                 }
                 .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.vertical, 10)
             }
-            .frame(height: 88)
-            .background(.background.secondary)
+            .frame(height: 76)
             .onChange(of: focus) { _, path in
                 guard let path else { return }
                 if reduceMotion { scroller.scrollTo(path, anchor: .center) } else { withAnimation { scroller.scrollTo(path, anchor: .center) } }
@@ -789,6 +958,10 @@ struct PhotoPage: View {
             } else {
                 inspectorHidden.toggle()
             }
+        case .leftArrow where view == .cull: stepInCull(-1)
+        case .rightArrow where view == .cull: stepInCull(1)
+        case .downArrow where view == .cull: moveMoment(1)
+        case .upArrow where view == .cull: moveMoment(-1)
         case .leftArrow where !editing.cropping: move(-1, extending: press.modifiers.contains(.shift))
         case .rightArrow where !editing.cropping: move(1, extending: press.modifiers.contains(.shift))
         case .upArrow where !loupe: move(-columns, extending: press.modifiers.contains(.shift))
@@ -826,6 +999,7 @@ struct PhotoPage: View {
                 selection = Set(photos)
                 return .handled
             }
+            if view == .cull, character == "t", press.modifiers.isEmpty { topPick(); return .handled }
             let zoomable = view == .edit || view == .compare
             if view == .grid, press.modifiers.contains(.command), ["=", "+"].contains(character) { gridSize = min(gridSize * 1.25, 420); return .handled }
             if view == .grid, press.modifiers.contains(.command), character == "-" { gridSize = max(gridSize / 1.25, 90); return .handled }
@@ -840,7 +1014,8 @@ struct PhotoPage: View {
             case .photoClipping: editing.showClipping.toggle()
             case .photoMaskOverlay: if editing.selectedMask != nil { editing.maskOverlay.toggle() } else { return .ignored }
             case .photoCrop: editing.cropping.toggle()
-            case .photoZoom: if zoomable { editing.zoom = editing.zoom == nil ? 1 : nil } else { return .ignored }
+            case .photoZoom:
+                if zoomable { editing.zoom = editing.zoom == nil ? 1 : nil } else if view == .cull { cullZoomed.toggle() } else { return .ignored }
             case .photoTurnCrop:
                 guard let focus else { return .ignored }
                 catalog.update([focus]) { record in
@@ -908,13 +1083,26 @@ struct PhotoPage: View {
                 ForEach(snapshots) { snapshot in Text("Before: \(snapshot.name)").tag(UUID?.some(snapshot.id)) }
             }
             .pickerStyle(.inline)
+            Divider()
+            Toggle("Compare with the Next Photo (\(Shortcuts.shared.shortcut(.photoCompare).label))",
+                   isOn: Binding(get: { view == .compare }, set: { view = $0 ? .compare : .edit }))
+            if PhotoEditing.canShowHDR(NSApp.keyWindow?.screen ?? NSScreen.main), let focus {
+                let on = catalog.record(focus).hdr == true
+                Toggle("Edit in HDR", isOn: Binding(get: { on }, set: { value in
+                    catalog.update(editing.targets(selection.isEmpty ? [focus] : Array(selection), shown: focus)) { $0.hdr = value ? true : nil }
+                }))
+            }
         } label: {
-            Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            Image(systemName: "rectangle.split.2x1")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(editing.beforeAfter != .off || view == .compare ? Design.Brand.pink : Design.Studio.textQuiet)
+                .frame(width: 28, height: 28)
         }
-        .menuStyle(.borderlessButton)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
         .menuIndicator(.hidden)
         .fixedSize()
-        .help("Before and after (\(Shortcuts.shared.shortcut(.photoBeforeAfter).label)): what “before” is")
+        .help("Before and after (\(Shortcuts.shared.shortcut(.photoBeforeAfter).label))")
         .accessibilityLabel(Text("Before and after"))
     }
 
@@ -978,10 +1166,10 @@ private struct PhotoCell: View {
 
     var body: some View {
         Color.black.opacity(0.35)
-            .aspectRatio(compact ? 4 / 3 : 1, contentMode: .fit)
+            .aspectRatio(compact ? image.map { $0.size.width / max($0.size.height, 1) } ?? 3 / 2 : 1, contentMode: .fit)
             .overlay {
                 if let image {
-                    Image(nsImage: image).resizable().scaledToFit()
+                    if compact { Image(nsImage: image).resizable().scaledToFill() } else { Image(nsImage: image).resizable().scaledToFit() }
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -1020,16 +1208,17 @@ private struct PhotoCell: View {
             }
             .overlay(alignment: .topTrailing) {
                 HStack(spacing: 4) {
-                    if record.isEdited { Image(systemName: record.filmOn ? "film" : "slider.horizontal.3").font(.caption2) }
+                    if record.isEdited, !compact { Image(systemName: record.filmOn ? "film" : "slider.horizontal.3").font(.caption2) }
+                    if record.isEdited, compact { Circle().fill(Design.Studio.text).frame(width: 5, height: 5).accessibilityHidden(true) }
                     if record.flag == .pick { Image(systemName: "flag.fill").foregroundStyle(.white) }
                     if record.flag == .reject { Image(systemName: "xmark").foregroundStyle(.red) }
                     if let label = record.label { Circle().fill(PhotoInspector.labelColor(label)).frame(width: 8, height: 8) }
                 }
                 .font(.caption)
-                .padding(5)
-                .background(record.flag == .none && !record.isEdited && record.label == nil ? AnyShapeStyle(.clear) : AnyShapeStyle(.black.opacity(0.55)),
+                .padding(compact ? 0 : 5)
+                .background(compact || (record.flag == .none && !record.isEdited && record.label == nil) ? AnyShapeStyle(.clear) : AnyShapeStyle(.black.opacity(0.55)),
                             in: .capsule)
-                .padding(6)
+                .padding(compact ? 4 : 6)
             }
             .overlay(alignment: .topLeading) {
                 // A virtual copy: its number.
@@ -1044,11 +1233,19 @@ private struct PhotoCell: View {
                 }
             }
             .opacity(record.flag == .reject ? 0.45 : 1)
-            .clipShape(RoundedRectangle(cornerRadius: compact ? 4 : 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: compact ? 5 : 8, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: compact ? 4 : 8, style: .continuous)
-                    .strokeBorder(selected ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.3 : 0.08)),
-                                  lineWidth: selected ? 3 : 1)
+                // Filmstrip: a plum outline just outside the chosen photo, nothing else (layout reference).
+                if compact {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(Design.Brand.gradient, lineWidth: 2)
+                        .padding(-3)
+                        .opacity(selected ? 1 : 0)
+                } else {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(selected ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Color.primary.opacity(hovering ? 0.3 : 0.08)),
+                                      lineWidth: selected ? 3 : 1)
+                }
             }
             .contentShape(.rect)
             .onHover { hovering = $0 }
@@ -1137,12 +1334,15 @@ struct PhotoLoupe: View {
     @State private var ownCenter = CGPoint(x: 0.5, y: 0.5)
     @State private var ownDrag: CGSize = .zero
     @State private var pinchStart: Double?
+    @State private var frame = CGRect.zero
+    @State private var scrollMonitor: Any?
+    @AppStorage(Design.Photo.surroundKey) private var surroundWhite = 0.16
     @State private var viewSize: CGSize = .zero
     @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         ZStack {
-            Design.Photo.surround
+            Color(white: surroundWhite)
             if let picture {
                 GeometryReader { geo in
                     let sideBySide = comparing && editing.beforeAfter == .sideBySide
@@ -1153,7 +1353,7 @@ struct PhotoLoupe: View {
                     ZStack {
                         PhotoCanvas(image: shaped(shownImage ?? picture), frame: frame,
                                     before: comparing ? beforePicture.map(shaped) : nil,
-                                    mode: comparing ? editing.beforeAfter : .off, split: editing.split)
+                                    mode: comparing ? editing.beforeAfter : .off, split: editing.split, surround: surroundWhite)
                         if let zoom = editing.zoom, !editing.cropping {
                             zoomGestures(zoom: zoom, area: area, frame: own)
                         } else {
@@ -1204,6 +1404,10 @@ struct PhotoLoupe: View {
         .onHover { if primary { SpeedEditor.shared.overLoupe = $0 } }
         .background(GeometryReader { geo in Color.clear.onAppear { viewSize = geo.size }.onChange(of: geo.size) { _, size in viewSize = size } })
         .task(id: TaskKey(path: path, record: shownRecord, original: original, overlay: overlay, peak: peak, revision: revision(shownRecord))) { await develop() }
+        // The Scopes window reads the photo shown, however it got here (developed or from the saved preview).
+        .onChange(of: picture.map(ObjectIdentifier.init), initial: true) {
+            if primary { ScopeHub.shared.photoPicture(picture, name: (path as NSString).lastPathComponent) }
+        }
         .task(id: BeforeKey(path: path, record: beforeRecord, on: comparing, full: wantedFull != nil, revision: revision(beforeRecord))) { await developBefore() }
         .task(id: wantedFull) {
             // The photo at full size once zoomed in past the preview (decoded once, then only the
@@ -1284,6 +1488,43 @@ struct PhotoLoupe: View {
         // (Cropping shows the whole picture with its frame: no comparison then.)
         .onChange(of: editing.cropping) { _, cropping in if cropping, primary { editing.beforeAfter = .off } }
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
+        // Scrolling over the photo zooms in and out (from fit up to 800 %); drag still moves it.
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(StudioWindow.space)) } action: { frame = $0 }
+        .onAppear {
+            guard primary, scrollMonitor == nil else { return }
+            scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
+                // Only over this photo. The page's coordinates start under the title bar, from the top;
+                // the event's from the window's bottom.
+                guard let window = event.window, window == NSApp.keyWindow else { return event }
+                let point = CGPoint(x: event.locationInWindow.x - frame.minX, y: window.contentLayoutRect.maxY - event.locationInWindow.y - frame.minY)
+                guard CGRect(origin: .zero, size: frame.size).contains(point), !editing.cropping, event.scrollingDeltaY != 0 else { return event }
+                // The wheel's own direction (natural scrolling flips the delta): away from you zooms in.
+                let delta = event.isDirectionInvertedFromDevice ? -event.scrollingDeltaY : event.scrollingDeltaY
+                let step = event.hasPreciseScrollingDeltas ? delta * 0.01 : delta * 0.12
+                let fit = max(fitZoom(), 0.01)
+                let next = min(max((editing.zoom ?? fit) * exp(step), fit), 8)
+                // Keep the place under the pointer where it is (zoom towards the pointer, not the middle).
+                if next > fit * 1.001, let picture {
+                    let before = pictureFrame(in: viewSize)
+                    let px = Double(point.x), py = Double(point.y)
+                    let shareX: Double = (px - Double(before.minX)) / max(Double(before.width), 1)
+                    let shareY: Double = (py - Double(before.minY)) / max(Double(before.height), 1)
+                    let width: Double = Double(picture.extent.width) * scaleToFull * next / Double(displayScale)
+                    let tall: Double = Double(picture.extent.height) * scaleToFull * next / Double(displayScale)
+                    let midX: Double = px - shareX * width + width / 2
+                    let midY: Double = py - shareY * tall + tall / 2
+                    let cx: Double = 0.5 - (midX - Double(viewSize.width) / 2) / width
+                    let cy: Double = 0.5 - (midY - Double(viewSize.height) / 2) / tall
+                    center = clamped(CGPoint(x: cx, y: cy), width: width, height: tall, view: viewSize)
+                }
+                editing.zoom = next <= fit * 1.001 ? nil : next
+                return nil
+            }
+        }
+        .onDisappear {
+            if let scrollMonitor { NSEvent.removeMonitor(scrollMonitor) }
+            scrollMonitor = nil
+        }
     }
 
     /// The crop's controls, on the photo while cropping: the shape, upright or on its side,
@@ -1700,7 +1941,10 @@ struct PhotoLoupe: View {
             }
             let measured = quick
             if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(measured) }.value }
-            if primary { let counted = await Task.detached(priority: .utility) { PhotoScopes.data(measured) }.value; if !Task.isCancelled { editing.scopes = counted } }
+            if primary {
+                let counted = await Task.detached(priority: .utility) { PhotoScopes.data(measured) }.value
+                if !Task.isCancelled { editing.scopes = counted }
+            }
             try? await Task.sleep(for: .milliseconds(550))
             guard !Task.isCancelled, shown.isEdited else { return }
             await Task.detached(priority: .utility) {
@@ -1719,7 +1963,10 @@ struct PhotoLoupe: View {
                 picturePath = path
                 FilmPictures.shared.keep(film, for: cached.path)
                 if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
-                if primary { let counted = await Task.detached(priority: .utility) { PhotoScopes.data(film) }.value; if !Task.isCancelled { editing.scopes = counted } }
+                if primary {
+                    let counted = await Task.detached(priority: .utility) { PhotoScopes.data(film) }.value
+                    if !Task.isCancelled { editing.scopes = counted }
+                }
                 PhotoRender.savePreview(developed, to: cached)
             }
         } catch {
@@ -1877,5 +2124,32 @@ private struct CornerLabel: ViewModifier {
             .padding(.horizontal, 7).padding(.vertical, 3)
             .background(.ultraThinMaterial, in: .capsule)
             .allowsHitTesting(false)
+    }
+}
+
+/// The title row's middle: the photo's name, its stars, and camera, lens and exposure.
+private struct PhotoTitle: View {
+    let path: String
+    let rating: Int
+    @State private var summary = ""
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(verbatim: PhotoCatalog.displayName(path)).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+            HStack(spacing: 2) {
+                ForEach(1...5, id: \.self) { star in
+                    Image(systemName: star <= rating ? "star.fill" : "star")
+                        .font(.system(size: 9))
+                        .foregroundStyle(star <= rating ? Design.Studio.text : Design.Studio.textFaint)
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(Text("\(rating) stars"))
+            Text(verbatim: summary).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+        }
+        .task(id: path) {
+            let path = path
+            summary = await Task.detached { PhotoDetails.summary(path) }.value
+        }
     }
 }

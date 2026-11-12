@@ -47,7 +47,7 @@ struct SpeedHistory: Equatable {
 /// A line of recent speeds, as small as a word.
 struct Sparkline: View {
     let values: [Double]
-    var tint: Color = .accentColor
+    var tint: Color = Design.Studio.textQuiet
 
     var body: some View {
         Canvas { context, size in
@@ -60,7 +60,7 @@ struct Sparkline: View {
             }
             context.stroke(path, with: .color(tint), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
         }
-        .frame(width: 56, height: 14)
+        .frame(width: 56, height: 12)
         .accessibilityHidden(true)
     }
 }
@@ -73,31 +73,31 @@ struct OffloadSpeedLine: View {
 
     var body: some View {
         let names = job.speedNames
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: Design.Spacing.controls) {
-                if let last = history.card.last { entry(names.card, symbol: "sdcard", values: history.card, last: last, slow: false) }
-                ForEach(names.drives.indices, id: \.self) { index in
-                    if let last = history.drives[index].last {
-                        entry(names.drives[index], symbol: "externaldrive", values: history.drives[index], last: last, slow: history.holdingBack == index)
-                    }
+        HStack(spacing: 18) {
+            if let last = history.card.last { entry(names.card, symbol: "sdcard", values: history.card, last: last, slow: nil) }
+            ForEach(names.drives.indices, id: \.self) { index in
+                if let last = history.drives[index].last {
+                    entry(names.drives[index], symbol: "externaldrive", values: history.drives[index], last: last,
+                          slow: history.holdingBack == index ? names.drives[index] : nil)
                 }
-                Spacer(minLength: 0)
             }
-            if let slow = history.holdingBack, names.drives.indices.contains(slow) {
-                Label("\(names.drives[slow]) is holding this back", systemImage: "tortoise.fill")
-                    .font(.caption).foregroundStyle(.orange)
-            }
+            Spacer(minLength: 0)
         }
+        .font(Design.Studio.hint.monospacedDigit())
     }
 
-    private func entry(_ name: String, symbol: String, values: [Double], last: Double, slow: Bool) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: symbol).imageScale(.small)
-            Sparkline(values: values, tint: slow ? .orange : .accentColor)
-            Text("\(Int(last.rounded())) MB/s").monospacedDigit()
+    /// One speed; the drive holding the offload back in the warning colour, saying so.
+    private func entry(_ name: String, symbol: String, values: [Double], last: Double, slow: String?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 10))
+            Sparkline(values: values, tint: slow != nil ? Design.Studio.warn : Design.Studio.textQuiet)
+            if let slow {
+                Text("\(Int(last.rounded())) MB/s · \(slow) is holding this back").lineLimit(1)
+            } else {
+                Text("\(Int(last.rounded())) MB/s")
+            }
         }
-        .font(.caption)
-        .foregroundStyle(slow ? Color.orange : Color.secondary)
+        .foregroundStyle(slow != nil ? Design.Studio.warn : Design.Studio.textQuiet)
         .help(name)
     }
 }

@@ -67,6 +67,9 @@ struct PluckApp: App {
             CommandMenu("Tools") {
                 ToolsMenuItems()
             }
+            CommandGroup(before: .windowList) {
+                ScopesCommand()
+            }
             #else
             CommandGroup(before: .windowList) {
                 LibraryCommand()
@@ -113,6 +116,15 @@ struct PluckApp: App {
         .defaultSize(width: 1100, height: 700)
         #endif
 
+        #if STUDIO
+        // Scopes for a second screen (layout reference, page 7).
+        Window("Scopes", id: "scopes") {
+            ScopesWindow()
+        }
+        .windowStyle(.hiddenTitleBar)
+        .defaultSize(width: 1440, height: 900)
+        #endif
+
         Window("Settings", id: "settings") {
             SettingsView()
                 .environment(manager)
@@ -126,6 +138,17 @@ struct PluckApp: App {
         .defaultPosition(.center)
     }
 }
+
+#if STUDIO
+private struct ScopesCommand: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Button("Scopes") { openWindow(id: "scopes") }
+            .keyboardShortcut("k", modifiers: [.command, .option])
+    }
+}
+#endif
 
 #if !STUDIO
 private struct LibraryCommand: View {

@@ -25,13 +25,13 @@ struct ProjectTimeline: View {
     private var sounds: [ProjectTrack] { (model.project.tracks ?? []).filter { $0.kind == .audio } }
     /// Looks over parts of the timeline: a thin lane on top, once there's one.
     private let looksHeight: CGFloat = 18
-    private var looksTop: CGFloat { ruler + 4 }
+    private var titlesTop: CGFloat { ruler + 4 }
+    private var looksTop: CGFloat { titlesTop + titlesHeight + 4 }
     private var hasLooks: Bool { !(model.project.adjustments ?? []).isEmpty }
     private var clipsTop: CGFloat { looksTop + (hasLooks ? looksHeight + 4 : 0) + CGFloat(overlays.count) * (overlayHeight + 4) }
     private var soundsTop: CGFloat { clipsTop + clipsHeight + 4 }
     private var musicTop: CGFloat { soundsTop + CGFloat(sounds.count) * (soundHeight + 4) }
-    private var titlesTop: CGFloat { musicTop + musicHeight + 4 }
-    private var height: CGFloat { titlesTop + titlesHeight + 4 }
+    private var height: CGFloat { musicTop + musicHeight + 4 }
 
     /// Where a track's lane is, and how tall.
     private func laneTop(_ track: ProjectTrack) -> (top: CGFloat, height: CGFloat)? {
@@ -77,6 +77,38 @@ struct ProjectTimeline: View {
     private var maxZoom: Double { max(1, min(model.duration / 2, 400)) }
 
     var body: some View {
+        HStack(alignment: .top, spacing: 4) {
+            trackNames
+            timeline
+        }
+    }
+
+    /// The tracks' names down the left, level with their lanes: T1, V2…, V1, A1…, M1.
+    private var trackNames: some View {
+        ZStack(alignment: .topLeading) {
+            trackName("T1", top: titlesTop, height: titlesHeight)
+            ForEach(Array(overlays.enumerated()), id: \.element.id) { index, track in
+                if let lane = laneTop(track) { trackName("V\(index + 2)", top: lane.top, height: lane.height) }
+            }
+            trackName("V1", top: clipsTop, height: clipsHeight)
+            ForEach(Array(sounds.enumerated()), id: \.element.id) { index, track in
+                if let lane = laneTop(track) { trackName("A\(index + 1)", top: lane.top, height: lane.height) }
+            }
+            trackName("M1", top: musicTop, height: musicHeight)
+        }
+        .frame(width: 26, height: height, alignment: .topLeading)
+        .accessibilityHidden(true)
+    }
+
+    private func trackName(_ name: String, top: CGFloat, height: CGFloat) -> some View {
+        Text(verbatim: name)
+            .font(Design.Studio.hint.weight(.medium))
+            .foregroundStyle(Design.Studio.textQuiet)
+            .frame(width: 26, height: height)
+            .offset(y: top)
+    }
+
+    private var timeline: some View {
         GeometryReader { outer in
             let width = max(outer.size.width * zoom, outer.size.width)
             ScrollViewReader { scroller in
@@ -104,7 +136,8 @@ struct ProjectTimeline: View {
                 let seconds = Double(location.x / width) * max(model.duration, 0.001)
                 let index = insertionIndex(at: seconds)
                 // Above the main line: laid over it; on a sound track: beside it; else into it.
-                let over = location.y < clipsTop && !(hasLooks && location.y < looksTop + looksHeight + 4), sound = location.y >= soundsTop && location.y < musicTop
+                let over = location.y < clipsTop && location.y >= looksTop && !(hasLooks && location.y < looksTop + looksHeight + 4),
+                    sound = location.y >= soundsTop && location.y < musicTop
                 Task { @MainActor in
                     var files: [URL] = []
                     var items: [EditLibraryItem] = []
@@ -171,8 +204,8 @@ struct ProjectTimeline: View {
             rulerView(width: width)
             // Lanes.
             lane(top: clipsTop, height: clipsHeight, width: width)
-            lane(top: musicTop, height: musicHeight, width: width, label: "music.note")
-            lane(top: titlesTop, height: titlesHeight, width: width, label: "textformat")
+            lane(top: musicTop, height: musicHeight, width: width)
+            lane(top: titlesTop, height: titlesHeight, width: width)
             ForEach(model.project.tracks ?? []) { track in
                 if let (top, laneHeight) = laneTop(track) {
                     lane(top: top, height: laneHeight, width: width, label: track.kind == .video ? "square.on.square" : "waveform")
@@ -212,17 +245,17 @@ struct ProjectTimeline: View {
                 let left = x(offsets[flag.index]), w = max(x(offsets[flag.index] + clip.length) - left, 2)
                 switch flag.kind {
                 case .long:
-                    Rectangle().fill(Color.orange.opacity(0.22))
+                    Rectangle().fill(Design.Studio.warn.opacity(0.18))
                         .frame(width: w, height: clipsHeight)
                         .offset(x: left, y: clipsTop)
                 case .short:
-                    Rectangle().fill(Color.red)
+                    Rectangle().fill(Design.Studio.warn)
                         .frame(width: 3, height: 10)
                         .offset(x: left + w / 2 - 1.5, y: clipsTop)
                 case .jumpCut:
                     VStack(spacing: 1) {
-                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundStyle(.yellow)
-                        Rectangle().fill(Color.yellow).frame(width: 2, height: clipsHeight - 12)
+                        Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 9)).foregroundStyle(Design.Studio.warn)
+                        Rectangle().fill(Design.Studio.warn).frame(width: 2, height: clipsHeight - 12)
                     }
                     .frame(width: 12, height: clipsHeight, alignment: .top)
                     .offset(x: left - 6, y: clipsTop)
@@ -272,7 +305,7 @@ struct ProjectTimeline: View {
             ForEach(model.project.music) { song in
                 let left = x(song.at), w = max(x(min(song.at + song.length, seconds)) - left, 2)
                 lengthBlock(song.name, symbol: model.missing.contains(song.path) ? "exclamationmark.triangle.fill" : "music.note",
-                            tint: model.missing.contains(song.path) ? .red : .teal, selected: model.selected.contains(song.id))
+                            tint: model.missing.contains(song.path) ? Design.Studio.warn : .teal, selected: model.selected.contains(song.id))
                     .overlay { beatGrid(song, left: left, x: x) }
                     .overlay { duckBand(song, left: left, x: x) }
                     .frame(width: w, height: musicHeight)
@@ -293,9 +326,11 @@ struct ProjectTimeline: View {
             }
             marks(width: width, x: x)
             // The playhead.
-            Rectangle().fill(Color.red).frame(width: 1.5, height: height)
+            // White, with a small handle on top (layout reference).
+            Rectangle().fill(Design.Studio.text).frame(width: 1, height: height)
                 .overlay(alignment: .top) {
-                    Image(systemName: "arrowtriangle.down.fill").font(.system(size: 11)).foregroundStyle(.red).offset(y: -2)
+                    UnevenRoundedRectangle(bottomLeadingRadius: 5, bottomTrailingRadius: 5)
+                        .fill(Design.Studio.text).frame(width: 11, height: 12).offset(y: 2)
                 }
                 .offset(x: x(model.time) - 0.75)
                 .allowsHitTesting(false)
@@ -330,8 +365,9 @@ struct ProjectTimeline: View {
                     }
                 }
             }
+            // On the clips' top edge (the titles' lane sits above now).
             .frame(width: width, height: 5)
-            .offset(y: clipsTop - 5)
+            .offset(y: clipsTop)
             .allowsHitTesting(false)
         }
         ForEach(model.project.markers ?? []) { marker in
@@ -393,7 +429,7 @@ struct ProjectTimeline: View {
         RoundedRectangle(cornerRadius: 4)
             .fill(Color.primary.opacity(0.04))
             .overlay(alignment: .leading) {
-                if let label { Image(systemName: label).font(.system(size: 11)).foregroundStyle(.secondary).padding(.leading, 4) }
+                if let label { Text(verbatim: label).font(Design.Studio.hint.weight(.medium)).foregroundStyle(Design.Studio.textQuiet).padding(.leading, 6) }
             }
             .frame(width: width, height: height)
             .offset(y: top)
@@ -708,7 +744,7 @@ private struct ClipBlock: View {
             ZStack(alignment: .topLeading) {
                 Color.black.opacity(0.6)
                 if offline {
-                    Color.red.opacity(0.45)
+                    Design.Studio.warn.opacity(0.45)
                     Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.white)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if !thumbnails.isEmpty {

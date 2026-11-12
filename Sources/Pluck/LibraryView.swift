@@ -39,11 +39,18 @@ struct LibraryView: View {
     @State private var trashing: [LibraryStore.Entry] = []
     @State private var preview: URL?
     @State private var sharing = false
+    @Environment(\.openPluckSettings) private var openSettings
     @State private var sending: LibraryStore.Entry?
     @State private var network = NetworkLibraries.shared
     @State private var server = LibraryServer.shared
     /// The highlighted item (its path): Space shows it in Quick Look, arrow keys move it.
     @State private var selected: String?
+    #if STUDIO
+    @AppStorage("libraryDetailsShown") private var detailsShown = true
+    @AppStorage("librarySidebarShown") private var sidebarShown = true
+    #endif
+    /// The cards' smallest width: Studio's header has a slider for it.
+    @AppStorage("libraryCardSize") private var cardSize = Edition.isStudio ? 150.0 : 190
     /// Every highlighted item (Shift-click for a run, Command-click for one more), and where a
     /// Shift-click run starts.
     @State private var selection: Set<String> = []
@@ -106,79 +113,122 @@ struct LibraryView: View {
         }
     }
 
-    var body: some View {
-        NavigationSplitView {
-            List(selection: sidebarSelection) {
-                #if STUDIO
-                footageSection
-                locationsSection
-                #endif
-                // (Kinds and the order are chosen above the items; tidying up is in the toolbar.)
-                Section(Edition.isStudio ? "Downloads" : "Library") {
-                    Label(String(localized: "Everything"), systemImage: "square.grid.2x2")
-                        .badge(count(.all))
-                        .tag(Collection.all)
+    /// The places to choose from: footage, downloads, sites, subscriptions, tags.
+    private var sidebarList: some View {
+        List(selection: sidebarSelection) {
+            #if STUDIO
+            footageSection
+            locationsSection
+            #endif
+            // (Kinds and the order are chosen above the items; tidying up is in the toolbar.)
+            Section(Edition.isStudio ? "Downloads" : "Library") {
+                Label(String(localized: "Everything"), systemImage: "square.grid.2x2")
+                    .badge(count(.all))
+                    .tag(Collection.all)
+            }
+            if !library.sites.isEmpty {
+                Section("Sites") {
+                    ForEach(library.sites, id: \.self) { row(.site($0), "globe") }
                 }
-                if !library.sites.isEmpty {
-                    Section("Sites") {
-                        ForEach(library.sites, id: \.self) { row(.site($0), "globe") }
+            }
+            Section("Subscriptions") {
+                ForEach(subscriptions.list) { subscription in
+                    Label {
+                        Text(subscription.title)
+                    } icon: {
+                        Image(systemName: subscription.paused ? "pause.circle" : "dot.radiowaves.up.forward")
+                    }
+                    .badge(count(.subscription(subscription.id, subscription.title)))
+                    .tag(Collection.subscription(subscription.id, subscription.title))
+                }
+                Button {
+                    addingSubscription = true
+                } label: {
+                    Label("Subscribe…", systemImage: "plus")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Follow a channel, playlist or podcast: Pluck downloads what’s new")
+            }
+            if !library.allTags.isEmpty {
+                Section("Tags") {
+                    ForEach(library.allTags, id: \.self) { row(.tag($0), "tag") }
+                }
+            }
+            if !network.peers.isEmpty {
+                Section("On This Network") {
+                    ForEach(network.peers) { peer in
+                        Label(peer.name, systemImage: "desktopcomputer").tag(Collection.network(peer.name))
                     }
                 }
-                Section("Subscriptions") {
-                    ForEach(subscriptions.list) { subscription in
-                        Label {
-                            Text(subscription.title)
-                        } icon: {
-                            Image(systemName: subscription.paused ? "pause.circle" : "dot.radiowaves.up.forward")
-                        }
-                        .badge(count(.subscription(subscription.id, subscription.title)))
-                        .tag(Collection.subscription(subscription.id, subscription.title))
-                    }
-                    Button {
-                        addingSubscription = true
-                    } label: {
-                        Label("Subscribe…", systemImage: "plus")
+            }
+        }
+    }
+
+    /// Studio: three floating panels (places, the grid, the item clicked), as in render 2 of the
+    /// 2026-11-12 layout. Basic Pluck: the Mac's split view.
+    @ViewBuilder private var layout: some View {
+        #if STUDIO
+        let panel = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+        HStack(spacing: Design.Studio.panelGap) {
+            if sidebarShown {
+                VStack(alignment: .leading, spacing: 0) {
+                    sidebarList
+                        .listStyle(.sidebar)
+                        .scrollContentBackground(.hidden)
+                        .labelStyle(QuietIconLabel())
+                    // At the sidebar's foot, as in the reference.
+                    Button { LibraryView.chooseFootage() } label: {
+                        Label("Add folder", systemImage: "plus").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Follow a channel, playlist or podcast: Pluck downloads what’s new")
+                    .padding(.horizontal, 18)
+                    .frame(height: 44)
+                    .help("Keep a folder here and make what's in it searchable: nothing is copied")
                 }
-                if !library.allTags.isEmpty {
-                    Section("Tags") {
-                        ForEach(library.allTags, id: \.self) { row(.tag($0), "tag") }
-                    }
-                }
-                if !network.peers.isEmpty {
-                    Section("On This Network") {
-                        ForEach(network.peers) { peer in
-                            Label(peer.name, systemImage: "desktopcomputer").tag(Collection.network(peer.name))
-                        }
-                    }
-                }
+                .frame(width: 232)
+                    .background(Design.Studio.panel, in: panel)
+                    .clipShape(panel)
             }
-            .navigationSplitViewColumnWidth(min: 180, ideal: 210)
-        } detail: {
-            #if STUDIO
             splitDetail
-            #else
-            primaryDetail
-            #endif
-        }
-        .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
-        .modifier(SearchFocus(focused: $searchFocused))
-        .onReceive(NotificationCenter.default.publisher(for: Self.focusNotification)) { _ in takeFocus() }
-        #if STUDIO
-        // The last searches, to run again.
-        .searchSuggestions {
-            if search.isEmpty {
-                ForEach(VisualSearchView.recentSearches, id: \.self) { recent in
-                    Label(recent, systemImage: "clock.arrow.circlepath").searchCompletion(recent)
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Design.Studio.panel, in: panel)
+                .clipShape(panel)
+            if detailsShown, showsGrid, let entry = selected.flatMap({ id in library.entries.first { $0.id == id } }) {
+                LibraryDetails(entry: entry, play: { preview = entry.file },
+                               addTag: { newTag = ""; tagging = entry; taggingMany = [] }) { menu(for: entry) }
+                    .frame(width: 300)
+                    .background(Design.Studio.panel, in: panel)
+                    .clipShape(panel)
             }
+        }
+        #else
+        NavigationSplitView {
+            sidebarList.navigationSplitViewColumnWidth(min: 180, ideal: 210)
+        } detail: {
+            primaryDetail
         }
         #endif
-        .toolbar {
+    }
+
+    @ToolbarContentBuilder private var toolbarItems: some ToolbarContent {
             #if STUDIO
+            // As in the reference: search in the middle; sidebar, details and settings on the right.
+            ToolbarItem(placement: .principal) {
+                StudioSearchField(text: $search, prompt: searchPrompt, focused: $searchFocused)
+            }.studioFlat()
+            ToolbarItem {
+                Button { sidebarShown.toggle() } label: { Label("Sidebar", systemImage: "sidebar.leading") }
+                    .help("Show or hide the sidebar")
+            }.studioFlat()
+            ToolbarItem {
+                Button { detailsShown.toggle() } label: { Label("Details", systemImage: "sidebar.trailing") }
+                    .help("Show or hide the details")
+            }.studioFlat()
+            ToolbarItem {
+                Button { openSettings() } label: { Label("Settings", systemImage: "slider.horizontal.3") }
+                    .help("Settings (⌘,)")
+            }.studioFlat()
             ToolbarItem {
                 if isFootage {
                     ControlGroup {
@@ -193,8 +243,9 @@ struct LibraryView: View {
                     }
                     .disabled(FinderWorkspace.shared.panes.count >= FinderWorkspace.maxPanes)
                 }
-            }
+            }.studioFlat()
             #endif
+            #if !STUDIO
             if !isFootage && contentScope == nil {
             ToolbarItem {
                 Button {
@@ -205,7 +256,7 @@ struct LibraryView: View {
                 .foregroundStyle(server.isRunning ? Color.accentColor : Color.primary)
                 .help(server.isRunning ? "Shared on this network" : "Share on this network")
                 .popover(isPresented: $sharing, arrowEdge: .bottom) { LibrarySharingView() }
-            }
+            }.studioFlat()
             ToolbarItem {
                 Picker("Kind", selection: $kindFilter) {
                     Image(systemName: "square.grid.2x2").help("Everything").tag("")
@@ -215,7 +266,7 @@ struct LibraryView: View {
                 }
                 .pickerStyle(.segmented)
                 .help("Show one kind")
-            }
+            }.studioFlat()
             ToolbarItem {
                 Menu {
                     Button("Show Duplicates", systemImage: "square.on.square") { collection = .duplicates }
@@ -226,18 +277,29 @@ struct LibraryView: View {
                     Label("Tidy Up", systemImage: "wand.and.sparkles")
                 }
                 .help("Tidy up: what's saved twice, and what's no longer there")
-            }
+            }.studioFlat()
             ToolbarItem {
                 Picker("Sort", selection: $sort) {
                     ForEach(Sort.allCases) { Text($0.label).tag($0) }
                 }
                 .pickerStyle(.menu)
                 .help("Sort")
+            }.studioFlat()
             }
-            }
+            #endif
         }
-        .navigationTitle(windowTitle)
-        .navigationSubtitle(isFootage || contentScope != nil ? "" : summary)
+
+    var body: some View {
+        layout
+        #if !STUDIO
+        .searchable(text: $search, placement: .toolbar, prompt: searchPrompt)
+        .modifier(SearchFocus(focused: $searchFocused))
+        #endif
+        .onReceive(NotificationCenter.default.publisher(for: Self.focusNotification)) { _ in takeFocus() }
+        .toolbar { toolbarItems }
+        // Studio: the name is in the grid's header, not the title bar.
+        .navigationTitle(Edition.isStudio ? "" : windowTitle)
+        .navigationSubtitle(Edition.isStudio || isFootage || contentScope != nil ? "" : summary)
         .frame(minWidth: 760, minHeight: 460)
         .onAppear {
             Self.startCollection = nil
@@ -305,7 +367,14 @@ struct LibraryView: View {
             footageDetail
             #endif
         } else {
+            #if STUDIO
+            VStack(spacing: 0) {
+                libraryHeader
+                detail
+            }
+            #else
             detail
+            #endif
         }
     }
 
@@ -322,6 +391,56 @@ struct LibraryView: View {
     }
 
     #if STUDIO
+    /// The plain grid of items (not footage folders, another Mac or a search inside files).
+    private var showsGrid: Bool {
+        if case .network = collection { return false }
+        return !isFootage && contentScope == nil
+    }
+
+    /// Over the grid: the collection's name and count, then what to show and in which order.
+    private var libraryHeader: some View {
+        HStack(spacing: 12) {
+            Text(windowTitle).font(Design.Studio.pageTitle).lineLimit(1)
+            Text(verbatim: "\(shown.count)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            Spacer(minLength: 12)
+            StudioSegmented(options: [("", "All"), (LibraryStore.Entry.Kind.video.rawValue, "Video"),
+                                      (LibraryStore.Entry.Kind.audio.rawValue, "Audio"), (LibraryStore.Entry.Kind.photo.rawValue, "Photo")],
+                            selection: $kindFilter)
+                .help("Show one kind")
+            Menu {
+                Picker("Sort", selection: $sort) {
+                    ForEach(Sort.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.inline)
+                .labelsHidden()
+                Divider()
+                Button("Show Duplicates", systemImage: "square.on.square") { collection = .duplicates }
+                Button("Show Missing Files", systemImage: "questionmark.folder") { collection = .missing }
+                RemoveMissingCommand()
+                Divider()
+                Button("Share on This Network…", systemImage: "antenna.radiowaves.left.and.right") { sharing = true }
+            } label: {
+                StudioMenuLabel(title: sort.label)
+            }
+            .popover(isPresented: $sharing, arrowEdge: .bottom) { LibrarySharingView() }
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Sort, and tidy up: what's saved twice, and what's no longer there")
+            HStack(spacing: 6) {
+                Image(systemName: "square").font(.system(size: 9))
+                StudioSlider(value: $cardSize, range: 110...260).frame(width: 72)
+                Image(systemName: "square").font(.system(size: 14))
+            }
+            .foregroundStyle(Design.Studio.textQuiet)
+            .help("Card size")
+        }
+        .controlSize(.small)
+        .padding(.horizontal, Design.Spacing.window)
+        .frame(height: 56)
+    }
+
     /// The search field narrows every pane's folder (and none outside the folders).
     private func filterPanes() {
         for pane in FinderWorkspace.shared.panes { pane.filter = isFootage ? search : "" }
@@ -476,7 +595,7 @@ struct LibraryView: View {
                             .padding([.horizontal, .top], Design.Spacing.window)
                     }
                     // Top-aligned: a card with tags or a two-line title doesn't push its picture down.
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 260), spacing: 16, alignment: .top)], spacing: 18) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: cardSize, maximum: cardSize * 1.4), spacing: Edition.isStudio ? 12 : 16, alignment: .top)], spacing: 18) {
                         ForEach(list) { entry in
                             LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id))
                                 .id(entry.id)
@@ -499,7 +618,8 @@ struct LibraryView: View {
                     .padding(Design.Spacing.window)
                     .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
                         // How many cards fit in a row, the way the adaptive grid lays them out.
-                        columns = max(1, Int((width - 40 + 16) / (190 + 16)))
+                        let gap = Edition.isStudio ? 12.0 : 16
+                        columns = max(1, Int((width - 40 + gap) / (cardSize + gap)))
                     }
                 }
                 // Like the Finder: click to highlight, Space for Quick Look, arrows to move.
@@ -738,10 +858,15 @@ private struct LibraryCard: View {
                         }
                     }
                 }
-                .clipShape(.rect(cornerRadius: Design.Radius.thumbnail, style: .continuous))
+                .clipShape(.rect(cornerRadius: radius, style: .continuous))
                 .overlay {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: Design.Radius.thumbnail, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
+                        // Studio: a plum outline just outside the picture (brandbook v1).
+                        if Edition.isStudio {
+                            RoundedRectangle(cornerRadius: radius + 3, style: .continuous).strokeBorder(Design.Brand.gradient, lineWidth: 2).padding(-3)
+                        } else {
+                            RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(Color.accentColor, lineWidth: 3)
+                        }
                     }
                 }
             .overlay(alignment: .bottomTrailing) {
@@ -757,8 +882,8 @@ private struct LibraryCard: View {
             .opacity(isMissing ? 0.45 : 1)
 
             Text(entry.title)
-                .font(.callout.weight(.medium))
-                .lineLimit(2)
+                .font(Edition.isStudio ? Design.Studio.body : .callout.weight(.medium))
+                .lineLimit(Edition.isStudio ? 1 : 2)
             HStack(spacing: 4) {
                 if isMissing, LibraryStore.isOnDisconnectedDrive(entry.path) {
                     // Not gone: its drive isn't connected.
@@ -772,20 +897,22 @@ private struct LibraryCard: View {
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
-            if !entry.tags.isEmpty {
+            if !entry.tags.isEmpty, !Edition.isStudio {
                 Text(entry.tags.joined(separator: " · "))
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.tint)
+                    .foregroundStyle(Edition.isStudio ? AnyShapeStyle(Design.Studio.textQuiet) : AnyShapeStyle(.tint))
                     .lineLimit(1)
             }
         }
         .padding(6)
-        .background(isSelected ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Design.Radius.box, style: .continuous))
+        .background(isSelected && !Edition.isStudio ? AnyShapeStyle(Color.accentColor.opacity(0.12)) : AnyShapeStyle(.clear), in: .rect(cornerRadius: Design.Radius.box, style: .continuous))
         .padding(-6)
         .contentShape(.rect)
         .help(entry.path)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
+
+    private var radius: CGFloat { Edition.isStudio ? Design.Studio.controlRadius : Design.Radius.thumbnail }
 
     private var symbol: String {
         switch entry.kind {
@@ -797,6 +924,17 @@ private struct LibraryCard: View {
     }
 
     private var details: String {
+        // Studio, as in the reference: what it is and how big ("Video · 151 MB").
+        if Edition.isStudio {
+            let kind = switch entry.kind {
+            case .video: String(localized: "Video")
+            case .audio: String(localized: "Audio")
+            case .photo: String(localized: "Photo")
+            case .other: String(localized: "File")
+            }
+            guard let size = entry.size, size > 0 else { return kind }
+            return kind + " · " + ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        }
         var parts: [String] = []
         if let site = entry.site { parts.append(site) } else { parts.append(String(localized: "On this Mac")) }
         if let size = entry.size, size > 0 { parts.append(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
@@ -836,14 +974,6 @@ extension LibraryView {
                     .badge(footage.clipItems.count)
                     .tag(Collection.clips)
             }
-            Button {
-                LibraryView.chooseFootage()
-            } label: {
-                Label("Add Folder…", systemImage: "plus")
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .help("Keep a folder here and make what's in it searchable: nothing is copied")
         }
         .dropDestination(for: URL.self) { urls, _ in
             for url in urls where url.isFileURL { footage.add(url) }
@@ -980,3 +1110,102 @@ final class ShownCache {
         self.list = list
     }
 }
+
+#if STUDIO
+/// The Library's right panel: the item clicked, its details, and what to do with it.
+private struct LibraryDetails<More: View>: View {
+    let entry: LibraryStore.Entry
+    let play: () -> Void
+    let addTag: () -> Void
+    @ViewBuilder var more: More
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+            Rectangle()
+                .fill(Design.Studio.raised)
+                .aspectRatio(16 / 9, contentMode: .fit)
+                .overlay {
+                    AsyncImage(url: entry.thumbnail) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                }
+                .overlay {
+                    Button(action: play) {
+                        Image(systemName: "play.fill").font(.system(size: 13)).foregroundStyle(.white)
+                            .frame(width: 36, height: 36).background(.black.opacity(0.55), in: .circle)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Quick Look")
+                }
+                .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.title).font(Design.Studio.sectionTitle).lineLimit(2)
+                Text(verbatim: [entry.uploader ?? entry.site, entry.added.formatted(date: .abbreviated, time: .omitted)]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 9) {
+                if let duration = entry.duration, duration > 0 { row("Length", Format.duration(duration)) }
+                if let size = entry.size, size > 0 { row("Size", ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+                row("File", entry.file.pathExtension.uppercased())
+                if let site = entry.site { row("From", site) }
+            }
+            .font(Design.Studio.body)
+            HStack(spacing: 6) {
+                ForEach(entry.tags, id: \.self) { tag in
+                    Text(verbatim: tag).padding(.horizontal, 8).frame(height: 22)
+                        .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                }
+                Button("+ Tag", action: addTag).buttonStyle(.plain).padding(.horizontal, 6).frame(height: 22)
+            }
+            .font(Design.Studio.body)
+            .foregroundStyle(Design.Studio.textQuiet)
+            Spacer(minLength: 0)
+            VStack(spacing: 6) {
+                if EditorTarget.canOpen(entry.file) {
+                    Button { StudioNavigator.shared.open(EditorTarget(path: entry.path)) } label: {
+                        Text("Edit").frame(maxWidth: .infinity, minHeight: 32)
+                            .foregroundStyle(.white)
+                            .background(Design.Brand.deep, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                }
+                HStack(spacing: 6) {
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([entry.file]) } label: {
+                        Text("Show in Finder").frame(maxWidth: .infinity, minHeight: 32)
+                            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                            .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    Menu { more } label: {
+                        Image(systemName: "ellipsis").frame(width: 32, height: 32)
+                            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(.plain)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("More")
+                }
+            }
+        }
+        .padding(Design.Studio.panelInset)
+        .frame(maxHeight: .infinity, alignment: .top)
+    }
+
+    private func row(_ name: LocalizedStringKey, _ value: String) -> some View {
+        GridRow {
+            Text(name).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .leading)
+            Text(verbatim: value).lineLimit(1)
+        }
+    }
+}
+
+/// Sidebar rows with grey icons: plum is kept for what's chosen (brandbook v1).
+private struct QuietIconLabel: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Label { configuration.title } icon: { configuration.icon.foregroundStyle(Design.Studio.textQuiet) }
+    }
+}
+#endif

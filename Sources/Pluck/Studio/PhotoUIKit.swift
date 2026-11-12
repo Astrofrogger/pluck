@@ -27,11 +27,14 @@ struct AdjustSlider: View {
     var clipping = false
     /// How far a typed number may go past the track's ends.
     var limit: ClosedRange<Double>?
+    /// Called when a change is finished (the drag let go, a reset, a typed number): for one undo step.
+    var done: (() -> Void)?
     let set: (Double) -> Void
 
     @State private var typing = false
     @State private var typed = ""
     @State private var showedClipping: Bool?
+    @State private var hovering = false
     @FocusState private var focused: Bool
     @State private var editing = PhotoEditing.shared
 
@@ -44,15 +47,18 @@ struct AdjustSlider: View {
                 .foregroundStyle(changed ? .primary : .secondary)
                 .fontWeight(changed ? .medium : .regular)
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
-                .onTapGesture(count: 2) { set(neutral) }
+                .onTapGesture(count: 2) { set(neutral); done?() }
             bar
             Text(verbatim: shown)
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(changed ? .primary : .tertiary)
+                .foregroundStyle(changed ? .primary : .secondary)
+                // Only when it says something: changed, pointed at, dragged or focused.
+                .opacity(changed || hovering || focused || showedClipping != nil ? 1 : 0)
                 .frame(width: label == nil ? 44 : 58, alignment: .trailing)
                 .contentShape(.rect)
-                .onTapGesture(count: 2) { set(neutral) }
+                .onTapGesture(count: 2) { set(neutral); done?() }
                 .onTapGesture { typed = String(format: format.replacingOccurrences(of: "+", with: ""), value); typing = true }
                 .popover(isPresented: $typing, arrowEdge: .bottom) {
                     TextField("", text: $typed)
@@ -67,6 +73,7 @@ struct AdjustSlider: View {
         .controlSize(.small)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
+        .onHover { hovering = $0 }
         .focusable()
         .focused($focused)
         .focusEffectDisabled()
@@ -96,9 +103,9 @@ struct AdjustSlider: View {
             let x = { (v: Double) in CGFloat((min(max(v, range.lowerBound), range.upperBound) - range.lowerBound) / span) * width }
             let middle = x(neutral), at = x(value)
             ZStack(alignment: .leading) {
-                Capsule().fill(trackFill).frame(height: 4).opacity(track == .plain ? 1 : 0.9)
+                Capsule().fill(trackFill).frame(height: Design.Studio.sliderTrack).opacity(track == .plain ? 1 : 0.9)
                 if track == .plain {
-                    Capsule().fill(Color.accentColor).frame(width: abs(at - middle), height: 4).offset(x: min(at, middle))
+                    Capsule().fill(Design.Brand.gradient).frame(width: abs(at - middle), height: Design.Studio.sliderTrack).offset(x: min(at, middle))
                 }
                 if middle > 1, middle < width - 1 {
                     Rectangle().fill(.secondary.opacity(0.5)).frame(width: 1, height: 8).offset(x: middle - 0.5)
@@ -106,9 +113,9 @@ struct AdjustSlider: View {
                 Circle()
                     .fill(.white)
                     .shadow(color: .black.opacity(0.35), radius: 1.5, y: 0.5)
-                    .overlay(Circle().stroke(focused ? Color.accentColor : .clear, lineWidth: 2))
-                    .frame(width: 13, height: 13)
-                    .offset(x: at - 6.5)
+                    .overlay(Circle().stroke(focused ? Design.Brand.pink : .clear, lineWidth: 2))
+                    .frame(width: Design.Studio.sliderDot, height: Design.Studio.sliderDot)
+                    .offset(x: at - Design.Studio.sliderDot / 2)
             }
             .frame(maxHeight: .infinity)
             .contentShape(.rect)
@@ -128,23 +135,27 @@ struct AdjustSlider: View {
                 .onEnded { _ in
                     if let before = showedClipping { editing.showClipping = before }
                     showedClipping = nil
+                    done?()
                 })
-            .simultaneousGesture(TapGesture(count: 2).onEnded { set(neutral) })
+            .simultaneousGesture(TapGesture(count: 2).onEnded { set(neutral); done?() })
         }
         .frame(height: 18)
     }
 
     private var trackFill: AnyShapeStyle {
         switch track {
-        case .plain: AnyShapeStyle(Color.primary.opacity(0.14))
-        case .temperature: AnyShapeStyle(LinearGradient(colors: [Color(red: 0.35, green: 0.55, blue: 1), Color(white: 0.75), Color(red: 1, green: 0.78, blue: 0.3)],
+        case .plain: AnyShapeStyle(Design.Studio.line)
+        // Full colour, as on the colour wheels (owner, 2026-11-12).
+        case .temperature: AnyShapeStyle(LinearGradient(colors: [Color(hue: 0.6, saturation: 0.9, brightness: 1), Color(white: 0.85),
+                                                                 Color(hue: 0.12, saturation: 0.95, brightness: 1)],
                                                         startPoint: .leading, endPoint: .trailing))
-        case .tint: AnyShapeStyle(LinearGradient(colors: [Color(red: 0.3, green: 0.8, blue: 0.35), Color(white: 0.75), Color(red: 0.9, green: 0.35, blue: 0.85)],
+        case .tint: AnyShapeStyle(LinearGradient(colors: [Color(hue: 0.33, saturation: 0.9, brightness: 0.9), Color(white: 0.85),
+                                                          Color(hue: 0.85, saturation: 0.9, brightness: 1)],
                                                  startPoint: .leading, endPoint: .trailing))
-        case .saturation: AnyShapeStyle(LinearGradient(colors: [Color(white: 0.55), Color(red: 1, green: 0.3, blue: 0.4), Color(red: 1, green: 0.75, blue: 0.2),
-                                                                Color(red: 0.25, green: 0.75, blue: 0.45), Color(red: 0.25, green: 0.5, blue: 1)],
+        case .saturation: AnyShapeStyle(LinearGradient(colors: [Color(white: 0.55)] + stride(from: 0.0, through: 0.66, by: 0.11).map {
+                                                            Color(hue: $0, saturation: 0.95, brightness: 1) },
                                                        startPoint: .leading, endPoint: .trailing))
-        case .hues: AnyShapeStyle(LinearGradient(colors: stride(from: 0.0, through: 1, by: 1 / 8).map { Color(hue: $0, saturation: 0.7, brightness: 0.95) },
+        case .hues: AnyShapeStyle(LinearGradient(colors: stride(from: 0.0, through: 1, by: 1 / 12).map { Color(hue: $0, saturation: 0.95, brightness: 1) },
                                                  startPoint: .leading, endPoint: .trailing))
         case .colour(let colour): AnyShapeStyle(LinearGradient(colors: [Color(white: 0.55), colour], startPoint: .leading, endPoint: .trailing))
         }
@@ -161,6 +172,7 @@ struct AdjustSlider: View {
         guard let number = Double(cleaned) else { return }
         let bounds = limit ?? range
         set(min(max(number, bounds.lowerBound), bounds.upperBound))
+        done?()
     }
 }
 
@@ -169,7 +181,7 @@ struct AdjustSlider: View {
 /// The Adjust panel's sections, each with what it holds (to show it's edited, to peek at the photo
 /// without it, and to reset it).
 enum AdjustSection: String, CaseIterable {
-    case light, colour, presence, mixer, curves, wheels, detail, calibration, effects
+    case light, colour, presence, mixer, curves, colourCurves, warper, wheels, detail, calibration, effects
 
     /// The words it's found by: its name and its tools'.
     var words: [String] {
@@ -182,9 +194,10 @@ enum AdjustSection: String, CaseIterable {
                          String(localized: "Vignette")]
         case .mixer: [String(localized: "Colour Mixer"), String(localized: "Hue"), String(localized: "Saturation"), String(localized: "Luminance"),
                       String(localized: "Point Colour"), String(localized: "Range")]
-        case .curves: [String(localized: "Curves"), String(localized: "Tone Curve"), String(localized: "Hue vs Hue"), String(localized: "Hue vs Saturation"),
-                       String(localized: "Hue vs Luminance"), String(localized: "Luminance vs Saturation"), String(localized: "Saturation vs Saturation"),
-                       String(localized: "Colour Warper")]
+        case .curves: [String(localized: "Curves"), String(localized: "Tone Curve")]
+        case .colourCurves: [String(localized: "Colour curves"), String(localized: "Hue vs Hue"), String(localized: "Hue vs Saturation"),
+                             String(localized: "Hue vs Luminance"), String(localized: "Luminance vs Saturation"), String(localized: "Saturation vs Saturation")]
+        case .warper: [String(localized: "Colour Warper")]
         case .wheels: [String(localized: "Colour Wheels"), String(localized: "Colour Grading"), String(localized: "Lift"), String(localized: "Gamma"),
                        String(localized: "Gain"), String(localized: "Blending"), String(localized: "Balance")]
         case .detail: [String(localized: "Detail"), String(localized: "Sharpen"), String(localized: "Noise"), String(localized: "Moiré"),
@@ -220,7 +233,12 @@ enum AdjustSection: String, CaseIterable {
         case .mixer:
             a.mixer = fresh.mixer
         case .curves:
-            a.curves = fresh.curves
+            a.curves.master = PhotoCurves.straight; a.curves.red = PhotoCurves.straight
+            a.curves.green = PhotoCurves.straight; a.curves.blue = PhotoCurves.straight
+        case .colourCurves:
+            a.curves.hue = fresh.curves.hue
+        case .warper:
+            a.curves.warp = fresh.curves.warp
         case .wheels:
             a.wheels = fresh.wheels
         case .detail:
@@ -269,18 +287,16 @@ struct AdjustFold<Content: View>: View {
                 Button {
                     if reduceMotion { isOpen.toggle() } else { withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() } }
                 } label: {
-                    HStack(spacing: 6) {
-                        // The chevron in the gutter, so the name lines up with the sliders' names.
-                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold))
-                            .rotationEffect(.degrees(open ? 90 : 0))
-                            .foregroundStyle(.tertiary)
-                            .frame(width: Design.Sidebar.rowPadding)
-                            .padding(.trailing, -6)
-                        Text(title).font(Design.Sidebar.header)
-                            .foregroundStyle(edited ? .primary : .secondary)
-                        if edited { Circle().fill(Color.accentColor).frame(width: 5, height: 5).accessibilityHidden(true) }
+                    HStack(spacing: 8) {
+                        Text(title).font(Design.Studio.sectionTitle)
+                            .foregroundStyle(edited ? Design.Studio.text : Design.Studio.textQuiet)
+                        if edited { Circle().fill(Design.Brand.pink).frame(width: 5, height: 5).accessibilityHidden(true) }
                         Spacer(minLength: 0)
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold))
+                            .rotationEffect(.degrees(open ? 90 : 0))
+                            .foregroundStyle(Design.Studio.textFaint)
                     }
+                    .padding(.leading, Design.Sidebar.rowPadding)
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -307,7 +323,7 @@ struct AdjustFold<Content: View>: View {
             .padding(.trailing, Design.Sidebar.rowPadding)
             .frame(height: Design.Sidebar.foldHeight)
             .onHover { hovering = $0 }
-            if open { content }
+            if open { content.padding(.bottom, Design.Studio.sectionGap - Design.Sidebar.sectionGap) }
         }
     }
 }
@@ -554,11 +570,12 @@ enum ToolJump: CaseIterable {
 /// The Adjust panel's search field: type a tool's name to see only that.
 struct ToolSearchField: View {
     @State private var editing = PhotoEditing.shared
+    @FocusState private var focused: Bool
 
     var body: some View {
         HStack(spacing: 4) {
             Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-            TextField("Find a tool", text: $editing.toolQuery).textFieldStyle(.plain)
+            TextField("Find a tool", text: $editing.toolQuery).textFieldStyle(.plain).focused($focused)
             if !editing.toolQuery.isEmpty {
                 Button { editing.toolQuery = "" } label: { Image(systemName: "xmark.circle.fill") }
                     .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -569,7 +586,9 @@ struct ToolSearchField: View {
         .padding(.horizontal, 7).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
         .padding(.horizontal, 8)
-        .onExitCommand { editing.toolQuery = "" }
+        .onExitCommand { editing.toolQuery = ""; editing.findingTool = false }
+        .onAppear { if editing.findingTool { focused = true } }
+        .onChange(of: focused) { _, now in if !now, editing.toolQuery.isEmpty { editing.findingTool = false } }
     }
 }
 

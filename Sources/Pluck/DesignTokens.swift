@@ -8,8 +8,16 @@ enum Design {
     /// Around photos being judged: a neutral grey (coloured or very dark surroundings shift how
     /// colour and brightness are seen).
     enum Photo {
-        static let surroundWhite: CGFloat = 0.16
-        static let surround = Color(white: surroundWhite)
+        /// The grey around a photo (0 black … 1 white), chosen by the user; dark grey unless changed.
+        static let surroundKey = "photoSurround"
+        static var surroundWhite: CGFloat {
+            CGFloat(UserDefaults.standard.object(forKey: surroundKey) as? Double ?? 0.16)
+        }
+        static var surround: Color { Color(white: surroundWhite) }
+        /// The choices: black, the important greys (18 % grey is the middle), white.
+        static let surrounds: [(title: LocalizedStringKey, white: Double)] = [
+            ("Black", 0), ("Dark Grey", 0.16), ("Middle Grey (18 %)", 0.46), ("Light Grey", 0.75), ("White", 1),
+        ]
     }
 
     enum Brand {
@@ -38,6 +46,11 @@ enum Design {
         static let textQuiet = rgb(0xA3A3A9)
         /// Chevrons and icons only: too faint for text you have to read.
         static let textFaint = rgb(0x66666C)
+        /// Warnings (a check that failed, a jump cut): soft amber; the brandbook has no red.
+        static let warn = rgb(0xE0A15E)
+        /// Done and checked (an offload on every drive), and gone wrong (a problem to fix).
+        static let good = rgb(0x7CC294)
+        static let bad = rgb(0xE0605E)
 
         static let controlRadius: CGFloat = 7
         static let panelRadius: CGFloat = 12
@@ -735,7 +748,9 @@ struct ResizeHandle: View {
     @State private var start: Double?
 
     var body: some View {
-        Divider()
+        Group {
+            if Edition.isStudio { Color.clear.frame(width: Design.Studio.panelGap) } else { Divider() }
+        }
             .overlay {
                 Color.clear
                     .frame(width: 8)
@@ -743,7 +758,8 @@ struct ResizeHandle: View {
                     .onHover { inside in
                         if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
                     }
-                    .gesture(DragGesture(minimumDistance: 1)
+                    // (Measured in the window: the handle itself moves with the drag, which made it jump.)
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { value in
                             if start == nil { start = width }
                             let delta = Double(value.translation.width) * (edge == .leading ? 1 : -1)
@@ -801,7 +817,9 @@ struct HeightHandle: View {
     @State private var start: Double?
 
     var body: some View {
-        Divider()
+        Group {
+            if Edition.isStudio { Color.clear.frame(height: Design.Studio.panelGap) } else { Divider() }
+        }
             .overlay {
                 Color.clear
                     .frame(height: 8)
@@ -809,7 +827,8 @@ struct HeightHandle: View {
                     .onHover { inside in
                         if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
                     }
-                    .gesture(DragGesture(minimumDistance: 1)
+                    // (Measured in the window: the handle itself moves with the drag, which made it jump.)
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { value in
                             if start == nil { start = grow }
                             grow = min(max((start ?? grow) - Double(value.translation.height), range.lowerBound), range.upperBound)
@@ -845,11 +864,21 @@ struct InspectorTabBar<Tab: Hashable & Identifiable>: View {
             ForEach(tabs) { item in
                 let on = selection == item
                 Button { selection = item } label: {
+                    // Studio: the chosen tab filled deep plum with a white symbol (layout reference).
                     Image(systemName: symbol(item))
                         .font(.system(size: Design.Size.icon - 3, weight: on ? .semibold : .medium))
-                        .foregroundStyle(on ? Design.Brand.chosen : AnyShapeStyle(.secondary))
-                        .frame(maxWidth: .infinity, minHeight: 28)
-                        .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(on ? Color.primary.opacity(0.08) : .clear))
+                        .foregroundStyle(on ? (Edition.isStudio ? AnyShapeStyle(Color.white) : Design.Brand.chosen)
+                                            : AnyShapeStyle(Edition.isStudio ? AnyShapeStyle(Design.Studio.textQuiet) : AnyShapeStyle(.secondary)))
+                        .frame(width: Edition.isStudio ? 28 : nil, height: 28)
+                        .frame(maxWidth: .infinity)
+                        .background {
+                            if Edition.isStudio {
+                                RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous).fill(on ? AnyShapeStyle(Design.Brand.deep) : AnyShapeStyle(Color.clear))
+                                    .frame(width: 28, height: 28)
+                            } else {
+                                RoundedRectangle(cornerRadius: Design.Radius.small).fill(on ? Color.primary.opacity(0.08) : .clear)
+                            }
+                        }
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
@@ -858,5 +887,157 @@ struct InspectorTabBar<Tab: Hashable & Identifiable>: View {
             }
         }
         .padding(6)
+    }
+}
+
+// MARK: - Pluck Studio pieces (brandbook v1)
+
+/// A few choices side by side, the chosen one on a raised grey (not plum: plum is for what's
+/// selected in the work, not for a view filter). Render 2/4 of the 2026-11-12 layout.
+struct StudioSegmented<Value: Hashable>: View {
+    /// The box's colour: darker than a panel it sits on, lighter than the backdrop in the title row.
+    var ground = Design.Studio.backdrop
+    let options: [(value: Value, title: LocalizedStringKey)]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options.indices, id: \.self) { index in
+                let option = options[index]
+                let on = option.value == selection
+                Button { selection = option.value } label: {
+                    Text(option.title)
+                        .font(Design.Studio.body)
+                        .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+                        .padding(.horizontal, 10)
+                        .frame(height: 24)
+                        .background(on ? Design.Studio.line : .clear, in: .rect(cornerRadius: 6, style: .continuous))
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(on ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(ground, in: .rect(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// A raised grey button with a label and a small chevron, for menus in a header ("Date added ⌄").
+struct StudioMenuLabel: View {
+    let title: String
+    /// Quiet: grey text, no button behind it (inside a field).
+    var quiet = false
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(verbatim: title)
+            Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+        }
+        .font(Design.Studio.body)
+        .foregroundStyle(quiet ? Design.Studio.textQuiet : Design.Studio.text)
+        .padding(.horizontal, 10)
+        .frame(height: quiet ? 32 : 28)
+        .background(quiet ? Color.clear : Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+        .contentShape(.rect)
+    }
+}
+
+/// Pluck Studio's mark (logo-master/pluck-studio-icon-final.svg), drawn: a split tile, a plum line and ring forming a p.
+struct StudioMark: View {
+    var body: some View {
+        Canvas { context, size in
+            let s = size.width / 130
+            let plum = GraphicsContext.Shading.linearGradient(
+                Gradient(colors: [Design.rgb(0x8E4C64), Design.rgb(0x533C88)]),
+                startPoint: CGPoint(x: 20 * s, y: 10 * s), endPoint: CGPoint(x: 110 * s, y: 120 * s))
+            let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 130 * s, height: 130 * s), cornerRadius: 30 * s, style: .continuous)
+            context.fill(tile, with: .color(Design.rgb(0x121016)))
+            context.clip(to: tile)
+            context.fill(Path(CGRect(x: 0, y: 0, width: 47 * s, height: 130 * s)), with: .color(Design.rgb(0x27212F)))
+            context.fill(Path(CGRect(x: 42.5 * s, y: 0, width: 9 * s, height: 130 * s)), with: plum)
+            let ring = Path(ellipseIn: CGRect(x: 47 * s, y: 29 * s, width: 42 * s, height: 42 * s))
+            context.fill(ring, with: .color(Design.rgb(0x121016)))
+            context.stroke(ring, with: plum, lineWidth: 9 * s)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+/// Studio's search field in the title bar: a dark box, a magnifier, the hint, and its key on the right.
+struct StudioSearchField: View {
+    @Binding var text: String
+    let prompt: LocalizedStringKey
+    var key = "⌘F"
+    var focused: FocusState<Bool>.Binding
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+            TextField(text: $text, prompt: Text(prompt).foregroundStyle(Design.Studio.textQuiet)) { Text(prompt) }
+                .textFieldStyle(.plain)
+                .font(Design.Studio.body)
+                .focused(focused)
+            if !text.isEmpty {
+                Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Design.Studio.textQuiet) }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear")
+            } else {
+                Text(verbatim: key).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(width: 354, height: 28)
+        .background(Design.Studio.panel, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+    }
+}
+
+/// A small Studio slider: a thin grey track, the part up to the dot a little lighter, a white dot.
+struct StudioSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+
+    var body: some View {
+        GeometryReader { geometry in
+            let width = max(geometry.size.width, 1)
+            let x = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound)) * width
+            ZStack(alignment: .leading) {
+                Capsule().fill(Design.Studio.line).frame(height: Design.Studio.sliderTrack)
+                Capsule().fill(Design.Studio.text.opacity(0.35)).frame(width: x, height: Design.Studio.sliderTrack)
+                Circle().fill(Design.Studio.text).frame(width: Design.Studio.sliderDot, height: Design.Studio.sliderDot)
+                    .offset(x: x - Design.Studio.sliderDot / 2)
+            }
+            .frame(maxHeight: .infinity)
+            .contentShape(.rect)
+            .gesture(DragGesture(minimumDistance: 0).onChanged { drag in
+                let share = min(max(drag.location.x / width, 0), 1)
+                value = range.lowerBound + Double(share) * (range.upperBound - range.lowerBound)
+            })
+        }
+        .frame(height: 16)
+    }
+}
+
+/// Pluck Studio's on/off switch: a small pill, deep plum when on, a white knob (no system glass).
+struct StudioSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        // (Just the switch: its name is the row's own text, so it isn't said twice.)
+        Button { configuration.isOn.toggle() } label: {
+            HStack(spacing: 0) {
+                // The name stays for VoiceOver, unseen.
+                configuration.label.frame(width: 0, height: 0).clipped().opacity(0)
+                Capsule()
+                    .fill(configuration.isOn ? AnyShapeStyle(Design.Brand.deep) : AnyShapeStyle(Design.Studio.line))
+                    .frame(width: 28, height: 16)
+                    .overlay(alignment: configuration.isOn ? .trailing : .leading) {
+                        Circle().fill(Design.Studio.text).frame(width: 12, height: 12).padding(2)
+                    }
+                    .animation(.snappy(duration: 0.15), value: configuration.isOn)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityValue(Text(configuration.isOn ? "On" : "Off"))
+        .accessibilityAddTraits(.isToggle)
     }
 }

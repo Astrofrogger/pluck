@@ -25,15 +25,6 @@ struct PhotoScopeView: View {
     var body: some View {
         let kind = ScopeKind(rawValue: choice)
         VStack(spacing: 6) {
-            Picker("Scope", selection: $choice) {
-                Text("Histogram").tag("histogram")
-                ForEach(ScopeKind.allCases) { Text($0.label).tag($0.rawValue) }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .fixedSize()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 8)
             if let kind {
                 ScopesView(data: data, kind: kind, fit: false)
                     .frame(maxWidth: kind == .vectorscope ? 120 : .infinity)
