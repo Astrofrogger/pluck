@@ -21,7 +21,7 @@ extension EditorTarget {
     @MainActor func open(_ openWindow: OpenWindowAction) {
         #if STUDIO
         StudioNavigator.shared.open(self)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
         #else
         openWindow(value: self)
         #endif

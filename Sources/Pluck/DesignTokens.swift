@@ -13,15 +13,50 @@ enum Design {
     }
 
     enum Brand {
-        static let pink = Color(red: 0.99, green: 0.37, blue: 0.48)
-        static let violet = Color(red: 0.56, green: 0.33, blue: 0.96)
+        /// Pluck Studio uses the brandbook's plum (2026-11-09); basic Pluck keeps the icon's pink into violet.
+        static let pink = Edition.isStudio ? rgb(0xB56C89) : Color(red: 0.99, green: 0.37, blue: 0.48)
+        static let violet = Edition.isStudio ? rgb(0x7C5FC0) : Color(red: 0.56, green: 0.33, blue: 0.96)
         static let gradient = LinearGradient(colors: [pink, violet], startPoint: .topLeading, endPoint: .bottomTrailing)
+        /// Deeper plum: a selected tab's solid fill (with white text) and the logo.
+        static let deep = LinearGradient(colors: [rgb(0x8E4C64), rgb(0x533C88)], startPoint: .topLeading, endPoint: .bottomTrailing)
         /// What's chosen (a tab, a tool that's on): Pluck's colours in Pluck Studio, the Mac's
         /// accent colour in basic Pluck.
         static var chosen: AnyShapeStyle { Edition.isStudio ? AnyShapeStyle(gradient) : AnyShapeStyle(Color.accentColor) }
         static var chosenFill: AnyShapeStyle {
             Edition.isStudio ? AnyShapeStyle(gradient.opacity(0.22)) : AnyShapeStyle(Color.accentColor.opacity(0.18))
         }
+    }
+
+    /// Pluck Studio's surfaces, text and shapes (brandbook v1, 2026-11-09). The interface stays
+    /// neutral so colour judgement isn't tinted: plum only for the logo, what's selected and what changed.
+    enum Studio {
+        static let backdrop = rgb(0x0F0F11)
+        static let panel = rgb(0x1A1A1D)
+        static let raised = rgb(0x242428)
+        static let line = rgb(0x333338)
+        static let text = rgb(0xEDEBE6)
+        static let textQuiet = rgb(0xA3A3A9)
+        /// Chevrons and icons only: too faint for text you have to read.
+        static let textFaint = rgb(0x66666C)
+
+        static let controlRadius: CGFloat = 7
+        static let panelRadius: CGFloat = 12
+        static let windowRadius: CGFloat = 14
+        static let panelGap: CGFloat = 8
+        static let panelInset: CGFloat = 12
+        static let sectionGap: CGFloat = 18
+        static let sliderRow: CGFloat = 22
+        static let sliderTrack: CGFloat = 3
+        static let sliderDot: CGFloat = 12
+
+        static let hint = Font.system(size: 11)
+        static let body = Font.system(size: 12)
+        static let sectionTitle = Font.system(size: 14, weight: .medium)
+        static let pageTitle = Font.system(size: 22)
+    }
+
+    static func rgb(_ hex: UInt32) -> Color {
+        Color(red: Double(hex >> 16 & 0xFF) / 255, green: Double(hex >> 8 & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
     }
 
     enum Size {

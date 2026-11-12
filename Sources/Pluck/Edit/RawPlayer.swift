@@ -515,7 +515,7 @@ enum RawFormats {
     /// Plays a clip (or shows a folder's clips) in the Library, where it is on disk.
     @MainActor static func show(_ url: URL) {
         LibraryView.show(.opened(url.path))
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 
     /// The extensions Pluck plays as raw (with the decoders this Pluck has).

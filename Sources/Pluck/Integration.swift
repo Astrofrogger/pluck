@@ -46,7 +46,7 @@ enum URLScheme {
             guard let invitation = PrivateNetwork.Invitation(link: url.absoluteString) else { return }
             OfficeRenderClient.shared.pendingInvitation = invitation
             UserDefaults.standard.set("home", forKey: "officeRenderSide")
-            if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.openMainWindow?() }
+            if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.showMainWindow() }
             return
         }
         #endif
@@ -56,7 +56,7 @@ enum URLScheme {
               let link = Links.validated(value)
         else { return }
         manager.pendingLink = link
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 }
 

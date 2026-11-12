@@ -51,7 +51,7 @@ enum Notifications {
         case UNNotificationDefaultActionIdentifier where files.count == 1:
             NSWorkspace.shared.open(files[0])
         default:
-            AppDelegate.openMainWindow?()
+            AppDelegate.showMainWindow()
         }
     }
 }

@@ -266,7 +266,7 @@ final class DownloadManager {
                 presentPicker(for: url, options: options, folder: folder)
             } else if let existing = alreadyDownloaded(url, isAudio: options.isAudio || MusicLinks.isMusicLink(url), clip: clip) {
                 duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip))
-                AppDelegate.openMainWindow?()
+                AppDelegate.showMainWindow()
             } else if MusicLinks.isMusicLink(url) {
                 addSpotify(url, options: options, folder: folder, clip: clip)
             } else {
@@ -299,7 +299,7 @@ final class DownloadManager {
         let links = panel.urls.flatMap(Links.extract(fromFile:))
         guard !links.isEmpty else { NSSound.beep(); return }
         add(links)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 
     // MARK: - Converting files on this Mac
@@ -321,7 +321,7 @@ final class DownloadManager {
         NSApp.activate()
         guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
         openConverter(for: panel.urls)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 
     /// Videos and songs open the convert sheet, photos the photo sheet and subtitle files the
@@ -606,7 +606,7 @@ final class DownloadManager {
         defaults.set(chosen.rawValue, forKey: Prefs.searchKind)
         let session = SearchSession(query: query, kind: chosen)
         search = session
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
         Task { await run(session) }
     }
 
@@ -700,7 +700,7 @@ final class DownloadManager {
     private func presentPicker(for url: String, options: DownloadOptions, folder: String) {
         let pick = PlaylistPick(sourceURL: url, folder: folder, options: options)
         picks.append(pick)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
         Task { await load(pick) }
     }
 

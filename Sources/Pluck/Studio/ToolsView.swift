@@ -23,7 +23,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
     /// Opens the tool on its page of Pluck Studio's window.
     @MainActor func open(_ openWindow: OpenWindowAction) {
         StudioNavigator.shared.open(self)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 
     var group: Group {

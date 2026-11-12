@@ -38,9 +38,10 @@ Tools page. Opening a file anywhere opens it in a tab on Edit (`EditorTarget.ope
   it would make Pluck GPL. Denoise has its own Python engine, also on request.
 - **Search:** where to look on the left (everything, the Library, a watched folder), results
   grouped as Said, Seen, Files and Photos.
-- **Pluck's colours:** `Design.Brand` (pink into violet, from the icon) marks what's chosen and
+- **Pluck's colours:** `Design.Brand` (plum in Pluck Studio, per the brandbook; pink into violet in basic Pluck) marks what's chosen and
   the main action only: the selected page and tab, picked items, `BrandButtonStyle` for the one
   main button of a panel, prominent `BarButtonStyle` buttons. Everything else stays neutral.
+  Studio surfaces, text, radii and slider sizes: `Design.Studio`.
   `BrandGlow` sits behind Home's top and stays still (a moving blur keeps the Mac busy).
 - **Few words:** no paragraphs on a page. A title, short labels, a hint where something isn't
   obvious; longer explanations go in `.help`.

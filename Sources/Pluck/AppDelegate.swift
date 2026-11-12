@@ -123,8 +123,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// Relaunching Pluck from Finder, Spotlight or the Dock while it's running brings the window back.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { Self.openMainWindow?() }
+        if !flag { Self.showMainWindow() }
         return true
+    }
+
+    /// Brings the main window back, also when it never appeared this launch (started in the menu
+    /// bar), so no view has set `openMainWindow` yet.
+    static func showMainWindow() {
+        if let open = openMainWindow { return open() }
+        // SwiftUI lists the main window in the Window menu; that item opens it without a view.
+        guard let item = NSApp.windowsMenu?.items.first(where: { $0.title == "Pluck" }), let action = item.action else { return }
+        NSApp.activate()
+        NSApp.sendAction(action, to: item.target, from: item)
     }
 
     /// The global shortcut: the clipboard's links start downloading without switching apps.

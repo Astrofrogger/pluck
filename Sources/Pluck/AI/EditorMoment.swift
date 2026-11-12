@@ -27,6 +27,6 @@ extension EditorMoment {
         }
         defaults.set(true, forKey: "editorSidebar")
         StudioNavigator.shared.open(EditorTarget(path: filePath), at: start)
-        AppDelegate.openMainWindow?()
+        AppDelegate.showMainWindow()
     }
 }
