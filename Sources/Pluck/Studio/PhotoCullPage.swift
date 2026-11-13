@@ -1,4 +1,5 @@
 import SwiftUI
+import Vision
 
 // Photo → Cull, as in page 5 of the 2026-11-12 layout reference: the moments on the left, the photos of
 // one moment side by side (1, 2, 4 or 6) with what the checks found, and the faces and keys underneath.
@@ -9,6 +10,8 @@ struct CullMoment: Identifiable, Equatable {
     let id: String
     let members: [String]
     let top: String
+    /// The ranking's strongest quarter (at least one), best first.
+    var onTop: [String] = []
 
     /// Every photo in its moment (photos on their own are moments of one), in the photos' order.
     @MainActor static func all(_ photos: [String], listing: PhotoMoments.Listing) -> [CullMoment] {
@@ -20,11 +23,15 @@ struct CullMoment: Identifiable, Equatable {
             let key = listing.moment[path] ?? path
             if tops[key] == nil { tops[key] = path }
         }
+        // The listing shows each closed moment's top quarter, best first.
+        var shownOnTop: [String: [String]] = [:]
+        for path in listing.paths { shownOnTop[listing.moment[path] ?? path, default: []].append(path) }
         for path in photos {
             let key = listing.moment[path] ?? path
             guard seen.insert(key).inserted else { continue }
             let members = listing.members[key] ?? [path]
-            result.append(CullMoment(id: key, members: members, top: tops[key] ?? members[0]))
+            let top = tops[key] ?? members[0]
+            result.append(CullMoment(id: key, members: members, top: top, onTop: shownOnTop[key] ?? [top]))
         }
         return result
     }
@@ -40,10 +47,12 @@ struct PhotoCullPage: View {
     let count: Int
     let sync: Bool
     let zoomed: Bool
+    var peaking = false
     @Binding var anchor: UnitPoint
     @State private var catalog = PhotoCatalog.shared
     @State private var checks = PhotoChecks.shared
     @State private var reviewing = false
+    @State private var autoCulling = false
 
     private var current: CullMoment? { moments.first { $0.members.contains(focus ?? "") } ?? moments.first }
 
@@ -137,7 +146,7 @@ struct PhotoCullPage: View {
                 ForEach(list, id: \.self) { path in
                     CullTile(path: path, record: catalog.record(path), check: checks.check(path),
                              top: path == current?.top && (current?.members.count ?? 0) > 1,
-                             on: path == focus, zoomed: zoomed && (sync || path == focus), anchor: $anchor) {
+                             on: path == focus, zoomed: zoomed && (sync || path == focus), peaking: peaking, anchor: $anchor) {
                         focus = path
                         selection = [path]
                     }
@@ -152,7 +161,15 @@ struct PhotoCullPage: View {
     private var bottom: some View {
         HStack(spacing: 12) {
             if let focus, let faces = checks.check(focus)?.faces, !faces.isEmpty {
-                CullFaces(path: focus, faces: faces)
+                // A moment of several photos: the biggest face in each of them, side by side; one photo: its faces.
+                if let moment = current, moment.members.count > 1 {
+                    CullFaceStrip(members: moment.members, focus: focus) { path in
+                        self.focus = path
+                        selection = [path]
+                    }
+                } else {
+                    CullFaces(path: focus, faces: faces)
+                }
                 Rectangle().fill(Design.Studio.line).frame(width: 1, height: 28)
             }
             let keys = Shortcuts.shared
@@ -170,6 +187,10 @@ struct PhotoCullPage: View {
                 FlowKeys(items: Array(hints.prefix(2)))
                 Spacer(minLength: 0)
             }
+            Button("Auto Cull…") { autoCulling = true }
+                .buttonStyle(StudioFlatButtonStyle())
+                .fixedSize()
+                .help("Keep the best of each moment and reject the rest, how strictly you choose: you see it all before anything changes")
             let count = proposals.count
             Button("Review proposals · \(count)") { reviewing = true }
                 .buttonStyle(StudioFlatButtonStyle())
@@ -178,6 +199,13 @@ struct PhotoCullPage: View {
                 .help("The photos Pluck would reject, on one sheet: untick any to keep, then reject the rest")
         }
         .padding(.horizontal, 14)
+        .sheet(isPresented: $autoCulling) {
+            CullAuto(moments: moments, checks: checks) { keep, reject in
+                if !keep.isEmpty { catalog.update(Array(keep)) { $0.flag = .pick } }
+                if !reject.isEmpty { catalog.update(Array(reject)) { $0.flag = .reject } }
+                autoCulling = false
+            } cancel: { autoCulling = false }
+        }
         .sheet(isPresented: $reviewing) {
             CullReview(proposals: proposals) { rejected in
                 if !rejected.isEmpty { catalog.update(Array(rejected)) { $0.flag = .reject } }
@@ -345,25 +373,54 @@ private struct CullTile: View {
     let top: Bool
     let on: Bool
     let zoomed: Bool
+    var peaking = false
     @Binding var anchor: UnitPoint
     let choose: () -> Void
     @State private var image: NSImage?
+    /// Zoomed: the photo at full size (true 100 %), once it's read.
+    @State private var full: CGImage?
+    /// Focus peaking on what's shown: the sharp edges in green, and the sharpest spot (shares from the top left).
+    @State private var peaks: (overlay: CGImage, sharpest: CGPoint)?
+    @Environment(\.displayScale) private var displayScale
     @State private var light: (high: Double, low: Double)?
     @State private var dragFrom: UnitPoint?
     @AppStorage(Design.Photo.surroundKey) private var surroundWhite = 0.16
 
-    private static let zoom = 3.0
+    /// How far to zoom for true 100 % (one of the photo's pixels to one of the screen's) in a frame this size; 3× when
+    /// the photo's size isn't known.
+    private func zoom(in frame: CGSize) -> Double {
+        guard let px = CullCache.pixelSize(of: path), px.width > 0, px.height > 0 else { return 3 }
+        let fit = min(frame.width / px.width, frame.height / px.height)
+        return max(1.5, 1 / (fit * max(displayScale, 1)))
+    }
     private static let warn = Color(red: 0xE0 / 255, green: 0xA1 / 255, blue: 0x5E / 255)
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
         GeometryReader { geometry in
+            let zoom = zoom(in: geometry.size)
             ZStack {
                 Color(white: surroundWhite)
                 if let image {
-                    Image(nsImage: image).resizable().scaledToFit()
-                        .scaleEffect(zoomed ? Self.zoom : 1, anchor: anchor)
-                        .opacity(record.flag == .reject ? 0.4 : 1)
+                    ZStack {
+                        if zoomed, let full { Image(decorative: full, scale: 1).resizable().interpolation(.none).scaledToFit() }
+                        else { Image(nsImage: image).resizable().scaledToFit() }
+                        if peaking, let peaks {
+                            Image(decorative: peaks.overlay, scale: 1).resizable().scaledToFit().allowsHitTesting(false)
+                        }
+                    }
+                    .scaleEffect(zoomed ? zoom : 1, anchor: anchor)
+                    .opacity(record.flag == .reject ? 0.4 : 1)
+                    if peaking, let peaks, !zoomed, let size = CullCache.pixelSize(of: path) {
+                        // The sharpest spot, ringed.
+                        let fit = min(geometry.size.width / size.width, geometry.size.height / size.height)
+                        let w = size.width * fit, h = size.height * fit
+                        Circle().stroke(Design.Studio.good, lineWidth: 2).frame(width: 26, height: 26)
+                            .shadow(color: .black.opacity(0.6), radius: 2)
+                            .position(x: (geometry.size.width - w) / 2 + peaks.sharpest.x * w, y: (geometry.size.height - h) / 2 + peaks.sharpest.y * h)
+                            .allowsHitTesting(false)
+                            .help("The sharpest spot")
+                    }
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -377,9 +434,9 @@ private struct CullTile: View {
                 guard zoomed else { return }
                 let from = dragFrom ?? anchor
                 if dragFrom == nil { dragFrom = anchor }
-                let w = max(geometry.size.width, 1) * Self.zoom, h = max(geometry.size.height, 1) * Self.zoom
-                anchor = UnitPoint(x: min(max(from.x - drag.translation.width / w * Self.zoom / (Self.zoom - 1), 0), 1),
-                                   y: min(max(from.y - drag.translation.height / h * Self.zoom / (Self.zoom - 1), 0), 1))
+                let w = max(geometry.size.width, 1) * zoom, h = max(geometry.size.height, 1) * zoom
+                anchor = UnitPoint(x: min(max(from.x - drag.translation.width / w * zoom / (zoom - 1), 0), 1),
+                                   y: min(max(from.y - drag.translation.height / h * zoom / (zoom - 1), 0), 1))
             }.onEnded { _ in dragFrom = nil })
         }
         .clipShape(shape)
@@ -421,6 +478,14 @@ private struct CullTile: View {
                 if let ready = CullCache.shared.image(path) { image = ready } else { image = await CullCache.shared.load(path) }
                 if let image { light = CullLight.clipped(path, image) }
             }
+        .task(id: "\(path)|\(zoomed)") {
+            full = nil
+            if zoomed { full = await CullCache.shared.full(path) }
+        }
+        .task(id: "\(path)|\(peaking)|\(full != nil)") {
+            guard peaking, let source = full ?? image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { peaks = nil; return }
+            peaks = await Task.detached(priority: .userInitiated) { CullPeaking.find(source) }.value
+        }
     }
 
     private func chip(_ text: Text, colour: Color = Design.Studio.text) -> some View {
@@ -491,5 +556,258 @@ private struct FlowKeys: View {
             Spacer(minLength: 0)
         }
         .lineLimit(1)
+    }
+}
+
+/// Focus peaking: where a picture is sharp (its strongest fine edges, against its own sharpest), as a green overlay, and the
+/// sharpest spot. Camera-independent: it shows where focus landed, whatever the camera says.
+enum CullPeaking {
+    nonisolated(unsafe) private static let context = CIContext(options: [.workingColorSpace: NSNull()])
+    /// For small measurements elsewhere in Cull.
+    nonisolated(unsafe) static let plain = CIContext(options: [.workingColorSpace: CGColorSpace(name: CGColorSpace.sRGB)!])
+    /// The absolute Laplacian of the brightness (in the picture's own steps).
+    nonisolated(unsafe) private static let edgeKernel = CIKernel(source: """
+        kernel vec4 laplace(sampler s) {
+            vec2 p = destCoord();
+            vec3 w = vec3(0.2126, 0.7152, 0.0722);
+            float c = dot(sample(s, samplerTransform(s, p)).rgb, w);
+            float n = dot(sample(s, samplerTransform(s, p + vec2(0.0, 1.0))).rgb, w) + dot(sample(s, samplerTransform(s, p - vec2(0.0, 1.0))).rgb, w)
+                    + dot(sample(s, samplerTransform(s, p + vec2(1.0, 0.0))).rgb, w) + dot(sample(s, samplerTransform(s, p - vec2(1.0, 0.0))).rgb, w);
+            float v = abs(4.0 * c - n);
+            return vec4(v, v, v, 1.0);
+        }
+        """)
+    nonisolated(unsafe) private static let peakKernel = CIColorKernel(source: """
+        kernel vec4 peak(__sample e, float level) {
+            float a = smoothstep(level * 0.8, level * 1.15, e.r);
+            return vec4(0.36 * a, 0.95 * a, 0.45 * a, 0.9 * a);
+        }
+        """)
+
+    nonisolated static func find(_ picture: CGImage) -> (overlay: CGImage, sharpest: CGPoint)? {
+        // (On a 1200-pixel copy: the threshold and the overlay measured at the same size, and pixel noise averaged away.)
+        let source = CIImage(cgImage: picture), k = min(1, 1200 / max(source.extent.width, source.extent.height))
+        let image = source.transformed(by: CGAffineTransform(scaleX: k, y: k))
+        let e = image.extent.integral
+        // Fine edges: the absolute Laplacian of the brightness, a touch blurred (single pixels of noise don't count).
+        guard let laplace = edgeKernel,
+              let raw = laplace.apply(extent: e, roiCallback: { _, r in r.insetBy(dx: -1, dy: -1) }, arguments: [image.clampedToExtent()]) else { return nil }
+        let edges = raw.clampedToExtent().applyingGaussianBlur(sigma: 1.2).cropped(to: e)
+        // The picture's sharpest (its 99th percentile edge), and the green where edges are over 45% of it.
+        let small = edges
+        let s = e
+        let w = Int(s.width), h = Int(s.height)
+        guard w > 2, h > 2 else { return nil }
+        var px = [Float](repeating: 0, count: w * h * 4)
+        context.render(small, toBitmap: &px, rowBytes: w * 16, bounds: s, format: .RGBAf, colorSpace: nil)
+        let values = stride(from: 0, to: px.count, by: 4).map { px[$0] }
+        let top = values.sorted()[Int(Double(values.count - 1) * 0.99)]
+        guard top > 1e-4 else { return nil }
+        // The sharpest spot: the 40×40 block with the most edge.
+        var best = (score: Float(-1), x: 0, y: 0)
+        for by in stride(from: 0, to: h - 40, by: 10) { for bx in stride(from: 0, to: w - 40, by: 10) {
+            var sum: Float = 0
+            for y in stride(from: by, to: by + 40, by: 2) { for x in stride(from: bx, to: bx + 40, by: 2) { sum += values[y * w + x] } }
+            if sum > best.score { best = (sum, bx + 20, by + 20) }
+        } }
+        // Green where an edge is over 45% of the sharpest (softly), see-through elsewhere.
+        guard let kernel = peakKernel, let green = kernel.apply(extent: e, arguments: [edges, Float(top) * 0.45]) else { return nil }
+        guard let overlay = context.createCGImage(green, from: e, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
+        // (The small copy's rows are from the top in the bitmap.)
+        return (overlay, CGPoint(x: Double(best.x) / Double(w), y: Double(best.y) / Double(h)))
+    }
+}
+
+/// The same face through a moment: the biggest face in the photo in focus, found again in each photo of its moment (the
+/// nearest face to where it was), close up, with whether its eyes are open and how sharp it is; the sharpest with open
+/// eyes ringed. A click shows that photo.
+struct CullFaceStrip: View {
+    let members: [String]
+    let focus: String
+    let choose: (String) -> Void
+    @State private var faces: [(path: String, crop: CGImage, open: Bool?, sharpness: Double)] = []
+    @State private var checks = PhotoChecks.shared
+
+    var body: some View {
+        let best = faces.filter { $0.open != false }.max { $0.sharpness < $1.sharpness }?.path
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(faces, id: \.path) { face in
+                    Button { choose(face.path) } label: {
+                        Image(decorative: face.crop, scale: 1).resizable().scaledToFill()
+                            .frame(width: 44, height: 44)
+                            .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous)
+                                    .strokeBorder(face.path == focus ? Design.Studio.text : face.path == best ? Design.Studio.good : .clear, lineWidth: 2)
+                            }
+                            .overlay(alignment: .bottomTrailing) {
+                                if face.open == false {
+                                    Image(systemName: "eye.slash.fill").font(.system(size: 9)).foregroundStyle(Design.Studio.bad)
+                                        .padding(2).background(.black.opacity(0.6), in: .circle).padding(2)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .help(face.path == best ? "Sharpest with open eyes" : face.open == false ? "Eyes closed" : PhotoCatalog.displayName(face.path))
+                }
+            }
+        }
+        .frame(maxWidth: 360)
+        .task(id: members.joined() + focus) {
+            var made: [(String, CGImage, Bool?, Double)] = []
+            guard let target = checks.check(focus)?.faces.max(by: { $0.width * $0.height < $1.width * $1.height }) else { faces = []; return }
+            for path in members.prefix(12) {
+                guard let boxes = checks.check(path)?.faces, !boxes.isEmpty,
+                      let box = boxes.min(by: { hypot($0.midX - target.midX, $0.midY - target.midY) < hypot($1.midX - target.midX, $1.midY - target.midY) }),
+                      hypot(box.midX - target.midX, box.midY - target.midY) < 0.2 else { continue }
+                var image = CullCache.shared.image(path)
+                if image == nil { image = await CullCache.shared.load(path) }
+                guard let cg = image?.cgImage(forProposedRect: nil, context: nil, hints: nil) else { continue }
+                if let measured = await Task.detached(priority: .userInitiated, operation: { CullFaceStrip.measure(cg, box: box) }).value {
+                    made.append((path, measured.crop, measured.open, measured.sharpness))
+                }
+            }
+            faces = made
+        }
+    }
+
+    /// A face's crop (half again its size), whether its eyes are open (nil: no eyes found), and its sharpness (the mean
+    /// squared Laplacian of the crop at 160 pixels).
+    nonisolated static func measure(_ cg: CGImage, box: CGRect) -> (crop: CGImage, open: Bool?, sharpness: Double)? {
+        let w = CGFloat(cg.width), h = CGFloat(cg.height)
+        let side = max(box.width * w, box.height * h) * 1.5
+        let centre = CGPoint(x: box.midX * w, y: (1 - box.midY) * h)
+        let rect = CGRect(x: centre.x - side / 2, y: centre.y - side / 2, width: side, height: side).intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        guard let crop = cg.cropping(to: rect.integral) else { return nil }
+        let landmarks = VNDetectFaceLandmarksRequest()
+        try? VNImageRequestHandler(cgImage: crop).perform([landmarks])
+        var open: Bool?
+        if let face = landmarks.results?.max(by: { $0.boundingBox.width < $1.boundingBox.width }), let l = face.landmarks?.leftEye, let r = face.landmarks?.rightEye {
+            open = !(PhotoChecks.openness(l) < 0.16 && PhotoChecks.openness(r) < 0.16)
+        }
+        let picture = CIImage(cgImage: crop), k = 160 / max(picture.extent.width, 1)
+        let small = picture.transformed(by: CGAffineTransform(scaleX: k, y: k)).applyingFilter("CIColorControls", parameters: [kCIInputSaturationKey: 0])
+        let edges = small.applyingFilter("CIConvolution3X3", parameters: ["inputWeights": CIVector(values: [0, 1, 0, 1, -4, 1, 0, 1, 0], count: 9), "inputBias": 0])
+        let squared = edges.applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: edges])
+        let average = squared.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: small.extent.insetBy(dx: 3, dy: 3))])
+        var pixel = [Float](repeating: 0, count: 4)
+        CullPeaking.plain.render(average, toBitmap: &pixel, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+        return (crop, open, Double(pixel[0]))
+    }
+}
+
+/// How strictly Auto Cull keeps.
+enum CullStrictness: String, CaseIterable {
+    /// Each moment's top quarter kept; of the rest only soft photos and closed eyes rejected.
+    case gentle
+    /// Each moment's top quarter kept, the rest rejected.
+    case balanced
+    /// Only each moment's top pick kept, the rest rejected.
+    case strict
+}
+
+/// Auto Cull's decisions for photos not decided yet (decided ones are never changed): the ranking's best of each moment
+/// (the learned style when one is chosen) kept by `strictness`, the rest rejected; a photo on its own kept unless it looks
+/// soft or has closed eyes.
+@MainActor
+func autoCull(_ moments: [CullMoment], strictness: CullStrictness, checks: PhotoChecks, catalog: PhotoCatalog) -> (keep: [String], reject: [String]) {
+    var keep: [String] = [], reject: [String] = []
+    for moment in moments {
+        let open = moment.members.filter { catalog.record($0).flag == .none }
+        guard !open.isEmpty else { continue }
+        let flawed = Set(open.filter { checks.check($0)?.possibleReject == true })
+        if moment.members.count == 1 {
+            if flawed.contains(moment.top) { reject.append(moment.top) } else { keep.append(moment.top) }
+            continue
+        }
+        let best = strictness == .strict ? [moment.top] : moment.onTop
+        for path in open {
+            if best.contains(path), !flawed.contains(path) { keep.append(path) }
+            else if strictness != .gentle || flawed.contains(path) { reject.append(path) }
+        }
+    }
+    return (keep, reject)
+}
+
+/// Auto Cull: choose how strict, see what would be kept and rejected (untick any to leave it undecided), then apply.
+private struct CullAuto: View {
+    let moments: [CullMoment]
+    let checks: PhotoChecks
+    let apply: (Set<String>, Set<String>) -> Void
+    let cancel: () -> Void
+    @AppStorage("cullStrictness") private var strictness = CullStrictness.balanced.rawValue
+    @State private var left: Set<String> = []
+
+    var body: some View {
+        let level = CullStrictness(rawValue: strictness) ?? .balanced
+        let decisions = autoCull(moments, strictness: level, checks: checks, catalog: PhotoCatalog.shared)
+        let keep = decisions.keep.filter { !left.contains($0) }, reject = decisions.reject.filter { !left.contains($0) }
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                Text("Auto Cull").font(Design.Studio.sectionTitle)
+                Spacer()
+                StudioSegmented(ground: Design.Studio.panel, options: [(CullStrictness.gentle.rawValue, LocalizedStringKey("Gentle")),
+                                                                        (CullStrictness.balanced.rawValue, LocalizedStringKey("Balanced")),
+                                                                        (CullStrictness.strict.rawValue, LocalizedStringKey("Strict"))],
+                                selection: $strictness)
+                    .fixedSize()
+            }
+            .padding(16)
+            Text(level == .gentle ? "Keeps the best quarter of each moment; rejects only soft photos and closed eyes."
+                 : level == .balanced ? "Keeps the best quarter of each moment; rejects the rest."
+                 : "Keeps only the best photo of each moment; rejects the rest.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 16).padding(.bottom, 8)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 10)], spacing: 12) {
+                    ForEach(decisions.keep + decisions.reject, id: \.self) { path in
+                        CullAutoTile(path: path, keeping: decisions.keep.contains(path), out: left.contains(path)) {
+                            if left.contains(path) { left.remove(path) } else { left.insert(path) }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            HStack {
+                Text("\(keep.count) to keep · \(reject.count) to reject").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                Spacer()
+                Button("Cancel", action: cancel).buttonStyle(StudioFlatButtonStyle()).keyboardShortcut(.cancelAction)
+                Button("Apply") { apply(Set(keep), Set(reject)) }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(keep.isEmpty && reject.isEmpty)
+            }
+            .padding(16)
+        }
+        .frame(width: 780, height: 580)
+        .background(Design.Studio.panel)
+    }
+}
+
+/// One photo in Auto Cull: what would happen to it; a click leaves it undecided (or takes it back).
+private struct CullAutoTile: View {
+    let path: String
+    let keeping: Bool
+    let out: Bool
+    let toggle: () -> Void
+
+    private var label: LocalizedStringKey { out ? "Leave" : keeping ? "Keep" : "Reject" }
+    private var colour: Color { out ? Design.Studio.raised : keeping ? Design.Brand.pink : Design.Studio.bad.opacity(0.85) }
+
+    var body: some View {
+        Button(action: toggle) {
+            CullThumb(path: path)
+                .aspectRatio(3 / 2, contentMode: .fit)
+                .opacity(out ? 0.35 : 1)
+                .overlay(alignment: .topTrailing) {
+                    Text(label).font(Design.Studio.hint).foregroundStyle(.white)
+                        .padding(.horizontal, 6).frame(height: 18)
+                        .background(colour, in: .rect(cornerRadius: 5, style: .continuous))
+                        .padding(5)
+                }
+        }
+        .buttonStyle(.plain)
+        .help("Click to leave this one undecided")
     }
 }

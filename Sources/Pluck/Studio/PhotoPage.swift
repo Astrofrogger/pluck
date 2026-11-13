@@ -34,6 +34,7 @@ struct PhotoPage: View {
     @AppStorage("cullSync") private var cullSync = true
     @AppStorage(Design.Photo.surroundKey) private var surroundWhite = 0.16
     @State private var cullZoomed = false
+    @AppStorage("cullPeaking") private var cullPeaking = false
     @State private var cullAnchor = UnitPoint.center
     @State private var cullCache = MomentsCache()
     @State private var checks = PhotoChecks.shared
@@ -156,7 +157,7 @@ struct PhotoPage: View {
                 .overlay { PhotoMergeStatus() }
             if view == .cull, focus != nil, !photos.isEmpty {
                 PhotoCullPage(moments: cullMoments, all: filtered, focus: $focus, selection: $selection, count: cullCount,
-                              sync: cullSync, zoomed: cullZoomed, anchor: $cullAnchor)
+                              sync: cullSync, zoomed: cullZoomed, peaking: cullPeaking, anchor: $cullAnchor)
                     .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: dropPhotos)
             } else {
             HStack(spacing: 0) {
@@ -487,6 +488,7 @@ struct PhotoPage: View {
                                 selection: $cullCount)
                     .help("Photos side by side")
                 titleButton("link", on: cullSync, help: "Zoom them all together") { cullSync.toggle() }
+                titleButton("scope", on: cullPeaking, help: "Focus peaking: what's sharp shows green, the sharpest spot ringed") { cullPeaking.toggle() }
                 surroundMenu
                 Button { cullZoomed.toggle() } label: {
                     Text(cullZoomed ? "100 %" : "Fit").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
@@ -2179,6 +2181,48 @@ final class CullCache {
         order.append(path)
         if order.count > 12 { images[order.removeFirst()] = nil }
         return image
+    }
+
+    // MARK: Full size, for 100 %
+
+    private var fulls: [String: CGImage] = [:]
+    private var fullOrder: [String] = []
+
+    /// The photo at its full size (Apple's own rendering of a RAW: for judging focus, not the edit), for true 100 %;
+    /// the last six kept.
+    func full(_ path: String) async -> CGImage? {
+        if let known = fulls[path] { return known }
+        let made = await Task.detached(priority: .userInitiated) { () -> CGImage? in
+            let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
+            guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else { return nil }
+            let side = Self.pixelSize(source).map { max($0.width, $0.height) } ?? 8000
+            let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceThumbnailMaxPixelSize: Int(side),
+                                            kCGImageSourceCreateThumbnailWithTransform: true]
+            return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+        }.value
+        guard let made else { return nil }
+        fulls[path] = made
+        fullOrder.append(path)
+        if fullOrder.count > 6 { fulls[fullOrder.removeFirst()] = nil }
+        return made
+    }
+
+    /// A photo's size in pixels as it shows (turned by its orientation).
+    nonisolated static func pixelSize(_ source: CGImageSource) -> CGSize? {
+        guard let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [String: Any],
+              let w = props[kCGImagePropertyPixelWidth as String] as? Int, let h = props[kCGImagePropertyPixelHeight as String] as? Int else { return nil }
+        let turned = [5, 6, 7, 8].contains(props[kCGImagePropertyOrientation as String] as? Int ?? 1)
+        return turned ? CGSize(width: h, height: w) : CGSize(width: w, height: h)
+    }
+
+    nonisolated(unsafe) private static var sizes: [String: CGSize] = [:]
+    nonisolated private static let sizeLock = NSLock()
+
+    nonisolated static func pixelSize(of path: String) -> CGSize? {
+        if let known = sizeLock.withLock({ sizes[path] }) { return known }
+        guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil), let size = pixelSize(source) else { return nil }
+        sizeLock.withLock { sizes[path] = size }
+        return size
     }
 }
 

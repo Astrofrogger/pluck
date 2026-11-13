@@ -29,7 +29,8 @@ final class PhotoChecks {
     @ObservationIgnored private var waiting: [String] = []
     @ObservationIgnored private var running = false
     @ObservationIgnored private var saveScheduled = false
-    private static let version = 2
+    /// (3: without faces, sharpness is measured on the subject Vision finds, not the whole frame.)
+    private static let version = 3
 
     nonisolated private static var file: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Photo Checks.json")
@@ -128,7 +129,10 @@ final class PhotoChecks {
         let picture = CIImage(cgImage: preview)
         let e = picture.extent
         var area = e
-        if let union = found.map(\.boundingBox).reduce(nil, { (sum: CGRect?, box: CGRect) in sum?.union(box) ?? box }) {
+        // (No faces: the subject Vision finds standing apart, so a sharp background can't hide a soft subject.)
+        var boxes = found.map(\.boundingBox)
+        if boxes.isEmpty { boxes = subjectBox(preview).map { [$0] } ?? [] }
+        if let union = boxes.reduce(nil, { (sum: CGRect?, box: CGRect) in sum?.union(box) ?? box }) {
             area = CGRect(x: e.minX + union.minX * e.width, y: e.minY + union.minY * e.height, width: union.width * e.width,
                           height: union.height * e.height).insetBy(dx: -8, dy: -8).intersection(e)
         }
@@ -155,6 +159,27 @@ final class PhotoChecks {
     }
 
     /// How open an eye is: its height over its width (an eye's outline from Vision).
+    /// The subject's box (Vision's foreground instances together, shares with y up), when it isn't nearly the whole frame.
+    nonisolated static func subjectBox(_ picture: CGImage) -> CGRect? {
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        try? VNImageRequestHandler(cgImage: picture).perform([request])
+        guard let result = request.results?.first, !result.allInstances.isEmpty else { return nil }
+        let labels = result.instanceMask
+        CVPixelBufferLockBaseAddress(labels, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(labels, .readOnly) }
+        let w = CVPixelBufferGetWidth(labels), h = CVPixelBufferGetHeight(labels), row = CVPixelBufferGetBytesPerRow(labels)
+        guard let base = CVPixelBufferGetBaseAddress(labels)?.assumingMemoryBound(to: UInt8.self) else { return nil }
+        var minX = w, minY = h, maxX = -1, maxY = -1
+        for y in 0..<h { for x in 0..<w where base[y * row + x] > 0 {
+            minX = min(minX, x); maxX = max(maxX, x); minY = min(minY, y); maxY = max(maxY, y)
+        } }
+        guard maxX >= minX, maxY >= minY else { return nil }
+        // (Rows from the top in the mask; the box with y up, as Vision's face boxes.)
+        let box = CGRect(x: Double(minX) / Double(w), y: 1 - Double(maxY + 1) / Double(h),
+                         width: Double(maxX - minX + 1) / Double(w), height: Double(maxY - minY + 1) / Double(h))
+        return box.width * box.height < 0.85 ? box : nil
+    }
+
     nonisolated static func openness(_ eye: VNFaceLandmarkRegion2D) -> Double {
         let points = eye.normalizedPoints
         guard let minX = points.map(\.x).min(), let maxX = points.map(\.x).max(),
