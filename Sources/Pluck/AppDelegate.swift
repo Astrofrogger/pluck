@@ -27,12 +27,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     private var showsMenuBarIcon: Bool { UserDefaults.standard.bool(forKey: Prefs.showMenuBarIcon) }
 
-    /// Start silently in the menu bar when asked to (and there's a menu bar icon to come back to).
+    /// Start silently in the menu bar when asked to (and there's a menu bar icon to come back to), and only when macOS opened
+    /// Pluck at login: opened from the Dock, Spotlight or Finder it shows its window (the owner, 2026-11-13: it took two clicks).
     static var startsHidden: Bool {
-        UserDefaults.standard.bool(forKey: Prefs.startInMenuBar) && UserDefaults.standard.bool(forKey: Prefs.showMenuBarIcon)
+        launchedAtLogin && UserDefaults.standard.bool(forKey: Prefs.startInMenuBar) && UserDefaults.standard.bool(forKey: Prefs.showMenuBarIcon)
     }
 
+    /// Whether this launch was macOS opening Pluck as a login item (its launch event says so).
+    static var launchedAtLogin = false
+
     func applicationWillFinishLaunching(_ notification: Notification) {
+        if let event = NSAppleEventManager.shared().currentAppleEvent, event.eventID == kAEOpenApplication,
+           event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem {
+            Self.launchedAtLogin = true
+        }
         #if STUDIO
         // Thin scrollers that float over the content and show only while scrolling, even when the
         // Mac is set to always show them: no wide scroll columns next to panels (owner, 2026-11-12).
