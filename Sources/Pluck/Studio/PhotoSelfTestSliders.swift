@@ -15,7 +15,7 @@ extension PhotoSelfTest {
             ("plain", { _ in }), ("sat-50", { $0.saturation = -50 }), ("sat+50", { $0.saturation = 50 }), ("sat+100", { $0.saturation = 100 }),
             ("vib+60", { $0.vibrance = 60 }), ("blacks-100", { $0.blacks = -100 }), ("blacks+100", { $0.blacks = 100 }),
             ("whites-100", { $0.whites = -100 }), ("whites+100", { $0.whites = 100 }), ("dehaze-60", { $0.dehaze = -60 }), ("dehaze+60", { $0.dehaze = 60 }),
-            ("rolloff+100", { $0.rolloff = 100 }), ("rolloff-100", { $0.rolloff = -100 }),
+            ("rolloff+100", { $0.rolloff = 100 }), ("rolloff-100", { $0.rolloff = -100 }), ("basic", { $0.toneEngine = .basic }),
         ]
         for name in ["DSC01962", "DSC02845"] {
             let raw = folder.appendingPathComponent("raws/\(name).ARW").path
@@ -59,6 +59,7 @@ extension PhotoSelfTest {
                   "50th \(p[1]) → \(l("sat+100")[1]); colour \(p[3]) → \(l("sat+100")[3])")
             check("sliders \(name): Roll-off soft holds the brightest back, hard pushes them",
                   l("rolloff+100")[2] < p[2] - 0.02 && l("rolloff-100")[2] > p[2] + 0.002, "95th \(p[2]): soft \(l("rolloff+100")[2]), hard \(l("rolloff-100")[2])")
+            check("sliders \(name): Basic is more colourful than AgX", l("basic")[3] > p[3] * 1.03, "colour \(p[3]) → \(l("basic")[3])")
             check("sliders \(name): Dehaze −60 doesn't wash out the shadows", l("dehaze-60")[0] < p[0] + 0.12, "5th \(p[0]) → \(l("dehaze-60")[0])")
         }
     }

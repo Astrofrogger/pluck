@@ -100,6 +100,11 @@ final class PhotoEditing {
     var healSize = 0.02
     var healFeather = 0.5
     var healOpacity = 1.0
+    /// The Heal tab shows Liquify instead of spots; its tool, size (share of the long side) and strength.
+    var liquifying = false
+    var liquifyTool = LiquifyStroke.Tool.push
+    var liquifySize = 0.06
+    var liquifyStrength = 0.5
 
     func zoomIn() { zoom = Self.zoomSteps.first { $0 > (zoom ?? 0.2) + 0.001 } ?? Self.zoomSteps.last }
     func zoomOut() {

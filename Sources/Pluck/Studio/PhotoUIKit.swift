@@ -188,7 +188,8 @@ enum AdjustSection: String, CaseIterable {
         switch self {
         case .light: [String(localized: "Light"), String(localized: "Exposure"), String(localized: "Contrast"), String(localized: "Highlights"),
                       String(localized: "Shadows"), String(localized: "Whites"), String(localized: "Blacks"), String(localized: "Brightness"),
-                      String(localized: "Highlight Roll-off")]
+                      String(localized: "Highlight Roll-off"),
+                      String(localized: "Tone Engine"), "AgX"]
         case .colour: [String(localized: "Colour"), String(localized: "Temperature"), String(localized: "Tint"), String(localized: "Vibrance"),
                        String(localized: "Saturation"), String(localized: "White Balance")]
         case .presence: [String(localized: "Presence"), String(localized: "Texture"), String(localized: "Clarity"), String(localized: "Dehaze"),
@@ -232,7 +233,7 @@ enum AdjustSection: String, CaseIterable {
         let fresh = PhotoAdjustments()
         switch self {
         case .light:
-            a.exposure = 0; a.contrast = 0; a.highlights = 0; a.shadows = 0; a.whites = 0; a.blacks = 0; a.rolloff = nil
+            a.exposure = 0; a.contrast = 0; a.highlights = 0; a.shadows = 0; a.whites = 0; a.blacks = 0; a.rolloff = nil; a.toneEngine = nil
         case .colour:
             a.temperature = 0; a.tint = 0; a.vibrance = 0; a.saturation = 0
         case .presence:

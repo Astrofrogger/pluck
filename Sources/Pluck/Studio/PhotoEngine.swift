@@ -690,6 +690,9 @@ enum PhotoEngine {
         let v6 = a.process >= 6, blacks = v6 ? 0 : a.blacks, whites = v6 ? 0 : a.whites
         // (Process 6's Highlight Roll-off: soft gives the brightest stops more room and a gentler shoulder, hard less.)
         let roll = v6 ? (a.rolloff ?? 0) / 100 : 0
+        // (Process 6's Basic engine: the curve on red, green and blue apart (`tro` 0), as classic raw editors do: brighter,
+        // more saturated highlights whose colours drift (a warm sky towards yellow), where AgX keeps each hue and fades into white.)
+        let basic = v6 && a.toneEngine == .basic
         let lo = -12.47393 - blacks / 100 * 2.5, hi = 4.026069 - whites / 100 * 2.5 + log2(max(peak, 1)) + roll * (roll > 0 ? 2.5 : 1.8)
         let grey = (log2(0.18 * 1.15) - lo) / (hi - lo)
         let y0 = 0.5219
@@ -736,6 +739,7 @@ enum PhotoEngine {
         // (Process 5: Neutral and Flat keep each colour's hue through the curve too: bright blues went purple, reds magenta.)
         p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait, .mist, .dusk].contains(profile) || standard5
             || a.process >= 5 && [.neutral, .flat].contains(profile) ? 2 : 0
+        if basic { p.tro = 0 }
         p.mono = profile == .monochrome ? 1 : 0
         p.peak = Float(max(peak, 1))
     }

@@ -98,7 +98,14 @@ struct PhotoInspector: View {
                         case .info: info
                         case .adjust: adjust
                         case .masks: masks
-                        case .heal: if let shown { PhotoHealPanel(path: shown, record: record, several: paths.count > 1) }
+                        case .heal:
+                            if let shown {
+                                StudioSegmented(options: [(false, LocalizedStringKey("Spots")), (true, LocalizedStringKey("Liquify"))],
+                                                selection: Binding(get: { editing.liquifying }, set: { editing.liquifying = $0 }))
+                                    .padding(.horizontal, 8).padding(.bottom, 4)
+                                if editing.liquifying { PhotoLiquifyPanel(path: shown, record: record) }
+                                else { PhotoHealPanel(path: shown, record: record, several: paths.count > 1) }
+                            }
                         case .film: PhotoFilmPanel(paths: editTargets, record: record)
                         case .export: PhotoExportPanel(paths: paths)
                         }
@@ -443,6 +450,16 @@ struct PhotoInspector: View {
                 slider("Blacks", \.blacks, -100...100, clipping: true)
                 if record.adjust.process >= 6 {
                     slider("Highlight Roll-off", \.rolloffAmount, -100...100)
+                    HStack(spacing: 8) {
+                        Text("Tone Engine").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                        Spacer(minLength: 0)
+                        StudioSegmented(ground: Design.Studio.panel, options: [(false, LocalizedStringKey("AgX")), (true, LocalizedStringKey("Basic"))], selection: Binding(
+                            get: { record.adjust.toneEngine == .basic },
+                            set: { basic in change { $0.adjust.toneEngine = basic ? .basic : nil } }))
+                            .fixedSize()
+                    }
+                    .padding(.horizontal, Design.Sidebar.rowPadding)
+                    .help("AgX keeps each colour's hue into white; Basic is punchier, its colours drifting in bright light")
                 }
             }
             AdjustFold(title: "Colour", section: .colour, adjust: record.adjust, open: true, reset: { resetSection(.colour) }) {

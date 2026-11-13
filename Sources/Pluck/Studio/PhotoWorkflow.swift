@@ -35,6 +35,7 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
             record.adjust.exposure = from.exposure; record.adjust.contrast = from.contrast
             record.adjust.highlights = from.highlights; record.adjust.shadows = from.shadows
             record.adjust.whites = from.whites; record.adjust.blacks = from.blacks; record.adjust.rolloff = from.rolloff
+            record.adjust.toneEngine = from.toneEngine
             // (A roll's negatives share their base and print: synced with the light.)
             record.adjust.negative = from.negative
         case .colour:

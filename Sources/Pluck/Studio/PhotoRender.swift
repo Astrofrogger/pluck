@@ -126,6 +126,9 @@ enum PhotoRender {
             // Process 5: the decoder's own only past Luminance 25 (all of it at 100, as process 4's 100).
             neutral(raw, noise: allLuma ? max(noise - 25, 0) * 4 / 3 : noise, color: 0, moire: settings.moire, decoder: settings.decoder,
                     modern: settings.wideColourNoise && file == nil)
+            // A merge Pluck made (PhotoDNG) is scene light already: none of Apple's shadow bias (it crushed its shadows) or
+            // gamut mapping (it dulled strong colours), so it reads back as written.
+            if PhotoDNG.isMerge(url) { raw.shadowBias = 0; raw.isGamutMappingEnabled = false }
             // Lens correction leaves an unfilled edge: a sliver (0.4%) goes.
             guard var image = raw.outputImage else { return nil }
             // The raw denoiser's DNG: Apple's lens correction, which the RAW's own decode has, put on as measured (lensWarp).
@@ -595,8 +598,9 @@ enum PhotoRender {
         // Spots first, on the decoded photo (so they're placed on it, whatever the crop); none leaves it as it was.
         // Then Lens Blur and Fog, in linear light before the tone (so highlights bloom); none leaves it as it was too.
         // (Smooth Skin after the spots, before the depth effects.)
-        let healed = PhotoRetouch.smoothed(a.skin, to: PhotoHeal.apply(a.spots, to: positive), path: path, base: base, context: context)
-        let deep = PhotoDepthEffects.applied(a.depth, to: healed, key: PhotoRetouch.key(PhotoHeal.key(cacheKey, a.spots), a.skin),
+        // (Then Liquify: the spots and skin move with what they're on.)
+        let healed = PhotoLiquify.apply(a.liquify, to: PhotoRetouch.smoothed(a.skin, to: PhotoHeal.apply(a.spots, to: positive), path: path, base: base, context: context))
+        let deep = PhotoDepthEffects.applied(a.depth, to: healed, key: PhotoLiquify.key(PhotoRetouch.key(PhotoHeal.key(cacheKey, a.spots), a.skin), a.liquify),
                                              path: path, base: base, context: context)
         var image = PhotoEngine.develop(deep.image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene,
                                         cacheKey: deep.key, masks: shapes, overlay: overlay, peak: peak, baseline: baseline)

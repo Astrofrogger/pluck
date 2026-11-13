@@ -153,6 +153,7 @@ struct PhotoPage: View {
         let strip = !photos.isEmpty && focus != nil && view != .grid
         VStack(spacing: 0) {
             toolbar.padding(.leading, Self.trafficLights)
+                .overlay { PhotoMergeStatus() }
             if view == .cull, focus != nil, !photos.isEmpty {
                 PhotoCullPage(moments: cullMoments, all: filtered, focus: $focus, selection: $selection, count: cullCount,
                               sync: cullSync, zoomed: cullZoomed, anchor: $cullAnchor)
@@ -855,6 +856,14 @@ struct PhotoPage: View {
         if case .album(let id) = source {
             Button("Remove from Album") { catalog.remove(targets, from: id) }
         }
+        if targets.count >= 2 {
+            Menu("Merge") {
+                // (In the order shown: a panorama's frames left to right, a bracket as shot.)
+                let ordered = photos.filter(Set(targets).contains)
+                ForEach(PhotoMerger.Kind.allCases) { kind in Button(kind.title) { PhotoMerger.shared.merge(kind, keys: ordered) } }
+            }
+            .disabled(PhotoMerger.shared.working != nil)
+        }
         Divider()
         Button("Make Virtual Copy") { makeCopy(of: path) }
         if PhotoCatalog.isCopy(path) {
@@ -1377,7 +1386,8 @@ struct PhotoLoupe: View {
                             fitGestures(frame: own, offset: sideBySide ? area.width : 0)
                         }
                         if healingSpots, !sideBySide {
-                            PhotoHealHandles(path: path, record: record, frame: frame)
+                            if PhotoEditing.shared.liquifying { PhotoLiquifyHandles(path: path, frame: frame) }
+                            else { PhotoHealHandles(path: path, record: record, frame: frame) }
                         } else if shapingMask, !editing.cropping, !original, !sideBySide {
                             PhotoMaskHandles(path: path, record: record, frame: frame)
                         } else if editing.mixerTargeting, primary, !editing.cropping, !original, !sideBySide {

@@ -94,6 +94,13 @@ struct PhotoAdjustments: Codable, Hashable {
     /// Process 6's Highlight Roll-off (−100 hard, nearer a clip … 100 soft, more room for the brightest): the tone curve's
     /// shoulder. Nil at 0, so it isn't written and an edit without it keeps the same saved settings and preview key.
     var rolloff: Double? = nil { didSet { if rolloff == 0 { rolloff = nil } } }
+    /// Liquify's strokes (PhotoLiquify). Nil when there are none, so it isn't written and an edit without it keeps the same
+    /// saved settings and preview key.
+    var liquify: [LiquifyStroke]? = nil { didSet { if liquify?.isEmpty == true { liquify = nil } } }
+    /// Process 6's tone engine: nil AgX (Pluck's curve since process 2, each colour's hue kept into white), or Basic (the curve on
+    /// red, green and blue apart, as classic raw editors: punchier, its colours drifting in bright light). Nil isn't written.
+    var toneEngine: ToneEngine?
+    enum ToneEngine: String, Codable, CaseIterable { case basic }
     /// Smooth Skin (PhotoRetouch), 0…100. Nil at 0, so it isn't written and an edit without it keeps the same saved settings.
     var skin: Double? = nil { didSet { if skin == 0 { skin = nil } } }
     /// Smooth Skin as a slider's number.
@@ -188,6 +195,8 @@ struct PhotoAdjustments: Codable, Hashable {
         depth = value(.depth, nil as PhotoDepthEffects?).flatMap { $0.isDefault ? nil : $0 }
         negative = value(.negative, nil as PhotoNegative?)
         rolloff = value(.rolloff, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
+        toneEngine = value(.toneEngine, nil as ToneEngine?)
+        liquify = value(.liquify, nil as [LiquifyStroke]?).flatMap { $0.isEmpty ? nil : $0 }
         skin = value(.skin, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
         calibration = value(.calibration, Calibration())
         lookName = value(.lookName, nil as String?); lookTable = value(.lookTable, nil as String?); lookAmount = value(.lookAmount, 100)
