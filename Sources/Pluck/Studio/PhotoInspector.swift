@@ -385,7 +385,7 @@ struct PhotoInspector: View {
                     Divider()
                     Button("Auto", systemImage: "wand.and.stars") { autoTone() }
                 } label: {
-                    InspectorPair(name: "Profile", value: Text(profile.title))
+                    InspectorPair(name: "Profile", value: Text(profile.name(process: record.adjust.process)))
                 }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -441,6 +441,9 @@ struct PhotoInspector: View {
                 slider("Shadows", \.shadows, -100...100, clipping: true)
                 slider("Whites", \.whites, -100...100, clipping: true)
                 slider("Blacks", \.blacks, -100...100, clipping: true)
+                if record.adjust.process >= 6 {
+                    slider("Highlight Roll-off", \.rolloffAmount, -100...100)
+                }
             }
             AdjustFold(title: "Colour", section: .colour, adjust: record.adjust, open: true, reset: { resetSection(.colour) }) {
                 if raw, let path = shown {
@@ -457,6 +460,7 @@ struct PhotoInspector: View {
                 slider("Texture", \.texture, -100...100)
                 slider("Clarity", \.clarity, -100...100)
                 slider("Dehaze", \.dehaze, -100...100)
+                slider("Smooth Skin", \.skinAmount, 0...100)
                 slider("Vignette", \.vignette, -100...100)
                 if record.adjust.vignette != 0 {
                     slider("Midpoint", \.vignetteMidpoint, 0...100, neutral: 50)

@@ -201,6 +201,10 @@ enum PhotoMasks {
             return scaled(sky, to: size, guide: base, context: context) ?? black
         case .luminance, .colour:
             return CIImage(color: .white).cropped(to: frame)
+        case .match:
+            return scaled(matched(part, path: path, from: base, context: context), to: size, guide: base, context: context) ?? black
+        case .described:
+            return scaled(described(path, part.words ?? "", from: base, context: context)?.mask, to: size, guide: base, context: context) ?? black
         case .face, .faceSkin, .bodySkin, .eyes, .brows, .lips, .teeth, .hair:
             return scaled(facePart(part.kind, person: part.person, path: path, from: base, context: context), to: size, guide: base, context: context) ?? black
         }
@@ -283,6 +287,120 @@ enum PhotoMasks {
         return mask
     }
 
+    // MARK: - Match Brush
+
+    nonisolated(unsafe) private static var matches: [String: CIImage] = [:]
+
+    /// Match Brush: the colours under the painted strokes (up to 8, each a small average), and everywhere whose colour and
+    /// brightness (OkLab) is near one of them, by `smooth` (Range: 0 only the same … 1 broad). Painted places count too.
+    static func matched(_ part: MaskPart, path: String, from image: CIImage, context: CIContext) -> CIImage? {
+        let points = part.strokes.filter { !$0.erase }.flatMap { s in s.points.map { ($0, s.size) } }
+        guard !points.isEmpty, let kernel = matchKernel else { return nil }
+        let key = "\(path)|\(part.strokes.hashValue)|\(part.smooth)"
+        if let known = lock.withLock({ matches[key] }) { return known }
+        let e = image.extent, long = max(e.width, e.height)
+        // Up to 8 samples, spread along what was painted.
+        let step = max(points.count / 8, 1)
+        var samples: [CIVector] = []
+        for (p, size) in stride(from: 0, to: points.count, by: step).prefix(8).map({ points[$0] }) {
+            let r = max(size * long * 0.35, 2)
+            let c = CGPoint(x: e.minX + p.x * e.width, y: e.maxY - p.y * e.height)
+            let avg = image.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))])
+            var px = [Float](repeating: 0, count: 4)
+            context.render(avg, toBitmap: &px, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+            samples.append(CIVector(x: CGFloat(px[0]), y: CGFloat(px[1]), z: CGFloat(px[2])))
+        }
+        while samples.count < 8 { samples.append(samples[samples.count - 1]) }
+        // Range as a distance in OkLab: 0.02 (the very same) … 0.2 (broad).
+        let reach = Float(0.02 + 0.18 * min(max(part.smooth, 0), 1))
+        guard let similar = kernel.apply(extent: e, arguments: [image] + samples + [reach]) else { return nil }
+        let painted = brush(part.strokes, size: e.size).transformed(by: CGAffineTransform(translationX: e.minX, y: e.minY))
+        let mask = similar.applyingFilter("CIMaximumCompositing", parameters: [kCIInputBackgroundImageKey: painted]).cropped(to: e)
+        lock.withLock { matches[key] = mask; if matches.count > 24 { matches.removeValue(forKey: matches.keys.first!) } }
+        return mask
+    }
+
+    private static let matchKernel = CIColorKernel(source: """
+        vec3 toLab(vec3 c) {
+            c = max(c, vec3(0.0));
+            float l = 0.4122214708 * c.r + 0.5363325363 * c.g + 0.0514459929 * c.b;
+            float m = 0.2119034982 * c.r + 0.6806995451 * c.g + 0.1073969566 * c.b;
+            float s = 0.0883024619 * c.r + 0.2817188376 * c.g + 0.6299787005 * c.b;
+            l = pow(l, 1.0 / 3.0); m = pow(m, 1.0 / 3.0); s = pow(s, 1.0 / 3.0);
+            return vec3(0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+                        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s);
+        }
+        kernel vec4 matchColour(__sample c, vec3 s0, vec3 s1, vec3 s2, vec3 s3, vec3 s4, vec3 s5, vec3 s6, vec3 s7, float reach) {
+            vec3 p = toLab(c.rgb);
+            float d = distance(p, toLab(s0));
+            d = min(d, distance(p, toLab(s1))); d = min(d, distance(p, toLab(s2))); d = min(d, distance(p, toLab(s3)));
+            d = min(d, distance(p, toLab(s4))); d = min(d, distance(p, toLab(s5))); d = min(d, distance(p, toLab(s6)));
+            d = min(d, distance(p, toLab(s7)));
+            float v = 1.0 - smoothstep(reach * 0.6, reach * 1.4, d);
+            return vec4(v, v, v, 1.0);
+        }
+        """)
+
+    // MARK: - Described
+
+    nonisolated(unsafe) private static var describedFound: [String: (mask: CIImage?, count: Int)] = [:]
+
+    /// What's typed, found in the photo: each thing Vision sees standing apart (its foreground instances), named by
+    /// classifying a crop round it; the ones whose names match the words, together. "people" and "person" use the people
+    /// mask, "background" everything but the subject. `count`: how many things matched (0: nothing, mask nil).
+    static func described(_ path: String, _ text: String, from image: CIImage, context: CIContext) -> (mask: CIImage?, count: Int)? {
+        let query = PhotoSearch.words(text)
+        guard !query.isEmpty else { return nil }
+        let key = path + "|" + query.joined(separator: " ")
+        if let known = lock.withLock({ describedFound[key] }) { return known }
+        func remember(_ found: (mask: CIImage?, count: Int)) -> (mask: CIImage?, count: Int) {
+            lock.withLock { describedFound[key] = found; if describedFound.count > 24 { describedFound.removeValue(forKey: describedFound.keys.first!) } }
+            return found
+        }
+        let peopleWords: Set<String> = ["people", "person", "persons", "man", "men", "woman", "women", "child", "children", "kid", "kids", "human", "humans"]
+        if query.allSatisfy(peopleWords.contains), let p = person(path, from: image, context: context) { return remember((p, 1)) }
+        if query == ["background"], let s = subject(path, from: image, context: context) { return remember((s.applyingFilter("CIColorInvert"), 1)) }
+        let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: cg)
+        try? handler.perform([request])
+        guard let result = request.results?.first else { return remember((nil, 0)) }
+        // Each instance's box, from the label map (one number per instance).
+        let labels = result.instanceMask
+        CVPixelBufferLockBaseAddress(labels, .readOnly)
+        let lw = CVPixelBufferGetWidth(labels), lh = CVPixelBufferGetHeight(labels), row = CVPixelBufferGetBytesPerRow(labels)
+        var boxes: [Int: (minX: Int, minY: Int, maxX: Int, maxY: Int)] = [:]
+        if let base = CVPixelBufferGetBaseAddress(labels)?.assumingMemoryBound(to: UInt8.self) {
+            for y in 0..<lh { for x in 0..<lw {
+                let i = Int(base[y * row + x]); guard i > 0 else { continue }
+                let b = boxes[i] ?? (x, y, x, y)
+                boxes[i] = (min(b.minX, x), min(b.minY, y), max(b.maxX, x), max(b.maxY, y))
+            } }
+        }
+        CVPixelBufferUnlockBaseAddress(labels, .readOnly)
+        var matching = IndexSet()
+        for (instance, b) in boxes where result.allInstances.contains(instance) {
+            // The crop round it (a little wider, rows from the top as CGImage counts), named by Vision.
+            let sx = Double(cg.width) / Double(lw), sy = Double(cg.height) / Double(lh)
+            let w = Double(b.maxX - b.minX + 1) * sx, h = Double(b.maxY - b.minY + 1) * sy
+            let box = CGRect(x: Double(b.minX) * sx - 0.1 * w, y: Double(b.minY) * sy - 0.1 * h, width: w * 1.2, height: h * 1.2)
+                .intersection(CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
+            guard box.width >= 16, box.height >= 16, let crop = cg.cropping(to: box.integral) else { continue }
+            let classify = VNClassifyImageRequest()
+            try? VNImageRequestHandler(cgImage: crop).perform([classify])
+            let names = (classify.results ?? []).filter { $0.confidence >= 0.1 }.prefix(15)
+                .flatMap { PhotoSearch.words($0.identifier.replacingOccurrences(of: "_", with: " ")) }
+            if PhotoSearch.matches(query, names) { matching.insert(instance) }
+        }
+        guard !matching.isEmpty, let buffer = try? result.generateScaledMaskForImage(forInstances: matching, from: handler), let mask = grey(buffer) else {
+            return remember((nil, 0))
+        }
+        let e = mask.extent
+        return remember((mask.clampedToExtent().applyingGaussianBlur(sigma: 2).cropped(to: e), matching.count))
+    }
+
     private static func objectKey(_ path: String, _ point: CGPoint) -> String {
         "\(path)|\(Int(point.x * 1000))|\(Int(point.y * 1000))"
     }
@@ -292,17 +410,28 @@ enum PhotoMasks {
         lock.withLock { objects[objectKey(path, point)] != nil }
     }
 
-    /// Whether this Mac can find an object from a click (macOS 27).
+    /// Whether this Mac can find an object from a click (macOS 27, or the click-mask model before it).
     static var canFindObjects: Bool {
         if #available(macOS 27, *) { return true }
-        return false
+        return PhotoSAM.isReady
+    }
+
+    /// Whether click masks need the optional model (before macOS 27).
+    static var objectsNeedModel: Bool {
+        if #available(macOS 27, *) { return false }
+        return true
     }
 
     /// The object at this point (shares from the top left), found by macOS 27 and kept. Its model
     /// is downloaded by macOS the first time (`downloading` is told). False when none was found.
     static func findObject(_ path: String, at point: CGPoint, from image: CIImage, context: CIContext,
                            downloading: @Sendable @escaping () -> Void = {}) async -> Bool {
-        guard #available(macOS 27, *) else { return false }
+        guard #available(macOS 27, *) else {
+            // (Before macOS 27: Segment Anything, when it's here.)
+            guard let mask = PhotoSAM.object(path, points: [(point, true)], in: image, context: context) else { return false }
+            keep(mask, as: objectKey(path, point))
+            return true
+        }
         let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB))

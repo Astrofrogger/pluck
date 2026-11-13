@@ -91,6 +91,21 @@ struct PhotoAdjustments: Codable, Hashable {
     /// A scanned film negative made positive (PhotoNegative), first of all. Nil when the photo isn't one, so it isn't
     /// written and an edit without it keeps the same saved settings and preview key as before it existed.
     var negative: PhotoNegative?
+    /// Process 6's Highlight Roll-off (−100 hard, nearer a clip … 100 soft, more room for the brightest): the tone curve's
+    /// shoulder. Nil at 0, so it isn't written and an edit without it keeps the same saved settings and preview key.
+    var rolloff: Double? = nil { didSet { if rolloff == 0 { rolloff = nil } } }
+    /// Smooth Skin (PhotoRetouch), 0…100. Nil at 0, so it isn't written and an edit without it keeps the same saved settings.
+    var skin: Double? = nil { didSet { if skin == 0 { skin = nil } } }
+    /// Smooth Skin as a slider's number.
+    var skinAmount: Double {
+        get { skin ?? 0 }
+        set { skin = newValue == 0 ? nil : newValue }
+    }
+    /// Roll-off as a slider's number (0 when there's none).
+    var rolloffAmount: Double {
+        get { rolloff ?? 0 }
+        set { rolloff = newValue == 0 ? nil : newValue }
+    }
 
     /// Old negative Clarity's mist as Glow (see `updated`): measured on a night stage photo and a backlit one.
     static let mistToGlow = 0.65
@@ -172,6 +187,8 @@ struct PhotoAdjustments: Codable, Hashable {
         lens = value(.lens, nil as PhotoLens?).flatMap { $0.isDefault ? nil : $0 }
         depth = value(.depth, nil as PhotoDepthEffects?).flatMap { $0.isDefault ? nil : $0 }
         negative = value(.negative, nil as PhotoNegative?)
+        rolloff = value(.rolloff, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
+        skin = value(.skin, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
         calibration = value(.calibration, Calibration())
         lookName = value(.lookName, nil as String?); lookTable = value(.lookTable, nil as String?); lookAmount = value(.lookAmount, 100)
         vignetteMidpoint = value(.vignetteMidpoint, 50); vignetteFeather = value(.vignetteFeather, 50)
@@ -290,6 +307,10 @@ struct MaskPart: Codable, Hashable, Identifiable {
         case subject, people, object, sky, depth, linear, radial, brush, luminance, colour
         // Parts of people, found by Vision's face landmarks and person segmentation.
         case face, faceSkin, bodySkin, eyes, brows, lips, teeth, hair
+        // What's typed ("car", "dog"…): found by Vision on this Mac (PhotoMasks.described).
+        case described
+        // Painted samples, and everywhere of a like colour and brightness (PhotoMasks.matched).
+        case match
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -311,6 +332,8 @@ struct MaskPart: Codable, Hashable, Identifiable {
             case .lips: String(localized: "Lips")
             case .teeth: String(localized: "Teeth")
             case .hair: String(localized: "Hair")
+            case .described: String(localized: "Describe")
+            case .match: String(localized: "Match Brush")
             }
         }
         var symbol: String {
@@ -333,12 +356,14 @@ struct MaskPart: Codable, Hashable, Identifiable {
             case .lips: "mouth"
             case .teeth: "mouth.fill"
             case .hair: "scissors"
+            case .described: "text.magnifyingglass"
+            case .match: "wand.and.rays"
             }
         }
         /// Worked out from the photo's own colours (in the develop pass), not drawn.
         var isRange: Bool { self == .luminance || self == .colour }
         /// Found by AI on this Mac (Vision, or the depth finder).
-        var isAI: Bool { self == .subject || self == .people || self == .object || self == .sky || self == .depth || isFace }
+        var isAI: Bool { self == .subject || self == .people || self == .object || self == .sky || self == .depth || self == .described || isFace }
         /// A part of people (face landmarks): can be one person's only.
         var isFace: Bool { [.face, .faceSkin, .bodySkin, .eyes, .brows, .lips, .teeth, .hair].contains(self) }
         /// Needs the depth finder (an optional download).
@@ -370,10 +395,13 @@ struct MaskPart: Codable, Hashable, Identifiable {
     /// Face parts: which person (0 the leftmost …), nil for everyone. Left out when nil, so older
     /// edits save exactly as before.
     var person: Int?
+    /// Describe: what to find, as typed. Left out when nil, so older edits save exactly as before.
+    var words: String?
 
     init(kind: Kind, invert: Bool = false) {
         self.kind = kind
         self.invert = invert
+        if kind == .match { smooth = 0.35 }
         if kind == .radial { a = CGPoint(x: 0.5, y: 0.5) }
         if kind == .luminance { low = 0.6 }
         if kind == .depth { low = 0; high = 0.4 }
@@ -387,6 +415,7 @@ struct MaskPart: Codable, Hashable, Identifiable {
         feather = value(.feather, 0.5); strokes = value(.strokes, [BrushStroke]())
         low = value(.low, 0); high = value(.high, 1); smooth = value(.smooth, 0.1); hue = value(.hue, 30); hueRange = value(.hueRange, 40)
         person = try? c.decodeIfPresent(Int.self, forKey: .person)
+        words = try? c.decodeIfPresent(String.self, forKey: .words)
     }
 }
 

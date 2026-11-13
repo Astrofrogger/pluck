@@ -594,7 +594,9 @@ enum PhotoRender {
         let shapes = modern && !a.masks.isEmpty ? path.flatMap { PhotoMasks.layer(a.masks, path: $0, base: base, context: context) } : nil
         // Spots first, on the decoded photo (so they're placed on it, whatever the crop); none leaves it as it was.
         // Then Lens Blur and Fog, in linear light before the tone (so highlights bloom); none leaves it as it was too.
-        let deep = PhotoDepthEffects.applied(a.depth, to: PhotoHeal.apply(a.spots, to: positive), key: PhotoHeal.key(cacheKey, a.spots),
+        // (Smooth Skin after the spots, before the depth effects.)
+        let healed = PhotoRetouch.smoothed(a.skin, to: PhotoHeal.apply(a.spots, to: positive), path: path, base: base, context: context)
+        let deep = PhotoDepthEffects.applied(a.depth, to: healed, key: PhotoRetouch.key(PhotoHeal.key(cacheKey, a.spots), a.skin),
                                              path: path, base: base, context: context)
         var image = PhotoEngine.develop(deep.image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene,
                                         cacheKey: deep.key, masks: shapes, overlay: overlay, peak: peak, baseline: baseline)

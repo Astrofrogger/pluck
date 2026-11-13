@@ -49,7 +49,7 @@ struct PhotoMaskPanel: View {
 
     /// New mask: what macOS finds, what's drawn, and ranges of the photo's own colours.
     private var picker: some View {
-        let groups: [[MaskPart.Kind]] = [[.subject, .people, .object].filter(available), [.sky, .depth], [.linear, .radial, .brush], [.luminance, .colour]]
+        let groups: [[MaskPart.Kind]] = [[.subject, .people, .object, .described].filter(available), [.sky, .depth], [.linear, .radial, .brush, .match], [.luminance, .colour]]
         let people: [[MaskPart.Kind]] = [[.face, .faceSkin, .bodySkin, .hair], [.eyes, .brows, .lips, .teeth]]
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(groups.indices, id: \.self) { g in kindRow(groups[g]) }
@@ -81,7 +81,8 @@ struct PhotoMaskPanel: View {
     /// Whether a mask has a part of people (then the faces are counted, for the person menu).
     private var wantsFaces: Bool { masks.contains { $0.shape.contains { $0.kind.isFace } } }
 
-    private func available(_ kind: MaskPart.Kind) -> Bool { kind != .object || PhotoMasks.canFindObjects }
+    /// (Object is always offered: before macOS 27 its part offers the click-mask model.)
+    private func available(_ kind: MaskPart.Kind) -> Bool { true }
 
     // MARK: - A mask
 
@@ -194,6 +195,19 @@ struct PhotoMaskPanel: View {
 
     @ViewBuilder private func partControls(_ part: MaskPart, in mask: PhotoMask) -> some View {
         switch part.kind {
+        case .match:
+            hint("Paint over a few places: everywhere like them is picked")
+            HStack {
+                Toggle("Erase", isOn: $editing.brushErase).toggleStyle(.switch).controlSize(.mini)
+                Spacer()
+                Button("Clear") { updatePart(part.id, in: mask.id) { $0.strokes = [] } }.buttonStyle(.link)
+            }
+            .font(.callout)
+            .padding(.horizontal, 8)
+            plainSlider("Size", value: $editing.brushSize, 0.005...0.3)
+            partSlider("Range", part, in: mask, \.smooth, 0...1)
+        case .described:
+            DescribedField(path: path, record: record, words: part.words ?? "") { text in updatePart(part.id, in: mask.id) { $0.words = text } }
         case .linear:
             hint("Drag the two ends on the photo")
         case .radial:
@@ -211,7 +225,9 @@ struct PhotoMaskPanel: View {
             plainSlider("Size", value: $editing.brushSize, 0.005...0.3)
             plainSlider("Softness", value: $editing.brushSoftness, 0...1)
         case .object:
-            if editing.findingObject {
+            if PhotoMasks.objectsNeedModel, !PhotoMasks.canFindObjects {
+                SAMModelRow()
+            } else if editing.findingObject {
                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text(editing.objectNote ?? String(localized: "Finding it…")) }
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
             } else if let note = editing.objectNote {
@@ -393,7 +409,7 @@ struct PhotoMaskHandles: View {
                 switch part.kind {
                 case .linear: linear(part, in: mask)
                 case .radial: radial(part, in: mask)
-                case .brush: brush(part, in: mask)
+                case .brush, .match: brush(part, in: mask)
                 case .object: object(part, in: mask)
                 case .luminance, .colour: pick(part, in: mask)
                 default: EmptyView()
@@ -578,6 +594,59 @@ struct PhotoMaskHandles: View {
                 body(&record.adjust.masks[i].parts[j])
             }
             record.edited = .now
+        }
+    }
+}
+
+/// Before macOS 27: the click-mask model (PhotoSAM), an optional download.
+private struct SAMModelRow: View {
+    @State private var sam = PhotoSAM.shared
+
+    var body: some View {
+        switch sam.state {
+        case .ready: Text("Click the object on the photo").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+        case .downloading(let share): ProgressView(value: share).controlSize(.small).padding(.horizontal, 8)
+        case .failed(let problem):
+            ProblemLabel(text: problem).padding(.horizontal, 8)
+            Button("Try Again") { sam.install() }.controlSize(.small).padding(.horizontal, 8)
+        case .notInstalled:
+            Text("Click masks need their AI model, run on this Mac.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+            Button("Get Click Masks (\(PhotoSAM.downloadMB) MB)", systemImage: "arrow.down") { sam.install() }
+                .controlSize(.small).padding(.horizontal, 8)
+        }
+    }
+
+}
+
+/// Describe: what to find, typed ("car", "dog", "people"); the mask follows when Return is pressed, with how many were found.
+private struct DescribedField: View {
+    let path: String
+    let record: PhotoRecord
+    let words: String
+    let set: (String) -> Void
+    @State private var text = ""
+    @State private var found: Int?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            TextField("What to select, e.g. car or dog", text: $text)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit { set(text) }
+            if let found, !words.isEmpty {
+                Text(found == 0 ? String(localized: "Nothing like that found") : String(localized: "Found \(found)"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 8)
+        .onAppear { text = words }
+        .task(id: "\(path)|\(words)") {
+            found = nil
+            guard !words.isEmpty else { return }
+            let path = path, record = record, words = words
+            found = await Task.detached(priority: .userInitiated) { () -> Int? in
+                guard let kept = PhotoRender.base(path, maxSize: 1536, record: record) else { return nil }
+                return PhotoMasks.described(path, words, from: PhotoNegative.apply(record.adjust.negative, to: kept.image), context: PhotoEngine.context)?.count
+            }.value
         }
     }
 }

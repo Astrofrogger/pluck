@@ -92,39 +92,78 @@ final class PhotoDepth {
     nonisolated private static let lock = NSLock()
 
     /// How near each place is (1 nearest … 0 farthest), small, for this photo; nil without the model.
+    /// (The owner, 2026-11-13: the map needed work. The model sees 518 pixels: run once on the whole photo it gives soft,
+    /// blobby edges. So it also runs on a 3 × 3 grid of overlapping tiles of a larger copy, each tile's depth put on the whole
+    /// photo's scale (least squares over the tile) and blended in with soft seams, and on a mirrored copy, averaged: finer
+    /// edges, steadier depth, the whole photo's sense of near and far.)
     nonisolated static func nearness(_ path: String, from image: CIImage, context: CIContext) -> CIImage? {
         if let known = lock.withLock({ maps[path] }) { return known }
         guard let model = loaded() else { return nil }
-        let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        let scale = min(1, 1536 / max(image.extent.width, image.extent.height))
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
-        let request = VNCoreMLRequest(model: model)
-        request.imageCropAndScaleOption = .scaleFill
-        try? VNImageRequestHandler(cgImage: cg).perform([request])
-        guard let buffer = (request.results?.first as? VNPixelBufferObservation)?.pixelBuffer else { return nil }
-        // The model's own scale, made 0 (farthest) to 1 (nearest) for this photo.
-        // (Numbers, not colours: no colour space, so nothing converts them.)
-        var depth = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
-        let e = depth.extent
-        let range = depth.applyingFilter("CIAreaMinMax", parameters: [kCIInputExtentKey: CIVector(cgRect: e)])
-        var pixels = [Float](repeating: 0, count: 8)
-        context.render(range, toBitmap: &pixels, rowBytes: 32, bounds: CGRect(x: 0, y: 0, width: 2, height: 1), format: .RGBAf, colorSpace: nil)
-        let low = CGFloat(pixels[0]), high = CGFloat(max(pixels[4], pixels[0] + 1e-4))
-        depth = depth.applyingFilter("CIColorMatrix", parameters: [
-            "inputRVector": CIVector(x: 1 / (high - low), y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 1 / (high - low), y: 0, z: 0, w: 0),
-            "inputBVector": CIVector(x: 1 / (high - low), y: 0, z: 0, w: 0),
-            "inputBiasVector": CIVector(x: -low / (high - low), y: -low / (high - low), z: -low / (high - low), w: 0),
-        ]).applyingFilter("CIColorClamp")
-            // The model gives nearness as disparity, which crowds everything far off into the last
-            // few percent: a square root spreads the distance out (far-off things apart from the sky).
-            .applyingFilter("CIGammaAdjust", parameters: ["inputPower": 0.5])
-        // Back to the photo's shape (the model squeezes it into its own).
-        let fitted = depth.transformed(by: CGAffineTransform(scaleX: CGFloat(cg.width) / e.width, y: CGFloat(cg.height) / e.height))
-        var values = [Float](repeating: 0, count: cg.width * cg.height)
-        context.render(fitted, toBitmap: &values, rowBytes: cg.width * 4, bounds: CGRect(x: 0, y: 0, width: cg.width, height: cg.height),
-                       format: .Lf, colorSpace: nil)
-        let map = CIImage(bitmapData: values.withUnsafeBufferPointer { Data(buffer: $0) }, bytesPerRow: cg.width * 4,
-                          size: CGSize(width: cg.width, height: cg.height), format: .Lf, colorSpace: nil)
+        let W = cg.width, H = cg.height
+        // The model's depth for a picture, at that picture's own size (rows from the top).
+        func run(_ picture: CGImage, flipped: Bool = false) -> [Float]? {
+            let request = VNCoreMLRequest(model: model)
+            request.imageCropAndScaleOption = .scaleFill
+            try? VNImageRequestHandler(cgImage: picture, orientation: flipped ? .upMirrored : .up).perform([request])
+            guard let buffer = (request.results?.first as? VNPixelBufferObservation)?.pixelBuffer else { return nil }
+            // (Numbers, not colours: no colour space, so nothing converts them.)
+            let depth = CIImage(cvPixelBuffer: buffer, options: [.colorSpace: NSNull()])
+            let e = depth.extent, w = picture.width, h = picture.height
+            var fitted = depth.transformed(by: CGAffineTransform(scaleX: CGFloat(w) / e.width, y: CGFloat(h) / e.height))
+            // (A mirrored run comes back mirrored: turned back here.)
+            if flipped { fitted = fitted.transformed(by: CGAffineTransform(scaleX: -1, y: 1).translatedBy(x: -CGFloat(w), y: 0)) }
+            var values = [Float](repeating: 0, count: w * h)
+            context.render(fitted, toBitmap: &values, rowBytes: w * 4, bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .Lf, colorSpace: nil)
+            return values
+        }
+        guard var whole = run(cg) else { return nil }
+        if let mirrored = run(cg, flipped: true) { for i in whole.indices { whole[i] = (whole[i] + mirrored[i]) / 2 } }
+        // The tiles: 45% of each side, three across and three down, overlapping.
+        var sum = [Float](repeating: 0, count: W * H), weight = [Float](repeating: 0, count: W * H)
+        let tw = Int(Double(W) * 0.45), th = Int(Double(H) * 0.45)
+        if tw >= 128, th >= 128 {
+            for ty in 0..<3 {
+                for tx in 0..<3 {
+                    let x0 = (W - tw) * tx / 2, y0 = (H - th) * ty / 2
+                    guard let tile = cg.cropping(to: CGRect(x: x0, y: y0, width: tw, height: th)), let d = run(tile) else { continue }
+                    // Put on the whole photo's scale: a·d + b closest to the whole photo's depth there.
+                    var sd = 0.0, sw = 0.0, sdd = 0.0, sdw = 0.0
+                    for y in 0..<th { for x in 0..<tw {
+                        let a = Double(d[y * tw + x]), b = Double(whole[(y0 + y) * W + x0 + x])
+                        sd += a; sw += b; sdd += a * a; sdw += a * b
+                    } }
+                    let n = Double(tw * th), varD = sdd - sd * sd / n
+                    guard varD > 1e-9 else { continue }
+                    let gain = (sdw - sd * sw / n) / varD, offset = (sw - gain * sd) / n
+                    guard gain > 0 else { continue }
+                    // Soft seams: the weight falls to 0 at a tile edge inside the photo (not at the photo's own edge).
+                    let feather = Float(0.2)
+                    for y in 0..<th { for x in 0..<tw {
+                        func ramp(_ p: Int, _ size: Int, _ atStart: Bool, _ atEnd: Bool) -> Float {
+                            let u = (Float(p) + 0.5) / Float(size)
+                            return min(atStart ? 1 : min(u / feather, 1), atEnd ? 1 : min((1 - u) / feather, 1))
+                        }
+                        let w = ramp(x, tw, tx == 0, tx == 2) * ramp(y, th, ty == 0, ty == 2)
+                        let i = (y0 + y) * W + x0 + x
+                        sum[i] += w * Float(gain * Double(d[y * tw + x]) + offset)
+                        weight[i] += w
+                    } }
+                }
+            }
+        }
+        // The tiles where they cover, the whole photo's under a little (and where they don't).
+        var fused = [Float](repeating: 0, count: W * H)
+        for i in fused.indices { fused[i] = (sum[i] + 0.15 * whole[i]) / (weight[i] + 0.15) }
+        // Made 0 (farthest) to 1 (nearest) for this photo; the model gives nearness as disparity, which crowds everything far
+        // off into the last few percent: a square root spreads the distance out (far-off things apart from the sky).
+        let sorted = fused.sorted()
+        let low = sorted[Int(Double(sorted.count) * 0.002)], high = max(sorted[Int(Double(sorted.count - 1) * 0.998)], low + 1e-4)
+        let values = fused.map { min(max(($0 - low) / (high - low), 0), 1).squareRoot() }
+        let map = CIImage(bitmapData: values.withUnsafeBufferPointer { Data(buffer: $0) }, bytesPerRow: W * 4,
+                          size: CGSize(width: W, height: H), format: .Lf, colorSpace: nil)
         lock.withLock {
             maps[path] = map
             if maps.count > 16 { maps.removeValue(forKey: maps.keys.first!) }

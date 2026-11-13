@@ -29,7 +29,7 @@ extension PhotoSelfTest {
         check("perspective: untouched, the same render",
               floats(PhotoRender.adjusted(ramp, plain, isRaw: false, kelvin: 6500)) == floats(PhotoRender.adjusted(ramp, zeroed, isRaw: false, kelvin: 6500)))
         let saved = (try? JSONEncoder().encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        check("perspective: untouched, nothing saved", !saved.contains("perspective") && (try? JSONEncoder().encode(zeroed)) == (try? JSONEncoder().encode(plain)), saved)
+        check("perspective: untouched, nothing saved", !saved.contains("perspective") && PhotoSelfTest.sameJSON(zeroed, plain), saved)
         var record = PhotoRecord(), recordZeroed = PhotoRecord()
         record.adjust = plain; recordZeroed.adjust = zeroed
         check("perspective: untouched, the same preview key",

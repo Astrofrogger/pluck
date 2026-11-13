@@ -46,7 +46,7 @@ extension PhotoSelfTest {
         let two = bytes(PhotoRender.adjusted(picture, emptied, isRaw: false, kelvin: 6500))
         check("heal: no spots, the same render", one == two, "renders differ")
         let saved = (try? JSONEncoder().encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        check("heal: no spots, nothing saved", !saved.contains("spots") && (try? JSONEncoder().encode(emptied)) == (try? JSONEncoder().encode(plain)), saved)
+        check("heal: no spots, nothing saved", !saved.contains("spots") && PhotoSelfTest.sameJSON(emptied, plain), saved)
         var record = PhotoRecord(), recordEmptied = PhotoRecord()
         record.adjust = plain; recordEmptied.adjust = emptied
         check("heal: no spots, the same preview key",

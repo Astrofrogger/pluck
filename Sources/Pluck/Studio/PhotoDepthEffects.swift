@@ -90,7 +90,10 @@ extension PhotoDepthEffects {
         if fog > 0 {
             func linear(_ v: Double) -> Double { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
             let c = fogColour.rgb
-            out = k.fog.apply(extent: e, arguments: [out, near, CIVector(x: linear(c.x), y: linear(c.y), z: linear(c.z)),
+            // The fog's light: its colour at the photo's own brightness (a little over its average, as haze glows), not at
+            // white: the decode is scene light, often far under 1, where white fog went straight to blown out.
+            let level = image.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: e)]).clampedToExtent()
+            out = k.fog.apply(extent: e, arguments: [out, near, level, CIVector(x: linear(c.x), y: linear(c.y), z: linear(c.z)),
                                                      Float(fog / 100), Float(fogStart / 100)]) ?? out
         }
         return out.cropped(to: e)
@@ -141,10 +144,12 @@ extension PhotoDepthEffects {
                     return vec4(x, s.a); }
                 """),
               let fog = make("""
-                kernel vec4 fog(__sample c, __sample d, vec3 colour, float amount, float start) {
+                kernel vec4 fog(__sample c, __sample d, __sample level, vec3 colour, float amount, float start) {
+                    // How far past the start (0 to 1), and the fog as light through a thickness, density growing with Amount.
                     float x = max((1.0 - d.r) - start, 0.0) / max(1.0 - start, 0.05);
-                    float f = amount * (1.0 - exp(-3.0 * x)) / (1.0 - exp(-3.0));
-                    return vec4(mix(c.rgb, colour, f), c.a); }
+                    float f = 1.0 - exp(-x * 4.5 * pow(amount, 1.6));
+                    float Y = max(dot(level.rgb, \(w)), 1e-4), Yc = max(dot(colour, \(w)), 1e-4);
+                    return vec4(mix(c.rgb, colour * (1.8 * Y / Yc), f), c.a); }
                 """),
               let hold = make("""
                 kernel vec4 hold(__sample g, __sample lo, __sample hi) { float v = clamp(g.r, lo.r, hi.r); return vec4(v, v, v, 1.0); }

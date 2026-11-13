@@ -34,14 +34,14 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         case .light:
             record.adjust.exposure = from.exposure; record.adjust.contrast = from.contrast
             record.adjust.highlights = from.highlights; record.adjust.shadows = from.shadows
-            record.adjust.whites = from.whites; record.adjust.blacks = from.blacks
+            record.adjust.whites = from.whites; record.adjust.blacks = from.blacks; record.adjust.rolloff = from.rolloff
             // (A roll's negatives share their base and print: synced with the light.)
             record.adjust.negative = from.negative
         case .colour:
             record.adjust.temperature = from.temperature; record.adjust.tint = from.tint
             record.adjust.vibrance = from.vibrance; record.adjust.saturation = from.saturation
         case .presence:
-            record.adjust.texture = from.texture; record.adjust.clarity = from.clarity
+            record.adjust.texture = from.texture; record.adjust.clarity = from.clarity; record.adjust.skin = from.skin
             record.adjust.dehaze = from.dehaze; record.adjust.vignette = from.vignette
             record.adjust.vignetteMidpoint = from.vignetteMidpoint; record.adjust.vignetteFeather = from.vignetteFeather
             record.adjust.vignetteRoundness = from.vignetteRoundness; record.adjust.vignetteHighlights = from.vignetteHighlights

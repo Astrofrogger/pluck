@@ -187,11 +187,12 @@ enum AdjustSection: String, CaseIterable {
     var words: [String] {
         switch self {
         case .light: [String(localized: "Light"), String(localized: "Exposure"), String(localized: "Contrast"), String(localized: "Highlights"),
-                      String(localized: "Shadows"), String(localized: "Whites"), String(localized: "Blacks"), String(localized: "Brightness")]
+                      String(localized: "Shadows"), String(localized: "Whites"), String(localized: "Blacks"), String(localized: "Brightness"),
+                      String(localized: "Highlight Roll-off")]
         case .colour: [String(localized: "Colour"), String(localized: "Temperature"), String(localized: "Tint"), String(localized: "Vibrance"),
                        String(localized: "Saturation"), String(localized: "White Balance")]
         case .presence: [String(localized: "Presence"), String(localized: "Texture"), String(localized: "Clarity"), String(localized: "Dehaze"),
-                         String(localized: "Vignette")]
+                         String(localized: "Vignette"), String(localized: "Smooth Skin"), String(localized: "Retouch")]
         case .mixer: [String(localized: "Colour Mixer"), String(localized: "Hue"), String(localized: "Saturation"), String(localized: "Luminance"),
                       String(localized: "Point Colour"), String(localized: "Range")]
         case .curves: [String(localized: "Curves"), String(localized: "Tone Curve")]
@@ -231,11 +232,11 @@ enum AdjustSection: String, CaseIterable {
         let fresh = PhotoAdjustments()
         switch self {
         case .light:
-            a.exposure = 0; a.contrast = 0; a.highlights = 0; a.shadows = 0; a.whites = 0; a.blacks = 0
+            a.exposure = 0; a.contrast = 0; a.highlights = 0; a.shadows = 0; a.whites = 0; a.blacks = 0; a.rolloff = nil
         case .colour:
             a.temperature = 0; a.tint = 0; a.vibrance = 0; a.saturation = 0
         case .presence:
-            a.texture = 0; a.clarity = 0; a.dehaze = 0; a.vignette = 0
+            a.texture = 0; a.clarity = 0; a.dehaze = 0; a.vignette = 0; a.skin = nil
             a.vignetteMidpoint = fresh.vignetteMidpoint; a.vignetteFeather = fresh.vignetteFeather
             a.vignetteRoundness = fresh.vignetteRoundness; a.vignetteHighlights = fresh.vignetteHighlights; a.vignetteStyle = fresh.vignetteStyle
         case .mixer:

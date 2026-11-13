@@ -55,7 +55,7 @@ extension PhotoSelfTest {
         var none = plain
         none.negative = nil
         let saved = (try? JSONEncoder().encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        check("negative: none, nothing saved", !saved.contains("negative") && (try? JSONEncoder().encode(none)) == (try? JSONEncoder().encode(plain)), saved)
+        check("negative: none, nothing saved", !saved.contains("negative") && PhotoSelfTest.sameJSON(none, plain), saved)
         let fresh = try? JSONEncoder().encode(PhotoAdjustments())
         let again = fresh.flatMap { try? JSONDecoder().decode(PhotoAdjustments.self, from: $0) }.flatMap { try? JSONEncoder().encode($0) }
         check("negative: none, defaults unchanged", PhotoAdjustments().isDefault && fresh != nil && fresh == again

@@ -44,9 +44,9 @@ extension PhotoSelfTest {
               && (3...5).allSatisfy { PhotoEngine.Profile.choices(raw: true, process: $0, chosen: nil).contains(.standard) },
               "p5 Standard, p3/p4 Classic, JPEG As Shot, Update keeps Classic, Standard listed")
 
-        // Saturation: HSV's S only. Red, green, blue, orange, teal (moderate colour), on Standard.
+        // Process 5's Saturation: HSV's S only. Red, green, blue, orange, teal (moderate colour), on Standard. (Process 6's: sliders.)
         let colours: [SIMD3<Float>] = [SIMD3(0.30, 0.08, 0.06), SIMD3(0.07, 0.22, 0.05), SIMD3(0.06, 0.09, 0.30), SIMD3(0.35, 0.16, 0.04), SIMD3(0.04, 0.18, 0.17)]
-        func run(_ change: (inout PhotoAdjustments) -> Void) -> [SIMD3<Double>] { var a = PhotoAdjustments(); change(&a); return graded(colours, a) }
+        func run(_ change: (inout PhotoAdjustments) -> Void) -> [SIMD3<Double>] { var a = PhotoAdjustments(); a.process = 5; change(&a); return graded(colours, a) }
         let plain = run { _ in }, more = run { $0.saturation = 50 }, grey = run { $0.saturation = -100 }
         let keptMax = zip(plain, more).map { abs($1.max() - $0.max()) / $0.max() }.max() ?? 1
         let lowered = zip(plain, more).map { $0.min() - $1.min() }.min() ?? 0
@@ -59,7 +59,7 @@ extension PhotoSelfTest {
 
         // Vibrance: quiet colours raised more than strong ones; skin less than another colour as quiet.
         let quiet: [SIMD3<Float>] = [SIMD3(0.20, 0.17, 0.14), SIMD3(0.30, 0.06, 0.04), SIMD3(0.14, 0.17, 0.20), SIMD3(0.24, 0.20, 0.17)]
-        func vib(_ v: Double) -> [SIMD3<Double>] { var a = PhotoAdjustments(); a.vibrance = v; return graded(quiet, a) }
+        func vib(_ v: Double) -> [SIMD3<Double>] { var a = PhotoAdjustments(); a.process = 5; a.vibrance = v; return graded(quiet, a) }
         let v0 = vib(0), v60 = vib(60), gain = zip(v0, v60).map { hsvS($1) / max(hsvS($0), 1e-6) }
         check("vibrance raises quiet colour more than strong", gain[0] > gain[1] + 0.15 && gain[2] > 1.3,
               "S ratio quiet warm \(String(format: "%.2f", gain[0])), strong red \(String(format: "%.2f", gain[1])), quiet blue \(String(format: "%.2f", gain[2]))")
@@ -98,8 +98,12 @@ extension PhotoSelfTest {
         check("standard no grey snap near white", snap < 0.25, String(format: "largest drop in colour between neighbouring steps %.0f%% (under 25%%)", snap * 100))
 
         // +5 EV and film: sane numbers.
-        var bright = PhotoAdjustments(); bright.exposure = 5; bright.saturation = 60; bright.vibrance = 60
+        var bright = PhotoAdjustments(); bright.process = 5; bright.exposure = 5; bright.saturation = 60; bright.vibrance = 60
         let hot = graded(colours, bright)
+        var bright6 = bright; bright6.process = 6; bright6.saturation = 100; bright6.blacks = 100; bright6.whites = 100
+        let hot6 = graded(colours, bright6)
+        check("process 6 at +5 EV, Saturation, Blacks and Whites at +100", hot6.allSatisfy { $0.x.isFinite && $0.y.isFinite && $0.z.isFinite && $0.max() <= 1.001 && $0.min() >= -0.2 },
+              "\(hot6.map { String(format: "%.3f %.3f %.3f", $0.x, $0.y, $0.z) })")
         var filmLight = PhotoAdjustments(); filmLight.saturation = 40
         let scene = gradePixels(PhotoEngine.develop(CIImage(color: CIColor(red: 0.3, green: 0.1, blue: 0.05)).cropped(to: CGRect(x: 0, y: 0, width: 8, height: 8)),
                                                     filmLight, isRaw: true, asShotKelvin: 5500, scene: true))

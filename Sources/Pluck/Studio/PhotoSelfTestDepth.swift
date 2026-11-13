@@ -53,8 +53,11 @@ extension PhotoSelfTest {
         let original = floats(photo)
         check("depth: untouched, the same render", floats(PhotoRender.adjusted(photo, plain, isRaw: false, kelvin: 6500))
               == floats(PhotoRender.adjusted(photo, zeroed, isRaw: false, kelvin: 6500)))
-        let saved = (try? JSONEncoder().encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? ""
-        check("depth: untouched, nothing saved", !saved.contains("depth") && (try? JSONEncoder().encode(zeroed)) == (try? JSONEncoder().encode(plain)), saved)
+        // (Sorted keys: JSONEncoder's own order isn't fixed, so two encodings of the same edit can differ.)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let saved = (try? encoder.encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        check("depth: untouched, nothing saved", !saved.contains("depth") && (try? encoder.encode(zeroed)) == (try? encoder.encode(plain)), saved)
         var record = PhotoRecord(), recordZeroed = PhotoRecord()
         record.adjust = plain; recordZeroed.adjust = zeroed
         check("depth: untouched, the same preview key",
@@ -100,7 +103,10 @@ extension PhotoSelfTest {
         fog.fog = 60; fog.fogStart = 0
         let fogged = floats(fog.applied(to: grey, near: map)), unfogged = floats(grey)
         let nearLift = at(fogged, 100, 200) - at(unfogged, 100, 200), farLift = at(fogged, 700, 200) - at(unfogged, 700, 200)
-        check("depth: fog lightens far more than near", farLift > 0.2 && abs(nearLift) < 0.01, "near +\(nearLift), far +\(farLift)")
+        // (Fog's light is the photo's own brightness, a little over it, not white: far lifts by a good share of the grey.)
+        let greyLevel = at(unfogged, 700, 200)
+        check("depth: fog lightens far more than near", farLift > 0.4 * greyLevel && abs(nearLift) < 0.01 * max(greyLevel, 0.01),
+              "near +\(nearLift), far +\(farLift) on \(greyLevel)")
 
         // Without the depth finder (no map): the same photo and key, through the whole develop too.
         let without = PhotoDepthEffects.applied(lens, to: photo, key: "k", path: nil, base: photo, context: context)

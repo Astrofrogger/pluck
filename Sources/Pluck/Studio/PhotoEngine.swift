@@ -181,6 +181,7 @@ enum PhotoEngine {
             // (Process 4's Highlights window is for RAW: on 5 a finished picture doesn't get it.)
             p.v4 = a.process >= 4 && !picture5 ? 1 : 0
             p.v5 = v5 ? 1 : 0
+            p.v6 = a.process >= 6 ? 1 : 0
             p.hueSat = table == nil ? 0 : 1
             // Process 4 with film: the profile's colour (its table, Monochrome's grey) goes into the film's light, its tone
             // doesn't (the film's own curves do that); Accurate's light is the film's as before (2: table, 3: grey).
@@ -621,6 +622,8 @@ enum PhotoEngine {
         /// Process 5's Glow (`glowed`): its amount (0…1) and mode (GlowMode's order); Texture's noise as variance a·Y + b of
         /// the photo's light before the exposure (`noiseGain`), from PhotoRender.noiseModel (0: none known).
         var glow: Float = 0, glowMode: Int32 = 1, noiseA: Float = 0, noiseB: Float = 0, noiseGain: Float = 1
+        /// Process 6 (Saturation and Vibrance as `sat6`; Blacks, Whites and Dehaze as process 6 has them).
+        var v6: Int32 = 0
     }
 
     /// The vignette's highlights and style, and the grain, for the GPU (see PhotoRender.effects).
@@ -683,7 +686,11 @@ enum PhotoEngine {
     /// `peak` above 1: HDR, the brightest stops given that much more room (the white point moves
     /// up by as many stops, so the middle and the shadows stay as they are).
     static func tone(_ a: PhotoAdjustments, profile: Profile, into p: inout Params, peak: Double = 1) {
-        let lo = -12.47393 - a.blacks / 100 * 2.5, hi = 4.026069 - a.whites / 100 * 2.5 + log2(max(peak, 1))
+        // (Process 6: Blacks and Whites shape the picture's own darkest and brightest quarter instead, `ends6`.)
+        let v6 = a.process >= 6, blacks = v6 ? 0 : a.blacks, whites = v6 ? 0 : a.whites
+        // (Process 6's Highlight Roll-off: soft gives the brightest stops more room and a gentler shoulder, hard less.)
+        let roll = v6 ? (a.rolloff ?? 0) / 100 : 0
+        let lo = -12.47393 - blacks / 100 * 2.5, hi = 4.026069 - whites / 100 * 2.5 + log2(max(peak, 1)) + roll * (roll > 0 ? 2.5 : 1.8)
         let grey = (log2(0.18 * 1.15) - lo) / (hi - lo)
         let y0 = 0.5219
         let v3 = a.process >= 3
@@ -706,7 +713,7 @@ enum PhotoEngine {
         let contrast = 1 + a.contrast / 100 * (a.contrast > 0 ? 0.6 : 0.4)
         let slope = 0.12505 * look * contrast * (hi - lo)
         // Blacks also shape the toe: softer lifts the darkest tones, harder deepens them.
-        let pt = 3.2 * pow(2, -a.blacks / 100 * 1.2), pb = 3.55
+        let pt = 3.2 * pow(2, -blacks / 100 * 1.2), pb = 3.55 * pow(2, -roll * 1.2)
         // Asymptotes that make black black and white white at the ends of the range.
         func shoulder(_ top: Double) -> Double {
             let d = slope * (1 - grey)
@@ -1008,6 +1015,7 @@ enum PhotoEngine {
         float glow;
         int glowMode;
         float noiseA, noiseB, noiseGain;
+        int v6;
     };
 
     // Colour wheels and the mixer (scene light).
@@ -1221,8 +1229,11 @@ enum PhotoEngine {
         const float g = 0.4587;
         float s = p.toneSlope / (0.12505 * (p.toneHi - p.toneLo));
         e = e < g ? g * pow(e / g, s) : 1.0 - (1.0 - g) * pow((1.0 - e) / (1.0 - g), s);
-        e *= 1.0 + 0.2 * p.whites * e * e;
-        e += 0.1 * p.blacks * (1.0 - e) * (1.0 - e);
+        // (Process 6: Blacks and Whites as ends6, later.)
+        if (p.v6 == 0) {
+            e *= 1.0 + 0.2 * p.whites * e * e;
+            e += 0.1 * p.blacks * (1.0 - e) * (1.0 - e);
+        }
         return pow(clamp(e, 0.0, 1.0), 2.2);
     }
 
@@ -1284,6 +1295,50 @@ enum PhotoEngine {
         }
         float3 e2 = V - (V - e) * (S2 / S);
         float3 out = fromRec2020 * (sign(e2) * pow(abs(e2), float3(2.4)));
+        return pro ? toPro * out : out;
+    }
+
+    // Process 6's Blacks and Whites (the owner: process 5's moved the curve's ends, 12 stops down and 4 up, and barely showed):
+    // on the picture's brightness in screen steps, Blacks bends the darkest 40% (−100 crushes into black, +100 opens it up),
+    // Whites the brightest 40% (+100 pushes into white, −100 holds it back); black stays black and white white, the colour's
+    // own balance is kept (a lifted near-black gets a little grey, not its noise blown up). Above white (HDR) is left alone.
+    inline float bend6(float v, float amount, float reach) {
+        float t = clamp(v / reach, 0.0, 1.0);
+        float shaped = reach * pow(t, exp2(-amount * (amount < 0.0 ? 0.85 : 1.6)));
+        return v + (shaped - v) * (1.0 - smoothstep(0.45, 1.0, t));
+    }
+    inline float3 ends6(float3 c, constant Params &p, bool pro) {
+        float Y = pro ? lumaPro(c) : luma(c);
+        if (Y >= 1.0) return c;
+        float v = pow(max(Y, 0.0), 1.0 / 2.2);
+        // (Blacks reach the darkest 30%, so a dark photo's middle stays; Whites the brightest 40%.)
+        if (p.blacks != 0) v = bend6(v, p.blacks, 0.3);
+        if (p.whites != 0) v = 1.0 - bend6(1.0 - v, -p.whites, 0.4);
+        float Y2 = pow(clamp(v, 0.0, 1.0), 2.2);
+        float k = min(Y2 / max(Y, 1e-5), 3.0);
+        return max(c * k + (Y2 - Y * k), 0.0);
+    }
+
+    // Process 6's Saturation and Vibrance (the owner, 2026-11-13: process 5's HSV stretch looked artificial): in OkLCh, the
+    // lightness kept, the colourfulness scaled. Saturation lifts quiet colours most and strong ones less (no neon), and a richer
+    // colour sits a touch deeper (as a dye would); down to grey at −100. Vibrance as before: the quiet colours, skin least.
+    inline float3 sat6(float3 c, constant Grade &g, bool pro) {
+        float3 lin = pro ? fromPro * c : c;
+        float3 o = oklab(lin);
+        float L = o.x, C = length(o.yz);
+        if (C <= 1e-6 || L <= 1e-6) return c;
+        float s = g.hsvSaturation, rel = C / L;
+        float k = s < 0.0 ? 1.0 + s : 1.0 + s * 0.9 / (1.0 + (rel / 0.45) * (rel / 0.45));
+        if (g.hsvVibrance != 0) {
+            float h = atan2(o.z, o.y) * 57.29578, d = abs(h - 55.0);
+            d = fmod(d + 360.0, 360.0); if (d > 180.0) d = 360.0 - d;
+            float skin = exp(-(d * d) / (2.0 * 18.0 * 18.0)), quiet = 1.0 - smoothstep(0.0, 0.5, rel);
+            k *= max(0.0, 1.0 + (g.hsvVibrance > 0 ? 1.4 * quiet * (1.0 - 0.45 * skin) : 1.0 - 0.45 * skin) * g.hsvVibrance);
+        }
+        // (Into white the boost fades: a near-white colour pushed out lands past what any screen shows.)
+        if (k > 1.0) k = 1.0 + (k - 1.0) * (1.0 - smoothstep(0.8, 1.0, L));
+        float C2 = C * max(k, 0.0), L2 = L * (1.0 - 0.25 * max(C2 - C, 0.0));
+        float3 out = fromOklab(float3(L2, o.yz * (C2 / C)));
         return pro ? toPro * out : out;
     }
 
@@ -1595,7 +1650,8 @@ enum PhotoEngine {
             outc = mix(outc, kept, 1.0 - smoothstep(0.02, 0.3, Yo));
         }
         if (g.mixer5 != 0) outc = mixer5(outc, g, p.peak, pro);
-        if (g.hsvSaturation != 0 || g.hsvVibrance != 0) outc = hsvSaturation(outc, g, pro);
+        if (p.v6 == 1 && (p.blacks != 0 || p.whites != 0)) outc = ends6(outc, p, pro);
+        if (g.hsvSaturation != 0 || g.hsvVibrance != 0) outc = p.v6 == 1 ? sat6(outc, g, pro) : hsvSaturation(outc, g, pro);
         // (Version 3: back in the engine's linear sRGB numbers, colours past sRGB as they are.)
         return pro ? fromPro * clamp(outc, 0.0, p.peak) : clamp(outc, 0.0, p.peak);
     }
@@ -1834,6 +1890,15 @@ enum PhotoEngine {
                 float AY = max(luma(A), 1e-4);
                 c = dehazed(c, AY, through, boost);
                 cg = dehazed(cg, AY, through, boost);
+            } else if (p.v6 == 1) {
+                // Process 6 (the owner: the even veil washed the whole picture out): haze added where the photo already has
+                // some (far off, the sky), little up close; a touch everywhere so the light still softens.
+                // (The haze's light held to a little over mid grey: the brightest place, a window or the sun, sits stops above the
+                // rest, and veiling towards it washed even the shadows out.)
+                float veil = -p.dehaze * (0.05 + 0.4 * pow(clamp(1.0 - t, 0.0, 1.0), 1.5));
+                float3 haze = A * min(1.0, 0.45 / max(luma(A), 1e-4));
+                c = mix(c, haze, veil);
+                cg = mix(cg, haze, veil);
             } else {
                 // A veil of the haze's (neutral-ish, lamp-free) colour, more where there's already some. (Written as mix so the
                 // compiler can't share it with process 4's same line: sharing moved process 4's pixels by one step.)

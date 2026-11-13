@@ -129,7 +129,7 @@ enum PhotoHeal {
         let scale = min(1, 384 / long)
         let width = max(Int((e.width * scale).rounded()), 1), height = max(Int((e.height * scale).rounded()), 1)
         let rp = max(radius * long * scale, 1.5)
-        let small = image.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY).scaledBy(x: scale, y: scale))
+        let small = image.transformed(by: CGAffineTransform(translationX: -e.minX, y: -e.minY).concatenating(CGAffineTransform(scaleX: scale, y: scale)))
             .clampedToExtent().applyingGaussianBlur(sigma: max(rp / 4, 0.5))
         var pixels = [Float](repeating: 0, count: width * height * 4)
         // (Rows from the top, as CIImage(bitmapData:) reads them.)
@@ -323,7 +323,7 @@ struct PhotoHealHandles: View {
                 .onTapGesture { location in add(at: share(location)) }
                 .gesture(editing.healKind == .remove ? paint : nil)
             if !painting.isEmpty {
-                stroke(painting.map(point), width: editing.healSize * long * 2).fill(Design.Brand.pink.opacity(0.45)).allowsHitTesting(false)
+                line(painting.map(point)).stroke(Design.Brand.pink.opacity(0.45), style: brush(editing.healSize * long * 2)).allowsHitTesting(false)
             }
             if let hover {
                 Circle().stroke(.white.opacity(0.7), lineWidth: 1)
@@ -357,13 +357,15 @@ struct PhotoHealHandles: View {
             }
     }
 
-    /// A painted path as a shape: its circles joined.
-    private func stroke(_ points: [CGPoint], width: Double) -> Path {
+    /// A painted path's centre line (drawn with `brush`: its circles joined, one stroke so overlaps don't add up).
+    private func line(_ points: [CGPoint]) -> Path {
         var line = Path()
         line.addLines(points)
         if points.count == 1, let p = points.first { line.addLine(to: CGPoint(x: p.x + 0.01, y: p.y)) }
-        return line.strokedPath(StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round))
+        return line
     }
+
+    private func brush(_ width: Double) -> StrokeStyle { StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round) }
 
     @ViewBuilder private func marks(_ spot: PhotoSpot) -> some View {
         if spot.kind == .remove { removeMarks(spot) } else { spotMarks(spot) }
@@ -371,10 +373,10 @@ struct PhotoHealHandles: View {
 
     @ViewBuilder private func removeMarks(_ spot: PhotoSpot) -> some View {
         let on = spot.id == editing.selectedSpot
-        let shape = stroke(spot.points.map(point), width: spot.radius * long * 2)
-        shape.stroke(on ? Design.Brand.pink : Color.white, style: StrokeStyle(lineWidth: 1.5, dash: on ? [] : [4, 3]))
-            .shadow(color: .black.opacity(0.5), radius: 1)
-            .contentShape(shape)
+        let centre = line(spot.points.map(point)), style = brush(spot.radius * long * 2)
+        // (Filled, not outlined: a painted path's outline crosses itself at every turn.)
+        centre.stroke(on ? Design.Brand.pink.opacity(0.3) : Color.white.opacity(0.12), style: style)
+            .contentShape(centre.strokedPath(style))
             .gesture(drag(spot, source: false))
             .onTapGesture { editing.selectedSpot = spot.id }
             .help("Removed: drag to move")
