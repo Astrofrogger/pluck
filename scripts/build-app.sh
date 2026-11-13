@@ -149,7 +149,8 @@ cp -R ThirdPartyLicenses.md ThirdPartyLicenses "$APP/Contents/Resources/"
 
 ICONSET=build/AppIcon.iconset
 rm -rf "$ICONSET"
-swift scripts/make-icon.swift "$ICONSET"
+# (Studio: its own icon, picked 2026-11-09; basic Pluck keeps the original.)
+if [[ "$EDITION" == studio ]]; then swift scripts/make-studio-icon.swift "$ICONSET"; else swift scripts/make-icon.swift "$ICONSET"; fi
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 rm -rf "$ICONSET"
 
