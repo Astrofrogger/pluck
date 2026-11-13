@@ -56,6 +56,10 @@ final class PhotoEditing {
     var compareDrag: CGSize = .zero
     /// Clipped highlights shown red and clipped shadows blue (J).
     var showClipping = false
+    /// Soft proofing on the loupe (this session only, never in the edit), and a count that moves when a proof's
+    /// colour table has been made, so the loupe redraws with it.
+    var proof = PhotoProof()
+    var proofBuilt = 0
     /// The Colour Mixer's band shown, and dragging on the photo to change colours.
     var mixerBand = 0
     var mixerTargeting = false
@@ -100,8 +104,17 @@ final class PhotoEditing {
     var healSize = 0.02
     var healFeather = 0.5
     var healOpacity = 1.0
+    /// The Heal tab's mode: 0 spots, 1 eyes (red eye, pet eye), 2 Liquify.
+    var healMode = 0
     /// The Heal tab shows Liquify instead of spots; its tool, size (share of the long side) and strength.
-    var liquifying = false
+    var liquifying: Bool {
+        get { healMode == 2 }
+        set { healMode = newValue ? 2 : 0 }
+    }
+    /// Eyes: red eye or pet eye for the next click.
+    var eyeKind = PhotoSpot.Kind.redEye
+    /// Eyes: the circle's radius, as a share of the long side.
+    var eyeSize = 0.008
     var liquifyTool = LiquifyStroke.Tool.push
     var liquifySize = 0.06
     var liquifyStrength = 0.5

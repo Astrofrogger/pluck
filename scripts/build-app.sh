@@ -144,6 +144,12 @@ fi
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null
 mkdir -p "$APP/Contents/Resources/en.lproj"   # English is the source language; marks it as available
+# Studio: People's face-recognition model (SFace, Apache-2.0), compiled for Core ML.
+if [[ "${PLUCK_EDITION:-studio}" != "basic" ]]; then
+  mkdir -p "$APP/Contents/Resources/Models"
+  rm -rf "$APP/Contents/Resources/Models/SFace.mlmodelc"
+  xcrun coremlcompiler compile Resources/Models/SFace.mlpackage "$APP/Contents/Resources/Models" >/dev/null
+fi
 # The licences of everything bundled (both editions).
 cp -R ThirdPartyLicenses.md ThirdPartyLicenses "$APP/Contents/Resources/"
 

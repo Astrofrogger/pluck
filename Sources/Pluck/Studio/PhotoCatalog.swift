@@ -81,6 +81,19 @@ struct PhotoPreset: Codable, Identifiable, Hashable {
     /// those are applied, on top of a photo's edit.
     var source: String?
     var lightroom: [String: String]?
+
+    /// Adaptive presets: an edit's masks kept only as far as they're found again on each photo (sky, subject, people, faces,
+    /// gradients, ranges, a description); what was painted or clicked on this one photo (brushes, a picked object, a matched
+    /// area) is left out, and a mask with nothing else left goes.
+    static func adaptive(_ adjust: PhotoAdjustments) -> PhotoAdjustments {
+        var a = adjust
+        a.masks = a.masks.compactMap { mask in
+            var m = mask
+            m.parts.removeAll { [.brush, .object, .match].contains($0.kind) }
+            return m.parts.isEmpty && !mask.parts.isEmpty ? nil : m
+        }
+        return a
+    }
 }
 
 /// Every photo Pluck knows: their ratings, flags, labels and edits, and the albums they're in.
@@ -91,7 +104,7 @@ final class PhotoCatalog {
     static let shared = PhotoCatalog()
 
     enum Source: Hashable {
-        case all, picks, rejects, fiveStars, edited, album(UUID), folder(UUID)
+        case all, picks, rejects, fiveStars, edited, album(UUID), folder(UUID), smart(UUID), person(UUID), map
 
         /// As text, to remember which one was open.
         var key: String {
@@ -103,6 +116,9 @@ final class PhotoCatalog {
             case .edited: "edited"
             case .album(let id): "album:\(id.uuidString)"
             case .folder(let id): "folder:\(id.uuidString)"
+            case .smart(let id): "smart:\(id.uuidString)"
+            case .person(let id): "person:\(id.uuidString)"
+            case .map: "map"
             }
         }
 
@@ -115,6 +131,9 @@ final class PhotoCatalog {
             case "edited": self = .edited
             case "album": self = parts.count > 1 ? UUID(uuidString: parts[1]).map(Source.album) ?? .all : .all
             case "folder": self = parts.count > 1 ? UUID(uuidString: parts[1]).map(Source.folder) ?? .all : .all
+            case "smart": self = parts.count > 1 ? UUID(uuidString: parts[1]).map(Source.smart) ?? .all : .all
+            case "person": self = parts.count > 1 ? UUID(uuidString: parts[1]).map(Source.person) ?? .all : .all
+            case "map": self = .map
             default: self = .all
             }
         }
@@ -124,6 +143,9 @@ final class PhotoCatalog {
     private(set) var albums: [PhotoAlbum] = []
     private(set) var folders: [AlbumFolder] = []
     private(set) var presets: [PhotoPreset] = []
+    private(set) var smartAlbums: [SmartAlbum] = []
+    /// Goes up with every change (smart albums use it to know when to look again).
+    @ObservationIgnored private(set) var revision = 0
     /// What Vision sees in each file (PhotoTagger), by file: copies share their original's. Apart from the
     /// records, so it's never in an edit, an undo step or a sidecar.
     private(set) var tags: [String: PhotoTags] = [:]
@@ -138,6 +160,8 @@ final class PhotoCatalog {
         var presets: [PhotoPreset]?
         /// Left out while there are none, so a catalogue without tags is saved as before.
         var tags: [String: PhotoTags]?
+        /// Left out when there are none, so a catalogue without them saves as before.
+        var smartAlbums: [SmartAlbum]?
     }
 
     nonisolated private static var file: URL {
@@ -152,6 +176,7 @@ final class PhotoCatalog {
             albums = saved.albums
             folders = saved.folders ?? []
             presets = saved.presets ?? []
+            smartAlbums = saved.smartAlbums ?? []
             tags = saved.tags ?? [:]
         }
     }
@@ -205,6 +230,8 @@ final class PhotoCatalog {
     @ObservationIgnored private var lastStep = Date.distantPast
     private(set) var canUndo = false
     private(set) var canRedo = false
+    /// Grows with every change, undo and redo (the History panel follows it).
+    private(set) var historyVersion = 0
 
     /// Each photo's metadata, as one step to undo (empty: taken away).
     func setMeta(_ byPath: [String: PhotoMeta]) {
@@ -236,6 +263,7 @@ final class PhotoCatalog {
         redoSteps = []
         canUndo = true
         canRedo = false
+        historyVersion += 1
     }
 
     /// The next change is a step of its own (not merged into the drag before it).
@@ -250,6 +278,7 @@ final class PhotoCatalog {
         lastStep = .distantPast
         canUndo = !undoSteps.isEmpty
         canRedo = true
+        historyVersion += 1
         return Array(step.before.keys)
     }
 
@@ -261,7 +290,22 @@ final class PhotoCatalog {
         lastStep = .distantPast
         canUndo = true
         canRedo = !redoSteps.isEmpty
+        historyVersion += 1
         return Array(step.after.keys)
+    }
+
+    /// One photo's steps this session, oldest first: its record before and after each, and whether it's been undone (still
+    /// to redo). For the History panel.
+    func history(of path: String) -> [(before: PhotoRecord?, after: PhotoRecord?, undone: Bool)] {
+        let done = undoSteps.compactMap { step -> (PhotoRecord?, PhotoRecord?, Bool)? in
+            guard let before = step.before[path], let after = step.after[path] else { return nil }
+            return (before, after, false)
+        }
+        let undone = redoSteps.reversed().compactMap { step -> (PhotoRecord?, PhotoRecord?, Bool)? in
+            guard let before = step.before[path], let after = step.after[path] else { return nil }
+            return (before, after, true)
+        }
+        return (done + undone).map { (before: $0.0, after: $0.1, undone: $0.2) }
     }
 
     private func apply(_ state: [String: PhotoRecord?]) {
@@ -386,6 +430,9 @@ final class PhotoCatalog {
         case .edited: allPhotos.filter { record($0).isEdited }.sorted { (record($0).edited ?? .distantPast) > (record($1).edited ?? .distantPast) }
         case .album(let id): withCopies(albums.first { $0.id == id }?.paths ?? [])
         case .folder(let id): withCopies(FootageFolders.shared.photos[id] ?? [])
+        case .smart(let id): smartAlbums.first { $0.id == id }.map { SmartAlbumCache.shared.photos($0, from: allPhotos) } ?? []
+        case .person(let id): withCopies(PhotoPeople.shared.photos(of: id))
+        case .map: allPhotos.filter { PhotoFacts.shared.fact($0)?.place != nil }
         }
     }
 
@@ -487,6 +534,8 @@ final class PhotoCatalog {
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
         PhotoChecks.shared.enqueue(paths)
+        PhotoFacts.shared.enqueue(paths)
+        PhotoPeople.shared.enqueue(paths)
         readSidecars(paths)
         return album
     }
@@ -499,6 +548,8 @@ final class PhotoCatalog {
         scheduleSave()
         PhotoIndex.shared.enqueue(paths)
         PhotoChecks.shared.enqueue(paths)
+        PhotoFacts.shared.enqueue(paths)
+        PhotoPeople.shared.enqueue(paths)
         readSidecars(paths)
     }
 
@@ -517,6 +568,19 @@ final class PhotoCatalog {
 
     func deleteAlbum(_ id: UUID) {
         albums.removeAll { $0.id == id }
+        scheduleSave()
+    }
+
+    // MARK: - Smart albums
+
+    /// Adds the smart album, or changes the one with its id.
+    func save(smart album: SmartAlbum) {
+        if let index = smartAlbums.firstIndex(where: { $0.id == album.id }) { smartAlbums[index] = album } else { smartAlbums.append(album) }
+        scheduleSave()
+    }
+
+    func deleteSmartAlbum(_ id: UUID) {
+        smartAlbums.removeAll { $0.id == id }
         scheduleSave()
     }
 
@@ -552,7 +616,7 @@ final class PhotoCatalog {
     // MARK: - Presets
 
     func savePreset(named name: String, from record: PhotoRecord) {
-        presets.append(PhotoPreset(name: name, adjust: record.adjust, filmOn: record.filmOn, film: record.film))
+        presets.append(PhotoPreset(name: name, adjust: PhotoPreset.adaptive(record.adjust), filmOn: record.filmOn, film: record.film))
         presets.sort { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
         scheduleSave()
     }
@@ -600,12 +664,13 @@ final class PhotoCatalog {
     // MARK: - Saving
 
     private func scheduleSave() {
+        revision += 1
         guard !saveScheduled else { return }
         saveScheduled = true
         Task {
             try? await Task.sleep(for: .seconds(1))
             saveScheduled = false
-            let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags)
+            let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
             await Task.detached(priority: .utility) {
                 try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
@@ -615,7 +680,7 @@ final class PhotoCatalog {
 
     /// Writes the catalogue at once (tests).
     func saveNow() {
-        let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags)
+        let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
         try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
     }

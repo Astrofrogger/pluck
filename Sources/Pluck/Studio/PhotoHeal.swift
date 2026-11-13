@@ -6,7 +6,7 @@ import SwiftUI
 /// own colour and light from around it). Places are shares of the photo as decoded (uncropped, unstraightened), from the
 /// top left, so a preview, a thumbnail and the export put it in the same place.
 struct PhotoSpot: Codable, Hashable, Identifiable {
-    enum Kind: String, Codable { case heal, clone, remove }
+    enum Kind: String, Codable { case heal, clone, remove, redEye, petEye }
     var id = UUID()
     var kind = Kind.heal
     var centre: CGPoint
@@ -48,6 +48,15 @@ enum PhotoHeal {
         var result = image
         for spot in spots {
             if spot.kind == .remove { result = removed(spot, from: result, point: point, long: long); continue }
+            if spot.kind == .redEye || spot.kind == .petEye {
+                let r = max(spot.radius * long, 1), c = point(spot.centre)
+                let area = CGRect(x: c.x - r - 2, y: c.y - r - 2, width: 2 * r + 4, height: 2 * r + 4).integral.intersection(e)
+                if !area.isEmpty, let kernel = eyeKernel,
+                   let fixed = kernel.apply(extent: area, arguments: [result, CIVector(cgPoint: c), r, spot.kind == .petEye ? 1.0 : 0.0, spot.opacity]) {
+                    result = fixed.composited(over: result)
+                }
+                continue
+            }
             let r = max(spot.radius * long, 0.5)
             let t = point(spot.centre), s = point(spot.source)
             let area = CGRect(x: t.x - r - 1, y: t.y - r - 1, width: 2 * r + 2, height: 2 * r + 2).integral.intersection(e)
@@ -78,6 +87,31 @@ enum PhotoHeal {
         }
         return result.cropped(to: e)
     }
+
+    /// Red eye and pet eye, in the circle (soft at its edge, by Opacity). Red eye: the red the flash put in the pupil taken
+    /// down to the pupil's own dark (its red no brighter than its green and blue), so it stays a natural pupil. Pet eye: the
+    /// glow (bright, any colour) made a dark pupil, with a small catch-light kept up and to the left so the eye stays alive.
+    private static let eyeKernel = CIColorKernel(source: """
+        kernel vec4 eyeFix(__sample c, vec2 centre, float radius, float pet, float opacity) {
+            vec2 d = (destCoord() - centre) / radius;
+            float w = (1.0 - smoothstep(0.75, 1.0, length(d))) * opacity;
+            vec3 v = max(c.rgb, 0.0);
+            float luma = dot(v, vec3(0.2126, 0.7152, 0.0722));
+            vec3 fixedColour;
+            if (pet < 0.5) {
+                float other = max(v.g, v.b);
+                float redness = smoothstep(0.0, 0.08, v.r - other * 1.3);
+                vec3 pupil = vec3(other * 0.85, v.g * 0.85, v.b * 0.85);
+                fixedColour = mix(v, pupil, redness);
+            } else {
+                float glow = smoothstep(0.05, 0.25, luma);
+                fixedColour = mix(v, vec3(0.012, 0.011, 0.010), glow);
+                float catchlight = 1.0 - smoothstep(0.08, 0.16, length(d - vec2(-0.3, 0.3)));
+                fixedColour = mix(fixedColour, vec3(max(luma, 0.6)), catchlight * glow);
+            }
+            return vec4(mix(v, fixedColour, w), c.a);
+        }
+        """)
 
     /// A Remove spot: the painted area filled in by AI Remove (none without the model), blended in over a soft edge.
     private static func removed(_ spot: PhotoSpot, from image: CIImage, point: (CGPoint) -> CGPoint, long: CGFloat) -> CIImage {
@@ -274,11 +308,11 @@ struct PhotoHealPanel: View {
     private func row(_ spot: PhotoSpot, index: Int) -> some View {
         let on = spot.id == editing.selectedSpot
         return HStack(spacing: 8) {
-            Image(systemName: spot.kind == .heal ? "bandage" : spot.kind == .clone ? "square.on.square.dashed" : "wand.and.stars")
+            Image(systemName: spot.kind == .heal ? "bandage" : spot.kind == .clone ? "square.on.square.dashed" : spot.kind == .remove ? "wand.and.stars" : "eye")
                 .foregroundStyle(on ? Design.Brand.pink : Design.Studio.textQuiet)
                 .frame(width: 18)
             Text("Spot \(index + 1)").font(Design.Studio.body).foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
-            Text(spot.kind == .heal ? "Heal" : spot.kind == .clone ? "Clone" : "Remove").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            Text(spot.kind == .heal ? "Heal" : spot.kind == .clone ? "Clone" : spot.kind == .remove ? "Remove" : spot.kind == .redEye ? "Red Eye" : "Pet Eye").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
             Spacer()
             Button { PhotoHeal.remove(path, spot.id) } label: { Image(systemName: "trash") }
                 .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet)
@@ -326,8 +360,9 @@ struct PhotoHealHandles: View {
                 line(painting.map(point)).stroke(Design.Brand.pink.opacity(0.45), style: brush(editing.healSize * long * 2)).allowsHitTesting(false)
             }
             if let hover {
+                let r = editing.healMode == 1 ? editing.eyeSize : editing.healSize
                 Circle().stroke(.white.opacity(0.7), lineWidth: 1)
-                    .frame(width: editing.healSize * long * 2, height: editing.healSize * long * 2)
+                    .frame(width: r * long * 2, height: r * long * 2)
                     .position(hover).allowsHitTesting(false)
             }
             ForEach(spots) { spot in marks(spot) }
@@ -368,7 +403,7 @@ struct PhotoHealHandles: View {
     private func brush(_ width: Double) -> StrokeStyle { StrokeStyle(lineWidth: width, lineCap: .round, lineJoin: .round) }
 
     @ViewBuilder private func marks(_ spot: PhotoSpot) -> some View {
-        if spot.kind == .remove { removeMarks(spot) } else { spotMarks(spot) }
+        if spot.kind == .remove { removeMarks(spot) } else if spot.kind == .redEye || spot.kind == .petEye { eyeMarks(spot) } else { spotMarks(spot) }
     }
 
     @ViewBuilder private func removeMarks(_ spot: PhotoSpot) -> some View {
@@ -380,6 +415,18 @@ struct PhotoHealHandles: View {
             .gesture(drag(spot, source: false))
             .onTapGesture { editing.selectedSpot = spot.id }
             .help("Removed: drag to move")
+    }
+
+    /// An eye fixed: its circle (no source).
+    @ViewBuilder private func eyeMarks(_ spot: PhotoSpot) -> some View {
+        let on = spot.id == editing.selectedSpot, size = spot.radius * long * 2
+        Circle().stroke(on ? Design.Brand.pink : Color.white, lineWidth: 1.5)
+            .shadow(color: .black.opacity(0.5), radius: 1)
+            .frame(width: size, height: size)
+            .contentShape(Circle())
+            .position(point(spot.centre))
+            .gesture(drag(spot, source: false))
+            .onTapGesture { editing.selectedSpot = spot.id }
     }
 
     @ViewBuilder private func spotMarks(_ spot: PhotoSpot) -> some View {
@@ -441,6 +488,15 @@ struct PhotoHealHandles: View {
 
     private func add(at: CGPoint) {
         guard (0...1).contains(at.x), (0...1).contains(at.y) else { return }
+        if editing.healMode == 1 {
+            // Eyes: the eye under the pointer fixed (no source to find).
+            let spot = PhotoSpot(kind: editing.eyeKind, centre: at, source: at, radius: editing.eyeSize, feather: 0.5, opacity: 1)
+            PhotoCatalog.shared.endStep()
+            PhotoHeal.change(path) { $0.append(spot) }
+            PhotoCatalog.shared.endStep()
+            editing.selectedSpot = spot.id
+            return
+        }
         if editing.healKind == .remove {
             // A click: the circle under the pointer goes.
             let spot = PhotoSpot(kind: .remove, centre: at, source: at, radius: editing.healSize, feather: editing.healFeather,
@@ -465,6 +521,47 @@ struct PhotoHealHandles: View {
             PhotoHeal.change(path) { $0.append(spot) }
             PhotoCatalog.shared.endStep()
             editing.selectedSpot = spot.id
+        }
+    }
+}
+
+/// The Heal tab's Eyes: red eye or pet eye, how big the circle is; click each eye on the photo. The eyes fixed are listed
+/// with the other spots (Spots) and can be moved, resized or removed there too.
+struct PhotoEyesPanel: View {
+    let path: String
+    let record: PhotoRecord
+    @State private var editing = PhotoEditing.shared
+
+    private var eyes: [PhotoSpot] { (record.adjust.spots ?? []).filter { $0.kind == .redEye || $0.kind == .petEye } }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            StudioSegmented(options: [(PhotoSpot.Kind.redEye, LocalizedStringKey("Red Eye")), (PhotoSpot.Kind.petEye, LocalizedStringKey("Pet Eye"))],
+                            selection: Binding(get: { editing.eyeKind }, set: { kind in
+                                editing.eyeKind = kind
+                                if let id = editing.selectedSpot { PhotoHeal.change(path) { s in if let i = s.firstIndex(where: { $0.id == id && ($0.kind == .redEye || $0.kind == .petEye) }) { s[i].kind = kind } } }
+                            }))
+                .padding(.horizontal, 8)
+            AdjustSlider(title: "Size", value: editing.eyeSize * 1000, range: 2...40, neutral: 8, format: "%.0f") { v in
+                editing.eyeSize = v / 1000
+                if let id = editing.selectedSpot { PhotoHeal.change(path) { s in if let i = s.firstIndex(where: { $0.id == id }) { s[i].radius = v / 1000 } } }
+            }
+            (editing.eyeKind == .redEye ? Text("Click each red eye. The circle should just cover the pupil.") : Text("Click each glowing eye: it's made a dark pupil with a small catch-light."))
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 8)
+                .fixedSize(horizontal: false, vertical: true)
+            if !eyes.isEmpty {
+                HStack {
+                    Text("^[\(eyes.count) eye](inflect: true) fixed").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    Spacer()
+                    Button("Clear Eyes") {
+                        PhotoCatalog.shared.endStep()
+                        PhotoHeal.change(path) { $0.removeAll { $0.kind == .redEye || $0.kind == .petEye } }
+                        PhotoCatalog.shared.endStep()
+                    }
+                    .buttonStyle(.plain).font(Design.Studio.body).foregroundStyle(Design.Brand.pink)
+                }
+                .padding(.horizontal, 8)
+            }
         }
     }
 }

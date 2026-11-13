@@ -26,13 +26,15 @@ struct PhotoPerspective: Codable, Hashable {
 
     /// Where the picture's corners go, for a w × h frame: top left, top right, bottom right, bottom left, from its middle
     /// (y up, as Core Image counts). Scaled so the frame lies inside (plus a pixel's margin against soft edges).
-    func corners(width w: Double, height h: Double) -> [SIMD2<Double>] {
+    func corners(width w: Double, height h: Double, fill: Bool = true) -> [SIMD2<Double>] {
         let t = min(max(vertical, -100), 100) / 250, u = min(max(horizontal, -100), 100) / 250
         let fx = pow(2, min(max(aspect, -100), 100) / 300), fy = 1 / fx
         let quad = [SIMD2(-(1 + t), 1 + u), SIMD2(1 + t, 1 - u), SIMD2(1 - t, -(1 - u)), SIMD2(-(1 - t), -(1 + u))]
             .map { SIMD2($0.x * w / 2 * fx, $0.y * h / 2 * fy) }
         let frame = [SIMD2(-w / 2, h / 2), SIMD2(w / 2, h / 2), SIMD2(w / 2, -h / 2), SIMD2(-w / 2, -h / 2)]
         // The smallest k with every frame corner inside k × quad (each edge's outward normal; the quad goes clockwise).
+        // (Not filled: Fill Edges brings in what's beyond the photo instead of zooming in.)
+        guard fill else { return quad.map { $0 * min(max(scale, 100), 150) / 100 } }
         var k = 0.0
         for i in 0..<4 {
             let a = quad[i], b = quad[(i + 1) % 4]

@@ -25,7 +25,7 @@ struct PhotoInspector: View {
     @State private var presetName = ""
 
     enum Tab: String, CaseIterable, Identifiable {
-        case info, adjust, detail, masks, heal, film, export
+        case info, adjust, detail, masks, heal, film, history, export
         var id: String { rawValue }
         var symbol: String {
             switch self {
@@ -35,6 +35,7 @@ struct PhotoInspector: View {
             case .masks: "circle.dashed.inset.filled"
             case .heal: "bandage"
             case .film: "film"
+            case .history: "clock.arrow.circlepath"
             case .export: "square.and.arrow.up"
             }
         }
@@ -46,6 +47,7 @@ struct PhotoInspector: View {
             case .masks: "Masks"
             case .heal: "Heal"
             case .film: "Film"
+            case .history: "History"
             case .export: "Export"
             }
         }
@@ -102,13 +104,15 @@ struct PhotoInspector: View {
                         case .masks: masks
                         case .heal:
                             if let shown {
-                                StudioSegmented(options: [(false, LocalizedStringKey("Spots")), (true, LocalizedStringKey("Liquify"))],
-                                                selection: Binding(get: { editing.liquifying }, set: { editing.liquifying = $0 }))
+                                StudioSegmented(options: [(0, LocalizedStringKey("Spots")), (1, LocalizedStringKey("Eyes")), (2, LocalizedStringKey("Liquify"))],
+                                                selection: Binding(get: { editing.healMode }, set: { editing.healMode = $0 }))
                                     .padding(.horizontal, 8).padding(.bottom, 4)
-                                if editing.liquifying { PhotoLiquifyPanel(path: shown, record: record) }
+                                if editing.healMode == 2 { PhotoLiquifyPanel(path: shown, record: record) }
+                                else if editing.healMode == 1 { PhotoEyesPanel(path: shown, record: record) }
                                 else { PhotoHealPanel(path: shown, record: record, several: paths.count > 1) }
                             }
                         case .film: PhotoFilmPanel(paths: editTargets, record: record)
+                        case .history: if let shown { PhotoHistoryPanel(path: shown) }
                         case .export: PhotoExportPanel(paths: paths)
                         }
                         }
@@ -156,6 +160,7 @@ struct PhotoInspector: View {
             stripButton(.heal)
             stripButton(.film)
             presetsMenu
+            stripButton(.history)
             stripButton(.info)
             Spacer(minLength: 8)
             scopeMenu
@@ -785,7 +790,7 @@ struct PhotoInspector: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Keeps these adjustments and the film, to use on other photos.")
+            Text("Keeps these adjustments and the film, to use on other photos. Masks of the sky, subject, people and faces are found again on each photo; brushed areas aren’t kept.")
         }
     }
 
@@ -1479,6 +1484,14 @@ private struct PhotoExportPanel: View {
                     .labelsHidden()
                     .help("sRGB for the web and most screens; Display P3 for Apple screens and print")
                 }
+                if editing.proof.on {
+                    row("Proof") {
+                        Toggle("Use proof profile", isOn: $editing.proof.useForExport)
+                            .toggleStyle(.checkbox)
+                            .disabled(!editing.proof.canExport)
+                            .help(editing.proof.canExport ? "Save in the soft proof’s profile: \(editing.proof.title)" : "Only RGB profiles can be saved in")
+                    }
+                }
                 row("Sharpen") {
                     Picker("Sharpen", selection: binding(\.sharpen)) {
                         Text("None").tag(PhotoExportSettings.Sharpen.none)
@@ -1684,6 +1697,8 @@ private struct PhotoExportPanel: View {
         }
         let jobs = targets.enumerated().flatMap { index, path in variants.map { (path: path, settings: $0, number: index) } }
         let editing = editing
+        // The soft proof's profile, when asked for (RGB only), made now so the export doesn't wait on it.
+        let proof: PhotoProof? = editing.proof.on && editing.proof.useForExport && editing.proof.canExport ? editing.proof : nil
         editing.exporting = true
         editing.exportDone = 0
         editing.exportTotal = jobs.count
@@ -1700,7 +1715,7 @@ private struct PhotoExportPanel: View {
                     group.addTask {
                         do {
                             _ = try await PhotoRender.export(job.path, record: records[job.path] ?? PhotoRecord(), to: folder, settings: job.settings,
-                                                             number: job.number, worker: lane + 1)
+                                                             number: job.number, worker: lane + 1, proof: proof)
                             return (lane, nil)
                         } catch {
                             return (lane, error.localizedDescription)

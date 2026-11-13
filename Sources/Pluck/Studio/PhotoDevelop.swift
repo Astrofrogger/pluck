@@ -103,6 +103,9 @@ struct PhotoAdjustments: Codable, Hashable {
     enum ToneEngine: String, Codable, CaseIterable { case basic }
     /// Smooth Skin (PhotoRetouch), 0…100. Nil at 0, so it isn't written and an edit without it keeps the same saved settings.
     var skin: Double? = nil { didSet { if skin == 0 { skin = nil } } }
+    /// Fill Edges (PhotoEdgeFill): straightening, perspective and lens distortion keep the whole frame, what's beyond the photo
+    /// filled in by AI Remove, instead of zooming in. Nil when off, so it isn't written.
+    var fillEdges: Bool? = nil { didSet { if fillEdges == false { fillEdges = nil } } }
     /// Smooth Skin as a slider's number.
     var skinAmount: Double {
         get { skin ?? 0 }
@@ -198,6 +201,7 @@ struct PhotoAdjustments: Codable, Hashable {
         toneEngine = value(.toneEngine, nil as ToneEngine?)
         liquify = value(.liquify, nil as [LiquifyStroke]?).flatMap { $0.isEmpty ? nil : $0 }
         skin = value(.skin, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
+        fillEdges = value(.fillEdges, nil as Bool?).flatMap { $0 ? true : nil }
         calibration = value(.calibration, Calibration())
         lookName = value(.lookName, nil as String?); lookTable = value(.lookTable, nil as String?); lookAmount = value(.lookAmount, 100)
         vignetteMidpoint = value(.vignetteMidpoint, 50); vignetteFeather = value(.vignetteFeather, 50)

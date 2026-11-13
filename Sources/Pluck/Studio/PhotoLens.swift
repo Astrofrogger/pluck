@@ -104,6 +104,16 @@ extension PhotoLens {
             .cropped(to: e) ?? image
     }
 
+    /// Fill Edges: the distortion taken out around `frame`'s middle, not zoomed (what's beyond the frame comes from the photo
+    /// made larger by PhotoEdgeFill).
+    func warped(_ image: CIImage, around frame: CGRect) -> CIImage {
+        guard distortion != 0, let kernel = Self.distortKernel else { return image }
+        let e = image.extent
+        return kernel.apply(extent: e, roiCallback: { _, _ in e }, image: image.clampedToExtent(),
+                            arguments: [CIVector(x: frame.midX, y: frame.midY), hypot(frame.width, frame.height) / 2, k1, k2, 1.0])?
+            .cropped(to: e) ?? image
+    }
+
     private static let distortKernel = CIWarpKernel(source: """
         kernel vec2 lensDistort(vec2 centre, float reach, float k1, float k2, float s) {
             vec2 p = (destCoord() - centre) / reach;

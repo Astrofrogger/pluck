@@ -28,6 +28,18 @@ struct PhotoPerspectivePanel: View {
             .disabled(working)
             .padding(.top, 6)
             .padding(.horizontal, Design.Sidebar.rowPadding)
+            Toggle("Fill Edges", isOn: Binding(get: { record.adjust.fillEdges == true }, set: { on in
+                catalog.update([path]) { $0.adjust.fillEdges = on; $0.edited = .now }
+            }))
+            .toggleStyle(.checkbox)
+            .font(Design.Studio.body)
+            .disabled(!PhotoRemove.isReady)
+            .help("Keep the whole photo when straightening or correcting perspective: AI fills the empty corners instead of zooming in")
+            .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 6)
+            (PhotoRemove.isReady ? Text("AI fills the empty corners instead of zooming in.") : Text("Needs AI Remove (Heal › Remove) downloaded."))
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, Design.Sidebar.rowPadding)
             if nothingFound {
                 Text("No clear lines found in this photo.")
                     .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)

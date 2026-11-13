@@ -7,6 +7,20 @@ import ImageIO
 /// Bloat makes a disc bigger and Pinch smaller; far from the brush nothing moves; a preview and the export move alike.
 extension PhotoSelfTest {
     static func liquifyTest() async {
+        // Drawn bit by bit (on screen as it's drawn) comes to the same as the whole stroke at once.
+        do {
+            let pts = (0..<40).map { CGPoint(x: 0.3 + Double($0) * 0.008, y: 0.5 + sin(Double($0) / 6) * 0.05) }
+            let whole = LiquifyStroke(tool: .push, points: pts, radius: 0.06, strength: 0.6)
+            let once = PhotoLiquify.displacement([whole], aspect: 1.5).field
+            let field = PhotoLiquify.Field(aspect: 1.5)
+            var done = 0
+            for n in stride(from: 5, through: 40, by: 7) {
+                let part = LiquifyStroke(tool: .push, points: Array(pts.prefix(n)), radius: 0.06, strength: 0.6)
+                field.add(part, from: max(done - 1, 0)); done = n
+            }
+            let stepped = field.picture().field
+            check("liquify: drawn bit by bit matches", zip(once, stepped).map { abs($0 - $1) }.max() ?? 1 < 1e-6)
+        }
         var plain = PhotoAdjustments(); plain.liquify = []
         check("liquify: none saves nothing", plain.liquify == nil && !((try? JSONEncoder().encode(plain)).map { String(decoding: $0, as: UTF8.self) } ?? "").contains("liquify"))
         let context = PhotoEngine.context, frame = CGRect(x: 0, y: 0, width: 800, height: 600)

@@ -143,3 +143,10 @@ and its reading of Lightroom's creative profiles follows the SDK's RGB tables: t
 (dng_color_space.cpp), from DNG SDK 1.7.1, Copyright 2006-2023 Adobe Systems Incorporated. All Rights
 Reserved. Used under the DNG SDK License Agreement, whose text is in
 [ThirdPartyLicenses/DNG-SDK](ThirdPartyLicenses/DNG-SDK/LICENSE).
+
+## SFace (People: telling faces apart, Studio)
+Pluck Studio includes the SFace face-recognition model from the
+[OpenCV Model Zoo](https://huggingface.co/opencv/face_recognition_sface) (`face_recognition_sface_2021dec.onnx`),
+converted to Core ML (16-bit). Licensed under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0). Paper: Zhong et al., "SFace: Sigmoid-Constrained Hypersphere Loss for
+Robust Face Recognition", IEEE TIP 2021.

@@ -51,6 +51,9 @@ struct PhotoPage: View {
     @State private var renamingFolder: UUID?
     @State private var folderName = ""
     @State private var closedFolders: Set<UUID> = []
+    /// The Map's chosen pin: only its photos in the grid (nil: every photo with a place).
+    @State private var mapPick: Set<String>?
+    @State private var editingSmart: SmartAlbum?
 
     /// The album or list open on the left (remembered, so a drop goes into the album you see).
     private var source: PhotoCatalog.Source {
@@ -59,6 +62,8 @@ struct PhotoPage: View {
             switch PhotoCatalog.Source(key: sourceKey) {
             case .album(let id) where !catalog.albums.contains(where: { $0.id == id }): .all
             case .folder(let id) where !FootageFolders.shared.folders.contains(where: { $0.id == id }): .all
+            case .smart(let id) where !catalog.smartAlbums.contains(where: { $0.id == id }): .all
+            case .person(let id) where PhotoPeople.shared.person(id) == nil: .all
             case let kept: kept
             }
         }
@@ -86,14 +91,18 @@ struct PhotoPage: View {
             return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter) && (labelFilter == nil || record.label == labelFilter)
                 && (checkFilter == nil || fine == checkFilter)
         }
+        if source == .map, let mapPick { list = list.filter(mapPick.contains) }
         // Its name, keywords, what's in the picture or the text in it: every word typed.
         let words = PhotoSearch.words(editing.search)
         if !words.isEmpty {
             // Every word matched first, then what means the same ("coast" finding the beach), as Find did before tags.
             let exact = list.filter { PhotoSearch.matches(words, PhotoSearch.words(of: $0)) }
             let alike = PhotoIndex.shared.search(editing.search.split(separator: " ").map(String.init), within: Set(list)).map(\.path)
+            // A person's name finds their photos.
+            let named = PhotoPeople.shared.photos(named: editing.search.split(separator: " ").map(String.init))
+            let byPerson = named.isEmpty ? [] : list.filter { named.contains(PhotoCatalog.file(of: $0)) }
             var seen: Set<String> = []
-            list = (exact + alike).filter { seen.insert($0).inserted }
+            list = (exact + alike + byPerson).filter { seen.insert($0).inserted }
         }
         return list
     }
@@ -178,9 +187,19 @@ struct PhotoPage: View {
                     ResizeHandle(width: $sidebarWidth, range: 200...300, edge: .leading)
                 }
                 VStack(spacing: Design.Studio.panelGap) {
+                    // The Map above the grid of its chosen pin; a person's faces above their photos.
+                    if source == .map, view == .grid {
+                        PhotoMapView(places: PhotoFacts.shared.places(catalog.photos(in: .map)), picked: $mapPick)
+                            .frame(minHeight: 220, maxHeight: .infinity)
+                            .clipShape(panel)
+                    } else if case .person(let id) = source, view == .grid {
+                        PersonFacesStrip(person: id)
+                            .background(Design.Studio.panel, in: panel)
+                    }
                     Group {
                         if photos.isEmpty {
-                            empty
+                            // (The Map says itself when there's nothing on it.)
+                            if source != .map { empty }
                         } else if view == .cull, let focus {
                             PhotoCullView(path: focus, record: catalog.record(focus), neighbours: neighbours(of: focus))
                         } else if view == .compare, let focus {
@@ -269,6 +288,8 @@ struct PhotoPage: View {
             PhotoIndex.shared.enqueue(catalog.allPhotos)
             catalog.readSidecars(catalog.allPhotos)
             checks.enqueue(catalog.allPhotos)
+            PhotoFacts.shared.enqueue(catalog.allPhotos)
+            PhotoPeople.shared.enqueue(catalog.allPhotos)
             PhotoTagger.shared.enqueue(catalog.allPhotos)
             PhotoRender.trimCaches()
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
@@ -342,6 +363,13 @@ struct PhotoPage: View {
         .sheet(isPresented: $importing) {
             PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
         }
+        .sheet(item: $editingSmart) { album in
+            SmartAlbumSheet(album: album) { saved in
+                catalog.save(smart: saved)
+                source = .smart(saved.id)
+            }
+        }
+        .onChange(of: sourceKey) { mapPick = nil }
     }
 
     // MARK: - Sidebar
@@ -354,8 +382,9 @@ struct PhotoPage: View {
                 row(.fiveStars, symbol: "star.fill", title: Text("5 Stars"))
                 row(.edited, symbol: "slider.horizontal.3", title: Text("Edited"))
                 row(.rejects, symbol: "xmark.circle", title: Text("Rejected"))
+                row(.map, symbol: "map", title: Text("Map"))
                 SidebarGap()
-                SidebarSection(title: Text("Albums"), fold: "photo-albums", count: catalog.albums.count, pinned: true) {
+                SidebarSection(title: Text("Albums"), fold: "photo-albums", count: catalog.albums.count + catalog.smartAlbums.count, pinned: true) {
                     ForEach(catalog.folders) { folder in
                         let open = !closedFolders.contains(folder.id)
                         SidebarRow(symbol: "folder", title: Text(folder.name), open: open) {
@@ -381,9 +410,21 @@ struct PhotoPage: View {
                     ForEach(catalog.albums.filter { album in album.folder == nil || !catalog.folders.contains { $0.id == album.folder } }) { album in
                         albumRow(album)
                     }
+                    ForEach(catalog.smartAlbums) { album in
+                        row(.smart(album.id), symbol: "gearshape.2", title: Text(album.name))
+                            .contextMenu {
+                                Button("Edit Smart Album…") { editingSmart = album }
+                                Divider()
+                                Button("Delete Smart Album", role: .destructive) {
+                                    if source == .smart(album.id) { source = .all }
+                                    catalog.deleteSmartAlbum(album.id)
+                                }
+                            }
+                    }
                 } accessory: {
                     Menu {
                         Button("New Album…") { importPhotos() }
+                        Button("New Smart Album…") { editingSmart = SmartAlbum(name: String(localized: "Smart Album")) }
                         Button("New Folder") { renamingFolder = catalog.newFolder(named: String(localized: "New Folder")).id; folderName = String(localized: "New Folder") }
                     } label: {
                         Image(systemName: "plus")
@@ -395,6 +436,11 @@ struct PhotoPage: View {
                     .accessibilityLabel(Text("New Album or Folder"))
                 }
                 let photoFolders = folders.folders.filter { !(folders.photos[$0.id] ?? []).isEmpty }
+                PeopleSidebarSection(selected: { if case .person(let id) = source { id } else { nil } }()) { id in
+                    source = .person(id)
+                    selection = []
+                    focus = catalog.photos(in: source).first
+                }
                 if !photoFolders.isEmpty {
                     SidebarGap()
                     SidebarSection(title: Text("Folders"), fold: "photo-folders", count: photoFolders.count, pinned: true) {
@@ -515,6 +561,7 @@ struct PhotoPage: View {
                 titleButton("arrow.uturn.backward", help: "Undo (⌘Z)") { catalog.undo(); dropGoneCopies() }
                 titleButton("crop", on: editing.cropping, help: "Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))") { editing.cropping.toggle() }
                 beforeAfterMenu
+                proofControls
                 surroundMenu
                 titleButton("exclamationmark.triangle", on: editing.showClipping,
                             help: "Show clipping (\(Shortcuts.shared.shortcut(.photoClipping).label))") { editing.showClipping.toggle() }
@@ -1108,6 +1155,54 @@ struct PhotoPage: View {
         }
     }
 
+    /// Soft proof: the switch, and the menu for what to proof to (a colour space or a printer or paper profile).
+    private var proofControls: some View {
+        HStack(spacing: 2) {
+            Toggle(isOn: $editing.proof.on) { Image(systemName: "printer") }
+                .toggleStyle(.button)
+                .help("Soft proof: see the photo as it would look in another colour space or on paper")
+                .accessibilityLabel(Text("Soft proof"))
+            Menu {
+                Picker("Proof to", selection: $editing.proof.target) {
+                    Text("sRGB").tag(PhotoProof.Target.srgb)
+                    Text("Display P3").tag(PhotoProof.Target.p3)
+                    Text("Adobe RGB").tag(PhotoProof.Target.adobe)
+                    Text("ProPhoto RGB").tag(PhotoProof.Target.prophoto)
+                }
+                .pickerStyle(.inline)
+                if !PhotoProof.installed.isEmpty {
+                    Picker("Printer and paper profiles", selection: $editing.proof.target) {
+                        ForEach(PhotoProof.installed) { Text($0.name).tag(PhotoProof.Target.profile($0.path)) }
+                    }
+                    .pickerStyle(.inline)
+                }
+                Divider()
+                Picker("Intent", selection: $editing.proof.intent) {
+                    Text("Perceptual").tag(PhotoProof.Intent.perceptual)
+                    Text("Relative Colorimetric").tag(PhotoProof.Intent.relative)
+                }
+                .pickerStyle(.inline)
+                Toggle("Simulate Paper and Ink", isOn: $editing.proof.paper)
+                Divider()
+                Toggle("Gamut Warning", isOn: $editing.proof.gamutWarning)
+            } label: {
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("What to proof to")
+            .accessibilityLabel(Text("Soft proof settings"))
+        }
+        // The colour table for the chosen profile is made off the main thread; the loupe redraws when it's ready.
+        .task(id: editing.proof) {
+            let proof = editing.proof
+            guard proof.on else { return }
+            await Task.detached(priority: .userInitiated) { proof.makeTable() }.value
+            if !Task.isCancelled { editing.proofBuilt += 1 }
+        }
+    }
+
     private var beforeAfterMenu: some View {
         let snapshots = focus.map { catalog.record($0).snapshots } ?? []
         let chosen = snapshots.first { $0.id == editing.beforeSnapshot }?.id
@@ -1347,6 +1442,7 @@ struct PhotoLoupe: View {
     var primary = true
     /// The developed preview (or the film's picture).
     @State private var picture: CIImage?
+    @State private var liquify = PhotoLiquify.Live.shared
     /// The photo at full size, for the settings in `fullKey`.
     @State private var full: CIImage?
     @State private var fullKey: FullKey?
@@ -1397,7 +1493,7 @@ struct PhotoLoupe: View {
                     let own = pictureFrame(in: area)
                     let frame = sideBySide ? own.offsetBy(dx: area.width, dy: 0) : own
                     ZStack {
-                        PhotoCanvas(image: shaped(shownImage ?? picture), frame: frame,
+                        PhotoCanvas(image: shaped(liquified(shownImage ?? picture)), frame: frame,
                                     before: comparing ? beforePicture.map(shaped) : nil,
                                     mode: comparing ? editing.beforeAfter : .off, split: editing.split, surround: surroundWhite)
                         if let zoom = editing.zoom, !editing.cropping {
@@ -1421,6 +1517,11 @@ struct PhotoLoupe: View {
                         }
                         if pickingBase, !sideBySide { BasePicker(path: path, record: record, frame: frame) }
                         if comparing { beforeAfterMarks(frame: frame, area: geo.size) }
+                        if editing.proof.on {
+                            Text("Proof: \(editing.proof.title)").modifier(CornerLabel())
+                                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                                .padding(10)
+                        }
                     }
                     .coordinateSpace(name: "loupe")
                     if editing.cropping, !original, record.adjust.perspective != nil || (record.adjust.lens?.distortion ?? 0) != 0 {
@@ -1702,7 +1803,18 @@ struct PhotoLoupe: View {
     }
 
     /// The picture as shown: with clipping marked when that's on.
-    private func shaped(_ image: CIImage) -> CIImage { editing.showClipping ? PhotoEngine.clipping(image, peak: peak) : image }
+    /// Liquify as it's drawn, over the picture until a picture with the stroke in it comes (PhotoLiquify.Live).
+    private func liquified(_ image: CIImage) -> CIImage {
+        // (The live picture read first, always: read only after the other checks, the view never learned it changes.)
+        guard let live = liquify.picture, healingSpots, editing.liquifying, liquify.path == path else { return image }
+        return PhotoLiquify.apply(live, to: image)
+    }
+
+    private func shaped(_ image: CIImage) -> CIImage {
+        _ = editing.proofBuilt
+        let seen = editing.proof.apply(image)
+        return editing.showClipping ? PhotoEngine.clipping(seen, peak: peak) : seen
+    }
 
     private func developBefore() async {
         guard comparing else { beforePicture = nil; return }
@@ -1990,7 +2102,7 @@ struct PhotoLoupe: View {
             sliding = true
             let moving = await Task.detached(priority: .userInitiated) { PhotoRender.image(path, record: shown, maxSize: size, overlay: marked, drag: true) }.value
             guard !Task.isCancelled else { return }
-            if let moving { picture = moving; picturePath = path; dragPicture = moving }
+            if let moving { picture = moving; picturePath = path; dragPicture = moving; liquify.shown(path: path, strokes: shown.adjust.liquify?.count ?? 0) }
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
         }
@@ -2006,6 +2118,7 @@ struct PhotoLoupe: View {
         } else if let quick {
             picture = quick
             picturePath = path
+            liquify.shown(path: path, strokes: shown.adjust.liquify?.count ?? 0)
         } else if shown.filmOn, !helper {
             // The film's stock didn't load: damaged files go to the helper (asked again); else the last picture stays.
             developing = false
@@ -2047,6 +2160,7 @@ struct PhotoLoupe: View {
                 let film = CIImage(cgImage: developed)
                 picture = film
                 picturePath = path
+                liquify.shown(path: path, strokes: shown.adjust.liquify?.count ?? 0)
                 FilmPictures.shared.keep(film, for: cached.path)
                 if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
                 if primary {

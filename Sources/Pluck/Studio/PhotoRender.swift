@@ -610,6 +610,18 @@ enum PhotoRender {
         var image = PhotoEngine.develop(deep.image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene,
                                         cacheKey: deep.key, masks: shapes, overlay: overlay, peak: peak, baseline: baseline)
         let long = max(image.extent.width, image.extent.height)
+        // Fill Edges: the photo made larger (its border filled in once, from the decode), developed the same, under the photo;
+        // the geometry then works round the photo's own frame.
+        var frame: CGRect?
+        if PhotoEdgeFill.wanted(a) {
+            let photo = deep.image.extent, margin = PhotoEdgeFill.margin(a, frame: photo)
+            if let larger = PhotoEdgeFill.extended(deep.image, margin: margin, context: context) {
+                let border = PhotoEngine.develop(larger, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene,
+                                                 cacheKey: deep.key.map { $0 + "|edges \(Int(margin))" }, masks: nil, overlay: nil, peak: peak, baseline: baseline)
+                image = image.composited(over: border)
+                frame = photo
+            }
+        }
         // A creative profile's own colours, on the picture as Adobe's renderer puts them (after the tone curve).
         let wide = a.process >= 3
         if !scene, wide, let digest = a.lookTable, a.lookAmount > 0, let cube = LookTable.cube(digest, amount: min(a.lookAmount, 200) / 100, wide: true) {
@@ -648,7 +660,7 @@ enum PhotoRender {
             image = sharpened(image, a.sharpen, scale: Double(long) / max(full, 1), fullLongEdge: full, fine: a.process >= 3, mask: a.sharpenMask)
         }
         let origin = image.extent.origin
-        image = geometry(image, a, crop: crop)
+        image = geometry(image, a, crop: crop, frame: frame)
         // (With film, its own grain.)
         image = effects(image, a, grain: !scene, scale: Double(long) / max(full, 1), origin: origin)
         return image.cropped(to: image.extent)
@@ -710,18 +722,48 @@ enum PhotoRender {
 
     /// The lens's distortion, straightening, perspective and the crop. The crop is kept as shares from the top left of the
     /// straightened picture; Core Image counts from the bottom left.
-    static func geometry(_ image: CIImage, _ a: PhotoAdjustments, crop: Bool = true) -> CIImage {
-        // (Around the whole frame's middle, filled to the same frame.)
-        var image = a.lens?.warped(image) ?? image
-        let extent = image.extent
-        if a.straighten != 0 {
-            let filter = CIFilter.straighten()
-            filter.inputImage = image
-            filter.angle = Float(a.straighten * .pi / 180)
-            image = (filter.outputImage ?? image).cropped(to: extent)
+    static func geometry(_ image: CIImage, _ a: PhotoAdjustments, crop: Bool = true, frame: CGRect? = nil) -> CIImage {
+        var image = image
+        let extent: CGRect
+        if let frame {
+            // Fill Edges: around the photo's own frame, not zoomed (the picture reaches beyond it, filled in).
+            extent = frame
+            if let lens = a.lens { image = lens.warped(image, around: frame) }
+            if a.straighten != 0 {
+                let turn = CGAffineTransform(translationX: -frame.midX, y: -frame.midY)
+                    .concatenating(CGAffineTransform(rotationAngle: a.straighten * .pi / 180))
+                    .concatenating(CGAffineTransform(translationX: frame.midX, y: frame.midY))
+                image = image.transformed(by: turn)
+            }
+            if let perspective = a.perspective {
+                // The frame's corners go to the unzoomed quad; the larger picture's corners go where that takes them.
+                let w = Double(frame.width), h = Double(frame.height), e = image.extent
+                let corners = [SIMD2(-w / 2, h / 2), SIMD2(w / 2, h / 2), SIMD2(w / 2, -h / 2), SIMD2(-w / 2, -h / 2)]
+                let warp = PhotoPerspective.homography(corners, perspective.corners(width: w, height: h, fill: false))
+                func moved(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                    let q = PhotoPerspective.apply(warp, SIMD2(Double(x - frame.midX), Double(y - frame.midY)))
+                    return CGPoint(x: frame.midX + q.x, y: frame.midY + q.y)
+                }
+                let f = CIFilter.perspectiveTransform()
+                f.inputImage = image
+                f.topLeft = moved(e.minX, e.maxY); f.topRight = moved(e.maxX, e.maxY)
+                f.bottomRight = moved(e.maxX, e.minY); f.bottomLeft = moved(e.minX, e.minY)
+                image = f.outputImage ?? image
+            }
+            image = image.cropped(to: frame)
+        } else {
+            // (Around the whole frame's middle, filled to the same frame.)
+            image = a.lens?.warped(image) ?? image
+            extent = image.extent
+            if a.straighten != 0 {
+                let filter = CIFilter.straighten()
+                filter.inputImage = image
+                filter.angle = Float(a.straighten * .pi / 180)
+                image = (filter.outputImage ?? image).cropped(to: extent)
+            }
+            // (Filled to the same frame, so the crop's shares mean the same.)
+            if let perspective = a.perspective { image = perspective.warped(image) }
         }
-        // (Filled to the same frame, so the crop's shares mean the same.)
-        if let perspective = a.perspective { image = perspective.warped(image) }
         guard crop else { return image }
         if let rect = a.cropRect {
             let r = CGRect(x: extent.minX + rect.x * extent.width, y: extent.minY + (1 - rect.y - rect.height) * extent.height,
@@ -1559,9 +1601,11 @@ enum PhotoRender {
 
     /// Writes the developed photo with these settings (`number`: its place in the export, for
     /// numbered names). HDR (JPEG and HEIC, macOS 15): the picture as on any screen, with a gain map
-    /// that lets an HDR screen show its highlights up to two stops brighter.
+    /// that lets an HDR screen show its highlights up to two stops brighter. `proof`: the soft proof's RGB
+    /// profile to save in instead of sRGB or Display P3 (the picture goes through the proof's table first, so the file
+    /// is what the proof showed, and the profile is embedded).
     static func export(_ path: String, record: PhotoRecord, to folder: URL, settings: PhotoExportSettings, number: Int = 0,
-                       worker: Int = 1) async throws -> URL {
+                       worker: Int = 1, proof: PhotoProof? = nil) async throws -> URL {
         var picture: CIImage
         var hdr: CIImage?
         if record.filmOn, let stock = await FilmRoute.stockWaiting(record.film) {
@@ -1577,9 +1621,11 @@ enum PhotoRender {
             picture = CIImage(cgImage: made)
         } else {
             guard let decoded = PhotoRender.decoded(path, maxSize: 0, record: record) else { throw unreadable }
-            picture = output(adjusted(decoded, record.adjust, path: path), record.adjust, p3: settings.space == .p3)
+            // (A proof profile is reached from Display P3, the widest the table covers.)
+            let p3 = settings.space == .p3 || proof != nil
+            picture = output(adjusted(decoded, record.adjust, path: path), record.adjust, p3: p3)
             if settings.savesHDR(record) {
-                hdr = output(adjusted(decoded, record.adjust, path: path, peak: PhotoExportSettings.hdrPeak), record.adjust, p3: settings.space == .p3,
+                hdr = output(adjusted(decoded, record.adjust, path: path, peak: PhotoExportSettings.hdrPeak), record.adjust, p3: p3,
                              peak: PhotoExportSettings.hdrPeak)
             }
         }
@@ -1599,6 +1645,13 @@ enum PhotoRender {
         }
         picture = finish(picture)
         hdr = hdr.map(finish)
+        if var proof {
+            // The table is limited to the screen's range, so a proofed file is saved without HDR.
+            proof.on = true
+            proof.makeTable()
+            picture = proof.apply(picture, gamut: false)
+            hdr = nil
+        }
         var properties = metadata(of: path, keeping: settings.metadata)
         // Who made it goes along, unless no metadata does.
         if settings.metadata != .none, let meta = record.meta { properties = meta.iptc(over: properties) }
@@ -1606,7 +1659,7 @@ enum PhotoRender {
         let target = settings.outputFolder(in: folder)
         try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         let output = Converting.outputURL(folder: target.path, name: name, fileExtension: settings.format.fileExtension)
-        let space = CGColorSpace(name: settings.space == .p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
+        let space = proof?.space ?? CGColorSpace(name: settings.space == .p3 ? CGColorSpace.displayP3 : CGColorSpace.sRGB)!
         if let hdr, #available(macOS 15, *) {
             var options: [CIImageRepresentationOption: Any] = [.hdrImage: hdr]
             options[CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String)] = settings.quality
