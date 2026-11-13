@@ -145,7 +145,7 @@ enum PhotoEngine {
         var shift: Float = 0
         func make(_ source: CIImage) -> Layers {
             Layers(large: guide(source, scale: 640 / long, radius: 16, eps: 0.03), small: guide(source, scale: 1600 / long, radius: 6, eps: 0.02),
-                   haze: hazy ? haze(source, long: long, v5: v5) : nil, glow: soft ? glow(source, long: long) : nil,
+                   haze: hazy ? haze(source, long: long, v5: v5, v6: a.process >= 6) : nil, glow: soft ? glow(source, long: long) : nil,
                    clarity: clear ? guide(source, scale: 640 / long, radius: 16, eps: 0.3) : nil)
         }
         if let cacheKey {
@@ -388,7 +388,7 @@ enum PhotoEngine {
     /// Process 5 (`v5`): finer (1024 px, a smaller minimum), lamps left out of the haze's colour (anything over twice the
     /// 99th percentile of brightness), that colour half as colourful and at most C/L 0.1 (OkLab), and the map smoothed along
     /// edges in log brightness, so dark trees beside a bright sky keep their own (no dark band along the skyline).
-    private static func haze(_ image: CIImage, long: Double, v5: Bool = false) -> (through: CIImage, airlight: SIMD3<Float>) {
+    private static func haze(_ image: CIImage, long: Double, v5: Bool = false, v6: Bool = false) -> (through: CIImage, airlight: SIMD3<Float>) {
         let s = min((v5 ? 1024 : 640) / long, 1)
         // The edges carried on before it's made small, so the edge pixels aren't mixed with
         // nothing (which reads as haze there).
@@ -438,7 +438,10 @@ enum PhotoEngine {
             "inputRVector": CIVector(x: CGFloat(1 / airlight.x), y: 0, z: 0, w: 0),
             "inputGVector": CIVector(x: 0, y: CGFloat(1 / airlight.y), z: 0, w: 0),
             "inputBVector": CIVector(x: 0, y: 0, z: CGFloat(1 / airlight.z), w: 0),
-        ]).applyingFilter("CIMinimumComponent").clampedToExtent().applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": v5 ? 2 : 4]).cropped(to: extent)
+        ]).applyingFilter("CIMinimumComponent").clampedToExtent()
+            // (Process 6: each pixel's own darkest channel, no spreading: the darkest-nearby step carried a dark thing's clear air
+            // out into the bright ground round it, the halo the owner saw; the guided filters below make it smooth.)
+            .applyingFilter("CIMorphologyMinimum", parameters: ["inputRadius": v6 ? 0 : v5 ? 2 : 4]).cropped(to: extent)
         let omega: CGFloat = v5 ? 0.9 : 0.95
         let through = dark.applyingFilter("CIColorMatrix", parameters: [
             "inputRVector": CIVector(x: -omega, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: -omega, y: 0, z: 0, w: 0),
@@ -457,7 +460,19 @@ enum PhotoEngine {
             let refined = through.clampedToExtent().cropped(to: margin)
                 .applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": guideImage, "inputRadius": 8, "inputEpsilon": 0.0001])
                 .cropped(to: extent)
-            return (refined, airlight)
+            guard v6, s < 0.95 else { return (refined, airlight) }
+            // Process 6 (the owner: Dehaze left halos round things): the map, made on a 1024-pixel copy, a few of the photo's
+            // pixels wide at every edge, refined again at the photo's own size with the photo as the guide, so its edges are
+            // the photo's.
+            let e = image.extent
+            let up = refined.transformed(by: CGAffineTransform(scaleX: e.width / extent.width, y: e.height / extent.height)
+                .concatenating(CGAffineTransform(translationX: e.minX - extent.minX * e.width / extent.width, y: e.minY - extent.minY * e.height / extent.height)))
+            let wide = e.insetBy(dx: -32, dy: -32)
+            let fineGuide = image.clampedToExtent().applyingFilter("CILinearToSRGBToneCurve").applyingFilter("CIMaximumComponent").cropped(to: wide)
+            let fine = up.clampedToExtent().cropped(to: wide)
+                .applyingFilter("CIGuidedFilter", parameters: ["inputGuideImage": fineGuide, "inputRadius": max(2, 1 / s * 1.5), "inputEpsilon": 0.0004])
+                .cropped(to: e)
+            return (fine, airlight)
         }
         let guideImage = small.applyingFilter("CIMaximumComponent").clampedToExtent().cropped(to: margin)
         let refined = through.clampedToExtent().cropped(to: margin)

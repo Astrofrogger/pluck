@@ -30,7 +30,7 @@ struct PhotoPerspectivePanel: View {
             .padding(.horizontal, Design.Sidebar.rowPadding)
             if nothingFound {
                 Text("No clear lines found in this photo.")
-                    .font(.caption).foregroundStyle(Design.Studio.textQuiet)
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                     .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
             }
         }

@@ -39,6 +39,7 @@ struct PhotoPage: View {
     @State private var cullCache = MomentsCache()
     @State private var checks = PhotoChecks.shared
     @State private var importing = false
+    @State private var tethering = false
     @State private var importAlbum: UUID?
     @AppStorage("photoSidebarHidden") private var sidebarHidden = false
     @AppStorage("photoLeftWidth") private var sidebarWidth = Design.Sidebar.width
@@ -155,6 +156,15 @@ struct PhotoPage: View {
         VStack(spacing: 0) {
             toolbar.padding(.leading, Self.trafficLights)
                 .overlay { PhotoMergeStatus() }
+                .sheet(isPresented: $tethering) {
+                    // Each new photo shown at once, in its album.
+                    PhotoTetherSheet { path in
+                        if let album = PhotoTether.shared.album { source = .album(album) }
+                        focus = path
+                        selection = [path]
+                        view = .edit
+                    } close: { tethering = false }
+                }
             if view == .cull, focus != nil, !photos.isEmpty {
                 PhotoCullPage(moments: cullMoments, all: filtered, focus: $focus, selection: $selection, count: cullCount,
                               sync: cullSync, zoomed: cullZoomed, peaking: cullPeaking, anchor: $cullAnchor)
@@ -503,6 +513,7 @@ struct PhotoPage: View {
                 PhotoTitle(path: focus, rating: catalog.record(focus).rating)
                 Spacer(minLength: 12)
                 titleButton("arrow.uturn.backward", help: "Undo (⌘Z)") { catalog.undo(); dropGoneCopies() }
+                titleButton("crop", on: editing.cropping, help: "Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))") { editing.cropping.toggle() }
                 beforeAfterMenu
                 surroundMenu
                 titleButton("exclamationmark.triangle", on: editing.showClipping,
@@ -746,6 +757,8 @@ struct PhotoPage: View {
             Toggle("Show Albums (⇧Tab)", isOn: Binding(get: { !sidebarHidden }, set: { sidebarHidden = !$0 }))
             Toggle("Show Inspector (Tab)", isOn: Binding(get: { !inspectorHidden }, set: { inspectorHidden = !$0 }))
             Divider()
+            Button("Tethered Shooting…") { tethering = true }
+            Divider()
             Button("Keyboard Shortcuts (?)") { editing.showingKeys = true }
         } label: {
             Image(systemName: "ellipsis.circle")
@@ -862,9 +875,14 @@ struct PhotoPage: View {
             Menu("Merge") {
                 // (In the order shown: a panorama's frames left to right, a bracket as shot.)
                 let ordered = photos.filter(Set(targets).contains)
-                ForEach(PhotoMerger.Kind.allCases) { kind in Button(kind.title) { PhotoMerger.shared.merge(kind, keys: ordered) } }
+                ForEach(PhotoMerger.Kind.merges) { kind in Button(kind.title) { PhotoMerger.shared.merge(kind, keys: ordered) } }
             }
             .disabled(PhotoMerger.shared.working != nil)
+        }
+        if PhotoUpscale.isSupported {
+            Button("Super Resolution") { PhotoMerger.shared.enlarge(photos.filter(Set(targets).contains)) }
+                .disabled(PhotoMerger.shared.working != nil)
+                .help("Twice the width and height, by Apple's on-device model: a new DNG beside the photo")
         }
         Divider()
         Button("Make Virtual Copy") { makeCopy(of: path) }

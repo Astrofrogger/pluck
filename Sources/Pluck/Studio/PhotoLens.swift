@@ -17,6 +17,13 @@ struct PhotoLens: Codable, Hashable {
     var redCyan = 0.0, blueYellow = 0.0
     /// Purple and green fringes along high-contrast edges taken out (desaturated, gently).
     var defringe = false
+    /// A lens profile's own outer distortion term (k2), when one was used; nil: tied to k1. Left out when nil, so edits
+    /// without a profile save as before.
+    var profileK2: Double?
+    /// The Lensfun profile the sliders were set from (its lens's name), while it's on; nil: none.
+    var profile: String?
+    /// Apple's own lens correction (a RAW's, when Apple knows the lens) turned off; nil: on, as it always was.
+    var appleOff: Bool?
 
     var isDefault: Bool { self == PhotoLens() }
     /// Whether anything changes the decoded photo itself (everything but Distortion).
@@ -28,11 +35,14 @@ struct PhotoLens: Codable, Hashable {
         func value<T: Decodable>(_ key: CodingKeys, _ fallback: T) -> T { ((try? c.decodeIfPresent(T.self, forKey: key)) ?? nil) ?? fallback }
         distortion = value(.distortion, 0); vignetting = value(.vignetting, 0); midpoint = value(.midpoint, 50)
         redCyan = value(.redCyan, 0); blueYellow = value(.blueYellow, 0); defringe = value(.defringe, false)
+        profileK2 = try? c.decodeIfPresent(Double.self, forKey: .profileK2)
+        profile = try? c.decodeIfPresent(String.self, forKey: .profile)
+        appleOff = try? c.decodeIfPresent(Bool.self, forKey: .appleOff)
     }
 
     /// The radial model's terms (radius as a share of the half diagonal): r · (1 + k1·r² + k2·r⁴), k2 tied to k1.
     var k1: Double { -min(max(distortion, -100), 100) / 100 * 0.2 }
-    var k2: Double { k1 * 0.2 }
+    var k2: Double { profileK2 ?? k1 * 0.2 }
     /// Each fringe slider at 100: the channel's picture this share of the radius larger (about 7 px at a 24 MP corner).
     static let fringeReach = 0.002
 
@@ -153,6 +163,7 @@ struct PhotoLensPanel: View {
     var body: some View {
         let l = record.adjust.lens ?? PhotoLens()
         AdjustFold(title: "Lens", section: .lens, adjust: record.adjust, reset: { set { $0 = PhotoLens() } }) {
+            PhotoLensProfileRow(path: path, lens: l) { change in set(change) }
             slider("Distortion", l.distortion, \.distortion, -100...100)
             slider("Vignetting", l.vignetting, \.vignetting, -100...100)
             slider("Midpoint", l.midpoint, \.midpoint, 0...100, neutral: 50, format: "%.0f")

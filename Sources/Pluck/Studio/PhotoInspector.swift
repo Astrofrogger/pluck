@@ -25,12 +25,13 @@ struct PhotoInspector: View {
     @State private var presetName = ""
 
     enum Tab: String, CaseIterable, Identifiable {
-        case info, adjust, masks, heal, film, export
+        case info, adjust, detail, masks, heal, film, export
         var id: String { rawValue }
         var symbol: String {
             switch self {
             case .info: "info.circle"
             case .adjust: "slider.horizontal.3"
+            case .detail: "camera.aperture"
             case .masks: "circle.dashed.inset.filled"
             case .heal: "bandage"
             case .film: "film"
@@ -41,6 +42,7 @@ struct PhotoInspector: View {
             switch self {
             case .info: "Info"
             case .adjust: "Adjust"
+            case .detail: "Detail"
             case .masks: "Masks"
             case .heal: "Heal"
             case .film: "Film"
@@ -83,7 +85,7 @@ struct PhotoInspector: View {
                 HStack { Spacer(); syncChip }.padding(.horizontal, 14).padding(.top, 10)
             }
             if paths.isEmpty {
-                Text("Select a photo.").font(.callout).foregroundStyle(.secondary).padding(14)
+                Text("Select a photo.").font(Design.Studio.body).foregroundStyle(.secondary).padding(14)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else {
                 ScrollViewReader { proxy in
@@ -92,11 +94,11 @@ struct PhotoInspector: View {
                         // Cropping: the crop's own panel (its shape and Straighten are on the bar over the photo).
                         if editing.cropping, let shown {
                             PhotoPerspectivePanel(path: shown, record: record)
-                            PhotoLensPanel(path: shown, record: record)
                         } else {
                         switch tab {
                         case .info: info
                         case .adjust: adjust
+                        case .detail: detailTab
                         case .masks: masks
                         case .heal:
                             if let shown {
@@ -138,7 +140,8 @@ struct PhotoInspector: View {
         .onDisappear { editing.healing = false }
     }
 
-    /// The tools, as icons down the right edge: Adjust, Crop, Masks, Film, Looks, Info; at the foot,
+    /// The tools, as icons down the right edge: Adjust, Detail, Masks, Heal, Film, Looks, Info (Crop is in the title row: the
+    /// owner, 2026-11-13); at the foot,
     /// the scope shown over Adjust, and Export.
     private var tabStrip: some View {
         VStack(spacing: 4) {
@@ -148,9 +151,7 @@ struct PhotoInspector: View {
                 .frame(width: 0, height: 0)
                 .accessibilityHidden(true)
             stripButton(.adjust)
-            stripIcon("crop", on: editing.cropping) { editing.cropping.toggle() }
-                .help("Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))")
-                .accessibilityLabel(Text("Crop"))
+            stripButton(.detail)
             stripButton(.masks)
             stripButton(.heal)
             stripButton(.film)
@@ -216,7 +217,7 @@ struct PhotoInspector: View {
         let on = editing.syncAll
         return Button { editing.syncAll.toggle() } label: {
             Text(on ? "Editing \(paths.count)" : "Editing 1")
-                .font(.caption.weight(.semibold))
+                .font(Design.Studio.hint.weight(.semibold))
                 .padding(.horizontal, 8).padding(.vertical, 3)
                 .background(Capsule().fill(on ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(.quaternary)))
                 .foregroundStyle(on ? AnyShapeStyle(.white) : AnyShapeStyle(.secondary))
@@ -321,10 +322,10 @@ struct PhotoInspector: View {
                                 Button { catalog.deleteSnapshot(snapshot.id, of: shown) } label: { Image(systemName: "xmark") }
                                     .buttonStyle(.borderless).foregroundStyle(.secondary)
                             }
-                            .font(.callout)
+                            .font(Design.Studio.body)
                         }
                         Button("Keep This Look", systemImage: "plus") { catalog.takeSnapshot(of: shown) }
-                            .buttonStyle(.link).font(.callout)
+                            .buttonStyle(.link).font(Design.Studio.body)
                     }
                     .padding(.horizontal, 8)
                 }
@@ -413,7 +414,7 @@ struct PhotoInspector: View {
             if record.adjust.process < PhotoAdjustments.currentProcess {
                 // Edited with the first engine: kept as it was until asked.
                 HStack(spacing: 8) {
-                    Label("Earlier engine", systemImage: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
+                    Label("Earlier engine", systemImage: "clock.arrow.circlepath").font(Design.Studio.hint).foregroundStyle(.secondary)
                     Spacer(minLength: 0)
                     Button("Update") {
                         // (Each photo's own: change reaches editTargets in this order.)
@@ -435,7 +436,7 @@ struct PhotoInspector: View {
                             .buttonStyle(.link)
                     }
                 }
-                .font(.callout)
+                .font(Design.Studio.body)
                 .padding(.horizontal, 8)
             }
             AdjustFold(title: "Negative", section: .negative, adjust: record.adjust, reset: { resetSection(.negative) }) {
@@ -504,26 +505,6 @@ struct PhotoInspector: View {
             AdjustFold(title: "Colour Wheels", section: .wheels, adjust: record.adjust, reset: { resetSection(.wheels) }) {
                 ColorWheelsEditor(wheels: record.adjust.wheels, path: shown, process: record.adjust.process) { wheels in change { $0.adjust.wheels = wheels } }
             }
-            AdjustFold(title: "Detail", section: .detail, adjust: record.adjust, reset: { resetSection(.detail) }) {
-                slider("Sharpen", \.sharpen, 0...100)
-                if record.adjust.process >= 5, record.adjust.sharpen > 0 { slider("Masking", \.sharpenMask, 0...100, format: "%.0f") }
-                // Lightroom's manual noise reduction. A denoised RAW is decoded without it (Denoise does it instead).
-                if !raw || record.denoise == 0 {
-                    Text("Noise").font(.caption).foregroundStyle(.secondary)
-                        .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
-                    if raw, record.adjust.process >= 5, let shown {
-                        // (Process 5: starts at the amount the ISO asks for; 0 is none, the decoder's too.)
-                        let auto = PhotoRender.autoLuminance(iso: PhotoRender.iso(PhotoCatalog.file(of: shown)))
-                        AdjustSlider(title: "Luminance", value: PhotoRender.luminance(record.adjust, path: shown), range: 0...100,
-                                     neutral: auto) { new in change { $0.adjust.noise = new; $0.adjust.noiseSet = true } }
-                    } else {
-                        slider("Luminance", \.noise, 0...100)
-                    }
-                    if raw { slider("Colour", \.colorNoise, 0...100, neutral: PhotoAdjustments.defaultColorNoise) }
-                }
-                if raw { slider("Moiré", \.moire, 0...100) }
-                denoise
-            }
             AdjustFold(title: "Calibration", section: .calibration, adjust: record.adjust, reset: { resetSection(.calibration) }) {
                 slider("Shadows Tint", \.calibration.shadowTint, -100...100, track: .tint)
                 let primaries: [(LocalizedStringKey, WritableKeyPath<Calibration, Double>, WritableKeyPath<Calibration, Double>, Color)] = [
@@ -532,7 +513,7 @@ struct PhotoInspector: View {
                 ]
                 ForEach(primaries.indices, id: \.self) { i in
                     let (title, hue, saturation, colour) = primaries[i]
-                    Text(title).font(.caption).foregroundStyle(.secondary)
+                    Text(title).font(Design.Studio.hint).foregroundStyle(.secondary)
                         .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
                     slider("Hue", (\PhotoAdjustments.calibration).appending(path: hue), -100...100)
                     slider("Saturation", (\PhotoAdjustments.calibration).appending(path: saturation), -100...100, track: .colour(colour))
@@ -565,7 +546,7 @@ struct PhotoInspector: View {
         if record.adjust.process >= 2, let shown, paths.count == 1 {
             PhotoMaskPanel(path: shown, record: record)
         } else if paths.count > 1 {
-            Text("Masks are made one photo at a time.").font(.callout).foregroundStyle(.secondary).padding(.horizontal, 8)
+            Text("Masks are made one photo at a time.").font(Design.Studio.body).foregroundStyle(.secondary).padding(.horizontal, 8)
         } else {
             masksSection
         }
@@ -585,7 +566,7 @@ struct PhotoInspector: View {
             ForEach(record.adjust.masks) { mask in
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
-                        Label(mask.kind.title, systemImage: mask.kind.symbol).font(.callout.weight(.medium))
+                        Label(mask.kind.title, systemImage: mask.kind.symbol).font(Design.Studio.body.weight(.medium))
                         Spacer()
                         Button { change { $0.adjust.masks.removeAll { $0.id == mask.id } } } label: { Image(systemName: "trash") }
                             .buttonStyle(.plain).foregroundStyle(.secondary)
@@ -611,10 +592,10 @@ struct PhotoInspector: View {
             Slider(value: Binding(get: { value }, set: { new in
                 change { record in if let i = record.adjust.masks.firstIndex(where: { $0.id == mask.id }) { record.adjust.masks[i][keyPath: path] = new } }
             }), in: range)
-            Text(String(format: format, value)).font(.caption.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
+            Text(String(format: format, value)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(value == 0 ? .tertiary : .primary)
                 .frame(width: 44, alignment: .trailing)
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
@@ -669,19 +650,19 @@ struct PhotoInspector: View {
                 switch film.denoiseEngine {
                 case .installing:
                     ProgressView(value: film.denoiseProgress)
-                    Text("Getting the denoise engine…").font(.caption).foregroundStyle(.secondary)
+                    Text("Getting the denoise engine…").font(Design.Studio.hint).foregroundStyle(.secondary)
                 case .failed(let message):
                     ProblemLabel(text: message)
                     Button("Try Again") { film.installDenoiseEngine() }
                 default:
-                    Text("Removes noise at full size, done once per photo. Runs on this Mac.").font(.caption).foregroundStyle(.secondary)
+                    Text("Removes noise at full size, done once per photo. Runs on this Mac.").font(Design.Studio.hint).foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Get Denoise (\(FilmEngine.denoiseEngineDownloadMB) MB)", systemImage: "arrow.down") { film.installDenoiseEngine() }
                 }
             } else if busy > 0 {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Removing noise from ^[\(busy) photo](inflect: true)…").font(.callout).foregroundStyle(.secondary)
+                    Text("Removing noise from ^[\(busy) photo](inflect: true)…").font(Design.Studio.body).foregroundStyle(.secondary)
                 }
             } else {
                 HStack {
@@ -689,7 +670,7 @@ struct PhotoInspector: View {
                         if new { editing.denoise(editTargets, ai: denoiseAI) } else { change { $0.denoise = 0 } }
                     }))
                     .toggleStyle(.checkbox)
-                    .font(.callout)
+                    .font(Design.Studio.body)
                     .disabled(modelMissing && !on)
                     Spacer()
                     Picker("Denoise", selection: Binding(get: { denoiseAI }, set: { ai in
@@ -720,7 +701,7 @@ struct PhotoInspector: View {
                     .padding(.horizontal, -Design.Sidebar.rowPadding)
                     .disabled(!ready)
                     if ready {
-                        Text("Compare at 100%.").font(.caption).foregroundStyle(.secondary)
+                        Text("Compare at 100%.").font(Design.Studio.hint).foregroundStyle(.secondary)
                     }
                 }
             }
@@ -747,7 +728,7 @@ struct PhotoInspector: View {
         case .installing:
             VStack(alignment: .leading, spacing: 4) {
                 ProgressView(value: film.denoiserProgress)
-                Text("Getting the AI denoiser…").font(.caption).foregroundStyle(.secondary)
+                Text("Getting the AI denoiser…").font(Design.Studio.hint).foregroundStyle(.secondary)
             }
         case .failed(let message):
             ProblemLabel(text: message)
@@ -755,12 +736,12 @@ struct PhotoInspector: View {
         default:
             VStack(alignment: .leading, spacing: 6) {
                 Text("A network trained on real camera noise, like Lightroom’s. Runs on this Mac’s GPU.")
-                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    .font(Design.Studio.hint).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 12) {
                     Label("\(FilmEngine.denoiserDownloadMB) MB download", systemImage: "arrow.down.circle")
                     Label("\(FilmEngine.denoiserDiskMB) MB on disk", systemImage: "internaldrive")
                 }
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(Design.Studio.hint).foregroundStyle(.secondary)
                 Button("Get AI Denoise", systemImage: "arrow.down") { film.installDenoiser() }
                     .buttonStyle(BrandButtonStyle(large: false))
             }
@@ -808,6 +789,33 @@ struct PhotoInspector: View {
         }
     }
 
+    /// The Detail tab (the owner, 2026-11-13): sharpening, noise and denoise, and the lens's corrections.
+    @ViewBuilder private var detailTab: some View {
+        let raw = shown.map(PhotoRender.isRaw) ?? false
+            AdjustFold(title: "Detail", section: .detail, adjust: record.adjust, reset: { resetSection(.detail) }) {
+                slider("Sharpen", \.sharpen, 0...100)
+                if record.adjust.process >= 5, record.adjust.sharpen > 0 { slider("Masking", \.sharpenMask, 0...100, format: "%.0f") }
+                // Lightroom's manual noise reduction. A denoised RAW is decoded without it (Denoise does it instead).
+                if !raw || record.denoise == 0 {
+                    Text("Noise").font(Design.Studio.hint).foregroundStyle(.secondary)
+                        .padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
+                    if raw, record.adjust.process >= 5, let shown {
+                        // (Process 5: starts at the amount the ISO asks for; 0 is none, the decoder's too.)
+                        let auto = PhotoRender.autoLuminance(iso: PhotoRender.iso(PhotoCatalog.file(of: shown)))
+                        AdjustSlider(title: "Luminance", value: PhotoRender.luminance(record.adjust, path: shown), range: 0...100,
+                                     neutral: auto) { new in change { $0.adjust.noise = new; $0.adjust.noiseSet = true } }
+                    } else {
+                        slider("Luminance", \.noise, 0...100)
+                    }
+                    if raw { slider("Colour", \.colorNoise, 0...100, neutral: PhotoAdjustments.defaultColorNoise) }
+                }
+                if raw { slider("Moiré", \.moire, 0...100) }
+                denoise
+            }
+        if let shown { PhotoLensPanel(path: shown, record: record) }
+        if PhotoUpscale.isSupported, let shown { PhotoSuperResolutionRow(path: shown) }
+    }
+
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<PhotoAdjustments, Double>, _ range: ClosedRange<Double>,
                         neutral: Double = 0, format: String = "%+.0f", label: String? = nil, track: AdjustSlider.Track = .plain,
                         clipping: Bool = false) -> some View {
@@ -820,6 +828,7 @@ struct PhotoInspector: View {
         editing.toolQuery = ""
         switch jump {
         case .crop: editing.cropping = true
+        case .detail: tab = .detail
         case .masks: tab = .masks
         case .film: tab = .film
         case .looks: showingLooks = true
@@ -854,7 +863,7 @@ struct GlowControls: View {
                 .labelsHidden()
                 .fixedSize()
             }
-            .font(.callout)
+            .font(Design.Studio.body)
             .controlSize(.small)
             .padding(.horizontal, Design.Sidebar.rowPadding)
             .frame(minHeight: 26)
@@ -909,7 +918,7 @@ struct PhotoDetails: View {
                     Spacer()
                     Text(line.1).lineLimit(1).truncationMode(.middle)
                 }
-                .font(.caption)
+                .font(Design.Studio.hint)
                 .padding(.horizontal, 8)
                 .frame(minHeight: 20)
             }
@@ -1018,12 +1027,12 @@ private struct PhotoFilmPanel: View {
         case .failed: failed
         default:
             VStack(alignment: .leading, spacing: 8) {
-                Text("This setting needs the film data.").font(.callout.weight(.semibold))
+                Text("This setting needs the film data.").font(Design.Studio.body.weight(.semibold))
                 HStack(spacing: 14) {
                     Label("\(FilmEngine.downloadMB) MB download", systemImage: "arrow.down.circle")
                     Label("\(FilmEngine.diskMB) MB on disk", systemImage: "internaldrive")
                 }
-                .font(.caption)
+                .font(Design.Studio.hint)
                 .foregroundStyle(.secondary)
                 Button("Download the Films", systemImage: "arrow.down") { engine.install() }
                     .buttonStyle(BrandButtonStyle(large: false))
@@ -1039,17 +1048,17 @@ private struct PhotoFilmPanel: View {
             Image(systemName: "film.stack").font(.system(size: 28)).foregroundStyle(Design.Brand.gradient)
             Text("Real film, simulated").font(.title3.weight(.semibold))
             Text("spektrafilm develops your photo the way film does: the stock, the paper it’s printed on, grain and halation, from measured data.")
-                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .font(Design.Studio.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 14) {
                 Label("\(FilmEngine.downloadMB) MB download", systemImage: "arrow.down.circle")
                 Label("\(FilmEngine.diskMB) MB on disk", systemImage: "internaldrive")
             }
-            .font(.caption)
+            .font(Design.Studio.hint)
             .foregroundStyle(.secondary)
             Button("Download the Films", systemImage: "arrow.down") { engine.install() }
                 .buttonStyle(BrandButtonStyle())
             Text("The film and paper data, checked as it downloads, kept in Pluck’s own folder. Remove it any time in Settings.")
-                .font(.caption2).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                .font(Design.Studio.hint).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
@@ -1058,16 +1067,16 @@ private struct PhotoFilmPanel: View {
 
     private var installing: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Downloading the films").font(.callout.weight(.semibold))
+            Text("Downloading the films").font(Design.Studio.body.weight(.semibold))
             ProgressView(value: engine.progress).progressViewStyle(.linear)
             HStack {
                 Text(engine.stage)
                 Spacer()
                 Text(engine.progress, format: .percent.precision(.fractionLength(0))).monospacedDigit()
             }
-            .font(.caption)
+            .font(Design.Studio.hint)
             .foregroundStyle(.secondary)
-            Text("About \(FilmEngine.downloadMB) MB.").font(.caption2).foregroundStyle(.tertiary)
+            Text("About \(FilmEngine.downloadMB) MB.").font(Design.Studio.hint).foregroundStyle(.tertiary)
         }
         .padding(14)
         .background(RoundedRectangle(cornerRadius: Design.Radius.card, style: .continuous).fill(Color.primary.opacity(0.05)))
@@ -1082,7 +1091,7 @@ private struct PhotoFilmPanel: View {
                 Text(verbatim: "· GPLv3 · data CC BY-SA 4.0")
             }
         }
-        .font(.caption2)
+        .font(Design.Studio.hint)
         .foregroundStyle(.tertiary)
         .padding(.horizontal, 8)
         .padding(.top, 6)
@@ -1268,7 +1277,7 @@ private struct PhotoFilmPanel: View {
             Text(title).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
             HStack(spacing: 8) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
@@ -1296,7 +1305,7 @@ private struct PhotoFilmPanel: View {
         switch setting.kind {
         case .flag:
             HStack(spacing: 8) {
-                Text(name).font(.caption).foregroundStyle(record.film.changed[key] == nil ? .secondary : .primary).lineLimit(1)
+                Text(name).font(Design.Studio.hint).foregroundStyle(record.film.changed[key] == nil ? .secondary : .primary).lineLimit(1)
                 Spacer()
                 Toggle(name, isOn: Binding(get: { value(key) > 0.5 }, set: { set(key, $0 ? 1 : 0) })).toggleStyle(StudioSwitchStyle()).labelsHidden()
             }
@@ -1437,7 +1446,7 @@ private struct PhotoExportPanel: View {
             SidebarSection(title: Text("Presets")) {
                 ForEach(PhotoExportPreset.builtIn + saved) { preset in
                     row(LocalizedStringKey(preset.name)) {
-                        Text(verbatim: size(preset.settings)).font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
+                        Text(verbatim: size(preset.settings)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(.tertiary)
                         Toggle(preset.name, isOn: tick(preset)).labelsHidden().toggleStyle(.checkbox)
                     }
                 }
@@ -1450,7 +1459,7 @@ private struct PhotoExportPanel: View {
                 if s.format == .jpeg || s.format == .heic {
                     row("Quality") {
                         Slider(value: binding(\.quality), in: 0.5...1)
-                        Text(s.quality, format: .percent.precision(.fractionLength(0))).font(.caption.monospacedDigit()).frame(width: 40)
+                        Text(s.quality, format: .percent.precision(.fractionLength(0))).font(Design.Studio.hint.monospacedDigit()).frame(width: 40)
                     }
                 }
                 row("Size") {
@@ -1484,7 +1493,7 @@ private struct PhotoExportPanel: View {
                             .help("Bright highlights on HDR screens (a gain map); looks as usual everywhere else")
                     }
                     if s.hdr, onFilm {
-                        Text("Photos on film are saved without HDR.").font(.caption2).foregroundStyle(.tertiary).padding(.horizontal, 8)
+                        Text("Photos on film are saved without HDR.").font(Design.Studio.hint).foregroundStyle(.tertiary).padding(.horizontal, 8)
                     }
                 }
             }
@@ -1501,7 +1510,7 @@ private struct PhotoExportPanel: View {
                         TextField("Wedding", text: binding(\.name)).textFieldStyle(.roundedBorder)
                     }
                     Text(verbatim: s.fileName(for: paths.first ?? "photo", number: 0) + "." + s.format.fileExtension)
-                        .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                        .font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
                 }
                 row("Metadata") {
                     Picker("Metadata", selection: binding(\.metadata)) {
@@ -1540,18 +1549,18 @@ private struct PhotoExportPanel: View {
                 .buttonStyle(BrandButtonStyle())
                 .disabled(running)
                 if ticked.count > 1 {
-                    Text("^[\(paths.count * ticked.count) file](inflect: true)").font(.caption).foregroundStyle(.secondary)
+                    Text("^[\(paths.count * ticked.count) file](inflect: true)").font(Design.Studio.hint).foregroundStyle(.secondary)
                 }
                 if running {
                     ProgressView(value: Double(done), total: Double(max(total, 1))).controlSize(.small)
-                    Text("\(done) of \(total)").font(.caption).foregroundStyle(.secondary)
+                    Text("\(done) of \(total)").font(Design.Studio.hint).foregroundStyle(.secondary)
                 } else if let problem = editing.exportProblem {
-                    Text(problem).font(.caption).foregroundStyle(.orange)
+                    Text(problem).font(Design.Studio.hint).foregroundStyle(.orange)
                 } else if let lastFolder = editing.exportFolder {
-                    Button("Show in Finder") { NSWorkspace.shared.open(lastFolder) }.buttonStyle(.link).font(.caption)
+                    Button("Show in Finder") { NSWorkspace.shared.open(lastFolder) }.buttonStyle(.link).font(Design.Studio.hint)
                 }
                 if onFilm {
-                    Text("Photos on film are developed at full size: that takes a while each.").font(.caption2).foregroundStyle(.tertiary)
+                    Text("Photos on film are developed at full size: that takes a while each.").font(Design.Studio.hint).foregroundStyle(.tertiary)
                 }
             }
             .padding(.horizontal, 8)
@@ -1644,7 +1653,7 @@ private struct PhotoExportPanel: View {
             Text(title).foregroundStyle(.secondary).frame(width: 70, alignment: .leading)
             HStack(spacing: 6) { content() }.frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, 8)
         .frame(minHeight: 26)

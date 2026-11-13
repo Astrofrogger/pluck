@@ -220,7 +220,7 @@ struct PhotoDepthControls: View {
             ProblemLabel(text: problem).padding(.horizontal, 8)
             Button("Try Again") { model.install() }.controlSize(.small).padding(.horizontal, 8)
         case .notInstalled:
-            Text("Needs the depth model").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+            Text("Needs the depth model").font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
             Button("Get Depth Finder (\(PhotoDepth.downloadMB) MB)", systemImage: "arrow.down") { model.install() }
                 .controlSize(.small).padding(.horizontal, 8)
         }
@@ -267,13 +267,13 @@ struct PhotoDepthControls: View {
             }
             Spacer(minLength: 0)
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
     }
 
     private func caption(_ text: LocalizedStringKey) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
+        Text(text).font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, Design.Sidebar.rowPadding).padding(.top, 4)
     }
 
     private func slider(_ title: LocalizedStringKey, _ value: Double, neutral: Double = 0,

@@ -607,10 +607,10 @@ struct ColorWheelsEditor: View {
             Slider(value: Binding(get: { value.master }, set: { m in var new = wheels; new[keyPath: path].master = m; change(new) }), in: -0.5...0.5)
                 .controlSize(.mini)
             HStack(spacing: 4) {
-                Text(title).font(.caption2).foregroundStyle(.secondary)
+                Text(title).font(Design.Studio.hint).foregroundStyle(.secondary)
                 if !value.isDefault {
                     Button { var new = wheels; new[keyPath: path] = .init(); change(new) } label: {
-                        Image(systemName: "arrow.counterclockwise").font(.caption2)
+                        Image(systemName: "arrow.counterclockwise").font(Design.Studio.hint)
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -1176,7 +1176,7 @@ struct FilmDialGroup: View {
         VStack(alignment: .leading, spacing: 2) {
             Button { withAnimation(.snappy(duration: 0.2)) { open.toggle() } } label: {
                 HStack {
-                    Text(FilmDial.title(group: group)).font(.callout.weight(.medium))
+                    Text(FilmDial.title(group: group)).font(Design.Studio.body.weight(.medium))
                     if keys.contains(where: isChanged) { Circle().fill(Color.accentColor).frame(width: 6, height: 6) }
                     Spacer()
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .bold)).foregroundStyle(.tertiary)
@@ -1223,7 +1223,7 @@ struct FilmDialGroup: View {
 
     private func line<Content: View>(_ name: String, key: String, @ViewBuilder content: () -> Content) -> some View {
         HStack(spacing: 8) {
-            Text(name).font(.caption).foregroundStyle(isChanged(key) ? .primary : .secondary).lineLimit(1)
+            Text(name).font(Design.Studio.hint).foregroundStyle(isChanged(key) ? .primary : .secondary).lineLimit(1)
                 .frame(width: 112, alignment: .leading)
                 .help(key)
             content()
@@ -1239,7 +1239,7 @@ struct FilmDialGroup: View {
             Slider(value: Binding(get: { value }, set: { set(whole ? $0.rounded() : $0) }), in: low...high)
                 .controlSize(.mini)
             Text(whole ? String(format: "%.0f", value) : String(format: abs(value) < 10 ? "%.3g" : "%.0f", value))
-                .font(.caption2.monospacedDigit())
+                .font(Design.Studio.hint.monospacedDigit())
                 .frame(width: 38, alignment: .trailing)
                 .onTapGesture(count: 2) { reset(key) }
                 .help("Double-click to reset")
@@ -1292,7 +1292,7 @@ struct HistogramView: View {
                 }
                 .blendMode(.plusLighter)
                 if let shown = dragging ?? hover {
-                    Text(Self.parts[shown].1).font(.caption2.weight(.medium)).foregroundStyle(.white.opacity(0.8)).padding(5)
+                    Text(Self.parts[shown].1).font(Design.Studio.hint.weight(.medium)).foregroundStyle(.white.opacity(0.8)).padding(5)
                 }
                 HStack {
                     clipTriangle(left: true)

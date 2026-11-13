@@ -9761,6 +9761,64 @@
         }
       }
     },
+    "^[%lld photo](inflect: true) this session": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld Foto](inflect: true) in dieser Sitzung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld foto](inflect: true) en esta sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld photo](inflect: true) pendant cette séance"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld foto](inflect: true) in questa sessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションで%lld枚"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이번 세션 %lld장"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld foto’s deze sessie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld foto](inflect: true) nesta sessão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本次 %lld 张"
+          }
+        }
+      }
+    },
     "A Calibration panel on the Photo page moves the red, green and blue primaries and tints the shadows, as in Lightroom. Lightroom presets that use it now bring it along.": {
       "localizations": {
         "de": {
@@ -15453,6 +15511,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "AI 任务现在会排队依次进行，同时启动多个也不会拖慢你的 Mac。"
+          }
+        }
+      }
+    },
+    "Apple already corrects this lens.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple korrigiert dieses Objektiv bereits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple ya corrige este objetivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corrige déjà cet objectif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corregge già questo obiettivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレンズはAppleがすでに補正しています。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 렌즈는 Apple이 이미 보정합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corrigeert dit objectief al."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Apple já corrige esta lente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 已校正此镜头。"
+          }
+        }
+      }
+    },
+    "Apple already corrects this lens: a profile would add to it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple korrigiert dieses Objektiv bereits: Ein Profil käme hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple ya corrige este objetivo: un perfil se sumaría."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corrige déjà cet objectif : un profil s’y ajouterait."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corregge già questo obiettivo: un profilo si sommerebbe."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレンズはAppleが補正済みです。プロファイルを使うと重ねて補正されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 렌즈는 Apple이 이미 보정합니다. 프로필을 쓰면 보정이 더해집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple corrigeert dit objectief al: een profiel komt erbovenop."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Apple já corrige esta lente: um perfil se somaria."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 已校正此镜头：再用配置文件会叠加校正。"
+          }
+        }
+      }
+    },
+    "Apple's own correction for this lens (distortion and vignetting)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apples eigene Korrektur für dieses Objektiv (Verzeichnung und Vignettierung)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La corrección propia de Apple para este objetivo (distorsión y viñeteado)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La correction d’Apple pour cet objectif (distorsion et vignetage)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La correzione di Apple per questo obiettivo (distorsione e vignettatura)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレンズに対するApple独自の補正（歪曲と周辺減光）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 렌즈에 대한 Apple 자체 보정(왜곡 및 비네팅)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apples eigen correctie voor dit objectief (vervorming en vignettering)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A correção da própria Apple para esta lente (distorção e vinheta)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 对此镜头的校正（畸变和暗角）"
           }
         }
       }
@@ -45949,6 +46181,64 @@
         }
       }
     },
+    "Connect a camera with its cable and switch it on.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe eine Kamera per Kabel an und schalte sie ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecta una cámara con su cable y enciéndela."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branchez un appareil avec son câble et allumez-le."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collega una fotocamera con il cavo e accendila."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラをケーブルで接続し、電源を入れてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라를 케이블로 연결하고 켜세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sluit een camera aan met de kabel en zet hem aan."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte uma câmera com o cabo e ligue-a."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "用数据线连接相机并开机。"
+          }
+        }
+      }
+    },
     "Connect the drive %@ is on to play it.": {
       "localizations": {
         "de": {
@@ -52464,6 +52754,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "描述"
+          }
+        }
+      }
+    },
+    "Detail and Lens": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Details und Objektiv"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalle y objetivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Détail et objectif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dettaglio e obiettivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ディテールとレンズ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "디테일 및 렌즈"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detail en objectief"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detalhe e lente"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "细节与镜头"
           }
         }
       }
@@ -66430,6 +66778,64 @@
         }
       }
     },
+    "Enlarge 2×": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2× vergrößern"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar 2×"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandir 2×"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandisci 2×"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2倍に拡大"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2배 확대"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2× vergroten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliar 2×"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大 2 倍"
+          }
+        }
+      }
+    },
     "Enlarger": {
       "localizations": {
         "de": {
@@ -66484,6 +66890,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "放大机"
+          }
+        }
+      }
+    },
+    "Enlarging…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird vergrößert …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliando…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agrandissement…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ingrandimento…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拡大中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확대 중…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vergroten…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ampliando…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在放大…"
           }
         }
       }
@@ -77144,6 +77608,64 @@
         }
       }
     },
+    "For cameras macOS can't fire: the folder their maker's remote app saves to": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für Kameras, die macOS nicht auslösen kann: der Ordner der Fernsteuer-App des Herstellers"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para cámaras que macOS no puede disparar: la carpeta donde guarda la app remota del fabricante"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pour les appareils que macOS ne peut pas déclencher : le dossier où enregistre l’app de télécommande du fabricant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Per fotocamere che macOS non può scattare: la cartella dove salva l’app remota del produttore"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOSから撮影できないカメラ用：メーカーのリモートアプリの保存先フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "macOS로 촬영할 수 없는 카메라용: 제조사 원격 앱이 저장하는 폴더"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voor camera’s die macOS niet kan bedienen: de map waarin de app van de fabrikant bewaart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Para câmeras que o macOS não dispara: a pasta onde o app remoto do fabricante salva"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 macOS 无法控制拍摄的相机：厂商遥控应用保存的文件夹"
+          }
+        }
+      }
+    },
     "For Print": {
       "localizations": {
         "de": {
@@ -80127,6 +80649,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "获取点按蒙版（%lld MB）"
+          }
+        }
+      }
+    },
+    "Get Lens Profiles (%lld MB)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objektivprofile laden (%lld MB)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtener perfiles de objetivo (%lld MB)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obtenir les profils d’objectif (%lld Mo)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica profili obiettivo (%lld MB)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンズプロファイルを入手（%lld MB）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "렌즈 프로필 받기(%lld MB)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objectiefprofielen ophalen (%lld MB)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Obter perfis de lente (%lld MB)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "获取镜头配置文件（%lld MB）"
           }
         }
       }
@@ -92469,6 +93049,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "不处理"
+          }
+        }
+      }
+    },
+    "Lens Correction": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objektivkorrektur"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Corrección de objetivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correction d’objectif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correzione obiettivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンズ補正"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "렌즈 보정"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objectiefcorrectie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Correção de lente"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "镜头校正"
+          }
+        }
+      }
+    },
+    "Lens Profile": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objektivprofil"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil de objetivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil d’objectif"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profilo obiettivo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンズプロファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "렌즈 프로필"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objectiefprofiel"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil de lente"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "镜头配置文件"
+          }
+        }
+      }
+    },
+    "Lens profiles for lenses Apple doesn’t correct, from the Lensfun database.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objektivprofile für Objektive, die Apple nicht korrigiert, aus der Lensfun-Datenbank."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfiles para objetivos que Apple no corrige, de la base de datos Lensfun."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profils pour les objectifs qu’Apple ne corrige pas, issus de la base Lensfun."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profili per gli obiettivi che Apple non corregge, dal database Lensfun."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleが補正しないレンズ用のプロファイル（Lensfunデータベース）。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple이 보정하지 않는 렌즈용 프로필(Lensfun 데이터베이스)."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profielen voor objectieven die Apple niet corrigeert, uit de Lensfun-database."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfis para lentes que a Apple não corrige, do banco de dados Lensfun."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适用于 Apple 未校正镜头的配置文件，来自 Lensfun 数据库。"
           }
         }
       }
@@ -112882,6 +113636,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "没有缺失的文件"
+          }
+        }
+      }
+    },
+    "No profile for this lens.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Profil für dieses Objektiv."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay perfil para este objetivo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun profil pour cet objectif."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nessun profilo per questo obiettivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このレンズのプロファイルはありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 렌즈의 프로필이 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geen profiel voor dit objectief."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há perfil para esta lente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有此镜头的配置文件。"
           }
         }
       }
@@ -139310,6 +140122,64 @@
     "Pro-Mist": {
       "shouldTranslate": false
     },
+    "Profiles: Lensfun, CC BY-SA 3.0": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfiles: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profils : Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profili: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイル：Lensfun、CC BY-SA 3.0"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profielen: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfis: Lensfun, CC BY-SA 3.0"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "配置文件：Lensfun，CC BY-SA 3.0"
+          }
+        }
+      }
+    },
     "ProRes 4444": {
       "localizations": {
         "de": {
@@ -162020,6 +162890,64 @@
         }
       }
     },
+    "Shoot": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auslösen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disparar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déclencher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scatta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "撮影"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "촬영"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto maken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disparar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拍摄"
+          }
+        }
+      }
+    },
     "Shoot Overview": {
       "localizations": {
         "de": {
@@ -162133,6 +163061,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "拍摄概览（%lld 个精选）"
+          }
+        }
+      }
+    },
+    "Shoot with the camera maker’s remote app: each photo it saves here comes into Pluck.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotografiere mit der Fernsteuer-App des Herstellers: Jedes Foto, das sie hier sichert, kommt in Pluck."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dispara con la app remota del fabricante: cada foto que guarde aquí llega a Pluck."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photographiez avec l’app de télécommande du fabricant : chaque photo enregistrée ici arrive dans Pluck."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scatta con l’app remota del produttore: ogni foto salvata qui arriva in Pluck."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メーカーのリモートアプリで撮影してください。ここに保存された写真はPluckに取り込まれます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제조사 원격 앱으로 촬영하세요. 여기에 저장된 사진은 Pluck으로 들어옵니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotografeer met de app van de fabrikant: elke foto die hier wordt bewaard, komt in Pluck."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotografe com o app remoto do fabricante: cada foto salva aqui entra no Pluck."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用相机厂商的遥控应用拍摄：保存到这里的每张照片都会进入 Pluck。"
           }
         }
       }
@@ -175039,6 +176025,122 @@
         }
       }
     },
+    "Super Resolution": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super-Auflösung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superresolución"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super résolution"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super risoluzione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超解像"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초해상도"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superresolutie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super-resolução"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超分辨率"
+          }
+        }
+      }
+    },
+    "Super Resolution needs macOS 26 on a Mac with Apple silicon.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Super-Auflösung braucht macOS 26 auf einem Mac mit Apple Chip."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La superresolución necesita macOS 26 en un Mac con chip de Apple."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La super résolution nécessite macOS 26 sur un Mac avec puce Apple."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La super risoluzione richiede macOS 26 su un Mac con chip Apple."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超解像にはAppleシリコン搭載MacのmacOS 26が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초해상도는 Apple 실리콘 Mac의 macOS 26이 필요합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Superresolutie vereist macOS 26 op een Mac met Apple-chip."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A super-resolução requer macOS 26 em um Mac com chip da Apple."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "超分辨率需要搭载 Apple 芯片的 Mac 运行 macOS 26。"
+          }
+        }
+      }
+    },
     "Support": {
       "localizations": {
         "de": {
@@ -177660,6 +178762,180 @@
         }
       }
     },
+    "Tethered %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecté %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collegato %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テザー %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테더링 %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conectado %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "联机 %@"
+          }
+        }
+      }
+    },
+    "Tethered Shooting": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered-Fotografie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disparo conectado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prise de vue connectée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scatto collegato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テザー撮影"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테더링 촬영"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered fotograferen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura conectada"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "联机拍摄"
+          }
+        }
+      }
+    },
+    "Tethered Shooting…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered-Fotografie …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disparo conectado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prise de vue connectée…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scatto collegato…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "テザー撮影…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "테더링 촬영…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tethered fotograferen…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Captura conectada…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "联机拍摄…"
+          }
+        }
+      }
+    },
     "Text": {
       "localizations": {
         "de": {
@@ -177946,6 +179222,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "感谢使用 Pluck。♥︎"
+          }
+        }
+      }
+    },
+    "That folder can’t be watched.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner kann nicht beobachtet werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede vigilar esa carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier ne peut pas être surveillé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile controllare quella cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのフォルダは監視できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "해당 폴더를 감시할 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die map kan niet worden gevolgd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não é possível monitorar essa pasta."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法监视该文件夹。"
           }
         }
       }
@@ -179052,6 +180386,64 @@
         }
       }
     },
+    "The camera was disconnected.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Kamera wurde getrennt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se desconectó la cámara."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’appareil a été déconnecté."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La fotocamera è stata scollegata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カメラの接続が切れました。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "카메라 연결이 끊어졌습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De camera is losgekoppeld."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A câmera foi desconectada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相机已断开连接。"
+          }
+        }
+      }
+    },
     "The DJ’s board recording: everything is synced to it, and it becomes the edit’s sound.": {
       "extractionState": "stale",
       "localizations": {
@@ -179687,6 +181079,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "PDF 报告"
+          }
+        }
+      }
+    },
+    "The photo couldn’t be enlarged.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Foto konnte nicht vergrößert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo ampliar la foto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La photo n’a pas pu être agrandie."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossibile ingrandire la foto."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "写真を拡大できませんでした。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사진을 확대할 수 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De foto kon niet worden vergroot."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível ampliar a foto."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法放大照片。"
           }
         }
       }
@@ -189686,6 +191136,64 @@
         }
       }
     },
+    "This camera can’t be fired from a Mac. Use its maker’s remote app and watch the folder it saves to.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Kamera lässt sich nicht vom Mac auslösen. Nutze die App des Herstellers und beobachte ihren Speicherordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta cámara no se puede disparar desde un Mac. Usa la app del fabricante y vigila la carpeta donde guarda."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet appareil ne peut pas être déclenché depuis un Mac. Utilisez l’app du fabricant et surveillez son dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa fotocamera non può scattare dal Mac. Usa l’app del produttore e controlla la cartella in cui salva."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このカメラはMacから撮影できません。メーカーのアプリを使い、その保存先フォルダを監視してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 카메라는 Mac에서 촬영할 수 없습니다. 제조사 앱을 사용하고 저장 폴더를 감시하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze camera kan niet vanaf een Mac foto’s maken. Gebruik de app van de fabrikant en volg de map waarin hij bewaart."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta câmera não pode disparar pelo Mac. Use o app do fabricante e monitore a pasta onde ele salva."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此相机无法从 Mac 控制拍摄。请使用厂商的应用并监视其保存的文件夹。"
+          }
+        }
+      }
+    },
     "This Clip": {
       "localizations": {
         "de": {
@@ -190322,6 +191830,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "此全景过宽。请减少照片数量（约半圈以内）。"
+          }
+        }
+      }
+    },
+    "This photo doesn’t say which lens took it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Foto nennt sein Objektiv nicht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta foto no indica con qué objetivo se tomó."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette photo n’indique pas l’objectif utilisé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa foto non indica con quale obiettivo è stata scattata."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この写真には使用レンズの情報がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 사진에는 렌즈 정보가 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze foto vermeldt niet met welk objectief hij is gemaakt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta foto não informa qual lente a fez."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此照片未注明所用镜头。"
           }
         }
       }
@@ -198933,6 +200499,64 @@
         }
       }
     },
+    "Twice the width and height, by Apple's on-device model: a new DNG beside the photo": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Doppelte Breite und Höhe, mit Apples Modell auf diesem Mac: ein neues DNG neben dem Foto"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El doble de ancho y alto, con el modelo de Apple en este Mac: un DNG nuevo junto a la foto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deux fois plus large et plus haut, par le modèle d’Apple sur ce Mac : un nouveau DNG à côté de la photo"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il doppio di larghezza e altezza, con il modello di Apple su questo Mac: un nuovo DNG accanto alla foto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appleのオンデバイスモデルで幅と高さを2倍に：写真の横に新しいDNGを作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apple 온디바이스 모델로 가로세로 두 배: 사진 옆에 새 DNG 생성"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twee keer zo breed en hoog, met Apples model op deze Mac: een nieuwe DNG naast de foto"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O dobro da largura e altura, com o modelo da Apple neste Mac: um novo DNG ao lado da foto"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用 Apple 设备端模型将宽高加倍：在照片旁生成新的 DNG"
+          }
+        }
+      }
+    },
     "Two folders side by side": {
       "localizations": {
         "de": {
@@ -201779,6 +203403,64 @@
         }
       }
     },
+    "Use Profile: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil verwenden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar perfil: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utiliser le profil : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usa profilo: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロファイルを使用：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프로필 사용: %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profiel gebruiken: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usar perfil: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用配置文件：%@"
+          }
+        }
+      }
+    },
     "Use Where They Are": {
       "localizations": {
         "de": {
@@ -203925,6 +205607,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "音量与淡入淡出"
+          }
+        }
+      }
+    },
+    "Watch a Folder…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner beobachten …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vigilar una carpeta…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveiller un dossier…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controlla una cartella…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを監視…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 감시…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Map volgen…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitorar uma pasta…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "监视文件夹…"
+          }
+        }
+      }
+    },
+    "Watching %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beobachtet: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vigilando %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveillance : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Controllo di %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "監視中：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "감시 중: %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volgt %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monitorando %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在监视 %@"
           }
         }
       }

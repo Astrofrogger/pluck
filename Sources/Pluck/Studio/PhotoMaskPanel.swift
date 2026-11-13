@@ -17,7 +17,7 @@ struct PhotoMaskPanel: View {
             picker
             if masks.isEmpty {
                 Text("A mask changes part of the photo: pick what to change above.")
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                    .font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
             }
             ForEach(Array(masks.enumerated()), id: \.element.id) { index, mask in
                 VStack(alignment: .leading, spacing: 4) {
@@ -31,7 +31,7 @@ struct PhotoMaskPanel: View {
             }
             if selected != nil {
                 Toggle(isOn: $editing.maskOverlay) { Label("Show in Red (O)", systemImage: "eye") }
-                    .toggleStyle(.switch).controlSize(.mini).font(.caption)
+                    .toggleStyle(.switch).controlSize(.mini).font(Design.Studio.hint)
                     .padding(.horizontal, 8)
             }
         }
@@ -53,7 +53,7 @@ struct PhotoMaskPanel: View {
         let people: [[MaskPart.Kind]] = [[.face, .faceSkin, .bodySkin, .hair], [.eyes, .brows, .lips, .teeth]]
         return VStack(alignment: .leading, spacing: 6) {
             ForEach(groups.indices, id: \.self) { g in kindRow(groups[g]) }
-            Text("People").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+            Text("People").font(Design.Studio.hint).foregroundStyle(.secondary).padding(.top, 2)
             ForEach(people.indices, id: \.self) { g in kindRow(people[g]) }
         }
         .padding(.horizontal, 8)
@@ -95,14 +95,14 @@ struct PhotoMaskPanel: View {
                     Image(systemName: mask.symbol).frame(width: 18)
                     Text(mask.parts.count > 1 ? "\(mask.title) +\(mask.parts.count - 1)" : mask.title).lineLimit(1)
                     if faces == 0, mask.shape.contains(where: { $0.kind.isFace }) {
-                        Text("No face found").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        Text("No face found").font(Design.Studio.hint).foregroundStyle(.secondary).lineLimit(1)
                     }
                     Spacer(minLength: 0)
                 }
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .font(.callout.weight(.medium))
+            .font(Design.Studio.body.weight(.medium))
             Button { update(mask.id) { $0.invert.toggle() } } label: {
                 Image(systemName: mask.invert ? "circle.righthalf.filled.inverse" : "circle.righthalf.filled")
             }
@@ -188,7 +188,7 @@ struct PhotoMaskPanel: View {
                     .buttonStyle(.borderless).foregroundStyle(.secondary)
             }
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, 8)
     }
@@ -202,7 +202,7 @@ struct PhotoMaskPanel: View {
                 Spacer()
                 Button("Clear") { updatePart(part.id, in: mask.id) { $0.strokes = [] } }.buttonStyle(.link)
             }
-            .font(.callout)
+            .font(Design.Studio.body)
             .padding(.horizontal, 8)
             plainSlider("Size", value: $editing.brushSize, 0.005...0.3)
             partSlider("Range", part, in: mask, \.smooth, 0...1)
@@ -220,7 +220,7 @@ struct PhotoMaskPanel: View {
                 Spacer()
                 Button("Clear") { updatePart(part.id, in: mask.id) { $0.strokes = [] } }.buttonStyle(.link)
             }
-            .font(.callout)
+            .font(Design.Studio.body)
             .padding(.horizontal, 8)
             plainSlider("Size", value: $editing.brushSize, 0.005...0.3)
             plainSlider("Softness", value: $editing.brushSoftness, 0...1)
@@ -229,9 +229,9 @@ struct PhotoMaskPanel: View {
                 SAMModelRow()
             } else if editing.findingObject {
                 HStack(spacing: 6) { ProgressView().controlSize(.small); Text(editing.objectNote ?? String(localized: "Finding it…")) }
-                    .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                    .font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
             } else if let note = editing.objectNote {
-                Text(note).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+                Text(note).font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
             } else {
                 hint("Click the object on the photo")
             }
@@ -247,7 +247,7 @@ struct PhotoMaskPanel: View {
                 Slider(value: Binding(get: { part.hue }, set: { value in updatePart(part.id, in: mask.id) { $0.hue = value } }), in: 0...360)
                 Circle().fill(Self.swatch(part.hue)).frame(width: 14, height: 14)
             }
-            .font(.callout).controlSize(.small).padding(.horizontal, 8)
+            .font(Design.Studio.body).controlSize(.small).padding(.horizontal, 8)
             partSlider("Range", part, in: mask, \.hueRange, 5...180)
         case .subject, .people:
             EmptyView()
@@ -277,7 +277,7 @@ struct PhotoMaskPanel: View {
             }
             .pickerStyle(.menu)
             .fixedSize()
-            .font(.callout)
+            .font(Design.Studio.body)
             .controlSize(.small)
             .padding(.horizontal, 8)
         }
@@ -300,7 +300,7 @@ struct PhotoMaskPanel: View {
     }
 
     private func hint(_ text: LocalizedStringKey) -> some View {
-        Text(text).font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+        Text(text).font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
     }
 
     /// The colour at an OkLCh hue, for the colour range's swatch.
@@ -333,7 +333,7 @@ struct PhotoMaskPanel: View {
             Text(title).foregroundStyle(.secondary).lineLimit(1).frame(width: Design.Sidebar.sliderLabel, alignment: .leading)
             Slider(value: value, in: range)
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
@@ -604,13 +604,13 @@ private struct SAMModelRow: View {
 
     var body: some View {
         switch sam.state {
-        case .ready: Text("Click the object on the photo").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+        case .ready: Text("Click the object on the photo").font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
         case .downloading(let share): ProgressView(value: share).controlSize(.small).padding(.horizontal, 8)
         case .failed(let problem):
             ProblemLabel(text: problem).padding(.horizontal, 8)
             Button("Try Again") { sam.install() }.controlSize(.small).padding(.horizontal, 8)
         case .notInstalled:
-            Text("Click masks need their AI model, run on this Mac.").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
+            Text("Click masks need their AI model, run on this Mac.").font(Design.Studio.hint).foregroundStyle(.secondary).padding(.horizontal, 8)
             Button("Get Click Masks (\(PhotoSAM.downloadMB) MB)", systemImage: "arrow.down") { sam.install() }
                 .controlSize(.small).padding(.horizontal, 8)
         }
@@ -634,7 +634,7 @@ private struct DescribedField: View {
                 .onSubmit { set(text) }
             if let found, !words.isEmpty {
                 Text(found == 0 ? String(localized: "Nothing like that found") : String(localized: "Found \(found)"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(Design.Studio.hint).foregroundStyle(.secondary)
             }
         }
         .padding(.horizontal, 8)

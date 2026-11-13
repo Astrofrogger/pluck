@@ -210,7 +210,7 @@ struct PhotoNegativeControls: View {
             Spacer()
             content()
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
     }

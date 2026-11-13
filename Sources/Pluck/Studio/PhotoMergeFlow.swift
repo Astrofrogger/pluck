@@ -12,12 +12,17 @@ final class PhotoMerger {
 
     enum Kind: String, CaseIterable, Identifiable {
         case hdr, panorama, focus
+        /// Super Resolution (PhotoUpscale): one photo at a time, at twice its width and height.
+        case enlarge
         var id: String { rawValue }
+        /// The merges (Super Resolution has its own menu item).
+        static let merges: [Kind] = [.hdr, .panorama, .focus]
         var title: String {
             switch self {
             case .hdr: String(localized: "HDR")
             case .panorama: String(localized: "Panorama")
             case .focus: String(localized: "Focus Stack")
+            case .enlarge: String(localized: "Super Resolution")
             }
         }
         /// What goes on the merged file's name.
@@ -26,6 +31,7 @@ final class PhotoMerger {
             case .hdr: "HDR"
             case .panorama: "Pano"
             case .focus: "Stack"
+            case .enlarge: "Enhanced"
             }
         }
     }
@@ -61,6 +67,55 @@ final class PhotoMerger {
 
     func dismissProblem() { problem = nil }
 
+    /// Super Resolution for each of these photos (their files), one after the other, each beside its photo.
+    func enlarge(_ keys: [String]) {
+        guard working == nil else { return }
+        var seen: Set<String> = []
+        let files = keys.map(PhotoCatalog.file(of:)).filter { seen.insert($0).inserted }
+        guard !files.isEmpty else { return }
+        working = .enlarge
+        problem = nil
+        Task {
+            for file in files {
+                let albums = PhotoCatalog.shared.albums.filter { $0.paths.contains(file) }.map(\.id)
+                do {
+                    let url = try await Self.makeEnlarged(file)
+                    for album in albums { PhotoCatalog.shared.add([url.path], to: album) }
+                    made = url.path
+                } catch {
+                    problem = error.localizedDescription
+                    break
+                }
+            }
+            working = nil
+        }
+    }
+
+    /// One photo enlarged and written (off the main thread).
+    nonisolated static func makeEnlarged(_ file: String) async throws -> URL {
+        let context = PhotoEngine.context
+        guard let decoded = PhotoRender.decoded(file, maxSize: 16_384, record: PhotoRecord()) else {
+            throw MergeFlowError.unreadable(URL(fileURLWithPath: file).lastPathComponent)
+        }
+        let big = try await PhotoUpscale.doubled(decoded, context: context)
+        return try write(big, kind: .enlarge, beside: URL(fileURLWithPath: file), context: context)
+    }
+
+    /// Writes a made photo as a DNG beside `first` (or in Pictures › Pluck Merges where that can't be written).
+    nonisolated static func write(_ image: CIImage, kind: Kind, beside first: URL, context: CIContext) throws -> URL {
+        let properties = CGImageSourceCreateWithURL(first as CFURL, nil).flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [String: Any] }
+        var folder = first.deletingLastPathComponent()
+        if !FileManager.default.isWritableFile(atPath: folder.path) {
+            folder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck Merges", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
+        let base = first.deletingPathExtension().lastPathComponent + "-" + kind.suffix
+        var url = folder.appendingPathComponent(base + ".dng"), n = 2
+        while FileManager.default.fileExists(atPath: url.path) { url = folder.appendingPathComponent("\(base)-\(n).dng"); n += 1 }
+        try PhotoDNG.write(image, to: url, context: context, source: properties)
+        return url
+    }
+
     /// The merge itself, off the main thread: every photo decoded whole (scene light, nothing of its edit), merged, written.
     nonisolated static func make(_ kind: Kind, files: [String]) throws -> URL {
         let context = PhotoEngine.context
@@ -77,20 +132,10 @@ final class PhotoMerger {
         case .hdr: merged = try PhotoMerge.hdr(frames, exposures: exposures(files), context: context)
         case .panorama: merged = try PhotoMerge.panorama(frames, context: context)
         case .focus: merged = try PhotoMerge.focusStack(frames, context: context)
+        case .enlarge: throw MergeFlowError.unreadable("")
         }
-        let first = URL(fileURLWithPath: files[files.count / 2])
-        let properties = CGImageSourceCreateWithURL(first as CFURL, nil).flatMap { CGImageSourceCopyPropertiesAtIndex($0, 0, nil) as? [String: Any] }
-        // Beside the photos; where that can't be written (a card), in Pictures › Pluck Merges.
-        var folder = first.deletingLastPathComponent()
-        if !FileManager.default.isWritableFile(atPath: folder.path) {
-            folder = FileManager.default.urls(for: .picturesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck Merges", isDirectory: true)
-            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        }
-        let base = first.deletingPathExtension().lastPathComponent + "-" + kind.suffix
-        var url = folder.appendingPathComponent(base + ".dng"), n = 2
-        while FileManager.default.fileExists(atPath: url.path) { url = folder.appendingPathComponent("\(base)-\(n).dng"); n += 1 }
-        try PhotoDNG.write(merged, to: url, context: context, source: properties)
-        return url
+        // Beside the middle photo.
+        return try write(merged, kind: kind, beside: URL(fileURLWithPath: files[files.count / 2]), context: context)
     }
 
     /// Each photo's exposure in stops against the middle one, from its shutter, ISO and aperture (nil when any is missing:
@@ -145,9 +190,9 @@ struct PhotoMergeStatus: View {
         if let kind = merger.working {
             HStack(spacing: 6) {
                 ProgressView().controlSize(.small)
-                Text("Merging \(kind.title)…")
+                Text(kind == .enlarge ? "Enlarging…" : "Merging \(kind.title)…")
             }
-            .font(.caption)
+            .font(Design.Studio.hint)
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(Design.Studio.raised, in: .capsule)
         } else if let problem = merger.problem {
@@ -156,9 +201,36 @@ struct PhotoMergeStatus: View {
                 Text(problem).lineLimit(1)
                 Button { merger.dismissProblem() } label: { Image(systemName: "xmark") }.buttonStyle(.plain)
             }
-            .font(.caption)
+            .font(Design.Studio.hint)
             .padding(.horizontal, 10).padding(.vertical, 5)
             .background(Design.Studio.raised, in: .capsule)
         }
+    }
+}
+
+/// Detail › Super Resolution: the photo at twice its width and height, as a new DNG beside it (the original isn't changed).
+struct PhotoSuperResolutionRow: View {
+    let path: String
+    @State private var merger = PhotoMerger.shared
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Super Resolution").font(Design.Studio.sectionTitle).padding(.leading, Design.Sidebar.rowPadding)
+            Text("Twice the width and height, by Apple's on-device model: a new DNG beside the photo")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, Design.Sidebar.rowPadding)
+            HStack(spacing: 8) {
+                Button("Enlarge 2×") { merger.enlarge([path]) }
+                    .buttonStyle(StudioFlatButtonStyle())
+                    .disabled(merger.working != nil)
+                if merger.working == .enlarge {
+                    ProgressView().controlSize(.small)
+                    Text("Enlarging…").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
+            .padding(.horizontal, Design.Sidebar.rowPadding)
+        }
+        .padding(.top, 6)
     }
 }

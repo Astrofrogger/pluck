@@ -48,10 +48,9 @@ struct PhotoSettingsCommands: View {
     var body: some View {
         Divider()
         Group {
-        Button("Copy Settings") { PhotoPasteboard.perform?(.copy) }
+        // (One of each, the owner, 2026-11-13: Copy chooses what to copy, Paste pastes it. ⌘C, ⌘V and ⇧⌘V still work.)
         Button("Copy Settings…") { PhotoPasteboard.perform?(.copyChoosing) }
         Button("Paste Settings") { PhotoPasteboard.perform?(.paste) }
-        Button("Paste Settings…") { PhotoPasteboard.perform?(.pasteChoosing) }
         Button("Paste Previous Settings") { PhotoPasteboard.perform?(.pastePrevious) }
         }
         .disabled(nav.page != .photo)

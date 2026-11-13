@@ -52,7 +52,7 @@ struct AdjustSlider: View {
                 .onTapGesture(count: 2) { set(neutral); done?() }
             bar
             Text(verbatim: shown)
-                .font(.caption.monospacedDigit())
+                .font(Design.Studio.hint.monospacedDigit())
                 .foregroundStyle(changed ? .primary : .secondary)
                 // Only when it says something: changed, pointed at, dragged or focused.
                 .opacity(changed || hovering || focused || showedClipping != nil ? 1 : 0)
@@ -69,7 +69,7 @@ struct AdjustSlider: View {
                 }
                 .help("Click to type, double-click to reset")
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .controlSize(.small)
         .padding(.horizontal, Design.Sidebar.rowPadding)
         .frame(minHeight: Design.Sidebar.sliderHeight)
@@ -337,7 +337,7 @@ struct AdjustFold<Content: View>: View {
                         .accessibilityLabel(Text("Reset this section"))
                 }
             }
-            .font(.callout)
+            .font(Design.Studio.body)
             .padding(.trailing, Design.Sidebar.rowPadding)
             .frame(height: Design.Sidebar.foldHeight)
             .onHover { hovering = $0 }
@@ -432,11 +432,11 @@ struct PhotoLooks: View {
                 section("Presets", presets)
                 section("Film", films)
                 if catalog.presets.isEmpty {
-                    Text("Save a look you like to use it on other photos.").font(.caption).foregroundStyle(.secondary)
+                    Text("Save a look you like to use it on other photos.").font(Design.Studio.hint).foregroundStyle(.secondary)
                 }
-                Button("Save This Look as a Preset…", systemImage: "plus", action: save).buttonStyle(.link).font(.callout)
+                Button("Save This Look as a Preset…", systemImage: "plus", action: save).buttonStyle(.link).font(Design.Studio.body)
                 Button("Import Lightroom Presets…", systemImage: "square.and.arrow.down", action: importLightroom)
-                    .buttonStyle(.link).font(.callout)
+                    .buttonStyle(.link).font(Design.Studio.body)
                     .help("Lightroom and Camera Raw presets (.xmp, .lrtemplate) as looks here: close to Lightroom’s, not the same")
             }
             .padding(12)
@@ -448,7 +448,7 @@ struct PhotoLooks: View {
 
     @ViewBuilder private func section(_ title: LocalizedStringKey, _ looks: [Look]) -> some View {
         if !looks.isEmpty {
-            Text(title).font(.caption.weight(.semibold)).textCase(.uppercase).foregroundStyle(.secondary)
+            Text(title).font(Design.Studio.hint.weight(.semibold)).textCase(.uppercase).foregroundStyle(.secondary)
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 92), spacing: 8)], spacing: 8) {
                 ForEach(looks) { look in tile(look) }
             }
@@ -471,9 +471,9 @@ struct PhotoLooks: View {
                 .clipShape(RoundedRectangle(cornerRadius: Design.Radius.small))
                 .overlay(RoundedRectangle(cornerRadius: Design.Radius.small).strokeBorder(current ? Color.accentColor : .clear, lineWidth: 2))
                 .overlay(alignment: .topTrailing) {
-                    if look.film { Image(systemName: "film").font(.caption2).padding(3).background(.black.opacity(0.5), in: .circle).padding(3) }
+                    if look.film { Image(systemName: "film").font(Design.Studio.hint).padding(3).background(.black.opacity(0.5), in: .circle).padding(3) }
                 }
-                Text(look.title).font(.caption).lineLimit(1)
+                Text(look.title).font(Design.Studio.hint).lineLimit(1)
             }
             .contentShape(.rect)
         }
@@ -543,11 +543,12 @@ struct PhotoLooks: View {
 
 /// What else the Adjust panel's search finds: tools that live somewhere else, and where.
 enum ToolJump: CaseIterable {
-    case crop, masks, film, looks, export, auto
+    case crop, detail, masks, film, looks, export, auto
 
     var title: String {
         switch self {
         case .crop: String(localized: "Crop and Straighten")
+        case .detail: String(localized: "Detail and Lens")
         case .masks: String(localized: "Masks")
         case .film: String(localized: "Film")
         case .looks: String(localized: "Looks")
@@ -559,6 +560,7 @@ enum ToolJump: CaseIterable {
     var symbol: String {
         switch self {
         case .crop: "crop"
+        case .detail: "camera.aperture"
         case .masks: "circle.dashed.inset.filled"
         case .film: "film"
         case .looks: "square.grid.2x2"
@@ -571,6 +573,9 @@ enum ToolJump: CaseIterable {
         switch self {
         case .crop: [title, String(localized: "Crop"), String(localized: "Straighten"), String(localized: "Rotate"), String(localized: "Aspect"),
                      String(localized: "Perspective"), String(localized: "Keystone"), String(localized: "Level")]
+        case .detail: [title, String(localized: "Sharpen"), String(localized: "Noise"), String(localized: "Denoise"), String(localized: "Moiré"),
+                       String(localized: "Lens"), String(localized: "Distortion"), String(localized: "Vignetting"), String(localized: "Lens Profile"),
+                       String(localized: "Chromatic Aberration")]
         case .masks: [title, String(localized: "Subject"), String(localized: "People"), String(localized: "Brush"), String(localized: "Linear Gradient"),
                       String(localized: "Radial Gradient"), String(localized: "Sky"), String(localized: "Local")]
         case .film: [title, String(localized: "Grain"), String(localized: "Halation"), String(localized: "Stock"), String(localized: "Paper")]
@@ -601,7 +606,7 @@ struct ToolSearchField: View {
                     .accessibilityLabel(Text("Clear"))
             }
         }
-        .font(.callout)
+        .font(Design.Studio.body)
         .padding(.horizontal, 7).padding(.vertical, 4)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.primary.opacity(0.06)))
         .padding(.horizontal, 8)
@@ -637,7 +642,7 @@ struct PhotoKeysSheet: View {
                 column(ShortcutAction.allCases.filter { $0.group == .photo }.map { (shortcuts.shortcut($0).label, $0.title) })
             }
             HStack {
-                Text("Change them in Settings › Keys.").font(.caption).foregroundStyle(.secondary)
+                Text("Change them in Settings › Keys.").font(Design.Studio.hint).foregroundStyle(.secondary)
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
@@ -654,7 +659,7 @@ struct PhotoKeysSheet: View {
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(0.08)))
                         .frame(width: 96, alignment: .leading)
-                    Text(what).font(.callout)
+                    Text(what).font(Design.Studio.body)
                 }
             }
         }

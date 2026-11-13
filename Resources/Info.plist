@@ -63,6 +63,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Pluck shares your Library with phones and computers on this network when you turn on sharing, and finds the office Mac for Edit Anywhere.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Pluck controls a camera on a cable for tethered shooting, and brings each photo in as it's taken.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Pluck records your voice-over on this Mac.</string>
 	<key>NSNetworkVolumesUsageDescription</key>

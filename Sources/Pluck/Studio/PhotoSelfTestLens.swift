@@ -1,4 +1,5 @@
 import CoreImage
+import simd
 import Foundation
 
 /// Lens corrections (-PluckScreenshotOnly lens): untouched changes nothing (render, saved settings, preview key), Distortion
@@ -176,5 +177,60 @@ extension PhotoSelfTest {
         check("lens: left out of a paste without the crop", catalog.record(target).adjust.lens == nil)
         PhotoPasteboard.paste([.crop], to: [target])
         check("lens: pasted with the crop", catalog.record(target).adjust.lens == set)
+
+        // Drawn in bands (the full size when zoomed in) as at once: a distorted picture's bands each show their own rows.
+        var banding = PhotoAdjustments(); banding.lens = PhotoLens(); banding.lens?.distortion = 27; banding.lens?.profileK2 = -0.02
+        let tall = CIFilter(name: "CILinearGradient", parameters: ["inputPoint0": CIVector(x: 0, y: 0), "inputPoint1": CIVector(x: 0, y: 2000),
+                                                                   "inputColor0": CIColor.black, "inputColor1": CIColor.white])!.outputImage!
+            .cropped(to: CGRect(x: 0, y: 0, width: 1500, height: 2000))
+        let whole = PhotoRender.geometry(tall, banding)
+        if let banded = BaseCache.texture(whole, bands: 1500 * 300) {
+            func row(_ i: CIImage, _ y: CGFloat) -> Float {
+                var p = [Float](repeating: 0, count: 4)
+                let e = i.extent
+                PhotoEngine.context.render(i.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: CGRect(x: e.midX - 50, y: e.minY + y * e.height, width: 100, height: 4))]),
+                                           toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                return p[0]
+            }
+            let pairs = [0.1, 0.3, 0.5, 0.7, 0.9].map { (row(whole, $0), row(banded, $0)) }
+            check("lens: drawn in bands as at once", pairs.allSatisfy { abs($0.0 - $0.1) < 0.02 }, "\(pairs)")
+        } else { check("lens: drawn in bands", false, "no texture") }
+
+        // The owner's case: a RAW with a profile's lens settings and a slight straighten, at full size (zoomed in) as in a preview.
+        let owner = URL(fileURLWithPath: photos).deletingLastPathComponent().appendingPathComponent("raws/DSC01994.ARW").path
+        if FileManager.default.fileExists(atPath: owner) {
+            var record = PhotoRecord()
+            record.adjust.lens = PhotoLens(); record.adjust.lens?.distortion = 27; record.adjust.lens?.vignetting = 100; record.adjust.lens?.midpoint = 20
+            record.adjust.lens?.redCyan = -5; record.adjust.lens?.defringe = true; record.adjust.lens?.profileK2 = -0.02
+            record.adjust.straighten = -1.5
+            if let full = PhotoRender.image(owner, record: record, maxSize: 0), let small = PhotoRender.image(owner, record: record, maxSize: 1400) {
+                func row(_ i: CIImage, _ y: CGFloat) -> SIMD3<Float> {
+                    var p = [Float](repeating: 0, count: 4)
+                    let e = i.extent
+                    PhotoEngine.context.render(i.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: CGRect(x: e.minX + e.width * 0.3, y: e.minY + y * e.height, width: e.width * 0.4, height: e.height * 0.02))]),
+                                               toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                    return SIMD3(p[0], p[1], p[2])
+                }
+                let rows = [0.1, 0.3, 0.6, 0.85].map { (row(full, $0), row(small, $0)) }
+                check("lens: zoomed in as the preview", rows.allSatisfy { simd_length($0.0 - $0.1) < 0.05 }, "full \(full.extent), small \(small.extent): \(rows.map { "\($0.0.x)/\($0.1.x)" })")
+            } else { check("lens: zoomed in", false, "no picture") }
+        }
+
+        // Apple's lens correction switched off: its own decode (a different cache key) and a different picture at the edges.
+        let viltrox = URL(fileURLWithPath: photos).deletingLastPathComponent().appendingPathComponent("raws/DSC01994.ARW").path
+        if FileManager.default.fileExists(atPath: viltrox) {
+            var off = PhotoRecord(); var offLens = PhotoLens(); offLens.appleOff = true; off.adjust.lens = offLens
+            check("lens: Apple's correction off has its own decode", PhotoRender.RawSettings(off.adjust).key != PhotoRender.RawSettings(PhotoRecord().adjust).key)
+            if let a = PhotoRender.decoded(viltrox, maxSize: 1200, record: PhotoRecord()), let b = PhotoRender.decoded(viltrox, maxSize: 1200, record: off) {
+                func corner(_ i: CIImage) -> Float {
+                    var p = [Float](repeating: 0, count: 4)
+                    let e = i.extent
+                    PhotoEngine.context.render(i.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: CGRect(x: e.minX + 4, y: e.minY + 4, width: e.width * 0.08, height: e.height * 0.08))]),
+                                               toBitmap: &p, rowBytes: 16, bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+                    return p[1]
+                }
+                check("lens: Apple's correction off changes the corners", abs(corner(a) - corner(b)) / max(corner(a), 1e-5) > 0.01, "on \(corner(a)), off \(corner(b))")
+            }
+        }
     }
 }

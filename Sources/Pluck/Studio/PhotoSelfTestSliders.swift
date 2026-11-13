@@ -62,5 +62,30 @@ extension PhotoSelfTest {
             check("sliders \(name): Basic is more colourful than AgX", l("basic")[3] > p[3] * 1.03, "colour \(p[3]) → \(l("basic")[3])")
             check("sliders \(name): Dehaze −60 doesn't wash out the shadows", l("dehaze-60")[0] < p[0] + 0.12, "5th \(p[0]) → \(l("dehaze-60")[0])")
         }
+
+        // Positive Dehaze without halos (process 6): a dark block on a bright hazy ground; the ground beside the block's edge
+        // ends up as the ground far from it.
+        let frame = CGRect(x: 0, y: 0, width: 3000, height: 2000)
+        let linear = CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!
+        let ground = CIImage(color: CIColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 1, colorSpace: linear)!).cropped(to: frame)
+        let block = CIImage(color: CIColor(red: 0.03, green: 0.035, blue: 0.03, alpha: 1, colorSpace: linear)!).cropped(to: CGRect(x: 1200, y: 700, width: 600, height: 600))
+        let sky = CIImage(color: CIColor(red: 0.7, green: 0.72, blue: 0.75, alpha: 1, colorSpace: linear)!).cropped(to: CGRect(x: 0, y: 1600, width: 3000, height: 400))
+        let scene = sky.composited(over: block.composited(over: ground))
+        func halo(_ process: Int, dehaze: Double = 60) -> Float {
+            var a = PhotoAdjustments(); a.process = process; a.dehaze = dehaze
+            let out = PhotoRender.output(PhotoRender.adjusted(scene, a, isRaw: false, kelvin: 6500), a, p3: false)
+            func mean(_ r: CGRect) -> Float {
+                var p = [Float](repeating: 0, count: 4)
+                PhotoEngine.context.render(out.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: r)]), toBitmap: &p, rowBytes: 16,
+                                           bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: linear)
+                return p[1]
+            }
+            let near = mean(CGRect(x: 1804, y: 900, width: 24, height: 200)), far = mean(CGRect(x: 2600, y: 900, width: 200, height: 200))
+            note("dehaze halo p\(process) d\(dehaze): near \(near), far \(far)")
+            return abs(near - far) / max(far, 1e-5)
+        }
+        _ = halo(6, dehaze: 0)
+        let old = halo(5), now = halo(6)
+        check("sliders: Dehaze leaves no halo by edges", now < 0.03 && now < old * 0.5, "beside the edge against far off: process 5 \(old), 6 \(now)")
     }
 }

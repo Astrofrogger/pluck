@@ -129,6 +129,7 @@ enum PhotoRender {
             // A merge Pluck made (PhotoDNG) is scene light already: none of Apple's shadow bias (it crushed its shadows) or
             // gamut mapping (it dulled strong colours), so it reads back as written.
             if PhotoDNG.isMerge(url) { raw.shadowBias = 0; raw.isGamutMappingEnabled = false }
+            if settings.lensOff { raw.isLensCorrectionEnabled = false }
             // Lens correction leaves an unfilled edge: a sliver (0.4%) goes.
             guard var image = raw.outputImage else { return nil }
             // The raw denoiser's DNG: Apple's lens correction, which the RAW's own decode has, put on as measured (lensWarp).
@@ -572,9 +573,13 @@ enum PhotoRender {
         var wideColourNoise = false
         /// Process 4: decoder 9 with half of version 3's soften and no luminance noise reduction up to ISO 1600 (`source`).
         var lighter = false
+        /// Apple's lens correction turned off (the Lens section's switch).
+        var lensOff = false
         init() {}
-        init(_ a: PhotoAdjustments) { moire = a.moire; decoder = a.rawDecoder; wideColourNoise = a.process >= 3; lighter = a.process >= 4 }
-        var key: String { "\(Int(moire))|\(pin)" + (wideColourNoise ? "|w" : "") }
+        init(_ a: PhotoAdjustments) {
+            moire = a.moire; decoder = a.rawDecoder; wideColourNoise = a.process >= 3; lighter = a.process >= 4; lensOff = a.lens?.appleOff == true
+        }
+        var key: String { "\(Int(moire))|\(pin)" + (wideColourNoise ? "|w" : "") + (lensOff ? "|nolens" : "") }
         /// The decoder, as caches name it (version 3's has decoder 9 at least: see `neutral`; process 4's decode is its own, so
         /// are its denoised files).
         var pin: String { (decoder ?? "") + (wideColourNoise ? "+9" : "") + (lighter ? "+4" : "") }
