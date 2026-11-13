@@ -163,7 +163,10 @@ extension PhotoSelfTest {
             for (n, _) in tints.enumerated() {
                 let run = Array(out[(n * levels.count)..<((n + 1) * levels.count)])
                 for (i, c) in run.enumerated() {
-                    if profile != .monochrome, c.C / max(c.L, 1e-6) > inChroma * 1.2 + 1e-4 { failures.append("\(profile.rawValue) hue \(n) ×\(levels[i]): more colourful \(c.C)") }
+                    // (Process 6's Vivid and Landscape add contrast, which brings mid-tone colour up a little on purpose: for them
+                    // only the near-whites, from the ×1 level up, are held to this.)
+                    let punchy = [PhotoEngine.Profile.vivid, .landscape].contains(profile) && a.process >= 6 && levels[i] < 1
+                    if profile != .monochrome, !punchy, c.C / max(c.L, 1e-6) > inChroma * 1.2 + 1e-4 { failures.append("\(profile.rawValue) hue \(n) ×\(levels[i]): more colourful \(c.C)") }
                     // (Colourfulness for its lightness: Accurate keeps chromaticity, so chroma alone grows with lightness.)
                     let was = run[max(i - 1, 0)].C / max(run[max(i - 1, 0)].L, 1e-6)
                     if i > 0, c.L >= 0.8, c.C / max(c.L, 1e-6) > was * 1.01 + 2e-4 { failures.append("\(profile.rawValue) hue \(n) ×\(levels[i]): colourfulness rose \(was) → \(c.C / c.L)") }
@@ -171,7 +174,9 @@ extension PhotoSelfTest {
                 if run.last!.C >= 0.002 { failures.append("\(profile.rawValue) hue \(n) ×16: \(run.last!.C)") }
             }
             let greys = out.suffix(levels.count)
-            if let off = greys.first(where: { $0.C >= 1e-4 }) { failures.append("\(profile.rawValue) grey: \(off.C)") }
+            // (Process 6's looks with a cast of their own over the whole picture (PhotoEngine.Profile.cast6): grey only slightly off.)
+            let cast = a.process >= 6 && PhotoEngine.Profile.cast6[profile] != nil
+            if let off = greys.first(where: { $0.C >= (cast ? 0.005 : 1e-4) }) { failures.append("\(profile.rawValue) grey: \(off.C)") }
         }
         check("near-whites go to white", failures.isEmpty, "got \(failures.prefix(6))")
     }

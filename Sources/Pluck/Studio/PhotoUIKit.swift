@@ -181,7 +181,7 @@ struct AdjustSlider: View {
 /// The Adjust panel's sections, each with what it holds (to show it's edited, to peek at the photo
 /// without it, and to reset it).
 enum AdjustSection: String, CaseIterable {
-    case light, colour, presence, mixer, curves, colourCurves, warper, wheels, detail, calibration, effects
+    case light, colour, presence, mixer, curves, colourCurves, warper, wheels, detail, calibration, effects, perspective, lens, depth, negative
 
     /// The words it's found by: its name and its tools'.
     var words: [String] {
@@ -205,6 +205,14 @@ enum AdjustSection: String, CaseIterable {
         case .calibration: [String(localized: "Calibration"), String(localized: "Shadows Tint"), String(localized: "Red Primary"),
                             String(localized: "Green Primary"), String(localized: "Blue Primary")]
         case .effects: [String(localized: "Effects"), String(localized: "Grain"), String(localized: "Glow")]
+        case .perspective: [String(localized: "Perspective"), String(localized: "Keystone"), String(localized: "Vertical"),
+                            String(localized: "Horizontal"), String(localized: "Upright")]
+        case .lens: [String(localized: "Lens"), String(localized: "Distortion"), String(localized: "Vignetting"), String(localized: "Vignette"),
+                     String(localized: "Chromatic Aberration"), String(localized: "Fringe"), String(localized: "Remove fringes"), String(localized: "Defringe")]
+        case .depth: [String(localized: "Depth"), String(localized: "Lens Blur"), String(localized: "Focus"), String(localized: "Bokeh"),
+                      String(localized: "Fog"), String(localized: "Haze")]
+        case .negative: [String(localized: "Negative"), String(localized: "Film Base"), String(localized: "Density"), String(localized: "Scan"),
+                         String(localized: "Invert")]
         }
     }
 
@@ -248,6 +256,14 @@ enum AdjustSection: String, CaseIterable {
         case .effects:
             a.grain = fresh.grain; a.grainSize = fresh.grainSize; a.grainRoughness = fresh.grainRoughness
             a.glow = fresh.glow; a.glowSize = fresh.glowSize; a.glowMode = fresh.glowMode
+        case .perspective:
+            a.perspective = nil
+        case .lens:
+            a.lens = nil
+        case .depth:
+            a.depth = nil
+        case .negative:
+            a.negative = nil
         }
     }
 }
@@ -379,7 +395,7 @@ struct PhotoLooks: View {
         return PhotoEngine.Profile.choices(raw: raw, process: record.adjust.process, chosen: record.adjust.profile).map { profile in
             var r = record
             r.adjust.profile = profile
-            return Look(id: "profile-" + profile.rawValue, title: profile.title, record: r)
+            return Look(id: "profile-" + profile.rawValue, title: profile.name(process: record.adjust.process), record: r)
         }
     }
 
@@ -551,7 +567,8 @@ enum ToolJump: CaseIterable {
 
     private var words: [String] {
         switch self {
-        case .crop: [title, String(localized: "Crop"), String(localized: "Straighten"), String(localized: "Rotate"), String(localized: "Aspect")]
+        case .crop: [title, String(localized: "Crop"), String(localized: "Straighten"), String(localized: "Rotate"), String(localized: "Aspect"),
+                     String(localized: "Perspective"), String(localized: "Keystone"), String(localized: "Level")]
         case .masks: [title, String(localized: "Subject"), String(localized: "People"), String(localized: "Brush"), String(localized: "Linear Gradient"),
                       String(localized: "Radial Gradient"), String(localized: "Sky"), String(localized: "Local")]
         case .film: [title, String(localized: "Grain"), String(localized: "Halation"), String(localized: "Stock"), String(localized: "Paper")]

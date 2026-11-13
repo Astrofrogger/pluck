@@ -970,6 +970,8 @@ struct StudioSearchField: View {
     let prompt: LocalizedStringKey
     var key = "⌘F"
     var focused: FocusState<Bool>.Binding
+    /// Offered under the field while it's empty (recent searches).
+    var suggestions: [String] = []
 
     var body: some View {
         HStack(spacing: 8) {
@@ -978,6 +980,7 @@ struct StudioSearchField: View {
                 .textFieldStyle(.plain)
                 .font(Design.Studio.body)
                 .focused(focused)
+                .modifier(InputSuggestions(items: text.isEmpty ? suggestions : []))
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(Design.Studio.textQuiet) }
                     .buttonStyle(.plain)
@@ -992,10 +995,25 @@ struct StudioSearchField: View {
     }
 }
 
+/// Completions offered under a text field (macOS 15 and later).
+private struct InputSuggestions: ViewModifier {
+    let items: [String]
+
+    func body(content: Content) -> some View {
+        if #available(macOS 15, *) {
+            content.textInputSuggestions {
+                ForEach(items, id: \.self) { Label($0, systemImage: "clock.arrow.circlepath").textInputCompletion($0) }
+            }
+        } else { content }
+    }
+}
+
 /// A small Studio slider: a thin grey track, the part up to the dot a little lighter, a white dot.
 struct StudioSlider: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
+    /// What VoiceOver calls it.
+    var label: LocalizedStringKey = "Size"
 
     var body: some View {
         GeometryReader { geometry in
@@ -1015,6 +1033,17 @@ struct StudioSlider: View {
             })
         }
         .frame(height: 16)
+        .accessibilityElement()
+        .accessibilityLabel(label)
+        .accessibilityValue(Text(verbatim: "\(Int(((value - range.lowerBound) / max(range.upperBound - range.lowerBound, .ulpOfOne) * 100).rounded())) %"))
+        .accessibilityAdjustableAction { direction in
+            let step = (range.upperBound - range.lowerBound) * 0.05
+            switch direction {
+            case .increment: value = min(value + step, range.upperBound)
+            case .decrement: value = max(value - step, range.lowerBound)
+            @unknown default: break
+            }
+        }
     }
 }
 

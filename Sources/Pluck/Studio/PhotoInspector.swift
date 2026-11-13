@@ -25,13 +25,14 @@ struct PhotoInspector: View {
     @State private var presetName = ""
 
     enum Tab: String, CaseIterable, Identifiable {
-        case info, adjust, masks, film, export
+        case info, adjust, masks, heal, film, export
         var id: String { rawValue }
         var symbol: String {
             switch self {
             case .info: "info.circle"
             case .adjust: "slider.horizontal.3"
             case .masks: "circle.dashed.inset.filled"
+            case .heal: "bandage"
             case .film: "film"
             case .export: "square.and.arrow.up"
             }
@@ -41,6 +42,7 @@ struct PhotoInspector: View {
             case .info: "Info"
             case .adjust: "Adjust"
             case .masks: "Masks"
+            case .heal: "Heal"
             case .film: "Film"
             case .export: "Export"
             }
@@ -87,12 +89,19 @@ struct PhotoInspector: View {
                 ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
+                        // Cropping: the crop's own panel (its shape and Straighten are on the bar over the photo).
+                        if editing.cropping, let shown {
+                            PhotoPerspectivePanel(path: shown, record: record)
+                            PhotoLensPanel(path: shown, record: record)
+                        } else {
                         switch tab {
                         case .info: info
                         case .adjust: adjust
                         case .masks: masks
+                        case .heal: if let shown { PhotoHealPanel(path: shown, record: record, several: paths.count > 1) }
                         case .film: PhotoFilmPanel(paths: editTargets, record: record)
                         case .export: PhotoExportPanel(paths: paths)
+                        }
                         }
                     }
                     .panelColumn()
@@ -112,8 +121,14 @@ struct PhotoInspector: View {
         }
         .onChange(of: tab) { _, now in
             if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil }
-            if now != .adjust { editing.mixerTargeting = false; editing.pointPicking = false; editing.pointOverlay = false }
+            if now != .heal { editing.selectedSpot = nil }
+            if now != .adjust {
+                editing.mixerTargeting = false; editing.pointPicking = false; editing.pointOverlay = false
+                editing.focusPicking = false; editing.showDepth = false
+            }
         }
+        .onChange(of: tab, initial: true) { editing.healing = tab == .heal }
+        .onDisappear { editing.healing = false }
     }
 
     /// The tools, as icons down the right edge: Adjust, Crop, Masks, Film, Looks, Info; at the foot,
@@ -130,6 +145,7 @@ struct PhotoInspector: View {
                 .help("Crop and straighten (\(Shortcuts.shared.shortcut(.photoCrop).label))")
                 .accessibilityLabel(Text("Crop"))
             stripButton(.masks)
+            stripButton(.heal)
             stripButton(.film)
             presetsMenu
             stripButton(.info)
@@ -256,6 +272,7 @@ struct PhotoInspector: View {
             }
             if let shown { PhotoDetails(path: shown) }
             PhotoMetaSection(paths: paths, record: record)
+            if let shown { PhotoTagsSection(path: shown) }
             SidebarSection(title: Text("Settings")) {
                 HStack(spacing: 8) {
                     Button("Copy") { PhotoPasteboard.copied = record }
@@ -362,7 +379,7 @@ struct PhotoInspector: View {
                 let profile = record.adjust.profile.map { !raw && $0 == .adobe ? .asShot : $0 } ?? PhotoEngine.Profile.starting(record.adjust, isRaw: raw)
                 Menu {
                     Picker("Profile", selection: Binding(get: { profile }, set: { value in change { $0.adjust.profile = value } })) {
-                        ForEach(PhotoEngine.Profile.choices(raw: raw, process: record.adjust.process, chosen: record.adjust.profile)) { Text($0.title).tag($0) }
+                        ForEach(PhotoEngine.Profile.choices(raw: raw, process: record.adjust.process, chosen: record.adjust.profile)) { Text($0.name(process: record.adjust.process)).tag($0) }
                     }
                     .pickerStyle(.inline)
                     Divider()
@@ -413,6 +430,9 @@ struct PhotoInspector: View {
                 }
                 .font(.callout)
                 .padding(.horizontal, 8)
+            }
+            AdjustFold(title: "Negative", section: .negative, adjust: record.adjust, reset: { resetSection(.negative) }) {
+                PhotoNegativeControls(path: shown, record: record, change: change)
             }
             AdjustFold(title: "Light", section: .light, adjust: record.adjust, open: true, reset: { resetSection(.light) }) {
                 slider("Exposure", \.exposure, -5...5, format: "%+.2f", clipping: true)
@@ -506,6 +526,11 @@ struct PhotoInspector: View {
                         slider("Size", \.grainSize, 0...100, neutral: 25)
                         slider("Roughness", \.grainRoughness, 0...100, neutral: 50)
                     }
+                }
+            }
+            AdjustFold(title: "Depth", section: .depth, adjust: record.adjust, reset: { resetSection(.depth) }) {
+                PhotoDepthControls(adjust: record.adjust) { edit in
+                    change { var d = $0.adjust.depth ?? PhotoDepthEffects(); edit(&d); $0.adjust.depth = d }
                 }
             }
             Button("Reset Adjustments") { change { $0.adjust = PhotoAdjustments() } }
@@ -817,6 +842,40 @@ struct GlowControls: View {
 }
 
 /// What the camera wrote: the file, its size, the camera and lens, the exposure.
+/// What Vision saw in the photo, as quiet chips: a click finds the photos with it, its menu makes it a keyword.
+struct PhotoTagsSection: View {
+    let path: String
+    @State private var catalog = PhotoCatalog.shared
+    @State private var editing = PhotoEditing.shared
+    @AppStorage("photoView") private var view = PhotoPage.ViewMode.grid
+
+    var body: some View {
+        if let tags = catalog.tags(of: path), !tags.words.isEmpty {
+            SidebarSection(title: Text("Found in the photo")) {
+                FlowLayout(spacing: 6) {
+                    if let faces = tags.faces, faces > 0 { chip(Text("^[\(faces) face](inflect: true)"), finds: "face", keyword: nil) }
+                    ForEach(tags.labels, id: \.self) { chip(Text(verbatim: $0), finds: $0, keyword: $0) }
+                }
+                .padding(.horizontal, 8)
+            }
+        }
+    }
+
+    private func chip(_ text: Text, finds word: String, keyword: String?) -> some View {
+        Button { editing.search = word; view = .grid } label: { StudioChip(text: text) }
+            .buttonStyle(.plain)
+            .help("Find photos with this")
+            .contextMenu { if let keyword { Button("Add as Keyword") { add(keyword) } } }
+    }
+
+    private func add(_ word: String) {
+        var meta = catalog.record(path).meta ?? PhotoMeta()
+        guard !meta.keywords.contains(where: { $0.caseInsensitiveCompare(word) == .orderedSame }) else { return }
+        meta.keywords.append(word)
+        catalog.setMeta([path: meta])
+    }
+}
+
 struct PhotoDetails: View {
     let path: String
     @State private var lines: [(String, String)] = []
@@ -838,7 +897,7 @@ struct PhotoDetails: View {
     }
 
     /// "Z8 · 24-70 at 35 mm · ƒ/8 · 1/250 s · ISO 64": camera, lens and exposure on one line.
-    static func summary(_ path: String) -> String {
+    nonisolated static func summary(_ path: String) -> String {
         let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
               let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return "" }
@@ -858,7 +917,7 @@ struct PhotoDetails: View {
         return parts.joined(separator: " · ")
     }
 
-    static func read(_ path: String) -> [(String, String)] {
+    nonisolated static func read(_ path: String) -> [(String, String)] {
         let url = URL(fileURLWithPath: PhotoCatalog.file(of: path))
         var lines: [(String, String)] = [(String(localized: "File"), url.lastPathComponent)]
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),

@@ -56,7 +56,7 @@ extension PhotoSelfTest {
         let s3 = PhotoRender.RawSettings(v3), s4 = PhotoRender.RawSettings(v4)
 
         // New edits are process 5 (process 4's decode); Update moves a version 3 edit there (a JPEG's look is version 3's, so it isn't offered it).
-        check("p4 is current", PhotoAdjustments.currentProcess == 5 && PhotoAdjustments().process == 5 && v3.updated(isRaw: true).process == 5
+        check("p4 is current", PhotoAdjustments.currentProcess >= 5 && PhotoAdjustments().process == PhotoAdjustments.currentProcess && v3.updated(isRaw: true).process == PhotoAdjustments.currentProcess
               && PhotoRender.RawSettings(PhotoAdjustments()) == s4)
 
         // Keys: versions 1–3 name their decodes as before; process 4's are its own (and so are its denoised files).

@@ -53,7 +53,9 @@ struct MusicFitView: View {
         .task(id: song) {
             envelope = nil
             guard let song else { return }
-            envelope = await Envelope.read(song)
+            let read = await Envelope.read(song)
+            guard !Task.isCancelled else { return }
+            envelope = read
         }
         .onDisappear { player?.stop() }
     }

@@ -124,6 +124,11 @@ final class PhotoCatalog {
     private(set) var albums: [PhotoAlbum] = []
     private(set) var folders: [AlbumFolder] = []
     private(set) var presets: [PhotoPreset] = []
+    /// What Vision sees in each file (PhotoTagger), by file: copies share their original's. Apart from the
+    /// records, so it's never in an edit, an undo step or a sidecar.
+    private(set) var tags: [String: PhotoTags] = [:]
+    /// When a photo was last changed (a slider dragged), so background work waits.
+    @ObservationIgnored private(set) var lastEdit = Date.distantPast
     @ObservationIgnored private var saveScheduled = false
 
     private struct Saved: Codable {
@@ -131,6 +136,8 @@ final class PhotoCatalog {
         var albums: [PhotoAlbum]
         var folders: [AlbumFolder]?
         var presets: [PhotoPreset]?
+        /// Left out while there are none, so a catalogue without tags is saved as before.
+        var tags: [String: PhotoTags]?
     }
 
     nonisolated private static var file: URL {
@@ -145,6 +152,7 @@ final class PhotoCatalog {
             albums = saved.albums
             folders = saved.folders ?? []
             presets = saved.presets ?? []
+            tags = saved.tags ?? [:]
         }
     }
 
@@ -162,9 +170,27 @@ final class PhotoCatalog {
             }
             records[path] = record
         }
+        lastEdit = .now
         remember(before)
         changed(paths)
     }
+
+    func tags(of key: String) -> PhotoTags? { tags[Self.file(of: key)] }
+
+    /// A file's tags (not a change to undo).
+    func setTags(_ found: PhotoTags, for file: String) {
+        tags[file] = found
+        // (Tags come many a second while tagging runs: saved every 15 s, not after each; an edit's save takes them too.)
+        guard !tagSaveScheduled else { return }
+        tagSaveScheduled = true
+        Task {
+            try? await Task.sleep(for: .seconds(15))
+            tagSaveScheduled = false
+            scheduleSave()
+        }
+    }
+
+    @ObservationIgnored private var tagSaveScheduled = false
 
     // MARK: - Undo
 
@@ -579,7 +605,7 @@ final class PhotoCatalog {
         Task {
             try? await Task.sleep(for: .seconds(1))
             saveScheduled = false
-            let saved = Saved(records: records, albums: albums, folders: folders, presets: presets)
+            let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags)
             await Task.detached(priority: .utility) {
                 try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
@@ -589,9 +615,23 @@ final class PhotoCatalog {
 
     /// Writes the catalogue at once (tests).
     func saveNow() {
-        let saved = Saved(records: records, albums: albums, folders: folders, presets: presets)
+        let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags)
         try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
+    }
+
+    /// A catalogue file read and written again, keys sorted (tests).
+    nonisolated static func reencoded(_ data: Data) -> Data? {
+        guard let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return try? encoder.encode(saved)
+    }
+
+    /// The tags as they are in the file (tests).
+    nonisolated static func readTags() -> [String: PhotoTags]? {
+        guard let data = try? Data(contentsOf: file) else { return nil }
+        return (try? JSONDecoder().decode(Saved.self, from: data))?.tags
     }
 
     /// The records as they are in the file (tests).

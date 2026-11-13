@@ -647,13 +647,17 @@ private struct ProjectToolbar: View {
     @State private var marksShown = false
 
     var body: some View {
-        row
-            .frame(height: 38)
+        // Narrow (the smallest window with the media beside): icons only, without the length and zoom.
+        ViewThatFits(in: .horizontal) {
+            row(compact: false)
+            row(compact: true)
+        }
+        .frame(height: 38)
     }
 
     /// As in the layout reference: the tools, then the edits at the playhead, then Add, Marks and Pacing;
     /// the length and the zoom on the right.
-    private var row: some View {
+    private func row(compact: Bool) -> some View {
         HStack(spacing: 2) {
             tool("cursorarrow", "Selection tool: click a clip to select it, drag to move it (A)", on: model.tool == .select) { model.tool = .select }
             tool("scissors", "Blade tool: click a clip to cut it there (B)", on: model.tool == .blade) { model.tool = .blade }
@@ -678,14 +682,14 @@ private struct ProjectToolbar: View {
                 Button("Still: Save the Frame as a Picture", systemImage: "camera") { model.saveFrame() }
                     .disabled(model.project.clips.isEmpty)
             } label: {
-                textLabel("plus", "Add", menu: true)
+                textLabel("plus", "Add", menu: true, compact: compact)
             }
             .menuStyle(.button)
             .buttonStyle(.plain)
             .menuIndicator(.hidden)
             .fixedSize()
             .help("Add videos, music, a title, a look, or save a still")
-            Button { marksShown.toggle() } label: { textLabel("bookmark", "Marks", on: marksShown) }
+            Button { marksShown.toggle() } label: { textLabel("bookmark", "Marks", on: marksShown, compact: compact) }
                 .buttonStyle(.plain)
                 .help("Markers: the list, and what was found in the clip (M adds one)")
                 .popover(isPresented: $marksShown, arrowEdge: .bottom) {
@@ -694,7 +698,7 @@ private struct ProjectToolbar: View {
                         .padding(.top, 12)
                 }
             // Right-click for the two thresholds.
-            Button { pacing.toggle() } label: { textLabel("gauge.with.dots.needle.33percent", "Pacing", on: pacing) }
+            Button { pacing.toggle() } label: { textLabel("gauge.with.dots.needle.33percent", "Pacing", on: pacing, compact: compact) }
                 .buttonStyle(.plain)
                 .help("Show long shots, very short clips and jump cuts (right-click for the thresholds)")
                 .contextMenu {
@@ -729,23 +733,24 @@ private struct ProjectToolbar: View {
             .fixedSize()
             .help("The frame’s shape: each clip is filled and framed on its subject")
             Spacer(minLength: 8)
-            Text("\(Format.duration(model.duration)) total").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
-                .padding(.trailing, 8)
-                .lineLimit(1)
-            Image(systemName: "minus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
-            StudioSlider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), range: 0...log(max(min(model.duration / 2, 400), 1.01)))
-                .frame(width: 96)
-                .help("Zoom the timeline (⌘+ and ⌘−)")
-                .accessibilityLabel(Text("Zoom"))
-            Image(systemName: "plus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+            if !compact {
+                Text("\(Format.duration(model.duration)) total").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                    .padding(.trailing, 8)
+                    .lineLimit(1)
+                Image(systemName: "minus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+                StudioSlider(value: Binding(get: { log(zoom) }, set: { zoom = exp($0) }), range: 0...log(max(min(model.duration / 2, 400), 1.01)), label: "Zoom")
+                    .frame(width: 96)
+                    .help("Zoom the timeline (⌘+ and ⌘−)")
+                Image(systemName: "plus.magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+            }
         }
     }
 
     /// A raised text button of the bar ("Add ⌄", "Marks"); plum when it's on.
-    private func textLabel(_ symbol: String, _ title: LocalizedStringKey, on: Bool = false, menu: Bool = false) -> some View {
+    private func textLabel(_ symbol: String, _ title: LocalizedStringKey, on: Bool = false, menu: Bool = false, compact: Bool = false) -> some View {
         HStack(spacing: 6) {
             Image(systemName: symbol).font(.system(size: 11, weight: .medium))
-            Text(title)
+            if !compact { Text(title) }
             if menu { Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet) }
         }
         .font(Design.Studio.body)
@@ -754,6 +759,7 @@ private struct ProjectToolbar: View {
         .frame(height: 26)
         .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
         .contentShape(.rect)
+        .accessibilityLabel(Text(title))
     }
 
     private var divider: some View { Rectangle().fill(Design.Studio.line).frame(width: 1, height: 18).padding(.horizontal, 6) }

@@ -251,6 +251,13 @@ private struct EditPage: View {
             }
         }
         .toolbar {
+            // Once the media is hidden, the way back.
+            ToolbarItem(placement: .navigation) {
+                if !mediaShown {
+                    Button { withAnimation(.snappy) { mediaShown = true } } label: { Label("Media", systemImage: "sidebar.left") }
+                        .help("Show the media (⌥⌘L)")
+                }
+            }.studioFlat()
             // The open projects and files, right of the window's buttons (layout reference, page 3).
             ToolbarItem(placement: .navigation) {
                 TabStrip(nav: nav)
@@ -343,6 +350,7 @@ private struct TabChip: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            Image(systemName: project ? "rectangle.stack" : "film").font(.system(size: 10)).accessibilityHidden(true)
             if editing {
                 TextField("Name", text: $name)
                     .textFieldStyle(.plain)

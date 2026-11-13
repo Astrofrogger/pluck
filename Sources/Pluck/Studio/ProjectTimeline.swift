@@ -83,10 +83,11 @@ struct ProjectTimeline: View {
         }
     }
 
-    /// The tracks' names down the left, level with their lanes: T1, V2…, V1, A1…, M1.
+    /// The tracks' names down the left, level with their lanes: T1, L1 (looks), V2…, V1, A1…, M1.
     private var trackNames: some View {
         ZStack(alignment: .topLeading) {
             trackName("T1", top: titlesTop, height: titlesHeight)
+            if hasLooks { trackName("L1", top: looksTop, height: looksHeight) }
             ForEach(Array(overlays.enumerated()), id: \.element.id) { index, track in
                 if let lane = laneTop(track) { trackName("V\(index + 2)", top: lane.top, height: lane.height) }
             }
@@ -208,7 +209,7 @@ struct ProjectTimeline: View {
             lane(top: titlesTop, height: titlesHeight, width: width)
             ForEach(model.project.tracks ?? []) { track in
                 if let (top, laneHeight) = laneTop(track) {
-                    lane(top: top, height: laneHeight, width: width, label: track.kind == .video ? "square.on.square" : "waveform")
+                    lane(top: top, height: laneHeight, width: width)
                     ForEach(track.items) { item in
                         let left = x(item.at ?? 0), w = max(x((item.at ?? 0) + item.length) - left, 2)
                         Group {
@@ -311,7 +312,7 @@ struct ProjectTimeline: View {
                     .frame(width: w, height: musicHeight)
                     .offset(x: left, y: musicTop)
             }
-            if hasLooks { lane(top: looksTop, height: looksHeight, width: width, label: "camera.filters") }
+            if hasLooks { lane(top: looksTop, height: looksHeight, width: width) }
             ForEach(model.project.adjustments ?? []) { look in
                 let left = x(look.start), w = max(x(look.end) - left, 2)
                 lengthBlock(String(localized: "Look"), symbol: "camera.filters", tint: .orange, selected: model.selected.contains(look.id))
@@ -425,12 +426,10 @@ struct ProjectTimeline: View {
         }
     }
 
-    private func lane(top: CGFloat, height: CGFloat, width: CGFloat, label: String? = nil) -> some View {
+    /// A lane's background (its name is in the column on the left).
+    private func lane(top: CGFloat, height: CGFloat, width: CGFloat) -> some View {
         RoundedRectangle(cornerRadius: 4)
             .fill(Color.primary.opacity(0.04))
-            .overlay(alignment: .leading) {
-                if let label { Text(verbatim: label).font(Design.Studio.hint.weight(.medium)).foregroundStyle(Design.Studio.textQuiet).padding(.leading, 6) }
-            }
             .frame(width: width, height: height)
             .offset(y: top)
             .allowsHitTesting(false)

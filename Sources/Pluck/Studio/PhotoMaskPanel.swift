@@ -35,33 +35,51 @@ struct PhotoMaskPanel: View {
                     .padding(.horizontal, 8)
             }
         }
+        .task(id: "\(path)|\(wantsFaces)") {
+            faces = nil
+            guard wantsFaces else { return }
+            let path = path, record = record
+            // The same picture the masks are made from (counted once per photo, then kept).
+            faces = await Task.detached(priority: .utility) { () -> Int? in
+                guard let kept = PhotoRender.base(path, maxSize: 1536, record: record) else { return nil }
+                return PhotoMasks.faceCount(path, from: PhotoNegative.apply(record.adjust.negative, to: kept.image), context: PhotoEngine.context)
+            }.value
+        }
     }
 
     /// New mask: what macOS finds, what's drawn, and ranges of the photo's own colours.
     private var picker: some View {
         let groups: [[MaskPart.Kind]] = [[.subject, .people, .object].filter(available), [.sky, .depth], [.linear, .radial, .brush], [.luminance, .colour]]
+        let people: [[MaskPart.Kind]] = [[.face, .faceSkin, .bodySkin, .hair], [.eyes, .brows, .lips, .teeth]]
         return VStack(alignment: .leading, spacing: 6) {
-            ForEach(groups.indices, id: \.self) { g in
-                HStack(spacing: 6) {
-                    ForEach(groups[g]) { kind in
-                        Button { addMask(kind) } label: {
-                            VStack(spacing: 3) {
-                                Image(systemName: kind.symbol).font(.system(size: 15)).frame(height: 18)
-                                Text(kind.title).font(.system(size: 9.5)).lineLimit(1).minimumScaleFactor(0.8)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(Color.primary.opacity(0.06)))
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(masks.count >= PhotoMasks.limit)
-                        .help(masks.count >= PhotoMasks.limit ? "A photo has up to \(PhotoMasks.limit) masks" : "New mask: \(kind.title)")
-                    }
-                }
-            }
+            ForEach(groups.indices, id: \.self) { g in kindRow(groups[g]) }
+            Text("People").font(.caption).foregroundStyle(.secondary).padding(.top, 2)
+            ForEach(people.indices, id: \.self) { g in kindRow(people[g]) }
         }
         .padding(.horizontal, 8)
     }
+
+    private func kindRow(_ kinds: [MaskPart.Kind]) -> some View {
+        HStack(spacing: 6) {
+            ForEach(kinds) { kind in
+                Button { addMask(kind) } label: {
+                    VStack(spacing: 3) {
+                        Image(systemName: kind.symbol).font(.system(size: 15)).frame(height: 18)
+                        Text(kind.title).font(.system(size: 9.5)).lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .background(RoundedRectangle(cornerRadius: Design.Radius.small).fill(Color.primary.opacity(0.06)))
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .disabled(masks.count >= PhotoMasks.limit)
+                .help(masks.count >= PhotoMasks.limit ? "A photo has up to \(PhotoMasks.limit) masks" : "New mask: \(kind.title)")
+            }
+        }
+    }
+
+    /// Whether a mask has a part of people (then the faces are counted, for the person menu).
+    private var wantsFaces: Bool { masks.contains { $0.shape.contains { $0.kind.isFace } } }
 
     private func available(_ kind: MaskPart.Kind) -> Bool { kind != .object || PhotoMasks.canFindObjects }
 
@@ -75,6 +93,9 @@ struct PhotoMaskPanel: View {
                 HStack(spacing: 6) {
                     Image(systemName: mask.symbol).frame(width: 18)
                     Text(mask.parts.count > 1 ? "\(mask.title) +\(mask.parts.count - 1)" : mask.title).lineLimit(1)
+                    if faces == 0, mask.shape.contains(where: { $0.kind.isFace }) {
+                        Text("No face found").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
                     Spacer(minLength: 0)
                 }
                 .contentShape(.rect)
@@ -214,6 +235,8 @@ struct PhotoMaskPanel: View {
             partSlider("Range", part, in: mask, \.hueRange, 5...180)
         case .subject, .people:
             EmptyView()
+        case .face, .faceSkin, .bodySkin, .eyes, .brows, .lips, .teeth, .hair:
+            personPicker(part, in: mask)
         case .sky, .depth:
             depthFinder
             if part.kind == .depth, depth.state == .ready {
@@ -225,6 +248,24 @@ struct PhotoMaskPanel: View {
     }
 
     @State private var depth = PhotoDepth.shared
+    /// How many faces this photo has (nil: not counted yet).
+    @State private var faces: Int?
+
+    /// Which person, when there's more than one face (left to right).
+    @ViewBuilder private func personPicker(_ part: MaskPart, in mask: PhotoMask) -> some View {
+        if let faces, faces > 1 {
+            Picker("Person", selection: Binding(get: { part.person ?? -1 },
+                                                set: { new in updatePart(part.id, in: mask.id) { $0.person = new < 0 ? nil : new } })) {
+                Text("All People").tag(-1)
+                ForEach(0..<faces, id: \.self) { i in Text("Person \(i + 1)").tag(i) }
+            }
+            .pickerStyle(.menu)
+            .fixedSize()
+            .font(.callout)
+            .controlSize(.small)
+            .padding(.horizontal, 8)
+        }
+    }
 
     /// The depth finder (Sky and Depth Range need it): an optional download, run on this Mac.
     @ViewBuilder private var depthFinder: some View {

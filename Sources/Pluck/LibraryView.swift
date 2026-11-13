@@ -19,11 +19,11 @@ struct LibraryView: View {
         NotificationCenter.default.post(name: showNotification, object: nil)
     }
     #endif
-    @State private var search = LibraryView.startSearch
+    @State private var search = ""
     /// The Library split in two: what the right side shows.
 
 
-    /// A search to start with (screenshots).
+    /// A search to start with (Home's field, screenshots): used once, as the Library shows.
     @MainActor static var startSearch = ""
     /// The search field to be typed in as the Library shows (⇧⌘F).
     @MainActor static var focusSearch = false
@@ -50,7 +50,8 @@ struct LibraryView: View {
     @AppStorage("librarySidebarShown") private var sidebarShown = true
     #endif
     /// The cards' smallest width: Studio's header has a slider for it.
-    @AppStorage("libraryCardSize") private var cardSize = Edition.isStudio ? 150.0 : 190
+    /// Studio keeps its own size (Basic Pluck's grid is bigger).
+    @AppStorage(Edition.isStudio ? "studioLibraryCardSize" : "libraryCardSize") private var cardSize = Edition.isStudio ? 150.0 : 190
     /// Every highlighted item (Shift-click for a run, Command-click for one more), and where a
     /// Shift-click run starts.
     @State private var selection: Set<String> = []
@@ -215,7 +216,12 @@ struct LibraryView: View {
             #if STUDIO
             // As in the reference: search in the middle; sidebar, details and settings on the right.
             ToolbarItem(placement: .principal) {
-                StudioSearchField(text: $search, prompt: searchPrompt, focused: $searchFocused)
+                // The last searches offered while it's empty; Escape clears it; ⌘F types in it.
+                StudioSearchField(text: $search, prompt: searchPrompt, focused: $searchFocused, suggestions: VisualSearchView.recentSearches)
+                    .onExitCommand { search = "" }
+                    .background {
+                        Button("") { searchFocused = true }.keyboardShortcut("f").opacity(0).accessibilityHidden(true)
+                    }
             }.studioFlat()
             ToolbarItem {
                 Button { sidebarShown.toggle() } label: { Label("Sidebar", systemImage: "sidebar.leading") }
@@ -303,6 +309,7 @@ struct LibraryView: View {
         .frame(minWidth: 760, minHeight: 460)
         .onAppear {
             Self.startCollection = nil
+            if !Self.startSearch.isEmpty { search = Self.startSearch; Self.startSearch = "" }
             takeFocus()
             checkFiles()
             network.start()

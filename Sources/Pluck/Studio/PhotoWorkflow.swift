@@ -3,7 +3,7 @@ import SwiftUI
 /// The parts of a photo's settings that can be pasted on their own (as in Lightroom's Paste
 /// Settings and Sync).
 enum PasteGroup: String, CaseIterable, Identifiable, Codable {
-    case profile, light, colour, presence, grading, detail, crop, masks, film
+    case profile, light, colour, presence, grading, detail, crop, masks, spots, film
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         case .detail: String(localized: "Detail")
         case .crop: String(localized: "Crop")
         case .masks: String(localized: "Masks")
+        case .spots: String(localized: "Spot Heal")
         case .film: String(localized: "Film")
         }
     }
@@ -34,6 +35,8 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
             record.adjust.exposure = from.exposure; record.adjust.contrast = from.contrast
             record.adjust.highlights = from.highlights; record.adjust.shadows = from.shadows
             record.adjust.whites = from.whites; record.adjust.blacks = from.blacks
+            // (A roll's negatives share their base and print: synced with the light.)
+            record.adjust.negative = from.negative
         case .colour:
             record.adjust.temperature = from.temperature; record.adjust.tint = from.tint
             record.adjust.vibrance = from.vibrance; record.adjust.saturation = from.saturation
@@ -46,6 +49,8 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
             // (Grain goes with Presence too: Lightroom's Effects.)
             record.adjust.grain = from.grain; record.adjust.grainSize = from.grainSize; record.adjust.grainRoughness = from.grainRoughness
             record.adjust.glow = from.glow; record.adjust.glowSize = from.glowSize; record.adjust.glowMode = from.glowMode
+            // (Lens Blur and Fog too: effects.)
+            record.adjust.depth = from.depth
         case .grading:
             record.adjust.mixer = from.mixer; record.adjust.curves = from.curves; record.adjust.wheels = from.wheels
         case .detail:
@@ -54,19 +59,24 @@ enum PasteGroup: String, CaseIterable, Identifiable, Codable {
         case .crop:
             record.adjust.crop = from.crop; record.adjust.cropRect = from.cropRect
             record.adjust.cropPortrait = from.cropPortrait; record.adjust.straighten = from.straighten
+            record.adjust.perspective = from.perspective
+            // (A lens's corrections are the same on every shot from it.)
+            record.adjust.lens = from.lens
         case .masks:
             record.adjust.masks = from.masks
+        case .spots:
+            record.adjust.spots = from.spots
         case .film:
             record.filmOn = copied.filmOn; record.film = copied.film
         }
-        if self != .film, self != .crop { record.adjust.process = from.process }
+        if self != .film, self != .crop, self != .spots { record.adjust.process = from.process }
     }
 
     /// The groups last chosen in Choose What to Paste.
     static var chosen: Set<PasteGroup> {
         get {
             let saved = UserDefaults.standard.stringArray(forKey: "photoPasteGroups")?.compactMap(PasteGroup.init(rawValue:))
-            return Set(saved ?? allCases.filter { $0 != .crop && $0 != .masks })
+            return Set(saved ?? allCases.filter { $0 != .crop && $0 != .masks && $0 != .spots })
         }
         set { UserDefaults.standard.set(newValue.map(\.rawValue), forKey: "photoPasteGroups") }
     }

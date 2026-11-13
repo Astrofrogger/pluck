@@ -144,7 +144,7 @@ extension PhotoSelfTest {
         let up = mist.updated(isRaw: true)
         var crisp = PhotoAdjustments(); crisp.process = 4; crisp.clarity = 30
         let upCrisp = crisp.updated(isRaw: true)
-        check("update turns the mist into glow", up.process == 5 && up.clarity == 0 && abs(up.glow - 40 * PhotoAdjustments.mistToGlow) < 1e-9 && up.glowMode == .screen
+        check("update turns the mist into glow", up.process == PhotoAdjustments.currentProcess && up.clarity == 0 && abs(up.glow - 40 * PhotoAdjustments.mistToGlow) < 1e-9 && up.glowMode == .screen
               && upCrisp.clarity == 30 && upCrisp.glow == 0, "\(up.clarity) \(up.glow) \(up.glowMode); \(upCrisp.clarity) \(upCrisp.glow)")
         // Saved before Glow: decodes with none.
         let saved = try? JSONDecoder().decode(PhotoAdjustments.self, from: Data(#"{"process":4,"clarity":-20}"#.utf8))

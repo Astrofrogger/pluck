@@ -338,9 +338,9 @@ extension PhotoSelfTest {
             }
         }
         BaseCache.shared.removeAll(); GuideCache.shared.removeAll()
-        // The Curves section on two kinds, and the Colour Mixer with points, as the inspector draws them (dark), folds open.
+        // The Colour curves section on two kinds, and the Colour Mixer with points, as the inspector draws them (dark), folds open.
         let defaults = UserDefaults.standard
-        let was = ["fold-curves", "fold-mixer"].map { ($0, defaults.object(forKey: $0)) }
+        let was = ["fold-colourCurves", "fold-mixer"].map { ($0, defaults.object(forKey: $0)) }
         for (key, _) in was { defaults.set(true, forKey: key) }
         defer { for (key, value) in was { defaults.set(value, forKey: key) } }
         var curves = PhotoCurves()
@@ -350,10 +350,10 @@ extension PhotoSelfTest {
         mixer.points = [ColourPoint(hue: 55, sat: 0.16, lum: 0.72, range: 40, hueShift: -15, saturation: 20),
                         ColourPoint(hue: 230, sat: 0.22, lum: 0.55, range: 60, luminance: -40), ColourPoint(hue: 140, sat: 0.12, lum: 0.5)]
         let shots: [(String, CGFloat, AnyView)] = [
-            ("ui-curves-hue-sat", 380, AnyView(AdjustFold(title: "Curves", section: .curves, adjust: PhotoAdjustments(), open: true, reset: {}) {
-                CurvesEditor(curves: curves, colour: true, start: .hueSat) { _ in } })),
-            ("ui-curves-lum-sat", 380, AnyView(AdjustFold(title: "Curves", section: .curves, adjust: PhotoAdjustments(), open: true, reset: {}) {
-                CurvesEditor(curves: curves, colour: true, start: .lumSat) { _ in } })),
+            ("ui-curves-hue-sat", 380, AnyView(AdjustFold(title: "Colour curves", section: .colourCurves, adjust: PhotoAdjustments(), open: true, reset: {}) {
+                CurvesEditor(curves: curves, colour: true, start: .hueSat, part: .colour) { _ in } })),
+            ("ui-curves-lum-sat", 380, AnyView(AdjustFold(title: "Colour curves", section: .colourCurves, adjust: PhotoAdjustments(), open: true, reset: {}) {
+                CurvesEditor(curves: curves, colour: true, start: .lumSat, part: .colour) { _ in } })),
             ("ui-point-colour", 250, AnyView(AdjustFold(title: "Colour Mixer", section: .mixer, adjust: PhotoAdjustments(), open: true, reset: {}) {
                 ColorMixerEditor(mixer: mixer, points: true) { _ in } })),
         ]

@@ -52,7 +52,9 @@ enum ScreenshotMode {
 
         // Show Pluck's windows on whichever desktop is in front (also over a full-screen app), so
         // they're drawn and can be captured. Repeats for a while to catch windows opened later.
-        var rounds = 0
+        // -PluckScreenshotQuiet YES: renders in the background (launched hidden), never brought to the front.
+        let quiet = defaults.bool(forKey: "PluckScreenshotQuiet")
+        var rounds = quiet ? 31 : 0
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
             MainActor.assumeIsolated {
                 // A Pluck that was hidden (⌘H) when it quit comes back hidden.
@@ -122,10 +124,12 @@ enum ScreenshotMode {
         let item = finished.first { wanted == nil || $0.title.hasPrefix(wanted!) } ?? finished.first
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            // In front and active, like a window someone is using.
-            NSApp.setActivationPolicy(.regular)
-            NSApp.activate()
-            NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            // In front and active, like a window someone is using (not when rendering quietly in the background).
+            if !defaults.bool(forKey: "PluckScreenshotQuiet") {
+                NSApp.setActivationPolicy(.regular)
+                NSApp.activate()
+                NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
+            }
             if let size = defaults.string(forKey: "PluckScreenshotSize")?.split(separator: "x").compactMap({ Double($0) }), size.count == 2,
                let window = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) {
                 window.setContentSize(NSSize(width: size[0], height: size[1]))

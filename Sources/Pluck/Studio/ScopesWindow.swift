@@ -152,7 +152,7 @@ final class ScopeHub {
     /// The file or project the scopes are of.
     private(set) var name = ""
     /// The window is open: only then is anything measured.
-    var open = false { didSet { restartTimer(); measure() } }
+    var open = false { didSet { if !open { detachOutput() }; restartTimer(); measure() } }
     private(set) var frame: ScopeFrame?
 
     @ObservationIgnored private var photoImage: CIImage?
@@ -222,6 +222,8 @@ final class ScopeHub {
             item.add(fresh)
             output = fresh
             outputItem = item
+            // A paused item gives a new output no frame until it moves: the same place again, exactly.
+            if player.rate == 0 { player.seek(to: player.currentTime(), toleranceBefore: .zero, toleranceAfter: .zero) }
         }
         guard let output else { return }
         let time = output.itemTime(forHostTime: CACurrentMediaTime())
@@ -229,6 +231,13 @@ final class ScopeHub {
               let buffer = output.copyPixelBuffer(forItemTime: time, itemTimeForDisplay: nil) else { return }
         editImage = CIImage(cvPixelBuffer: buffer)
         measure()
+    }
+
+    /// The window closed: the player stops handing frames to it.
+    private func detachOutput() {
+        if let output, let outputItem { outputItem.remove(output) }
+        output = nil
+        outputItem = nil
     }
 }
 

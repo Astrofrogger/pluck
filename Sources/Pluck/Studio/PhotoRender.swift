@@ -584,12 +584,20 @@ enum PhotoRender {
     /// `overlay`: the mask shown in red (version 2), while it's edited.
     static func adjusted(_ image: CIImage, _ a: PhotoAdjustments, isRaw: Bool, kelvin: Double, scene: Bool = false, crop: Bool = true,
                          path: String? = nil, cacheKey: String? = nil, overlay: Int? = nil, peak: Double = 1, baseline: Double = 0) -> CIImage {
-        let base = image
+        // A film negative made positive before anything else (none: the same image and key).
+        // Then the lens's vignetting and fringes (they move nothing, so spots and masks keep their places).
+        let positive = PhotoLens.shaded(a.lens, PhotoNegative.apply(a.negative, to: image))
+        let cacheKey = PhotoLens.key(PhotoNegative.key(cacheKey, a.negative), a.lens)
+        let base = positive
         // Version 2 develops the masks in the same pass (their shapes as one small layer).
         let modern = a.process >= 2
         let shapes = modern && !a.masks.isEmpty ? path.flatMap { PhotoMasks.layer(a.masks, path: $0, base: base, context: context) } : nil
-        var image = PhotoEngine.develop(image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene, cacheKey: cacheKey,
-                                        masks: shapes, overlay: overlay, peak: peak, baseline: baseline)
+        // Spots first, on the decoded photo (so they're placed on it, whatever the crop); none leaves it as it was.
+        // Then Lens Blur and Fog, in linear light before the tone (so highlights bloom); none leaves it as it was too.
+        let deep = PhotoDepthEffects.applied(a.depth, to: PhotoHeal.apply(a.spots, to: positive), key: PhotoHeal.key(cacheKey, a.spots),
+                                             path: path, base: base, context: context)
+        var image = PhotoEngine.develop(deep.image, a, isRaw: isRaw, asShotKelvin: kelvin, scene: scene,
+                                        cacheKey: deep.key, masks: shapes, overlay: overlay, peak: peak, baseline: baseline)
         let long = max(image.extent.width, image.extent.height)
         // A creative profile's own colours, on the picture as Adobe's renderer puts them (after the tone curve).
         let wide = a.process >= 3
@@ -689,10 +697,11 @@ enum PhotoRender {
                  overlay: overlay, peak: peak, baseline: baselineExposure(path))
     }
 
-    /// Straightening and the crop. The crop is kept as shares from the top left of the
+    /// The lens's distortion, straightening, perspective and the crop. The crop is kept as shares from the top left of the
     /// straightened picture; Core Image counts from the bottom left.
     static func geometry(_ image: CIImage, _ a: PhotoAdjustments, crop: Bool = true) -> CIImage {
-        var image = image
+        // (Around the whole frame's middle, filled to the same frame.)
+        var image = a.lens?.warped(image) ?? image
         let extent = image.extent
         if a.straighten != 0 {
             let filter = CIFilter.straighten()
@@ -700,6 +709,8 @@ enum PhotoRender {
             filter.angle = Float(a.straighten * .pi / 180)
             image = (filter.outputImage ?? image).cropped(to: extent)
         }
+        // (Filled to the same frame, so the crop's shares mean the same.)
+        if let perspective = a.perspective { image = perspective.warped(image) }
         guard crop else { return image }
         if let rect = a.cropRect {
             let r = CGRect(x: extent.minX + rect.x * extent.width, y: extent.minY + (1 - rect.y - rect.height) * extent.height,
@@ -1009,7 +1020,7 @@ enum PhotoRender {
         if record.filmOn, let stock = FilmRoute.stock(record.film) {
             func scene() -> CIImage { adjusted(kept.image, record.adjust, path: path, scene: true, cacheKey: kept.key, overlay: overlay) }
             // The scene is kept while only the film changes (a film slider moves): a preview's few, the full size's last one.
-            let depth = !record.adjust.masks.isEmpty && SceneCache.depthReady
+            let depth = (!record.adjust.masks.isEmpty || record.adjust.depth != nil) && SceneCache.depthReady
             let key = SceneCache.Key(base: kept.key, adjust: record.adjust, overlay: overlay, depth: depth)
             // The film always reads a scene worked out beforehand: fed the scene's own passes straight, a film split into
             // tiles can get another tile's scene (Core Image, macOS 27; the self-test "film on screen" shows it). If that
@@ -1066,7 +1077,9 @@ enum PhotoRender {
         plain.adjust.tint = record.adjust.tint
         plain.adjust.rawDecoder = record.adjust.rawDecoder
         guard let kept = base(path, maxSize: 384, record: plain) else { return nil }
-        let light = PhotoEngine.balanced(kept.image, plain.adjust, kelvin: asShotKelvin(path))
+        // (A negative is measured as its positive.)
+        let positive = PhotoLens.shaded(record.adjust.lens, PhotoNegative.apply(record.adjust.negative, to: kept.image))
+        let light = PhotoEngine.balanced(positive, plain.adjust, kelvin: asShotKelvin(path))
         let extent = light.extent.integral
         let width = Int(extent.width), height = Int(extent.height)
         guard width > 0, height > 0 else { return nil }
@@ -1077,7 +1090,7 @@ enum PhotoRender {
         let k = Float(record.adjust.process >= 3 ? exp2(baselineExposure(path)) : 1)
         let luminance = (0..<(width * height)).map { i in k * (0.2126 * pixels[i * 4] + 0.7152 * pixels[i * 4 + 1] + 0.0722 * pixels[i * 4 + 2]) }
         var faces: [CGRect] = []
-        if let shown = picture(PhotoEngine.develop(kept.image, plain.adjust, isRaw: isRaw(path), asShotKelvin: asShotKelvin(path))) {
+        if let shown = picture(PhotoEngine.develop(positive, plain.adjust, isRaw: isRaw(path), asShotKelvin: asShotKelvin(path))) {
             let request = VNDetectFaceRectanglesRequest()
             try? VNImageRequestHandler(cgImage: shown).perform([request])
             faces = request.results?.map(\.boundingBox) ?? []
@@ -1105,6 +1118,8 @@ enum PhotoRender {
         plain.adjust.cropRect = nil
         plain.adjust.crop = .original
         plain.adjust.straighten = 0
+        plain.adjust.perspective = nil
+        plain.adjust.lens?.distortion = 0
         guard let image = image(path, record: plain, maxSize: 640) else { return nil }
         let e = image.extent
         let x = e.minX + point.x * e.width, y = e.maxY - point.y * e.height
@@ -1469,8 +1484,13 @@ enum PhotoRender {
     /// A developed preview, kept by the photo and its settings so the grid can show edits.
     static func cachedPreview(_ path: String, record: PhotoRecord) -> URL {
         var key = path
-        if let data = try? JSONEncoder().encode(record.adjust) { key += String(decoding: data, as: UTF8.self) }
-        if record.filmOn, let data = try? JSONEncoder().encode(record.film) { key += String(decoding: data, as: UTF8.self) }
+        // (Sorted keys: JSONEncoder's own order isn't fixed, so the same edit could get a new name and be made again.)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        if let data = try? encoder.encode(record.adjust) { key += String(decoding: data, as: UTF8.self) }
+        if record.filmOn, let data = try? encoder.encode(record.film) { key += String(decoding: data, as: UTF8.self) }
+        // (Lens Blur and Fog show once the depth finder is there.)
+        if record.adjust.depth != nil, PhotoDepth.isReady { key += "|depth" }
         // Denoised: by the Amount and model, once the clean decode is made (until then it shows without).
         if record.denoise > 0, cleanFile(path, record: record) != nil { key += "|denoise v\(denoiseVersion) \(record.denoiseAI ? "ai" : "") \(record.denoise)" }
         let name = SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()

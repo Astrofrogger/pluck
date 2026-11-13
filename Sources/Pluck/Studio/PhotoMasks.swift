@@ -201,6 +201,8 @@ enum PhotoMasks {
             return scaled(sky, to: size, guide: base, context: context) ?? black
         case .luminance, .colour:
             return CIImage(color: .white).cropped(to: frame)
+        case .face, .faceSkin, .bodySkin, .eyes, .brows, .lips, .teeth, .hair:
+            return scaled(facePart(part.kind, person: part.person, path: path, from: base, context: context), to: size, guide: base, context: context) ?? black
         }
     }
 

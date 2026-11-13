@@ -16,7 +16,8 @@ enum ColourProfiles {
     /// finished picture's colour already has its density).
     /// `v4`: process 4's (Classic and the profiles made from it on Apple's own colour; Accurate and Neutral as version 3's).
     /// `v5`: process 5's (its Standard, `standard5`; the rest as process 4's).
-    static func table(_ profile: PhotoEngine.Profile, isRaw: Bool, v4: Bool = false, v5: Bool = false) -> Data? {
+    static func table(_ profile: PhotoEngine.Profile, isRaw: Bool, v4: Bool = false, v5: Bool = false, v6: Bool = false) -> Data? {
+        if v6, let made = (isRaw ? tables6 : tables6Picture)[profile] { return made }
         if (profile == .accurate || profile == .neutral) && !isRaw { return nil }
         if v5, profile == .standard { return standardTable5 }
         return (v4 ? tables4[profile] : nil) ?? tables[profile]
@@ -34,10 +35,102 @@ enum ColourProfiles {
                                           -2.7, -0.3, 2.6, 3.6, 3.5, 2.2, 0.6, -0.2, -0.3, 0.8, 2.8, 6.8]
 
     static func standard5(_ pro: SIMD3<Double>) -> SIMD3<Double> {
-        okLCh(density: 0) { L, C, h in
-            let k = periodic(standard5Chroma, h), strong = smoothstep(0.25, 0.5, C / max(L, 1e-6))
-            return (C * (1 + (k - 1) * (1 - 0.5 * strong)), h + periodic(standard5Turn, h))
-        }(pro)
+        okLCh(density: 0, standard5LCh)(pro)
+    }
+
+    /// Standard's change in OkLCh (process 5), for the profiles process 6 builds on it.
+    static func standard5LCh(_ L: Double, _ C: Double, _ h: Double) -> (Double, Double) {
+        let k = periodic(standard5Chroma, h), strong = smoothstep(0.25, 0.5, C / max(L, 1e-6))
+        return (C * (1 + (k - 1) * (1 - 0.5 * strong)), h + periodic(standard5Turn, h))
+    }
+
+    // MARK: - Process 6: profiles with a character of their own
+
+    /// Process 6's tables: Vivid, Landscape, Portrait and Monochrome made clearly different (the owner, 2026-11-13: "they all
+    /// look alike"), each on Standard's natural colour for RAW, on the picture's own colour otherwise. The others as before.
+    private static let tables6: [PhotoEngine.Profile: Data] = {
+        var made: [PhotoEngine.Profile: Data] = [:]
+        for profile in PhotoEngine.Profile.looks6 {
+            made[profile] = table(change6(profile, raw: true)).withUnsafeBufferPointer { Data(buffer: $0) }
+        }
+        return made
+    }()
+
+    private static let tables6Picture: [PhotoEngine.Profile: Data] = {
+        var made: [PhotoEngine.Profile: Data] = [:]
+        for profile in PhotoEngine.Profile.looks6 {
+            made[profile] = table(change6(profile, raw: false)).withUnsafeBufferPointer { Data(buffer: $0) }
+        }
+        return made
+    }()
+
+    static func change6(_ profile: PhotoEngine.Profile, raw: Bool) -> (SIMD3<Double>) -> SIMD3<Double> {
+        // RAW starts from Standard's natural colour; a finished picture from its own.
+        func start(_ L: Double, _ C: Double, _ h: Double) -> (Double, Double) { raw ? standard5LCh(L, C, h) : (C, h) }
+        switch profile {
+        case .vivid:
+            // Bloom: punchy contrast; every colour richer, the quiet ones most (as Vibrance), skin held back; skies a touch
+            // towards cyan, foliage a touch towards yellow; colour a little deeper.
+            return okLCh(density: 0.6, dense: dense4) { L, C, h in
+                let (c, hue) = start(L, C, h)
+                let quiet = 1 - smoothstep(0, 0.3, c / max(L, 1e-6))
+                let skin = band(hue, 55, 20), sky = band(hue, 245, 25), leaf = band(hue, 135, 25), warm = band(hue, 35, 18)
+                // (Near-greys and near-whites left clean: the boost fades in from colourfulness 0.015 to 0.06.)
+                let colour = smoothstep(0.015, 0.06, c / max(L, 1e-6))
+                return (c * (1 + (0.3 + 0.25 * quiet) * (1 - 0.6 * skin) * colour + 0.05 * warm * colour),
+                        hue - (3 * sky + 3 * leaf) * colour)
+            }
+        case .landscape:
+            // Wild: deep shadows, open highlights; greens, skies and water fuller, autumn colour warmer; skin and reds as they are.
+            return okLCh(density: 1, dense: dense4) { L, C, h in
+                let (c, hue) = start(L, C, h)
+                let leaf = band(hue, 138, 30), spring = band(hue, 112, 20), sky = band(hue, 240, 30), water = band(hue, 205, 22)
+                let autumn = band(hue, 75, 24), skin = band(hue, 55, 15)
+                let colour = smoothstep(0.015, 0.06, c / max(L, 1e-6))
+                let k = 1 + (0.35 * leaf + 0.15 * spring + 0.35 * sky + 0.2 * water + 0.2 * autumn) * (1 - skin) * colour
+                return (c * k, hue - (4 * leaf + 5 * sky) * colour)
+            }
+        case .portrait:
+            // Honey: soft and warm from its tone; skin drawn a little together (towards 58°), reds a touch towards orange;
+            // greens, blues and magentas a little quieter, so people stand out.
+            return okLCh(density: 0.35, dense: dense4) { L, C, h in
+                let (c, hue) = start(L, C, h)
+                let skin = band(hue, 58, 24), red = band(hue, 25, 12), green = band(hue, 140, 35), blue = band(hue, 240, 35)
+                let magenta = band(hue, 330, 25)
+                let k = (1 + 0.03 * skin) * (1 - 0.08 * red) * (1 - 0.15 * green) * (1 - 0.12 * blue) * (1 - 0.1 * magenta)
+                return (c * k, hue + toward(hue, 58) * 0.35 * skin + 3 * red)
+            }
+        case .mist:
+            // Mist: airy and soft from its tone (lifted blacks, low whites); every colour a little calmer (the strong ones most),
+            // warm colours kept a little more so skin stays alive; no density (colours stay light).
+            return okLCh(density: 0) { L, C, h in
+                let (c, hue) = start(L, C, h)
+                let strong = smoothstep(0.1, 0.4, c / max(L, 1e-6))
+                let warm = band(hue, 55, 30)
+                return (c * (0.86 - 0.1 * strong + 0.06 * warm), hue)
+            }
+        case .dusk:
+            // Dusk: a late-light feel from its tone (soft, low highlights); colour: warm hues a touch fuller and towards orange,
+            // greens a touch quieter; a little density.
+            return okLCh(density: 0.5, dense: dense4) { L, C, h in
+                let (c, hue) = start(L, C, h)
+                let colour = smoothstep(0.015, 0.06, c / max(L, 1e-6))
+                let warm = band(hue, 55, 28), yellow = band(hue, 95, 18), green = band(hue, 140, 30)
+                return (c * (1 + (0.1 * warm - 0.1 * green) * colour), hue + (toward(hue, 55) * 0.15 * warm - 4 * yellow) * colour)
+            }
+        case .monochrome:
+            // Ink: as through an orange filter: blues and skies much darker, greens darker, oranges, reds and skin lighter.
+            return { pro in
+                let s = mul(PhotoEngine.fromProPhoto, pro)
+                let (L, a, b) = OkLab.from(s.x, s.y, s.z)
+                let C = (a * a + b * b).squareRoot(), h = atan2(b, a) * 180 / .pi
+                let hue = h < 0 ? h + 360 : h, colour = min(1, C / max(L, 1e-6) / 0.25)
+                let k = 1 - 0.55 * band(hue, 250, 35) * colour - 0.28 * band(hue, 150, 30) * colour + 0.25 * band(hue, 50, 35) * colour
+                return pro * max(k, 0.4)
+            }
+        default:
+            return change(profile)
+        }
     }
 
     private static let tables: [PhotoEngine.Profile: Data] = {
@@ -180,6 +273,12 @@ enum ColourProfiles {
     }
 
     // MARK: - Colour
+
+    /// The way from `h` to `target` round the circle (degrees, −180…180).
+    static func toward(_ h: Double, _ target: Double) -> Double {
+        let d = (target - h).truncatingRemainder(dividingBy: 360)
+        return d > 180 ? d - 360 : d < -180 ? d + 360 : d
+    }
 
     /// A Gaussian band of hues (degrees), 1 at its centre.
     static func band(_ h: Double, _ centre: Double, _ width: Double) -> Double {

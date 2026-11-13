@@ -396,9 +396,7 @@ private struct ProjectClipPanel: View {
                 }
             }
             HStack {
-                Toggle("Lower under speech", isOn: Binding(get: { song.duck != nil }, set: { on in model.setMusic(song.id) { $0.duck = on ? -12 : nil } }))
-                    .toggleStyle(StudioSwitchStyle())
-                    .controlSize(.small)
+                StudioSwitchRow(title: "Lower under speech", isOn: Binding(get: { song.duck != nil }, set: { on in model.setMusic(song.id) { $0.duck = on ? -12 : nil } }))
                     .help("The song drops while someone speaks in the clips, and comes back after")
                 Spacer()
             }
@@ -933,9 +931,7 @@ private struct ProjectSubtitlesPanel: View {
                 let lines = model.subtitles
                 let missing = files.filter { !transcribed.contains($0) }
                 HStack {
-                    Toggle("Show and burn in", isOn: Binding(get: { model.project.subtitlesOn == true }, set: { model.setSubtitles(on: $0) }))
-                        .toggleStyle(StudioSwitchStyle())
-                        .controlSize(.small)
+                    StudioSwitchRow(title: "Show and burn in", isOn: Binding(get: { model.project.subtitlesOn == true }, set: { model.setSubtitles(on: $0) }))
                     Spacer()
                     Button("Export…", systemImage: "square.and.arrow.down") {
                         SubtitleSaver.save(model.project.subtitleCues, name: model.project.name)

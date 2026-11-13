@@ -19,7 +19,7 @@ enum PhotoEngine {
         /// Lightroom edit or preset starts from an Adobe profile; on other photos it's As Shot.
         /// Version 3's own (ColourProfiles): Accurate, Landscape and Portrait; earlier versions show them as Neutral.
         /// (New ones only ever at the end: the shaders know the others by their place.)
-        case neutral, standard, vivid, flat, monochrome, asShot, adobe, accurate, landscape, portrait
+        case neutral, standard, vivid, flat, monochrome, asShot, adobe, accurate, landscape, portrait, mist, dusk
         var id: String { rawValue }
         /// The profile a photo starts from (`a.profile` nil): Standard for RAW from process 5 (natural colour, Apple's default
         /// as the anchor); Classic for RAW in 3 and 4, as Lightroom starts from Adobe Color; Neutral for RAW before; As Shot
@@ -39,15 +39,52 @@ enum PhotoEngine {
             case .accurate: String(localized: "Accurate")
             case .landscape: String(localized: "Landscape")
             case .portrait: String(localized: "Portrait")
+            case .mist: String(localized: "Mist")
+            case .dusk: String(localized: "Dusk")
+            }
+        }
+        /// The name shown for a photo in this process: process 6's looks have names of their own (the owner, 2026-11-13: away
+        /// from the usual ones), so an earlier edit keeps the name its look had.
+        func name(process: Int) -> String {
+            guard process >= 6 else { return title }
+            return switch self {
+            case .vivid: String(localized: "Bloom")
+            case .landscape: String(localized: "Wild")
+            case .portrait: String(localized: "Honey")
+            case .monochrome: String(localized: "Ink")
+            default: title
             }
         }
         /// Version 3's own profiles (ColourProfiles).
         var isNew: Bool { [.accurate, .landscape, .portrait].contains(self) }
+        /// Process 6's looks: their own colour, contrast (PhotoEngine.base6) and tint (`tint6`).
+        static let looks6: [Profile] = [.vivid, .landscape, .portrait, .mist, .dusk, .monochrome]
+
+        /// Process 6: a look's slight cast over the whole picture (the Offset wheel's push, x red–cyan, y yellow–blue), on top
+        /// of the photo's own (a wheel's colour is linear in x and y, so the two add). Shadows and highlights keep their colour
+        /// (the owner, 2026-11-13: tone and contrast make the look, colour only a slight shift over the entire image).
+        /// Not with the film's light.
+        static func tinted(_ a: PhotoAdjustments, _ shown: Profile, scene: Bool) -> PhotoAdjustments {
+            guard a.process >= 6, !scene, let t = cast6[shown] else { return a }
+            var b = a
+            b.wheels.offset.x += t.x; b.wheels.offset.y += t.y
+            return b
+        }
+
+        static let cast6: [Profile: SIMD2<Double>] = [
+            .portrait: SIMD2(0.035, 0.03), .mist: SIMD2(-0.02, -0.015), .dusk: SIMD2(0.03, 0.01),
+        ]
         /// The profiles to choose from: RAW has Classic, other photos As Shot; version 3 has its own instead of Flat (still
         /// shown while chosen); earlier versions don't have version 3's. Standard is in every version's list (process 5 has
         /// its own: `isStandard5`; before, the earlier one, unchanged).
+        /// Process 6: Standard, Neutral (Flat and Accurate folded into it) and the looks; Classic and the others only while chosen.
         static func choices(raw: Bool, process: Int, chosen: Profile?) -> [Profile] {
-            allCases.filter { p in
+            if process >= 6 {
+                let list: [Profile] = [.standard, .neutral] + looks6
+                return (raw ? list : [.asShot] + list) + (chosen.map { list.contains($0) || $0 == .asShot ? [] : [$0] } ?? [])
+            }
+            return allCases.filter { p in
+                ![.mist, .dusk].contains(p) &&
                 (raw ? p != .asShot : p != .adobe)
                     && (process >= 3 ? p != .flat || p == chosen : !p.isNew || p == chosen)
             }
@@ -84,7 +121,7 @@ enum PhotoEngine {
         let extent = image.extent
         let modern = a.process >= 2
         let profile = Profile.starting(a, isRaw: isRaw)
-        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile.isNew && a.process < 3 ? .neutral : profile
+        let shown = profile == .asShot && isRaw ? .standard : profile == .adobe && !isRaw ? .asShot : profile.isNew && a.process < 3 || [.mist, .dusk].contains(profile) && a.process < 6 ? .neutral : profile
         // Process 5: a finished picture (JPEG, HEIC) keeps its own tone whatever the profile (`picture5`: only the profile's
         // colour and look, see pictureTone); RAW's Neutral sits at Classic's mid grey (`neutralLift5`).
         let v5 = a.process >= 5, picture5 = v5 && !isRaw
@@ -119,11 +156,11 @@ enum PhotoEngine {
             layers = make(exposed)
         }
         // (Version 3: every profile but Neutral, Standard and Flat on Adobe's curve, at Classic's mid grey; process 5's Standard too.)
-        let base = modern && !picture5 && (shown == .adobe || a.process >= 3 && [.accurate, .vivid, .landscape, .portrait, .monochrome].contains(shown)
+        let base = modern && !picture5 && (shown == .adobe || a.process >= 3 && [.accurate, .vivid, .landscape, .portrait, .monochrome, .mist, .dusk].contains(shown)
                               || a.process >= 5 && shown == .standard)
         // Process 5's Texture keeps out the photo's noise: its noise at each brightness (PhotoRender.noiseModel).
         let noise = v5 && (a.texture > 0 || local.contains { $0.texture > 0 }) ? PhotoRender.noiseModel(image, key: cacheKey) : nil
-        let table = a.process >= 3 ? ColourProfiles.table(shown, isRaw: isRaw, v4: a.process >= 4 && !picture5, v5: v5 && isRaw) : nil
+        let table = a.process >= 3 ? ColourProfiles.table(shown, isRaw: isRaw, v4: a.process >= 4 && !picture5, v5: v5 && isRaw, v6: a.process >= 6) : nil
         func params(_ a: PhotoAdjustments, shift: Float) -> Params {
             var p = Params()
             p.shadows = Float(a.shadows / 100)
@@ -170,7 +207,7 @@ enum PhotoEngine {
         var p = params(a, shift: shift)
         p.masks = Int32(local.count)
         p.overlay = Float(overlay.map { $0 < local.count ? $0 : -1 } ?? -1)
-        var all = [p], grades = [Grade(a, scene: scene, isRaw: isRaw)], infos: [MaskInfo] = []
+        var all = [p], grades = [Grade(Profile.tinted(a, shown, scene: scene), scene: scene, isRaw: isRaw)], infos: [MaskInfo] = []
         // Each mask: the photo's settings with the mask's changes, and its own white balance
         // and exposure as a matrix on top of the photo's.
         for mask in local {
@@ -188,7 +225,7 @@ enum PhotoEngine {
             own.hazeG = Float(change[3] * h[0] + change[4] * h[1] + change[5] * h[2])
             own.hazeB = Float(change[6] * h[0] + change[7] * h[1] + change[8] * h[2])
             all.append(own)
-            grades.append(Grade(m, scene: scene, isRaw: isRaw))
+            grades.append(Grade(Profile.tinted(m, shown, scene: scene), scene: scene, isRaw: isRaw))
             var info = MaskInfo()
             info.m0 = SIMD4(Float(change[0]), Float(change[3]), Float(change[6]), 0)
             info.m1 = SIMD4(Float(change[1]), Float(change[4]), Float(change[7]), 0)
@@ -220,7 +257,7 @@ enum PhotoEngine {
         let grade = grades.withUnsafeBytes { Data($0) }
         let info = infos.withUnsafeBytes { Data($0) }
         let curves = modern && (!a.curves.tonesDefault || base)
-            ? curveTable(a.curves, base: base ? (a.process >= 4 ? adobeBaseV4 : a.process >= 3 ? adobeBaseV3 : adobeBase) : nil) : Data(count: 16)
+            ? curveTable(a.curves, base: base ? (a.process >= 6 ? base6(shown) : a.process >= 4 ? adobeBaseV4 : a.process >= 3 ? adobeBaseV3 : adobeBase) : nil) : Data(count: 16)
         // (Process 5's colour curves and points; an overlay under −1 is a point shown in red, see colourTools.)
         let tools = v5 && !scene ? colourTools(a, shown: overlay.map { -2 - $0 }) : nil
         guard let developed = try? apply(DevelopPass.self, extent: extent, inputs: inputs, arguments: [
@@ -652,15 +689,20 @@ enum PhotoEngine {
         let v3 = a.process >= 3
         // Process 5's Standard: Classic's curve as it is (Apple's brightness), its colour from its table.
         let standard5 = a.process >= 5 && profile == .standard
-        let look: Double = switch profile {
+        // (Process 6: the profiles on Classic's curve get their contrast from their own shape on it, base6.)
+        let shaped6 = a.process >= 6 && Profile.looks6.contains(profile)
+        let profileLook: Double = switch profile {
         case .standard: standard5 ? 1 : 1.2
         case .vivid: v3 ? 1.15 : 1.25
         case .flat: 0.8
         case .monochrome: 1.06
         case .landscape: 1.1
         case .portrait: 0.92
+        // (Process 6's Neutral takes in Flat: a little softer, a starting point to grade from.)
+        case .neutral: a.process >= 6 ? 0.9 : 1
         default: 1
         }
+        let look = shaped6 ? 1 : profileLook
         let contrast = 1 + a.contrast / 100 * (a.contrast > 0 ? 0.6 : 0.4)
         let slope = 0.12505 * look * contrast * (hi - lo)
         // Blacks also shape the toe: softer lifts the darkest tones, harder deepens them.
@@ -685,7 +727,7 @@ enum PhotoEngine {
         // (Version 3's Vivid has its colour from its table.)
         p.sat = Float(profile == .vivid ? (v3 ? 1 : 1.35) : profile == .standard && !standard5 ? 1.15 : profile == .flat ? 0.95 : 1)
         // (Process 5: Neutral and Flat keep each colour's hue through the curve too: bright blues went purple, reds magenta.)
-        p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait].contains(profile) || standard5
+        p.tro = !v3 ? 0 : profile == .accurate ? 1 : [.adobe, .vivid, .landscape, .portrait, .mist, .dusk].contains(profile) || standard5
             || a.process >= 5 && [.neutral, .flat].contains(profile) ? 2 : 0
         p.mono = profile == .monochrome ? 1 : 0
         p.peak = Float(max(peak, 1))
@@ -719,6 +761,28 @@ enum PhotoEngine {
     /// four RAWs' low-colour pixels. `appleTone` maps that lightness back, the same for every photo.
     static let adobeBaseV4 = adobeBase(matchingNeutral: false, sooner: 0.6).map(appleTone)
 
+    /// Process 6: Classic's curve with each profile's own contrast on it, pivoting on mid grey so the brightness stays:
+    /// `low` and `high` the strength below and above (over 1 more contrast), `lift` the blacks raised.
+    static func base6(_ profile: Profile) -> [Double] { base6Cache[profile] ?? adobeBaseV4 }
+
+    private static let base6Cache: [Profile: [Double]] = {
+        // `roof`: the whites held under white (a matte top).
+        let shapes: [Profile: (low: Double, high: Double, lift: Double, roof: Double)] = [
+            .vivid: (1.32, 1.3, 0, 1), .landscape: (1.42, 1.12, 0, 1), .portrait: (0.84, 0.9, 0.025, 0.985),
+            .mist: (0.7, 0.72, 0.06, 0.95), .dusk: (1.3, 0.82, 0.02, 0.97), .monochrome: (1.4, 1.32, 0, 1),
+        ]
+        // The pivot: Classic's own output for a mid grey (the curve's input there is Neutral's tone of 0.18), so the
+        // profiles' brightness stays Classic's.
+        let e = LookTable.toSRGB(neutralGrey(0.18)) * 127, i = min(Int(e), 126), f = e - Double(i)
+        let pivot = adobeBaseV4[i] * (1 - f) + adobeBaseV4[i + 1] * f
+        return shapes.mapValues { s in
+            adobeBaseV4.map { y in
+                let shaped = y < pivot ? pivot * pow(max(y, 0) / pivot, s.low) : 1 - (1 - pivot) * pow(max(1 - y, 0) / (1 - pivot), s.high)
+                return s.lift + (s.roof - s.lift) * shaped
+            }
+        }
+    }()
+
     /// Pluck's OkLab lightness → Apple's (grey), read linearly between the measured points.
     static let appleTonePoints: [(pluck: Double, apple: Double)] = [
         (0, 0), (0.146, 0.153), (0.279, 0.25), (0.401, 0.35), (0.512, 0.45), (0.622, 0.55), (0.7235, 0.65), (0.815, 0.75), (0.899, 0.85), (1, 1),
@@ -732,10 +796,14 @@ enum PhotoEngine {
         return LookTable.toSRGB(out * out * out)
     }
 
+    /// The edit Neutral's curve is measured on for Classic's (and process 6's looks'): process 5's, so process 6's softer
+    /// Neutral doesn't move Classic's curve for any photo.
+    private static let neutralReference: PhotoAdjustments = { var a = PhotoAdjustments(); a.process = 5; return a }()
+
     /// Neutral's grey at the defaults (the shader's tone curve: inset and outset keep grey grey), linear light in and out.
     private static func neutralGrey(_ s: Double) -> Double {
         var p = Params()
-        tone(PhotoAdjustments(), profile: .neutral, into: &p)
+        tone(neutralReference, profile: .neutral, into: &p)
         let x = min(max((log2(max(s * 1.15, 1e-10)) - Double(p.toneLo)) / Double(p.toneHi - p.toneLo), 0), 1)
         let grey = Double(p.toneGrey), y0 = Double(p.toneY), slope = Double(p.toneSlope)
         let y = x >= grey
@@ -756,7 +824,7 @@ enum PhotoEngine {
 
     private static func adobeBase(matchingNeutral: Bool, sooner: Double = 0) -> [Double] {
         var p = Params()
-        tone(PhotoAdjustments(), profile: .neutral, into: &p)
+        tone(neutralReference, profile: .neutral, into: &p)
         let neutral = neutralGrey
         func acr3(_ x: Double) -> Double {
             let y = min(max(x, 0), 1) * Double(adobeCurve.count - 1)

@@ -38,7 +38,7 @@ extension PhotoSelfTest {
         // Standard is process 5's RAW start; process 3 and 4 edits without a profile keep Classic; it's in every list.
         var p5 = PhotoAdjustments(), p4 = PhotoAdjustments(), p3 = PhotoAdjustments()
         p4.process = 4; p3.process = 3
-        check("process 5 raw starts on standard", PhotoAdjustments.currentProcess == 5 && PhotoEngine.Profile.starting(p5, isRaw: true) == .standard
+        check("process 5 raw starts on standard", PhotoAdjustments.currentProcess >= 5 && PhotoEngine.Profile.starting(p5, isRaw: true) == .standard
               && PhotoEngine.Profile.starting(p4, isRaw: true) == .adobe && PhotoEngine.Profile.starting(p3, isRaw: true) == .adobe
               && PhotoEngine.Profile.starting(p5, isRaw: false) == .asShot && p4.updated(isRaw: true).profile == .adobe
               && (3...5).allSatisfy { PhotoEngine.Profile.choices(raw: true, process: $0, chosen: nil).contains(.standard) },

@@ -65,12 +65,15 @@ struct PhotoPage: View {
     @FocusState private var focused: Bool
     @State private var editing = PhotoEditing.shared
 
-    @State private var search = ""
-    @State private var photoIndex = PhotoIndex.shared
 
     init() {
         let defaults = UserDefaults.standard
         if defaults.object(forKey: "photoMoments") == nil, defaults.bool(forKey: "photoStackBursts") { defaults.set(true, forKey: "photoMoments") }
+        // The inspector's width was kept as "photoSidebarWidth" before: carried over once.
+        if let old = defaults.object(forKey: "photoSidebarWidth") as? Double {
+            if defaults.object(forKey: "photoInspectorWidth") == nil { defaults.set(min(max(old, 280), 520), forKey: "photoInspectorWidth") }
+            defaults.removeObject(forKey: "photoSidebarWidth")
+        }
     }
 
     /// What the filters and the search leave, before moments.
@@ -81,13 +84,14 @@ struct PhotoPage: View {
             return record.rating >= minRating && (flagFilter == nil || record.flag == flagFilter) && (labelFilter == nil || record.label == labelFilter)
                 && (checkFilter == nil || fine == checkFilter)
         }
-        // What's in the picture (or its text, or its name).
-        let words = search.split(separator: " ").map(String.init)
+        // Its name, keywords, what's in the picture or the text in it: every word typed.
+        let words = PhotoSearch.words(editing.search)
         if !words.isEmpty {
-            let found = photoIndex.search(words, within: Set(list)).map(\.path)
-            let byName = list.filter { path in words.allSatisfy { PhotoCatalog.displayName(path).localizedCaseInsensitiveContains($0) } }
+            // Every word matched first, then what means the same ("coast" finding the beach), as Find did before tags.
+            let exact = list.filter { PhotoSearch.matches(words, PhotoSearch.words(of: $0)) }
+            let alike = PhotoIndex.shared.search(editing.search.split(separator: " ").map(String.init), within: Set(list)).map(\.path)
             var seen: Set<String> = []
-            list = (found + byName).filter { seen.insert($0).inserted }
+            list = (exact + alike).filter { seen.insert($0).inserted }
         }
         return list
     }
@@ -152,6 +156,7 @@ struct PhotoPage: View {
             if view == .cull, focus != nil, !photos.isEmpty {
                 PhotoCullPage(moments: cullMoments, all: filtered, focus: $focus, selection: $selection, count: cullCount,
                               sync: cullSync, zoomed: cullZoomed, anchor: $cullAnchor)
+                    .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: dropPhotos)
             } else {
             HStack(spacing: 0) {
                 if showsAlbums {
@@ -183,21 +188,14 @@ struct PhotoPage: View {
                     .background(strip ? Color(white: surroundWhite) : Design.Studio.panel, in: panel)
                     .clipShape(panel)
                     .contextMenu { if strip { surroundPicker } }
-                    .overlay(alignment: .bottom) { if strip { photoCounter.padding(.bottom, 14) } }
+                    .overlay(alignment: .bottom) { if strip, !editing.cropping { photoCounter.padding(.bottom, 14) } }
                     if strip {
                         filmstrip
                             .background(Design.Studio.panel, in: panel)
                             .clipShape(panel)
                     }
                 }
-                .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in
-                    Task { @MainActor in
-                        var urls: [URL] = []
-                        for provider in providers { if let url = await provider.load(URL.self) { urls.append(url) } }
-                        importPhotos(urls)
-                    }
-                    return true
-                }
+                .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: dropPhotos)
                 // Browse is for looking and choosing: no edit tools beside the photos (owner, 2026-11-12).
                 if !inspectorHidden && (view == .edit || view == .compare) {
                     ResizeHandle(width: $inspectorWidth, range: 280...520, edge: .trailing)
@@ -259,6 +257,7 @@ struct PhotoPage: View {
             PhotoIndex.shared.enqueue(catalog.allPhotos)
             catalog.readSidecars(catalog.allPhotos)
             checks.enqueue(catalog.allPhotos)
+            PhotoTagger.shared.enqueue(catalog.allPhotos)
             PhotoRender.trimCaches()
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
@@ -473,8 +472,9 @@ struct PhotoPage: View {
                             }))
                 .help("Browse (\(Shortcuts.shared.shortcut(.photoGrid).label)), one at a time (\(Shortcuts.shared.shortcut(.photoCull).label)) or edit (\(Shortcuts.shared.shortcut(.photoEdit).label))")
                 // What follows lines up with Browse's photos panel (right of the albums), in every mode,
-                // so Filter stays in one place.
-                .frame(width: !sidebarHidden ? max(albumsWidth + Design.Studio.panelGap - Self.trafficLights - 10, 0) : nil,
+                // so Filter stays in one place. (Never narrower than its words.)
+                .fixedSize()
+                .frame(minWidth: !sidebarHidden ? max(albumsWidth + Design.Studio.panelGap - Self.trafficLights - 10, 0) : nil,
                        alignment: .leading)
             if view == .cull, focus != nil {
                 filterMenu()
@@ -514,7 +514,7 @@ struct PhotoPage: View {
                 Spacer()
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
-                    TextField("Find", text: $search).textFieldStyle(.plain).font(Design.Studio.body).frame(maxWidth: 150)
+                    TextField("Find", text: $editing.search).textFieldStyle(.plain).font(Design.Studio.body).frame(maxWidth: 150)
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 28)
@@ -535,6 +535,16 @@ struct PhotoPage: View {
         guard view != .grid, let focus, !photos.contains(focus) else { return }
         self.focus = photos.first
         selection = photos.first.map { [$0] } ?? []
+    }
+
+    /// Photos or folders dropped on the page: imported (Browse, Edit and Cull alike).
+    private func dropPhotos(_ providers: [NSItemProvider]) -> Bool {
+        Task { @MainActor in
+            var urls: [URL] = []
+            for provider in providers { if let url = await provider.load(URL.self) { urls.append(url) } }
+            importPhotos(urls)
+        }
+        return true
     }
 
     /// The albums' width as drawn in Browse.
@@ -898,6 +908,7 @@ struct PhotoPage: View {
         }
         importAlbum = nil
         checks.enqueue(paths)
+        PhotoTagger.shared.enqueue(paths, first: true)
         focus = paths.first
         selection = []
     }
@@ -984,6 +995,10 @@ struct PhotoPage: View {
                 return .handled
             }
             if character == "?" { editing.showingKeys = true; return .handled }
+            if editing.healing, view == .edit, let focus, press.modifiers.isEmpty {
+                if character == "[" || character == "]" { PhotoHeal.resize(focus, by: character == "[" ? 1 / 1.15 : 1.15); return .handled }
+                if press.key == .delete || press.key == .deleteForward, let spot = editing.selectedSpot { PhotoHeal.remove(focus, spot); return .handled }
+            }
             if press.key == "c" || press.key == "v" {
                 let copy = press.key == "c"
                 switch press.modifiers {
@@ -1336,6 +1351,8 @@ struct PhotoLoupe: View {
     @State private var pinchStart: Double?
     @State private var frame = CGRect.zero
     @State private var scrollMonitor: Any?
+    /// The window this photo is in: the scroll zoom only acts for it.
+    @State private var host = HostWindow.Box()
     @AppStorage(Design.Photo.surroundKey) private var surroundWhite = 0.16
     @State private var viewSize: CGSize = .zero
     @Environment(\.displayScale) private var displayScale
@@ -1359,16 +1376,26 @@ struct PhotoLoupe: View {
                         } else {
                             fitGestures(frame: own, offset: sideBySide ? area.width : 0)
                         }
-                        if shapingMask, !editing.cropping, !original, !sideBySide {
+                        if healingSpots, !sideBySide {
+                            PhotoHealHandles(path: path, record: record, frame: frame)
+                        } else if shapingMask, !editing.cropping, !original, !sideBySide {
                             PhotoMaskHandles(path: path, record: record, frame: frame)
                         } else if editing.mixerTargeting, primary, !editing.cropping, !original, !sideBySide {
                             MixerTarget(path: path, record: record, frame: frame)
                         } else if editing.pointPicking, primary, record.adjust.process >= 5, !record.filmOn, !editing.cropping, !original, !sideBySide {
                             PointPicker(path: path, record: record, frame: frame)
                         }
+                        if showingDepth, editing.showDepth, !sideBySide { DepthOverlay(path: path, record: record, frame: frame) }
+                        if showingDepth, editing.focusPicking, !healingSpots, !shapingMask, !sideBySide {
+                            FocusPicker(path: path, record: record, frame: frame)
+                        }
+                        if pickingBase, !sideBySide { BasePicker(path: path, record: record, frame: frame) }
                         if comparing { beforeAfterMarks(frame: frame, area: geo.size) }
                     }
                     .coordinateSpace(name: "loupe")
+                    if editing.cropping, !original, record.adjust.perspective != nil || (record.adjust.lens?.distortion ?? 0) != 0 {
+                        PerspectiveGrid().frame(width: frame.width, height: frame.height).position(x: frame.midX, y: frame.midY)
+                    }
                     if editing.cropping, !original {
                         let size = picture.extent.size
                         let ratio = size.width / max(size.height, 1)
@@ -1490,12 +1517,14 @@ struct PhotoLoupe: View {
         .onChange(of: editing.zoom) { _, zoom in if zoom == nil { center = CGPoint(x: 0.5, y: 0.5) } }
         // Scrolling over the photo zooms in and out (from fit up to 800 %); drag still moves it.
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(StudioWindow.space)) } action: { frame = $0 }
+        .background(HostWindow(box: host))
         .onAppear {
             guard primary, scrollMonitor == nil else { return }
             scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { event in
                 // Only over this photo. The page's coordinates start under the title bar, from the top;
                 // the event's from the window's bottom.
-                guard let window = event.window, window == NSApp.keyWindow else { return event }
+                // Not for other windows (Settings, Scopes, popovers) or while a sheet is in front.
+                guard let window = event.window, window === host.window, window.isKeyWindow, window.attachedSheet == nil else { return event }
                 let point = CGPoint(x: event.locationInWindow.x - frame.minX, y: window.contentLayoutRect.maxY - event.locationInWindow.y - frame.minY)
                 guard CGRect(origin: .zero, size: frame.size).contains(point), !editing.cropping, event.scrollingDeltaY != 0 else { return event }
                 // The wheel's own direction (natural scrolling flips the delta): away from you zooms in.
@@ -1553,7 +1582,10 @@ struct PhotoLoupe: View {
             }
             .frame(width: 280)
             Button("Reset") {
-                catalog.update([path]) { $0.adjust.crop = .original; $0.adjust.cropRect = nil; $0.adjust.straighten = 0; $0.adjust.cropPortrait = nil; $0.edited = .now }
+                catalog.update([path]) {
+                    $0.adjust.crop = .original; $0.adjust.cropRect = nil; $0.adjust.straighten = 0; $0.adjust.cropPortrait = nil
+                    $0.adjust.perspective = nil; $0.edited = .now
+                }
             }
             Button("Done") { editing.cropping = false }
                 .keyboardShortcut(.defaultAction)
@@ -1631,6 +1663,9 @@ struct PhotoLoupe: View {
         before.adjust.cropRect = now.cropRect
         before.adjust.cropPortrait = now.cropPortrait
         before.adjust.straighten = now.straighten
+        before.adjust.perspective = now.perspective
+        // (The lens's distortion too: it moves the picture.)
+        before.adjust.lens = now.lens.map { lens -> PhotoLens in var l = PhotoLens(); l.distortion = lens.distortion; return l }
         // Compared as bright as the edit, so HDR itself isn't what looks different.
         before.hdr = shownRecord.hdr
         return before
@@ -1700,6 +1735,17 @@ struct PhotoLoupe: View {
         primary && record.adjust.process >= 2 && record.adjust.masks.contains { $0.id == editing.selectedMask }
     }
 
+    /// The Heal tab is open on this photo: its spots show, on the whole photo as decoded.
+    private var healingSpots: Bool { primary && editing.healing && !editing.cropping && !original }
+
+    /// Picking Lens Blur's focus or showing the depth: on the whole photo as decoded (where the depth map is).
+    private var showingDepth: Bool { primary && (editing.focusPicking || editing.showDepth) && !editing.cropping && !original }
+
+    /// Picking a negative's film base: on the whole photo as decoded (the rebate is usually cropped away).
+    private var pickingBase: Bool {
+        primary && editing.basePicking && record.adjust.negative != nil && !editing.cropping && !original && !healingSpots && !shapingMask
+    }
+
     /// The mask shown in red while it's shaped.
     private var overlay: Int? {
         guard primary, record.adjust.process >= 2 else { return nil }
@@ -1722,6 +1768,16 @@ struct PhotoLoupe: View {
             shown.adjust.cropRect = nil
             shown.adjust.crop = .original
             shown.filmOn = false
+        }
+        // (Masks are placed on the photo before its perspective, so it shows without while one is shaped.)
+        if shapingMask { shown.adjust.perspective = nil; shown.adjust.lens?.distortion = 0 }
+        // (Spots are placed on the photo as decoded: no crop, no straightening.)
+        if healingSpots || showingDepth || pickingBase {
+            shown.adjust.cropRect = nil
+            shown.adjust.crop = .original
+            shown.adjust.straighten = 0
+            shown.adjust.perspective = nil
+            shown.adjust.lens?.distortion = 0
         }
         // An Adjust section's eye held: the photo without it.
         if primary, let peek = editing.peek { peek.reset(&shown.adjust) }
@@ -2149,7 +2205,21 @@ private struct PhotoTitle: View {
         }
         .task(id: path) {
             let path = path
-            summary = await Task.detached { PhotoDetails.summary(path) }.value
+            let found = await Task.detached { PhotoDetails.summary(path) }.value
+            guard !Task.isCancelled else { return }
+            summary = found
         }
+    }
+}
+
+/// Finds the window a view is in (kept weakly).
+struct HostWindow: NSViewRepresentable {
+    final class Box { weak var window: NSWindow? }
+    let box: Box
+    func makeNSView(context: Context) -> Reader { let view = Reader(); view.box = box; return view }
+    func updateNSView(_ view: Reader, context: Context) { view.box = box; box.window = view.window }
+    final class Reader: NSView {
+        var box: Box?
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); box?.window = window }
     }
 }

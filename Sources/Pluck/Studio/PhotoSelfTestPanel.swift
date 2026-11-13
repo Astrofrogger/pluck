@@ -6,9 +6,11 @@ import SwiftUI
 extension PhotoSelfTest {
     static func panelColumn() async {
         // At the window's least width (1120) the photos keep 600 pt: the panels give way first.
-        let fit = PhotoPage.fitted(left: 420, right: 520, total: 1118)
-        check("photo page: the photos keep 600 pt at the narrowest window", 1118 - fit.left - fit.right >= 600 && fit.left >= 200 && fit.right >= 280
-              && PhotoPage.fitted(left: 0, right: 310, total: 1118) == (0, 310), "got \(fit)")
+        // (The page floats 8 pt in from each side of the window, and gives its panels pageWidth - 16: 1088.)
+        let total = 1120 - 2 * Double(Design.Studio.panelGap) - 16
+        let fit = PhotoPage.fitted(left: 420, right: 520, total: total)
+        check("photo page: the photos keep 600 pt at the narrowest window", total - fit.left - fit.right >= 600 && fit.left >= 200 && fit.right >= 280
+              && PhotoPage.fitted(left: 0, right: 310, total: total) == (0, 310), "got \(fit) of \(total)")
         let box = Box()
         // The Light fold open, as it starts (put back afterwards).
         let defaults = UserDefaults.standard, wasOpen = defaults.object(forKey: "fold-light")

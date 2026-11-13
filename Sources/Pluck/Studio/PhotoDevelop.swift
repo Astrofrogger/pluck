@@ -47,7 +47,7 @@ struct PhotoAdjustments: Codable, Hashable {
     /// not its tone (no second curve); Neutral keeps hues and sits at Classic's mid grey; Accurate's fade to white without a snap.
     /// Old edits keep their look.
     var process = PhotoAdjustments.currentProcess
-    static let currentProcess = 5
+    static let currentProcess = 6
     /// The version of Apple's RAW decoder the photo was edited with, kept so a macOS update
     /// doesn't change how it looks (nil: not edited yet, the newest).
     var rawDecoder: String?
@@ -70,12 +70,27 @@ struct PhotoAdjustments: Codable, Hashable {
     var cropRect: CropRect?
     /// The crop's ratio upright (true) or lying (false); nil: as the photo is.
     var cropPortrait: Bool?
+    /// Perspective (keystone), after straightening and before the crop. Nil when untouched, so it isn't written and an edit
+    /// without it keeps the same saved settings and preview key as before it existed.
+    var perspective: PhotoPerspective? = nil { didSet { if perspective?.isDefault == true { perspective = nil } } }
+    /// Manual lens corrections (PhotoLens). Nil when untouched, so it isn't written and an edit without them keeps the same
+    /// saved settings and preview key as before they existed.
+    var lens: PhotoLens? = nil { didSet { if lens?.isDefault == true { lens = nil } } }
     var curves = PhotoCurves()
     var wheels = ColorWheels()
     var mixer = ColorMixer()
     var calibration = Calibration()
     /// Changes in part of the photo only (the subject, the background).
     var masks: [PhotoMask] = []
+    /// Spots healed or cloned (PhotoHeal). Nil when there are none, so it isn't written and an edit without spots keeps the
+    /// same saved settings and preview key as before spots existed.
+    var spots: [PhotoSpot]? = nil { didSet { if spots?.isEmpty == true { spots = nil } } }
+    /// Lens Blur and Fog by depth (PhotoDepthEffects). Nil when untouched, so it isn't written and an edit without them keeps
+    /// the same saved settings and preview key as before they existed.
+    var depth: PhotoDepthEffects? = nil { didSet { if depth?.isDefault == true { depth = nil } } }
+    /// A scanned film negative made positive (PhotoNegative), first of all. Nil when the photo isn't one, so it isn't
+    /// written and an edit without it keeps the same saved settings and preview key as before it existed.
+    var negative: PhotoNegative?
 
     /// Old negative Clarity's mist as Glow (see `updated`): measured on a night stage photo and a backlit one.
     static let mistToGlow = 0.65
@@ -152,6 +167,11 @@ struct PhotoAdjustments: Codable, Hashable {
         noise = value(.noise, 0); noiseSet = value(.noiseSet, noise != 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
         curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
+        spots = value(.spots, nil as [PhotoSpot]?).flatMap { $0.isEmpty ? nil : $0 }
+        perspective = value(.perspective, nil as PhotoPerspective?).flatMap { $0.isDefault ? nil : $0 }
+        lens = value(.lens, nil as PhotoLens?).flatMap { $0.isDefault ? nil : $0 }
+        depth = value(.depth, nil as PhotoDepthEffects?).flatMap { $0.isDefault ? nil : $0 }
+        negative = value(.negative, nil as PhotoNegative?)
         calibration = value(.calibration, Calibration())
         lookName = value(.lookName, nil as String?); lookTable = value(.lookTable, nil as String?); lookAmount = value(.lookAmount, 100)
         vignetteMidpoint = value(.vignetteMidpoint, 50); vignetteFeather = value(.vignetteFeather, 50)
@@ -196,6 +216,8 @@ struct PhotoAdjustments: Codable, Hashable {
     func keepingDecoder(of other: PhotoAdjustments) -> PhotoAdjustments {
         var copy = self
         copy.rawDecoder = other.rawDecoder
+        // (Spots belong to their photo.)
+        copy.spots = other.spots
         return copy
     }
 
@@ -266,6 +288,8 @@ struct PhotoMask: Codable, Hashable, Identifiable {
 struct MaskPart: Codable, Hashable, Identifiable {
     enum Kind: String, Codable, CaseIterable, Identifiable {
         case subject, people, object, sky, depth, linear, radial, brush, luminance, colour
+        // Parts of people, found by Vision's face landmarks and person segmentation.
+        case face, faceSkin, bodySkin, eyes, brows, lips, teeth, hair
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -279,6 +303,14 @@ struct MaskPart: Codable, Hashable, Identifiable {
             case .brush: String(localized: "Brush")
             case .luminance: String(localized: "Brightness Range")
             case .colour: String(localized: "Colour Range")
+            case .face: String(localized: "Whole Face")
+            case .faceSkin: String(localized: "Face Skin")
+            case .bodySkin: String(localized: "Body Skin")
+            case .eyes: String(localized: "Eyes")
+            case .brows: String(localized: "Eyebrows")
+            case .lips: String(localized: "Lips")
+            case .teeth: String(localized: "Teeth")
+            case .hair: String(localized: "Hair")
             }
         }
         var symbol: String {
@@ -293,12 +325,22 @@ struct MaskPart: Codable, Hashable, Identifiable {
             case .brush: "paintbrush.pointed"
             case .luminance: "circle.lefthalf.filled"
             case .colour: "eyedropper"
+            case .face: "person.crop.circle"
+            case .faceSkin: "face.smiling"
+            case .bodySkin: "hand.raised"
+            case .eyes: "eye"
+            case .brows: "eyebrow"
+            case .lips: "mouth"
+            case .teeth: "mouth.fill"
+            case .hair: "scissors"
             }
         }
         /// Worked out from the photo's own colours (in the develop pass), not drawn.
         var isRange: Bool { self == .luminance || self == .colour }
         /// Found by AI on this Mac (Vision, or the depth finder).
-        var isAI: Bool { self == .subject || self == .people || self == .object || self == .sky || self == .depth }
+        var isAI: Bool { self == .subject || self == .people || self == .object || self == .sky || self == .depth || isFace }
+        /// A part of people (face landmarks): can be one person's only.
+        var isFace: Bool { [.face, .faceSkin, .bodySkin, .eyes, .brows, .lips, .teeth, .hair].contains(self) }
         /// Needs the depth finder (an optional download).
         var needsDepth: Bool { self == .sky || self == .depth }
     }
@@ -325,6 +367,9 @@ struct MaskPart: Codable, Hashable, Identifiable {
     /// Colour range: the hue (OkLCh degrees) and how wide.
     var hue = 30.0
     var hueRange = 40.0
+    /// Face parts: which person (0 the leftmost …), nil for everyone. Left out when nil, so older
+    /// edits save exactly as before.
+    var person: Int?
 
     init(kind: Kind, invert: Bool = false) {
         self.kind = kind
@@ -341,6 +386,7 @@ struct MaskPart: Codable, Hashable, Identifiable {
         a = value(.a, CGPoint(x: 0.5, y: 0.25)); b = value(.b, CGPoint(x: 0.5, y: 0.6)); radius = value(.radius, CGSize(width: 0.25, height: 0.25))
         feather = value(.feather, 0.5); strokes = value(.strokes, [BrushStroke]())
         low = value(.low, 0); high = value(.high, 1); smooth = value(.smooth, 0.1); hue = value(.hue, 30); hueRange = value(.hueRange, 40)
+        person = try? c.decodeIfPresent(Int.self, forKey: .person)
     }
 }
 

@@ -63,6 +63,13 @@ final class PhotoEditing {
     var mixerPoint: Int?
     var pointPicking = false
     var pointOverlay = false
+    /// Depth: the next click on the photo sets Lens Blur's focus; the depth map shown over the photo.
+    var focusPicking = false
+    /// Negative: the next click on the photo samples the film base.
+    var basePicking = false
+    var showDepth = false
+    /// What's typed in Browse's Find (a tag clicked in Info fills it in).
+    var search = ""
     /// What's typed in the Adjust panel's search (tools whose name matches show).
     var toolQuery = ""
     /// "Find a tool" shown (⌘F); it hides again when cleared.
@@ -85,6 +92,14 @@ final class PhotoEditing {
     /// Finding an object from a click (macOS 27), and what to say about it.
     var findingObject = false
     var objectNote: String?
+    /// The Heal tab is open: the spots show on the photo (the whole of it) and a click adds one. The chosen spot, and
+    /// the next one's kind, size (share of the long side), feather and opacity.
+    var healing = false
+    var selectedSpot: UUID?
+    var healKind = PhotoSpot.Kind.heal
+    var healSize = 0.02
+    var healFeather = 0.5
+    var healOpacity = 1.0
 
     func zoomIn() { zoom = Self.zoomSteps.first { $0 > (zoom ?? 0.2) + 0.001 } ?? Self.zoomSteps.last }
     func zoomOut() {

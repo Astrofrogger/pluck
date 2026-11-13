@@ -217,14 +217,15 @@ extension PhotoSelfTest {
         }
         BaseCache.shared.removeAll(); GuideCache.shared.removeAll()
         let defaults = UserDefaults.standard
-        let was = defaults.object(forKey: "fold-curves")
-        defaults.set(true, forKey: "fold-curves")
-        defer { defaults.set(was, forKey: "fold-curves") }
+        // The Colour Warper has its own section (and fold) in the inspector.
+        let was = defaults.object(forKey: "fold-warper")
+        defaults.set(true, forKey: "fold-warper")
+        defer { defaults.set(was, forKey: "fold-warper") }
         var curves = PhotoCurves(); curves.warp = r4bBent
         for (name, warp) in [("ui-warper", curves), ("ui-warper-plain", PhotoCurves())] {
             let view = VStack(alignment: .leading, spacing: 16) {
-                AdjustFold(title: "Curves", section: .curves, adjust: PhotoAdjustments(), open: true, reset: {}) {
-                    CurvesEditor(curves: warp, colour: true, warper: true) { _ in }
+                AdjustFold(title: "Colour Warper", section: .warper, adjust: PhotoAdjustments(), open: true, reset: {}) {
+                    CurvesEditor(curves: warp, colour: true, warper: true, part: .warper) { _ in }
                 }
             }
             .panelColumn()

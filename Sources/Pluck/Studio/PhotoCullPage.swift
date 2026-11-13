@@ -156,17 +156,24 @@ struct PhotoCullPage: View {
                 Rectangle().fill(Design.Studio.line).frame(width: 1, height: 28)
             }
             let keys = Shortcuts.shared
-            FlowKeys(items: [
+            let hints: [(key: String, what: String)] = [
                 (keys.shortcut(.photoPick).label, String(localized: "Keep")),
                 (keys.shortcut(.photoReject).label, String(localized: "Reject")),
                 ("T", String(localized: "Top pick, reject rest")),
                 (keys.shortcut(.photoZoom).label, String(localized: "100 %")),
                 ("↓", String(localized: "Next moment")),
                 ("1–5", String(localized: "Stars")),
-            ])
+            ]
+            // Narrow windows: fewer key hints, then none (the faces and Review stay).
+            ViewThatFits(in: .horizontal) {
+                FlowKeys(items: hints)
+                FlowKeys(items: Array(hints.prefix(2)))
+                Spacer(minLength: 0)
+            }
             let count = proposals.count
             Button("Review proposals · \(count)") { reviewing = true }
                 .buttonStyle(StudioFlatButtonStyle())
+                .fixedSize()
                 .disabled(count == 0)
                 .help("The photos Pluck would reject, on one sheet: untick any to keep, then reject the rest")
         }
