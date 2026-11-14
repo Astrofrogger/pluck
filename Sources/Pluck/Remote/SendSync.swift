@@ -10,6 +10,7 @@ final class SendSync {
     static let shared = SendSync()
     private static let foldersKey = "editAnywhereSendFolders"
     private static let filesKey = "editAnywhereSendFiles"
+    private static let officeKey = "editAnywhereSendOffice"
 
     /// When a file was sent, so it's only sent again when it changes.
     struct Stamp: Codable, Equatable {
@@ -33,6 +34,8 @@ final class SendSync {
     private(set) var waiting = 0
     private(set) var lastSent: Date?
     private(set) var problem: String?
+    /// The host these folders and files were set up for: sending to another waits for a yes.
+    private(set) var office: UUID?
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var passing = false
     /// What it's doing, step by step (the self-test).
@@ -42,18 +45,54 @@ final class SendSync {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: Self.foldersKey), let saved = try? JSONDecoder().decode([Folder].self, from: data) { folders = saved }
         files = defaults.stringArray(forKey: Self.filesKey) ?? []
+        office = defaults.string(forKey: Self.officeKey).flatMap(UUID.init(uuidString:))
     }
 
     private func save() {
         if let data = try? JSONEncoder().encode(folders) { UserDefaults.standard.set(data, forKey: Self.foldersKey) }
         UserDefaults.standard.set(files, forKey: Self.filesKey)
+        UserDefaults.standard.set(office?.uuidString, forKey: Self.officeKey)
+    }
+
+    /// The paired host isn't the one these were set up for (an invitation replaced it).
+    var needsConfirm: Bool {
+        guard let paired = client.office?.device, let office else { return false }
+        return paired != office && !(folders.isEmpty && files.isEmpty)
+    }
+
+    /// Yes: keep sending, to the host paired now.
+    func keep() {
+        office = client.office?.device
+        save()
+        resume()
+    }
+
+    /// No: stop sending all of them (nothing on this Mac is touched).
+    func stop() {
+        task?.cancel()
+        folders = []
+        files = []
+        office = nil
+        save()
+    }
+
+    /// Ties what's waiting to the host paired now, the first time there is one.
+    private func bind() {
+        if office == nil, let paired = client.office?.device { office = paired; save() }
     }
 
     private var client: OfficeRenderClient { OfficeRenderClient.shared }
 
+    /// Nothing waiting: what's chosen next goes to the host paired now, without asking.
+    private func forgetHostIfIdle() {
+        if folders.isEmpty && files.isEmpty { office = nil }
+    }
+
     func add(folder: URL) {
         guard !folders.contains(where: { $0.path == folder.path }) else { return }
+        forgetHostIfIdle()
         folders.append(Folder(path: folder.path))
+        bind()
         save()
         resume()
     }
@@ -64,6 +103,7 @@ final class SendSync {
     }
 
     func send(_ urls: [URL]) {
+        forgetHostIfIdle()
         for url in urls where !files.contains(url.path) {
             var isFolder: ObjCBool = false
             if FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder), isFolder.boolValue {
@@ -72,6 +112,7 @@ final class SendSync {
                 files.append(url.path)
             }
         }
+        bind()
         save()
         resume()
     }
@@ -79,11 +120,12 @@ final class SendSync {
     /// Keeps sending while paired: the one-off files, then whatever changed in the folders, and
     /// a fresh look at the folders every minute.
     func resume() {
-        guard task == nil, client.office != nil, !(folders.isEmpty && files.isEmpty),
+        bind()
+        guard task == nil, client.office != nil, !needsConfirm, !(folders.isEmpty && files.isEmpty),
               ScreenshotMode.scene == nil || ScreenshotMode.scene == "sendtest" else { return }
         task = Task {
             defer { task = nil; sending = nil }
-            while !Task.isCancelled, client.office != nil, !(folders.isEmpty && files.isEmpty) {
+            while !Task.isCancelled, client.office != nil, !needsConfirm, !(folders.isEmpty && files.isEmpty) {
                 await pass()
                 try? await Task.sleep(for: .seconds(problem == nil ? 60 : 120))
             }
@@ -94,7 +136,7 @@ final class SendSync {
     /// again on the next pass.
     func pass() async {
         // One pass at a time (a second would send the same files again).
-        guard !passing else { return }
+        guard !passing, !needsConfirm else { return }
         passing = true
         defer { passing = false }
         problem = nil
@@ -108,7 +150,7 @@ final class SendSync {
                 files.removeAll { $0 == path }
                 save()
             } catch {
-                problem = error.localizedDescription
+                problem = needsConfirm ? nil : error.localizedDescription
                 return
             }
         }
@@ -123,7 +165,7 @@ final class SendSync {
                         save()
                     }
                 } catch {
-                    problem = error.localizedDescription
+                    problem = needsConfirm ? nil : error.localizedDescription
                     return
                 }
             }
@@ -151,6 +193,8 @@ final class SendSync {
 
     /// One file to the host, in pieces, from where the host has got to.
     private func upload(_ url: URL, as path: String) async throws {
+        // (Checked per file: the host can change in the middle of a pass.)
+        guard !needsConfirm else { throw CancellationError() }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
         let size = Int64(values.fileSize ?? 0)
         let modified = (values.contentModificationDate ?? .now).timeIntervalSince1970.rounded()
@@ -166,6 +210,7 @@ final class SendSync {
         defer { try? handle.close() }
         var restarted = false
         repeat {
+            guard !needsConfirm else { throw CancellationError() }
             try handle.seek(toOffset: UInt64(have))
             let chunk = try handle.read(upToCount: OfficeLink.uploadChunk) ?? Data()
             var piece = file

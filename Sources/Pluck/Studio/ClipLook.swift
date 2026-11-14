@@ -214,7 +214,8 @@ extension ClipLook {
         let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
                      look.speed != 1 && hold == nil ? "setpts=(PTS-STARTPTS)/\(number(look.speed))" : "setpts=PTS-STARTPTS"]
-        if let hold { steps.append("trim=end_frame=1,tpad=stop_mode=clone:stop_duration=\(number(hold))") }
+        // The one frame plus the padding would be a frame too long: cut to the hold exactly.
+        if let hold { steps.append("trim=end_frame=1,tpad=stop_mode=clone:stop_duration=\(number(hold)),trim=duration=\(number(hold))") }
         // Not steadied yet: ffmpeg's own (rougher) stabilizer.
         if look.stabilize, !steadied { steps.append("deshake") }
         // A camera's log to a normal picture, from 16-bit (log in 8 bits bands).

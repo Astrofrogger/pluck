@@ -30,6 +30,25 @@ extension PhotoSelfTest {
         catalog.saveNow()
         catalog.reloadHistory()
         let again = catalog.history(of: path)
+        let folder = URL(fileURLWithPath: UserDefaults.standard.string(forKey: "PluckScreenshotCatalog") ?? "/tmp/x").deletingLastPathComponent()
+        check("history: kept compressed", FileManager.default.fileExists(atPath: folder.appendingPathComponent("History.lzfse").path)
+              && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("History.json").path))
+        // A photo's previews of earlier edits go when a newer one is saved; another photo's stay.
+        do {
+            var a = PhotoRecord(); a.adjust.exposure = 0.1
+            var b = a; b.adjust.exposure = 0.2
+            // (The photos must be there: a photo whose drive is away keeps its last preview, whatever the edit.)
+            try? FileManager.default.createDirectory(atPath: "/tmp/pluck-history", withIntermediateDirectories: true)
+            for name in ["p.jpg", "q.jpg"] { FileManager.default.createFile(atPath: "/tmp/pluck-history/" + name, contents: Data([1])) }
+            let old = PhotoRender.cachedPreview("/tmp/pluck-history/p.jpg", record: a), new = PhotoRender.cachedPreview("/tmp/pluck-history/p.jpg", record: b)
+            let other = PhotoRender.cachedPreview("/tmp/pluck-history/q.jpg", record: a)
+            try? FileManager.default.createDirectory(at: old.deletingLastPathComponent(), withIntermediateDirectories: true)
+            for url in [old, PhotoPreviewBuilder.screenFile(old), other] { FileManager.default.createFile(atPath: url.path, contents: Data([1])) }
+            if let tiny = CGImage.solid() { PhotoRender.savePreview(tiny, to: new) }
+            let exists = { (u: URL) in FileManager.default.fileExists(atPath: u.path) }
+            check("previews: older ones of the photo go", !exists(old) && !exists(PhotoPreviewBuilder.screenFile(old)) && exists(new) && exists(other))
+            for url in [new, other] { try? FileManager.default.removeItem(at: url) }
+        }
         check("history: kept after a restart", again.count == 3 && !again.contains(where: \.undone)
               && PhotoHistory.describe(again[0].before, again[0].after).contains("Exposure"), "\(again.count)")
     }
@@ -78,5 +97,15 @@ extension PhotoSelfTest {
         check("adaptive: sky mask kept", kept.first?.parts.map(\.kind) == [.sky] && kept.first?.exposure == -0.5)
         check("adaptive: brush-only mask left out", kept.count == 2, "\(kept.count)")
         check("adaptive: painted parts left out", kept.last?.parts.map(\.kind) == [.subject], "\(kept.last?.parts.map(\.kind) ?? [])")
+    }
+}
+
+private extension CGImage {
+    /// A 4 × 4 grey picture (tests).
+    static func solid() -> CGImage? {
+        let context = CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        context?.setFillColor(gray: 0.5, alpha: 1); context?.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        return context?.makeImage()
     }
 }

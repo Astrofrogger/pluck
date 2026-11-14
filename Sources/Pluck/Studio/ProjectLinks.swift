@@ -78,13 +78,19 @@ extension Project {
         guard let index = clips.firstIndex(where: { $0.id == clip.id }) else { return }
         let old = clips[index]
         clips[index] = clip
-        guard let link = old.link, tracks != nil, old.start != clip.start || old.end != clip.end else { return }
+        guard let link = old.link, tracks != nil, old.start != clip.start || old.end != clip.end || old.speed != clip.speed else { return }
         for t in tracks!.indices where tracks![t].kind == .audio {
             for i in tracks![t].items.indices {
                 let item = tracks![t].items[i]
-                guard item.link == link, item.linkOffset == nil, abs(item.start - old.start) < 0.0005, abs(item.end - old.end) < 0.0005 else { continue }
+                guard item.link == link, item.linkOffset == nil, abs(item.start - old.start) < 0.0005, abs(item.end - old.end) < 0.0005,
+                      item.speed == old.speed else { continue }
                 tracks![t].items[i].start = clip.start
                 tracks![t].items[i].end = clip.end
+                if item.speed != clip.speed {
+                    var look = item.look ?? ClipLook()
+                    look.speed = clip.speed
+                    tracks![t].items[i].look = look
+                }
             }
         }
     }

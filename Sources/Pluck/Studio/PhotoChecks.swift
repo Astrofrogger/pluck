@@ -51,7 +51,8 @@ final class PhotoChecks {
 
     /// Looks at these photos (the ones not seen yet), one after the other, in the background.
     func enqueue(_ paths: [String]) {
-        let new = paths.filter { checks[$0] == nil && !waiting.contains($0) }
+        let queued = Set(waiting)
+        let new = paths.filter { checks[$0] == nil && !queued.contains($0) }
         guard !new.isEmpty else { return }
         waiting.append(contentsOf: new)
         guard !running else { return }

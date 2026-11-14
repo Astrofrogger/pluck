@@ -263,6 +263,8 @@ enum Resolve {
             process.standardOutput = pipe
             process.standardError = pipe
             guard (try? process.run()) != nil else { return "" }
+            // A Resolve that hangs (a dialog open, a project loading) never answers: give up after a while.
+            DispatchQueue.global().asyncAfter(deadline: .now() + 300) { if process.isRunning { process.terminate() } }
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             return String(decoding: data, as: UTF8.self)

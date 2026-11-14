@@ -150,7 +150,9 @@ enum PhotoHeal {
     /// A kept decode's key with the spots on it (the local-tone layers worked out from it are then its own). None: unchanged.
     static func key(_ key: String?, _ spots: [PhotoSpot]?) -> String? {
         guard let spots, !spots.isEmpty else { return key }
-        return key.map { $0 + "|spots \(spots.hashValue)" }
+        // (Remove spots fill in once their model is there: a layer made before that isn't used after.)
+        let ready = spots.contains { $0.kind == .remove } && PhotoRemove.isReady ? "|remove" : ""
+        return key.map { $0 + "|spots \(spots.hashValue)" + ready }
     }
 
     /// Where to copy a new spot from: on a small copy, places 1.5 to 3 radii around whose ring of surroundings best matches

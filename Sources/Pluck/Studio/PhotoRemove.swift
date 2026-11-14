@@ -63,6 +63,7 @@ final class PhotoRemove {
                 try FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
                 try? FileManager.default.removeItem(at: Self.compiled)
                 try FileManager.default.moveItem(at: made, to: Self.compiled)
+                Self.lock.withLock { Self.loadFailed = false }
                 state = .ready
             } catch {
                 state = .failed(error.localizedDescription)
@@ -72,15 +73,22 @@ final class PhotoRemove {
 
     func remove() {
         try? FileManager.default.removeItem(at: Self.compiled)
-        Self.lock.withLock { Self.model = nil; Self.fills.removeAll() }
+        Self.lock.withLock { Self.model = nil; Self.loadFailed = false; Self.fills.removeAll() }
         state = .notInstalled
     }
 
     // MARK: - Filling
 
     nonisolated(unsafe) private static var model: MLModel?
-    /// Why the last fill wasn't made (for the self-test and the log).
-    nonisolated(unsafe) static var problem: String?
+    /// Why the last fill wasn't made (for the self-test and the log). (Fills run on several threads: kept under a lock.)
+    nonisolated static var problem: String? {
+        get { problemLock.withLock { _problem } }
+        set { problemLock.withLock { _problem = newValue } }
+    }
+    nonisolated(unsafe) private static var _problem: String?
+    nonisolated private static let problemLock = NSLock()
+    /// The model failed to load: not tried again on every render (again once it's installed anew).
+    nonisolated(unsafe) private static var loadFailed = false
     /// Fills made, by what went in (the square's pixels and mask): the same area on the same picture isn't worked out twice.
     nonisolated(unsafe) private static var fills: [String: CVPixelBuffer] = [:]
     nonisolated(unsafe) private static var order: [String] = []
@@ -118,10 +126,11 @@ final class PhotoRemove {
         let key = digest(input) + digest(holeBuffer)
         let made: CVPixelBuffer? = lock.withLock {
             if let known = fills[key] { return known }
-            if model == nil {
+            if model == nil, !loadFailed {
                 let config = MLModelConfiguration()
                 config.computeUnits = .all // (as the conversion was checked)
                 model = try? MLModel(contentsOf: compiled, configuration: config)
+                loadFailed = model == nil
                 // (The first fill after loading came back black: one made and thrown away first.)
                 _ = model.flatMap { try? $0.prediction(from: MLDictionaryFeatureProvider(dictionary: [
                     "image": MLFeatureValue(pixelBuffer: input), "mask": MLFeatureValue(pixelBuffer: holeBuffer)])) }

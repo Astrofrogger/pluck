@@ -41,11 +41,25 @@ enum FilmHalation {
     /// Lets go of the in-between images kept for previews (call after an export, say).
     static func purge() { FilmBlur.Pool.shared.purge() }
 
-    /// How many of the film's one-pass renders have failed (Core Image only logs a failed pass: callers compare this).
-    static var failures: Int { failureLock.withLock { failed } }
-    static func noteFailure() { failureLock.withLock { failed += 1 } }
-    nonisolated(unsafe) private static var failed = 0
-    private static let failureLock = NSLock()
+    /// How many of the film's one-pass renders built on this thread have failed (Core Image only logs a failed pass:
+    /// callers compare this before and after drawing). Per thread, so a render failing elsewhere never fails this one.
+    static var failures: Int { Watch.current.count }
+
+    /// The failures of the films built on one thread (each chain keeps the watch of the thread it was built on).
+    final class Watch: @unchecked Sendable {
+        private let lock = NSLock()
+        private var failed = 0
+        var count: Int { lock.withLock { failed } }
+        func note() { lock.withLock { failed += 1 } }
+
+        static var current: Watch {
+            let key = "PluckFilmWatch"
+            if let known = Thread.current.threadDictionary[key] as? Watch { return known }
+            let made = Watch()
+            Thread.current.threadDictionary[key] = made
+            return made
+        }
+    }
 
     /// The settings these stages read (they never change a table: a change here is instant).
     static let settings = ["halation_on", "scatter_amount", "scatter_scale", "halation_amount", "halation_scale",
@@ -152,6 +166,8 @@ enum FilmHalation {
         /// Its in-between images are kept for the next render (a preview being redrawn); a full-size film's (worked out
         /// once, a band at a time: an export, or 100 %) go with their render.
         let pooled: Bool
+        /// Where a failed pass is counted: the thread that built this chain (and draws it).
+        let watch = Watch.current
         init(stock: FilmStock, params: Data, scatter: FilmBlur.Plan?, halation: FilmBlur.Plan?, couplers: FilmBlur.Plan?, grain: FilmGrain.Plan?,
              scan: [FilmBlur.Plan], extent: CGRect, light: Bool = false, pooled: Bool = true) {
             self.stock = stock; self.params = params; self.scatter = scatter; self.halation = halation; self.couplers = couplers; self.grain = grain
@@ -821,8 +837,9 @@ class FilmSpatialPass: CIImageProcessorKernel {
         return inside.isEmpty ? wanted : inside
     }
     override class func process(with inputs: [CIImageProcessorInput]?, arguments: [String: Any]?, output: CIImageProcessorOutput) throws {
-        guard let chain = arguments?["chain"] as? FilmHalation.Chain, let input = inputs?.first else { FilmHalation.noteFailure(); throw FilmBlur.failed }
-        do { try FilmHalation.render(chain, input: input, output: output) } catch { FilmHalation.noteFailure(); throw error }
+        guard let chain = arguments?["chain"] as? FilmHalation.Chain else { throw FilmBlur.failed }
+        guard let input = inputs?.first else { chain.watch.note(); throw FilmBlur.failed }
+        do { try FilmHalation.render(chain, input: input, output: output) } catch { chain.watch.note(); throw error }
     }
 }
 

@@ -105,6 +105,19 @@ final class AIStudio {
         item.aiProgress = nil
     }
 
+    /// Pluck quitting: every job stops, so no ffmpeg carries on without it.
+    func stopAll() {
+        jobs.removeAll()
+        current?.task.cancel()
+    }
+
+    /// Work off the main thread that the row's Stop still reaches (a detached task alone doesn't
+    /// hear about the job being cancelled).
+    nonisolated static func offMain<T: Sendable>(_ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        let task = Task.detached(priority: .userInitiated, operation: work)
+        return try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+    }
+
     /// A download finished: transcribe it if automatic transcripts are on.
     func downloadFinished(_ item: DownloadItem) {
         guard UserDefaults.standard.bool(forKey: Prefs.aiAutoTranscribe) else { return }
@@ -195,7 +208,8 @@ final class AIStudio {
                     for (index, track) in tracks.enumerated() {
                         // "Video.srt" for the spoken language, "Video.nl.srt" for a translation.
                         let name = index == 0 ? base.lastPathComponent : "\(base.lastPathComponent).\(track.language.minimalIdentifier)"
-                        let srt = base.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension("srt")
+                        // A file already there is kept: the new one gets a free name ("Video 2.srt").
+                        let srt = Converting.outputURL(folder: base.deletingLastPathComponent().path, name: name, fileExtension: "srt")
                         try Transcript.srt(finish(track.cues)).write(to: srt, atomically: true, encoding: .utf8)
                     }
                 }

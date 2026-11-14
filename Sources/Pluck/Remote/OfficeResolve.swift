@@ -8,11 +8,12 @@ import Foundation
 enum OfficeResolve {
     private static var tail: Task<Void, Never> = Task {}
 
-    static func run(_ instruction: [String: Any]) async throws -> [String: Any] {
+    /// `other`: another script (one that starts with ResolveBridge.preamble), in the same line.
+    static func run(_ instruction: [String: Any], script other: String? = nil) async throws -> [String: Any] {
         let previous = tail
         let task = Task { () async throws -> [String: Any] in
             await previous.value
-            return try await ResolveBridge.run(instruction, script: script)
+            return try await ResolveBridge.run(instruction, script: other ?? script)
         }
         tail = Task { _ = try? await task.value }
         return try await task.value

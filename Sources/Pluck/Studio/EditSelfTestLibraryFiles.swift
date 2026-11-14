@@ -412,6 +412,27 @@ extension EditSelfTest {
               "most \(most), after closing \(afterClosing), two \(two)")
         check("⌘W closes a pane, not the window", handled && afterKey == start && window.isVisible,
               "handled \(handled), panes \(afterKey), window open \(window.isVisible)")
+        // A clip opened from the pane plays with Space at once, the first time (not only after Play is clicked).
+        let clip = place.appendingPathComponent("Clip.mp4")
+        try? FileManager.default.copyItem(at: URL(fileURLWithPath: media).appendingPathComponent("a.mp4"), to: clip)
+        let front = workspace.focused
+        front.selection = [clip]
+        front.playing = clip
+        func player() -> RawPlayer? { RawPlayer.latest.flatMap { $0.url?.lastPathComponent == clip.lastPathComponent ? $0 : nil } }
+        for _ in 0..<200 where player()?.info == nil { await settle(25) }
+        await settle()
+        let loaded = player()?.info != nil
+        if let space = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                                        context: nil, characters: " ", charactersIgnoringModifiers: " ", isARepeat: false, keyCode: 49) {
+            window.sendEvent(space)
+        }
+        await settle()
+        let playing = player()?.isPlaying == true
+        player()?.stop()
+        check("Space plays a clip opened from the Library at once", loaded && playing, "loaded \(loaded), playing after Space \(playing), player \(RawPlayer.latest?.url?.path ?? "none"), problem \(RawPlayer.latest?.problem ?? "none"), shown \(front.playing?.path ?? "none")")
+        front.playing = nil
+        await settle()
+
         while workspace.panes.count > start { workspace.close() }
         pane.go(to: was.0)
         pane.mode = was.1

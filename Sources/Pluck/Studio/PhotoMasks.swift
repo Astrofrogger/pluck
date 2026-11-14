@@ -1,5 +1,8 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
+import CryptoKit
+import ImageIO
+import UniformTypeIdentifiers
 import Vision
 
 /// Masks for local adjustments: the subject (people, animals, things in front), found by
@@ -13,10 +16,12 @@ enum PhotoMasks {
     /// The subject's mask for this photo (white where the subject is), at its own small size
     /// (scale it to the picture).
     static func subject(_ path: String, from image: CIImage, context: CIContext) -> CIImage? {
-        lock.lock()
-        if let known = subjects[path] { lock.unlock(); return known }
-        lock.unlock()
         let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        // By the size it's found at too: a small picture's mask is never used for a larger one.
+        let key = path + "|\(Int(max(image.extent.width, image.extent.height) * scale))"
+        lock.lock()
+        if let known = subjects[key] { lock.unlock(); return known }
+        lock.unlock()
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
         let request = VNGenerateForegroundInstanceMaskRequest()
@@ -32,7 +37,7 @@ enum PhotoMasks {
         // Soft edges.
         let e = mask.extent
         mask = mask.clampedToExtent().applyingGaussianBlur(sigma: 2).cropped(to: e)
-        lock.lock(); subjects[path] = mask; if subjects.count > 24 { subjects.removeValue(forKey: subjects.keys.first!) }; lock.unlock()
+        lock.lock(); subjects[key] = mask; if subjects.count > 24 { subjects.removeValue(forKey: subjects.keys.first!) }; lock.unlock()
         return mask
     }
 
@@ -179,8 +184,7 @@ enum PhotoMasks {
         case .people:
             return scaled(person(path, from: base, context: context), to: size, guide: base, context: context) ?? black
         case .object:
-            lock.lock(); let found = objects[objectKey(path, part.a)]; lock.unlock()
-            return scaled(found, to: size, guide: base, context: context) ?? black
+            return scaled(object(objectKey(path, part.a)), to: size, guide: base, context: context) ?? black
         case .depth:
             guard let near = PhotoDepth.nearness(path, from: base, context: context) else { return black }
             // How far, in the window asked for (with soft edges).
@@ -271,10 +275,12 @@ enum PhotoMasks {
 
     /// The people in the photo (macOS's person segmentation, at its best quality), small.
     static func person(_ path: String, from image: CIImage, context: CIContext) -> CIImage? {
-        lock.lock()
-        if let known = people[path] { lock.unlock(); return known }
-        lock.unlock()
         let scale = min(1, 1024 / max(image.extent.width, image.extent.height))
+        // By the size it's found at too: a small picture's mask is never used for a larger one.
+        let key = path + "|\(Int(max(image.extent.width, image.extent.height) * scale))"
+        lock.lock()
+        if let known = people[key] { lock.unlock(); return known }
+        lock.unlock()
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
         let request = VNGeneratePersonSegmentationRequest()
@@ -283,7 +289,7 @@ enum PhotoMasks {
         try? VNImageRequestHandler(cgImage: cg).perform([request])
         let mask = request.results?.first.map { CIImage(cvPixelBuffer: $0.pixelBuffer) }
             ?? CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: cg.width, height: cg.height))
-        lock.lock(); people[path] = mask; if people.count > 24 { people.removeValue(forKey: people.keys.first!) }; lock.unlock()
+        lock.lock(); people[key] = mask; if people.count > 24 { people.removeValue(forKey: people.keys.first!) }; lock.unlock()
         return mask
     }
 
@@ -407,7 +413,8 @@ enum PhotoMasks {
 
     /// Whether the object at this point was found (and is kept).
     static func hasObject(_ path: String, at point: CGPoint) -> Bool {
-        lock.withLock { objects[objectKey(path, point)] != nil }
+        let key = objectKey(path, point)
+        return lock.withLock { objects[key] != nil } || FileManager.default.fileExists(atPath: objectFile(key).path)
     }
 
     /// Whether this Mac can find an object from a click (macOS 27, or the click-mask model before it).
@@ -450,5 +457,26 @@ enum PhotoMasks {
 
     private static func keep(_ mask: CIImage, as key: String) {
         lock.withLock { objects[key] = mask }
+        // Kept on disk too: a picked object is part of the edit, and finding it again needs the click model.
+        guard let picture = mask.cgImage ?? objectContext.createCGImage(mask, from: mask.extent),
+              let destination = CGImageDestinationCreateWithURL(objectFile(key) as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+        try? FileManager.default.createDirectory(at: objectFile(key).deletingLastPathComponent(), withIntermediateDirectories: true)
+        CGImageDestinationAddImage(destination, picture, nil)
+        CGImageDestinationFinalize(destination)
+    }
+
+    private static let objectContext = CIContext()
+
+    /// A picked object's mask: kept this session, else from disk (an earlier session).
+    private static func object(_ key: String) -> CIImage? {
+        if let known = lock.withLock({ objects[key] }) { return known }
+        guard let found = CIImage(contentsOf: objectFile(key)) else { return nil }
+        lock.withLock { objects[key] = found }
+        return found
+    }
+
+    private static func objectFile(_ key: String) -> URL {
+        let name = SHA256.hash(data: Data(key.utf8)).prefix(16).map { String(format: "%02x", $0) }.joined()
+        return PhotoCatalog.folder.appendingPathComponent("Objects/\(name).png")
     }
 }

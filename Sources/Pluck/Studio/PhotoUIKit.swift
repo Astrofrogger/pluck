@@ -381,6 +381,8 @@ struct PhotoLooks: View {
     @State private var catalog = PhotoCatalog.shared
     @State private var editing = PhotoEditing.shared
     @State private var pictures: [String: NSImage] = [:]
+    /// The look each picture was made for: one made before this photo's edit changed is made again.
+    @State private var madeFor: [String: PhotoRecord] = [:]
     @State private var engine = FilmEngine.shared
 
     private struct Look: Identifiable {
@@ -508,7 +510,7 @@ struct PhotoLooks: View {
     /// The small pictures, one after the other: the profiles and presets first (presets without
     /// their film when it needs the helper, which is slow), then each film stock.
     private func render() async {
-        for look in profiles + presets where pictures[look.id] == nil {
+        for look in profiles + presets where madeFor[look.id] != look.record {
             let shown = look.record
             let path = self.path
             let made = await Task.detached(priority: .userInitiated) { () -> CGImage? in
@@ -518,10 +520,10 @@ struct PhotoLooks: View {
                 return PhotoRender.picture(image, maxSize: 200, space: PhotoRender.screenSpace)
             }.value
             if Task.isCancelled { return }
-            if let made { pictures[look.id] = NSImage(cgImage: made, size: .zero) }
+            if let made { pictures[look.id] = NSImage(cgImage: made, size: .zero); madeFor[look.id] = look.record }
         }
         await engine.loadProfiles()
-        for look in films where pictures[look.id] == nil {
+        for look in films where madeFor[look.id] != look.record {
             // A small picture never waits for tables made for advanced settings: the stock's own tables show instead
             // (without those settings).
             var record = look.record
@@ -535,6 +537,7 @@ struct PhotoLooks: View {
             guard let made = try? await PhotoRender.develop(path, record: record, maxSize: 200, worker: 4) else { continue }
             if Task.isCancelled { return }
             pictures[look.id] = NSImage(cgImage: made, size: .zero)
+            madeFor[look.id] = look.record
         }
     }
 }
@@ -612,6 +615,7 @@ struct ToolSearchField: View {
         .padding(.horizontal, 8)
         .onExitCommand { editing.toolQuery = ""; editing.findingTool = false }
         .onAppear { if editing.findingTool { focused = true } }
+        .onChange(of: StudioNavigator.shared.searchRequests) { focused = true }
         .onChange(of: focused) { _, now in if !now, editing.toolQuery.isEmpty { editing.findingTool = false } }
     }
 }

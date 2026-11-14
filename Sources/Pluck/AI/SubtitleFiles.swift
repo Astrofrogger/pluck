@@ -118,7 +118,10 @@ enum SubtitleFiles {
             guard let id = response.clientIdentifier, let index = Int(id), cues.indices.contains(index) else { continue }
             cues[index].text = response.targetText
         }
-        let output = translatedURL(for: url, to: target)
+        let wanted = translatedURL(for: url, to: target)
+        // Never over an existing file (an earlier translation, or one made elsewhere).
+        let output = Converting.outputURL(folder: wanted.deletingLastPathComponent().path,
+                                          name: wanted.deletingPathExtension().lastPathComponent, fileExtension: wanted.pathExtension)
         try contents(cues, vtt: url.pathExtension.lowercased() == "vtt").write(to: output, atomically: true, encoding: .utf8)
         return output
     }

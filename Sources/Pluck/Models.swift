@@ -206,6 +206,10 @@ final class DownloadItem: Identifiable {
     }
     var pageStream: PageStream?
     var triedPageSearch = false
+    /// A link sent from another device (Library sharing): no browser cookies, no page search.
+    var fromOtherDevice = false
+    /// Failed because the site wants a login (the row offers choosing a cookie browser).
+    var needsLogin = false
 
     var state: State = .queued
     var progress: Double = 0
@@ -251,6 +255,9 @@ final class DownloadItem: Identifiable {
     var retryAt: Date?
 
     @ObservationIgnored var process: Process?
+    /// The files yt-dlp is writing for this item (from its progress), so a cancelled download's
+    /// leftovers (".part", ".ytdl", fragments) can be cleared.
+    @ObservationIgnored var downloadTargets: Set<String> = []
 
     init(url: String, options: DownloadOptions, folder: String) {
         self.url = url
@@ -316,6 +323,7 @@ final class DownloadItem: Identifiable {
         fileURL = nil
         fileSize = nil
         errorMessage = nil
+        needsLogin = false
         chapterCount = nil
         hasArtwork = false
         addedToMusic = false

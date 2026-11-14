@@ -22,7 +22,8 @@ enum ScreenshotMode {
         #endif
     }
 
-    static var scene: String? { UserDefaults.standard.string(forKey: "PluckScreenshot") }
+    /// Only from the launch arguments: a saved preference of that name never turns it on.
+    static let scene: String? = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)["PluckScreenshot"] as? String
 
     #if STUDIO
     /// The scenes that play a clip in the Raw Player ("playerscopes" is "raw" with the scopes shown).

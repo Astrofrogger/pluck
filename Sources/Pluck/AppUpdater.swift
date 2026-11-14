@@ -117,6 +117,8 @@ final class AppUpdater {
         do {
             let latest = try await fetchLatest()
             if Self.isNewer(latest.version, than: currentVersion) {
+                // A newer version than the one made ready for quitting replaces it.
+                if let ready = readyForQuit, Self.isNewer(latest.version, than: ready) { discardPending() }
                 release = latest
                 status = .available
                 // Offered in a window the first time it's found (the banner stays until it's in).
@@ -236,7 +238,7 @@ final class AppUpdater {
         }
         await install(Edition.isStudio ? "Pluck" : "Pluck Studio", target: target) {
             let other = try await self.fetchLatest(studio: !Edition.isStudio)
-            return try await self.download(other)
+            return try await self.download(other, mustBeNewer: false)
         }
     }
 
@@ -276,7 +278,15 @@ final class AppUpdater {
     func installPendingOnQuit() {
         guard let pending else { return }
         self.pending = nil
+        // Checked again: the staged copy sat on disk since it was downloaded.
+        guard (try? Self.verify(pending.app)) != nil else { return }
         swap(pending.target, with: pending.app, reopen: false)
+    }
+
+    private func discardPending() {
+        if let pending { try? FileManager.default.removeItem(at: pending.app.deletingLastPathComponent()) }
+        pending = nil
+        readyForQuit = nil
     }
 
     /// Gets the new app (downloaded, checked, unpacked), then swaps it in and relaunches. A
@@ -314,7 +324,8 @@ final class AppUpdater {
         }
     }
 
-    func download(_ release: Release) async throws -> URL {
+    /// `mustBeNewer` is off only for switching editions (each edition has its own version numbers).
+    func download(_ release: Release, mustBeNewer: Bool = true) async throws -> URL {
         let downloaded = try await ToolDownloads.download(release.file, limit: 2 * 3600) { received, total in
             Task { @MainActor in
                 self.received = received
@@ -334,12 +345,15 @@ final class AppUpdater {
         } else {
             expected = ""
         }
-        let actual = SHA256.hash(data: try Data(contentsOf: downloaded, options: .mappedIfSafe))
-            .map { String(format: "%02x", $0) }.joined()
+        let actual = try await Task.detached {
+            SHA256.hash(data: try Data(contentsOf: downloaded, options: .mappedIfSafe)).map { String(format: "%02x", $0) }.joined()
+        }.value
         guard !expected.isEmpty, actual == expected else { throw Failure.checksumMismatch }
 
         step = .unpacking
-        let staging = FileManager.default.temporaryDirectory.appendingPathComponent("PluckUpdate-\(UUID().uuidString)")
+        // Not in the temporary folder: macOS may clear that before an install-on-quit happens.
+        let caches = try FileManager.default.url(for: .cachesDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+        let staging = caches.appendingPathComponent("Pluck/Update-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         if release.isDiskImage {
             // Opened out of sight, the app copied out, and closed again.
@@ -358,15 +372,32 @@ final class AppUpdater {
         }
 
         let app = staging.appendingPathComponent("Pluck.app")
-        guard Bundle(url: app)?.bundleIdentifier == (Bundle.main.bundleIdentifier ?? "be.wideopen.pluck") else { throw Failure.badBundle }
-        // Signed with the same certificate as this copy (a checksum from the same release page
-        // only proves the download is what that page lists).
-        if let mine = CodeSignature.leafCertificate(Bundle.main.bundleURL, validate: false) {
-            guard CodeSignature.leafCertificate(app, validate: true) == mine else { throw Failure.badSignature }
+        let mine = Bundle.main.bundleURL
+        try await Task.detached { try Self.verify(app, against: mine) }.value
+        // The version inside the signed app, not just the release page's word: an older signed
+        // build put up under a higher number is refused.
+        let inside = NSDictionary(contentsOf: app.appendingPathComponent("Contents/Info.plist"))?["CFBundleShortVersionString"] as? String
+        guard Self.acceptsVersion(inside, advertised: release.version, current: currentVersion, mustBeNewer: mustBeNewer) else {
+            try? FileManager.default.removeItem(at: staging)
+            throw Failure.badBundle
+        }
+        return app
+    }
+
+    static func acceptsVersion(_ inside: String?, advertised: String, current: String, mustBeNewer: Bool) -> Bool {
+        guard let inside, inside == advertised else { return false }
+        return !mustBeNewer || isNewer(inside, than: current)
+    }
+
+    /// The right app, signed with the same certificate as this copy (a checksum from the same
+    /// release page only proves the download is what that page lists).
+    nonisolated private static func verify(_ app: URL, against mine: URL = Bundle.main.bundleURL) throws {
+        guard Bundle(url: app)?.bundleIdentifier == (Bundle(url: mine)?.bundleIdentifier ?? "be.wideopen.pluck") else { throw Failure.badBundle }
+        if let own = CodeSignature.leafCertificate(mine, validate: false) {
+            guard CodeSignature.leafCertificate(app, validate: true) == own else { throw Failure.badSignature }
         } else {
             print("Pluck update: this copy isn't signed with a certificate (a test build), so the update's signature isn't compared")
         }
-        return app
     }
 
     /// Hands off to a tiny shell script that waits for Pluck to quit, swaps the bundles and reopens it.
@@ -390,7 +421,12 @@ final class AppUpdater {
     private func startSwap(_ target: URL, with newApp: URL, reopen: Bool) throws {
         let script = """
         while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
-        rm -rf "$2.old" && mv "$2" "$2.old" && mv "$3" "$2" && rm -rf "$2.old"
+        # A failed move puts the old app back, so there's always a Pluck to open.
+        if [ -d "$3" ] && rm -rf "$2.old" && mv "$2" "$2.old"; then
+          if mv "$3" "$2"; then rm -rf "$2.old"; else rm -rf "$2"; mv "$2.old" "$2"; fi
+        fi
+        # The emptied staging folder (only ever Pluck's own).
+        case "$3" in */Pluck/Update-*/Pluck.app) rm -rf "$(dirname "$3")";; esac
         \(reopen ? "open \"$2\"" : "true")
         """
         let p = Process()

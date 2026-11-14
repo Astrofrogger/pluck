@@ -173,14 +173,25 @@ final class FootageFolders {
 /// Calls back when anything changes in a folder or the folders in it (FSEvents).
 final class FolderWatcher {
     private var stream: FSEventStreamRef?
-    private let changed: () -> Void
 
-    init(path: String, changed: @escaping () -> Void) {
-        self.changed = changed
-        var context = FSEventStreamContext(version: 0, info: Unmanaged.passUnretained(self).toOpaque(), retain: nil, release: nil, copyDescription: nil)
-        let callback: FSEventStreamCallback = { _, info, _, _, _, _ in
+    /// What the stream calls: owned by the stream, so a call under way when the watcher goes still has it.
+    private final class Callback {
+        let changed: ([String]) -> Void
+        init(_ changed: @escaping ([String]) -> Void) { self.changed = changed }
+    }
+
+    convenience init(path: String, changed: @escaping () -> Void) {
+        self.init(path: path) { (_: [String]) in changed() }
+    }
+
+    /// `changed` gets the paths that changed (files and folders).
+    init(path: String, changed: @escaping ([String]) -> Void) {
+        var context = FSEventStreamContext(version: 0, info: Unmanaged.passRetained(Callback(changed)).toOpaque(), retain: nil,
+                                           release: { info in if let info { Unmanaged<Callback>.fromOpaque(info).release() } }, copyDescription: nil)
+        let callback: FSEventStreamCallback = { _, info, count, paths, _, _ in
             guard let info else { return }
-            Unmanaged<FolderWatcher>.fromOpaque(info).takeUnretainedValue().changed()
+            let list = paths.assumingMemoryBound(to: UnsafePointer<CChar>.self)
+            Unmanaged<Callback>.fromOpaque(info).takeUnretainedValue().changed((0..<count).map { String(cString: list[$0]) })
         }
         stream = FSEventStreamCreate(nil, callback, &context, [path] as CFArray, FSEventStreamEventId(kFSEventStreamEventIdSinceNow), 2,
                                      FSEventStreamCreateFlags(kFSEventStreamCreateFlagFileEvents | kFSEventStreamCreateFlagIgnoreSelf))

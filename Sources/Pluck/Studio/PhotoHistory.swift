@@ -19,13 +19,17 @@ struct PhotoHistoryPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, Design.Sidebar.rowPadding)
             }
+            // (The newest step done with this edit is the one marked: a click brings back only the edit.)
+            let on = steps.lastIndex { !$0.undone && PhotoHistory.sameEdit(current, $0.after) }
             ForEach(Array(steps.enumerated().reversed()), id: \.offset) { index, step in
-                row(PhotoHistory.describe(step.before, step.after), on: current == step.after && !step.undone, faint: step.undone) {
-                    go(to: step.after)
+                row(PhotoHistory.describe(step.before, step.after), on: index == on, faint: step.undone) {
+                    PhotoHistory.restore(step.after, on: path)
                 }
             }
             if let first = steps.first {
-                row(String(localized: "Original"), on: current == first.before, faint: false) { go(to: first.before) }
+                row(String(localized: "Original"), on: on == nil && PhotoHistory.sameEdit(current, first.before), faint: false) {
+                    PhotoHistory.restore(first.before, on: path)
+                }
             }
         }
     }
@@ -46,15 +50,32 @@ struct PhotoHistoryPanel: View {
         .buttonStyle(.plain)
     }
 
-    /// The photo set to how it was then (nil: as it came in), as a change of its own.
-    private func go(to record: PhotoRecord?) {
-        catalog.endStep()
-        catalog.update([path]) { $0 = record ?? PhotoRecord() }
-        catalog.endStep()
-    }
 }
 
 enum PhotoHistory {
+    /// The photo's edit set to how it was then (nil: as it came in), as a change of its own. Only the edit: its rating,
+    /// flag, label, metadata and snapshots stay as they are now.
+    @MainActor static func restore(_ then: PhotoRecord?, on path: String) {
+        let then = then ?? PhotoRecord()
+        let catalog = PhotoCatalog.shared
+        catalog.endStep()
+        catalog.update([path]) { record in
+            record.adjust = then.adjust
+            record.filmOn = then.filmOn
+            record.film = then.film
+            record.denoise = then.denoise
+            record.denoiseAI = then.denoiseAI
+            record.edited = .now
+        }
+        catalog.endStep()
+    }
+
+    /// Whether two records have the same edit (what `restore` brings back).
+    static func sameEdit(_ a: PhotoRecord?, _ b: PhotoRecord?) -> Bool {
+        let a = a ?? PhotoRecord(), b = b ?? PhotoRecord()
+        return a.adjust == b.adjust && a.filmOn == b.filmOn && a.film == b.film && a.denoise == b.denoise && a.denoiseAI == b.denoiseAI
+    }
+
     /// A step's name: what it changed ("Exposure +0.40", "Masks", "Rating ★★★"), several joined, at most three.
     static func describe(_ before: PhotoRecord?, _ after: PhotoRecord?) -> String {
         let a = before ?? PhotoRecord(), b = after ?? PhotoRecord()

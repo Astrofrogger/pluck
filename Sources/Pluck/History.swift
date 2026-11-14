@@ -28,6 +28,7 @@ enum History {
         var addedToMusic: Bool?
         var transcriptID: String?
         var spokenLanguage: String?
+        var fromOtherDevice: Bool?
     }
 
     static let limit = 200
@@ -61,6 +62,7 @@ enum History {
             item.addedToMusic = e.addedToMusic ?? false
             item.transcriptID = e.transcriptID
             item.spokenLanguage = e.spokenLanguage
+            item.fromOtherDevice = e.fromOtherDevice ?? false
             item.progress = e.state == "finished" ? 1 : (e.progress ?? 0)
             item.state = switch e.state {
             case "finished": .finished
@@ -72,7 +74,7 @@ enum History {
         }
     }
 
-    /// Saves the list. Downloads still running (only when quitting) are saved as interrupted,
+    /// Saves the list. Downloads still running or queued are saved as interrupted (after a quit or a crash),
     /// so they come back with Try Again.
     @MainActor static func save(_ items: [DownloadItem]) {
         // Everything finished also goes into the library, which keeps it for good.
@@ -84,7 +86,7 @@ enum History {
             case .finished: state = "finished"
             case .cancelled: state = "cancelled"
             case .failed: state = "failed"
-            // Unfinished downloads (only when quitting) come back paused, ready to resume.
+            // Unfinished downloads come back paused, ready to resume.
             case .queued, .starting, .downloading, .processing, .paused:
                 state = "paused"
                 error = nil
@@ -97,7 +99,8 @@ enum History {
                          progress: item.progress, resolvedURL: item.spotify != nil ? item.resolvedURL : nil,
                          splitChapters: item.splitChapters, chapterCount: item.chapterCount,
                          conversion: item.conversion, addedToMusic: item.addedToMusic,
-                         transcriptID: item.transcriptID, spokenLanguage: item.spokenLanguage)
+                         transcriptID: item.transcriptID, spokenLanguage: item.spokenLanguage,
+                         fromOtherDevice: item.fromOtherDevice ? true : nil)
         }
         do {
             try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)

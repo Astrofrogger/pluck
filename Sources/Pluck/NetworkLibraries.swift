@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import Security
+import UniformTypeIdentifiers
 
 /// Other Macs sharing their Pluck Library on this network (see `LibraryServer`): found by
 /// Bonjour, opened with their access code (kept in the keychain), browsed, played, copied here,
@@ -163,6 +164,22 @@ final class NetworkLibraries {
         return cleaned.isEmpty ? "mp4" : String(cleaned)
     }
 
+    /// A kind of file that runs something when opened (an app, an installer, a script): never taken from another device.
+    nonisolated static func runs(_ ext: String) -> Bool {
+        let ext = ext.lowercased()
+        let kinds: Set<String> = ["app", "command", "tool", "pkg", "mpkg", "sh", "zsh", "bash", "csh", "ksh", "py", "rb", "pl", "php",
+                                  "scpt", "scptd", "applescript", "workflow", "terminal", "jar", "action", "prefpane", "plugin", "kext", "dylib", "webloc", "inetloc", "fileloc"]
+        guard !kinds.contains(ext), let type = UTType(filenameExtension: ext) else { return kinds.contains(ext) }
+        return [.executable, .application, .applicationBundle, .script, .shellScript].contains { type.conforms(to: $0) }
+    }
+
+    /// Marked as from another device, as a browser marks a download: macOS checks it before it opens.
+    nonisolated static func quarantine(_ url: URL) {
+        var url = url, values = URLResourceValues()
+        values.quarantineProperties = [kLSQuarantineAgentNameKey as String: "Pluck", kLSQuarantineTypeKey as String: kLSQuarantineTypeOtherDownload]
+        try? url.setResourceValues(values)
+    }
+
     private func login(_ base: URL, code: String) async throws {
         var request = URLRequest(url: base.appendingPathComponent("login"))
         request.httpMethod = "POST"
@@ -202,9 +219,15 @@ final class NetworkLibraries {
     func copy(_ item: Item, from base: URL, manager: DownloadManager?) async throws -> URL {
         let (temporary, response) = try await URLSession.shared.download(from: base.appendingPathComponent("file/\(item.id)"))
         guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw Failure.unreachable }
+        let ext = Self.safeExtension(item.ext)
+        guard !Self.runs(ext) else {
+            try? FileManager.default.removeItem(at: temporary)
+            throw Failure.refused(String(localized: "That kind of file can run things, so it isn’t copied from another Mac."))
+        }
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let destination = Converting.outputURL(folder: folder, name: Folders.sanitize(item.title), fileExtension: Self.safeExtension(item.ext))
+        let destination = Converting.outputURL(folder: folder, name: Folders.sanitize(item.title), fileExtension: ext)
         try FileManager.default.moveItem(at: temporary, to: destination)
+        Self.quarantine(destination)
         if let manager {
             _ = manager.addLocalFiles([destination])
             manager.saveHistory()
@@ -222,7 +245,11 @@ private enum Keychain {
         [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: name]
     }
 
+    /// Test copies keep codes in memory: a rebuilt test app touching the login keychain makes macOS ask for the password.
+    nonisolated(unsafe) private static var memory: [String: String] = [:]
+
     static func save(_ code: String, for name: String) {
+        if ScreenshotMode.scene != nil { memory[name] = code; return }
         SecItemDelete(query(name) as CFDictionary)
         var item = query(name)
         item[kSecValueData as String] = Data(code.utf8)
@@ -230,6 +257,7 @@ private enum Keychain {
     }
 
     static func code(for name: String) -> String? {
+        if ScreenshotMode.scene != nil { return memory[name] }
         var item = query(name)
         item[kSecReturnData as String] = true
         item[kSecMatchLimit as String] = kSecMatchLimitOne

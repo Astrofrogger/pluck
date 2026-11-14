@@ -74,16 +74,21 @@ final class PhotoDepth {
 
     func remove() {
         try? FileManager.default.removeItem(at: Self.compiled)
-        Self.model = nil
+        Self.modelLock.withLock { Self.model = nil }
         state = .notInstalled
     }
 
+    /// (Renders on several threads ask at once: one loads it.)
+    nonisolated private static let modelLock = NSLock()
+
     nonisolated private static func loaded() -> VNCoreMLModel? {
-        if let model { return model }
-        guard FileManager.default.fileExists(atPath: compiled.path), let ml = try? MLModel(contentsOf: compiled),
-              let vision = try? VNCoreMLModel(for: ml) else { return nil }
-        model = vision
-        return vision
+        modelLock.withLock {
+            if let model { return model }
+            guard FileManager.default.fileExists(atPath: compiled.path), let ml = try? MLModel(contentsOf: compiled),
+                  let vision = try? VNCoreMLModel(for: ml) else { return nil }
+            model = vision
+            return vision
+        }
     }
 
     // MARK: - Depth
@@ -97,9 +102,11 @@ final class PhotoDepth {
     /// photo's scale (least squares over the tile) and blended in with soft seams, and on a mirrored copy, averaged: finer
     /// edges, steadier depth, the whole photo's sense of near and far.)
     nonisolated static func nearness(_ path: String, from image: CIImage, context: CIContext) -> CIImage? {
-        if let known = lock.withLock({ maps[path] }) { return known }
-        guard let model = loaded() else { return nil }
         let scale = min(1, 1536 / max(image.extent.width, image.extent.height))
+        // By the size it's worked out at too: a small picture's map is never used for a larger one.
+        let key = path + "|\(Int(max(image.extent.width, image.extent.height) * scale))"
+        if let known = lock.withLock({ maps[key] }) { return known }
+        guard let model = loaded() else { return nil }
         let small = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         guard let cg = context.createCGImage(small, from: small.extent.integral, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)) else { return nil }
         let W = cg.width, H = cg.height
@@ -165,7 +172,7 @@ final class PhotoDepth {
         let map = CIImage(bitmapData: values.withUnsafeBufferPointer { Data(buffer: $0) }, bytesPerRow: W * 4,
                           size: CGSize(width: W, height: H), format: .Lf, colorSpace: nil)
         lock.withLock {
-            maps[path] = map
+            maps[key] = map
             if maps.count > 16 { maps.removeValue(forKey: maps.keys.first!) }
         }
         return map

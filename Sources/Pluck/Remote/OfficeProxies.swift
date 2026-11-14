@@ -54,6 +54,8 @@ final class OfficeProxies {
     private(set) var chosenFolder: URL?
     /// The file being made now, how far along, and how many wait.
     private(set) var working: String?
+    /// Why proxies can't be made right now (a missing tool), for the Macs asking.
+    private(set) var problem: String?
     private(set) var progress = 0.0
     private(set) var queued = 0
 
@@ -61,6 +63,11 @@ final class OfficeProxies {
     @ObservationIgnored private var task: Task<Void, Never>?
     /// The footage in each shared folder, looked up now and then rather than on every question.
     @ObservationIgnored private var listings: [String: (files: [String], at: Date)] = [:]
+    /// Per folder of footage, the videos whose name (not extension) another one there has too, looked up now and then.
+    @ObservationIgnored private var clashes: [String: (names: Set<String>, at: Date)] = [:]
+    /// One proxy made at a time on this Mac, whichever worker asks (this one or RemoteProxyJobs).
+    @ObservationIgnored private var encoding = false
+    @ObservationIgnored private var encodeQueue: [CheckedContinuation<Void, Never>] = []
 
     private init() {
         chosenFolder = UserDefaults.standard.string(forKey: Self.folderKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
@@ -80,8 +87,14 @@ final class OfficeProxies {
     }
 
     /// A shared folder's id for paired Macs (never its path).
+    /// A shared folder's id: the one RemoteShares keeps for it (so it stays when the folder moves or a
+    /// NAS remounts under another name), else made from its path as before.
     nonisolated static func id(_ folder: URL) -> String {
-        SHA256.hash(data: Data("pluck-proxies:\(folder.path)".utf8)).prefix(9).map { String(format: "%02x", $0) }.joined()
+        RemoteShares.ids.withLock { $0[folder.path] } ?? pathID(folder.path)
+    }
+
+    nonisolated static func pathID(_ path: String) -> String {
+        SHA256.hash(data: Data("pluck-proxies:\(path)".utf8)).prefix(9).map { String(format: "%02x", $0) }.joined()
     }
 
     private func folder(_ id: String) throws -> URL {
@@ -94,19 +107,20 @@ final class OfficeProxies {
     /// The videos in a shared folder, by their path inside it.
     private func files(in id: String) async throws -> [String] {
         if let listing = listings[id], Date.now.timeIntervalSince(listing.at) < 120 { return listing.files }
-        let folder = try folder(id)
+        let folder = try folder(id), inbox = OfficeInbox.shared.folder
         let files = await Task.detached {
-            OfficeArchive.videoFiles(in: [folder]).map { String($0.path.dropFirst(folder.path.count + 1)) }.sorted()
+            OfficeArchive.videoFiles(in: [folder], skipping: inbox).map { String($0.path.dropFirst(folder.path.count + 1)) }.sorted()
         }.value
         listings[id] = (files, .now)
         return files
     }
 
     enum ChoiceProblem: LocalizedError {
-        case insideFootage, notWritable
+        case insideFootage, overlapsFootage, notWritable
         var errorDescription: String? {
             switch self {
             case .insideFootage: String(localized: "Choose a folder outside the shared footage, so proxies aren’t mixed in with it.")
+            case .overlapsFootage: String(localized: "Choose a folder apart from the shared footage, so what other Macs send stays out of it.")
             case .notWritable: String(localized: "Pluck can’t write to that folder.")
             }
         }
@@ -143,10 +157,41 @@ final class OfficeProxies {
         return chosenFolder.appendingPathComponent(name, isDirectory: true)
     }
 
-    private func proxy(_ relative: String, folder: String, format: Format) -> URL {
+    func proxy(_ relative: String, folder: String, format: Format) -> URL {
         // Originals are served as they are, straight from the footage.
         if format == .original, let footage = try? self.folder(folder) { return footage.appendingPathComponent(relative) }
-        return directory(folder, format: format).appendingPathComponent((relative as NSString).deletingPathExtension + ".mov")
+        return directory(folder, format: format).appendingPathComponent(proxyName(relative, folder: folder))
+    }
+
+    /// A proxy's path inside its folder: the original's as .mov ("A001.mov"). When another video beside it has
+    /// the same name (A001.MXF and A001.MP4) each keeps its extension too ("A001.MXF.mov"), so they never share
+    /// one. Only then: proxies made before keep their names, and Resolve's Link Proxy Media, which matches by
+    /// name, still finds them (the reel and timecode inside are the original's either way).
+    func proxyName(_ relative: String, folder: String) -> String {
+        guard let footage = try? self.folder(folder) else { return Self.proxyName(relative, clashes: false) }
+        let original = footage.appendingPathComponent(relative), place = original.deletingLastPathComponent().path
+        if clashes[place].map({ Date.now.timeIntervalSince($0.at) > 30 }) ?? true {
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: place)) ?? []
+            clashes[place] = (Self.clashing(names.filter { !$0.hasPrefix(".") && Converting.isVideo(URL(fileURLWithPath: $0)) }), .now)
+        }
+        return Self.proxyName(relative, clashes: clashes[place]?.names.contains(original.lastPathComponent) == true)
+    }
+
+    nonisolated static func proxyName(_ relative: String, clashes: Bool) -> String {
+        (clashes ? relative : (relative as NSString).deletingPathExtension) + ".mov"
+    }
+
+    /// The files among `paths` that share their folder and name (not extension) with another one.
+    nonisolated static func clashing(_ paths: [String]) -> Set<String> {
+        Set(Dictionary(grouping: paths) { ($0 as NSString).deletingPathExtension.lowercased() }.values.filter { $0.count > 1 }.joined())
+    }
+
+    /// A share's proxies in this format were fetched or listed: kept from tidying for another three weeks.
+    func used(_ id: String, format: Format) {
+        guard let index = requests.firstIndex(where: { $0.folder == id && $0.format == format }),
+              Date.now.timeIntervalSince(requests[index].lastUsed) > 3600 else { return }
+        requests[index].lastUsed = .now
+        save()
     }
 
     // MARK: - For paired Macs
@@ -191,6 +236,7 @@ final class OfficeProxies {
         }
         var answer: [String: Any] = ["files": list, "asked": requests.contains { $0.folder == id && $0.format == format }]
         if let working { answer["working"] = working; answer["progress"] = progress }
+        if let problem { answer["problem"] = problem }
         return answer
     }
 
@@ -200,6 +246,7 @@ final class OfficeProxies {
             throw OfficeLink.Failure.office(String(localized: "That video isn’t in the folder on the host Mac."))
         }
         let proxy = proxy(relative, folder: id, format: format)
+        used(id, format: format)
         guard let handle = FileHandle(forReadingAtPath: proxy.path) else {
             throw OfficeLink.Failure.office(String(localized: "That proxy isn’t ready on the host Mac yet."))
         }
@@ -219,8 +266,12 @@ final class OfficeProxies {
         task = Task {
             defer { task = nil; working = nil; queued = 0 }
             tidy()
-            guard let ffmpeg = manager?.tool("ffmpeg") else { return }
-            let ffprobe = manager?.tool("ffprobe")
+            // Without ffprobe a proxy can't be checked (its container), so none would be made: say so.
+            guard let ffmpeg = manager?.tool("ffmpeg"), let ffprobe = manager?.tool("ffprobe") else {
+                problem = String(localized: "ffmpeg isn’t fully installed on the host Mac, so proxies can’t be made.")
+                return
+            }
+            problem = nil
             var made = true
             // Again from the top after each pass, for footage added while it worked.
             while made, !Task.isCancelled {
@@ -237,7 +288,7 @@ final class OfficeProxies {
                         progress = 0
                         let source = folder.appendingPathComponent(relative)
                         let target = proxy(relative, folder: request.folder, format: request.format)
-                        if await Self.encode(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
+                        if await makeOne(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
                             Task { @MainActor in OfficeProxies.shared.progress = value }
                         }) {
                             made = true
@@ -252,9 +303,16 @@ final class OfficeProxies {
         task?.cancel()
     }
 
-    /// Proxies nobody asked about for three weeks go, with their request.
+    /// Proxies nobody asked about for three weeks go, with their request (never while a proxy request or
+    /// watched folder of RemoteProxyJobs still uses them: those share the folder).
     private func tidy() {
-        let old = requests.filter { Date.now.timeIntervalSince($0.lastUsed) > Self.keepFor }
+        let jobs = RemoteProxyJobs.shared.requests
+        let old = requests.filter { request in
+            Date.now.timeIntervalSince(request.lastUsed) > Self.keepFor
+                && !jobs.contains { $0.share == request.folder && $0.format == request.format }
+                && !OfficeArchive.shared.folders.contains { Self.id($0) == request.folder
+                    && RemoteShares.shared.share($0)?.watch.contains { $0.format == request.format } == true }
+        }
         // Only Pluck's own folder is tidied; a chosen folder is the owner's to keep.
         for request in old {
             try? FileManager.default.removeItem(at: Self.root.appendingPathComponent("\(request.folder)-\(request.format.rawValue)"))
@@ -263,18 +321,39 @@ final class OfficeProxies {
         save()
     }
 
+    /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.
+    func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+                 progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+        while encoding { await withCheckedContinuation { encodeQueue.append($0) } }
+        encoding = true
+        defer {
+            encoding = false
+            if !encodeQueue.isEmpty { encodeQueue.removeFirst().resume() }
+        }
+        if FileManager.default.fileExists(atPath: target.path) { return true }
+        // Parts a quit left behind (only this encode runs now, so none is in use).
+        let base = target.deletingPathExtension().lastPathComponent + ".", place = target.deletingLastPathComponent()
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? [] where name.hasPrefix(base) && name.hasSuffix(".part.mov") {
+            try? FileManager.default.removeItem(at: place.appendingPathComponent(name))
+        }
+        return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
+    }
+
     /// One proxy: same frame rate, length and timecode as the original, at up to 1080p, written
-    /// next to its final name and moved there when it's complete.
-    nonisolated private static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    /// next to its final name (a name of its own) and moved there when it's complete.
+    nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         await Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let partial = target.deletingPathExtension().appendingPathExtension("part.mov")
-            let (duration, timecode) = probe(source, ffprobe: ffprobe)
-            var common = ["-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-i", source.path,
+            let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
+            let (duration, timecode, container, reel) = probe(source, ffprobe: ffprobe)
+            guard let demuxer = demuxer(container) else { return false }
+            var common = ["-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-f", demuxer, "-i", source.path,
                           "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
                           "-vf", "scale=-2:'min(1080,ih)'"]
             if let timecode { common += ["-timecode", timecode] }
+            // Resolve and editors know a clip by its reel: the original's, else its file name.
+            common += ["-metadata:s:v:0", "reel_name=" + (reel ?? source.deletingPathExtension().lastPathComponent)]
             let attempts: [[String]] = switch format {
             case .light:
                 [["-c:v", "hevc_videotoolbox", "-b:v", "8M", "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"],
@@ -310,24 +389,37 @@ final class OfficeProxies {
         }.value
     }
 
-    /// The original's length, and its starting timecode if it has one.
-    nonisolated private static func probe(_ file: URL, ffprobe: String?) -> (Double?, String?) {
-        guard let ffprobe else { return (nil, nil) }
+    /// Containers that open other files (playlists, manifests, scripts): a file named .mov can be one.
+    nonisolated static let refusedContainers: Set<String> = ["concat", "hls", "applehttp", "dash", "webm_dash_manifest", "imf", "sdp",
+                                                             "rtp", "rtsp", "image2", "lavfi", "avisynth", "vapoursynth", "ffmetadata", "tee"]
+
+    /// The demuxer to pin for a shared file, or nil to refuse it. (Refusing playlist formats stops a
+    /// planted manifest reading other local files; pinning -f stops the file being swapped after the look.)
+    nonisolated static func demuxer(_ container: String?) -> String? {
+        guard let names = container?.split(separator: ",").map(String.init), let first = names.first,
+              !names.contains(where: refusedContainers.contains) else { return nil }
+        return first
+    }
+
+    /// The original's length, its starting timecode if it has one, its container (ffprobe's format_name) and its reel name.
+    nonisolated static func probe(_ file: URL, ffprobe: String?) -> (Double?, String?, String?, String?) {
+        guard let ffprobe else { return (nil, nil, nil, nil) }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffprobe)
-        process.arguments = ["-v", "error", "-show_entries", "format=duration:format_tags=timecode:stream_tags=timecode", "-of", "json", file.path]
+        process.arguments = ["-v", "error", "-show_entries", "format=duration,format_name:format_tags=timecode:stream_tags=timecode,reel_name", "-of", "json", file.path]
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return (nil, nil) }
+        guard (try? process.run()) != nil else { return (nil, nil, nil, nil) }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (nil, nil) }
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return (nil, nil, nil, nil) }
         let format = json["format"] as? [String: Any]
         let duration = (format?["duration"] as? String).flatMap(Double.init)
         let streams = json["streams"] as? [[String: Any]] ?? []
         let timecode = ((format?["tags"] as? [String: Any])?["timecode"] as? String)
             ?? streams.lazy.compactMap { ($0["tags"] as? [String: Any])?["timecode"] as? String }.first
-        return (duration, timecode)
+        let reel = streams.lazy.compactMap { ($0["tags"] as? [String: Any])?["reel_name"] as? String }.first { !$0.isEmpty }
+        return (duration, timecode, format?["format_name"] as? String, reel)
     }
 }

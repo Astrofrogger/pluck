@@ -14,6 +14,25 @@ enum ConvertSelfTest {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
         let presets: [(Conversion.Preset, Int?)] = [(.mp4, nil), (.audio, nil), (.gif, nil), (.smaller, nil), (.compress, 30)]
         var lines: [String] = []
+        // Output names are taken at once: two asks for the same name get two different files.
+        let a = Converting.reserveOutputURL(folder: output, name: "Reserve test", fileExtension: "mp4")
+        let b = Converting.reserveOutputURL(folder: output, name: "Reserve test", fileExtension: "mp4")
+        let reserved = a != b && FileManager.default.fileExists(atPath: a.path) && FileManager.default.fileExists(atPath: b.path)
+        lines.append("reserve\t\(reserved ? "PASS" : "FAIL")\t\(a.lastPathComponent)\t\(b.lastPathComponent)")
+        try? FileManager.default.removeItem(at: a)
+        try? FileManager.default.removeItem(at: b)
+        // The same file converted twice side by side: two results, neither over the other.
+        if let file = files.first {
+            defaults.set(4, forKey: Prefs.maxConcurrent)
+            manager.convert([file, file], preset: .audio)
+            let pair = Array(manager.items.prefix(2))
+            for _ in 0..<1200 where pair.contains(where: { ![.finished, .failed, .cancelled].contains($0.state) }) {
+                try? await Task.sleep(for: .milliseconds(250))
+            }
+            let names = pair.compactMap { $0.fileURL?.lastPathComponent }
+            let ok = names.count == 2 && Set(names).count == 2 && pair.allSatisfy { $0.state == .finished }
+            lines.append("concurrent\t\(ok ? "PASS" : "FAIL")\t\(names.joined(separator: " | "))")
+        }
         for file in files {
             for (preset, percent) in presets {
                 manager.convert([file], preset: preset, percent: percent)

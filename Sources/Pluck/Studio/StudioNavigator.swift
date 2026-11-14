@@ -266,4 +266,74 @@ final class StudioNavigator {
         recent.removeAll { $0 == path }
         UserDefaults.standard.set(recent, forKey: Self.recentKey)
     }
+
+    // MARK: - Edit ▸ Search (⌘F)
+
+    /// The pages showing a search field now (Edit ▸ Search is off on the others).
+    private(set) var searchPages: Set<Page> = []
+    /// Counts Edit ▸ Search; the shown page's field takes the typing when it changes.
+    private(set) var searchRequests = 0
+    /// The page whose field last took it (for the self-test).
+    private(set) var lastSearched: Page?
+
+    var canSearch: Bool { searchPages.contains(page) }
+
+    func search() {
+        if canSearch { searchRequests += 1 } else { NSSound.beep() }
+    }
+
+    fileprivate func registerSearch(_ page: Page, _ on: Bool) {
+        if on { searchPages.insert(page) } else { searchPages.remove(page) }
+    }
+
+    fileprivate func searched(_ page: Page) { lastSearched = page }
+
+    /// Types in the title bar's search field from AppKit: FocusState doesn't reach the Library's (its toolbar is
+    /// made again as the Library updates).
+    static func focusTitleBarSearch() {
+        guard let window = NSApp.keyWindow ?? NSApp.windows.first(where: { $0.canBecomeMain && $0.isVisible }),
+              let frame = window.contentView?.superview else { return }
+        let top = window.contentLayoutRect.maxY
+        func field(in view: NSView) -> NSTextField? {
+            if let text = view as? NSTextField, text.isEditable, view.convert(view.bounds, to: nil).minY >= top - 1 { return text }
+            for sub in view.subviews { if let found = field(in: sub) { return found } }
+            return nil
+        }
+        if let search = field(in: frame) { window.makeFirstResponder(search) }
+    }
+}
+
+/// A page's search field, for Edit ▸ Search (⌘F): `focus` runs when it's asked for while this page is shown.
+private struct SearchTarget: ViewModifier {
+    let page: StudioNavigator.Page
+    let focus: () -> Void
+    @State private var nav = StudioNavigator.shared
+
+    func body(content: Content) -> some View {
+        content
+            .onAppear { nav.registerSearch(page, true) }
+            .onDisappear { nav.registerSearch(page, false) }
+            .onChange(of: nav.searchRequests) {
+                guard nav.page == page else { return }
+                nav.searched(page)
+                focus()
+            }
+    }
+}
+
+extension View {
+    func searchTarget(_ page: StudioNavigator.Page, focus: @escaping () -> Void) -> some View {
+        modifier(SearchTarget(page: page, focus: focus))
+    }
+}
+
+/// Edit ▸ Search (⌘F): the search of the page shown. A real menu command, so the key always works.
+struct SearchCommand: View {
+    @State private var nav = StudioNavigator.shared
+
+    var body: some View {
+        Button("Search") { nav.search() }
+            .keyboardShortcut("f")
+            .disabled(!nav.canSearch)
+    }
 }

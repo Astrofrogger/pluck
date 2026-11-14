@@ -180,6 +180,26 @@ private struct PinkLink: View {
 }
 
 /// What went wrong, in the bad colour.
+/// How an iroh link goes: "Direct · 12 ms", or slow through a relay, with how to make it faster.
+private struct LinkLine: View {
+    let link: Tunnel.Link
+    let hint: Text
+
+    var body: some View {
+        Group {
+            if link.direct {
+                if let rtt = link.rtt { Text("Direct · \(Int(rtt.rounded())) ms") } else { Text("Direct") }
+            } else {
+                Label("Slow: no direct connection", systemImage: "tortoise")
+                    .help(hint)
+            }
+        }
+        .font(Design.Studio.hint)
+        .foregroundStyle(link.direct ? Design.Studio.good : Design.Studio.warn)
+        .lineLimit(1)
+    }
+}
+
 private struct ProblemLine: View {
     let text: String
     var colour = Design.Studio.bad
@@ -229,9 +249,11 @@ private struct HomeRenderView: View {
     @State private var inviteText = ""
     @State private var joining = false
     @State private var pairingWithCode = false
+    /// The invitation the alert shows, taken from the client so a newer link can't swap in under the click.
+    @State private var shownInvitation: PrivateNetwork.Invitation?
     @AppStorage("editAnywherePane") private var pane = Pane.render
 
-    enum Pane: String { case render, archive, proxies }
+    enum Pane: String { case render, archive, proxies, resolve, review }
 
     var body: some View {
         HStack(spacing: Design.Studio.panelGap) {
@@ -243,6 +265,8 @@ private struct HomeRenderView: View {
                         NavRow(symbol: "play.rectangle", title: "Render", selected: pane == .render) { pane = .render }
                         NavRow(symbol: "sparkle.magnifyingglass", title: "Search the archive", selected: pane == .archive) { pane = .archive }
                         NavRow(symbol: "arrow.up.arrow.down", title: "Files", selected: pane == .proxies) { pane = .proxies }
+                        NavRow(symbol: "film.stack", title: "DaVinci Resolve", selected: pane == .resolve) { pane = .resolve }
+                        NavRow(symbol: "text.bubble", title: "Review", selected: pane == .review) { pane = .review }
                     }
                 } else {
                     Text("Join a Mac to render, search and fetch files on it from here.")
@@ -256,9 +280,11 @@ private struct HomeRenderView: View {
                     switch pane {
                     case .archive: ArchiveSearchPane(host: office.name)
                     case .proxies:
-                        ProxiesPane()
-                        SendPane().padding(.top, 12)
+                        RemoteFilesPane { ProxiesPane() }
+                        SendPane().padding(.top, 24)
                     case .render: renderPane(office)
+                    case .resolve: RemoteResolvePane(host: office.name)
+                    case .review: RemoteReviewPane()
                     }
                     activity
                 }
@@ -267,16 +293,20 @@ private struct HomeRenderView: View {
             }
         }
         .onAppear { client.load() }
-        .alert(Text("Join “\(client.pendingInvitation?.name ?? "")”?"),
-               isPresented: Binding(get: { client.pendingInvitation != nil }, set: { if !$0 { client.pendingInvitation = nil } })) {
-            Button("Join") {
-                if let invitation = client.pendingInvitation { join(invitation) }
-                client.pendingInvitation = nil
+        .alert(Text("Join “\(shownInvitation?.name ?? "")”?"),
+               isPresented: Binding(get: { shownInvitation != nil }, set: { if !$0 { shownInvitation = nil } }), presenting: shownInvitation) { invitation in
+            Button("Join") { join(invitation) }
+            Button("Cancel", role: .cancel) {}
+        } message: { _ in
+            if let current = client.office {
+                Text("This Mac joins that Mac’s private network and pairs with it, so you can render there from anywhere. Only accept invitations from people you trust.")
+                    + Text(verbatim: "\n\n") + Text("This replaces “\(current.name)”, the host you’re paired with now.")
+            } else {
+                Text("This Mac joins that Mac’s private network and pairs with it, so you can render there from anywhere. Only accept invitations from people you trust.")
             }
-            Button("Cancel", role: .cancel) { client.pendingInvitation = nil }
-        } message: {
-            Text("This Mac joins that Mac’s private network and pairs with it, so you can render there from anywhere. Only accept invitations from people you trust.")
         }
+        .onChange(of: client.pendingInvitation?.link, initial: true) { takeInvitation() }
+        .onChange(of: shownInvitation == nil) { takeInvitation() }
         .task(id: client.office?.device) {
             guard client.office != nil else { return }
             await run { try await client.refresh() }
@@ -406,17 +436,21 @@ private struct HomeRenderView: View {
             StudioTile(symbol: "desktopcomputer", colour: Design.Studio.good, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(office.name).font(Design.Studio.body).lineLimit(1)
-                Group {
-                    if office.network != nil {
-                        Text("Connected from anywhere")
-                    } else {
-                        Text("Connected on the local network (\(office.address))")
+                if let link = office.iroh.flatMap({ client.irohTunnel.links[$0] }) {
+                    LinkLine(link: link, hint: Text("Ask the host Mac to use its own relay (From anywhere) to make it faster."))
+                } else {
+                    Group {
+                        if office.fromAnywhere {
+                            Text("Connected from anywhere")
+                        } else {
+                            Text("Connected on the local network (\(office.address))")
+                        }
                     }
+                    .font(Design.Studio.hint)
+                    .foregroundStyle(Design.Studio.good)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 }
-                .font(Design.Studio.hint)
-                .foregroundStyle(Design.Studio.good)
-                .lineLimit(1)
-                .truncationMode(.middle)
             }
             Spacer(minLength: 0)
             Menu {
@@ -610,6 +644,13 @@ private struct HomeRenderView: View {
 
     // MARK: Actions
 
+    /// Shows the next invitation that arrived, once the one on screen is answered.
+    private func takeInvitation() {
+        guard shownInvitation == nil, let next = client.pendingInvitation else { return }
+        shownInvitation = next
+        client.pendingInvitation = nil
+    }
+
     private func joinTyped() {
         if let invitation = PrivateNetwork.Invitation(link: inviteText) { join(invitation) }
     }
@@ -662,6 +703,10 @@ private struct OfficeSideView: View {
     @State private var proxyProblem: String?
     @State private var inbox = OfficeInbox.shared
     @State private var inboxProblem: String?
+    @AppStorage(PrivateNetwork.transportKey) private var transport = PrivateNetwork.transport.rawValue
+    @AppStorage(PrivateNetwork.relayKey) private var storedRelay = ""
+    @State private var relayText = UserDefaults.standard.string(forKey: PrivateNetwork.relayKey) ?? ""
+    @State private var ownRelayOn = !(UserDefaults.standard.string(forKey: PrivateNetwork.relayKey) ?? "").isEmpty
 
     enum Section: String { case renders, anywhere, footage, inbox, devices }
 
@@ -687,7 +732,7 @@ private struct OfficeSideView: View {
                 AnywherePane {
                     switch section {
                     case .renders: rendersCard
-                    case .anywhere: anywhereCard
+                    case .anywhere: anywhereCard; RemoteNetworkHostView().padding(.top, 12)
                     case .footage: archiveCard
                     case .inbox: inboxCard
                     case .devices: devicesCard
@@ -766,17 +811,19 @@ private struct OfficeSideView: View {
                 PinkLink(title: "Clear finished") { server.clearFinished() }
             }
         }
+        RemoteResolveHostSection()
     }
 
     // MARK: From anywhere
 
     @ViewBuilder
     private var anywhereCard: some View {
+        let iroh = transport == PrivateNetwork.Transport.iroh.rawValue
         PaneHeader(title: Text("From anywhere"),
                    subtitle: Text("Other Macs connect from anywhere over a private network built into Pluck.")) {
             HStack(spacing: 6) {
                 anywhereStatus
-                if PrivateNetwork.helper != nil, server.network.hasJoined || PrivateNetwork.Account.token != nil || tokenSaved {
+                if !iroh, PrivateNetwork.helper != nil, server.network.hasJoined || PrivateNetwork.Account.token != nil || tokenSaved {
                     Menu {
                         Button("Disconnect…", role: .destructive) { confirmDisconnect = true }
                     } label: {
@@ -800,6 +847,102 @@ private struct OfficeSideView: View {
         } message: {
             Text("Macs on this network keep working. Macs elsewhere can’t reach this one until you connect again with a Tailscale access token and invite them again. You can remove its old entry in Tailscale’s admin page.")
         }
+        StudioField(label: "Connect with") {
+            Menu {
+                Picker("Connect with", selection: Binding(get: { transport }, set: { server.setTransport(PrivateNetwork.Transport(rawValue: $0) ?? .iroh); transport = $0 })) {
+                    Text("Pluck (no account)").tag(PrivateNetwork.Transport.iroh.rawValue)
+                    Text(verbatim: "Tailscale").tag(PrivateNetwork.Transport.tailscale.rawValue)
+                }
+                .pickerStyle(.inline)
+            } label: {
+                PlainMenuLabel(title: iroh ? String(localized: "Pluck (no account)") : "Tailscale")
+            }
+            .plainMenu()
+        }
+        .help("Macs invited the other way need a new invitation after a switch.")
+        if iroh {
+            irohSetup
+        } else {
+            tailscaleSetup
+        }
+    }
+
+    /// The built-in way (iroh): ready as soon as this Mac is shared; an own relay is optional.
+    @ViewBuilder
+    private var irohSetup: some View {
+        if PrivateNetwork.helper(.iroh) == nil {
+            Text("This build of Pluck doesn’t have the private network part.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+        } else {
+            switch server.network.state {
+            case .running:
+                inviteRow(String(localized: "Ready, no account needed"),
+                          help: String(localized: "A one-time link for the Mac you want to connect, valid for 15 minutes"))
+            case .failed(let message):
+                HStack {
+                    ProblemLine(text: message, colour: Design.Studio.warn)
+                    Spacer()
+                    Button("Try again") { server.startNetwork() }.buttonStyle(StudioFlatButtonStyle())
+                }
+            case .off:
+                HStack {
+                    Spacer()
+                    Button("Connect") { server.startNetwork() }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                }
+            case .starting:
+                EmptyView()
+            }
+            if let problem = server.networkProblem ?? inviteProblem ?? server.network.warning {
+                ProblemLine(text: problem, colour: Design.Studio.warn)
+            }
+            StudioSwitchRow(title: "Use my own relay", isOn: Binding(get: { ownRelayOn }, set: { on in
+                ownRelayOn = on
+                if !on, !storedRelay.isEmpty { storedRelay = ""; relayText = ""; server.restartNetwork() }
+            }))
+            .help("Without a direct connection, everything goes through a relay. iroh’s free public relays are slow; your own is faster.")
+            if ownRelayOn {
+                HStack(spacing: 10) {
+                    TextField("Relay address", text: $relayText, prompt: Text(verbatim: "https://relay.example.com"))
+                        .textFieldStyle(.plain)
+                        .font(Design.Studio.body)
+                        .onSubmit(saveRelay)
+                        .anywhereInput()
+                    Button("Use", action: saveRelay)
+                        .buttonStyle(StudioFlatButtonStyle(height: 32))
+                        .disabled(PrivateNetwork.relayAddress(relayText) == nil || relayText == storedRelay)
+                }
+            }
+        }
+    }
+
+    private func saveRelay() {
+        guard let address = PrivateNetwork.relayAddress(relayText), address != storedRelay else { return }
+        storedRelay = address
+        server.restartNetwork()
+    }
+
+    private func inviteRow(_ title: String, help: String) -> some View {
+        HStack(spacing: 10) {
+            Text(title)
+                .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
+            Spacer()
+            if inviting { PlumSpinner() }
+            Button {
+                makeInvitation()
+            } label: {
+                Label("Invite a Mac", systemImage: "envelope")
+            }
+            .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+            .disabled(inviting)
+            .help(help)
+        }
+        .padding(.leading, 16)
+        .padding(.trailing, 8)
+        .frame(height: 48)
+        .studioBox()
+    }
+
+    @ViewBuilder
+    private var tailscaleSetup: some View {
         if PrivateNetwork.helper == nil {
             Text("This build of Pluck doesn’t have the private network part.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
         } else if !server.network.hasJoined && PrivateNetwork.Account.token == nil && !tokenSaved {
@@ -826,24 +969,8 @@ private struct OfficeSideView: View {
         } else {
             switch server.network.state {
             case .running(let name, let address):
-                HStack(spacing: 10) {
-                    Text("Reachable as \(name.isEmpty ? address : name)")
-                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
-                    Spacer()
-                    if inviting { PlumSpinner() }
-                    Button {
-                        makeInvitation()
-                    } label: {
-                        Label("Invite a Mac", systemImage: "envelope")
-                    }
-                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
-                    .disabled(inviting)
-                    .help("A one-time link for the Mac you want to connect, valid for a day")
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 8)
-                .frame(height: 48)
-                .studioBox()
+                inviteRow(String(localized: "Reachable as \(name.isEmpty ? address : name)"),
+                          help: String(localized: "A one-time link for the Mac you want to connect, valid for a day"))
             case .failed(let message):
                 HStack {
                     ProblemLine(text: message, colour: Design.Studio.warn)
@@ -866,7 +993,7 @@ private struct OfficeSideView: View {
 
     @ViewBuilder
     private var anywhereStatus: some View {
-        if PrivateNetwork.helper != nil {
+        if PrivateNetwork.helper(server.network.transport) != nil {
             if !server.network.hasJoined && PrivateNetwork.Account.token == nil && !tokenSaved {
                 StudioChip(text: Text("Not set up"))
             } else {
@@ -951,21 +1078,7 @@ private struct OfficeSideView: View {
                 StudioChip(text: Text("\(archive.indexes.count) of \(archive.fileCount) searchable"), colour: Design.Studio.good, tinted: true)
             }
         }
-        ForEach(archive.folders, id: \.self) { folder in
-            HStack(spacing: 12) {
-                StudioTile(symbol: "folder", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(folder.lastPathComponent).font(Design.Studio.body).lineLimit(1)
-                    Text(folder.deletingLastPathComponent().path).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                        .lineLimit(1).truncationMode(.middle)
-                }
-                Spacer()
-                IconButton(symbol: "minus", label: "Stop searching this folder") { archive.remove(folder) }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .studioBox()
-        }
+        RemoteSharesList()
         if let working = archive.working {
             VStack(alignment: .leading, spacing: 6) {
                 StudioProgress(share: archive.progress)
@@ -1026,16 +1139,21 @@ private struct OfficeSideView: View {
                 StudioTile(symbol: "laptopcomputer", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(device.name).font(Design.Studio.body)
-                    Group {
-                        if let seen = server.lastSeen[device.id] {
-                            Text("Last seen \(seen.formatted(.relative(presentation: .named)))")
-                        } else {
-                            Text("Paired \(device.added.formatted(date: .abbreviated, time: .omitted))")
+                    if let link = device.iroh.flatMap({ server.network.links[$0] }) {
+                        LinkLine(link: link, hint: Text("Set up your own relay under From anywhere to make it faster."))
+                    } else {
+                        Group {
+                            if let seen = server.lastSeen[device.id] {
+                                Text("Last seen \(seen.formatted(.relative(presentation: .named)))")
+                            } else {
+                                Text("Paired \(device.added.formatted(date: .abbreviated, time: .omitted))")
+                            }
                         }
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                     }
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 }
                 Spacer()
+                RemoteRightsMenu(device: device)
                 IconButton(symbol: "xmark", label: "Remove: it can’t connect any more until it’s paired again", tint: Design.Studio.bad) {
                     server.remove(device)
                 }
@@ -1158,8 +1276,13 @@ private struct InvitationSheet: View {
                 Spacer(minLength: 0)
             }
             .anywhereInput()
-            Label("Works once, for 24 hours, for the first Mac that uses it. Send it only to people you trust.",
-                  systemImage: "lock.shield")
+            Group {
+                if case .iroh = PrivateNetwork.Invitation(link: link.absoluteString)?.way {
+                    Label("Works once, for 15 minutes, for the first Mac that uses it. Send it only to people you trust.", systemImage: "lock.shield")
+                } else {
+                    Label("Works once, for 24 hours, for the first Mac that uses it. Send it only to people you trust.", systemImage: "lock.shield")
+                }
+            }
                 .font(Design.Studio.hint)
                 .foregroundStyle(Design.Studio.textQuiet)
             HStack(spacing: 10) {
@@ -1510,6 +1633,19 @@ private struct SendPane: View {
                 } else if let lastSent = sync.lastSent {
                     StudioChip(text: Text("Sent \(lastSent.formatted(.relative(presentation: .named)))"))
                 }
+            }
+            if sync.needsConfirm {
+                // The host changed since these were set up: nothing goes until a yes.
+                HStack(spacing: 8) {
+                    Text("Keep sending these folders to “\(OfficeRenderClient.shared.office?.name ?? "")”?")
+                        .font(Design.Studio.body).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 8)
+                    Button("Stop") { sync.stop() }.buttonStyle(StudioFlatButtonStyle())
+                    Button("Keep") { sync.keep() }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .studioBox()
             }
             if sync.sending != nil {
                 StudioProgress(share: sync.fraction)

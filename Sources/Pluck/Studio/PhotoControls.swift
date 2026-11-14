@@ -1014,7 +1014,7 @@ struct PointPicker: View {
     var body: some View {
         Color.clear
             .contentShape(.rect)
-            .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+            .crosshairWhileInside()
             .gesture(SpatialTapGesture().onEnded { tap in pick(at: tap.location) })
     }
 
@@ -1044,6 +1044,26 @@ struct PointPicker: View {
     }
 }
 
+/// The crosshair while the pointer is over the view, given back when it leaves or the view goes (a pick that closes the
+/// picker under the pointer left it stuck).
+private struct Crosshair: ViewModifier {
+    @State private var pushed = false
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { inside in
+                guard inside != pushed else { return }
+                if inside { NSCursor.crosshair.push() } else { NSCursor.pop() }
+                pushed = inside
+            }
+            .onDisappear { if pushed { NSCursor.pop(); pushed = false } }
+    }
+}
+
+extension View {
+    fileprivate func crosshairWhileInside() -> some View { modifier(Crosshair()) }
+}
+
 extension ColourPoint {
     /// A point at this colour (linear sRGB, as shown): its OkLCh hue, C/L and L, as the engine reads them.
     static func picked(_ colour: SIMD3<Double>) -> ColourPoint {
@@ -1071,7 +1091,7 @@ struct MixerTarget: View {
     var body: some View {
         Color.clear
             .contentShape(.rect)
-            .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+            .crosshairWhileInside()
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { value in
                     travel = value.translation.height

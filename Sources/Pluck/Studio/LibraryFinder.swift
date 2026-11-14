@@ -25,14 +25,12 @@ enum FinderFiles {
         if FileManager.default.fileExists(atPath: target.path), name.lowercased() != item.lastPathComponent.lowercased() {
             throw FileProblem(String(localized: "\(name) is already in \(item.deletingLastPathComponent().lastPathComponent)."))
         }
-        try FileManager.default.moveItem(at: item, to: target)
-        LibraryStore.shared.relocate(from: item.path, to: target.path)
-        FinderThumbnails.shared.refresh(item)
+        try FileUndo.shared.perform(String(localized: "Rename"), [.move(item, target)])
         return target
     }
 
     /// Finder's name for a copy beside it: "name copy.ext", then "name copy 2.ext"…
-    nonisolated static func copyName(for url: URL) -> URL {
+    nonisolated static func copyName(for url: URL, skipping taken: Set<String> = []) -> URL {
         let folder = url.deletingLastPathComponent()
         let ext = url.hasDirectoryPath ? "" : url.pathExtension
         let stem = ext.isEmpty ? url.lastPathComponent : url.deletingPathExtension().lastPathComponent
@@ -41,24 +39,63 @@ enum FinderFiles {
         while true {
             let name = stem + " " + copy + (number > 1 ? " \(number)" : "")
             let candidate = folder.appendingPathComponent(ext.isEmpty ? name : name + "." + ext, isDirectory: url.hasDirectoryPath)
-            if !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
+            if !taken.contains(candidate.path), !FileManager.default.fileExists(atPath: candidate.path) { return candidate }
             number += 1
         }
     }
 
-    /// A copy beside it (a Library item's copy is in the Library too); the copy.
-    static func duplicate(_ url: URL) throws -> URL {
-        let target = copyName(for: url)
+    /// A copy beside it (a Library item's copy is in the Library too); the copy. A small file is
+    /// copied at once; a big one or a folder is a checked copy in the background (its bar is at
+    /// the Library's foot, its undo and its Library entry follow when it's done).
+    static func duplicate(_ url: URL) async throws -> URL {
+        // A name a copy still on its way already has (a second ⌘D before the first is written).
+        let target = copyName(for: url, skipping: reserved)
+        reserved.insert(target.path)
+        if url.hasDirectoryPath {
+            // A folder: Finder's full copy (links, empty folders, permissions), off the main thread.
+            defer { reserved.remove(target.path) }
+            try await Task.detached { try FileManager.default.copyItem(at: url, to: target) }.value
+            return recordCopy(of: url, at: target)
+        }
+        if isBig(url) { return try await duplicateInBackground(url, to: target) }
+        defer { reserved.remove(target.path) }
+        return try duplicateNow(url, to: target)
+    }
+
+    /// Names given to copies this session that may not be on disk yet (a background copy keeps its name).
+    private static var reserved: Set<String> = []
+
+    static func isBig(_ url: URL) -> Bool {
+        !url.hasDirectoryPath && ((try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0) > 50_000_000
+    }
+
+    static func duplicateNow(_ url: URL, to target: URL) throws -> URL {
         try FileManager.default.copyItem(at: url, to: target)
-        let library = LibraryStore.shared
-        if let entry = library.entries.first(where: { $0.path == url.path }) {
-            var copy = entry
-            copy.path = target.path
-            copy.title = entry.title + " " + String(localized: "copy", comment: "Added to a duplicated file's name, as Finder does")
-            copy.added = .now
-            library.insert(copy)
+        return recordCopy(of: url, at: target)
+    }
+
+    private static func recordCopy(of url: URL, at target: URL) -> URL {
+        addLibraryCopy(of: url, at: target)
+        FileUndo.shared.record(String(localized: "Duplicate"), undo: [.trash(target)])
+        return target
+    }
+
+    static func duplicateInBackground(_ url: URL, to target: URL) async throws -> URL {
+        if let problem = await OffloadCenter.shared.copy([url], into: target.deletingLastPathComponent(), names: [url.standardizedFileURL: target.lastPathComponent]) {
+            reserved.remove(target.path)
+            throw FileProblem(problem)
         }
         return target
+    }
+
+    /// The Library's entry for a file, copied for its duplicate.
+    static func addLibraryCopy(of url: URL, at target: URL) {
+        let library = LibraryStore.shared
+        guard var copy = library.entries.first(where: { $0.path == url.path }) else { return }
+        copy.path = target.path
+        copy.title += " " + String(localized: "copy", comment: "Added to a duplicated file's name, as Finder does")
+        copy.added = .now
+        library.insert(copy)
     }
 
     /// Whether two places are on the same drive (a move there is instant, as in Finder).
@@ -69,51 +106,53 @@ enum FinderFiles {
         return x.isEqual(y)
     }
 
-    /// Moved into a folder on the same drive. Nil when all went; else why some didn't.
+    /// Moved into a folder on the same drive (`names`: new names for some, kept beside one
+    /// already there), one undo. Nil when all went; else why some didn't.
     @discardableResult
-    static func move(_ urls: [URL], into folder: URL) -> String? {
+    static func move(_ urls: [URL], into folder: URL, names: [URL: String] = [:]) -> String? {
         var problems: [String] = []
         let folderName = FileManager.default.displayName(atPath: folder.path)
-        for url in urls {
-            // Already there: nothing to do.
-            if url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path { continue }
-            if FinderPane.isInside(folder, url) {
-                problems.append(String(localized: "\(url.lastPathComponent) can’t go into itself."))
-                continue
-            }
-            let target = folder.appendingPathComponent(url.lastPathComponent, isDirectory: url.hasDirectoryPath)
-            if FileManager.default.fileExists(atPath: target.path) {
-                problems.append(String(localized: "\(url.lastPathComponent) is already in \(folderName)."))
-                continue
-            }
-            do {
-                try FileManager.default.moveItem(at: url, to: target)
-                LibraryStore.shared.relocate(from: url.path, to: target.path)
-                FinderThumbnails.shared.refresh(url)
-            } catch {
-                problems.append(error.localizedDescription)
+        FileUndo.shared.grouped(String(localized: "Move")) {
+            for url in urls {
+                // Already there: nothing to do.
+                if url.deletingLastPathComponent().standardizedFileURL.path == folder.standardizedFileURL.path { continue }
+                if FinderPane.isInside(folder, url) {
+                    problems.append(String(localized: "\(url.lastPathComponent) can’t go into itself."))
+                    continue
+                }
+                let target = folder.appendingPathComponent(names[url] ?? url.lastPathComponent, isDirectory: url.hasDirectoryPath)
+                if FileManager.default.fileExists(atPath: target.path) {
+                    problems.append(String(localized: "\(url.lastPathComponent) is already in \(folderName)."))
+                    continue
+                }
+                do {
+                    try FileUndo.shared.perform(String(localized: "Move"), [.move(url, target)])
+                } catch {
+                    problems.append(error.localizedDescription)
+                }
             }
         }
         return problems.isEmpty ? nil : problems.joined(separator: "\n")
     }
 
-    /// To the Trash (never deleted for good); the Library forgets what went. `done` gets where each went.
-    static func trash(_ urls: [URL], done: @escaping @MainActor ([URL: URL]) -> Void = { _ in }) {
-        guard !urls.isEmpty else { return }
-        NSWorkspace.shared.recycle(urls) { moved, _ in
-            Task { @MainActor in
-                forget(Array(moved.keys))
-                done(moved)
+    /// To the Trash (never deleted for good), one undo; the Library's entries wait with them
+    /// there. `done` gets where each went; nil when all went, else why some didn't.
+    @discardableResult
+    static func trash(_ urls: [URL], done: @escaping @MainActor ([URL: URL]) -> Void = { _ in }) -> String? {
+        guard !urls.isEmpty else { return nil }
+        var moved: [URL: URL] = [:], problems: [String] = []
+        FileUndo.shared.grouped(String(localized: "Move to Trash")) {
+            for url in urls {
+                do {
+                    if case .move(let place, _)? = try FileUndo.shared.perform(String(localized: "Move to Trash"), [.trash(url)]).first { moved[url] = place }
+                } catch {
+                    // (A drive without a Trash, such as a server: the file stays, and the user is told.)
+                    problems.append(String(localized: "\(url.lastPathComponent) couldn’t go to the Trash: \(error.localizedDescription)"))
+                }
             }
         }
-    }
-
-    /// Files gone to the Trash: out of the Library (with anything inside a folder that went).
-    static func forget(_ trashed: [URL]) {
-        let paths = trashed.map(\.path)
-        let library = LibraryStore.shared
-        let gone = library.entries.filter { entry in paths.contains { entry.path == $0 || entry.path.hasPrefix($0 + "/") } }
-        if !gone.isEmpty { library.remove(gone) }
+        done(moved)
+        return problems.isEmpty ? nil : problems.joined(separator: "\n")
     }
 
     /// File URLs on the pasteboard (⌘C), for Finder and other apps to paste.
@@ -138,7 +177,7 @@ struct TypeSelect {
     }
 
     /// The first name starting with what's typed (ignoring case and accents).
-    static func match(_ prefix: String, in names: [String]) -> Int? {
+    static func match<Names: Collection<String>>(_ prefix: String, in names: Names) -> Names.Index? {
         guard !prefix.isEmpty else { return nil }
         return names.firstIndex { $0.range(of: prefix, options: [.caseInsensitive, .diacriticInsensitive, .anchored]) != nil }
     }
@@ -328,6 +367,15 @@ struct FinderDetails: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+            if !item.isFolder, !item.isClip, FilePreview.showsContents(item.url) {
+                // A document, text, PDF…: what's in it, to look at before moving or opening it.
+                // (All the panel's height the details leave: a page to read, not a stamp.)
+                FilePreview(url: item.url)
+                    .frame(minHeight: 300, maxHeight: .infinity)
+                    .layoutPriority(1)
+                    .background(Design.Studio.raised)
+                    .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            } else {
             Rectangle()
                 .fill(Design.Studio.raised)
                 .aspectRatio(16 / 9, contentMode: .fit)
@@ -340,6 +388,7 @@ struct FinderDetails: View {
                 }
                 .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
                 .modifier(FinderWantsPicture(item: item))
+            }
             Text(item.name).font(Design.Studio.sectionTitle).lineLimit(2).truncationMode(.middle)
             Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 9) {
                 row("Kind", item.kind)

@@ -18,6 +18,12 @@ final class OfficeRenderClient {
         var addresses: [String]?
         /// The office Mac on the private network (joined with an invitation): the way in from home.
         var network: String?
+        /// Or, joined with an iroh invitation: the office's node id and relay.
+        var iroh: String?
+        var irohRelay: String?
+
+        /// Reached from anywhere (either way), not only on the local network.
+        var fromAnywhere: Bool { network != nil || iroh != nil }
         var name: String
         var device: UUID
         var secret: Data
@@ -63,6 +69,8 @@ final class OfficeRenderClient {
     }
 
     private(set) var office: Office?
+    /// The iroh link to the office (a test uses its own).
+    @ObservationIgnored var irohTunnel = Tunnel.irohHome
     private(set) var jobs: [Job] = []
     /// Renders started from this Mac, to say when they finish.
     @ObservationIgnored private var mine: Set<String> = []
@@ -83,6 +91,7 @@ final class OfficeRenderClient {
         jobs = []
         // Off the private network too: joining again takes a new invitation.
         Tunnel.home.stop()
+        Tunnel.irohHome.stop()
         // (Never from a test copy: the folder belongs to the Pluck that's really running.)
         if ScreenshotMode.scene == nil {
             try? FileManager.default.removeItem(at: PrivateNetwork.folder.appendingPathComponent("home", isDirectory: true))
@@ -102,16 +111,36 @@ final class OfficeRenderClient {
 
     /// Joins the office's private network with the invitation, then pairs over it.
     func join(_ invitation: PrivateNetwork.Invitation) async throws {
-        try await Tunnel.home.start(key: invitation.key, office: invitation.office)
-        guard let listen = Tunnel.home.listen else { throw PrivateNetwork.Failure.timeout }
-        try await pair(.address(listen), code: invitation.code, network: invitation.office)
+        let tunnel = irohTunnel
+        switch invitation.way {
+        case .tailscale(let key, let address):
+            try await Tunnel.home.start(key: key, office: address)
+            guard let listen = Tunnel.home.listen else { throw PrivateNetwork.Failure.timeout }
+            try await pair(.address(listen), code: invitation.code, network: address)
+        case .iroh(let node, let relay, _):
+            guard !invitation.expired else { throw PrivateNetwork.Failure.inviteExpired }
+            // A helper the office turned away doesn't dial again: a new invitation starts afresh.
+            if tunnel.refused { tunnel.stop() }
+            try await tunnel.start(office: node, officeRelay: relay)
+            guard let listen = tunnel.listen, case .running(_, let mine) = tunnel.state else { throw PrivateNetwork.Failure.timeout }
+            do {
+                try await pair(.address(listen), code: invitation.code, iroh: (node, relay, mine))
+            } catch {
+                // Turned away by the office's helper: the link was used (or ran out) there.
+                if !tunnel.refused { try? await Task.sleep(for: .milliseconds(500)) }
+                throw tunnel.refused ? PrivateNetwork.Failure.inviteUsed : error
+            }
+        }
     }
 
-    func pair(_ target: Target, code typed: String, network: String? = nil) async throws {
+    /// `iroh`: the office's node id and relay, and this Mac's node id (sent so the office lets it in).
+    func pair(_ target: Target, code typed: String, network: String? = nil,
+              iroh: (office: String, relay: String?, mine: String)? = nil) async throws {
         guard let code = OfficeLink.normalised(typed) else { throw OfficeLink.Failure.badCode }
         let key = Curve25519.KeyAgreement.PrivateKey()
         let clientKey = key.publicKey.rawRepresentation
-        let hello: [String: Any] = ["name": Host.current().localizedName ?? "Mac", "time": Date.now.timeIntervalSince1970]
+        var hello: [String: Any] = ["name": Host.current().localizedName ?? "Mac", "time": Date.now.timeIntervalSince1970]
+        if let iroh { hello["iroh"] = iroh.mine }
         let sealed = try ChaChaPoly.seal(try JSONSerialization.data(withJSONObject: hello),
                                          using: OfficeLink.codeKey(code, clientKey: clientKey), authenticating: Data("pluck-pair".utf8))
         let endpoint: NWEndpoint
@@ -144,13 +173,13 @@ final class OfficeRenderClient {
         // Every address the office has (Tailscale's first), so the pairing done at the office
         // also works from home; a typed address is kept too.
         var addresses = (answer["addresses"] as? [String] ?? []).filter { !$0.isEmpty }
-        if network == nil, case .address(let typed) = target {
+        if network == nil, iroh == nil, case .address(let typed) = target {
             let typed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
             if !addresses.contains(typed) { addresses.append(typed) }
         }
-        guard let first = network ?? addresses.first else { throw OfficeLink.Failure.garbled }
-        let office = Office(address: first, addresses: addresses, network: network, name: answer["office"] as? String ?? "Mac",
-                            device: device, secret: secret)
+        guard let first = network ?? addresses.first ?? (iroh != nil ? "" : nil) else { throw OfficeLink.Failure.garbled }
+        let office = Office(address: first, addresses: addresses, network: network, iroh: iroh?.office, irohRelay: iroh?.relay,
+                            name: answer["office"] as? String ?? "Mac", device: device, secret: secret)
         save(office)
     }
 
@@ -178,6 +207,10 @@ final class OfficeRenderClient {
             try await Tunnel.home.start(office: network)
             tunnel = Tunnel.home.listen
             if let tunnel { candidates.append(tunnel) }
+        } else if let node = office.iroh {
+            try await irohTunnel.start(office: node, officeRelay: office.irohRelay)
+            tunnel = irohTunnel.listen
+            if let tunnel { candidates.append(tunnel) }
         }
         for address in [office.address] + (office.addresses ?? []) where address != office.network && !candidates.contains(address) {
             candidates.append(address)
@@ -204,11 +237,14 @@ final class OfficeRenderClient {
         }
         // Only an answer sealed with this Mac's key, to this very question, counts.
         guard let reply else { throw OfficeLink.Failure.unreachable }
-        guard reply.kind == .request, let box = try? ChaChaPoly.SealedBox(combined: reply.payload),
+        // A data answer carries raw bytes after its JSON: given back under OfficeActions.bytesKey.
+        guard reply.kind == .request || reply.kind == .data, let box = try? ChaChaPoly.SealedBox(combined: reply.payload),
               let plain = try? ChaChaPoly.open(box, using: keys.answer, authenticating: nonce),
-              let answer = try? JSONSerialization.jsonObject(with: plain) as? [String: Any],
+              let parts: (json: Data, bytes: Data?) = reply.kind == .data ? OfficeActions.split(plain).map { ($0.json, $0.bytes) } : (plain, nil),
+              var answer = try? JSONSerialization.jsonObject(with: parts.json) as? [String: Any],
               answer["nonce"] as? String == nonce.base64EncodedString() else { throw OfficeLink.Failure.garbled }
         if let error = answer["error"] as? String { throw OfficeLink.Failure.office(error) }
+        if let bytes = parts.bytes { answer[OfficeActions.bytesKey] = bytes }
         return answer
     }
 

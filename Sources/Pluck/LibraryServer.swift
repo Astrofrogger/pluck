@@ -36,7 +36,16 @@ final class LibraryServer {
     @ObservationIgnored private var idCache: (version: Int, entries: [String: LibraryStore.Entry]) = (-1, [:])
     @ObservationIgnored private let queue = DispatchQueue(label: "be.wideopen.pluck.library-server")
     /// Thumbnails from the web, fetched once.
-    @ObservationIgnored private var remoteThumbnails: [String: (data: Data, type: String)] = [:]
+    /// (Bounded: a big Library browsed for hours mustn't keep every picture in memory.)
+    @ObservationIgnored private let remoteThumbnails: NSCache<NSString, RemoteThumbnail> = {
+        let cache = NSCache<NSString, RemoteThumbnail>()
+        cache.totalCostLimit = 64 << 20
+        return cache
+    }()
+    final class RemoteThumbnail {
+        let data: Data, type: String
+        init(data: Data, type: String) { self.data = data; self.type = type }
+    }
     /// One-time links for Send to Phone: token → file and when it stops working.
     @ObservationIgnored private var sendLinks: [String: (path: String, expires: Date)] = [:]
     /// Where links and files from other devices go.
@@ -103,7 +112,9 @@ final class LibraryServer {
     func start() {
         guard listener == nil else { return }
         problem = nil
-        for candidate in [NWEndpoint.Port(rawValue: Self.preferredPort), NWEndpoint.Port.any] {
+        // A self-test takes any free port, never the one a running Pluck shares on.
+        let preferred = UserDefaults.standard.bool(forKey: "PluckScreenshotAnyPort") ? nil : NWEndpoint.Port(rawValue: Self.preferredPort)
+        for candidate in [preferred, NWEndpoint.Port.any] {
             guard let candidate else { continue }
             let parameters = NWParameters.tcp
             parameters.allowLocalEndpointReuse = true
@@ -136,6 +147,9 @@ final class LibraryServer {
         UserDefaults.standard.set(code, forKey: Self.codeKey)
         sessions.removeAll()
     }
+
+    /// Lets every address that typed too many wrong codes try again.
+    func clearLockout() { lockout = Lockout() }
 
     private static func newCode() -> String {
         String(format: "%06d", Int.random(in: 0..<1_000_000))
@@ -173,13 +187,13 @@ final class LibraryServer {
             }
         }
         connection.start(queue: queue)
-        // A device that never finishes asking is let go after 30 seconds.
+        // A device that never finishes asking (head and body, before anything checks it) is let go after 30 seconds.
         let headIn = HeadFlag()
         queue.asyncAfter(deadline: .now() + 30) { if !headIn.done { connection.cancel() } }
         receive(on: connection, buffer: Data(), headIn: headIn)
     }
 
-    /// Whether a connection's request head arrived; only touched on `queue`.
+    /// Whether a connection's whole request arrived and went to `handle`; only touched on `queue`.
     private final class HeadFlag: @unchecked Sendable { var done = false }
 
     nonisolated private func receive(on connection: NWConnection, buffer: Data, headIn: HeadFlag) {
@@ -188,12 +202,12 @@ final class LibraryServer {
             var buffer = buffer
             if let data { buffer.append(data) }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8)) {
-                headIn.done = true
                 let head = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
                 var body = buffer[end.upperBound...]
                 let length = Int(Self.header("content-length", in: head) ?? "") ?? 0
                 // A file being sent: checked as soon as the request line is in, then streamed.
                 if head.hasPrefix("POST /api/upload") {
+                    headIn.done = true  // the upload keeps its own idle timeout
                     let request = Request(head: head, body: Data(body))
                     Task { @MainActor in self.handle(request, on: connection) }
                     return
@@ -202,6 +216,7 @@ final class LibraryServer {
                     self.receive(on: connection, buffer: buffer, headIn: headIn)
                     return
                 }
+                headIn.done = true
                 body = body.prefix(16 * 1024)
                 let request = Request(head: head, body: Data(body))
                 Task { @MainActor in self.handle(request, on: connection) }
@@ -290,6 +305,17 @@ final class LibraryServer {
             if request.path == "/" { return respond(connection, status: 200, type: "text/html; charset=utf-8", body: Data(LibraryPage.login(error: false).utf8)) }
             return respond(connection, status: 401, type: "text/plain", body: Data("Access code needed".utf8))
         }
+        #if STUDIO
+        // Review of renders made here for Edit Anywhere (RemoteReview), behind the same session.
+        if request.path == "/review" || request.path.hasPrefix("/review/") {
+            switch RemoteReview.web(request) {
+            case .page(let status, let html, let extra):
+                return respond(connection, status: status, type: "text/html; charset=utf-8", body: Data(html.utf8), extra: extra)
+            case .file(let path, let title):
+                return serveFile(path: path, title: title, request: request, on: connection)
+            }
+        }
+        #endif
         switch request.path {
         case "/":
             respond(connection, status: 200, type: "text/html; charset=utf-8", body: Data(LibraryPage.library.utf8))
@@ -392,7 +418,7 @@ final class LibraryServer {
             guard Self.isPublicWeb(thumbnail) else { return respond(connection, status: 404, type: "text/plain", body: Data()) }
             // A picture on the web (YouTube's thumbnail): fetched once by this Mac and served from
             // here, so it shows on a network without internet and phones don't contact the site.
-            if let cached = remoteThumbnails[id] {
+            if let cached = remoteThumbnails.object(forKey: id as NSString) {
                 return respond(connection, status: 200, type: cached.type, body: cached.data, extra: ["Cache-Control": "max-age=86400"])
             }
             Task {
@@ -401,13 +427,17 @@ final class LibraryServer {
                 if let (data, response) = try? await URLSession.shared.data(for: request),
                    (response as? HTTPURLResponse)?.statusCode == 200, data.count < 5_000_000 {
                     let type = (response as? HTTPURLResponse)?.mimeType ?? "image/jpeg"
-                    remoteThumbnails[id] = (data, type)
+                    remoteThumbnails.setObject(RemoteThumbnail(data: data, type: type), forKey: id as NSString, cost: data.count)
                     respond(connection, status: 200, type: type, body: data, extra: ["Cache-Control": "max-age=86400"])
                 } else {
                     respond(connection, status: 404, type: "text/plain", body: Data())
                 }
             }
             return
+        }
+        // A picture on this Mac only from Pluck's own thumbnail folder (site metadata could name any file).
+        if let thumbnail = entry.thumbnail, !Self.isOwnThumbnail(thumbnail) {
+            return respond(connection, status: 404, type: "text/plain", body: Data())
         }
         let file = entry.thumbnail ?? entry.file
         Task.detached {
@@ -507,11 +537,13 @@ final class LibraryServer {
         }
         let text = (try? JSONSerialization.jsonObject(with: request.body) as? [String: Any])?["url"] as? String
             ?? String(decoding: request.body, as: UTF8.self)
-        let links = Links.extract(fromText: text).prefix(50)
+        // Sites on the internet only (not this Mac or its network), and never with this Mac's browser logins.
+        // shortcut: a public name that redirects or resolves to a local address still gets through to yt-dlp; block at connect time if that matters.
+        let links = Links.extract(fromText: text).filter { URL(string: $0).map(Self.isPublicWeb) == true }.prefix(50)
         guard !links.isEmpty else { return respond(connection, status: 400, type: "text/plain", body: Data("No link".utf8)) }
         // Into the Downloads folder from Settings, never a save panel nobody is there to answer.
         let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        manager.add(Array(links), folder: folder)
+        manager.add(Array(links), folder: folder, fromOtherDevice: true)
         respond(connection, status: 200, type: "application/json", body: Data("{\"added\":\(links.count)}".utf8))
     }
 
@@ -541,6 +573,9 @@ final class LibraryServer {
             else if let plain = values?.volumeAvailableCapacity, plain > 0 { Int64(plain) }
             else if statfs(folder, &info) == 0 { Int64(info.f_bavail) * Int64(info.f_bsize) }
             else { nil }
+        if NetworkLibraries.runs(ext) {
+            return respond(connection, status: 403, type: "text/plain", body: Data("That kind of file can run things, so it isn’t taken".utf8))
+        }
         // Room for it, with 1 GB left over for the Mac.
         if let free, length + 1_000_000_000 >= free {
             return respond(connection, status: 507, type: "text/plain", body: Data("Not enough space on this Mac".utf8))
@@ -562,6 +597,7 @@ final class LibraryServer {
                 guard let self else { return }
                 let destination = Converting.outputURL(folder: folder, name: name.isEmpty ? "File" : name, fileExtension: ext.isEmpty ? "bin" : ext)
                 if ok, (try? FileManager.default.moveItem(at: partial, to: destination)) != nil {
+                    NetworkLibraries.quarantine(destination)
                     _ = manager.addLocalFiles([destination])
                     manager.saveHistory()
                     self.respond(connection, status: 200, type: "application/json", body: Data("{\"saved\":true}".utf8))
@@ -579,7 +615,13 @@ final class LibraryServer {
             try? handle.close()
             return done(true)
         }
+        // (A sender that goes quiet is cut off after a minute, so it can't hold the upload open for ever.)
+        let idle = Task.detached {
+            try? await Task.sleep(for: .seconds(60))
+            if !Task.isCancelled { connection.cancel() }
+        }
         connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { [weak self] data, _, complete, error in
+            idle.cancel()
             if let data, !data.isEmpty {
                 do { try handle.write(contentsOf: data) } catch { try? handle.close(); return done(false) }
             }
@@ -629,8 +671,15 @@ final class LibraryServer {
     // MARK: - The local network
 
     private static func clientKey(_ connection: NWConnection) -> String {
-        if case .hostPort(let host, _) = connection.endpoint { return "\(host)" }
-        return "?"
+        guard case .hostPort(let host, _) = connection.endpoint else { return "?" }
+        // An IPv6 device can take a new address in its /64 at will: one key per /64, so it can't
+        // rotate addresses for fresh tries (IPv4-mapped addresses keep their own).
+        if case .ipv6(let address) = host {
+            let b = [UInt8](address.rawValue)
+            let mapped = b.count == 16 && b[0..<10].allSatisfy { $0 == 0 } && b[10] == 0xff && b[11] == 0xff
+            if b.count == 16, !mapped { return b[0..<8].map { String(format: "%02x", $0) }.joined() + "/64" }
+        }
+        return "\(host)"
     }
 
     /// Private, link-local and loopback addresses: the devices on this network.
@@ -687,6 +736,13 @@ final class LibraryServer {
         return true
     }
 
+    /// A file:// URL that, links followed, is inside Pluck's thumbnail cache (where Converting.thumbnail writes).
+    nonisolated static func isOwnThumbnail(_ url: URL, folder: URL = Converting.thumbnailFolder) -> Bool {
+        guard url.isFileURL else { return false }
+        let base = folder.standardizedFileURL.resolvingSymlinksInPath().path + "/"
+        return url.standardizedFileURL.resolvingSymlinksInPath().path.hasPrefix(base)
+    }
+
     /// The same code, compared in constant time.
     nonisolated static func sameCode(_ typed: String, _ code: String) -> Bool {
         let a = Array(typed.utf8), b = Array(code.utf8)
@@ -694,14 +750,13 @@ final class LibraryServer {
     }
 
     /// Wrong codes: ten from one address in ten minutes locks that address out for the rest of
-    /// them; thirty from anywhere locks everyone out (so many addresses can't share the guessing).
+    /// them. Per address only, so others on the network can't lock out the right code
+    /// (Clear Lockout on the Mac lets everyone try again).
     struct Lockout {
         static let window: TimeInterval = 600
         private var perAddress: [String: (count: Int, since: Date)] = [:]
-        private var all: (count: Int, since: Date) = (0, .distantPast)
 
         func isLocked(_ client: String, now: Date = .now) -> Bool {
-            if all.count >= 30, now.timeIntervalSince(all.since) < Self.window { return true }
             guard let record = perAddress[client] else { return false }
             return record.count >= 10 && now.timeIntervalSince(record.since) < Self.window
         }
@@ -712,7 +767,6 @@ final class LibraryServer {
                 return (record.count + 1, record.since)
             }
             perAddress[client] = counted(perAddress[client])
-            all = counted(all)
         }
 
         mutating func succeed(_ client: String) { perAddress[client] = nil }

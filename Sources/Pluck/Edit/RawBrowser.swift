@@ -10,10 +10,18 @@ enum RawFolderScan {
     static let movieExtensions: Set<String> = ["mov", "mp4", "m4v", "mxf", "mkv", "avi"]
     private static let sequenceExtensions: Set<String> = ["dpx", "exr", "tif", "tiff", "png", "jpg", "jpeg"]
 
+    /// The folders macOS guards with a privacy prompt.
+    static let protectedFolders: Set<String> = {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return Set(["Desktop", "Documents", "Downloads"].map { home.appendingPathComponent($0).standardizedFileURL.path })
+    }()
+
     /// A folder that is one clip itself (Player plays it as such).
     static func isClipFolder(_ url: URL) -> Bool {
         // (A RED clip is its .RDC folder; loose R3D files elsewhere are clips of their own.)
         if url.pathExtension.lowercased() == "rdc" { return true }
+        // (Looking inside Desktop, Documents or Downloads asks the user for access: only once they open one.)
+        if protectedFolders.contains(url.standardizedFileURL.path) { return false }
         let files = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
         let dngs = files.filter { $0.pathExtension.lowercased() == "dng" }
         if dngs.count >= 2 { return !arePhotos(dngs) }

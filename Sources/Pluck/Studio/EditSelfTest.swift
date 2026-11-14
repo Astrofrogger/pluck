@@ -16,6 +16,14 @@ enum EditSelfTest {
         log = logPath
         media = defaults.string(forKey: "PluckScreenshotFile") ?? ""
         lines = []
+        // -PluckScreenshotOnly libraryfiles: only the Library's files and panes.
+        if defaults.string(forKey: "PluckScreenshotOnly") == "libraryfiles" {
+            await libraryFiles()
+            lines.append("done")
+            write()
+            NSApp.terminate(nil)
+            return
+        }
         decoding()
         network()
         await trims()
@@ -177,7 +185,7 @@ enum EditSelfTest {
         at = model.project.tracks?.first?.items.first?.at ?? -1
         check("nudge stops at zero", at >= 0 && near(at, 0), "0; got \(at)")
 
-        // An item linked to its clip moves on its own when nudged.
+        // An item linked to its clip stays linked when nudged, the nudge kept as its offset.
         var linked = ProjectClip(path: model.project.clips[1].path, start: 0, end: 2)
         linked.at = model.offsets[1]
         let link = UUID()
@@ -186,8 +194,13 @@ enum EditSelfTest {
         model.change { $0.clips[1].link = link; $0.tracks = [track] }
         model.nudge([linked.id], frames: 2)
         let moved = model.project.tracks?.first?.items.first
-        check("nudge moves a linked item", near(moved?.at ?? -1, model.offsets[1] + 0.08) && moved?.link == nil,
-              "\(model.offsets[1] + 0.08), unlinked; got \(String(describing: moved?.at)), link \(String(describing: moved?.link))")
+        check("nudge keeps a linked item linked", near(moved?.at ?? -1, model.offsets[1] + 0.08) && moved?.link == link
+              && near(moved?.linkOffset ?? -1, 0.08), "\(model.offsets[1] + 0.08), linked, offset 0.08; got \(String(describing: moved?.at)), "
+              + "link \(String(describing: moved?.link)), offset \(String(describing: moved?.linkOffset))")
+        // Its clip moves (the one before it gets shorter): the nudged item moves with it.
+        model.change { $0.clips[0].end -= 1 }
+        let followed = model.project.tracks?.first?.items.first?.at ?? -1
+        check("nudged linked item follows its clip", near(followed, model.offsets[1] + 0.08), "\(model.offsets[1] + 0.08); got \(followed)")
     }
 
     /// One-key edits from a chosen source (Task 4). a.mp4 is 20 s; the source is 3 s of b.mp4.
@@ -454,6 +467,15 @@ enum EditSelfTest {
         await wait(model, files: 1)
         let length = Double(probe(model.exports.output).split(separator: " ").last ?? "") ?? -1
         check("snapshot at queue time", near(length, 3, 0.1), "3 s; got \(length)")
+
+        // A name that's a path (an imported project): the file still goes in the export folder.
+        model = await short()
+        model.change { $0.name = "../x" }
+        quickExport(model, manager: manager)
+        await wait(model, files: 1)
+        let inside = model.exports.output?.deletingLastPathComponent().standardizedFileURL.path
+        check("export name can't leave the folder", inside == folder.standardizedFileURL.path,
+              "\(folder.path); got \(model.exports.output?.path ?? "nothing") \(model.exports.problem ?? "")")
     }
 
     /// Pacing (Task 6): long shots, very short clips and jump cuts found from the clips alone.

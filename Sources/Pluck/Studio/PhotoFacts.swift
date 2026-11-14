@@ -78,7 +78,8 @@ final class PhotoFacts {
 
     /// Reads these files (the ones not read yet), one after the other, in the background.
     func enqueue(_ paths: [String]) {
-        let new = PhotoCatalog.files(of: paths).filter { facts[$0] == nil && !waiting.contains($0) }
+        let queued = Set(waiting)
+        let new = PhotoCatalog.files(of: paths).filter { facts[$0] == nil && !queued.contains($0) }
         guard !new.isEmpty else { return }
         waiting.append(contentsOf: new)
         guard !running else { return }
@@ -86,8 +87,12 @@ final class PhotoFacts {
         Task {
             while !waiting.isEmpty {
                 let path = waiting.removeFirst()
-                // A file that can't be read gets an empty fact: not read again every launch.
-                let found = await Task.detached(priority: .utility) { PhotoFact.read(path) }.value ?? PhotoFact()
+                // A file that's there but can't be read gets an empty fact: not read again every launch. One that isn't
+                // there now (a drive not plugged in) gets none, so it's read when it's back.
+                let found = await Task.detached(priority: .utility) {
+                    PhotoFact.read(path) ?? (FileManager.default.fileExists(atPath: path) ? PhotoFact() : nil)
+                }.value
+                guard let found else { continue }
                 facts[path] = found
                 revision += 1
                 scheduleSave()
@@ -113,10 +118,13 @@ final class PhotoFacts {
             try? await Task.sleep(for: .seconds(3))
             saveScheduled = false
             let saved = Saved(version: Self.version, facts: facts)
-            await Task.detached(priority: .background) {
-                try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
-            }.value
+            PhotoSaving.write(Self.file) { try? JSONEncoder().encode(saved) }
         }
+    }
+
+    /// Writes the facts now and waits (when Pluck quits).
+    func saveNow() {
+        let saved = Saved(version: Self.version, facts: facts)
+        PhotoSaving.writeNow(Self.file) { try? JSONEncoder().encode(saved) }
     }
 }

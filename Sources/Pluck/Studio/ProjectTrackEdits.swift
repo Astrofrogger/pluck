@@ -118,7 +118,7 @@ extension ProjectModel {
                 // Its clip was taken out: so is its sound.
                 guard let start = starts[link] else { return nil }
                 var item = item
-                item.at = start + (item.linkOffset ?? 0)
+                item.at = max(start + (item.linkOffset ?? 0), 0)
                 return item
             }
         }
@@ -189,26 +189,17 @@ extension ProjectModel {
         let at = seconds ?? time
         guard let (index, into) = clip(at: at) else { return }
         let clip = project.clips[index]
-        let held = clip.freeze ?? clip.start + into * clip.speed
+        // At the very end: the last frame, not the end of the file (nothing there).
+        let held = clip.freeze ?? max(min(clip.start + into * clip.speed, clip.end - frame), clip.start)
         change { project in
             var frame = ProjectClip(path: clip.path, start: 0, end: length)
             frame.freeze = held
             frame.look = clip.look.map { var look = $0; look.speed = 1; return look }
             frame.ownAudio = false
-            // Cut there, the held frame between the two halves.
+            // Cut there as a split does (each half its own link and sound), the held frame between.
             if into > 0.02, clip.length - into > 0.02 {
-                var first = clip, second = clip
-                second.id = UUID()
-                if clip.freeze == nil {
-                    first.end = held
-                    second.start = held
-                } else {
-                    first.end = clip.start + into * clip.speed
-                    second.end = clip.end - into * clip.speed
-                }
-                first.fadeOut = 0; first.dipOut = nil
-                second.fadeIn = 0; second.transitionIn = nil
-                project.clips.replaceSubrange(index...index, with: [first, frame, second])
+                project.splitClip(index, into: into)
+                project.clips.insert(frame, at: index + 1)
             } else {
                 project.clips.insert(frame, at: into <= 0.02 ? index : index + 1)
             }
@@ -280,9 +271,9 @@ extension ProjectModel {
             }
             return clip
         }
-        let clips = board.clips.map(fresh)
+        let clipsCopied = board.clips.map(fresh)
         // An item pasted without the clip it was linked to stands on its own (else it'd vanish).
-        let pastedLinks = Set(clips.compactMap(\.link))
+        let pastedLinks = Set(clipsCopied.compactMap(\.link))
         let items = board.items.map { original -> (ProjectClip, Bool) in
             var item = fresh(original)
             if let link = item.link, !pastedLinks.contains(link) {
@@ -290,6 +281,13 @@ extension ProjectModel {
                 item.linkOffset = nil
             }
             return (item, board.videoItems.contains(original.id))
+        }
+        // A clip whose detached sound wasn't copied plays its own sound again (else it'd be silent).
+        let sounds = Set(items.filter { !$0.1 }.compactMap(\.0.link))
+        let clips = clipsCopied.map { clip -> ProjectClip in
+            var clip = clip
+            if clip.ownAudio == false, clip.freeze == nil, !(clip.link.map(sounds.contains) ?? false) { clip.ownAudio = nil }
+            return clip
         }
         change { project in
             project.clips.insert(contentsOf: clips, at: min(insertAt, project.clips.count))

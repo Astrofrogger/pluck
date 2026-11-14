@@ -53,6 +53,7 @@ struct ProjectManagerView: View {
             .clipShape(panel)
         }
         .background { shortcuts }
+        .searchTarget(.edit) { searchFocused = true }
         .task(id: nav.projectsChanged) {
             let (made, kept) = await Task.detached(priority: .userInitiated) {
                 (ProjectStore.madeProjects(trashed: true), ProjectStore.folders())
@@ -482,12 +483,11 @@ struct ProjectManagerView: View {
         }
     }
 
-    /// Return opens, ⌘⌫ moves to the Trash, the arrows move through the grid, ⌘F searches.
+    /// Return opens, ⌘⌫ moves to the Trash, the arrows move through the grid (⌘F is Edit ▸ Search).
     /// (Not while typing in the search field; the list has its own arrows and Return.)
     private var shortcuts: some View {
         let typing = searchFocused || renaming != nil
         return Group {
-            Button("") { searchFocused = true }.keyboardShortcut("f")
             Button("") { if let selection { trash(selection) } }
                 .keyboardShortcut(.delete, modifiers: .command)
                 .disabled(typing || selection == nil || place == .trash)

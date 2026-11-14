@@ -201,8 +201,11 @@ struct PhotoCullPage: View {
         .padding(.horizontal, 14)
         .sheet(isPresented: $autoCulling) {
             CullAuto(moments: moments, checks: checks) { keep, reject in
-                if !keep.isEmpty { catalog.update(Array(keep)) { $0.flag = .pick } }
-                if !reject.isEmpty { catalog.update(Array(reject)) { $0.flag = .reject } }
+                // One step to undo.
+                catalog.group {
+                    if !keep.isEmpty { catalog.update(Array(keep)) { $0.flag = .pick } }
+                    if !reject.isEmpty { catalog.update(Array(reject)) { $0.flag = .reject } }
+                }
                 autoCulling = false
             } cancel: { autoCulling = false }
         }

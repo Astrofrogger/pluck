@@ -91,9 +91,13 @@ extension ProjectModel {
                 track.items = track.items.map { item in
                     guard ids.contains(item.id) else { return item }
                     var item = item
-                    item.at = max((item.at ?? 0) + shift, 0)
-                    // Moved on its own, as dragging it does (else it'd follow its clip back).
-                    item.link = nil
+                    let at = max((item.at ?? 0) + shift, 0)
+                    // Still linked: it keeps the nudged distance from its clip and moves with it.
+                    if item.link != nil {
+                        let offset = (item.linkOffset ?? 0) + at - (item.at ?? 0)
+                        item.linkOffset = abs(offset) > 0.0005 ? offset : nil
+                    }
+                    item.at = at
                     return item
                 }
                 return track

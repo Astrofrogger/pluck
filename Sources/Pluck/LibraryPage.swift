@@ -3,7 +3,7 @@ import Foundation
 /// The web page a shared Library shows in a browser (see `LibraryServer`): one self-contained
 /// page with Pluck's look, for phones and computers, light and dark.
 enum LibraryPage {
-    private static func escape(_ text: String) -> String {
+    static func escape(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;")
     }
@@ -39,7 +39,7 @@ enum LibraryPage {
         return String(decoding: data, as: UTF8.self).replacingOccurrences(of: "</", with: "<\\/")
     }
 
-    private static let style = """
+    static let style = """
     :root{--bg:#f5f5f7;--card:#ffffff;--text:#1d1d1f;--muted:#6e6e73;--line:rgba(0,0,0,.08);--accent:#0a84ff;--chip:#e8e8ed;--radius-card:16px;--radius-thumb:10px;--radius-badge:4px;--gap:16px;--control:44px}
     @media (prefers-color-scheme:dark){:root{--bg:#1c1c1e;--card:#2c2c2e;--text:#f5f5f7;--muted:#98989d;--line:rgba(255,255,255,.1);--chip:#3a3a3c}}
     *{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}

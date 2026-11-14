@@ -30,16 +30,17 @@ struct PhotoRecord: Codable, Hashable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        rating = try c.decodeIfPresent(Int.self, forKey: .rating) ?? 0
-        flag = try c.decodeIfPresent(Flag.self, forKey: .flag) ?? .none
-        label = try c.decodeIfPresent(String.self, forKey: .label)
-        adjust = try c.decodeIfPresent(PhotoAdjustments.self, forKey: .adjust) ?? PhotoAdjustments()
-        filmOn = try c.decodeIfPresent(Bool.self, forKey: .filmOn) ?? false
-        film = try c.decodeIfPresent(FilmSettings.self, forKey: .film) ?? FilmSettings()
-        edited = try c.decodeIfPresent(Date.self, forKey: .edited)
-        denoise = try c.decodeIfPresent(Int.self, forKey: .denoise) ?? 0
-        denoiseAI = try c.decodeIfPresent(Bool.self, forKey: .denoiseAI) ?? false
-        snapshots = try c.decodeIfPresent([PhotoSnapshot].self, forKey: .snapshots) ?? []
+        // Each field on its own: one that can't be read keeps its default instead of losing the whole record.
+        rating = (try? c.decodeIfPresent(Int.self, forKey: .rating)) ?? 0
+        flag = (try? c.decodeIfPresent(Flag.self, forKey: .flag)) ?? .none
+        label = try? c.decodeIfPresent(String.self, forKey: .label)
+        adjust = (try? c.decodeIfPresent(PhotoAdjustments.self, forKey: .adjust)) ?? PhotoAdjustments()
+        filmOn = (try? c.decodeIfPresent(Bool.self, forKey: .filmOn)) ?? false
+        film = (try? c.decodeIfPresent(FilmSettings.self, forKey: .film)) ?? FilmSettings()
+        edited = try? c.decodeIfPresent(Date.self, forKey: .edited)
+        denoise = (try? c.decodeIfPresent(Int.self, forKey: .denoise)) ?? 0
+        denoiseAI = (try? c.decodeIfPresent(Bool.self, forKey: .denoiseAI)) ?? false
+        snapshots = ((try? c.decodeIfPresent([Lossy<PhotoSnapshot>].self, forKey: .snapshots)) ?? []).compactMap(\.value)
         meta = try? c.decodeIfPresent(PhotoMeta.self, forKey: .meta)
         hdr = try? c.decodeIfPresent(Bool.self, forKey: .hdr)
     }
@@ -162,6 +163,41 @@ final class PhotoCatalog {
         var tags: [String: PhotoTags]?
         /// Left out when there are none, so a catalogue without them saves as before.
         var smartAlbums: [SmartAlbum]?
+        /// How many elements couldn't be read (never saved).
+        var dropped = 0
+
+        private enum CodingKeys: String, CodingKey { case records, albums, folders, presets, tags, smartAlbums }
+
+        init(records: [String: PhotoRecord], albums: [PhotoAlbum], folders: [AlbumFolder]?, presets: [PhotoPreset]?,
+             tags: [String: PhotoTags]?, smartAlbums: [SmartAlbum]?) {
+            self.records = records; self.albums = albums; self.folders = folders; self.presets = presets
+            self.tags = tags; self.smartAlbums = smartAlbums
+        }
+
+        // Element by element: one record, album or preset that can't be read is left out, never the whole catalogue.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            var dropped = 0
+            func list<T: Decodable>(_ key: CodingKeys) throws -> [T]? {
+                guard let all = try c.decodeIfPresent([Lossy<T>].self, forKey: key) else { return nil }
+                let kept = all.compactMap(\.value)
+                dropped += all.count - kept.count
+                return kept
+            }
+            func map<T: Decodable>(_ key: CodingKeys) throws -> [String: T]? {
+                guard let all = try c.decodeIfPresent([String: Lossy<T>].self, forKey: key) else { return nil }
+                let kept = all.compactMapValues(\.value)
+                dropped += all.count - kept.count
+                return kept
+            }
+            records = try map(.records) ?? [:]
+            albums = try list(.albums) ?? []
+            folders = try list(.folders)
+            presets = try list(.presets)
+            tags = try map(.tags)
+            smartAlbums = try list(.smartAlbums)
+            self.dropped = dropped
+        }
     }
 
     nonisolated private static var file: URL {
@@ -170,8 +206,15 @@ final class PhotoCatalog {
         return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Photos/catalog.json")
     }
 
+    /// The folder the catalogue is kept in (tests: their own).
+    nonisolated static var folder: URL { file.deletingLastPathComponent() }
+
+    /// A catalogue there that couldn't be read nor kept aside: never written over.
+    @ObservationIgnored private var saveBlocked = false
+
     private init() {
-        if let data = try? Data(contentsOf: Self.file), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+        let (saved, blocked) = Self.load(Self.file)
+        if let saved {
             records = saved.records
             albums = saved.albums
             folders = saved.folders ?? []
@@ -179,15 +222,32 @@ final class PhotoCatalog {
             smartAlbums = saved.smartAlbums ?? []
             tags = saved.tags ?? [:]
         }
-        if let data = try? Data(contentsOf: Self.historyFile), let saved = try? JSONDecoder().decode([String: [PastStep]].self, from: data) {
-            pastHistory = saved
+        saveBlocked = blocked
+        pastHistory = Self.readHistory()
+    }
+
+    /// A catalogue file read. One that's there but unreadable is kept aside (moved), so the first save doesn't replace it
+    /// with an empty catalogue; one read only in part is copied aside. `blocked`: unreadable and it couldn't be kept aside.
+    nonisolated private static func load(_ url: URL) -> (saved: Saved?, blocked: Bool) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return (nil, false) }
+        guard let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(Saved.self, from: data) else {
+            return (nil, !PhotoSaving.setAside(url, move: true))
         }
+        if saved.dropped > 0 { PhotoSaving.setAside(url, move: false) }
+        return (saved, false)
+    }
+
+    /// A catalogue file read as at launch (tests): its records and albums, and whether saving would be held back.
+    nonisolated static func testLoad(_ url: URL) -> (records: [String: PhotoRecord], albums: [PhotoAlbum], blocked: Bool) {
+        let (saved, blocked) = load(url)
+        return (saved?.records ?? [:], saved?.albums ?? [], blocked)
     }
 
     func record(_ path: String) -> PhotoRecord { records[path] ?? PhotoRecord() }
 
     func update(_ paths: [String], _ change: (inout PhotoRecord) -> Void) {
         var before: [String: PhotoRecord?] = [:]
+        var changedAny = false
         for path in paths {
             before[path] = records[path]
             var record = records[path] ?? PhotoRecord()
@@ -196,8 +256,11 @@ final class PhotoCatalog {
             if record.adjust.rawDecoder == nil, !record.adjust.isDefault {
                 record.adjust.rawDecoder = PhotoRender.currentDecoder(path)
             }
-            records[path] = record
+            // (No record and a default one are the same: nothing changed.)
+            if (records[path] ?? PhotoRecord()) != record { changedAny = true; records[path] = record }
         }
+        // Nothing changed: no undo step (which would also throw the redo steps away).
+        guard changedAny else { return }
         lastEdit = .now
         remember(before)
         changed(paths)
@@ -235,13 +298,34 @@ final class PhotoCatalog {
         var after: PhotoRecord?
     }
     @ObservationIgnored private var pastHistory: [String: [PastStep]] = [:]
-    static let historyKept = 40
+    nonisolated static let historyKept = 40
 
-    nonisolated private static var historyFile: URL { file.deletingLastPathComponent().appendingPathComponent("History.json") }
+    /// Compressed (LZFSE): a step keeps the whole record before and after, which repeats a lot (about 14 times smaller).
+    nonisolated private static var historyFile: URL { file.deletingLastPathComponent().appendingPathComponent("History.lzfse") }
+    /// At most this much history in all (before compressing); the photos edited longest ago lose theirs first.
+    nonisolated static let historyBudget = 16_000_000
 
-    /// Earlier sessions' steps and this session's done ones, per photo (the ones undone aren't kept).
-    private func historyToSave() -> [String: [PastStep]] {
-        var all = pastHistory
+    nonisolated private static func readHistory() -> [String: [PastStep]] {
+        let data = (try? Data(contentsOf: historyFile)).flatMap { try? (($0 as NSData).decompressed(using: .lzfse)) as Data }
+            // (Or the first sessions' plain History.json.)
+            ?? (try? Data(contentsOf: historyFile.deletingLastPathComponent().appendingPathComponent("History.json")))
+        guard let data, let saved = try? JSONDecoder().decode([String: [Lossy<PastStep>]].self, from: data) else {
+            // There but unreadable: kept aside rather than replaced by this session's steps alone.
+            PhotoSaving.setAside(historyFile, move: true)
+            return [:]
+        }
+        return saved.mapValues { $0.compactMap(\.value) }
+    }
+
+    nonisolated private static func packedHistory(_ history: [String: [PastStep]]) -> Data? {
+        guard let data = try? JSONEncoder().encode(history) else { return nil }
+        return try? (data as NSData).compressed(using: .lzfse) as Data
+    }
+
+    /// Earlier sessions' steps and this session's done ones, per photo (the ones undone aren't kept). Worked out off the
+    /// main thread (it encodes every photo's steps to keep within the budget).
+    nonisolated private static func historyToSave(past: [String: [PastStep]], steps undoSteps: [Step], records: [String: PhotoRecord]) -> [String: [PastStep]] {
+        var all = past
         for step in undoSteps {
             for (path, before) in step.before {
                 guard let after = step.after[path], records[path] != nil || after != nil else { continue }
@@ -249,7 +333,16 @@ final class PhotoCatalog {
             }
         }
         // (Photos no longer in the catalogue go.)
-        return all.filter { records[$0.key] != nil }.mapValues { Array($0.suffix(Self.historyKept)) }
+        let kept = all.filter { records[$0.key] != nil }.mapValues { Array($0.suffix(Self.historyKept)) }
+        // Within the budget: the most recently edited photos keep theirs.
+        var total = 0, within: [String: [PastStep]] = [:]
+        for path in kept.keys.sorted(by: { (records[$0]?.edited ?? .distantPast) > (records[$1]?.edited ?? .distantPast) }) {
+            let size = (try? JSONEncoder().encode(kept[path]!).count) ?? 0
+            guard total + size <= Self.historyBudget else { continue }
+            total += size
+            within[path] = kept[path]
+        }
+        return within
     }
 
     @ObservationIgnored private var undoSteps: [Step] = []
@@ -279,6 +372,12 @@ final class PhotoCatalog {
     /// Keeps the change to undo it. A slider's drag (the same photos, changes close together)
     /// is one step.
     private func remember(_ before: [String: PhotoRecord?]) {
+        if var grouped = grouping {
+            // (Within `group`: each photo's first state before it is kept; the step is made at the end.)
+            for (path, record) in before where grouped.index(forKey: path) == nil { grouped.updateValue(record, forKey: path) }
+            grouping = grouped
+            return
+        }
         let after = Dictionary(uniqueKeysWithValues: before.keys.map { ($0, records[$0]) })
         if let last = undoSteps.last, Set(last.before.keys) == Set(before.keys), Date.now.timeIntervalSince(lastStep) < 0.6 {
             undoSteps[undoSteps.count - 1].after = after
@@ -295,6 +394,21 @@ final class PhotoCatalog {
 
     /// The next change is a step of its own (not merged into the drag before it).
     func endStep() { lastStep = .distantPast }
+
+    @ObservationIgnored private var grouping: [String: PhotoRecord?]?
+
+    /// The changes made in `body` (to different photos, say keep one and reject the rest) as one step to undo.
+    func group(_ body: () -> Void) {
+        guard grouping == nil else { body(); return }
+        grouping = [:]
+        body()
+        let before = grouping ?? [:]
+        grouping = nil
+        guard !before.isEmpty else { return }
+        endStep()
+        remember(before)
+        endStep()
+    }
 
     /// Takes back the last change; the photos it touched.
     @discardableResult
@@ -390,6 +504,13 @@ final class PhotoCatalog {
                 for (path, record) in waiting { try? PhotoXMP.write(path, record: record) }
             }.value
         }
+    }
+
+    /// The sidecars still waiting for their moment, written now (when Pluck quits).
+    func writeWaitingSidecars() {
+        let waiting = sidecarsWaiting.map { ($0, record($0)) }
+        sidecarsWaiting = []
+        for (path, record) in waiting { try? PhotoXMP.write(path, record: record) }
     }
 
     /// Writes the sidecars of every photo with something to say (when writing is turned on).
@@ -698,29 +819,34 @@ final class PhotoCatalog {
         Task {
             try? await Task.sleep(for: .seconds(1))
             saveScheduled = false
-            let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
-            let history = historyToSave()
-            await Task.detached(priority: .utility) {
-                try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
-                try? JSONEncoder().encode(history).write(to: Self.historyFile, options: .atomic)
-            }.value
+            save(wait: false)
         }
     }
 
-    /// Writes the catalogue at once (tests).
-    func saveNow() {
+    /// Writes the catalogue and its history now and waits (tests, and when Pluck quits).
+    func saveNow() { save(wait: true) }
+
+    /// The catalogue as it is now, handed to the one writer (in order with every save before it), encoded there.
+    private func save(wait: Bool) {
+        guard !saveBlocked else { return }
         let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
-        try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
-        try? JSONEncoder().encode(historyToSave()).write(to: Self.historyFile, options: .atomic)
+        let past = pastHistory, steps = undoSteps, records = records
+        let catalog = { try? JSONEncoder().encode(saved) }
+        let history = { Self.packedHistory(Self.historyToSave(past: past, steps: steps, records: records)) }
+        if wait {
+            PhotoSaving.writeNow(Self.file, catalog)
+            PhotoSaving.writeNow(Self.historyFile, history)
+        } else {
+            PhotoSaving.write(Self.file, catalog)
+            PhotoSaving.write(Self.historyFile, history)
+        }
+        // (The first sessions' plain History.json goes.)
+        PhotoSaving.writer.async { try? FileManager.default.removeItem(at: Self.historyFile.deletingLastPathComponent().appendingPathComponent("History.json")) }
     }
 
     /// History.json read back as a new session would (tests: History after a restart).
     func reloadHistory() {
-        guard let data = try? Data(contentsOf: Self.historyFile),
-              let saved = try? JSONDecoder().decode([String: [PastStep]].self, from: data) else { pastHistory = [:]; return }
-        pastHistory = saved
+        pastHistory = Self.readHistory()
         undoSteps = []; redoSteps = []
         canUndo = false; canRedo = false
         historyVersion += 1

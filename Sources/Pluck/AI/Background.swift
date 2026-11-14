@@ -324,13 +324,13 @@ extension AIStudio {
             defer { try? FileManager.default.removeItem(at: picture) }
             do {
                 let painter = Background.Painter(options: options)
-                try await Task.detached(priority: .userInitiated) {
+                try await Self.offMain {
                     try await FrameRewriter().run(input: file, output: picture, codec: transparent ? .proRes4444 : .hevc) { progress in
                         Task { @MainActor in item.aiProgress = progress }
                     } edit: { frame in
                         try painter.paint(frame.image)
                     }
-                }.value
+                }
 
                 item.aiStatus = String(localized: "Saving…")
                 item.aiProgress = nil

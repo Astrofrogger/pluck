@@ -187,6 +187,7 @@ final class HelperToolsUpdater {
         let zipFile = try await ToolDownloads.download(zipURL) { done, total in
             Task { @MainActor [weak self] in self?.progress = (tool, done, total) }
         }
+        defer { try? FileManager.default.removeItem(at: zipFile) }
 
         let expected = String(decoding: sumData, as: UTF8.self)
             .split(whereSeparator: \.isWhitespace).first.map(String.init) ?? ""

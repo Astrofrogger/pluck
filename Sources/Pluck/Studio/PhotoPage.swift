@@ -269,6 +269,8 @@ struct PhotoPage: View {
         }
         // Before (as shot) while \ is held, as in Lightroom.
         .onKeyPress("\\", phases: [.down, .repeat, .up]) { press in
+            // (Typed in a text field, it's a character.)
+            if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
             editing.asShot = press.phase != .up
             return .handled
         }
@@ -373,7 +375,13 @@ struct PhotoPage: View {
             if focus == nil { editing.cropping = false }
         }
         .onChange(of: view) { _, mode in if mode != .edit { editing.cropping = false; editing.zoomed = false } }
-        .onDisappear { editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop(); FilmHalation.purge() }
+        // People waits while a photo is edited here, not while another page is open.
+        .onChange(of: view, initial: true) { _, mode in PhotoPeople.pageEditing = mode == .edit || mode == .compare }
+        .onChange(of: editing.search) { keepFocusInFilter() }
+        .onDisappear {
+            editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop(); FilmHalation.purge()
+            PhotoPeople.pageEditing = false
+        }
         .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
         .sheet(isPresented: $importing) {
             PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
@@ -608,9 +616,13 @@ struct PhotoPage: View {
     }
 
     private func keepFocusInFilter() {
-        guard view != .grid, let focus, !photos.contains(focus) else { return }
-        self.focus = photos.first
-        selection = photos.first.map { [$0] } ?? []
+        let shown = photos
+        // Photos a filter or Find hides leave the selection, so an edit or a key never reaches one that can't be seen.
+        let visible = Set(shown)
+        if !selection.isSubset(of: visible) { selection.formIntersection(visible) }
+        guard view != .grid, let focus, !visible.contains(focus) else { return }
+        self.focus = shown.first
+        selection = shown.first.map { [$0] } ?? []
     }
 
     /// Photos or folders dropped on the page: imported (Browse, Edit and Cull alike).
@@ -681,11 +693,17 @@ struct PhotoPage: View {
 
     /// T: keep the photo in focus, reject the rest of its moment, on to the next moment.
     private func topPick() {
-        guard let focus, let moment = cullMoments.first(where: { $0.members.contains(focus) }) else { return }
-        catalog.update([focus]) { $0.flag = .pick }
-        let rest = moment.members.filter { $0 != focus }
-        if !rest.isEmpty { catalog.update(rest) { $0.flag = .reject } }
-        moveMoment(1)
+        let list = cullMoments
+        guard let focus, let index = list.firstIndex(where: { $0.members.contains(focus) }) else { return }
+        // The next moment as the list is now: a flag filter may take this one out of it.
+        let next = list.indices.contains(index + 1) ? list[index + 1].top : nil
+        let rest = list[index].members.filter { $0 != focus }
+        // One step to undo.
+        catalog.group {
+            catalog.update([focus]) { $0.flag = .pick }
+            if !rest.isEmpty { catalog.update(rest) { $0.flag = .reject } }
+        }
+        if let next { self.focus = next; selection = [next] } else { moveMoment(1) }
     }
 
     /// The background under the photo: black, the important greys, white.
@@ -862,6 +880,7 @@ struct PhotoPage: View {
                 }
                 .padding(14)
             }
+            .onGeometryChange(for: Double.self) { $0.size.width } action: { gridWidth = $0 }
             .onChange(of: focus) { _, path in
                 guard let path else { return }
                 if reduceMotion { scroller.scrollTo(path, anchor: .center) } else { withAnimation { scroller.scrollTo(path, anchor: .center) } }
@@ -876,6 +895,7 @@ struct PhotoPage: View {
     }
 
     @State private var pinchSize: Double?
+    @State private var gridWidth = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var filmstrip: some View {
@@ -1049,7 +1069,10 @@ struct PhotoPage: View {
 
     private func key(_ press: KeyPress) -> KeyPress.Result {
         if NSApp.keyWindow?.firstResponder is NSTextView { return .ignored }
-        let targets = selection.isEmpty ? (focus.map { [$0] } ?? []) : Array(selection)
+        // Only photos that can be seen (a rating or flag may have just taken one out of the filter).
+        let visible = selection.isEmpty ? [] : Set(photos)
+        let chosen = selection.filter(visible.contains)
+        let targets = chosen.isEmpty ? (focus.map { [$0] } ?? []) : Array(chosen)
         switch press.key {
         case .tab:
             // Tab: the inspector; Shift-Tab: both panels (as in Lightroom).
@@ -1074,8 +1097,7 @@ struct PhotoPage: View {
         default:
             let character = press.characters.lowercased()
             if let stars = Int(character), (0...5).contains(stars), press.modifiers.isEmpty {
-                catalog.update(targets) { $0.rating = stars }
-                advance(targets)
+                mark(targets) { $0.rating = stars }
                 return .handled
             }
             // 6–9: colour labels, as in Lightroom (again takes it off).
@@ -1129,12 +1151,8 @@ struct PhotoPage: View {
                     record.adjust.cropPortrait = !upright
                     record.adjust.cropRect = nil
                 }
-            case .photoPick:
-                catalog.update(targets) { $0.flag = .pick }
-                advance(targets)
-            case .photoReject:
-                catalog.update(targets) { $0.flag = .reject }
-                advance(targets)
+            case .photoPick: mark(targets) { $0.flag = .pick }
+            case .photoReject: mark(targets) { $0.flag = .reject }
             case .photoUnflag: catalog.update(targets) { $0.flag = .none }
             case .photoMoment:
                 guard momentsOn, let focus, listing.moment[focus] != nil else { return .ignored }
@@ -1153,7 +1171,8 @@ struct PhotoPage: View {
         return .handled
     }
 
-    private var columns: Int { 4 }
+    /// The grid's columns as drawn (as LazyVGrid's adaptive columns fit them), for ↑ and ↓.
+    private var columns: Int { gridWidth > 0 ? max(1, Int((gridWidth - 28 + 10) / (gridSize + 10))) : 4 }
 
     /// Next to the half-circle (hold: as shot): before and after, and what "before" is.
     /// HDR: only on a screen that can show it (macOS 15 and later). Each photo remembers it.
@@ -1287,8 +1306,15 @@ struct PhotoPage: View {
         focus = next
     }
 
-    private func advance(_ targets: [String]) {
-        if autoAdvance, targets.count == 1 { move(1) }
+    /// A rating or flag; then, with Auto Advance, on to the photo after it in the list as it was (a filter may have just
+    /// taken this one out of the list: the next one still shown, not the first).
+    private func mark(_ targets: [String], _ change: (inout PhotoRecord) -> Void) {
+        let before = autoAdvance && targets.count == 1 ? photos : []
+        catalog.update(targets, change)
+        guard let focus, let index = before.firstIndex(of: focus) else { return }
+        let shown = Set(photos)
+        let next = before[(index + 1)...].first(where: shown.contains) ?? (shown.contains(focus) ? focus : before[..<index].last(where: shown.contains))
+        if let next { self.focus = next; selection = [next] }
     }
 }
 
@@ -1414,7 +1440,7 @@ private struct PhotoCell: View {
     /// The developed preview when there is one; otherwise the photo as shot.
     private func load() async {
         let cached = PhotoRender.cachedPreview(path, record: record)
-        if record.isEdited, let saved = NSImage(contentsOf: cached) { image = saved; return }
+        if record.isEdited, let saved = NSImage(contentsOf: cached) { image = saved; PhotoRender.touchPreview(cached); return }
         // While a slider moves (often for many selected photos at once), wait for it to rest:
         // the large picture follows the slider, the small ones catch up after.
         if image != nil {
@@ -1422,7 +1448,8 @@ private struct PhotoCell: View {
             guard !Task.isCancelled else { return }
         }
         let path = self.path
-        let thumbnail = image != nil ? nil : await Task.detached(priority: .utility) { () -> CGImage? in
+        // (Reset to as shot: the edited picture shown goes.)
+        let thumbnail = image != nil && record.isEdited ? nil : await Task.detached(priority: .utility) { () -> CGImage? in
             guard let source = CGImageSourceCreateWithURL(URL(fileURLWithPath: PhotoCatalog.file(of: path)) as CFURL, nil) else { return nil }
             let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageIfAbsent: true, kCGImageSourceThumbnailMaxPixelSize: 480,
                                             kCGImageSourceCreateThumbnailWithTransform: true]
@@ -2083,6 +2110,7 @@ struct PhotoLoupe: View {
         if picturePath != path, !original, let saved = CIImage(contentsOf: screen) ?? (FileManager.default.fileExists(atPath: cached.path) ? CIImage(contentsOf: cached) : nil) {
             picture = saved
             picturePath = path
+            PhotoRender.touchPreview(FileManager.default.fileExists(atPath: screen.path) ? screen : cached)
             LoupeTiming.mark(path, "saved preview shown")
         }
         let film = shown.film

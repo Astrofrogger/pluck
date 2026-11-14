@@ -191,15 +191,16 @@ struct PhotoAdjustments: Codable, Hashable {
         texture = value(.texture, 0); dehaze = value(.dehaze, 0); profile = value(.profile, nil as PhotoEngine.Profile?)
         noise = value(.noise, 0); noiseSet = value(.noiseSet, noise != 0); moire = value(.moire, 0); rawDecoder = value(.rawDecoder, nil as String?); vignette = value(.vignette, 0); straighten = value(.straighten, 0)
         crop = value(.crop, Crop.original); cropRect = value(.cropRect, nil as CropRect?); cropPortrait = value(.cropPortrait, nil as Bool?)
-        curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [PhotoMask]())
-        spots = value(.spots, nil as [PhotoSpot]?).flatMap { $0.isEmpty ? nil : $0 }
+        curves = value(.curves, PhotoCurves()); wheels = value(.wheels, ColorWheels()); mixer = value(.mixer, ColorMixer()); masks = value(.masks, [Lossy<PhotoMask>]()).compactMap(\.value)
+        // (Lists element by element: one mask, spot or stroke of a newer kind is left out, not all of them.)
+        spots = value(.spots, nil as [Lossy<PhotoSpot>]?).map { $0.compactMap(\.value) }.flatMap { $0.isEmpty ? nil : $0 }
         perspective = value(.perspective, nil as PhotoPerspective?).flatMap { $0.isDefault ? nil : $0 }
         lens = value(.lens, nil as PhotoLens?).flatMap { $0.isDefault ? nil : $0 }
         depth = value(.depth, nil as PhotoDepthEffects?).flatMap { $0.isDefault ? nil : $0 }
         negative = value(.negative, nil as PhotoNegative?)
         rolloff = value(.rolloff, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
         toneEngine = value(.toneEngine, nil as ToneEngine?)
-        liquify = value(.liquify, nil as [LiquifyStroke]?).flatMap { $0.isEmpty ? nil : $0 }
+        liquify = value(.liquify, nil as [Lossy<LiquifyStroke>]?).map { $0.compactMap(\.value) }.flatMap { $0.isEmpty ? nil : $0 }
         skin = value(.skin, nil as Double?).flatMap { $0 == 0 ? nil : $0 }
         fillEdges = value(.fillEdges, nil as Bool?).flatMap { $0 ? true : nil }
         calibration = value(.calibration, Calibration())

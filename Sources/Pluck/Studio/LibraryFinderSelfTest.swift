@@ -6,6 +6,25 @@ import SwiftUI
 /// test's own (never a protected one), the Library's entries following.
 extension PhotoSelfTest {
     static func finderTest() async {
+        // The Markdown preview: blocks and marks become HTML; HTML in the file and pictures from the internet don't.
+        do {
+            let md = "# Title\n\nSome **bold** and *italic* with `code` and [a link](https://example.com).\n\n- one\n- two\n\n```\nlet x = 1 < 2\n```\n\n<script>x</script> ![p](https://example.com/p.png) ![q](q.png)\n\n| a | b |\n|---|---|\n| 1 | 2 |"
+            let html = Markdown.html(md)
+            check("finder: markdown blocks", html.contains("<h1>Title</h1>") && html.contains("<ul><li>one</li><li>two</li></ul>")
+                  && html.contains("<pre><code>let x = 1 &lt; 2</code></pre>") && html.contains("<td>1</td>"), html)
+            check("finder: markdown marks", html.contains("<strong>bold</strong>") && html.contains("<em>italic</em>")
+                  && html.contains("<code>code</code>") && html.contains("<a href=\"https://example.com\">a link</a>"), html)
+            check("finder: markdown keeps out HTML and web pictures", !html.contains("<script>") && !html.contains("src=\"https") && html.contains("src=\"q.png\""), html)
+            let evil = Markdown.html("![a\"onerror=\"x](q.png \"b\") ![u](HTTPS://e.com/p.png) ![v](//e.com/p.png) [l](x\" style=\"background:url(http://e.com/a))")
+            check("finder: markdown can't inject attributes or load remote pictures", !evil.contains("\" onerror") && !evil.contains("\"onerror=\"")
+                  && !evil.contains("<img alt=\"u") && !evil.contains("<img alt=\"v") && !evil.contains("\" style=\"") && !evil.contains("src=\"//"), evil)
+            check("finder: markdown page blocks remote loads", Markdown.page("").contains("Content-Security-Policy") && Markdown.page("").contains("img-src data: file:"))
+            check("finder: contents shown for documents, not films", FilePreview.showsContents(URL(fileURLWithPath: "/a/b.pdf"))
+                  && FilePreview.showsContents(URL(fileURLWithPath: "/a/b.md")) && !FilePreview.showsContents(URL(fileURLWithPath: "/a/b.mov")))
+        }
+
+        check("offload: AppleDouble files are copied, not skipped", !OffloadCenter.isSystemFile("._C0001.MP4") && OffloadCenter.isSystemFile(".DS_Store"))
+        check("offload: AppleDouble files are copied, not skipped", !OffloadCenter.isSystemFile("._C0001.MP4") && OffloadCenter.isSystemFile(".DS_Store"))
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("PluckFinderTest-\(UUID().uuidString)", isDirectory: true).resolvingSymlinksInPath()
         defer { try? fm.removeItem(at: dir) }
@@ -76,14 +95,15 @@ extension PhotoSelfTest {
         check("finder: a slash is refused", (try? FinderFiles.rename(dir.appendingPathComponent("gamma.txt"), to: "a/b")) == nil)
 
         let gamma = dir.appendingPathComponent("gamma.txt")
-        let copy = try? FinderFiles.duplicate(gamma)
-        let copy2 = try? FinderFiles.duplicate(gamma)
+        let copy = try? await FinderFiles.duplicate(gamma)
+        let copy2 = try? await FinderFiles.duplicate(gamma)
         check("finder: duplicate named as Finder does", copy?.lastPathComponent == "gamma copy.txt" && copy2?.lastPathComponent == "gamma copy 2.txt",
               "\(copy?.lastPathComponent ?? "-") \(copy2?.lastPathComponent ?? "-")")
         check("finder: duplicate's content", copy.flatMap { try? Data(contentsOf: $0) }?.count == 300)
         check("finder: a Library item's copy is in the Library", library.entries.contains { $0.path == copy?.path })
-        let folderCopy = try? FinderFiles.duplicate(dir.appendingPathComponent("A folder", isDirectory: true))
-        check("finder: a folder's copy", folderCopy?.lastPathComponent == "A folder copy", folderCopy?.lastPathComponent ?? "-")
+        var folderErr = ""
+        let folderCopy: URL? = await { do { return try await FinderFiles.duplicate(dir.appendingPathComponent("A folder", isDirectory: true)) } catch { folderErr = "\(error)"; return nil } }()
+        check("finder: a folder's copy", folderCopy?.lastPathComponent == "A folder copy", (folderCopy?.lastPathComponent ?? "-") + folderErr)
 
         let folderB = dir.appendingPathComponent("b folder", isDirectory: true)
         check("finder: same drive", FinderFiles.sameVolume(gamma, folderB))
@@ -117,7 +137,7 @@ extension PhotoSelfTest {
     }
 
     /// Until the pane has read its folder.
-    private static func settle(_ pane: FinderPane) async {
+    static func settle(_ pane: FinderPane) async {
         for _ in 0..<200 where pane.loading { try? await Task.sleep(for: .milliseconds(20)) }
     }
 }

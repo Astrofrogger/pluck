@@ -52,7 +52,8 @@ final class PhotoIndex {
                     return true
                 }
             }.value
-            for path in fresh where !queue.contains(path) { queue.append(path) }
+            var inQueue = Set(queue)
+            for path in fresh where inQueue.insert(path).inserted { queue.append(path) }
             queued = queue.count
             run()
         }

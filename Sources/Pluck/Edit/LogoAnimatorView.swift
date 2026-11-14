@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 /// Logo Animator: a logo in, a smooth animated version out, built from the logo's own shapes.
 struct LogoAnimatorView: View {
     @Environment(AIStudio.self) private var studio
+    @Environment(\.displayScale) private var displayScale
     @State private var file: URL?
     @State private var animation: LogoAnimation?
     @State private var problem: String?
@@ -444,13 +445,18 @@ struct LogoAnimatorView: View {
     @ViewBuilder private var preview: some View {
         if let animation = shownAnimation, let plan {
             ZStack {
-                TimelineView(.animation) { context in
-                    // The whole video, then a short pause before it plays again (a loop: no pause; a still: its last frame).
-                    let loop = plan.total + (output == .loop ? 0 : 0.8)
-                    let t = output == .still ? plan.total : context.date.timeIntervalSince(started).truncatingRemainder(dividingBy: loop)
-                    let size = CGSize(width: 640, height: 640 / format.aspect)
-                    if let frame = animation.frame(at: min(t, plan.total), plan: plan, size: size, background: nil) {
-                        Image(decorative: frame, scale: 1).resizable().interpolation(.high)
+                GeometryReader { geometry in
+                    TimelineView(.animation) { context in
+                        // The whole video, then a short pause before it plays again (a loop: no pause; a still: its last frame).
+                        let loop = plan.total + (output == .loop ? 0 : 0.8)
+                        let t = output == .still ? plan.total : context.date.timeIntervalSince(started).truncatingRemainder(dividingBy: loop)
+                        // Drawn at the stage's own pixel size (it was 640 wide and blown up: pixelated on a big stage, owner
+                        // 2026-11-14), in steps of 128 so resizing doesn't redraw at every size, at most 1920 wide (each frame is drawn on the CPU).
+                        let pixels = min(1920, max(640, (geometry.size.width * displayScale / 128).rounded(.up) * 128))
+                        let size = CGSize(width: pixels, height: pixels / format.aspect)
+                        if let frame = animation.frame(at: min(t, plan.total), plan: plan, size: size, background: nil) {
+                            Image(decorative: frame, scale: 1).resizable().interpolation(.high)
+                        }
                     }
                 }
                 // Click a part to change it (when the design plays); the chosen one is outlined.

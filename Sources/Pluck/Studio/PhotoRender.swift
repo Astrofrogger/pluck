@@ -1041,7 +1041,7 @@ enum PhotoRender {
     static func base(_ path: String, maxSize: Int, record: PhotoRecord) -> (image: CIImage, key: String)? {
         let settings = RawSettings(record.adjust)
         if let file = cleanFile(path, record: record) {
-            let key = "\(maxSize)|denoise \(record.denoiseAI ? "ai" : "standard")|\(file.lastPathComponent)|\(settings.key)|\(path)"
+            let key = "\(maxSize)|denoise \(record.denoiseAI ? "ai" : "standard")|\(file.lastPathComponent)|\(settings.key)|\(path)|\(stamp(path))"
             // (A clean file that can't be read shows the photo without it, as saving does, rather than nothing.)
             if let orig = BaseCache.shared.image(key + "|orig")
                     ?? denoiseSide(path, file, noisy: true, maxSize: maxSize, raw: settings).flatMap({ BaseCache.shared.keep($0, key: key + "|orig") }),
@@ -1053,7 +1053,7 @@ enum PhotoRender {
         }
         let raw = isRaw(path)
         let noise = raw ? luminance(record.adjust, path: path) : 0, color = raw ? record.adjust.colorNoise : 0, all = record.adjust.process >= 5
-        let key = "\(maxSize)|0|\(Int(noise))|\(Int(color))|\(settings.key)" + (all ? "|l5" : "") + "|\(path)"
+        let key = "\(maxSize)|0|\(Int(noise))|\(Int(color))|\(settings.key)" + (all ? "|l5" : "") + "|\(path)|\(stamp(path))"
         if let known = BaseCache.shared.image(key) { return (known, key) }
         guard let source = source(path, maxSize: maxSize, noise: noise, color: color, raw: settings, luma: true, allLuma: all),
               let kept = BaseCache.shared.keep(source, key: key) else { return nil }
@@ -1321,7 +1321,21 @@ enum PhotoRender {
     /// The clean decode to develop from: Denoise is on and it's made (the raw denoiser's colour matrix stands for its pair).
     static func cleanFile(_ path: String, record: PhotoRecord) -> URL? {
         guard record.denoise > 0, let url = denoised(path, record: record), isMade(url) else { return nil }
+        touchDenoised(url)
         return url
+    }
+
+    nonisolated(unsafe) private static var touched: Set<String> = []
+
+    /// Marks a denoised photo's files (its clean and noisy sides, colour notes) as used, once a session: unused for 90 days
+    /// they're let go together (trimCaches).
+    static func touchDenoised(_ url: URL) {
+        let base = url.lastPathComponent.split(separator: ".").first.map(String.init) ?? url.lastPathComponent
+        guard kelvinLock.withLock({ touched.insert(base).inserted }) else { return }
+        let folder = url.deletingLastPathComponent()
+        for file in (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [] where file.hasPrefix(base + ".") {
+            try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: folder.appendingPathComponent(file).path)
+        }
     }
 
     /// One side of a denoised photo at a size: the photo without noise reduction (`noisy`) or its clean decode.
@@ -1475,7 +1489,8 @@ enum PhotoRender {
         try FileManager.default.createDirectory(at: input.deletingLastPathComponent(), withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: input) }
         try context.writeTIFFRepresentation(of: image, to: input, format: .RGBAh, colorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!)
-        let partial = output.deletingPathExtension().appendingPathExtension("part.exr")
+        // (Its own name: the same photo denoised twice at once, a preview and an export, never writes into one file.)
+        let partial = output.deletingPathExtension().appendingPathExtension("\(UUID().uuidString.prefix(8)).part.exr")
         if let stand = denoiseEngineForTests {
             try await stand(input, partial, record.denoiseAI)
         } else {
@@ -1534,10 +1549,23 @@ enum PhotoRender {
 
     // MARK: - Previews kept on disk
 
+    /// The file's change date and size: part of every cache key, so a photo another app saved over (same path) is read again.
+    /// (A copy stands for its original file.) One stat call.
+    nonisolated static func stamp(_ path: String) -> String { readableStamp(path) ?? "0.0/0" }
+
+    /// The stamp, or nil when the file can't be read now (its drive is away).
+    nonisolated static func readableStamp(_ path: String) -> String? {
+        guard let values = try? URL(fileURLWithPath: PhotoCatalog.file(of: path)).resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+              let date = values.contentModificationDate else { return nil }
+        return "\(date.timeIntervalSince1970)/\(values.fileSize ?? 0)"
+    }
+
     /// A developed preview, kept by the photo and its settings so the grid can show edits.
     static func cachedPreview(_ path: String, record: PhotoRecord) -> URL {
         // (v2, 2026-11-14: a test build saved scrambled previews; this leaves them behind.)
-        var key = "v2|" + path
+        // (A photo whose drive is away keeps showing its last preview: only one per photo is kept, removeOlderPreviews.)
+        guard let stamp = readableStamp(path) else { return lastPreview(path) ?? previewFolder.appendingPathComponent("\(hex(path, 6))-offline.jpg") }
+        var key = "v2|" + path + "|" + stamp
         // (Sorted keys: JSONEncoder's own order isn't fixed, so the same edit could get a new name and be made again.)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
@@ -1545,18 +1573,52 @@ enum PhotoRender {
         if record.filmOn, let data = try? encoder.encode(record.film) { key += String(decoding: data, as: UTF8.self) }
         // (Lens Blur and Fog show once the depth finder is there.)
         if record.adjust.depth != nil, PhotoDepth.isReady { key += "|depth" }
+        // (AI Remove spots fill in once their model is there.)
+        if record.adjust.spots?.contains(where: { $0.kind == .remove }) == true, PhotoRemove.isReady { key += "|remove" }
         // Denoised: by the Amount and model, once the clean decode is made (until then it shows without).
         if record.denoise > 0, cleanFile(path, record: record) != nil { key += "|denoise v\(denoiseVersion) \(record.denoiseAI ? "ai" : "") \(record.denoise)" }
-        let name = SHA256.hash(data: Data(key.utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
-        return FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Pluck/Photo Previews/\(name).jpg")
+        // The photo's part first, so a photo's older previews can be found and let go (removeOlderPreviews).
+        return previewFolder.appendingPathComponent("\(hex(path, 6))-\(hex(key, 10)).jpg")
+    }
+
+    private nonisolated static func hex(_ s: String, _ n: Int) -> String { SHA256.hash(data: Data(s.utf8)).prefix(n).map { String(format: "%02x", $0) }.joined() }
+
+    private nonisolated static var previewFolder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/Photo Previews")
+    }
+
+    /// The preview kept for a photo, whatever its key.
+    /// shortcut: lists the preview folder per call; fine for a few offline photos, cache the listing if whole offline albums feel slow.
+    private static func lastPreview(_ path: String) -> URL? {
+        let prefix = hex(path, 6) + "-"
+        let name = (try? FileManager.default.contentsOfDirectory(atPath: previewFolder.path))?
+            .first { $0.hasPrefix(prefix) && $0.hasSuffix(".jpg") && !$0.hasSuffix(".screen.jpg") }
+        return name.map { previewFolder.appendingPathComponent($0) }
+    }
+
+    /// Marks a preview as used now (previews unused for 30 days are let go, trimCaches).
+    nonisolated static func touchPreview(_ url: URL) {
+        try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: url.path)
+    }
+
+    /// The photo's previews of earlier edits (each settled edit made new ones): only the newest are kept.
+    static func removeOlderPreviews(than current: URL) {
+        let folder = current.deletingLastPathComponent(), name = current.deletingPathExtension().lastPathComponent
+        guard let dash = name.firstIndex(of: "-"),
+              let files = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return }
+        let photo = String(name[...dash])
+        for file in files where file.hasPrefix(photo) && !file.hasPrefix(name) {
+            try? FileManager.default.removeItem(at: folder.appendingPathComponent(file))
+        }
     }
 
     /// Keeps the previews (and denoised photos) under a size: the oldest go first. Run now and then.
     static func trimCaches() {
         Task.detached(priority: .background) {
             let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            for (folder, limit) in [("Pluck/Photo Previews", 600_000_000), ("Pluck/Denoised", 6_000_000_000)] {
+            // Each kept at most this much, and nothing unused for longer than this many days (owner, 2026-11-14: previews 30,
+            // AI denoise 90; a preview is touched each time it's shown, see touchPreview).
+            for (folder, limit, days) in [("Pluck/Photo Previews", 600_000_000, 30.0), ("Pluck/Denoised", 6_000_000_000, 90.0)] {
                 let url = caches.appendingPathComponent(folder)
                 let keys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
                 guard let files = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: keys) else { continue }
@@ -1565,7 +1627,8 @@ enum PhotoRender {
                     return (file, values.contentModificationDate ?? .distantPast, values.fileSize ?? 0)
                 }
                 var total = sized.reduce(0) { $0 + $1.2 }
-                for (file, _, size) in sized.sorted(by: { $0.1 < $1.1 }) where total > limit {
+                let old = Date.now.addingTimeInterval(-days * 86_400)
+                for (file, date, size) in sized.sorted(by: { $0.1 < $1.1 }) where total > limit || date < old {
                     try? FileManager.default.removeItem(at: file)
                     total -= size
                 }
@@ -1577,10 +1640,18 @@ enum PhotoRender {
         // The grid's copy: small is enough there.
         var image = image
         if max(image.width, image.height) > 1200, let small = picture(CIImage(cgImage: image), maxSize: 1200, space: image.colorSpace) { image = small }
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
-        CGImageDestinationFinalize(destination)
+        writeJPEG(image, to: url, quality: 0.85)
+        removeOlderPreviews(than: url)
+    }
+
+    /// A JPEG written beside its place and then moved in: a grid cell reading it meanwhile never gets half a file.
+    nonisolated static func writeJPEG(_ image: CGImage, to url: URL, quality: Double) {
+        let folder = url.deletingLastPathComponent()
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let partial = folder.appendingPathComponent(".\(UUID().uuidString).part")
+        guard let destination = CGImageDestinationCreateWithURL(partial as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary)
+        guard CGImageDestinationFinalize(destination), rename(partial.path, url.path) == 0 else { try? FileManager.default.removeItem(at: partial); return }
     }
 
     // MARK: - Export
@@ -2010,7 +2081,10 @@ final class SceneCache: @unchecked Sendable {
     }
 
     /// Lets go of a photo's full-size scene (zoomed out, or another photo shown).
-    func dropFull(_ path: String) { lock.withLock { whole.removeAll { $0.key.base.hasSuffix("|" + path) } } }
+    func dropFull(_ path: String) {
+        // (A denoised photo's key goes on past its path, with the Amount.)
+        lock.withLock { whole.removeAll { $0.key.base.hasSuffix("|" + path) || $0.key.base.contains("|" + path + "|") } }
+    }
 
     func removeAll() { lock.withLock { kept = []; whole = [] } }
 

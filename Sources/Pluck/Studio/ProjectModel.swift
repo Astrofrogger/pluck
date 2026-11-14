@@ -227,7 +227,8 @@ private struct Lenient<T: Decodable>: Decodable {
 
 /// A project's subtitle line: where it is on the timeline, and which line of which file it is.
 struct ProjectSubtitle: Identifiable, Hashable {
-    var id: String { key }
+    // A line can show twice (its file used in two clips): the key is shared, the place isn't.
+    var id: String { "\(key)@\(String(format: "%.3f", start))" }
     let key: String
     var start: Double
     var end: Double
@@ -245,6 +246,8 @@ extension Project {
         let edits = subtitleEdits ?? [:]
         for clip in clips {
             defer { at += clip.length }
+            // A held frame says nothing (its start and end aren't the file's time).
+            guard clip.freeze == nil else { continue }
             var lines: [(start: Double, end: Double, text: String)]
             if let cues = fileSubtitles?[clip.path] {
                 // Lines written or timed by hand for the file.
@@ -423,6 +426,10 @@ final class ProjectModel {
     @ObservationIgnored var titleRender: Task<Void, Never>?
     /// A title's typing or colour picking, made one undo step once it pauses.
     @ObservationIgnored var motionCommit: Task<Void, Never>?
+    /// The same for a plain title's words.
+    @ObservationIgnored var titleCommit: Task<Void, Never>?
+    /// Closed (its tab gone): nothing more is changed or saved.
+    @ObservationIgnored private(set) var closed = false
     /// Each file seen in its own time (for the transcript and AI panels), kept while it's open.
     @ObservationIgnored private var focuses: [String: FileFocus] = [:]
 
@@ -446,7 +453,8 @@ final class ProjectModel {
         player.actionAtItemEnd = .pause
         observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                // An item not ready yet reports no time (NaN): keep the last one.
+                guard let self, time.seconds.isFinite else { return }
                 self.time = min(max(time.seconds, 0), self.duration)
                 self.rate = self.player.rate
             }
@@ -496,7 +504,11 @@ final class ProjectModel {
         flush()
         // (Saved just now: a late title commit or render mustn't write it again once it's closed.)
         motionCommit?.cancel()
+        titleCommit?.cancel()
         titleRender?.cancel()
+        rebuildTask?.cancel()
+        // Edits still on their way (a file being read) mustn't write it again once it's closed.
+        closed = true
         saveThumbnail(force: true)
         pruneTitleRenders()
         if let quitObserver { NotificationCenter.default.removeObserver(quitObserver) }
@@ -509,12 +521,14 @@ final class ProjectModel {
         player.pause()
         if let observer { player.removeTimeObserver(observer) }
         observer = nil
+        player.replaceCurrentItem(with: nil)
     }
 
     // MARK: - Changing (all undoable)
 
     /// Every change goes through here: remembered for undo, saved, and played back.
     func change(_ body: (inout Project) -> Void) {
+        guard !closed else { return }
         remember(beforeDrag ?? project)
         beforeDrag = nil
         future = []
@@ -596,6 +610,7 @@ final class ProjectModel {
     /// Saves a moment later (a drag is one write), or straight away with `now`.
     func save(now: Bool = false) {
         saveTask?.cancel()
+        guard !closed else { return }
         guard !now else { flush(); return }
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
@@ -758,7 +773,13 @@ final class ProjectModel {
             redraw()
             return
         }
-        if record { change { body(&$0.clips[index]) } } else { body(&project.clips[index]); rebuildSoon() }
+        // Through setClip, so a detached sound takes the new part and speed too.
+        let apply: (inout Project) -> Void = { project in
+            var clip = project.clips[index]
+            body(&clip)
+            project.setClip(clip)
+        }
+        if record { change(apply) } else { apply(&project); Self.followLinks(&project); rebuildSoon() }
     }
 
     /// Changes a look; `record` false while a slider or drag moves (only the picture is drawn again).
@@ -841,7 +862,17 @@ final class ProjectModel {
     func setTitle(_ id: UUID, record: Bool = true, _ body: @escaping (inout ProjectTitle) -> Void) {
         guard let index = project.titles.firstIndex(where: { $0.id == id }) else { return }
         if !record { dragging() }
-        if record { change { body(&$0.titles[index]) } } else { body(&project.titles[index]); save() }
+        titleCommit?.cancel()
+        if record { change { body(&$0.titles[index]) } } else {
+            body(&project.titles[index])
+            save()
+            // Typing is one undo step once it pauses (else it'd join the next edit's).
+            titleCommit = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(800))
+                guard !Task.isCancelled, self?.beforeDrag != nil else { return }
+                self?.setTitle(id) { _ in }
+            }
+        }
     }
 
     func removeTitle(_ id: UUID) {
@@ -972,7 +1003,7 @@ final class ProjectModel {
         // Frames counted at the real rate (29.97 has 29.97 a second), labelled in whole seconds
         // of the nominal rate, as non-drop timecode is.
         let fps = max(Int(frameRate.rounded()), 1)
-        let total = Int((seconds * max(frameRate, 1)).rounded())
+        let total = seconds.isFinite ? Int((seconds * max(frameRate, 1)).rounded()) : 0
         let f = total % fps, s = total / fps % 60, m = total / fps / 60 % 60, h = total / fps / 3600
         return full || h > 0 ? String(format: "%02d:%02d:%02d:%02d", h, m, s, f) : String(format: "%02d:%02d:%02d", m, s, f)
     }
@@ -1364,6 +1395,8 @@ final class ProjectModel {
         item.audioMix = mix
         // Faster or slower clips keep their voices' pitch.
         item.audioTimePitchAlgorithm = .spectral
+        // Plays to the end of the main line, as the export does (items past it are cut off there too).
+        if project.duration > 0 { item.forwardPlaybackEndTime = cm(project.duration) }
         let total = max(composition.duration.seconds, project.duration, spans.map(\.end).max() ?? 0)
         if !spans.isEmpty, total > 0 {
             let dips = clips.indices.map { (index: Int) -> (in: ProjectDip?, out: ProjectDip?) in
@@ -1503,7 +1536,8 @@ final class ProjectModel {
         }.value
         var moves: [String: String] = [:]
         for old in wanted {
-            let need = (project.clips.filter { $0.path == old }.map(\.end) + project.music.filter { $0.path == old }.map(\.end)).max() ?? 0
+            let items = (project.tracks ?? []).flatMap(\.items).filter { $0.path == old && $0.motion == nil }.map { $0.freeze ?? $0.end }
+            let need = (project.clips.filter { $0.path == old }.map { $0.freeze ?? $0.end } + project.music.filter { $0.path == old }.map(\.end) + items).max() ?? 0
             for url in candidates[(old as NSString).lastPathComponent.lowercased()] ?? [] {
                 if await length(of: url) >= need - 0.1 {
                     moves[old] = url.path
@@ -1515,6 +1549,10 @@ final class ProjectModel {
         change { project in
             for i in project.clips.indices { if let new = moves[project.clips[i].path] { project.clips[i].path = new } }
             for i in project.music.indices { if let new = moves[project.music[i].path] { project.music[i].path = new } }
+            for t in (project.tracks ?? []).indices {
+                for i in project.tracks![t].items.indices { if let new = moves[project.tracks![t].items[i].path] { project.tracks![t].items[i].path = new } }
+            }
+            project.media = project.media?.map { moves[$0] ?? $0 }
         }
         return moves.count
     }

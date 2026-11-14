@@ -25,6 +25,8 @@ final class PlaylistPick: Identifiable {
     let sourceURL: String
     let folder: String
     var options: DownloadOptions
+    /// Sent from another device: listed and downloaded without browser cookies.
+    var fromOtherDevice = false
 
     var phase: Phase = .loading
     var title = String(localized: "Playlist")
@@ -102,7 +104,7 @@ enum Playlists {
                 hidden += 1
                 continue
             }
-            let thumb = ((e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String).flatMap(URL.init)
+            let thumb = ((e["thumbnails"] as? [[String: Any]])?.last?["url"] as? String).flatMap(URL.init).flatMap { LibraryServer.isPublicWeb($0) ? $0 : nil }
             entries.append(PlaylistEntry(
                 id: (e["id"] as? String) ?? Subscriptions.episodeID(url) ?? url, url: url, title: title,
                 subtitle: (e["channel"] as? String) ?? (e["uploader"] as? String),

@@ -140,6 +140,27 @@ if [[ -x "$GO" ]]; then
 else
   echo "Go isn't installed: building without Edit Anywhere's private network" >&2
 fi
+# Edit Anywhere's default link (iroh, in Rust; no account): both architectures, signed like
+# pluck-tunnel. Needs rustup with the x86_64-apple-darwin target. Without Rust the build stops
+# (a release would quietly lose the default link); PLUCK_NO_IROH=1 builds Tailscale only.
+CARGO="$(command -v cargo || echo /opt/homebrew/opt/rustup/bin/cargo)"
+if [[ ! -x "$CARGO" && "${PLUCK_NO_IROH:-}" != 1 ]]; then
+  echo "error: Rust (cargo) isn't installed, so Edit Anywhere's iroh link can't be built." >&2
+  echo "       Install rustup (brew install rustup), or set PLUCK_NO_IROH=1 to build without it." >&2
+  exit 1
+fi
+if [[ -x "$CARGO" ]]; then
+  IROH="$PWD/build/iroh"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    (cd Helpers/PluckIroh && PATH="${CARGO:h}:$PATH" MACOSX_DEPLOYMENT_TARGET=14.0 \
+      "$CARGO" build --locked --profile dist --target $target --target-dir "$IROH")
+  done
+  lipo -create "$IROH/aarch64-apple-darwin/dist/pluck-iroh" "$IROH/x86_64-apple-darwin/dist/pluck-iroh" \
+    -output "$APP/Contents/Helpers/pluck-iroh"
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-iroh"
+else
+  echo "PLUCK_NO_IROH=1: building without Edit Anywhere's iroh link" >&2
+fi
 fi
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null

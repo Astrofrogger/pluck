@@ -249,9 +249,11 @@ struct MusicFitView: View {
                 status = String(localized: "Writing the new version…")
                 let label = Duration.seconds(target).formatted(.time(pattern: .minuteSecond)).replacingOccurrences(of: ":", with: "m") + "s"
                 let ext = ["wav", "aif", "aiff", "flac"].contains(song.pathExtension.lowercased()) ? "wav" : "m4a"
-                let output = song.deletingLastPathComponent()
-                    .appendingPathComponent(song.deletingPathExtension().lastPathComponent + " (\(label))")
-                    .appendingPathExtension(ext)
+                // (An earlier fit of the same length stays: the new one gets "… 2".)
+                let folder = song.deletingLastPathComponent()
+                let wanted = song.deletingPathExtension().lastPathComponent + " (\(label))." + ext
+                let taken = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { $0.lowercased() })
+                let output = folder.appendingPathComponent(taken.contains(wanted.lowercased()) ? FileClash.freeName(wanted, taken: taken) : wanted)
                 try await MusicFit.render(edit, input: song, output: output, ffmpeg: ffmpeg)
                 done = (output, edit)
             } catch {

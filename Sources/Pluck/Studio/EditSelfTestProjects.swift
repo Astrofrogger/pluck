@@ -93,6 +93,10 @@ extension EditSelfTest {
         check("projects: import a dropped file", first != nil && second != nil && first?.id != shared.id && first?.id != second?.id
               && ProjectStore.load(first!.id)?.clips.count == 1 && first?.folder == nil
               && (try? Data(contentsOf: outside)) == original, "two copies, new ids, the file untouched")
+        shared.name = "../x"
+        try? encoder.encode(shared).write(to: outside)
+        let named = ProjectStore.importProject(outside)?.name ?? ""
+        check("projects: an imported name isn't a path", !named.contains("/") && !named.hasPrefix("."), "no / or leading dot; got \(named)")
 
         // An old project (no folder, no Trash) and an old folders file.
         let old = UUID()

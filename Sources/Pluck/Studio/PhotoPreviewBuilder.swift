@@ -21,10 +21,9 @@ final class PhotoPreviewBuilder {
 
     /// Writes a screen-size preview (JPEG, high quality).
     nonisolated static func save(_ image: CGImage, to url: URL) {
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.92] as CFDictionary)
-        CGImageDestinationFinalize(destination)
+        PhotoRender.writeJPEG(image, to: url, quality: 0.92)
+        // (url is "<grid name>.screen.jpg": the grid name's older ones go.)
+        PhotoRender.removeOlderPreviews(than: url.deletingPathExtension().deletingPathExtension().appendingPathExtension("jpg"))
     }
 
     /// These photos (the album shown), the first first.
@@ -34,6 +33,8 @@ final class PhotoPreviewBuilder {
         working = true
         Task {
             while !waiting.isEmpty {
+                // (Photos whose previews are made already go by without waiting: the main thread gets its turn between them.)
+                await Task.yield()
                 let path = waiting.removeFirst()
                 // Out of the large view's way.
                 while Date.now.timeIntervalSince(lastAsked) < 1.5 { try? await Task.sleep(for: .milliseconds(300)) }

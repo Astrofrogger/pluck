@@ -62,6 +62,8 @@ struct LibrarySharingView: View {
                                 }
                                 Button("New Code") { server.newAccessCode() }
                                     .help("Everyone has to type the new code")
+                                Button("Clear Lockout") { server.clearLockout() }
+                                    .help("Lets devices locked out after wrong codes try again")
                             }
                         }
                     }

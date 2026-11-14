@@ -101,11 +101,20 @@ final class PhotoPeople {
         var scanned: [String]
     }
 
+    /// People.json there that couldn't be read nor kept aside: never written over.
+    @ObservationIgnored private var saveBlocked = false
+
     private init() {
-        if let data = try? Data(contentsOf: Self.file), let saved = try? JSONDecoder().decode(Saved.self, from: data), saved.version == Self.version {
+        guard FileManager.default.fileExists(atPath: Self.file.path) else { return }
+        if let data = try? Data(contentsOf: Self.file), let saved = try? JSONDecoder().decode(Saved.self, from: data) {
+            // (An older version's prints don't compare with these: read as empty, on purpose.)
+            guard saved.version == Self.version else { return }
             faces = saved.faces
             people = saved.people
             scanned = Set(saved.scanned)
+        } else {
+            // Unreadable (the names given are in it): kept aside, not replaced by an empty one.
+            saveBlocked = !PhotoSaving.setAside(Self.file, move: true)
         }
     }
 
@@ -114,7 +123,8 @@ final class PhotoPeople {
     /// Looks for faces in these files (the ones not looked at yet), one by one, in the background,
     /// at low priority and never while a photo is being edited. Saved as it goes.
     func enqueue(_ paths: [String]) {
-        let new = PhotoCatalog.files(of: paths).filter { !scanned.contains($0) && !waiting.contains($0) }
+        let queued = Set(waiting)
+        let new = PhotoCatalog.files(of: paths).filter { !scanned.contains($0) && !queued.contains($0) }
         guard !new.isEmpty else { return }
         waiting.append(contentsOf: new)
         guard !working else { return }
@@ -124,7 +134,9 @@ final class PhotoPeople {
                 // Editing comes first: wait while the Photo page is on Edit or Compare.
                 while Self.editing { try? await Task.sleep(for: .seconds(2)) }
                 let path = waiting.removeFirst()
-                let found = await Task.detached(priority: .background) { Self.faces(in: path) }.value
+                // A file that can't be read now (a drive not plugged in) isn't marked looked at: it's tried again next time.
+                guard let found = await Task.detached(priority: .background, operation: { Self.readable(path) ? Self.faces(in: path) : nil }).value
+                else { continue }
                 add(found, from: path)
             }
             working = false
@@ -136,8 +148,14 @@ final class PhotoPeople {
         while working || !waiting.isEmpty { try? await Task.sleep(for: .milliseconds(50)) }
     }
 
-    nonisolated private static var editing: Bool {
-        ScreenshotMode.scene != "phototest" && ["edit", "compare"].contains(UserDefaults.standard.string(forKey: "photoView") ?? "")
+    /// Whether the Photo page is open on Edit or Compare now (set by the page; not the view saved for next time, which
+    /// stays Edit while another page is open).
+    static var pageEditing = false
+
+    private static var editing: Bool { ScreenshotMode.scene != "phototest" && pageEditing }
+
+    nonisolated private static func readable(_ path: String) -> Bool {
+        CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil).flatMap { CGImageSourceGetCount($0) > 0 ? $0 : nil } != nil
     }
 
     /// A file's faces, placed with the people already known.
@@ -256,7 +274,7 @@ final class PhotoPeople {
 
     /// The people to show: named, or seen in two photos or more; the most seen first.
     var shown: [PhotoPerson] {
-        let counts = Dictionary(grouping: faces.filter { $0.person != nil }, by: { $0.person! }).mapValues(\.count)
+        let counts = indexed.byPerson.mapValues(\.count)
         return people.filter { $0.name != nil || (counts[$0.id] ?? 0) >= 2 }
             .sorted { (counts[$0.id] ?? 0, $1.name ?? "") > (counts[$1.id] ?? 0, $0.name ?? "") }
     }
@@ -270,18 +288,32 @@ final class PhotoPeople {
         return String(localized: "Person \(number)")
     }
 
-    func faces(of person: UUID) -> [PhotoFace] { faces.filter { $0.person == person } }
+    func faces(of person: UUID) -> [PhotoFace] { indexed.byPerson[person] ?? [] }
 
     /// The files a person is in, each once.
     func photos(of person: UUID) -> [String] {
         var seen: Set<String> = []
-        return faces.filter { $0.person == person && seen.insert($0.path).inserted }.map(\.path)
+        return faces(of: person).filter { seen.insert($0.path).inserted }.map(\.path)
     }
 
     /// The people in a file (copies: their file's).
-    func people(in path: String) -> Set<UUID> {
-        let file = PhotoCatalog.file(of: path)
-        return Set(faces.filter { $0.path == file }.compactMap(\.person))
+    func people(in path: String) -> Set<UUID> { indexed.byFile[PhotoCatalog.file(of: path)] ?? [] }
+
+    /// The faces by person and the people by file, made again only after a change (the sidebar and smart albums ask
+    /// for every person and every photo).
+    @ObservationIgnored private var index: (revision: Int, byPerson: [UUID: [PhotoFace]], byFile: [String: Set<UUID>])?
+
+    private var indexed: (byPerson: [UUID: [PhotoFace]], byFile: [String: Set<UUID>]) {
+        let faces = faces // (read here, so views showing these still follow changes)
+        if let index, index.revision == revision { return (index.byPerson, index.byFile) }
+        var byPerson: [UUID: [PhotoFace]] = [:], byFile: [String: Set<UUID>] = [:]
+        for face in faces {
+            guard let person = face.person else { continue }
+            byPerson[person, default: []].append(face)
+            byFile[face.path, default: []].insert(person)
+        }
+        index = (revision, byPerson, byFile)
+        return (byPerson, byFile)
     }
 
     /// The files of everyone whose name holds all these words (Find).
@@ -338,12 +370,18 @@ final class PhotoPeople {
         Task {
             try? await Task.sleep(for: .seconds(2))
             saveScheduled = false
-            let saved = Saved(version: Self.version, faces: faces, people: people, scanned: Array(scanned))
-            await Task.detached(priority: .background) {
-                try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
-                try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
-            }.value
+            save(wait: false)
         }
+    }
+
+    /// Writes People.json now and waits (when Pluck quits).
+    func saveNow() { save(wait: true) }
+
+    private func save(wait: Bool) {
+        guard !saveBlocked else { return }
+        let saved = Saved(version: Self.version, faces: faces, people: people, scanned: Array(scanned))
+        let make = { try? JSONEncoder().encode(saved) }
+        if wait { PhotoSaving.writeNow(Self.file, make) } else { PhotoSaving.write(Self.file, make) }
     }
 }
 

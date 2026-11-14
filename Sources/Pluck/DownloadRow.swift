@@ -6,6 +6,7 @@ struct DownloadRow: View {
     @Environment(AIStudio.self) private var ai
     #endif
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.openPluckSettings) private var openSettings
     let item: DownloadItem
     var isSelected = false
     /// The other selected rows (with this one), when several are selected.
@@ -238,6 +239,13 @@ struct DownloadRow: View {
                 .foregroundStyle(.red)
                 .lineLimit(2)
                 .help(item.errorMessage ?? "")
+            #if STUDIO
+            // Studio starts without a cookie browser: offered here, when a site turns out to need a login.
+            if item.needsLogin, !item.fromOtherDevice {
+                Button("Choose Browser…") { openSettings(.advanced) }
+                    .controlSize(.small)
+            }
+            #endif
 
         case .paused:
             VStack(alignment: .leading, spacing: 4) {

@@ -28,6 +28,8 @@ final class PhotoTether: NSObject {
     @ObservationIgnored private var browser: ICDeviceBrowser?
     @ObservationIgnored private var watcher: DispatchSourceFileSystemObject?
     @ObservationIgnored private var seen: Set<String> = []
+    /// Files being waited on until they're written (each once, however many changes the folder reports).
+    @ObservationIgnored private var pending: Set<String> = []
 
     // MARK: - Starting
 
@@ -49,6 +51,8 @@ final class PhotoTether: NSObject {
         browser = nil
         watcher?.cancel(); watcher = nil
         camera = nil; cameras = []; ready = false; canFire = false; watched = nil
+        // A new session gets its own folder and album (a watched folder is never where a camera's photos go).
+        folder = nil; album = nil
     }
 
     /// The session's folder and album (made the first time a photo comes in).
@@ -118,12 +122,19 @@ final class PhotoTether: NSObject {
         guard let watched else { return }
         let files = ((try? FileManager.default.contentsOfDirectory(at: watched, includingPropertiesForKeys: [.fileSizeKey])) ?? [])
             .filter { !seen.contains($0.path) && PhotoCatalog.isPhoto($0) }
-        for file in files {
-            let first = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        for file in files where pending.insert(file.path).inserted {
             Task {
-                try? await Task.sleep(for: .milliseconds(600))
-                let later = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
-                if later == first, later > 0 { arrived(file) } else { scan() }
+                defer { pending.remove(file.path) }
+                var size = -1
+                while true {
+                    // (Fresh each time: URL caches what it was asked.)
+                    let now = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.size] as? Int
+                    guard let now, watched != nil else { return }
+                    if now == size, now > 0 { break }
+                    size = now
+                    try? await Task.sleep(for: .milliseconds(600))
+                }
+                arrived(file)
             }
         }
     }

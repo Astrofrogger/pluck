@@ -35,15 +35,19 @@ enum OfficeLink {
     /// Room for a piece of a file sent to the host (still a hard cap: a frame is read whole
     /// before its keys are checked, and only from private addresses).
     static let maxRequest = 4 << 20
-    static let maxAnswer = 8 << 20
+    /// (Room for a raw file piece plus its header.)
+    static let maxAnswer = 12 << 20
     /// A preview travels in pieces this big.
     static let previewChunk = 1_500_000
     /// Proxies come in bigger pieces (still well inside an answer once encoded).
     static let proxyChunk = 5_000_000
     /// Files sent to the host go in pieces that fit a request once encoded.
     static let uploadChunk = 2_000_000
+    /// Raw file pieces (fileData) travel in a binary frame, not base64, this big at most.
+    static let fileChunk = 8 << 20
 
-    enum Kind: UInt8 { case pair = 1, request = 2 }
+    /// `data`: an answer with raw bytes after its JSON (see OfficeActions.seal).
+    enum Kind: UInt8 { case pair = 1, request = 2, data = 3 }
     static let magic = Data("PLKR".utf8)
 
     enum Failure: LocalizedError {
@@ -179,7 +183,13 @@ enum OfficeLink {
             [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
         }
 
+        /// Test copies keep keys in memory only: a rebuilt test app is a new app to the keychain, so
+        /// touching the login keychain made macOS ask for the password every time (owner, 2026-11-14).
+        nonisolated(unsafe) private static var memory: [String: Data] = [:]
+        private static var inMemory: Bool { ScreenshotMode.scene != nil }
+
         static func save(_ data: Data, as account: String) {
+            if inMemory { memory[account] = data; return }
             SecItemDelete(query(account) as CFDictionary)
             var item = query(account)
             item[kSecValueData as String] = data
@@ -188,6 +198,7 @@ enum OfficeLink {
         }
 
         static func load(_ account: String) -> Data? {
+            if inMemory { return memory[account] }
             var item = query(account)
             item[kSecReturnData as String] = true
             item[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -197,6 +208,7 @@ enum OfficeLink {
         }
 
         static func delete(_ account: String) {
+            if inMemory { memory[account] = nil; return }
             SecItemDelete(query(account) as CFDictionary)
         }
     }

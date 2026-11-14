@@ -131,6 +131,7 @@ struct PhotoInspector: View {
             }
         }
         tabStrip
+            .searchTarget(.photo) { tab = .adjust; editing.findingTool = true }
         }
         .onChange(of: tab) { _, now in
             if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil }
@@ -149,11 +150,6 @@ struct PhotoInspector: View {
     /// the scope shown over Adjust, and Export.
     private var tabStrip: some View {
         VStack(spacing: 4) {
-            Button("") { tab = .adjust; editing.findingTool = true }
-                .keyboardShortcut("f")
-                .opacity(0)
-                .frame(width: 0, height: 0)
-                .accessibilityHidden(true)
             stripButton(.adjust)
             stripButton(.detail)
             stripButton(.masks)
@@ -928,7 +924,8 @@ struct PhotoDetails: View {
                 .frame(minHeight: 20)
             }
         }
-        .task(id: path) { lines = Self.read(path) }
+        // (Off the main thread: the file may be on a slow drive.)
+        .task(id: path) { lines = await Task.detached(priority: .userInitiated) { Self.read(path) }.value }
     }
 
     /// "Z8 · 24-70 at 35 mm · ƒ/8 · 1/250 s · ISO 64": camera, lens and exposure on one line.

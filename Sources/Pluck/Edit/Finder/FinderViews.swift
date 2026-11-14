@@ -56,6 +56,7 @@ struct FinderWorkspaceView: View {
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Move Here") { workspace.focused.paste(move: true) }.keyboardShortcut("v", modifiers: [.command, .option])
             Button("Turn Split") { workspace.turn() }.keyboardShortcut("t", modifiers: [.command, .option])
+            Button("Show Hidden Files") { FinderPane.toggleHidden() }.keyboardShortcut(".", modifiers: [.command, .shift])
         }
         .opacity(0)
         .allowsHitTesting(false)
@@ -155,6 +156,8 @@ struct FinderPaneView: View {
     @State private var hovering = false
 
     private var isFront: Bool { workspace.focusedID == pane.id }
+    /// One of the Library's tiled panes (not one shown by itself elsewhere, as another Mac's files).
+    private var tiled: Bool { workspace.panes.count > 1 && workspace.panes.contains { $0 === pane } }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -188,7 +191,7 @@ struct FinderPaneView: View {
         .background(Edition.isStudio ? AnyShapeStyle(Design.Studio.panel) : AnyShapeStyle(.background))
         // The pane in front: a line along its top when there are several.
         .overlay(alignment: .top) {
-            if workspace.panes.count > 1 {
+            if tiled {
                 Rectangle().fill(isFront ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear)).frame(height: 2)
             }
         }
@@ -207,7 +210,7 @@ struct FinderPaneView: View {
         .onChange(of: pane.naming) { _, naming in if naming == nil, isFront { focused = true } }
         // Dropped here (from another pane, or Finder): copied into this folder, checked.
         .dropDestination(for: URL.self) { urls, _ in
-            guard pane.list == nil, !urls.isEmpty else { return false }
+            guard pane.list == nil, pane.source == nil, !urls.isEmpty else { return false }
             LibraryPanes.shared.drop(urls, into: pane.url)
             return true
         } isTargeted: { dropping = $0 }
@@ -220,7 +223,7 @@ struct FinderPaneView: View {
     private var header: some View {
         HStack(spacing: 6) {
             // Closing it, as a Finder tab: on the pane in front, or the one under the pointer.
-            if workspace.panes.count > 1 {
+            if tiled {
                 Button { workspace.focus(pane); workspace.close() } label: {
                     Image(systemName: "xmark").font(.caption.weight(.semibold)).frame(width: 16, height: 16).contentShape(.rect)
                 }
@@ -236,7 +239,7 @@ struct FinderPaneView: View {
                 .disabled(!pane.canGoForward)
                 .help("Forward")
             // (One pane: the window's title names its folder.)
-            if workspace.panes.count > 1 {
+            if tiled {
                 Text(pane.title)
                     .font(.headline)
                     .lineLimit(1)
@@ -244,6 +247,16 @@ struct FinderPaneView: View {
                     .padding(.leading, 4)
             }
             Spacer(minLength: 8)
+            if pane.searching { ProgressView().controlSize(.small).help("Searching this folder and the folders in it") }
+            if let tag = pane.tagFilter {
+                Button { pane.tagFilter = nil } label: {
+                    HStack(spacing: 4) {
+                        Circle().fill(FinderTags.swatch(tag)).frame(width: 9, height: 9)
+                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
+                    }
+                }
+                .help("Showing only \(FinderTags.name(tag)): click to show everything")
+            }
             if pane.playing == nil {
                 StudioSegmented(options: FinderViewMode.allCases.map { ($0, $0.title) },
                                 selection: $pane.mode, symbols: FinderViewMode.allCases.map(\.symbol))
@@ -256,6 +269,15 @@ struct FinderPaneView: View {
                         Text("Kind").tag(FinderPane.Sort.kind)
                     }
                     Toggle("Ascending", isOn: $pane.ascending)
+                    Picker("Show Tag", selection: $pane.tagFilter) {
+                        Text("Everything").tag(Int?.none)
+                        ForEach(FinderTags.colors, id: \.self) { color in
+                            Label { Text(FinderTags.name(color)) } icon: { Image(nsImage: FinderTags.dot(color)) }.tag(Int?.some(color))
+                        }
+                    }
+                    // (⇧⌘. is held by the workspace's keys.)
+                    Toggle("Show Hidden Files", isOn: Binding(get: { FinderPane.showsHidden }, set: { _ in FinderPane.toggleHidden() }))
+                    if pane.source == nil {
                     Divider()
                     if pane.list == nil {
                         Button("New Folder", systemImage: "folder.badge.plus") { pane.newFolderInPlace() }
@@ -274,7 +296,8 @@ struct FinderPaneView: View {
                         .disabled(workspace.panes.count >= FinderWorkspace.maxPanes)
                     Button("Split Below", systemImage: "square.split.1x2") { workspace.focus(pane); workspace.split(.vertical) }
                         .disabled(workspace.panes.count >= FinderWorkspace.maxPanes)
-                    if workspace.panes.count > 1 {
+                    }
+                    if tiled {
                         Button(splitTurned ? "Put Side by Side" : "Put One Above the Other",
                                systemImage: splitTurned ? "square.split.2x1" : "square.split.1x2") { workspace.focus(pane); workspace.turn() }
                         Button("Close Pane", systemImage: "xmark.square") { workspace.focus(pane); workspace.close() }
@@ -295,8 +318,14 @@ struct FinderPaneView: View {
 
     @ViewBuilder private var content: some View {
         // (In columns, an empty folder is an empty column: the folders before it stay.)
-        if pane.items.isEmpty, !pane.loading, pane.mode != .columns {
-            ContentUnavailableView("Empty Folder", systemImage: "folder")
+        if pane.shown.isEmpty, !pane.loading, !pane.searching, pane.mode != .columns {
+            if !pane.filter.trimmingCharacters(in: .whitespaces).isEmpty {
+                StudioEmptyState(symbol: "magnifyingglass", title: "No Results", line: "Nothing here or in the folders in it has that name or text.")
+            } else if pane.tagFilter != nil, !pane.items.isEmpty {
+                StudioEmptyState(symbol: "tag", title: "Nothing With That Tag")
+            } else {
+                ContentUnavailableView("Empty Folder", systemImage: "folder")
+            }
         } else {
             switch pane.mode {
             case .icons: FinderIconsView(pane: pane)
@@ -348,7 +377,7 @@ private struct FinderKeys: ViewModifier {
                 return .handled
             }
             // Return renames, as in Finder (⌘O, ⌘↓ or a double-click opens).
-            .onKeyPress(.return) { if pane.naming != nil { return .ignored }; if pane.list == nil { pane.beginRename() } else { pane.openSelection() }; return .handled }
+            .onKeyPress(.return) { if pane.naming != nil { return .ignored }; if pane.list == nil, pane.source == nil { pane.beginRename() } else { pane.openSelection() }; return .handled }
             .onKeyPress(.escape) { if pane.naming != nil { return .ignored };
                 guard !pane.selection.isEmpty else { return .ignored }
                 pane.selection = []
@@ -360,7 +389,7 @@ private struct FinderKeys: ViewModifier {
                 return .handled
             }
             // Space: Quick Look, as in Finder.
-            .onKeyPress(.space) { if pane.naming != nil { return .ignored }; FinderQuickLook.shared.toggle(pane); return .handled }
+            .onKeyPress(.space) { if pane.naming != nil { return .ignored }; pane.quickLook(); return .handled }
             .onKeyPress(.delete, phases: .down) { press in if pane.naming != nil { return .ignored };
                 guard press.modifiers.contains(.command) else { return .ignored }
                 pane.trashSelection()
@@ -438,15 +467,18 @@ private struct FinderIconTile: View {
             if pane.naming == .rename(item.url) {
                 FinderNameField(item: item, pane: pane)
             } else {
-                Text(item.name)
-                    .font(.callout)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .foregroundStyle(selected ? Color.white : Color.primary)
-                    .background(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
+                HStack(spacing: 4) {
+                    FinderTagDots(tags: item.tags)
+                    Text(item.name)
+                        .font(.callout)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1)
+                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .background(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
+                }
             }
             if item.isClip, let summary = thumbs.summaries[item.url] {
                 Text(Self.caption(summary)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
@@ -462,7 +494,7 @@ private struct FinderIconTile: View {
             if rename { pane.renameSoon(item.url) }
         })
         .fileDrag { FinderDrag.urls(item.url, in: pane) }
-        .modifier(FolderDrop(item: item, targeted: $targeted))
+        .modifier(FolderDrop(item: item, targeted: $targeted, enabled: pane.source == nil))
         .contextMenu { FinderItemMenu(item: item, pane: pane) }
         .help(item.url.path)
         .modifier(FinderWantsPicture(item: item))
@@ -519,9 +551,10 @@ private struct FinderIconTile: View {
 private struct FolderDrop: ViewModifier {
     let item: FinderItem
     @Binding var targeted: Bool
+    var enabled = true
 
     func body(content: Content) -> some View {
-        if item.isFolder {
+        if item.isFolder, enabled {
             content.dropDestination(for: URL.self) { urls, _ in
                 guard !urls.isEmpty else { return false }
                 LibraryPanes.shared.drop(urls, into: item.url)
@@ -538,7 +571,7 @@ private struct FinderFolderMenu: View {
     let pane: FinderPane
 
     var body: some View {
-        if pane.list == nil {
+        if pane.list == nil, pane.source == nil {
             Button("New Folder") { pane.newFolderInPlace() }
             Button("Paste") { pane.paste() }
             Button("Move Here") { pane.paste(move: true) }
@@ -566,6 +599,15 @@ private struct FinderNaming: ViewModifier {
             } message: {
                 Text("You can put it back from the Trash in Finder.")
             }
+            .sheet(isPresented: Binding(get: { !pane.renamingMany.isEmpty }, set: { if !$0 { pane.renamingMany = [] } })) {
+                BatchRenameSheet(urls: pane.renamingMany) { failed in
+                    pane.renamingMany = []
+                    pane.problem = failed
+                }
+            }
+            .sheet(isPresented: Binding(get: { pane.reading != nil }, set: { if !$0 { pane.reading = nil } })) {
+                if let url = pane.reading { MarkdownReader(url: url) { pane.reading = nil } }
+            }
     }
 }
 
@@ -589,11 +631,19 @@ private struct FinderItemMenu: View {
     let item: FinderItem
     let pane: FinderPane
 
+    /// The selection when it's in it, else this one.
+    private var chosen: [URL] { pane.selection.contains(item.url) ? pane.chosen : [item.url] }
+
     var body: some View {
+        if let source = pane.source { source.menu(chosen) } else { local }
+    }
+
+    @ViewBuilder private var local: some View {
         Button(item.isClip ? "Play" : "Open") { pane.open(item) }
+        OpenWithMenu(urls: chosen)
         Button("Quick Look") {
             if !pane.selection.contains(item.url) { pane.selection = [item.url]; pane.anchor = item.url }
-            FinderQuickLook.shared.toggle(pane)
+            pane.quickLook()
         }
         if item.isPhoto { Button(FinderPhotoView.openTitle(item.url)) { NSWorkspace.shared.open(item.url) } }
         if item.isFolder {
@@ -614,7 +664,11 @@ private struct FinderItemMenu: View {
         Divider()
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
         if pane.list == nil {
-            Button("Rename") { pane.selection = [item.url]; pane.anchor = item.url; pane.naming = .rename(item.url) }
+            if chosen.count > 1 {
+                Button("Rename \(chosen.count) Items…") { pane.renamingMany = chosen }
+            } else {
+                Button("Rename") { pane.selection = [item.url]; pane.anchor = item.url; pane.naming = .rename(item.url) }
+            }
             Button("Duplicate") {
                 if !pane.selection.contains(item.url) { pane.selection = [item.url] }
                 pane.duplicateSelection()
@@ -635,6 +689,12 @@ private struct FinderItemMenu: View {
             }
         }
         Divider()
+        if pane.list == nil {
+            Button(chosen.count == 1 ? String(localized: "Compress “\(item.name)”") : String(localized: "Compress \(chosen.count) Items")) { pane.compress(chosen) }
+            if chosen.count == 1, FinderArchive.isZip(item.url) { Button("Uncompress") { pane.uncompress(item.url) } }
+        }
+        FinderTagMenu(urls: chosen, pane: pane)
+        Divider()
         Button("Move to Trash…", role: .destructive) {
             if !pane.selection.contains(item.url) { pane.selection = [item.url] }
             pane.trashSelection()
@@ -649,6 +709,7 @@ private struct FinderListView: View {
     @Bindable var pane: FinderPane
     @State private var thumbs = FinderThumbnails.shared
     @State private var order = [KeyPathComparator(\FinderRow.name)]
+    @State private var cache = FinderRowCache()
 
     var body: some View {
         Table(rows, selection: $pane.selection, sortOrder: $order) {
@@ -659,6 +720,7 @@ private struct FinderListView: View {
                         FinderNameField(item: row.item, pane: pane)
                     } else {
                         Text(row.name).lineLimit(1).truncationMode(.middle)
+                        FinderTagDots(tags: row.item.tags)
                     }
                 }
                 .fileDrag { FinderDrag.urls(row.item.url, in: pane) }
@@ -672,16 +734,19 @@ private struct FinderListView: View {
                 Text(row.item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—").foregroundStyle(.secondary).monospacedDigit()
             }
             .width(min: 60, ideal: 80)
+            // (The clip's details as they arrive; the order they sort in is from when the list was made.)
             TableColumn("Length", value: \.length) { row in
-                Text(row.length > 0 ? Format.duration(row.length) : "").foregroundStyle(.secondary).monospacedDigit()
+                let live = FinderRow(item: row.item, summary: thumbs.summaries[row.id])
+                Text(live.length > 0 ? Format.duration(live.length) : "").foregroundStyle(.secondary).monospacedDigit()
             }
             .width(min: 50, ideal: 70)
             TableColumn("Frame", value: \.pixels) { row in
-                Text(row.summary.map { "\($0.width)×\($0.height)" } ?? "").foregroundStyle(.secondary).monospacedDigit()
+                Text(thumbs.summaries[row.id].map { "\($0.width)×\($0.height)" } ?? "").foregroundStyle(.secondary).monospacedDigit()
             }
             .width(min: 70, ideal: 90)
             TableColumn("Rate", value: \.fps) { row in
-                Text(row.fps > 0 ? String(format: row.fps.rounded() == row.fps ? "%.0f" : "%.2f", row.fps) : "").foregroundStyle(.secondary).monospacedDigit()
+                let fps = thumbs.summaries[row.id]?.fps ?? 0
+                Text(fps > 0 ? String(format: fps.rounded() == fps ? "%.0f" : "%.2f", fps) : "").foregroundStyle(.secondary).monospacedDigit()
             }
             .width(min: 40, ideal: 50)
             TableColumn("Kind", value: \.kind) { row in Text(row.kind).foregroundStyle(.secondary) }
@@ -697,14 +762,28 @@ private struct FinderListView: View {
         .scrollContentBackground(Edition.isStudio ? .hidden : .automatic)
     }
 
+    /// Made once per change of the folder or the order (not on every look: a folder can hold thousands).
     private var rows: [FinderRow] {
-        let made = pane.shown.map { FinderRow(item: $0, summary: thumbs.summaries[$0.url]) }
-        // Folders first, then in the order of the column clicked.
-        return made.sorted { a, b in
+        if cache.version == pane.version, cache.order == order { return cache.rows }
+        let summaries = thumbs.summaries
+        let made = pane.shown.map { FinderRow(item: $0, summary: summaries[$0.url]) }
+        // Folders first, then in the order of the column clicked (by name: already so).
+        let byName = order == [KeyPathComparator(\FinderRow.name)] && pane.sort == .name && pane.ascending
+        cache.rows = byName ? made : made.sorted { a, b in
             if a.item.isFolder != b.item.isFolder { return a.item.isFolder }
             return order.compare(a, b) == .orderedAscending
         }
+        cache.version = pane.version
+        cache.order = order
+        return cache.rows
     }
+}
+
+/// The list's rows, kept between looks.
+private final class FinderRowCache {
+    var version = -1
+    var order: [KeyPathComparator<FinderRow>] = []
+    var rows: [FinderRow] = []
 }
 
 /// A list row's values, for sorting by any column.
@@ -733,8 +812,19 @@ private struct FinderGalleryView: View {
         StudioGallery(items: pane.shown, current: pane.anchor ?? pane.selection.first,
                       choose: { pane.click($0, modifiers: EventModifiers.held) }, open: { pane.open($0) }) { item in
             VStack(spacing: 10) {
-                picture(item).frame(maxWidth: .infinity, maxHeight: .infinity)
-                Text(item.name).font(Design.Studio.sectionTitle).lineLimit(1).truncationMode(.middle)
+                Group {
+                    // A document, text, PDF…: its contents (FilePreview); a film, song or folder: its picture.
+                    if !item.isFolder, !item.isClip, pane.source == nil, FilePreview.showsContents(item.url) {
+                        FilePreview(url: item.url).clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                    } else {
+                        picture(item)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HStack(spacing: 6) {
+                    FinderTagDots(tags: item.tags)
+                    Text(item.name).font(Design.Studio.sectionTitle).lineLimit(1).truncationMode(.middle)
+                }
                 Text([item.kind, item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }].compactMap { $0 }.joined(separator: " · "))
                     .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             }
@@ -765,6 +855,7 @@ private struct FinderColumnsView: View {
     let pane: FinderPane
 
     var body: some View {
+        GeometryReader { geo in
         ScrollViewReader { scroller in
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
@@ -775,14 +866,20 @@ private struct FinderColumnsView: View {
                             .frame(width: 230)
                         Divider()
                     }
-                    if let chosen = pane.shown.first(where: { pane.selection.contains($0.url) && !$0.isFolder }) {
-                        FinderPreview(item: chosen, pane: pane).frame(width: 300).id("preview")
+                    // (A source's files: its own preview beside the pane.)
+                    if pane.source == nil, let chosen = pane.shown.first(where: { pane.selection.contains($0.url) && !$0.isFolder }) {
+                        // As Finder: the file's preview in all the room the columns leave (at least a readable width).
+                        FinderPreview(item: chosen, pane: pane)
+                            .frame(width: max(440, geo.size.width - CGFloat(pane.trail.count) * 231 - 2), height: geo.size.height)
+                            .id("preview")
                     }
                     Color.clear.frame(width: 1).id("end")
                 }
+                .frame(minHeight: geo.size.height, alignment: .top)
             }
             .onChange(of: pane.url) { withAnimation { scroller.scrollTo("end") } }
             .onAppear { scroller.scrollTo("end") }
+        }
         }
     }
 }
@@ -810,6 +907,7 @@ private struct FinderColumn: View {
                         } else {
                             Text(item.name).lineLimit(1).truncationMode(.middle)
                         }
+                        FinderTagDots(tags: item.tags)
                         Spacer(minLength: 4)
                         if item.isFolder { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary) }
                     }
@@ -836,12 +934,10 @@ private struct FinderColumn: View {
         .task(id: "\(folder.path)|\(current)") {
             guard !current else { return }
             let url = folder
-            let read = await Task.detached(priority: .userInitiated) {
-                ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
-                    .map { ($0, FinderItem.read($0)) }
-            }.value
-            items = read.map { FinderItem(url: $0.0, isFolder: $0.1.isFolder, isClip: $0.1.isClip, size: $0.1.size, modified: $0.1.modified, kind: $0.1.kind) }
-                .sorted { a, b in a.isFolder != b.isFolder ? a.isFolder : a.name.localizedStandardCompare(b.name) == .orderedAscending }
+            let hidden = FinderPane.showsHidden
+            let read = if let source = pane.source { await source.list(url) }
+                else { await Task.detached(priority: .userInitiated) { FinderItem.list(url, hidden: hidden, sort: .name, ascending: true) }.value }
+            items = read.map { FinderItem(url: $0.0, info: $0.1) }
         }
     }
 }
@@ -853,6 +949,24 @@ private struct FinderPreview: View {
     @State private var thumbs = FinderThumbnails.shared
 
     var body: some View {
+        if !item.isClip, !item.isPhoto, FilePreview.showsContents(item.url) {
+            // A document, text, PDF…: what's in it, filling the column, its name and Open under it.
+            VStack(spacing: 8) {
+                FilePreview(url: item.url)
+                    .background(Design.Studio.raised)
+                    .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.name).font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
+                        Text([item.kind, item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }].compactMap { $0 }.joined(separator: " · "))
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                    Spacer(minLength: 0)
+                    Button("Open") { pane.open(item) }.buttonStyle(StudioFlatButtonStyle())
+                }
+            }
+            .padding(10)
+        } else {
         VStack(spacing: 10) {
             if item.isClip, let poster = thumbs.posters[item.url] {
                 Image(decorative: poster, scale: 1).resizable().aspectRatio(contentMode: .fit).clipShape(.rect(cornerRadius: 6))
@@ -868,11 +982,12 @@ private struct FinderPreview: View {
             Text([item.kind, item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary)
             Button(item.isClip ? "Play" : "Open") { pane.open(item) }
-                .buttonStyle(GlassCapsuleButtonStyle())
+                .buttonStyle(StudioFlatButtonStyle())
             Spacer()
         }
         .padding(14)
         .modifier(FinderWantsPicture(item: item))
+        }
     }
 }
 
@@ -883,7 +998,8 @@ struct FinderWantsPicture: ViewModifier {
     let item: FinderItem
 
     func body(content: Content) -> some View {
-        content.task(id: item.url) {
+        // (Changed on disk: asked for again.)
+        content.task(id: "\(item.url.path)|\(item.modified?.timeIntervalSince1970 ?? 0)|\(item.size ?? -1)") {
             let thumbs = FinderThumbnails.shared, url = item.url
             if item.isClip { thumbs.want(url) } else if item.isPhoto { thumbs.wantPicture(url) } else { return }
             // (Until cancelled: scrolled away, or another file shown here.)
@@ -926,7 +1042,8 @@ private struct FinderPathBar: View {
                         if index > 0 { Image(systemName: "chevron.compact.right").foregroundStyle(.tertiary) }
                         Button { pane.go(to: url) } label: {
                             HStack(spacing: 3) {
-                                Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 13, height: 13)
+                                Image(nsImage: pane.source == nil ? NSWorkspace.shared.icon(forFile: url.path) : NSWorkspace.shared.icon(for: .folder))
+                                    .resizable().frame(width: 13, height: 13)
                                 Text(FileManager.default.displayName(atPath: url.path)).lineLimit(1)
                             }
                         }
@@ -947,7 +1064,7 @@ private struct FinderPathBar: View {
     private var status: String {
         let count = String(AttributedString(localized: "^[\(pane.shown.count) item](inflect: true)").characters)
         let picked = pane.selection.count > 1 ? String(localized: "\(pane.selection.count) selected") + ", " : ""
-        guard pane.list == nil, let free = OffloadCenter.freeSpace(pane.url) else { return picked + count }
+        guard pane.list == nil, pane.source == nil, let free = OffloadCenter.freeSpace(pane.url) else { return picked + count }
         return picked + count + ", " + String(localized: "\(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) available")
     }
 }

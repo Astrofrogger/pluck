@@ -46,15 +46,23 @@ enum ProjectResolve {
             // Speed changes can't be set through Resolve's scripting: a sped-up clip goes in at
             // normal speed for the same length, so everything after it (and the subtitles) lines up.
             let frames = Int((clip.length * rate).rounded())
-            let sourceIn = Int((clip.start * clipRate).rounded())
+            // A held frame: its footage from that frame, set to 0% speed there (Resolve 21.2's SetSpeed);
+            // where Resolve can't, it stays running and a marker says to freeze it. No sound of its own.
+            let sourceIn = Int(((clip.freeze ?? clip.start) * clipRate).rounded())
             let sourceOut = sourceIn + Int((Double(frames) * clipRate / rate).rounded())
             guard frames > 0, sourceOut > sourceIn else { continue }
             if let link = clip.link { linkedAt[link] = record }
+            if clip.freeze != nil {
+                ownMarkers.append(["frame": record, "color": "Cream", "name": String(localized: "Freeze Frame"),
+                                   "note": String(localized: "Held in Pluck: set a freeze frame here (Retime Controls)."),
+                                   "duration": frames, "customData": ProjectResolveRead.ownMarker, "freezeOf": clip.id.uuidString])
+            }
             let properties = self.properties(clip.look, size: size)
-            for mediaType in [1, 2] {
+            for mediaType in clip.freeze == nil ? [1, 2] : [1] {
                 var item: [String: Any] = ["path": clip.path, "track": 1, "recordIn": record, "sourceIn": sourceIn,
                                            "sourceOut": sourceOut, "mediaType": mediaType]
                 if mediaType == 1 { item["key"] = clip.id.uuidString }
+                if mediaType == 1, clip.freeze != nil { item["freeze"] = true }
                 if mediaType == 1, !properties.isEmpty { item["properties"] = properties }
                 if mediaType == 1, clip.look?.hasDynamicZoom == true { item["zoom"] = "inOut" }
                 if let role = clip.role { item["clipColor"] = colour(role) }
@@ -112,7 +120,7 @@ enum ProjectResolve {
             let folder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
                 .appendingPathComponent("Pluck/Resolve Subtitles", isDirectory: true)
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            let file = folder.appendingPathComponent("\(name).srt")
+            let file = folder.appendingPathComponent("\(Folders.sanitize(name, fallback: String(localized: "Project"))).srt")
             if (try? EditorSubtitleFiles.srt(cues).write(to: file, atomically: true, encoding: .utf8)) != nil { instruction["subtitles"] = file.path }
         }
         let answer = try await ResolveBridge.run(instruction)

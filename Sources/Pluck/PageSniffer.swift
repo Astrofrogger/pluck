@@ -49,7 +49,8 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         });
         performance.getEntriesByType('resource').forEach(e => post(e.name));
       };
-      const play = () => document.querySelectorAll('video').forEach(v => {
+      // Every player muted, sound-only ones too: the page plays out of sight.
+      const play = () => document.querySelectorAll('video, audio').forEach(v => {
         v.muted = true;
         // Lazy players often keep the real source in a data attribute until scrolled into view.
         for (const k of ['src', 'videoSrc', 'video', 'mp4']) { if (v.dataset && v.dataset[k]) post(v.dataset[k]); }
@@ -77,7 +78,8 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     /// Looks for a playable stream on `url` for up to `timeout` seconds.
     func sniff(_ url: URL, timeout: TimeInterval = 20) async -> Result? {
         let config = WKWebViewConfiguration()
-        config.mediaTypesRequiringUserActionForPlayback = []
+        // Muted playback starts by itself; sound (e.g. a script's own Audio()) never plays unasked.
+        config.mediaTypesRequiringUserActionForPlayback = .audio
         config.websiteDataStore = .nonPersistent()
         config.userContentController.addUserScript(
             WKUserScript(source: Self.hookScript, injectionTime: .atDocumentStart, forMainFrameOnly: false))
@@ -115,9 +117,9 @@ final class PageSniffer: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
 
     /// Any script on the page (or in its iframes) can post to our handler, so what arrives is
     /// untrusted: only plain web links are accepted, and embeds only from known video players.
+    /// Public web hosts only: a page can't point yt-dlp at this Mac or the local network.
     private static func isWebLink(_ url: URL) -> Bool {
-        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return false }
-        return url.host?.isEmpty == false
+        LibraryServer.isPublicWeb(url)
     }
 
     private static let embedHosts: Set<String> = [

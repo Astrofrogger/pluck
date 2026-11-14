@@ -41,7 +41,8 @@ final class DerushSession {
 
     /// Adds clips (folders are searched); clips derushed before come back with their results.
     func add(_ urls: [URL], kind: ShootPlan.Kind = .corporate) {
-        var found: [URL] = []
+        // (Sets: a card of thousands of clips isn't compared one by one with every other.)
+        var found: [URL] = [], seen = Set<URL>()
         for url in urls {
             var isFolder: ObjCBool = false
             FileManager.default.fileExists(atPath: url.path, isDirectory: &isFolder)
@@ -49,16 +50,15 @@ final class DerushSession {
                 let all = FileManager.default.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
                 while var file = all?.nextObject() as? URL {
                     file = file.resolvingSymlinksInPath()
-                    if Self.extensions.contains(file.pathExtension.lowercased()), !found.contains(file) { found.append(file) }
+                    if Self.extensions.contains(file.pathExtension.lowercased()), seen.insert(file).inserted { found.append(file) }
                 }
             } else if Self.extensions.contains(url.pathExtension.lowercased()) {
                 found.append(url)
             }
         }
-        for file in found.sorted(by: { $0.path.localizedStandardCompare($1.path) == .orderedAscending })
-        where !clips.contains(where: { $0.file == file }) {
-            clips.append(Clip(file: file))
-        }
+        var have = Set(clips.map(\.file))
+        let new = found.sorted(by: { $0.path.localizedStandardCompare($1.path) == .orderedAscending }).filter { have.insert($0).inserted }
+        clips += new.map { Clip(file: $0) }
         restoreSaved(kind: kind)
     }
 

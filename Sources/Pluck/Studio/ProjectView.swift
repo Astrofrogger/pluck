@@ -140,14 +140,15 @@ struct ProjectView: View {
                 .keyboardShortcut("e", modifiers: .command)
                 .help("Export (⌘E)")
             }.studioFlat()
-            // ⌥⌘S still shows or hides the inspector (no button: the reference's title bar has none).
-            ToolbarItem {
-                Button("") { withAnimation(.snappy) { sidebarShown.toggle(); keepInspector = sidebarShown } }
-                    .keyboardShortcut("s", modifiers: [.command, .option])
-                    .opacity(0)
-                    .frame(width: 0)
-                    .accessibilityHidden(true)
-            }.studioFlat()
+        }
+        // ⌥⌘S still shows or hides the inspector (no button: the reference's title bar has none). In the page,
+        // not a toolbar item: hidden buttons there don't get their keys.
+        .background {
+            Button("") { withAnimation(.snappy) { sidebarShown.toggle(); keepInspector = sidebarShown } }
+                .keyboardShortcut("s", modifiers: [.command, .option])
+                .opacity(0)
+                .frame(width: 0, height: 0)
+                .accessibilityHidden(true)
         }
         .navigationTitle("")
         .focusable()

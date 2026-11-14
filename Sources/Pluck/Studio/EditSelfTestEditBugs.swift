@@ -10,6 +10,91 @@ extension EditSelfTest {
         inspectorFollows()
         canonLog2()
         await transitions(manager)
+        await linkFixes()
+    }
+
+    // MARK: - Links on held frames and cut-outs (bug pass)
+
+    private static func linkFixes() async {
+        func pair() async -> ProjectModel {
+            let model = await project(["a.mp4", "a.mp4"])
+            let ids = model.project.clips.map(\.id)
+            if ids.count == 2 {
+                model.trim(ids[0], start: 0, end: 10, record: true)
+                model.trim(ids[1], start: 5, end: 15, record: true)
+            }
+            return model
+        }
+        func sounds(_ model: ProjectModel) -> [ProjectClip] {
+            (model.project.tracks?.first { $0.kind == .audio }?.items ?? []).sorted { ($0.at ?? 0) < ($1.at ?? 0) }
+        }
+
+        // A held frame in a clip whose sound is taken off: each half its own link, the sound cut and in sync.
+        var model = await pair()
+        model.detachAudio([model.project.clips[1].id])
+        model.freezeFrame(at: 15, length: 2)
+        var c = model.project.clips
+        var s = sounds(model)
+        check("freeze frame gives each half its own link", c.count == 4 && c[2].freeze != nil && c[1].link != nil && c[3].link != nil && c[1].link != c[3].link,
+              "4 clips, two links; got \(c.map { $0.link?.uuidString.prefix(4) ?? "-" })")
+        check("freeze frame keeps the second half's sound in sync", s.count == 2 && near(s[1].at ?? -1, model.offsets[3]) && near(s[1].start, c[3].start)
+              && s[1].link == c[3].link, "the second sound at \(model.offsets[3]) from \(c.count == 4 ? c[3].start : -1); got \(s.map { ($0.at ?? -1, $0.start) })")
+
+        // ⇧F at the very end holds the last frame, not the end of the file.
+        model = await pair()
+        let end = model.project.clips[1].end
+        model.freezeFrame(at: model.duration, length: 1)
+        let held = model.project.clips.last?.freeze ?? -1
+        check("freeze at the end holds the last frame", held < end - 0.001 && held >= end - 0.1, "before \(end); got \(held)")
+
+        // Filler cut out of a clip with a dissolve in and its sound off: pieces with their own links, one dissolve.
+        model = await pair()
+        model.setTransition(into: 1, ProjectTransition(kind: .dissolve, length: 1))
+        model.detachAudio([model.project.clips[1].id])
+        model.cutOut(model.project.clips[1].path, [12...13])
+        c = model.project.clips
+        s = sounds(model)
+        check("cut out splits like the blade", c.count == 3 && near(c[1].end, 12) && near(c[2].start, 13) && c[1].link != c[2].link,
+              "5–12 and 13–15, two links; got \(c.map { ($0.start, $0.end) })")
+        check("cut out keeps one dissolve", c.count == 3 && c[1].transitionIn != nil && c[2].transitionIn == nil)
+        check("cut out takes the sound out with it", s.count == 2 && near(s[1].start, 13) && near(s[1].at ?? -1, model.offsets[2]) && near(s[0].end, 12),
+              "sounds 5–12 and from 13 at \(model.offsets[2]); got \(s.map { ($0.start, $0.end, $0.at ?? -1) })")
+
+        // Keep Only: what's laid over the file's clips stays.
+        model = await pair()
+        model.seek(to: 13)
+        await model.placeOnTop(MediaSource(path: URL(fileURLWithPath: media).appendingPathComponent("b.mp4").path, span: 2...5))
+        model.keepOnly(model.project.clips[0].path, [0...4])
+        let over = model.project.tracks?.first { $0.kind == .video }?.items ?? []
+        check("keep only keeps pictures on top", over.count == 1 && near(over.first?.at ?? -1, 13), "one at 13; got \(over.map { $0.at ?? -1 })")
+
+        // A speed change reaches the clip's sound taken off.
+        model = await pair()
+        model.detachAudio([model.project.clips[1].id])
+        model.set(model.project.clips[1].id) { clip in
+            var look = clip.look ?? ClipLook()
+            look.speed = 2
+            clip.look = look
+        }
+        s = sounds(model)
+        check("speed change reaches its detached sound", s.count == 1 && s[0].speed == 2 && near(s[0].length, model.project.clips[1].length),
+              "speed 2, \(model.project.clips[1].length) s; got \(s.map { ($0.speed, $0.length) })")
+
+        // A plain title's typing: one undo step once it pauses.
+        model = await pair()
+        let title = model.addTitle(at: 1)
+        model.setTitle(title, record: false) { $0.text = "N" }
+        model.setTitle(title, record: false) { $0.text = "New words" }
+        try? await Task.sleep(for: .seconds(1.2))
+        model.undo()
+        check("typing a title is its own undo step", model.project.titles.first?.text == String(localized: "Title"),
+              "back to Title; got \(String(describing: model.project.titles.first?.text))")
+
+        // Closed: a late edit doesn't land.
+        model = await pair()
+        model.close()
+        model.split(at: 3)
+        check("an edit after closing does nothing", model.project.clips.count == 2, "2 clips; got \(model.project.clips.count)")
     }
 
     // MARK: - Titles

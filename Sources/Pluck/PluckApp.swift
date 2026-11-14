@@ -64,6 +64,13 @@ struct PluckApp: App {
                 #endif
             }
             #if STUDIO
+            // Before the text Find, so ⌘F is always the page's search.
+            CommandGroup(before: .textEditing) {
+                SearchCommand()
+            }
+            CommandGroup(after: .undoRedo) {
+                LibraryUndoCommands()
+            }
             CommandMenu("Tools") {
                 ToolsMenuItems()
             }

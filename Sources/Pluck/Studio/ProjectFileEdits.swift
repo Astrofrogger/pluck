@@ -29,18 +29,15 @@ extension ProjectModel {
         let spans = spans.filter { $0.upperBound > $0.lowerBound }
         guard !spans.isEmpty else { return }
         change { project in
-            project.clips = project.clips.flatMap { clip -> [ProjectClip] in
-                guard clip.path == path, clip.freeze == nil else { return [clip] }
-                let pieces = Self.subtract(spans, from: clip.start...clip.end).filter { $0.upperBound - $0.lowerBound >= 1.0 / 60 }
-                return pieces.enumerated().map { index, piece in
-                    var part = clip
-                    if index > 0 { part.id = UUID() }
-                    part.start = piece.lowerBound
-                    part.end = piece.upperBound
-                    // The fades stay at the ends of what was the clip.
-                    if piece.lowerBound > clip.start { part.fadeIn = 0 }
-                    if piece.upperBound < clip.end { part.fadeOut = 0; part.dipOut = nil }
-                    return part
+            // Split as the blade does (each piece its own link, sound and dissolve), then the spans go.
+            for index in project.clips.indices.reversed() {
+                let clip = project.clips[index]
+                guard clip.path == path, clip.freeze == nil else { continue }
+                let edges = Set(spans.flatMap { [$0.lowerBound, $0.upperBound] }).filter { $0 > clip.start + 0.0005 && $0 < clip.end - 0.0005 }
+                for edge in edges.sorted(by: >) { project.splitClip(index, into: (edge - clip.start) / clip.speed) }
+                for piece in (index...index + edges.count).reversed() {
+                    let part = project.clips[piece], middle = (part.start + part.end) / 2
+                    if part.end - part.start < 1.0 / 60 || spans.contains(where: { $0.contains(middle) }) { project.clips.remove(at: piece) }
                 }
             }
         }
@@ -102,6 +99,14 @@ extension ProjectModel {
                 clip.look = template?.look
                 clip.volume = template?.volume ?? 1
                 return clip
+            }
+            // Pictures laid over the file's clips stay where they are (the new clips aren't linked to them).
+            let gone = Set(project.clips.filter { $0.path == path }.compactMap(\.link))
+            for t in (project.tracks ?? []).indices where project.tracks![t].kind == .video {
+                for i in project.tracks![t].items.indices where project.tracks![t].items[i].link.map(gone.contains) == true {
+                    project.tracks![t].items[i].link = nil
+                    project.tracks![t].items[i].linkOffset = nil
+                }
             }
             project.clips = before + kept + after
         }

@@ -108,6 +108,16 @@ sync, sys, term, text, time}, golang.zx2c4.com/wintun, golang.zx2c4.com/wireguar
 (BSD 3-Clause). Every licence text, with Tailscale's patent grant, is in
 [ThirdPartyLicenses/Tailscale](ThirdPartyLicenses/Tailscale/LICENSE).
 
+## iroh and Rust crates (Edit Anywhere, Pluck Studio)
+Edit Anywhere's default link, `pluck-iroh`, is built in Rust from [iroh](https://github.com/n0-computer/iroh)
+(1.4.1, © n0, MIT OR Apache 2.0) and 260 crates linked into the program (Helpers/PluckIroh/Cargo.lock), mostly
+under MIT and/or Apache 2.0, some under BSD, ISC, Zlib, Unicode-3.0, CC0 or BSL-1.0, and these three:
+[ring](https://github.com/briansmith/ring) (Apache 2.0 AND ISC, including code from BoringSSL and OpenSSL),
+[webpki-roots](https://github.com/rustls/webpki-roots) (CDLA-Permissive-2.0: Mozilla's list of root certificates),
+and [attohttpc](https://github.com/sbstp/attohttpc) (MPL 2.0, used unmodified; its source is at that address).
+Every crate's licence text is in [ThirdPartyLicenses/iroh](ThirdPartyLicenses/iroh/LICENSE). The relays it uses by
+default are iroh's free public ones, run by n0.
+
 ## MLX, mlx-swift-lm and Hugging Face Swift packages (shot descriptions, Pluck Studio)
 The vision helper, `pluck-vision`, runs a vision-language model on the GPU with
 [MLX](https://github.com/ml-explore/mlx-swift) (mlx-swift 0.32.3, © Apple Inc., MIT, including the Metal

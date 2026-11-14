@@ -90,7 +90,7 @@ final class ProjectExports {
 
     func run(_ project: Project, settings: EditorRenderSettings, audioOnly: Bool, size: CGSize, fps: Double, lengths: [String: Double] = [:],
              manager: DownloadManager) {
-        runAll([(project, project.name)], settings: settings, audioOnly: audioOnly, size: size, fps: fps, lengths: lengths, manager: manager)
+        runAll([(project, Folders.sanitize(project.name, fallback: String(localized: "Project")))], settings: settings, audioOnly: audioOnly, size: size, fps: fps, lengths: lengths, manager: manager)
     }
 
     /// Each clip of the main line as a file of its own (the music and titles under it come
@@ -109,7 +109,7 @@ final class ProjectExports {
             var part = project.cut(to: span)
             // On its own: no dissolve into the clip before or after.
             for index in part.clips.indices { part.clips[index].transitionIn = nil }
-            parts.append((part, String(format: "%@ %02d", project.name, parts.count + 1)))
+            parts.append((part, String(format: "%@ %02d", Folders.sanitize(project.name, fallback: String(localized: "Project")), parts.count + 1)))
         }
         runAll(parts, settings: settings, audioOnly: audioOnly, size: size, fps: fps, lengths: lengths, manager: manager)
     }
@@ -143,7 +143,8 @@ final class ProjectExports {
                                         lengths: lengths, ffmpeg: ffmpeg, ffprobe: ffprobe) { value in
                     self.progress = (Double(number) + value) / Double(jobs.count)
                 }
-                guard done else { break }
+                // Stopped before ffmpeg ran (a title render failed, cancelled): its reserved part file goes too.
+                guard done else { try? FileManager.default.removeItem(at: EditorExport.partial(output)); break }
                 self.output = output
                 finished.insert(output, at: 0)
                 made.append(output)

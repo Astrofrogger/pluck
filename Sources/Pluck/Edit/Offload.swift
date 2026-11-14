@@ -790,12 +790,14 @@ final class OffloadCenter {
     /// carrying on if a drive comes and goes. Something already there isn't copied over (the rest
     /// is); nil when everything started, else what wasn't copied and why. `move`: on the same
     /// drive, moved at once; to another, copied and checked, then the originals to the Trash.
-    func copy(_ items: [URL], into folder: URL, move: Bool = false) async -> String? {
+    /// `names`: another name in the folder for some (kept beside one already there).
+    func copy(_ items: [URL], into folder: URL, move: Bool = false, names: [URL: String] = [:]) async -> String? {
         let folder = folder.standardizedFileURL
+        let names = Dictionary(names.map { ($0.key.standardizedFileURL, $0.value) }, uniquingKeysWith: { a, _ in a })
         var there: [String] = []
         let wanted = items.map(\.standardizedFileURL).filter { item in
-            let target = folder.appendingPathComponent(item.lastPathComponent)
-            if item.deletingLastPathComponent().path == folder.path || FileManager.default.fileExists(atPath: target.path) {
+            let target = folder.appendingPathComponent(names[item] ?? item.lastPathComponent)
+            if (item.deletingLastPathComponent().path == folder.path && names[item] == nil) || FileManager.default.fileExists(atPath: target.path) {
                 there.append(item.lastPathComponent)
                 return false
             }
@@ -821,7 +823,7 @@ final class OffloadCenter {
             let failed = await Task.detached(priority: .userInitiated) { () -> [String] in
                 moves.compactMap { item in
                     do {
-                        try FileManager.default.moveItem(at: item, to: folder.appendingPathComponent(item.lastPathComponent))
+                        try FileManager.default.moveItem(at: item, to: folder.appendingPathComponent(names[item] ?? item.lastPathComponent))
                         return nil
                     } catch { return item.lastPathComponent }
                 }
@@ -837,7 +839,7 @@ final class OffloadCenter {
             let whole = values?.isVolume == true
             if move, whole { notes.append(String(localized: "\(Self.volumeName(item)) is a whole drive: it was copied, not moved.")) }
             if values?.isDirectory == true {
-                if let problem = await add(source: item, roots: [folder], name: item.lastPathComponent, quick: true, moving: move && !whole) {
+                if let problem = await add(source: item, roots: [folder], name: names[item] ?? item.lastPathComponent, quick: true, moving: move && !whole) {
                     return (notes + [problem]).joined(separator: " ")
                 }
             } else {
@@ -867,6 +869,8 @@ final class OffloadCenter {
                                  rootVolumes: [Self.volumeName(folder)],
                                  files: list.map { OffloadFile(path: $0.path, size: $0.size, modified: $0.modified, done: [false]) })
             job.quick = true
+            let renamed = files.compactMap { file in names[file].map { (file.lastPathComponent, $0) } }
+            if !renamed.isEmpty { job.renames = Dictionary(renamed, uniquingKeysWith: { a, _ in a }) }
             // (Only what's in the job: a file that couldn't be read isn't copied, so never trashed.)
             if move { job.moving = list.map { parent.appendingPathComponent($0.path).path }; job.movingVolume = Self.volumeUUID(parent) }
             job.title = list.count == 1 ? list[0].path : String(localized: "\(list.count) files")
@@ -1181,6 +1185,28 @@ final class OffloadCenter {
         for job in jobs.reversed() where job.running == true && job.finished == nil { resume(job.id) }
     }
 
+    /// Library copies to drop once their runner has stopped.
+    @ObservationIgnored private var cancelling: Set<UUID> = []
+
+    /// A Library copy stopped for good: its half-written files go, then the job (files copied
+    /// whole stay; a move's originals stay where they are).
+    func cancel(_ id: UUID) {
+        if runners[id] != nil { cancelling.insert(id); runners[id]?.stop() } else { discard(id) }
+    }
+
+    private func discard(_ id: UUID) {
+        guard let job = jobs.first(where: { $0.id == id }) else { return }
+        for file in job.files {
+            for (slot, done) in file.done.enumerated() where !done && job.targets.indices.contains(slot) {
+                let target = (job.targets[slot] as NSString).appendingPathComponent(job.destination(of: file.path)) as NSString
+                // (Pluck's own part file, never the user's.)
+                try? FileManager.default.removeItem(atPath: (target.deletingLastPathComponent as NSString).appendingPathComponent("." + target.lastPathComponent + ".pluckpart"))
+            }
+        }
+        FileUndo.shared.copyCancelled(job)
+        remove(id)
+    }
+
     func remove(_ id: UUID) {
         runners[id]?.stop()
         jobs.removeAll { $0.id == id }
@@ -1264,25 +1290,29 @@ final class OffloadCenter {
                     // they're known to be just what was checked.
                     let id = job.id, targets = job.targets.map { URL(fileURLWithPath: $0) }
                     Task.detached(priority: .userInitiated) {
-                        func done(_ trashed: Bool, _ body: String) {
+                        func done(_ trashed: Bool, _ body: String, places: [String: URL] = [:]) {
                             DispatchQueue.main.async {
                                 MainActor.assumeIsolated {
                                     OffloadCenter.shared.trashed[id] = trashed
+                                    FileUndo.shared.copyFinished(job, trashed: places)
                                     AppDelegate.shared?.manager.notify(title: trashed ? String(localized: "Moved and checked") : String(localized: "Copied and checked"),
                                                                        body: body, files: targets)
                                 }
                             }
                         }
                         if let kept = Self.keepOriginals(job) { return done(false, kept) }
-                        NSWorkspace.shared.recycle(moving.map { URL(fileURLWithPath: $0) }) { _, error in
+                        NSWorkspace.shared.recycle(moving.map { URL(fileURLWithPath: $0) }) { moved, error in
                             done(error == nil, error == nil ? "\(job.displayName) → \(into.lastPathComponent)"
-                                                            : String(localized: "The originals couldn’t go to the Trash."))
+                                                            : String(localized: "The originals couldn’t go to the Trash."),
+                                 places: Dictionary(moved.map { ($0.key.standardizedFileURL.path, $0.value) }, uniquingKeysWith: { a, _ in a }))
                         }
                     }
                 } else if job.problems.isEmpty {
+                    FileUndo.shared.copyFinished(job, trashed: [:])
                     AppDelegate.shared?.manager.notify(title: String(localized: "Copied and checked"),
                                                        body: "\(job.displayName) → \(into.lastPathComponent)", files: job.targets.map { URL(fileURLWithPath: $0) })
                 } else {
+                    FileUndo.shared.copyFinished(job, trashed: [:])
                     if job.moving != nil { trashed[job.id] = false }
                     AppDelegate.shared?.manager.notify(title: String(localized: "Copy done, with problems"),
                                                        body: job.moving == nil ? String(localized: "\(job.displayName): \(job.problems.count) files couldn’t be copied.")
@@ -1325,6 +1355,7 @@ final class OffloadCenter {
             if case .waiting = state { jobs[index].running = true } else { jobs[index].running = yielded }
             save(jobs[index])
         }
+        if cancelling.remove(id) != nil { discard(id) }
         next()
     }
 
@@ -1426,8 +1457,7 @@ final class OffloadCenter {
 
     // MARK: Files and drives
 
-    /// What macOS itself leaves on a drive (indexes, the bin, Finder's notes, resource-fork
-    /// copies), never part of what was shot.
+    /// What macOS itself leaves on a drive (indexes, the bin, Finder's notes), never part of what was shot.
     nonisolated static let systemFiles: Set<String> = [
         ".DS_Store", ".Spotlight-V100", ".Trashes", ".fseventsd", ".TemporaryItems", ".DocumentRevisions-V100",
         ".metadata_never_index", ".metadata_never_index_unless_rootfs", ".apdisk", ".VolumeIcon.icns", "Icon\r",
@@ -1435,7 +1465,7 @@ final class OffloadCenter {
     ]
 
     nonisolated static func isSystemFile(_ name: String) -> Bool {
-        systemFiles.contains(name) || name.hasPrefix("._") || name.hasSuffix(".pluckpart")
+        systemFiles.contains(name) || name.hasSuffix(".pluckpart")
     }
 
     /// Every file in a folder, in order: hidden ones too (some cameras hide files a card needs),

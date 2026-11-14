@@ -58,7 +58,8 @@ final class OfficeArchive {
         guard task == nil, !folders.isEmpty else { return }
         lastScan = .now
         task = Task {
-            let files = await Task.detached { [folders] in Self.videoFiles(in: folders) }.value
+            let inbox = OfficeInbox.shared.folder
+            let files = await Task.detached { [folders = searchFolders] in Self.videoFiles(in: folders, skipping: inbox) }.value
             fileCount = files.count
             reload(files: files)
             let missing = files.filter { !VisualIndex.isIndexed($0) }
@@ -95,14 +96,29 @@ final class OfficeArchive {
         indexes = files.compactMap { VisualIndex.load($0.path) }
     }
 
-    private func videoFiles() -> [URL] { Self.videoFiles(in: folders) }
+    private func videoFiles() -> [URL] { Self.videoFiles(in: searchFolders, skipping: OfficeInbox.shared.folder) }
 
-    nonisolated static func videoFiles(in folders: [URL]) -> [URL] {
+    /// The folders with search on (RemoteShares).
+    private var searchFolders: [URL] { folders.filter { RemoteShares.shared.searchable($0) } }
+
+    /// The videos in the folders, leaving out the inbox: what paired Macs send never becomes footage.
+    nonisolated static func videoFiles(in folders: [URL], skipping inbox: URL) -> [URL] {
+        // (realpath, not resolvingSymlinksInPath: that drops /private, the enumerator keeps it.)
+        func real(_ url: URL) -> String {
+            guard let path = realpath(url.path, nil) else { return url.standardizedFileURL.path }
+            defer { free(path) }
+            return String(cString: path)
+        }
+        let inboxPath = real(inbox)
         var found: [URL] = []
-        for folder in folders {
-            let items = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey],
+        for folder in folders where !(real(folder) + "/").hasPrefix(inboxPath + "/") {
+            let items = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey],
                                                        options: [.skipsHiddenFiles, .skipsPackageDescendants])
             while let url = items?.nextObject() as? URL {
+                if (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true, real(url) == inboxPath {
+                    items?.skipDescendants()
+                    continue
+                }
                 if Converting.isVideo(url) { found.append(url) }
             }
         }
@@ -164,14 +180,17 @@ final class OfficeArchive {
             throw OfficeLink.Failure.office(String(localized: "That shot isn’t in the host Mac’s footage any more."))
         }
         guard let ffmpeg = manager?.tool("ffmpeg") else { throw Converting.Failure.noFFmpeg }
+        let ffprobe = manager?.tool("ffprobe")
         try FileManager.default.createDirectory(at: Self.clipFolder, withIntermediateDirectories: true)
         let target = Self.clipFolder.appendingPathComponent(id + ".mp4")
         if !FileManager.default.fileExists(atPath: target.path) {
             let start = max(shot.start - 1, 0), length = shot.end - shot.start + 2
             let ok = await Task.detached { () -> Bool in
+                // (Only a plain container, pinned: see OfficeProxies.demuxer.)
+                guard let demuxer = OfficeProxies.demuxer(OfficeProxies.probe(URL(fileURLWithPath: path), ffprobe: ffprobe).2) else { return false }
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: ffmpeg)
-                process.arguments = ["-nostdin", "-y", "-loglevel", "error", "-ss", String(start), "-i", path, "-t", String(length),
+                process.arguments = ["-nostdin", "-y", "-loglevel", "error", "-ss", String(start), "-f", demuxer, "-i", path, "-t", String(length),
                                      "-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=-2:'min(1080,ih)'",
                                      "-c:v", "h264_videotoolbox", "-b:v", "12M", "-c:a", "aac", "-b:a", "192k",
                                      "-movflags", "+faststart", target.path]

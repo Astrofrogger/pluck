@@ -372,6 +372,18 @@ enum Converting {
         return url
     }
 
+    /// Like `outputURL`, but the name is taken at once (an empty file made there), so conversions
+    /// running side by side never pick the same one. For writers that overwrite, like ffmpeg -y.
+    static func reserveOutputURL(folder: String, name: String, fileExtension: String) -> URL {
+        while true {
+            let url = outputURL(folder: folder, name: name, fileExtension: fileExtension)
+            let fd = open(url.path, O_CREAT | O_EXCL | O_WRONLY, 0o644)
+            if fd >= 0 { close(fd); return url }
+            // Taken meanwhile: try the next name; any other problem shows when it's written.
+            if errno != EEXIST { return url }
+        }
+    }
+
     /// A folder name next to nothing else: "Name", then "Name 2", and so on.
     static func outputFolder(in parent: URL, name: String) -> URL {
         var url = parent.appendingPathComponent(name, isDirectory: true)
@@ -383,6 +395,11 @@ enum Converting {
         return url
     }
 
+    static var thumbnailFolder: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pluck/Thumbnails", isDirectory: true)
+    }
+
     /// A Quick Look thumbnail of the file, saved so the row can show it like a video's thumbnail.
     static func thumbnail(for file: URL) async -> URL? {
         let request = QLThumbnailGenerator.Request(fileAt: file, size: CGSize(width: 256, height: 144),
@@ -390,8 +407,7 @@ enum Converting {
         guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).nsImage,
               let tiff = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { return nil }
-        let folder = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Pluck/Thumbnails", isDirectory: true)
+        let folder = thumbnailFolder
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let url = folder.appendingPathComponent("\(UUID().uuidString).png")
         return (try? png.write(to: url)) != nil ? url : nil

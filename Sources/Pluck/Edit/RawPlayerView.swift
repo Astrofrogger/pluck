@@ -49,7 +49,9 @@ struct RawPlayerView: View {
     @AppStorage("browserEveryClip") private var everyClip = false
 
     private var keyed: some View {
-        Group {
+        // One view holds the keys (a Group would give each of its views its own focus: the one focused while the
+        // clip loads goes away when it's ready, and Space did nothing until Play was clicked).
+        ZStack {
             if player.info == nil, let folder {
                 browser(folder)
             } else if player.info == nil {

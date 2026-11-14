@@ -58,6 +58,8 @@ struct LibraryView: View {
     @State private var opens = 0
     @State private var tableOrder = [KeyPathComparator(\LibraryRow.added, order: .reverse)]
     @State private var viewport: CGFloat = 0
+    /// A Markdown file read large (Space), instead of Quick Look.
+    @State private var reading: URL?
     #endif
     /// The cards' smallest width: Studio's header has a slider for it.
     /// Studio keeps its own size (Basic Pluck's grid is bigger).
@@ -231,12 +233,9 @@ struct LibraryView: View {
             #if STUDIO
             // As in the reference: search in the middle; sidebar, details and settings on the right.
             ToolbarItem(placement: .principal) {
-                // The last searches offered while it's empty; Escape clears it; ⌘F types in it.
+                // The last searches offered while it's empty; Escape clears it; Edit ▸ Search (⌘F) types in it.
                 StudioSearchField(text: $search, prompt: searchPrompt, focused: $searchFocused, suggestions: VisualSearchView.recentSearches)
                     .onExitCommand { search = "" }
-                    .background {
-                        Button("") { searchFocused = true }.keyboardShortcut("f").opacity(0).accessibilityHidden(true)
-                    }
             }.studioFlat()
             ToolbarItem {
                 Button { sidebarShown.toggle() } label: { Label("Sidebar", systemImage: "sidebar.leading") }
@@ -318,6 +317,9 @@ struct LibraryView: View {
         #endif
         .onReceive(NotificationCenter.default.publisher(for: Self.focusNotification)) { _ in takeFocus() }
         .toolbar { toolbarItems }
+        #if STUDIO
+        .searchTarget(.library) { searchFocused = true; DispatchQueue.main.async { StudioNavigator.focusTitleBarSearch() } }
+        #endif
         // Studio: the name is in the grid's header, not the title bar.
         .navigationTitle(Edition.isStudio ? "" : windowTitle)
         .navigationSubtitle(Edition.isStudio || isFootage || contentScope != nil ? "" : summary)
@@ -357,6 +359,9 @@ struct LibraryView: View {
             // (A rubber band or the list changed it: the details follow.)
             if let selected, now.contains(selected) { return }
             selected = now.first
+        }
+        .sheet(isPresented: Binding(get: { reading != nil }, set: { if !$0 { reading = nil } })) {
+            if let reading { MarkdownReader(url: reading) { self.reading = nil } }
         }
         .alert("Can’t Do That", isPresented: Binding(get: { fileProblem != nil }, set: { if !$0 { fileProblem = nil } })) {
             Button("OK") { fileProblem = nil }
@@ -480,7 +485,8 @@ struct LibraryView: View {
 
     /// The search field narrows every pane's folder (and none outside the folders).
     private func filterPanes() {
-        for pane in FinderWorkspace.shared.panes { pane.filter = isFootage ? search : "" }
+        // (A Library folder searched by what's said and seen shows its own results instead.)
+        for pane in FinderWorkspace.shared.panes { pane.filter = isFootage && contentScope == nil ? search : "" }
     }
     #endif
 
@@ -514,7 +520,7 @@ struct LibraryView: View {
     private var searchPrompt: LocalizedStringKey {
         switch collection ?? .all {
         case .all, .clips, .footage: Edition.isStudio ? "Search names, what’s said and what’s seen" : "Search titles, channels and tags"
-        case .location, .opened: "Search clips"
+        case .location, .opened: "Search names and text in this folder"
         default: "Search titles, channels and tags"
         }
     }
@@ -522,7 +528,12 @@ struct LibraryView: View {
     private func takeFocus() {
         guard Self.focusSearch else { return }
         Self.focusSearch = false
-        DispatchQueue.main.async { searchFocused = true }
+        DispatchQueue.main.async {
+            searchFocused = true
+            #if STUDIO
+            StudioNavigator.focusTitleBarSearch()
+            #endif
+        }
     }
 
     /// A folder or clip on disk is shown (the Player), not Pluck's downloads.
@@ -903,6 +914,9 @@ struct LibraryView: View {
         } else if missing.contains(path) {
             NSSound.beep()
         } else {
+            #if STUDIO
+            if FilePreview.isMarkdown(URL(fileURLWithPath: path)) { reading = URL(fileURLWithPath: path); return .handled }
+            #endif
             preview = URL(fileURLWithPath: path)
         }
         return .handled
@@ -940,6 +954,18 @@ struct LibraryView: View {
         let entries = trashing
         guard !entries.isEmpty else { return }
         trashing = []
+        #if STUDIO
+        // (One undo; the Library's entries come back with the files.)
+        let failed = FinderFiles.trash(entries.map(\.file)) { moved in
+            let trashed = Set(moved.keys.map(\.standardizedFileURL.path))
+            removeFromLibrary(entries.filter { trashed.contains($0.file.standardizedFileURL.path) })
+        }
+        if let failed {
+            let alert = NSAlert()
+            alert.messageText = failed
+            alert.runModal()
+        }
+        #else
         NSWorkspace.shared.recycle(entries.map(\.file)) { moved, _ in
             Task { @MainActor in
                 // Only the ones that went to the Trash leave the Library.
@@ -947,14 +973,21 @@ struct LibraryView: View {
                 removeFromLibrary(entries.filter { trashed.contains($0.file.standardizedFileURL.path) })
             }
         }
+        #endif
     }
 
     private func checkFiles() {
+        #if STUDIO
+        // Files moved or renamed outside Pluck are followed first; what's left is missing.
+        let entries = library.entries
+        Task { missing = await LibraryIdentity.check(entries) }
+        #else
         let paths = library.entries.map(\.path)
         Task.detached {
             let gone = Set(paths.filter { !FileManager.default.fileExists(atPath: $0) })
             await MainActor.run { missing = gone }
         }
+        #endif
     }
 }
 
@@ -1246,6 +1279,9 @@ extension LibraryView {
             Button("Open") { openSelection() }.keyboardShortcut("o")
             Button("Duplicate") { duplicateSelection() }.keyboardShortcut("d")
             Button("Get Info") { detailsShown.toggle() }.keyboardShortcut("i")
+            // The Library's file actions (only while it's in front: the Photo page has its own ⌘Z).
+            Button("Undo") { fileProblem = FileUndo.key(redo: false) }.keyboardShortcut("z")
+            Button("Redo") { fileProblem = FileUndo.key(redo: true) }.keyboardShortcut("z", modifiers: [.command, .shift])
         }
         .opacity(0)
         .allowsHitTesting(false)
@@ -1282,13 +1318,15 @@ extension LibraryView {
 
     /// Copies beside them (in the Library too), the copies selected.
     func duplicate(_ entries: [LibraryStore.Entry]) {
-        var made: Set<String> = []
-        for entry in entries {
-            do { made.insert(try FinderFiles.duplicate(entry.file).path) } catch { fileProblem = error.localizedDescription }
+        Task {
+            var made: Set<String> = []
+            for entry in entries {
+                do { made.insert(try await FinderFiles.duplicate(entry.file).path) } catch { fileProblem = error.localizedDescription }
+            }
+            guard !made.isEmpty else { return }
+            selection = made
+            selected = made.first
         }
-        guard !made.isEmpty else { return }
-        selection = made
-        selected = made.first
     }
 
     /// The file renamed (its extension kept) and the item's title with it.
@@ -1374,9 +1412,15 @@ extension LibraryView {
     func libraryGallery(_ list: [LibraryStore.Entry]) -> some View {
         StudioGallery(items: list, current: selected, choose: { click($0, in: list) }, open: open) { entry in
             VStack(spacing: 10) {
-                AsyncImage(url: entry.thumbnail) { phase in
-                    if let image = phase.image { image.resizable().scaledToFit() } else {
-                        Image(systemName: LibraryRow.symbol(entry)).font(.system(size: 48)).foregroundStyle(Design.Studio.textQuiet)
+                Group {
+                    if FilePreview.showsContents(entry.file), !missing.contains(entry.path) {
+                        FilePreview(url: entry.file)
+                    } else {
+                        AsyncImage(url: entry.thumbnail) { phase in
+                            if let image = phase.image { image.resizable().scaledToFit() } else {
+                                Image(systemName: LibraryRow.symbol(entry)).font(.system(size: 48)).foregroundStyle(Design.Studio.textQuiet)
+                            }
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1473,6 +1517,14 @@ private struct LibraryDetails<More: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+            if FilePreview.showsContents(entry.file), FileManager.default.fileExists(atPath: entry.path) {
+                // A document, text, PDF…: what's in it, to look at before moving or opening it.
+                FilePreview(url: entry.file)
+                    .frame(minHeight: 300, maxHeight: .infinity)
+                    .layoutPriority(1)
+                    .background(Design.Studio.raised)
+                    .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            } else {
             Rectangle()
                 .fill(Design.Studio.raised)
                 .aspectRatio(16 / 9, contentMode: .fit)
@@ -1490,6 +1542,7 @@ private struct LibraryDetails<More: View>: View {
                     .help("Quick Look")
                 }
                 .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title).font(Design.Studio.sectionTitle).lineLimit(2)
                 Text(verbatim: [entry.uploader ?? entry.site, entry.added.formatted(date: .abbreviated, time: .omitted)]

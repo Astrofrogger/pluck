@@ -11,7 +11,9 @@ final class FinderDrag: NSObject, NSDraggingSource {
 
     /// What's dragged from this item: the selection when it's in it (as Finder), else only it.
     static func urls(_ url: URL, in pane: FinderPane, selected: Bool = true) -> [URL] {
-        selected && pane.selection.contains(url) ? pane.selection.sorted { $0.path < $1.path } : [url]
+        // (Another Mac's files aren't here to drag.)
+        guard pane.source == nil else { return [] }
+        return selected && pane.selection.contains(url) ? pane.selection.sorted { $0.path < $1.path } : [url]
     }
 
     /// One item per file (a folder, an RDC take: the folder itself), as a file URL.

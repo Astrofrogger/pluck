@@ -121,6 +121,8 @@ extension ProjectStore {
         // (Its folder and Trash belong to the Mac it came from.)
         project.folder = nil
         project.trashed = nil
+        // Its name ends up in file names (exports, subtitles): never a path.
+        project.name = Folders.sanitize(project.name, fallback: String(localized: "Project"))
         guard (try? write(project)) != nil else { return nil }
         return project
     }

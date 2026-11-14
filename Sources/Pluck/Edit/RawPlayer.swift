@@ -609,6 +609,8 @@ enum RawFormats {
 @MainActor
 @Observable
 final class RawPlayer {
+    /// The player that opened a clip last (for the self-tests).
+    @ObservationIgnored static weak var latest: RawPlayer?
     private(set) var url: URL?
     private(set) var info: RawClipInfo?
     /// The picture showing (handed straight to the view's layer, not observed: a playing clip
@@ -857,6 +859,7 @@ final class RawPlayer {
     var fps: Double { max(info?.fps ?? 24, 1) }
 
     func open(_ url: URL, at start: Int? = nil, settings startSettings: RawSettings? = nil, compareWith other: URL? = nil) {
+        Self.latest = self
         stop()
         leaveClip()
         source?.close()
@@ -1238,6 +1241,12 @@ final class RawPlayer {
     /// The whole clip as a movie, with the current settings.
     func export(to url: URL, codec: RawExport.Codec, scale: Int) {
         guard let path = self.url, exportProgress == nil else { return }
+        // (Writing over the clip being read would replace the original with the export.)
+        if url.resolvingSymlinksInPath().path.lowercased() == path.resolvingSymlinksInPath().path.lowercased() {
+            exported = nil
+            exportProblem = String(localized: "Choose another name: that’s the clip itself.")
+            return
+        }
         stop()
         exportProgress = 0
         exported = nil

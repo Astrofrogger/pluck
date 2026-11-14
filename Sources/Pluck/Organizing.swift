@@ -89,14 +89,14 @@ enum FileNaming: String, CaseIterable, Identifiable {
 
 enum Folders {
     /// A safe folder name: no separators or leading dots, not too long.
-    static func sanitize(_ name: String) -> String {
+    static func sanitize(_ name: String, fallback: String = String(localized: "Playlist")) -> String {
         var cleaned = name
             .replacingOccurrences(of: "/", with: "-")
             .replacingOccurrences(of: ":", with: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         while cleaned.hasPrefix(".") { cleaned.removeFirst() }
         if cleaned.count > 100 { cleaned = String(cleaned.prefix(100)).trimmingCharacters(in: .whitespaces) }
-        return cleaned.isEmpty ? String(localized: "Playlist") : cleaned
+        return cleaned.isEmpty ? fallback : cleaned
     }
 }
 

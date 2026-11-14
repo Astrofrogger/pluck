@@ -227,9 +227,17 @@ if action == "buildTimeline":
     zoomed = graded = grouped = 0
     # Where each picture really went (as Resolve counts), to read changes against later.
     sent = []
+    frozen = set()
     for timelineItem, item in zip(placed, wanted):
         if timelineItem is None:
             continue
+        # A held frame: 0% speed, its length kept (SetSpeed is new in Resolve 21.2; else the marker stays).
+        if item.get("freeze"):
+            try:
+                if timelineItem.SetSpeed({"Percentage": 0.0, "RippleTimeline": False}):
+                    frozen.add(item.get("key"))
+            except Exception:
+                pass
         if item.get("key"):
             sent.append({"key": item["key"], "track": item.get("track", 1), "start": timelineItem.GetStart() - start,
                          "end": timelineItem.GetEnd() - start, "sourceStart": timelineItem.GetSourceStartFrame(),
@@ -252,6 +260,8 @@ if action == "buildTimeline":
             timelineItem.SetProperty(key, value)
     missed = 0
     for marker in cmd.get("markers", []):
+        if marker.get("freezeOf") and marker["freezeOf"] in frozen:
+            continue
         if not timeline.AddMarker(marker["frame"], marker.get("color", "Blue"), marker["name"], marker.get("note", ""), marker.get("duration", 1),
                                   marker.get("customData", "")):
             missed += 1
@@ -268,7 +278,7 @@ if action == "buildTimeline":
                 subtitles = "added" if added else "imported"
         except Exception:
             pass
-    out({"timeline": timeline.GetName(), "project": project.GetName(), "sent": sent, "missedMarkers": missed, "placed": len(placed), "asked": len(infos), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
+    out({"timeline": timeline.GetName(), "project": project.GetName(), "sent": sent, "missedMarkers": missed, "placed": len(placed), "asked": len(infos), "frozen": len(frozen), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
 
 if action == "renderAnalysis":
     # Small H.264 copies with sound of clips Pluck can't read itself (RED, BRAW), rendered from a

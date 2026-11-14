@@ -110,6 +110,8 @@ enum AudioCleanup {
         guard let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096) else { throw Failure.noSound }
         var lastReport = 0.0
         while engine.manualRenderingSampleTime < total {
+            // Stopped from the row.
+            try Task.checkCancellation()
             let frames = AVAudioFrameCount(min(4096, total - engine.manualRenderingSampleTime))
             guard try engine.renderOffline(frames, to: buffer) == .success else { break }
             try writer.write(from: buffer)
@@ -175,11 +177,12 @@ extension AIStudio {
                 item.aiProgress = 0
                 let isolated = work.appendingPathComponent("voice.wav")
                 let mix = options.strength.mix
-                let delay = try await Task.detached {
+                let delay = try await Self.offMain {
                     try AudioCleanup.isolate(decoded, to: isolated, mix: mix) { progress in
                         Task { @MainActor in item.aiProgress = progress }
                     }
-                }.value
+                }
+                try Task.checkCancellation()
 
                 item.aiStatus = String(localized: "Levelling…")
                 item.aiProgress = nil

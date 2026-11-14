@@ -72,6 +72,10 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
     /// check) work without a trip to Settings: the default browser if Pluck can read its cookies,
     /// otherwise the first installed one it can. A choice made in Settings is never overwritten.
     static func chooseOnFirstLaunch() {
+        #if STUDIO
+        // Studio starts with none: a download that needs a login offers choosing one instead.
+        return
+        #else
         let defaults = UserDefaults.standard
         guard let domain = Bundle.main.bundleIdentifier,
               defaults.persistentDomain(forName: domain)?[Prefs.cookiesBrowser] == nil else { return }
@@ -79,6 +83,7 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
         let fallback: [CookieBrowser] = [.firefox, .zen, .firefoxNightly, .chrome, .chromeBeta, .brave, .edge, .vivaldi, .opera, .chromium, .safari]
         let pick = ([defaultBrowser].compactMap { $0 } + fallback).first { $0.isInstalled && $0.hasReadableCookies }
         defaults.set(pick?.rawValue ?? "none", forKey: Prefs.cookiesBrowser)
+        #endif
     }
 
     /// Once per browser: when the chosen browser's cookies have become unreadable because of
@@ -120,9 +125,23 @@ enum CookieBrowser: String, CaseIterable, Identifiable {
     /// Whether this browser has been used on this Mac and Pluck may read its cookies.
     var hasReadableCookies: Bool { access == .readable }
 
+    /// `checkAccess`, remembered for half a minute: every download start and every redraw of
+    /// Settings asks, and the answer only changes when access is granted or a browser is used.
+    var access: Access {
+        Self.accessLock.lock()
+        defer { Self.accessLock.unlock() }
+        if let known = Self.accessCache[self], known.at.timeIntervalSinceNow > -30 { return known.access }
+        let access = checkAccess
+        Self.accessCache[self] = (access, .now)
+        return access
+    }
+
+    private static let accessLock = NSLock()
+    nonisolated(unsafe) private static var accessCache: [CookieBrowser: (access: Access, at: Date)] = [:]
+
     /// Tries to read the cookies, the way yt-dlp will: a folder that merely exists isn't enough
     /// (macOS 27's protection lets apps see a protected folder but not open anything in it).
-    var access: Access {
+    private var checkAccess: Access {
         switch self {
         case .safari:
             let file = FileManager.default.homeDirectoryForCurrentUser

@@ -1,0 +1,18 @@
+[package]
+name = "pluck-iroh"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.104"
+iroh = "1.4.1"
+n0-future = "0.3.2"
+serde_json = "1.0.154"
+tokio = { version = "1.54.1", features = ["full"] }
+
+[profile.dist]
+inherits = "release"
+strip = true
+lto = "fat"
+codegen-units = 1
+panic = "abort"

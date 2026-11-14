@@ -99,6 +99,9 @@ struct ContentView: View {
         .navigationTitle(Edition.isStudio ? "" : "Pluck")
         .navigationSubtitle(Edition.isStudio ? "" : subtitle)
         .toolbar { toolbarContent }
+        #if STUDIO
+        .searchTarget(.home) { homeSearchFocused = true }
+        #endif
         .overlay { if isTargeted { dropHighlight } }
         .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
             Task { await handleDrop(providers) }
@@ -575,6 +578,19 @@ struct ContentView: View {
     }
 
     private func autofillFromClipboard() {
+        guard urlText.isEmpty else { return }
+        if #available(macOS 15.4, *) {
+            // Asks only whether a link was copied (no paste prompt, nothing read); read only then.
+            Task {
+                let found = try? await NSPasteboard.general.detectedPatterns(for: [\.probableWebURL, \.links])
+                if found?.isEmpty == false { fillFromClipboard() }
+            }
+        } else {
+            fillFromClipboard()
+        }
+    }
+
+    private func fillFromClipboard() {
         // Several copied links fill the field together, ready to download as a batch.
         let copied = Links.extract(from: NSPasteboard.general)
         if urlText.isEmpty, copied.count > 1 {
@@ -724,14 +740,11 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         #if STUDIO
         ToolbarItem(placement: .principal) {
-            StudioSearchField(text: $homeSearch, prompt: "Search everything", key: "⌘K", focused: $homeSearchFocused)
+            StudioSearchField(text: $homeSearch, prompt: "Search everything", focused: $homeSearchFocused)
                 .onSubmit {
                     LibraryView.startSearch = homeSearch
                     homeSearch = ""
                     StudioNavigator.shared.show(.library)
-                }
-                .background {
-                    Button("") { homeSearchFocused = true }.keyboardShortcut("k").opacity(0).accessibilityHidden(true)
                 }
         }.studioFlat()
         ToolbarItem {

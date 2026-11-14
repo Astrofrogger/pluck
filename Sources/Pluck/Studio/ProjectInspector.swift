@@ -283,6 +283,12 @@ private struct ProjectClipPanel: View {
                             Text(String(format: "%.1f s", transition.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                                 .frame(minWidth: 38, alignment: .trailing).fixedSize()
                         }
+                        // A dissolve needs footage past the cut on both sides; without it, it plays as a cut.
+                        if transition.kind.overlaps, ProjectModel.dissolveOverlaps(model.project.clips, lengths: model.knownLengths)[index + 1] == 0 {
+                            Text("No spare footage on both sides of this cut, so it plays as a cut. Trim the clips to make room.")
+                                .font(.caption).foregroundStyle(.secondary)
+                                .padding(.horizontal, 8)
+                        }
                     }
                 }
             }
@@ -972,7 +978,7 @@ private struct ProjectSubtitlesPanel: View {
         let playing = line.start <= model.time && model.time < line.end
         return HStack(alignment: .firstTextBaseline, spacing: 8) {
             Text(Format.duration(line.start)).font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 34, alignment: .leading).fixedSize()
-            if editing == line.key {
+            if editing == line.id {
                 TextField("Line", text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.callout)
@@ -982,11 +988,11 @@ private struct ProjectSubtitlesPanel: View {
                 Text(line.text).font(.callout).foregroundStyle(playing ? .primary : .secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .contentShape(.rect)
-                    .onTapGesture(count: 2) { draft = line.text; editing = line.key }
+                    .onTapGesture(count: 2) { draft = line.text; editing = line.id }
                     .onTapGesture { model.seek(to: line.start) }
             }
             Menu {
-                Button("Change…") { draft = line.text; editing = line.key }
+                Button("Change…") { draft = line.text; editing = line.id }
                 if line.edited { Button("As Transcribed") { model.editSubtitle(line.key, text: nil) } }
                 Button("Take Out", role: .destructive) { model.editSubtitle(line.key, text: "") }
             } label: {

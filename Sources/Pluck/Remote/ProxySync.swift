@@ -124,19 +124,20 @@ final class ProxySync {
             return (path, (item["size"] as? NSNumber)?.int64Value)
         }
         let destination = URL(fileURLWithPath: job.destination, isDirectory: true)
-        state.problem = nil
+        let clashing = OfficeProxies.clashing(files.map(\.path))
+        state.problem = answer["problem"] as? String
         state.total = files.count
         state.madeOnHost = files.filter { $0.size != nil }.count
         state.making = answer["working"] as? String
         state.here = files.filter { file in
             guard let size = file.size else { return false }
-            return Self.size(of: Self.local(file.path, in: destination, format: job.format)) == size
+            return Self.size(of: Self.local(file.path, in: destination, format: job.format, clashes: clashing.contains(file.path))) == size
         }.count
         progress[job.id] = state
 
         for file in files where !Task.isCancelled && jobs.contains(job) {
             guard let size = file.size else { continue }
-            let target = Self.local(file.path, in: destination, format: job.format)
+            let target = Self.local(file.path, in: destination, format: job.format, clashes: clashing.contains(file.path))
             guard Self.size(of: target) != size else { continue }
             do {
                 try await fetch(file.path, size: size, of: job, to: target)
@@ -161,6 +162,8 @@ final class ProxySync {
         defer { try? handle.close() }
         // Carries on from what an earlier try fetched.
         var offset = Int(try handle.seekToEnd())
+        // (A part bigger than the file is of another version: started again, never taken as whole.)
+        if offset > size { try handle.truncate(atOffset: 0); offset = 0 }
         progress[job.id]?.fetching = (path as NSString).lastPathComponent
         while offset < size, !Task.isCancelled {
             let answer = try await client.ask("proxyData", ["folder": job.folder, "format": job.format.rawValue, "path": path, "offset": offset], timeout: 120)
@@ -172,14 +175,15 @@ final class ProxySync {
         }
         guard offset >= size else { return }
         try handle.close()
-        try? FileManager.default.removeItem(at: target)
+        // (One already there goes to the Trash; on a drive without one the move fails and it stays.)
+        if FileManager.default.fileExists(atPath: target.path) { try? FileManager.default.trashItem(at: target, resultingItemURL: nil) }
         try FileManager.default.moveItem(at: partial, to: target)
     }
 
-    /// Where a proxy goes here: its path inside the folder, as a .mov (originals keep their own).
-    private static func local(_ path: String, in destination: URL, format: OfficeProxies.Format) -> URL {
+    /// Where a proxy goes here: its path inside the folder, named as the host names it (OfficeProxies.proxyName; originals keep their own).
+    private static func local(_ path: String, in destination: URL, format: OfficeProxies.Format, clashes: Bool) -> URL {
         format == .original ? destination.appendingPathComponent(path)
-            : destination.appendingPathComponent((path as NSString).deletingPathExtension + ".mov")
+            : destination.appendingPathComponent(OfficeProxies.proxyName(path, clashes: clashes))
     }
 
     /// A path inside the folder (the host's answer is trusted only this far).

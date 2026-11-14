@@ -346,6 +346,11 @@ enum ToolDownloads {
         }
 
         func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+            // An error page (404, 503…) is not the file.
+            if let status = (downloadTask.response as? HTTPURLResponse)?.statusCode, !(200..<300).contains(status) {
+                done(.failure(URLError(.badServerResponse)))
+                return
+            }
             // The file only lasts until this returns: moved somewhere that stays.
             let kept = FileManager.default.temporaryDirectory.appendingPathComponent("PluckDownload-\(UUID().uuidString)")
             do {

@@ -544,7 +544,7 @@ private struct OffloadRow: View {
     private var subtitle: String {
         "\(job.sourceVolume) → \(job.rootVolumes.joined(separator: ", "))"
             + ((job.skipped ?? 0) > 0 ? " · " + String(localized: "\(job.skipped ?? 0) already there") : "")
-            + ((job.alreadyThere ?? 0) > 0 ? " · " + String(localized: "\(job.files.count) new clips · \(job.alreadyThere ?? 0) already there") : "")
+            + ((job.alreadyThere ?? 0) > 0 ? " · " + String(localized: "\(job.files.filter { !($0.path as NSString).lastPathComponent.hasPrefix("._") }.count) new clips ·\(job.alreadyThere ?? 0) already there") : "")
     }
 
     @ViewBuilder private func status(_ state: OffloadCenter.State, live: OffloadCenter.Live?) -> some View {

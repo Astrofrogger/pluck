@@ -75,6 +75,8 @@ enum OffloadProjectPlanner {
             }
         }
         let hashes = KnownHashes()
+        // The other drives' own lists of checksums (read, never worked out: that would read every copy again).
+        let backups = drives.dropFirst().map { (root: ($0 as NSString).appendingPathComponent(FolderTemplate.safe(project.name)), known: KnownHashes()) }
         // Only "already there" when it's on every drive of the project, not on the main one alone
         // (a drive added later, or a copy that failed on one drive, would otherwise never get it).
         func onEveryDrive(_ path: String, _ size: Int64) -> Bool {
@@ -99,7 +101,10 @@ enum OffloadProjectPlanner {
             if let root, let candidates = index[key(name, file.size)]?.filter({ onEveryDrive($0, file.size) }), !candidates.isEmpty {
                 let source = card.appendingPathComponent(file.path).path
                 let ours = MHL.hash(source, kind: "xxhash64be", progress: { _ in }, stopped: { false })
-                if let ours, candidates.contains(where: { hashes.hash(of: $0, in: root) == ours }) {
+                if let ours, candidates.contains(where: { candidate in
+                    hashes.hash(of: candidate, in: root) == ours
+                        && backups.allSatisfy { backup in backup.known.hash(of: candidate, in: backup.root, compute: false).map { $0 == ours } ?? true }
+                }) {
                     already += 1
                     continue
                 }
@@ -132,7 +137,7 @@ enum OffloadProjectPlanner {
         private var read: [String: String?] = [:]
 
         /// `path`: relative to the project's folder.
-        func hash(of path: String, in root: String) -> String? {
+        func hash(of path: String, in root: String, compute: Bool = true) -> String? {
             if let known = read[path] { return known }
             let file = (root as NSString).appendingPathComponent(path)
             var folder = (file as NSString).deletingLastPathComponent
@@ -144,7 +149,7 @@ enum OffloadProjectPlanner {
                 if folder == root { break }
                 folder = (folder as NSString).deletingLastPathComponent
             }
-            let hash = found ?? MHL.hash(file, kind: "xxhash64be", progress: { _ in }, stopped: { false })
+            let hash = found ?? (compute ? MHL.hash(file, kind: "xxhash64be", progress: { _ in }, stopped: { false }) : nil)
             read[path] = hash
             return hash
         }

@@ -100,7 +100,8 @@ final class LibraryStore {
     /// Adds finished items from the download list (or updates them), called whenever the list is saved.
     func record(_ items: [DownloadItem]) {
         var changed = false
-        var index = Dictionary(uniqueKeysWithValues: entries.enumerated().map { ($1.path, $0) })
+        // (A file listed twice, from an older version, must not stop the Library.)
+        var index = Dictionary(entries.enumerated().map { ($1.path, $0) }, uniquingKeysWith: { first, _ in first })
         for item in items where item.state == .finished {
             guard let file = item.fileURL else { continue }
             let source = item.conversion == nil && !item.isLocalFile ? item.url : nil
@@ -145,14 +146,16 @@ final class LibraryStore {
     /// A file (or a folder) moved or renamed through Pluck: its entries follow it.
     func relocate(from old: String, to new: String) {
         guard old != new else { return }
-        var list = entries, moved = false
+        var list = entries, moved = Set<Int>()
         for index in list.indices {
             let path = list[index].path
-            if path == old { list[index].path = new; moved = true }
-            else if path.hasPrefix(old + "/") { list[index].path = new + path.dropFirst(old.count); moved = true }
+            if path == old { list[index].path = new; moved.insert(index) }
+            else if path.hasPrefix(old + "/") { list[index].path = new + path.dropFirst(old.count); moved.insert(index) }
         }
-        guard moved else { return }
-        entries = list
+        guard !moved.isEmpty else { return }
+        // (An entry already where they went gives way: never two for one file.)
+        let arrived = Set(moved.map { list[$0].path })
+        entries = list.enumerated().filter { moved.contains($0.offset) || !arrived.contains($0.element.path) }.map(\.element)
         scheduleSave()
     }
 

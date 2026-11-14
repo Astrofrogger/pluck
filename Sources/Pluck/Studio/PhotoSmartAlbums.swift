@@ -102,6 +102,32 @@ struct SmartRule: Codable, Identifiable, Hashable {
     }
 }
 
+extension SmartAlbum {
+    // A rule that can't be read (a kind from a newer Pluck) is left out, not the whole album.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        name = (try? c.decode(String.self, forKey: .name)) ?? ""
+        matchAll = (try? c.decode(Bool.self, forKey: .matchAll)) ?? true
+        rules = ((try? c.decode([Lossy<SmartRule>].self, forKey: .rules)) ?? []).compactMap(\.value)
+    }
+}
+
+extension SmartRule {
+    // Each value on its own (one that can't be read keeps its default); only the kind must be known.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        field = try c.decode(Field.self, forKey: .field)
+        id = (try? c.decode(UUID.self, forKey: .id)) ?? UUID()
+        number = (try? c.decode(Int.self, forKey: .number)) ?? 3
+        exact = try? c.decodeIfPresent(Bool.self, forKey: .exact)
+        text = (try? c.decode(String.self, forKey: .text)) ?? ""
+        from = try? c.decodeIfPresent(Date.self, forKey: .from)
+        to = try? c.decodeIfPresent(Date.self, forKey: .to)
+        yes = try? c.decodeIfPresent(Bool.self, forKey: .yes)
+    }
+}
+
 /// The smart albums' photos, worked out again only when something they look at has changed.
 @MainActor
 final class SmartAlbumCache {

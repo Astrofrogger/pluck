@@ -13,7 +13,8 @@ struct StudioWindow: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openPluckSettings) private var openSettings
     @State private var nav = StudioNavigator.shared
-    @State private var sideButtons: Any?
+    /// Once per launch: the window's view is made again when it's reopened, and nav is shared.
+    private static var sideButtons: Any?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -67,12 +68,16 @@ struct StudioWindow: View {
                let page = StudioNavigator.Page(rawValue: name) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { nav.show(page) }
             }
+            // Tests: -PluckScreenshotSearchTest <log> checks Edit ▸ Search on each page.
+            if ScreenshotMode.scene != nil, let log = UserDefaults.standard.string(forKey: "PluckScreenshotSearchTest") {
+                Task { try? await Task.sleep(for: .seconds(4)); await SearchSelfTest.run(log: log) }
+            }
             // The mouse's side buttons go back and forward, as in a browser.
-            if sideButtons == nil {
-                sideButtons = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
+            if Self.sideButtons == nil {
+                Self.sideButtons = NSEvent.addLocalMonitorForEvents(matching: .otherMouseDown) { event in
                     switch event.buttonNumber {
-                    case 3: nav.goBack(); return nil
-                    case 4: nav.goForward(); return nil
+                    case 3: StudioNavigator.shared.goBack(); return nil
+                    case 4: StudioNavigator.shared.goForward(); return nil
                     default: return event
                     }
                 }
@@ -263,12 +268,12 @@ private struct EditPage: View {
             ToolbarItem(placement: .navigation) {
                 TabStrip(nav: nav)
                     .frame(maxWidth: 720, alignment: .leading)
-                    .background {
-                        // ⌥⌘L still shows or hides the media.
-                        Button("") { withAnimation(.snappy) { mediaShown.toggle() } }
-                            .keyboardShortcut("l", modifiers: [.command, .option]).opacity(0).accessibilityHidden(true)
-                    }
             }.studioFlat()
+        }
+        // ⌥⌘L still shows or hides the media. In the page, not a toolbar item: hidden buttons there don't get their keys.
+        .background {
+            Button("") { withAnimation(.snappy) { mediaShown.toggle() } }
+                .keyboardShortcut("l", modifiers: [.command, .option]).opacity(0).frame(width: 0, height: 0).accessibilityHidden(true)
         }
         .navigationTitle("")
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted) { providers in

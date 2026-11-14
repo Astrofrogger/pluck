@@ -27,8 +27,8 @@ extension EditSelfTest {
               && !lockout.isLocked("a", now: now.addingTimeInterval(LibraryServer.Lockout.window + 1)))
         var spread = LibraryServer.Lockout()
         for n in 0..<30 { spread.fail("10.0.0.\(n)", now: now) }
-        check("network lockout everyone",
-              spread.isLocked("10.0.0.200", now: now) && !spread.isLocked("10.0.0.200", now: now.addingTimeInterval(LibraryServer.Lockout.window + 1)))
+        // Per address only: many addresses failing never lock out someone with the right code.
+        check("network lockout not global", !spread.isLocked("10.0.0.200", now: now) && !spread.isLocked("10.0.0.1", now: now))
 
         check("network code compare",
               LibraryServer.sameCode("012345", "012345") && !LibraryServer.sameCode("012346", "012345")
@@ -50,6 +50,20 @@ extension EditSelfTest {
               ProxySync.isSafe("Day 1/A001.mov") && !ProxySync.isSafe("..") && !ProxySync.isSafe("a/../b")
               && !ProxySync.isSafe("/etc/x") && !ProxySync.isSafe(""))
 
+        check("network peer files never open other files",
+              OfficeProxies.demuxer("mov,mp4,m4a,3gp,3g2,mj2") == "mov" && OfficeProxies.demuxer("matroska,webm") == "matroska"
+              && ["concat", "hls", "dash", "webm_dash_manifest", "imf", nil, ""].allSatisfy { OfficeProxies.demuxer($0) == nil })
+
+        let footage = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-footage-\(UUID().uuidString)", isDirectory: true)
+        let planted = footage.appendingPathComponent("Pluck Inbox/Mac/x.mov")
+        try? FileManager.default.createDirectory(at: planted.deletingLastPathComponent(), withIntermediateDirectories: true)
+        for file in [planted, footage.appendingPathComponent("A001.mov")] { FileManager.default.createFile(atPath: file.path, contents: Data()) }
+        let listed = OfficeArchive.videoFiles(in: [footage], skipping: footage.appendingPathComponent("Pluck Inbox"))
+        check("network inbox isn't footage", listed.map(\.lastPathComponent) == ["A001.mov"]
+              && OfficeArchive.videoFiles(in: [planted.deletingLastPathComponent()], skipping: footage.appendingPathComponent("Pluck Inbox")).isEmpty,
+              "\(listed.map(\.lastPathComponent))")
+        try? FileManager.default.removeItem(at: footage)
+
         check("network links",
               Links.validated("https://example.com/watch?v=1") != nil
               && ["javascript:alert(1)", "file:///etc/passwd", "http://", "ftp://example.com/x", "example"].allSatisfy { Links.validated($0) == nil })
@@ -59,6 +73,19 @@ extension EditSelfTest {
               && !["http://127.0.0.1/a", "http://2130706433/a", "http://0x7f.1/a", "http://[::1]/a", "http://192.168.0.1/a",
                    "http://169.254.169.254/latest", "http://nas.local/a", "http://localhost:8080/a", "http://0.0.0.0/a",
                    "file:///etc/passwd", "ftp://example.com/a"].contains { LibraryServer.isPublicWeb(URL(string: $0)!) })
+
+        let cache = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("PluckThumbs-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        let escape = cache.appendingPathComponent("link.png")
+        try? FileManager.default.createSymbolicLink(atPath: escape.path, withDestinationPath: "/etc/hosts")
+        check("network own thumbnails",
+              LibraryServer.isOwnThumbnail(cache.appendingPathComponent("a.png"), folder: cache)
+              && !LibraryServer.isOwnThumbnail(URL(fileURLWithPath: "/etc/hosts"), folder: cache)
+              && !LibraryServer.isOwnThumbnail(cache.appendingPathComponent("../x.png"), folder: cache)
+              && !LibraryServer.isOwnThumbnail(escape, folder: cache)
+              && !LibraryServer.isOwnThumbnail(URL(fileURLWithPath: cache.path + "-other/a.png"), folder: cache)
+              && !LibraryServer.isOwnThumbnail(URL(string: "https://example.com/a.png")!, folder: cache))
+        try? FileManager.default.removeItem(at: cache)
 
         check("network remote extension",
               NetworkLibraries.safeExtension("mp4") == "mp4" && NetworkLibraries.safeExtension("../../x") == "x"
@@ -104,5 +131,12 @@ extension EditSelfTest {
               original != nil && original == CodeSignature.leafCertificate(URL(fileURLWithPath: "/bin/cat"), validate: true)
               && CodeSignature.leafCertificate(copy, validate: true) == nil,
               "ls \(original ?? "nil"), changed copy \(CodeSignature.leafCertificate(copy, validate: true) ?? "nil")")
+        check("network update version",
+              AppUpdater.acceptsVersion("1.2.0", advertised: "1.2.0", current: "1.1.9", mustBeNewer: true)
+              && !AppUpdater.acceptsVersion("1.0.0", advertised: "9.9.9", current: "1.1.0", mustBeNewer: true)
+              && !AppUpdater.acceptsVersion("1.0.0", advertised: "1.0.0", current: "1.1.0", mustBeNewer: true)
+              && !AppUpdater.acceptsVersion("1.1.0", advertised: "1.1.0", current: "1.1.0", mustBeNewer: true)
+              && !AppUpdater.acceptsVersion(nil, advertised: "1.2.0", current: "1.1.0", mustBeNewer: true)
+              && AppUpdater.acceptsVersion("3.9.8", advertised: "3.9.8", current: "4.0.0", mustBeNewer: false))
     }
 }

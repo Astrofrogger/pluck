@@ -310,11 +310,11 @@ extension AIStudio {
                 item.aiStatus = options.upscale != .off ? String(localized: "Upscaling…") : String(localized: "Adding frames…")
                 item.aiProgress = 0
                 let enhancer = VideoEnhancer(options: options)
-                try await Task.detached(priority: .userInitiated) {
+                try await Self.offMain {
                     try await enhancer.run(input: file, output: picture) { progress in
                         Task { @MainActor in item.aiProgress = progress }
                     }
-                }.value
+                }
 
                 item.aiStatus = String(localized: "Saving…")
                 item.aiProgress = nil

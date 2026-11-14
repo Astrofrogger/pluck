@@ -6,3 +6,4 @@ dist/
 .build-*/
 # Plans and notes made while building (kept out of the public repo).
 docs/superpowers/
+Helpers/PluckIroh/target/

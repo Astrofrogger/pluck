@@ -197,13 +197,13 @@ extension AIStudio {
             defer { try? FileManager.default.removeItem(at: picture) }
             do {
                 let painter = PrivacyBlur.Painter(analysis: analysis, keepSharp: keepSharp, blurText: blurText, style: style)
-                try await Task.detached(priority: .userInitiated) {
+                try await Self.offMain {
                     try await FrameRewriter().run(input: file, output: picture, codec: .hevc) { progress in
                         Task { @MainActor in item.aiProgress = progress }
                     } edit: { frame in
                         painter.paint(frame.image, at: frame.seconds)
                     }
-                }.value
+                }
                 item.aiStatus = String(localized: "Saving…")
                 item.aiProgress = nil
                 let output = Converting.outputURL(folder: file.deletingLastPathComponent().path,

@@ -27,6 +27,47 @@ enum FinderViewMode: String, CaseIterable, Identifiable {
     }
 }
 
+/// Where a pane's folders come from when they aren't on this Mac's disk (another Mac's share):
+/// listed and opened by it, read only (nothing renamed, moved, copied or put in the Trash). Its
+/// files' URLs are stand-ins under `root`, which doesn't exist here.
+@MainActor
+protocol FinderSource: AnyObject {
+    var root: URL { get }
+    /// A folder's things (put in order by the pane).
+    func list(_ folder: URL) async -> [(URL, FinderInfo)]
+    /// A double-click, Return or Space on a file (not a folder).
+    func open(_ url: URL)
+    /// A file's picture (nil: its icon).
+    func picture(_ url: URL) async -> CGImage?
+    /// What a right-click on these offers.
+    func menu(_ urls: [URL]) -> AnyView
+}
+
+/// What a file is, read off the main thread (its name, kind, size, date and Finder tags).
+struct FinderInfo: Sendable {
+    var name: String
+    var isFolder: Bool
+    var isClip: Bool
+    var isPhoto: Bool
+    var size: Int64?
+    var modified: Date?
+    var kind: String
+    var tags: [FinderTagMark]
+
+    /// Folders first, then in the order chosen.
+    static func precedes(_ a: FinderInfo, _ b: FinderInfo, by sort: FinderPane.Sort, ascending: Bool) -> Bool {
+        if a.isFolder != b.isFolder { return a.isFolder }
+        let ordered: Bool
+        switch sort {
+        case .name: ordered = a.name.localizedStandardCompare(b.name) == .orderedAscending
+        case .modified: ordered = (a.modified ?? .distantPast) < (b.modified ?? .distantPast)
+        case .size: ordered = (a.size ?? 0) < (b.size ?? 0)
+        case .kind: ordered = a.kind.localizedStandardCompare(b.kind) == .orderedAscending
+        }
+        return ascending ? ordered : !ordered
+    }
+}
+
 /// One thing in a folder: a folder to go into, a clip to play (a file, or a camera's clip
 /// folder such as a RED .RDC), or any other file.
 @MainActor
@@ -34,34 +75,34 @@ enum FinderViewMode: String, CaseIterable, Identifiable {
 final class FinderItem: Identifiable {
     nonisolated let url: URL
     nonisolated var id: URL { url }
-    let name: String
+    nonisolated let info: FinderInfo
+    nonisolated var name: String { info.name }
     /// A folder to go into (not a clip folder, an app or a package).
-    let isFolder: Bool
+    nonisolated var isFolder: Bool { info.isFolder }
     /// Something Pluck plays (a movie, camera raw, a clip folder).
-    let isClip: Bool
+    nonisolated var isClip: Bool { info.isClip }
     /// A picture (a photo, camera raw, a still), shown in the pane's viewer.
-    let isPhoto: Bool
-    let size: Int64?
-    let modified: Date?
-    let kind: String
+    nonisolated var isPhoto: Bool { info.isPhoto }
+    nonisolated var size: Int64? { info.size }
+    nonisolated var modified: Date? { info.modified }
+    nonisolated var kind: String { info.kind }
+    nonisolated var tags: [FinderTagMark] { info.tags }
 
-    init(url: URL, isFolder: Bool, isClip: Bool, size: Int64?, modified: Date?, kind: String) {
+    init(url: URL, info: FinderInfo) {
         self.url = url
-        self.name = FileManager.default.displayName(atPath: url.path)
-        self.isFolder = isFolder
-        self.isClip = isClip
-        isPhoto = !isFolder && !isClip && UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
-        self.size = size
-        self.modified = modified
-        self.kind = kind
+        self.info = info
     }
 
     /// The system's icon for it (folders, documents), for what has no thumbnail.
-    var icon: NSImage { NSWorkspace.shared.icon(forFile: url.path) }
+    var icon: NSImage {
+        // (Not on this Mac, as another Mac's file: by its kind.)
+        guard !FileManager.default.fileExists(atPath: url.path) else { return NSWorkspace.shared.icon(forFile: url.path) }
+        return NSWorkspace.shared.icon(for: isFolder ? .folder : UTType(filenameExtension: url.pathExtension) ?? .data)
+    }
 
-    /// A file's type for sorting and the Kind column.
-    nonisolated static func read(_ url: URL) -> (isFolder: Bool, isClip: Bool, size: Int64?, modified: Date?, kind: String) {
-        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey, .localizedTypeDescriptionKey]
+    /// A file's type for sorting and the Kind column (and its name, as Finder shows it).
+    nonisolated static func read(_ url: URL) -> FinderInfo {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey, .localizedTypeDescriptionKey, .localizedNameKey]
         let values = try? url.resourceValues(forKeys: keys)
         let directory = values?.isDirectory == true
         let clipFolder = directory && RawFolderScan.isClipFolder(url)
@@ -69,8 +110,20 @@ final class FinderItem: Identifiable {
         let playable = RawFormats.extensions.subtracting(["dng"]).union(RawFolderScan.movieExtensions)
         let isClip = clipFolder || (!directory && (playable.contains(url.pathExtension.lowercased())
             || UTType(filenameExtension: url.pathExtension)?.conforms(to: .movie) == true))
-        return (isFolder, isClip, directory ? nil : values?.fileSize.map(Int64.init), values?.contentModificationDate,
-                clipFolder ? String(localized: "Clip") : values?.localizedTypeDescription ?? "")
+        let isPhoto = !isFolder && !isClip && UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+        return FinderInfo(name: values?.localizedName ?? url.lastPathComponent, isFolder: isFolder, isClip: isClip, isPhoto: isPhoto,
+                          size: directory ? nil : values?.fileSize.map(Int64.init), modified: values?.contentModificationDate,
+                          kind: clipFolder ? String(localized: "Clip") : values?.localizedTypeDescription ?? "", tags: FinderTags.read(url))
+    }
+
+    /// A folder's things, read and put in order off the main thread.
+    nonisolated static func list(_ folder: URL, hidden: Bool, sort: FinderPane.Sort, ascending: Bool) -> [(URL, FinderInfo)] {
+        let urls = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: hidden ? [] : [.skipsHiddenFiles])) ?? []
+        return ordered(urls.map { ($0, read($0)) }, sort: sort, ascending: ascending)
+    }
+
+    nonisolated static func ordered(_ read: [(URL, FinderInfo)], sort: FinderPane.Sort, ascending: Bool) -> [(URL, FinderInfo)] {
+        read.sorted { FinderInfo.precedes($0.1, $1.1, by: sort, ascending: ascending) }
     }
 }
 
@@ -104,8 +157,28 @@ final class FinderThumbnails {
         }
     }
 
+    /// Sources whose files' pictures they make themselves (FinderSource.picture).
+    @ObservationIgnored private var sources: [ObjectIdentifier: FinderSource] = [:]
+
+    func register(_ source: FinderSource) { sources[ObjectIdentifier(source)] = source }
+    func unregister(_ source: FinderSource) { sources[ObjectIdentifier(source)] = nil }
+
+    private func source(of url: URL) -> FinderSource? { sources.values.first { FinderPane.isInside(url, $0.root) } }
+
+    /// A source's file: its picture asked of it (once). False when the file is this Mac's.
+    private func fromSource(_ url: URL, poster: Bool) -> Bool {
+        guard let source = source(of: url) else { return false }
+        guard (poster ? posters[url] : pictures[url]) == nil, !failed.contains(url), asked.insert(url).inserted else { return true }
+        Task {
+            if let image = await source.picture(url) { if poster { posters[url] = image } else { keep(image, for: url) } } else { failed.insert(url) }
+            asked.remove(url)
+        }
+        return true
+    }
+
     func want(_ url: URL) {
         wanters[url, default: 0] += 1
+        if fromSource(url, poster: true) { return }
         guard posters[url] == nil, !failed.contains(url) else { return }
         asked.insert(url)
         thumbnailer?.want(url)
@@ -134,6 +207,7 @@ final class FinderThumbnails {
     /// A photo's picture, made when it's first shown.
     func wantPicture(_ url: URL) {
         wanters[url, default: 0] += 1
+        if fromSource(url, poster: false) { return }
         guard pictures[url] == nil, pictureRequests[url] == nil else { return }
         let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: Self.pictureSize, height: Self.pictureSize),
                                                    scale: 1, representationTypes: .thumbnail)
@@ -166,7 +240,7 @@ final class FinderThumbnails {
         }
     }
 
-    func skim(_ url: URL, at fraction: Double) { thumbnailer?.skim(url, at: min(max(fraction, 0), 1)) }
+    func skim(_ url: URL, at fraction: Double) { if source(of: url) == nil { thumbnailer?.skim(url, at: min(max(fraction, 0), 1)) } }
 
     func endSkim(_ url: URL) { if skimmed?.url == url { skimmed = nil } }
 
@@ -187,22 +261,40 @@ final class FinderPane: Identifiable {
     enum Sort: String, CaseIterable { case name, modified, size, kind }
 
     let id = UUID()
+    /// Where the folders come from when not this Mac's disk (read only).
+    let source: FinderSource?
     /// The folder shown (for a list of clips: a stand-in named after the list).
     private(set) var url: URL
     /// Clips listed by themselves (the Library's Clips), instead of a folder's contents.
     private(set) var list: (name: String, urls: [URL])?
     private(set) var items: [FinderItem] = []
+    /// What's shown: folders first, then the rest, in the order chosen; filtered by name and tag
+    /// (worked out once per change, not per look: a folder can hold thousands).
+    private(set) var shown: [FinderItem] = []
+    /// Goes up whenever `shown` is worked out again (what views keep their own lists by).
+    private(set) var version = 0
+    /// The folder's things in the order chosen, and where each is in what's shown.
+    @ObservationIgnored private var sorted: [FinderItem] = []
+    @ObservationIgnored private var place: [URL: Int] = [:]
     private(set) var loading = false
     var selection: Set<URL> = []
     /// Where a Shift-click run starts.
     var anchor: URL?
     var mode: FinderViewMode {
-        didSet { UserDefaults.standard.set(mode.rawValue, forKey: "finderViewMode") }
+        didSet { if !applying { UserDefaults.standard.set(mode.rawValue, forKey: "finderViewMode"); remember() } }
     }
-    var sort: Sort = .name
-    var ascending = true
-    /// Names containing this (the Library's search field, for the pane in front).
-    var filter = ""
+    var sort: Sort = .name { didSet { if sort != oldValue { resort(); remember() } } }
+    var ascending = true { didSet { if ascending != oldValue { resort(); remember() } } }
+    /// The Library's search field: names containing it here at once, then names and text in
+    /// files in this folder and below.
+    var filter = "" { didSet { if filter != oldValue { search() } } }
+    /// Only things with this Finder tag colour (nil: everything).
+    var tagFilter: Int? { didSet { if tagFilter != oldValue { reshow() } } }
+    /// What a search in this folder and below found (nil: not searching).
+    private(set) var results: [FinderItem]?
+    private(set) var searching = false
+    @ObservationIgnored private var searchTask: Task<Void, Never>?
+    @ObservationIgnored private var applying = false
     /// A clip playing in the pane (Esc goes back to the folder).
     var playing: URL?
     /// A photo shown in the pane's viewer (Esc goes back to the folder).
@@ -213,6 +305,10 @@ final class FinderPane: Identifiable {
     var problem: String?
     /// Asking before these go to the Trash.
     var trashing: [URL] = []
+    /// Several being renamed at once (the Rename sheet).
+    var renamingMany: [URL] = []
+    /// A Markdown file read large (Space).
+    var reading: URL?
     @ObservationIgnored private var typeSelect = TypeSelect()
     /// Goes up whenever something's opened (a click on a name then doesn't rename it).
     @ObservationIgnored private var opens = 0
@@ -223,10 +319,12 @@ final class FinderPane: Identifiable {
     @ObservationIgnored private var watcher: FolderWatcher?
     @ObservationIgnored private var loadTask: Task<Void, Never>?
 
-    init(url: URL, base: URL? = nil) {
+    init(url: URL, base: URL? = nil, source: FinderSource? = nil) {
+        self.source = source
         self.url = url
         self.base = base ?? url
         mode = FinderViewMode(rawValue: UserDefaults.standard.string(forKey: "finderViewMode") ?? "") ?? .icons
+        applyRemembered()
         load()
     }
 
@@ -234,22 +332,24 @@ final class FinderPane: Identifiable {
     var canGoBack: Bool { !backStack.isEmpty || playing != nil || viewing != nil }
     var canGoForward: Bool { !forwardStack.isEmpty }
 
-    /// What's shown: folders first, then the rest, in the order chosen; filtered by name.
-    var shown: [FinderItem] {
-        let words = filter.trimmingCharacters(in: .whitespaces)
-        let visible = words.isEmpty ? items : items.filter { $0.name.localizedCaseInsensitiveContains(words) }
-        return visible.sorted { a, b in
-            if a.isFolder != b.isFolder { return a.isFolder }
-            let ordered: Bool
-            switch sort {
-            case .name: ordered = a.name.localizedStandardCompare(b.name) == .orderedAscending
-            case .modified: ordered = (a.modified ?? .distantPast) < (b.modified ?? .distantPast)
-            case .size: ordered = (a.size ?? 0) < (b.size ?? 0)
-            case .kind: ordered = a.kind.localizedStandardCompare(b.kind) == .orderedAscending
-            }
-            return ascending ? ordered : !ordered
-        }
+    /// The folder's things put in the order chosen again.
+    private func resort() {
+        sorted = items.sorted { FinderInfo.precedes($0.info, $1.info, by: sort, ascending: ascending) }
+        reshow()
     }
+
+    /// What's shown worked out again (the order kept, filtered by name and tag).
+    private func reshow() {
+        let words = filter.trimmingCharacters(in: .whitespaces)
+        var list = results ?? (words.isEmpty ? sorted : sorted.filter { $0.name.localizedCaseInsensitiveContains(words) })
+        if let tag = tagFilter { list = list.filter { $0.tags.contains { $0.color == tag } } }
+        shown = list
+        version += 1
+        place = Dictionary(list.enumerated().map { ($1.url, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
+    /// Where an item is in what's shown.
+    func position(of url: URL) -> Int? { place[url] }
 
     var clips: [URL] { shown.filter(\.isClip).map(\.url) }
     var photos: [URL] { shown.filter(\.isPhoto).map(\.url) }
@@ -270,6 +370,7 @@ final class FinderPane: Identifiable {
         viewing = nil
         list = nil
         url = folder
+        applyRemembered()
         if let newBase { base = newBase.standardizedFileURL } else if !Self.isInside(folder, base) { base = folder }
         selection = []
         // (Not the last folder's things while this one's read.)
@@ -308,7 +409,7 @@ final class FinderPane: Identifiable {
     func goUp() {
         guard list == nil else { return }
         let parent = url.deletingLastPathComponent()
-        guard parent.path != url.path else { return }
+        guard parent.path != url.path, source == nil || Self.isInside(parent, base) else { return }
         let from = url
         go(to: parent)
         selection = [from]
@@ -318,6 +419,7 @@ final class FinderPane: Identifiable {
     /// A folder goes in, a clip plays, a photo shows in the viewer, anything else opens in its own app.
     func open(_ item: FinderItem) {
         opens += 1
+        if let source, !item.isFolder { selection = [item.url]; anchor = item.url; source.open(item.url); return }
         if item.isFolder { go(to: item.url) }
         else if item.isClip { playing = item.url; selection = [item.url] }
         else if item.isPhoto { viewing = item.url; selection = [item.url]; anchor = item.url }
@@ -340,7 +442,7 @@ final class FinderPane: Identifiable {
         go(to: folder)
         selection = [item.url]
         anchor = item.url
-        if item.isClip || item.isPhoto {
+        if source == nil, item.isClip || item.isPhoto {
             Task {
                 while loading { try? await Task.sleep(for: .milliseconds(30)) }
                 if item.isClip { playing = item.url } else { viewing = item.url }
@@ -361,6 +463,7 @@ final class FinderPane: Identifiable {
     func openSelection() {
         let chosen = shown.filter { selection.contains($0.url) }
         if chosen.count == 1, let only = chosen.first { open(only); return }
+        if let source { if let file = chosen.first(where: { !$0.isFolder }) { source.open(file.url) }; return }
         for item in chosen where !item.isFolder && !item.isClip && !item.isPhoto { NSWorkspace.shared.open(item.url) }
         if let clip = chosen.first(where: \.isClip) { playing = clip.url }
         else if let photo = chosen.first(where: \.isPhoto) { viewing = photo.url }
@@ -373,8 +476,7 @@ final class FinderPane: Identifiable {
         if modifiers.contains(.command) {
             if selection.contains(item.url) { selection.remove(item.url) } else { selection.insert(item.url) }
             anchor = item.url
-        } else if modifiers.contains(.shift), let anchor, let from = shown.firstIndex(where: { $0.url == anchor }),
-                  let to = shown.firstIndex(where: { $0.url == item.url }) {
+        } else if modifiers.contains(.shift), let anchor, let from = place[anchor], let to = place[item.url] {
             selection = Set(shown[min(from, to)...max(from, to)].map(\.url))
         } else {
             selection = [item.url]
@@ -393,7 +495,7 @@ final class FinderPane: Identifiable {
     func move(by step: Int, extend: Bool = false) {
         let list = shown
         guard !list.isEmpty else { return }
-        let current = list.firstIndex { $0.url == (anchor ?? selection.first) }
+        let current = (anchor ?? selection.first).flatMap { place[$0] }
         let next = current.map { min(max($0 + step, 0), list.count - 1) } ?? (step > 0 ? 0 : list.count - 1)
         if extend { selection.insert(list[next].url) } else { selection = [list[next].url] }
         anchor = list[next].url
@@ -404,15 +506,50 @@ final class FinderPane: Identifiable {
     /// Letters typed: the first name starting with them is selected.
     func jump(_ characters: String) {
         let list = shown
-        guard let index = TypeSelect.match(typeSelect.add(characters), in: list.map(\.name)) else { return }
+        guard let index = TypeSelect.match(typeSelect.add(characters), in: list.lazy.map(\.name)) else { return }
         selection = [list[index].url]
         anchor = list[index].url
     }
 
     /// Return, or a click on the name of the one selected: its name is typed in place.
     func beginRename() {
-        guard list == nil, selection.count == 1, let url = selection.first else { return }
+        guard list == nil, source == nil else { return }
+        if selection.count > 1 { renamingMany = chosen; return }
+        guard let url = selection.first else { return }
         naming = .rename(url)
+    }
+
+    /// What's selected, in the order shown.
+    var chosen: [URL] { shown.map(\.url).filter { selection.contains($0) } }
+
+    /// Space: a Markdown file read large, anything else in Quick Look.
+    func quickLook() {
+        if source != nil { openSelection(); return }
+        if selection.count == 1, let one = selection.first, FilePreview.isMarkdown(one), !FinderQuickLook.shared.isOpen {
+            reading = one
+        } else {
+            FinderQuickLook.shared.toggle(self)
+        }
+    }
+
+    /// A zip of these beside them ("name.zip", or "Archive.zip" for several), selected.
+    func compress(_ urls: [URL]) {
+        Task {
+            switch await FinderArchive.compress(urls) {
+            case .success(let zip): selection = [zip]; anchor = zip
+            case .failure(let failed): problem = failed.errorDescription
+            }
+        }
+    }
+
+    /// What's in a zip, beside it, selected.
+    func uncompress(_ zip: URL) {
+        Task {
+            switch await FinderArchive.uncompress(zip) {
+            case .success(let placed): selection = Set(placed); anchor = placed.first
+            case .failure(let failed): problem = failed.errorDescription
+            }
+        }
     }
 
     /// A click on a selected item's name: renamed in place, unless it was a double-click's first.
@@ -433,31 +570,160 @@ final class FinderPane: Identifiable {
         loadTask?.cancel()
         watcher = nil
         loading = true
-        let folder = url, listed = list?.urls
+        let folder = url, listed = list?.urls, sort = sort, ascending = ascending, hidden = Self.showsHidden, source = source
         loadTask = Task {
-            let read = await Task.detached(priority: .userInitiated) { () -> [(URL, (isFolder: Bool, isClip: Bool, size: Int64?, modified: Date?, kind: String))] in
-                let urls = listed ?? ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
-                return urls.map { ($0, FinderItem.read($0)) }
-                    // A RED take's later parts (_002.R3D…) belong to its first.
-                    .filter { url, _ in
-                        guard url.pathExtension.lowercased() == "r3d",
-                              let part = url.deletingPathExtension().lastPathComponent.split(separator: "_").last, part.count == 3,
-                              let number = Int(part) else { return true }
-                        return number <= 1
-                    }
-            }.value
+            // (Read and put in order off the main thread: a folder can hold thousands.)
+            let read = if let source { FinderItem.ordered(await source.list(folder), sort: sort, ascending: ascending) } else { await Task.detached(priority: .userInitiated) { () -> [(URL, FinderInfo)] in
+                let all = listed.map { urls in FinderItem.ordered(urls.map { ($0, FinderItem.read($0)) }, sort: sort, ascending: ascending) }
+                    ?? FinderItem.list(folder, hidden: hidden, sort: sort, ascending: ascending)
+                // A RED take's later parts (_002.R3D…) belong to its first.
+                return all.filter { url, _ in
+                    guard url.pathExtension.lowercased() == "r3d",
+                          let part = url.deletingPathExtension().lastPathComponent.split(separator: "_").last, part.count == 3,
+                          let number = Int(part) else { return true }
+                    return number <= 1
+                }
+            }.value }
             guard !Task.isCancelled else { return }
+            let before = Dictionary(items.map { ($0.url, $0.info) }, uniquingKeysWith: { a, _ in a })
             let selected = selection
-            items = read.map { FinderItem(url: $0.0, isFolder: $0.1.isFolder, isClip: $0.1.isClip, size: $0.1.size, modified: $0.1.modified, kind: $0.1.kind) }
-            selection = selected.intersection(Set(items.map(\.url)))
+            items = read.map { FinderItem(url: $0.0, info: $0.1) }
+            // Changed elsewhere since it was last read: its picture is made again.
+            for item in items {
+                if let old = before[item.url], old.modified != item.modified || old.size != item.size { FinderThumbnails.shared.refresh(item.url) }
+            }
+            if sort == self.sort, ascending == self.ascending { sorted = items; reshow() } else { resort() }
+            selection = selected.intersection(Set(items.map(\.url)).union(results?.map(\.url) ?? []))
             loading = false
+            if !filter.trimmingCharacters(in: .whitespaces).isEmpty { search(wait: false) }
             // Changes on disk (a copy arriving, a file renamed) show by themselves.
-            if listed == nil {
-                watcher = FolderWatcher(path: folder.path) { [weak self] in
+            if listed == nil, source == nil {
+                // (The events give the real path: /private/var for /var.)
+                let watched: Set<String> = [folder.path, realpath(folder.path, nil).map { String(cString: $0) } ?? folder.path]
+                watcher = FolderWatcher(path: folder.path) { [weak self] paths in
+                    // (Only what's in this folder itself, not every change below it.)
+                    guard paths.contains(where: { watched.contains(($0 as NSString).deletingLastPathComponent) || watched.contains(($0 as NSString).standardizingPath) })
+                    else { return }
                     Task { @MainActor in self?.refreshQuietly() }
                 }
             }
         }
+    }
+
+    // MARK: Hidden files, and each folder's own view
+
+    /// Files whose names start with a dot, shown (⇧⌘.).
+    static var showsHidden: Bool { UserDefaults.standard.bool(forKey: "finderShowHidden") }
+
+    static func toggleHidden() {
+        UserDefaults.standard.set(!showsHidden, forKey: "finderShowHidden")
+        for pane in FinderWorkspace.shared.panes { pane.reload() }
+    }
+
+    /// Each folder keeps its view and order, as in Finder (the last few hundred folders).
+    private static let viewsKey = "finderFolderViews"
+    private static let viewsKept = 300
+
+    private func remember() {
+        guard !applying, list == nil else { return }
+        var saved = UserDefaults.standard.array(forKey: Self.viewsKey) as? [[String]] ?? []
+        saved.removeAll { $0.first == url.path }
+        saved.append([url.path, mode.rawValue, sort.rawValue, ascending ? "1" : "0"])
+        if saved.count > Self.viewsKept { saved.removeFirst(saved.count - Self.viewsKept) }
+        UserDefaults.standard.set(saved, forKey: Self.viewsKey)
+    }
+
+    private func applyRemembered() {
+        guard list == nil, let saved = (UserDefaults.standard.array(forKey: Self.viewsKey) as? [[String]])?.last(where: { $0.first == url.path }),
+              saved.count == 4 else { return }
+        applying = true
+        defer { applying = false }
+        if let chosen = FinderViewMode(rawValue: saved[1]) { mode = chosen }
+        if let order = Sort(rawValue: saved[2]) { sort = order }
+        ascending = saved[3] == "1"
+    }
+
+    // MARK: Searching
+
+    /// Names containing the search, here at once; then (after typing stops) names and text in
+    /// files in this folder and below (Spotlight), in the same views. Cleared: the folder again.
+    private func search(wait: Bool = true) {
+        searchTask?.cancel()
+        let words = filter.trimmingCharacters(in: .whitespaces)
+        // (A source's folder: by name, here only.)
+        guard !words.isEmpty, list == nil, source == nil else {
+            results = nil
+            searching = false
+            reshow()
+            return
+        }
+        if wait { results = nil }
+        reshow()
+        searching = true
+        let folder = url, hidden = Self.showsHidden, sort = sort, ascending = ascending
+        searchTask = Task {
+            if wait { try? await Task.sleep(for: .milliseconds(250)) }
+            guard !Task.isCancelled else { return }
+            async let named = Self.names(containing: words, in: folder, hidden: hidden)
+            let inside = await Self.spotlight(words, in: folder, hidden: hidden)
+            let found = await named
+            guard !Task.isCancelled else { return }
+            var seen = Set(found.map(\.path))
+            let urls = found + inside.filter { seen.insert($0.path).inserted }
+            let read = await Task.detached(priority: .userInitiated) { FinderItem.ordered(urls.map { ($0, FinderItem.read($0)) }, sort: sort, ascending: ascending) }.value
+            guard !Task.isCancelled else { return }
+            results = read.map { FinderItem(url: $0.0, info: $0.1) }
+            searching = false
+            reshow()
+        }
+    }
+
+    /// The most a search lists (and looks through), so a search of a whole drive stays quick.
+    nonisolated static let searchLimit = 2000
+
+    /// Things in a folder and below whose names contain `words` (no Spotlight needed).
+    nonisolated static func names(containing words: String, in folder: URL, hidden: Bool) async -> [URL] {
+        guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil,
+                                                          options: hidden ? [.skipsPackageDescendants] : [.skipsHiddenFiles, .skipsPackageDescendants])
+        else { return [] }
+        var found: [URL] = [], looked = 0
+        while let url = walker.nextObject() as? URL, found.count < searchLimit, looked < 300_000 {
+            looked += 1
+            if looked % 500 == 0, Task.isCancelled { break }
+            if url.lastPathComponent.localizedCaseInsensitiveContains(words) { found.append(url) }
+        }
+        return found
+    }
+
+    /// Files in a folder and below with `words` in them, as Spotlight knows them (none where it doesn't).
+    static func spotlight(_ words: String, in folder: URL, hidden: Bool) async -> [URL] {
+        let query = NSMetadataQuery()
+        query.searchScopes = [folder]
+        query.predicate = NSPredicate(format: "%K CONTAINS[cd] %@", "kMDItemTextContent", words)
+        let paths: [String] = await withCheckedContinuation { done in
+            var token: NSObjectProtocol?
+            var finished = false
+            func finish(_ paths: [String]) {
+                guard !finished else { return }
+                finished = true
+                query.stop()
+                if let token { NotificationCenter.default.removeObserver(token) }
+                done.resume(returning: paths)
+            }
+            token = NotificationCenter.default.addObserver(forName: .NSMetadataQueryDidFinishGathering, object: query, queue: .main) { _ in
+                MainActor.assumeIsolated {
+                    query.disableUpdates()
+                    finish((0..<min(query.resultCount, searchLimit)).compactMap { (query.result(at: $0) as? NSMetadataItem)?.value(forAttribute: NSMetadataItemPathKey) as? String })
+                }
+            }
+            if !query.start() { finish([]) }
+            // (Spotlight off for that drive, or slow: not waited on for ever.)
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(10))
+                finish([])
+            }
+        }
+        return paths.filter { hidden || !$0.contains("/.") }.map { URL(fileURLWithPath: $0) }
     }
 
     @ObservationIgnored private var quietTask: Task<Void, Never>?
@@ -466,7 +732,8 @@ final class FinderPane: Identifiable {
     private func refreshQuietly() {
         quietTask?.cancel()
         quietTask = Task {
-            try? await Task.sleep(for: .milliseconds(400))
+            // (A big folder is read whole each time: changes arriving during a copy aren't re-read every moment.)
+            try? await Task.sleep(for: .milliseconds(items.count > 2000 ? 3000 : 400))
             guard !Task.isCancelled else { return }
             load()
         }
@@ -476,26 +743,36 @@ final class FinderPane: Identifiable {
 
     /// ⌘⌫: asks, then the selected files go to the Trash (they can be put back from there).
     func trashSelection() {
-        guard !selection.isEmpty else { return }
+        guard !selection.isEmpty, source == nil else { return }
         trashing = shown.map(\.url).filter { selection.contains($0) }
     }
 
     func trash(_ urls: [URL]) {
         trashing = []
-        FinderFiles.trash(urls)
+        if let failed = FinderFiles.trash(urls) { problem = failed }
         selection.subtract(urls)
     }
 
     func copySelection() {
+        guard source == nil else { return }
         FinderFiles.copyToPasteboard(shown.map(\.url).filter { selection.contains($0) })
     }
 
     /// ⌘D: a copy of each selected file beside it, the copies selected.
     func duplicateSelection() {
-        guard list == nil else { return }
+        guard list == nil, source == nil else { return }
+        let chosen = shown.map(\.url).filter { selection.contains($0) }
         var made: Set<URL> = []
-        for url in shown.map(\.url) where selection.contains(url) {
-            do { made.insert(try FinderFiles.duplicate(url)) } catch { problem = error.localizedDescription }
+        FileUndo.shared.grouped(String(localized: "Duplicate")) {
+            for url in chosen where !url.hasDirectoryPath && !FinderFiles.isBig(url) {
+                do { made.insert(try FinderFiles.duplicateNow(url, to: FinderFiles.copyName(for: url))) } catch { problem = error.localizedDescription }
+            }
+        }
+        // (A folder is copied off the main thread; a big file in the background, with a bar at the Library's foot.)
+        for url in chosen where url.hasDirectoryPath || FinderFiles.isBig(url) {
+            Task {
+                do { _ = try await FinderFiles.duplicate(url); load() } catch { problem = error.localizedDescription }
+            }
         }
         guard !made.isEmpty else { return }
         load()
@@ -505,7 +782,7 @@ final class FinderPane: Identifiable {
 
     /// ⇧⌘N, as Finder: "untitled folder" made, selected, its name typed over.
     func newFolderInPlace() {
-        guard list == nil else { return }
+        guard list == nil, source == nil else { return }
         let name = freeFolderName
         if let failed = newFolder(named: name) { problem = failed; return }
         naming = .rename(url.appendingPathComponent(name, isDirectory: true))
@@ -514,7 +791,7 @@ final class FinderPane: Identifiable {
     /// Files copied (here or in Finder) into this folder: checked like an offload. `move` (⌥⌘V):
     /// moved here instead.
     func paste(move: Bool = false) {
-        guard list == nil, let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
+        guard list == nil, source == nil, let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL],
               !urls.isEmpty else { return }
         LibraryPanes.shared.copy(urls, into: url, move: move)
     }
@@ -547,6 +824,7 @@ final class FinderPane: Identifiable {
         } catch {
             return error.localizedDescription
         }
+        FileUndo.shared.record(String(localized: "New Folder"), undo: [.trash(folder)])
         load()
         selection = [folder]
         anchor = folder
@@ -601,6 +879,7 @@ final class FinderPane: Identifiable {
     /// The whole path, for the path bar (from the drive, or the home folder).
     var pathComponents: [URL] {
         guard list == nil else { return [url] }
+        if source != nil { return trail }
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         var chain: [URL] = []
         var at = url

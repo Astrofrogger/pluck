@@ -38,7 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Screenshot mode drawing off screen: windows hidden from the very start (ScreenshotMode's Offscreen).
-        if UserDefaults.standard.string(forKey: "PluckScreenshotOffscreen") != nil { Offscreen.hideWindows(size: UserDefaults.standard.string(forKey: "PluckScreenshotSize")) }
+        if ScreenshotMode.scene != nil, UserDefaults.standard.string(forKey: "PluckScreenshotOffscreen") != nil { Offscreen.hideWindows(size: UserDefaults.standard.string(forKey: "PluckScreenshotSize")) }
         if let event = NSAppleEventManager.shared().currentAppleEvent, event.eventID == kAEOpenApplication,
            event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem {
             Self.launchedAtLogin = true
@@ -63,6 +63,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         #if STUDIO
         OfficeRenderServer.shared.manager = manager
         OfficeRenderServer.shared.startIfEnabled()
+        RemotePullManager.install()
+        RemoteStream.install()
+        RemoteNetwork.shared.install()
+        RemoteResolve.install()
         // Proxies still to fetch from the host Mac carry on in the background.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             ProxySync.shared.resume()
@@ -131,6 +135,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationWillTerminate(_ notification: Notification) {
         manager.shutDown()
+        #if STUDIO
+        // AI jobs' ffmpeg would otherwise go on running after Pluck has quit.
+        ai.stopAll()
+        // Photo edits made in the last second (saves wait a moment) are written before Pluck goes.
+        PhotoSaving.saveAllNow()
+        // Streamed shares' drives unmounted before their server goes with Pluck (no dead mounts left).
+        RemoteNetwork.shared.unmountAllNow()
+        #endif
         // An update made ready for now: swapped in once Pluck has quit.
         appUpdater.installPendingOnQuit()
     }

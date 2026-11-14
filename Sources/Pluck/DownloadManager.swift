@@ -128,8 +128,44 @@ final class DownloadManager {
     }
 
     /// Saves finished, failed and cancelled downloads so the list survives a restart.
-    func saveHistory(includingActive: Bool = false) {
-        History.save(includingActive ? items : items.filter { !$0.isActive })
+    /// Unfinished downloads are kept too (they come back paused), so a crash doesn't lose the queue.
+    func saveHistory() {
+        History.save(items)
+    }
+
+    @ObservationIgnored private var historySaveQueued = false
+    /// Saves a moment later, once for a burst of changes (new items join the queue through pump).
+    private func saveHistorySoon() {
+        guard !historySaveQueued else { return }
+        historySaveQueued = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+            self?.historySaveQueued = false
+            self?.saveHistory()
+        }
+    }
+
+    /// Ends a running yt-dlp or ffmpeg with its own child processes (yt-dlp's ffmpeg otherwise
+    /// carries on after yt-dlp has gone).
+    nonisolated static func terminateWithChildren(_ process: Process?) {
+        guard let process, process.isRunning else { return }
+        var children = [pid_t](repeating: 0, count: 64)
+        _ = proc_listchildpids(process.processIdentifier, &children, Int32(children.count * MemoryLayout<pid_t>.size))
+        for child in children where child > 0 { kill(child, SIGTERM) }
+        process.terminate()
+    }
+
+    /// A cancelled download's own partial files: what yt-dlp was writing for it, nothing else.
+    private func removePartialFiles(of item: DownloadItem) {
+        let fm = FileManager.default
+        for target in item.downloadTargets {
+            for leftover in [target + ".part", target + ".ytdl"] { try? fm.removeItem(atPath: leftover) }
+            let folder = (target as NSString).deletingLastPathComponent
+            let fragments = (target as NSString).lastPathComponent + ".part-Frag"
+            for name in (try? fm.contentsOfDirectory(atPath: folder)) ?? [] where name.hasPrefix(fragments) {
+                try? fm.removeItem(atPath: (folder as NSString).appendingPathComponent(name))
+            }
+        }
+        item.downloadTargets = []
     }
 
 
@@ -259,19 +295,23 @@ final class DownloadManager {
     // MARK: - Queue
 
     /// Adds downloads for one or more links. When "Ask where to save" is on, asks once for the batch.
-    func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil, clip: ClipRange? = nil) {
+    /// `fromOtherDevice`: links sent over Library sharing (the caller checks they're public sites).
+    func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil, clip: ClipRange? = nil,
+             fromOtherDevice: Bool = false) {
         guard !urls.isEmpty, let folder = override ?? destinationFolder(count: urls.count) else { return }
         for url in urls {
             if Playlists.looksLikePlaylist(url) {
-                presentPicker(for: url, options: options, folder: folder)
-            } else if let existing = alreadyDownloaded(url, isAudio: options.isAudio || MusicLinks.isMusicLink(url), clip: clip) {
+                presentPicker(for: url, options: options, folder: folder, fromOtherDevice: fromOtherDevice)
+            } else if !fromOtherDevice,
+                      let existing = alreadyDownloaded(url, isAudio: options.isAudio || MusicLinks.isMusicLink(url), clip: clip) {
                 duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip))
                 AppDelegate.showMainWindow()
             } else if MusicLinks.isMusicLink(url) {
-                addSpotify(url, options: options, folder: folder, clip: clip)
+                addSpotify(url, options: options, folder: folder, clip: clip, fromOtherDevice: fromOtherDevice)
             } else {
                 let item = DownloadItem(url: url, options: options, folder: folder)
                 item.clip = clip
+                item.fromOtherDevice = fromOtherDevice
                 items.insert(item, at: 0)
             }
         }
@@ -413,7 +453,7 @@ final class DownloadManager {
                                        quality: Double(conversion.percent ?? 75) / 100,
                                        maxPixel: conversion.resolution,
                                        removeDetails: conversion.removeDetails ?? false)
-        let output = Converting.outputURL(folder: item.folder,
+        let output = Converting.reserveOutputURL(folder: item.folder,
                                           name: source.deletingPathExtension().lastPathComponent + String(localized: " (compressed)"),
                                           fileExtension: settings.format.fileExtension)
         item.phase = String(localized: "Compressing photo…")
@@ -429,6 +469,7 @@ final class DownloadManager {
             if ok {
                 item.fileURL = output
             } else {
+                try? FileManager.default.removeItem(at: output)
                 item.errorMessage = Converting.Failure.unreadable.localizedDescription
             }
             finish(item, status: ok ? 0 : 1)
@@ -512,7 +553,7 @@ final class DownloadManager {
                 fail(item, error.localizedDescription)
                 return
             }
-            let output = Converting.outputURL(folder: item.folder,
+            let output = Converting.reserveOutputURL(folder: item.folder,
                                               name: source.deletingPathExtension().lastPathComponent + plan.suffix,
                                               fileExtension: plan.fileExtension)
             let input = ["-hide_banner", "-nostdin", "-y", "-v", "error", "-progress", "pipe:1", "-nostats"]
@@ -697,8 +738,9 @@ final class DownloadManager {
     /// Playlist links waiting for the user to choose videos; the first one is shown.
     var picks: [PlaylistPick] = []
 
-    private func presentPicker(for url: String, options: DownloadOptions, folder: String) {
+    private func presentPicker(for url: String, options: DownloadOptions, folder: String, fromOtherDevice: Bool = false) {
         let pick = PlaylistPick(sourceURL: url, folder: folder, options: options)
+        pick.fromOtherDevice = fromOtherDevice
         picks.append(pick)
         AppDelegate.showMainWindow()
         Task { await load(pick) }
@@ -727,11 +769,14 @@ final class DownloadManager {
             }
         } else {
             let args = ["--flat-playlist", "--dump-single-json", "--no-warnings", "--yes-playlist",
-                        "--playlist-end", "\(Playlists.limit)"] + cookieArguments() + ["--", Subscriptions.listingURL(pick.sourceURL)]
+                        "--playlist-end", "\(Playlists.limit)"] + (pick.fromOtherDevice ? [] : cookieArguments())
+                + ["--", Subscriptions.listingURL(pick.sourceURL)]
             guard let data = await capture(args), let playlist = Playlists.parse(data) else {
                 // Not a playlist after all, or unreadable: download the link as a single video.
                 cancelPick(pick)
-                items.insert(DownloadItem(url: pick.sourceURL, options: pick.options, folder: pick.folder), at: 0)
+                let item = DownloadItem(url: pick.sourceURL, options: pick.options, folder: pick.folder)
+                item.fromOtherDevice = pick.fromOtherDevice
+                items.insert(item, at: 0)
                 pump()
                 return
             }
@@ -776,7 +821,9 @@ final class DownloadManager {
         if pick.selected.count > 1, defaults.bool(forKey: Prefs.playlistFolders), let sub = pick.folderPath {
             folder = (pick.folder as NSString).appendingPathComponent(sub)
         }
-        let newItems = pick.selectedEntries.map { entry -> DownloadItem in
+        // A playlist sent from another device can't list links into this Mac's network either.
+        let entries = pick.selectedEntries.filter { !pick.fromOtherDevice || URL(string: $0.url).map(LibraryServer.isPublicWeb) == true }
+        let newItems = entries.map { entry -> DownloadItem in
             let item: DownloadItem
             if let track = entry.spotify {
                 item = DownloadItem(spotify: track, options: options, folder: folder)
@@ -791,6 +838,7 @@ final class DownloadManager {
                 item.duration = entry.duration
                 item.thumbnail = entry.thumbnail
             }
+            item.fromOtherDevice = pick.fromOtherDevice
             return item
         }
         // Newest first in the list, so the playlist's first video ends up at the top of the batch.
@@ -817,7 +865,8 @@ final class DownloadManager {
     }
 
     /// Spotify and Apple Music track links: read the song's details, then match it on YouTube Music.
-    private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil) {
+    private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil,
+                            fromOtherDevice: Bool = false) {
         // Music services are always audio; keep the chosen audio format even if video is selected.
         var audio = options
         audio.kind = .audio
@@ -825,6 +874,7 @@ final class DownloadManager {
 
         let placeholder = DownloadItem(url: url, options: audio, folder: folder)
         placeholder.title = service.name
+        placeholder.fromOtherDevice = fromOtherDevice
         placeholder.state = .starting
         placeholder.phase = service == .spotify ? String(localized: "Reading Spotify link…")
                                                 : String(localized: "Reading Apple Music link…")
@@ -843,6 +893,7 @@ final class DownloadManager {
                 let tracks = collection.tracks.map { track in
                     let item = DownloadItem(spotify: track, options: audio, folder: folder)
                     item.clip = clip
+                    item.fromOtherDevice = fromOtherDevice
                     return item
                 }
                 items.replaceSubrange(index...index, with: tracks)
@@ -856,7 +907,7 @@ final class DownloadManager {
     func cancel(_ item: DownloadItem) {
         guard item.isActive || item.state == .paused else { return }
         item.state = .cancelled
-        item.process?.terminate()
+        Self.terminateWithChildren(item.process)
         pump()
         saveHistory()
     }
@@ -867,7 +918,7 @@ final class DownloadManager {
             // A Spotify link that failed before its tracks were read.
             guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
             items.remove(at: index)
-            addSpotify(item.url, options: item.options, folder: item.folder, clip: item.clip)
+            addSpotify(item.url, options: item.options, folder: item.folder, clip: item.clip, fromOtherDevice: item.fromOtherDevice)
             return
         }
         item.reset()
@@ -896,7 +947,7 @@ final class DownloadManager {
     func pause(_ item: DownloadItem) {
         guard item.state == .downloading || item.state == .queued else { return }
         item.state = .paused
-        item.process?.terminate()
+        Self.terminateWithChildren(item.process)
         pump()
         saveHistory()
     }
@@ -912,6 +963,7 @@ final class DownloadManager {
 
     /// Starts queued items, oldest first, up to the concurrency limit.
     func pump() {
+        saveHistorySoon()
         if items.contains(where: \.isActive) { Notifications.requestPermissionIfNeeded() }
         // On first launch, wait for Pluck to finish fetching yt-dlp/ffmpeg instead of failing.
         if toolsInstalling, executableURL == nil || ffmpegMissing {
@@ -940,8 +992,8 @@ final class DownloadManager {
     /// Called when Pluck quits: remembers unfinished downloads (as interrupted) and stops yt-dlp,
     /// which would otherwise keep running in the background with nothing watching it.
     func shutDown() {
-        saveHistory(includingActive: true)
-        for item in items { item.process?.terminate() }
+        saveHistory()
+        for item in items { Self.terminateWithChildren(item.process) }
     }
 
     // MARK: - Running
@@ -952,7 +1004,7 @@ final class DownloadManager {
             "--newline", "--progress", "--no-simulate",
             "--socket-timeout", "20", "--retries", "10", "--fragment-retries", "10",
             "--progress-template",
-            "download:PLUCK|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s",
+            "download:PLUCK|%(progress.status)s|%(progress.downloaded_bytes)s|%(progress.total_bytes)s|%(progress.total_bytes_estimate)s|%(progress.speed)s|%(progress.eta)s|%(progress.filename)s",
             "--progress-template", "postprocess:PLUCKPP|%(progress.postprocessor)s",
             "--print", "video:PLUCKMETA %(.{title,uploader,channel,duration,thumbnail,acodec,abr,artist,track,language})j",
             "--print", "after_move:PLUCKFILE %(filepath)s",
@@ -1027,10 +1079,10 @@ final class DownloadManager {
             if defaults.bool(forKey: Prefs.removeSponsors) { args += ["--sponsorblock-remove", "sponsor"] }
         }
 
-        // A raw stream found by loading a page is a link that page chose. Never send the user's
-        // browser cookies along with it (the page was loaded logged out anyway).
+        // A raw stream found by loading a page is a link that page chose, and a link from another
+        // device is that device's choice. Never send the user's browser cookies along with them.
         let isPageStream = item.pageStream?.usePageTitle == true
-        if !isPageStream { args += cookieArguments() }
+        if !isPageStream, !item.fromOtherDevice { args += cookieArguments() }
         args += ["--", url]
         return args
     }
@@ -1138,9 +1190,11 @@ final class DownloadManager {
                     message = String(localized: "Couldn’t read this browser’s cookies. Pick another browser (or None) in Settings → Advanced.")
                 }
                 let lower = message.lowercased()
+                var login = false
                 if lower.contains("logged-in") || lower.contains("login required") || lower.contains("log in to")
                     || (lower.contains("--cookies") && !lower.contains("cookies database")) {
                     message = String(localized: "This site needs you to be logged in. Log in with your browser, then choose that browser under Settings → Advanced → Use cookies from.")
+                    login = true
                 } else if lower.contains("drm protected") {
                     message = String(localized: "This video is DRM-protected and can’t be downloaded.")
                 }
@@ -1149,6 +1203,7 @@ final class DownloadManager {
                 var repair: YouTubeRepair?
                 if lower.contains("not a bot") || lower.contains("confirm you") {
                     message = String(localized: "YouTube wants to be sure you’re a person. Log in to YouTube in your browser, then choose that browser under Settings → Advanced → Use cookies from.")
+                    login = true
                 } else if lower.contains("javascript runtime") || lower.contains("js runtime") || lower.contains("deno") {
                     message = String(localized: "YouTube needs a small JavaScript helper that isn’t installed yet. Pluck is getting it now: try again in a minute.")
                     repair = .helper
@@ -1174,9 +1229,10 @@ final class DownloadManager {
                 } else {
                     local = false
                 }
-                let final = message, skip = local, fix = repair
+                let final = message, skip = local, fix = repair, wantsLogin = login
                 await MainActor.run {
                     item.errorMessage = final
+                    item.needsLogin = wantsLogin
                     if skip { item.triedPageSearch = true }
                     switch fix {
                     case .ytdlp: AppDelegate.shared?.updater.repair()
@@ -1208,6 +1264,11 @@ final class DownloadManager {
             if total > 0 { item.progress = min(done / total, 1) }
             item.speed = Double(f[5])
             item.eta = Double(f[6])
+            // The rest is the file name (which may itself hold "|").
+            if f.count > 7 {
+                let name = f[7...].joined(separator: "|")
+                if name.hasPrefix("/"), name != "NA" { item.downloadTargets.insert(name) }
+            }
             item.state = .downloading
         } else if line.hasPrefix("PLUCKPP|") {
             item.state = .processing
@@ -1284,6 +1345,7 @@ final class DownloadManager {
 
     private func finish(_ item: DownloadItem, status: Int32, finishingDone: Bool = false) {
         item.process = nil
+        if item.state == .cancelled { removePartialFiles(of: item) }
         guard item.state != .cancelled, item.state != .paused else { pump(); return }
 
         if status != 0, scheduleRetryIfNetworkProblem(item) { return }
@@ -1559,7 +1621,7 @@ final class DownloadManager {
     /// Sites yt-dlp has a dedicated extractor for are left alone; so are login/cookie problems,
     /// which a fresh, logged-out web view can't fix.
     private func shouldSearchPage(_ item: DownloadItem) -> Bool {
-        guard !item.triedPageSearch, item.spotify == nil, item.pageStream == nil,
+        guard !item.triedPageSearch, item.spotify == nil, item.pageStream == nil, !item.fromOtherDevice,
               let host = URL(string: item.url)?.host?.lowercased() else { return false }
         let skip = ["youtube.com", "youtu.be", "spotify.com", "music.apple.com"]
         if skip.contains(where: { host == $0 || host.hasSuffix(".\($0)") }) { return false }
