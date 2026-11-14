@@ -955,24 +955,48 @@ struct StudioMenuLabel: View {
     }
 }
 
-/// Pluck Studio's mark (logo-master/pluck-studio-icon-final.svg), drawn: a split tile, a plum line and ring forming a p.
+/// Pluck Studio's mark (logo-master/pluck-studio-icon-fan.svg), drawn: three guitar picks fanned out on the dark tile.
+/// (Same shapes as scripts/make-studio-icon.swift, in the SVG's 130-unit square.)
 struct StudioMark: View {
     var body: some View {
         Canvas { context, size in
             let s = size.width / 130
-            let plum = GraphicsContext.Shading.linearGradient(
-                Gradient(colors: [Design.rgb(0x8E4C64), Design.rgb(0x533C88)]),
-                startPoint: CGPoint(x: 20 * s, y: 10 * s), endPoint: CGPoint(x: 110 * s, y: 120 * s))
-            let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 130 * s, height: 130 * s), cornerRadius: 30 * s, style: .continuous)
-            context.fill(tile, with: .color(Design.rgb(0x121016)))
+            context.scaleBy(x: s, y: s)
+            let tile = Path(roundedRect: CGRect(x: 0, y: 0, width: 130, height: 130), cornerRadius: 30, style: .continuous)
+            context.fill(tile, with: .linearGradient(Gradient(colors: [Design.rgb(0x1E1925), Design.rgb(0x0E0C11)]),
+                                                     startPoint: .zero, endPoint: CGPoint(x: 0, y: 130)))
             context.clip(to: tile)
-            context.fill(Path(CGRect(x: 0, y: 0, width: 47 * s, height: 130 * s)), with: .color(Design.rgb(0x27212F)))
-            context.fill(Path(CGRect(x: 42.5 * s, y: 0, width: 9 * s, height: 130 * s)), with: plum)
-            let ring = Path(ellipseIn: CGRect(x: 47 * s, y: 29 * s, width: 42 * s, height: 42 * s))
-            context.fill(ring, with: .color(Design.rgb(0x121016)))
-            context.stroke(ring, with: plum, lineWidth: 9 * s)
+            // A pick fanned by `angle` around its tip, `scale` of the front one, filled from `from` to `to` in its own box.
+            func pick(angle: Double, scale: CGFloat, colors: [Color], from: CGPoint, to: CGPoint, shadow: Bool) {
+                var c = context
+                c.translateBy(x: 65, y: 63)
+                c.scaleBy(x: 0.8, y: 0.8)
+                c.translateBy(x: 0, y: 42)
+                c.rotate(by: .degrees(angle))
+                c.translateBy(x: 0, y: -42)
+                c.scaleBy(x: scale, y: scale)
+                if shadow { c.addFilter(.shadow(color: Design.rgb(0x0A070E).opacity(0.45), radius: 2.4, x: 0, y: 1.5)) }
+                c.fill(Self.pick, with: .linearGradient(Gradient(colors: colors), startPoint: from, endPoint: to))
+            }
+            pick(angle: -22, scale: 0.93, colors: [Design.rgb(0x9A5470), Design.rgb(0x6E3F5A)],
+                 from: CGPoint(x: -38, y: -44), to: CGPoint(x: -7.6, y: 43), shadow: false)
+            pick(angle: 22, scale: 0.93, colors: [Design.rgb(0x6A4FA6), Design.rgb(0x46327A)],
+                 from: CGPoint(x: 38, y: -44), to: CGPoint(x: 7.6, y: 43), shadow: false)
+            pick(angle: 0, scale: 1, colors: [Design.rgb(0xC27A96), Design.rgb(0xA06AA6), Design.rgb(0x7C5FC0)],
+                 from: CGPoint(x: -38, y: -44), to: CGPoint(x: 7.6, y: 43), shadow: true)
         }
         .accessibilityHidden(true)
+    }
+
+    /// One pick, centred on its box (top -44, tip 42, sides ±38).
+    private static let pick = Path { p in
+        p.move(to: CGPoint(x: 0, y: -44))
+        p.addCurve(to: CGPoint(x: 38, y: -24), control1: CGPoint(x: 22, y: -44), control2: CGPoint(x: 38, y: -38))
+        p.addCurve(to: CGPoint(x: 7, y: 37), control1: CGPoint(x: 38, y: -6), control2: CGPoint(x: 21, y: 21))
+        p.addQuadCurve(to: CGPoint(x: -7, y: 37), control: CGPoint(x: 0, y: 45))
+        p.addCurve(to: CGPoint(x: -38, y: -24), control1: CGPoint(x: -21, y: 21), control2: CGPoint(x: -38, y: -6))
+        p.addCurve(to: CGPoint(x: 0, y: -44), control1: CGPoint(x: -38, y: -38), control2: CGPoint(x: -22, y: -44))
+        p.closeSubpath()
     }
 }
 
