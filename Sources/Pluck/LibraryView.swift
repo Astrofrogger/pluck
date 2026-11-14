@@ -48,6 +48,16 @@ struct LibraryView: View {
     #if STUDIO
     @AppStorage("libraryDetailsShown") private var detailsShown = true
     @AppStorage("librarySidebarShown") private var sidebarShown = true
+    /// How the collections are shown (folders keep their own, per pane): icons, list or gallery.
+    @AppStorage("libraryViewMode") private var libraryMode: FinderViewMode = .icons
+    /// The item whose name is being typed over, and why a rename or duplicate couldn't be done.
+    @State private var renaming: String?
+    @State private var fileProblem: String?
+    @State private var typeSelect = TypeSelect()
+    /// Goes up whenever something's opened (a click on a name then doesn't rename it).
+    @State private var opens = 0
+    @State private var tableOrder = [KeyPathComparator(\LibraryRow.added, order: .reverse)]
+    @State private var viewport: CGFloat = 0
     #endif
     /// The cards' smallest width: Studio's header has a slider for it.
     /// Studio keeps its own size (Basic Pluck's grid is bigger).
@@ -201,6 +211,11 @@ struct LibraryView: View {
                     .frame(width: 300)
                     .background(Design.Studio.panel, in: panel)
                     .clipShape(panel)
+            } else if detailsShown, isFootage, contentScope == nil, let item = footageSelected {
+                FinderDetails(item: item, pane: FinderWorkspace.shared.focused)
+                    .frame(width: 300)
+                    .background(Design.Studio.panel, in: panel)
+                    .clipShape(panel)
             }
         }
         #else
@@ -336,6 +351,19 @@ struct LibraryView: View {
             }
         }
         #endif
+        #if STUDIO
+        .background { finderShortcuts }
+        .onChange(of: selection) { _, now in
+            // (A rubber band or the list changed it: the details follow.)
+            if let selected, now.contains(selected) { return }
+            selected = now.first
+        }
+        .alert("Can’t Do That", isPresented: Binding(get: { fileProblem != nil }, set: { if !$0 { fileProblem = nil } })) {
+            Button("OK") { fileProblem = nil }
+        } message: {
+            Text(fileProblem ?? "")
+        }
+        #endif
         .quickLookPreview($preview)
         .sheet(isPresented: $addingSubscription) { SubscribeSheet() }
         .sheet(item: $sending) { entry in
@@ -410,6 +438,8 @@ struct LibraryView: View {
             Text(windowTitle).font(Design.Studio.pageTitle).lineLimit(1)
             Text(verbatim: "\(shown.count)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             Spacer(minLength: 12)
+            StudioSegmented(options: Self.collectionModes.map { ($0, $0.title) }, selection: $libraryMode,
+                            symbols: Self.collectionModes.map(\.symbol))
             StudioSegmented(options: [("", "All"), (LibraryStore.Entry.Kind.video.rawValue, "Video"),
                                       (LibraryStore.Entry.Kind.audio.rawValue, "Audio"), (LibraryStore.Entry.Kind.photo.rawValue, "Photo")],
                             selection: $kindFilter)
@@ -596,55 +626,38 @@ struct LibraryView: View {
             }
         } else {
             ScrollViewReader { scroller in
-                ScrollView {
-                    if let subscriptionHeader {
-                        subscriptionHeader
-                            .padding([.horizontal, .top], Design.Spacing.window)
+                Group {
+                    #if STUDIO
+                    switch libraryMode {
+                    case .list: libraryTable(list)
+                    case .gallery: libraryGallery(list)
+                    default: iconGrid(list)
                     }
-                    // Top-aligned: a card with tags or a two-line title doesn't push its picture down.
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: cardSize, maximum: cardSize * 1.4), spacing: Edition.isStudio ? 12 : 16, alignment: .top)], spacing: 18) {
-                        ForEach(list) { entry in
-                            LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id))
-                                .id(entry.id)
-                                // One click handler, so highlighting doesn't wait to see if a
-                                // double-click follows; the second click of one opens it.
-                                .onTapGesture {
-                                    let flags = NSApp.currentEvent?.modifierFlags ?? []
-                                    if flags.contains(.shift) {
-                                        extend(to: entry, in: list)
-                                    } else if flags.contains(.command) {
-                                        toggle(entry)
-                                    } else {
-                                        select(entry)
-                                        if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { open(entry) }
-                                    }
-                                }
-                                .contextMenu { menu(for: entry) }
-                        }
-                    }
-                    .padding(Design.Spacing.window)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
-                        // How many cards fit in a row, the way the adaptive grid lays them out.
-                        let gap = Edition.isStudio ? 12.0 : 16
-                        columns = max(1, Int((width - 40 + gap) / (cardSize + gap)))
-                    }
+                    #else
+                    iconGrid(list)
+                    #endif
                 }
                 // Like the Finder: click to highlight, Space for Quick Look, arrows to move.
                 .focusable()
                 .focused($gridFocused)
                 .focusEffectDisabled()
-                .onKeyPress(.space) { togglePreview() }
-                .onKeyPress(.leftArrow) { move(by: -1, in: list, scroller) }
-                .onKeyPress(.rightArrow) { move(by: 1, in: list, scroller) }
-                .onKeyPress(.upArrow) { move(by: -columns, in: list, scroller) }
-                .onKeyPress(.downArrow) { move(by: columns, in: list, scroller) }
-                .onKeyPress(.return) {
+                .onKeyPress(.space) { if renaming != nil { return .ignored }; return togglePreview() }
+                .onKeyPress(.leftArrow) { if renaming != nil { return .ignored }; return move(by: -1, in: list, scroller) }
+                .onKeyPress(.rightArrow) { if renaming != nil { return .ignored }; return move(by: 1, in: list, scroller) }
+                .onKeyPress(.upArrow) { if renaming != nil { return .ignored }; return move(by: -rowStep, in: list, scroller) }
+                .onKeyPress(.downArrow) { if renaming != nil { return .ignored }; return move(by: rowStep, in: list, scroller) }
+                .onKeyPress(.return) { if renaming != nil { return .ignored };
                     guard let entry = list.first(where: { $0.id == selected }) else { return .ignored }
+                    #if STUDIO
+                    // Return renames, as in Finder (⌘O or a double-click opens).
+                    renaming = entry.id
+                    #else
                     open(entry)
+                    #endif
                     return .handled
                 }
                 // Delete takes them out of the Library; Command-Delete moves the files to the Trash.
-                .onKeyPress(keys: [.delete, .deleteForward]) { press in
+                .onKeyPress(keys: [.delete, .deleteForward]) { press in if renaming != nil { return .ignored };
                     let chosen = list.filter { selection.contains($0.id) }
                     guard !chosen.isEmpty else { return .ignored }
                     if press.modifiers.contains(.command) {
@@ -655,12 +668,102 @@ struct LibraryView: View {
                     }
                     return .handled
                 }
-                .onKeyPress(characters: ["a"]) { press in
+                .onKeyPress(characters: ["a"]) { press in if renaming != nil { return .ignored };
                     guard press.modifiers.contains(.command) else { return .ignored }
                     selection = Set(list.map(\.id))
                     return .handled
                 }
+                #if STUDIO
+                .onKeyPress(characters: ["c"]) { press in if renaming != nil { return .ignored };
+                    guard press.modifiers.contains(.command) else { return .ignored }
+                    FinderFiles.copyToPasteboard(list.filter { selection.contains($0.id) && !missing.contains($0.path) }.map(\.file))
+                    return .handled
+                }
+                .onKeyPress(.escape) { if renaming != nil { return .ignored };
+                    guard !selection.isEmpty else { return .ignored }
+                    selection = []
+                    selected = nil
+                    return .handled
+                }
+                .onKeyPress(phases: .down) { press in if renaming != nil { return .ignored };
+                    guard TypeSelect.isTyping(press), press.key != .space,
+                          let index = TypeSelect.match(typeSelect.add(press.characters), in: list.map(\.title)) else { return .ignored }
+                    select(list[index])
+                    withAnimation(.smooth(duration: 0.2)) { scroller.scrollTo(list[index].id) }
+                    return .handled
+                }
+                #endif
             }
+        }
+    }
+
+    /// The up and down arrows: a row of cards in the grid, one in a list or the gallery.
+    private var rowStep: Int {
+        #if STUDIO
+        return libraryMode == .icons ? columns : 1
+        #else
+        return columns
+        #endif
+    }
+
+    /// The cards (Finder's Icons view).
+    private func iconGrid(_ list: [LibraryStore.Entry]) -> some View {
+        ScrollView {
+            if let subscriptionHeader {
+                subscriptionHeader
+                    .padding([.horizontal, .top], Design.Spacing.window)
+            }
+            // Top-aligned: a card with tags or a two-line title doesn't push its picture down.
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: cardSize, maximum: cardSize * 1.4), spacing: Edition.isStudio ? 12 : 16, alignment: .top)], spacing: 18) {
+                ForEach(list) { entry in
+                    card(entry, in: list)
+                        .id(entry.id)
+                        // One click handler, so highlighting doesn't wait to see if a
+                        // double-click follows; the second click of one opens it.
+                        .onTapGesture { click(entry, in: list) }
+                        .contextMenu { menu(for: entry) }
+                }
+            }
+            .padding(Design.Spacing.window)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width in
+                // How many cards fit in a row, the way the adaptive grid lays them out.
+                let gap = Edition.isStudio ? 12.0 : 16
+                columns = max(1, Int((width - 40 + gap) / (cardSize + gap)))
+            }
+            #if STUDIO
+            // (The whole height: a rubber band can start under the last row.)
+            .frame(maxWidth: .infinity, minHeight: viewport, alignment: .top)
+            .modifier(RubberBand(selection: $selection))
+            #endif
+        }
+        #if STUDIO
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
+        #endif
+    }
+
+    /// A card: in Studio its name can be typed over, and it can be dragged out to Finder or another app.
+    @ViewBuilder private func card(_ entry: LibraryStore.Entry, in list: [LibraryStore.Entry]) -> some View {
+        #if STUDIO
+        LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id),
+                    nameField: renaming == entry.id ? AnyView(nameField(entry)) : nil,
+                    nameTap: { clickName(entry, in: list) })
+            .fileDrag { dragged(entry) }
+            .rubberBandItem(entry.id)
+        #else
+        LibraryCard(entry: entry, isMissing: missing.contains(entry.path), isSelected: selection.contains(entry.id))
+        #endif
+    }
+
+    /// A click (⇧ for a run, ⌘ for one more); the second click of a double-click opens it.
+    private func click(_ entry: LibraryStore.Entry, in list: [LibraryStore.Entry]) {
+        let flags = NSApp.currentEvent?.modifierFlags ?? []
+        if flags.contains(.shift) {
+            extend(to: entry, in: list)
+        } else if flags.contains(.command) {
+            toggle(entry)
+        } else {
+            select(entry)
+            if (NSApp.currentEvent?.clickCount ?? 1) >= 2 { open(entry) }
         }
     }
 
@@ -708,6 +811,10 @@ struct LibraryView: View {
         let present = chosen.filter { !missing.contains($0.path) }
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting(present.map(\.file)) }.disabled(present.isEmpty)
         Button("Add Tag…") { newTag = ""; tagging = chosen.first; taggingMany = chosen }
+        #if STUDIO
+        Button("Copy") { FinderFiles.copyToPasteboard(present.map(\.file)) }.disabled(present.isEmpty)
+        Button("Duplicate") { duplicate(present) }.disabled(present.isEmpty)
+        #endif
         Divider()
         Button("Remove \(chosen.count) Items from Library") { removeFromLibrary(chosen) }
         Button("Move \(present.count) Items to Trash…", role: .destructive) { trashing = present }.disabled(present.isEmpty)
@@ -736,6 +843,12 @@ struct LibraryView: View {
         if let source = entry.source, let url = URL(string: source) {
             Button("Open Page in Browser") { NSWorkspace.shared.open(url) }
         }
+        #if STUDIO
+        Divider()
+        Button("Rename") { select(entry); renaming = entry.id }.disabled(!exists)
+        Button("Duplicate") { duplicate([entry]) }.disabled(!exists)
+        Button("Copy") { FinderFiles.copyToPasteboard([entry.file]) }.disabled(!exists)
+        #endif
         Divider()
         Button("Add Tag…") { newTag = ""; tagging = entry; taggingMany = [] }
         if !entry.tags.isEmpty {
@@ -806,6 +919,7 @@ struct LibraryView: View {
 
     private func open(_ entry: LibraryStore.Entry) {
         #if STUDIO
+        opens += 1
         // Raw clips play in Pluck (most Macs have nothing else that can).
         if RawFormats.isRawVideo(entry.file) { return RawFormats.show(entry.file) }
         #endif
@@ -849,6 +963,9 @@ private struct LibraryCard: View {
     let entry: LibraryStore.Entry
     let isMissing: Bool
     var isSelected = false
+    /// Studio: the name being typed over in place, and a click on the name.
+    var nameField: AnyView? = nil
+    var nameTap: (() -> Void)? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -888,9 +1005,7 @@ private struct LibraryCard: View {
             }
             .opacity(isMissing ? 0.45 : 1)
 
-            Text(entry.title)
-                .font(Edition.isStudio ? Design.Studio.body : .callout.weight(.medium))
-                .lineLimit(Edition.isStudio ? 1 : 2)
+            if let nameField { nameField } else { title }
             HStack(spacing: 4) {
                 if isMissing, LibraryStore.isOnDisconnectedDrive(entry.path) {
                     // Not gone: its drive isn't connected.
@@ -917,6 +1032,13 @@ private struct LibraryCard: View {
         .contentShape(.rect)
         .help(entry.path)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    @ViewBuilder private var title: some View {
+        let text = Text(entry.title)
+            .font(Edition.isStudio ? Design.Studio.body : .callout.weight(.medium))
+            .lineLimit(Edition.isStudio ? 1 : 2)
+        if let nameTap { text.onTapGesture(perform: nameTap) } else { text }
     }
 
     private var radius: CGFloat { Edition.isStudio ? Design.Studio.controlRadius : Design.Radius.thumbnail }
@@ -954,18 +1076,25 @@ private struct LibraryCard: View {
 // MARK: - Folders and clips on disk
 
 extension LibraryView {
-    /// Finder's Favorites: the home folder and its own folders, then the folders (and clips) put
-    /// in the Library, which Search and Photo know (they stay where they are). A folder dropped
-    /// here is put in.
+    /// Finder's Favorites: Pluck's download folder, the home folder and its own folders, the
+    /// folders added here, then the folders (and clips) put in the Library, which Search and Photo
+    /// know (they stay where they are). A folder dropped on the section joins Favorites (a clip,
+    /// the Library); files dropped on a folder go into it (moved on the same drive, ⌥ copies).
     @ViewBuilder var footageSection: some View {
         let footage = FootageFolders.shared
         Section("Favorites") {
             ForEach(Locations.shared.favorites, id: \.self) { url in
                 Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.shared.symbol(for: url))
                     .tag(Collection.location(url.path))
+                    .dropDestination(for: URL.self) { urls, _ in
+                        LibraryPanes.shared.drop(urls, into: url)
+                        return !urls.isEmpty
+                    }
                     .contextMenu {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                         Button("Add to Library") { FootageFolders.shared.add(url) }
+                        Divider()
+                        Button("Remove from Favorites") { Locations.shared.removeFavorite(url) }
                     }
             }
             ForEach(footage.folderItems) { folder in
@@ -981,9 +1110,18 @@ extension LibraryView {
                     .badge(footage.clipItems.count)
                     .tag(Collection.clips)
             }
+            Button { Locations.shared.chooseFavorites() } label: {
+                Label("Add Favorite…", systemImage: "plus")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Keep a folder here to browse it: drag one in, or choose it")
         }
         .dropDestination(for: URL.self) { urls, _ in
-            for url in urls where url.isFileURL { footage.add(url) }
+            for url in urls where url.isFileURL {
+                let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey])).map { $0.isDirectory == true && $0.isPackage != true } ?? false
+                if isFolder, !RawFolderScan.isClipFolder(url) { Locations.shared.addFavorite(url) } else { footage.add(url) }
+            }
             return !urls.isEmpty
         }
     }
@@ -994,6 +1132,10 @@ extension LibraryView {
             ForEach(Locations.shared.drives, id: \.self) { url in
                 Label(FileManager.default.displayName(atPath: url.path), systemImage: Locations.shared.symbol(for: url))
                     .tag(Collection.location(url.path))
+                    .dropDestination(for: URL.self) { urls, _ in
+                        LibraryPanes.shared.drop(urls, into: url)
+                        return !urls.isEmpty
+                    }
                     .contextMenu {
                         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
                         Button("Add to Library") { FootageFolders.shared.add(url) }
@@ -1085,6 +1227,209 @@ extension LibraryView {
         panel.message = String(localized: "Pluck plays and searches them where they are. Nothing is copied.")
         guard panel.runModal() == .OK else { return }
         for url in panel.urls { FootageFolders.shared.add(url) }
+    }
+}
+
+// MARK: - Finder ways for the collections
+
+extension LibraryView {
+    /// The views the collections offer (columns are for folders).
+    static let collectionModes: [FinderViewMode] = [.icons, .list, .gallery]
+
+    /// ⌘1 to ⌘4 (icons, list, columns, gallery), ⌘O, ⌘D and ⌘I, as in Finder.
+    var finderShortcuts: some View {
+        ZStack {
+            ForEach(Array(FinderViewMode.allCases.enumerated()), id: \.element) { index, mode in
+                Button(mode.title) { setMode(mode) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
+            Button("Open") { openSelection() }.keyboardShortcut("o")
+            Button("Duplicate") { duplicateSelection() }.keyboardShortcut("d")
+            Button("Get Info") { detailsShown.toggle() }.keyboardShortcut("i")
+        }
+        .opacity(0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+    }
+
+    private func setMode(_ mode: FinderViewMode) {
+        if isFootage { FinderWorkspace.shared.focused.mode = mode }
+        else if showsGrid, Self.collectionModes.contains(mode) { libraryMode = mode }
+        else { NSSound.beep() }
+    }
+
+    private var chosenEntries: [LibraryStore.Entry] { shown.filter { selection.contains($0.id) && !missing.contains($0.path) } }
+
+    private func openSelection() {
+        if isFootage {
+            let pane = FinderWorkspace.shared.focused
+            if pane.playing == nil, pane.viewing == nil { pane.openSelection() }
+        } else if showsGrid {
+            chosenEntries.forEach(open)
+        }
+    }
+
+    private func duplicateSelection() {
+        if isFootage { FinderWorkspace.shared.focused.duplicateSelection() } else if showsGrid { duplicate(chosenEntries) }
+    }
+
+    /// The one file selected in the folder in front (for the details panel).
+    var footageSelected: FinderItem? {
+        let pane = FinderWorkspace.shared.focused
+        guard pane.selection.count == 1, pane.playing == nil, pane.viewing == nil else { return nil }
+        return pane.items.first { pane.selection.contains($0.url) }
+    }
+
+    /// Copies beside them (in the Library too), the copies selected.
+    func duplicate(_ entries: [LibraryStore.Entry]) {
+        var made: Set<String> = []
+        for entry in entries {
+            do { made.insert(try FinderFiles.duplicate(entry.file).path) } catch { fileProblem = error.localizedDescription }
+        }
+        guard !made.isEmpty else { return }
+        selection = made
+        selected = made.first
+    }
+
+    /// The file renamed (its extension kept) and the item's title with it.
+    private func rename(_ entry: LibraryStore.Entry, to name: String) {
+        renaming = nil
+        let name = name.trimmingCharacters(in: .whitespaces)
+        guard name != entry.title else { return }
+        let ext = entry.file.pathExtension
+        do {
+            let target = try FinderFiles.rename(entry.file, to: ext.isEmpty ? name : name + "." + ext)
+            library.setTitle(name, for: target.path)
+            selection = [target.path]
+            selected = target.path
+            anchor = target.path
+        } catch {
+            fileProblem = error.localizedDescription
+        }
+        gridFocused = true
+    }
+
+    func nameField(_ entry: LibraryStore.Entry) -> some View {
+        InlineNameField(initial: entry.title) { rename(entry, to: $0) } cancel: { renaming = nil; gridFocused = true }
+    }
+
+    /// A click on a card's name: the one already selected has its name typed over (unless a
+    /// double-click opens it); otherwise a click as anywhere on the card.
+    func clickName(_ entry: LibraryStore.Entry, in list: [LibraryStore.Entry]) {
+        let plain = (NSApp.currentEvent?.modifierFlags ?? []).isDisjoint(with: [.shift, .command])
+        if plain, selection == [entry.id], (NSApp.currentEvent?.clickCount ?? 1) == 1, !missing.contains(entry.path) {
+            let before = opens
+            Task {
+                try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval + 0.1))
+                if opens == before, selection == [entry.id], renaming == nil { renaming = entry.id }
+            }
+        }
+        click(entry, in: list)
+    }
+
+    /// Dragged out: the selection when the card's in it, else the card (files that are there).
+    func dragged(_ entry: LibraryStore.Entry) -> [URL] {
+        let chosen = selection.contains(entry.id) ? shown.filter { selection.contains($0.id) } : [entry]
+        return chosen.filter { !missing.contains($0.path) }.map(\.file)
+    }
+
+    /// Finder's List view: sortable, resizable columns.
+    func libraryTable(_ list: [LibraryStore.Entry]) -> some View {
+        let rows = list.map(LibraryRow.init).sorted(using: tableOrder)
+        return Table(rows, selection: $selection, sortOrder: $tableOrder) {
+            TableColumn("Name", value: \.name) { row in
+                if renaming == row.id { nameField(row.entry) } else {
+                    Text(row.name).lineLimit(1).truncationMode(.middle)
+                        .opacity(missing.contains(row.entry.path) ? 0.45 : 1)
+                        .fileDrag { dragged(row.entry) }
+                }
+            }
+            .width(min: 160, ideal: 320)
+            TableColumn("Date Added", value: \.added) { row in
+                Text(row.added.formatted(date: .abbreviated, time: .shortened)).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .width(min: 110, ideal: 150)
+            TableColumn("Size", value: \.size) { row in
+                Text(row.size > 0 ? ByteCountFormatter.string(fromByteCount: row.size, countStyle: .file) : "—")
+                    .foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
+            }
+            .width(min: 60, ideal: 80)
+            TableColumn("Kind", value: \.kind) { row in Text(row.kind).foregroundStyle(Design.Studio.textQuiet) }
+                .width(min: 60, ideal: 80)
+            TableColumn("Duration", value: \.duration) { row in
+                Text(row.duration > 0 ? Format.duration(row.duration) : "").foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
+            }
+            .width(min: 60, ideal: 80)
+        }
+        .contextMenu(forSelectionType: String.self) { ids in
+            if let id = ids.first, let entry = list.first(where: { $0.id == id }) { menu(for: entry) }
+        } primaryAction: { ids in
+            list.filter { ids.contains($0.id) && !missing.contains($0.path) }.forEach(open)
+        }
+        .scrollContentBackground(.hidden)
+        .font(Design.Studio.body)
+    }
+
+    /// Finder's Gallery view: the chosen item large, every item in a filmstrip below.
+    func libraryGallery(_ list: [LibraryStore.Entry]) -> some View {
+        StudioGallery(items: list, current: selected, choose: { click($0, in: list) }, open: open) { entry in
+            VStack(spacing: 10) {
+                AsyncImage(url: entry.thumbnail) { phase in
+                    if let image = phase.image { image.resizable().scaledToFit() } else {
+                        Image(systemName: LibraryRow.symbol(entry)).font(.system(size: 48)).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                if renaming == entry.id { nameField(entry).frame(maxWidth: 360) } else {
+                    Text(entry.title).font(Design.Studio.sectionTitle).lineLimit(1)
+                }
+                Text([LibraryRow.kindName(entry), entry.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }]
+                        .compactMap { $0 }.joined(separator: " · "))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .opacity(missing.contains(entry.path) ? 0.45 : 1)
+            .contextMenu { menu(for: entry) }
+            .fileDrag { dragged(entry) }
+        } thumb: { entry in
+            AsyncImage(url: entry.thumbnail) { phase in
+                if let image = phase.image { image.resizable().scaledToFill() } else {
+                    Image(systemName: LibraryRow.symbol(entry)).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Design.Studio.raised)
+            .contextMenu { menu(for: entry) }
+        }
+    }
+}
+
+/// A list row's values, for sorting by any column.
+struct LibraryRow: Identifiable {
+    let entry: LibraryStore.Entry
+    var id: String { entry.id }
+    var name: String { entry.title }
+    var added: Date { entry.added }
+    var size: Int64 { entry.size ?? -1 }
+    var kind: String { Self.kindName(entry) }
+    var duration: Double { entry.duration ?? 0 }
+
+    static func kindName(_ entry: LibraryStore.Entry) -> String {
+        switch entry.kind {
+        case .video: String(localized: "Video")
+        case .audio: String(localized: "Audio")
+        case .photo: String(localized: "Photo")
+        case .other: String(localized: "File")
+        }
+    }
+
+    static func symbol(_ entry: LibraryStore.Entry) -> String {
+        switch entry.kind {
+        case .video: "film"
+        case .audio: "music.note"
+        case .photo: "photo"
+        case .other: "doc"
+        }
     }
 }
 #endif

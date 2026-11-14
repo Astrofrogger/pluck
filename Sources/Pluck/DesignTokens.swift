@@ -899,6 +899,10 @@ struct StudioSegmented<Value: Hashable>: View {
     var ground = Design.Studio.backdrop
     let options: [(value: Value, title: LocalizedStringKey)]
     @Binding var selection: Value
+    /// Symbols shown instead of the titles (the titles become the help and what VoiceOver says).
+    var symbols: [String] = []
+    /// Across the whole width, the parts equally wide (a panel's switch); otherwise each as wide as its title.
+    var fill = false
 
     var body: some View {
         HStack(spacing: 2) {
@@ -906,15 +910,23 @@ struct StudioSegmented<Value: Hashable>: View {
                 let option = options[index]
                 let on = option.value == selection
                 Button { selection = option.value } label: {
-                    Text(option.title)
+                    Group {
+                        if index < symbols.count { Image(systemName: symbols[index]).font(.system(size: 11)) } else { Text(option.title) }
+                    }
                         .font(Design.Studio.body)
                         .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
-                        .padding(.horizontal, 10)
+                        .lineLimit(1)
+                        .minimumScaleFactor(fill ? 0.85 : 1)
+                        // (Filling a narrow panel: less room round each title, so three fit.)
+                        .padding(.horizontal, fill ? 4 : 10)
+                        .frame(maxWidth: fill ? .infinity : nil)
                         .frame(height: 24)
                         .background(on ? Design.Studio.line : .clear, in: .rect(cornerRadius: 6, style: .continuous))
                         .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+                .help(index < symbols.count ? Text(option.title) : Text(verbatim: ""))
+                .accessibilityLabel(Text(option.title))
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
         }

@@ -7,8 +7,8 @@ import SwiftUI
 /// Keys (as i3 and Sway, with ⌥⌘ for their Mod key):
 /// ⌘\ splits the pane in front to the right, ⇧⌘\ below; ⌘W closes it (with one pane, the window);
 /// ⌥⌘ + arrows moves between panes; ⇧⌥⌘ + arrows swaps them;
-/// ⌥⌘1, ⌥⌘2, ⌥⌘3: icons, list, columns; ⌥⌘T turns a split (side by side, one above the other);
-/// ⇧⌘N: a new folder in the pane in front; ⌥⌘V moves what was copied into it.
+/// ⌘1 to ⌘4 (icons, list, columns, gallery: held by the Library); ⌥⌘T turns a split (side by
+/// side, one above the other); ⇧⌘N: a new folder in the pane in front; ⌥⌘V moves what was copied into it.
 struct FinderWorkspaceView: View {
     @State private var workspace = FinderWorkspace.shared
 
@@ -52,10 +52,7 @@ struct FinderWorkspaceView: View {
             Button("Swap Right") { workspace.swap(.right) }.keyboardShortcut(.rightArrow, modifiers: [.command, .option, .shift])
             Button("Swap Up") { workspace.swap(.up) }.keyboardShortcut(.upArrow, modifiers: [.command, .option, .shift])
             Button("Swap Down") { workspace.swap(.down) }.keyboardShortcut(.downArrow, modifiers: [.command, .option, .shift])
-            Button("Icons") { workspace.focused.mode = .icons }.keyboardShortcut("1", modifiers: [.command, .option])
-            Button("List") { workspace.focused.mode = .list }.keyboardShortcut("2", modifiers: [.command, .option])
-            Button("Columns") { workspace.focused.mode = .columns }.keyboardShortcut("3", modifiers: [.command, .option])
-            Button("New Folder") { if workspace.focused.list == nil { workspace.focused.naming = .newFolder } }
+            Button("New Folder") { workspace.focused.newFolderInPlace() }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Move Here") { workspace.focused.paste(move: true) }.keyboardShortcut("v", modifiers: [.command, .option])
             Button("Turn Split") { workspace.turn() }.keyboardShortcut("t", modifiers: [.command, .option])
@@ -206,6 +203,8 @@ struct FinderPaneView: View {
         .onChange(of: isFront, initial: true) { _, front in if front { focused = true } }
         .onChange(of: focused) { _, now in if now { workspace.focus(pane) } }
         .onChange(of: pane.selection) { FinderQuickLook.shared.follow(pane) }
+        // A name typed in place, done: the keys are the folder's again.
+        .onChange(of: pane.naming) { _, naming in if naming == nil, isFront { focused = true } }
         // Dropped here (from another pane, or Finder): copied into this folder, checked.
         .dropDestination(for: URL.self) { urls, _ in
             guard pane.list == nil, !urls.isEmpty else { return false }
@@ -246,15 +245,9 @@ struct FinderPaneView: View {
             }
             Spacer(minLength: 8)
             if pane.playing == nil {
-                Picker("View", selection: $pane.mode) {
-                    ForEach(FinderViewMode.allCases) { mode in
-                        Image(systemName: mode.symbol).help(Text(mode.title)).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .help("Icons, list or columns (⌥⌘1, ⌥⌘2, ⌥⌘3)")
+                StudioSegmented(options: FinderViewMode.allCases.map { ($0, $0.title) },
+                                selection: $pane.mode, symbols: FinderViewMode.allCases.map(\.symbol))
+                    .fixedSize()
                 Menu {
                     Picker("Sort By", selection: $pane.sort) {
                         Text("Name").tag(FinderPane.Sort.name)
@@ -265,7 +258,7 @@ struct FinderPaneView: View {
                     Toggle("Ascending", isOn: $pane.ascending)
                     Divider()
                     if pane.list == nil {
-                        Button("New Folder", systemImage: "folder.badge.plus") { pane.naming = .newFolder }
+                        Button("New Folder", systemImage: "folder.badge.plus") { pane.newFolderInPlace() }
                     }
                     if pane.list == nil, FootageFolders.shared.folder(containing: pane.url.path) == nil {
                         Button("Add to Library", systemImage: "plus.rectangle.on.folder") { FootageFolders.shared.add(pane.url) }
@@ -309,6 +302,7 @@ struct FinderPaneView: View {
             case .icons: FinderIconsView(pane: pane)
             case .list: FinderListView(pane: pane)
             case .columns: FinderColumnsView(pane: pane)
+            case .gallery: FinderGalleryView(pane: pane)
             }
         }
     }
@@ -322,7 +316,7 @@ private struct FinderKeys: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
+            .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in if pane.naming != nil { return .ignored };
                 if press.modifiers.contains(.command) {
                     if press.key == .upArrow { pane.goUp(); return .handled }
                     if press.key == .downArrow { pane.openSelection(); return .handled }
@@ -330,6 +324,11 @@ private struct FinderKeys: ViewModifier {
                 }
                 guard pane.mode != .list else { return .ignored }
                 let extend = press.modifiers.contains(.shift)
+                // Gallery: one along the filmstrip either way.
+                if pane.mode == .gallery {
+                    pane.move(by: press.key == .leftArrow || press.key == .upArrow ? -1 : 1, extend: extend)
+                    return .handled
+                }
                 // Columns, as Finder: left to the folder before, right into the one chosen.
                 if pane.mode == .columns, press.key == .leftArrow || press.key == .rightArrow {
                     if press.key == .leftArrow {
@@ -348,15 +347,26 @@ private struct FinderKeys: ViewModifier {
                 }
                 return .handled
             }
-            .onKeyPress(.return) { pane.openSelection(); return .handled }
+            // Return renames, as in Finder (⌘O, ⌘↓ or a double-click opens).
+            .onKeyPress(.return) { if pane.naming != nil { return .ignored }; if pane.list == nil { pane.beginRename() } else { pane.openSelection() }; return .handled }
+            .onKeyPress(.escape) { if pane.naming != nil { return .ignored };
+                guard !pane.selection.isEmpty else { return .ignored }
+                pane.selection = []
+                return .handled
+            }
+            .onKeyPress(phases: .down) { press in if pane.naming != nil { return .ignored };
+                guard TypeSelect.isTyping(press), press.key != .space else { return .ignored }
+                pane.jump(press.characters)
+                return .handled
+            }
             // Space: Quick Look, as in Finder.
-            .onKeyPress(.space) { FinderQuickLook.shared.toggle(pane); return .handled }
-            .onKeyPress(.delete, phases: .down) { press in
+            .onKeyPress(.space) { if pane.naming != nil { return .ignored }; FinderQuickLook.shared.toggle(pane); return .handled }
+            .onKeyPress(.delete, phases: .down) { press in if pane.naming != nil { return .ignored };
                 guard press.modifiers.contains(.command) else { return .ignored }
                 pane.trashSelection()
                 return .handled
             }
-            .onKeyPress(keys: ["a", "c", "v", "[", "]"]) { press in
+            .onKeyPress(keys: ["a", "c", "v", "[", "]"]) { press in if pane.naming != nil { return .ignored };
                 guard press.modifiers.contains(.command) else { return .ignored }
                 switch press.characters {
                 case "a": pane.selectAll()
@@ -380,19 +390,25 @@ private struct FinderIconsView: View {
     let pane: FinderPane
     @AppStorage("finderIconSize") private var iconSize = 170.0
 
+    @State private var viewport: CGFloat = 0
+
     var body: some View {
         ScrollViewReader { scroller in
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: iconSize, maximum: iconSize * 1.25), spacing: 14)], spacing: 18) {
                     ForEach(pane.shown) { item in
-                        FinderIconTile(item: item, pane: pane, width: iconSize).id(item.url)
+                        FinderIconTile(item: item, pane: pane, width: iconSize).id(item.url).rubberBandItem(item.url)
                     }
                 }
                 .padding(16)
+                // (The whole height: a rubber band can start under the last row.)
+                .frame(maxWidth: .infinity, minHeight: viewport, alignment: .top)
+                // Clicking the space between: nothing selected; dragging there: a rubber band.
+                .modifier(RubberBand(selection: Bindable(pane).selection))
+                .contextMenu { FinderFolderMenu(pane: pane) }
             }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewport = $0 }
             .onChange(of: pane.anchor) { _, url in if let url { withAnimation { scroller.scrollTo(url) } } }
-            // Clicking the space between: nothing selected.
-            .background(Color.clear.contentShape(.rect).onTapGesture { pane.selection = [] }.contextMenu { FinderFolderMenu(pane: pane) })
         }
         .overlay(alignment: .bottomTrailing) {
             Slider(value: $iconSize, in: 110...320)
@@ -419,15 +435,19 @@ private struct FinderIconTile: View {
             picture
                 .frame(width: width, height: width * 0.6)
                 .background(selected || targeted ? Color.primary.opacity(0.12) : Color.clear, in: .rect(cornerRadius: Design.Radius.thumbnail))
-            Text(item.name)
-                .font(.callout)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .truncationMode(.middle)
-                .padding(.horizontal, 6)
-                .padding(.vertical, 1)
-                .foregroundStyle(selected ? Color.white : Color.primary)
-                .background(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
+            if pane.naming == .rename(item.url) {
+                FinderNameField(item: item, pane: pane)
+            } else {
+                Text(item.name)
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .foregroundStyle(selected ? Color.white : Color.primary)
+                    .background(selected ? AnyShapeStyle(.tint) : AnyShapeStyle(Color.clear), in: .rect(cornerRadius: 4))
+            }
             if item.isClip, let summary = thumbs.summaries[item.url] {
                 Text(Self.caption(summary)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
             }
@@ -435,7 +455,12 @@ private struct FinderIconTile: View {
         .frame(width: width)
         .contentShape(.rect)
         .onTapGesture(count: 2) { pane.open(item) }
-        .simultaneousGesture(TapGesture().onEnded { pane.click(item, modifiers: Self.modifiers) })
+        .simultaneousGesture(SpatialTapGesture().onEnded { tap in
+            // A click on the name of the one already selected: renamed in place, as in Finder.
+            let rename = Self.modifiers.isEmpty && pane.selection == [item.url] && tap.location.y > width * 0.6
+            pane.click(item, modifiers: Self.modifiers)
+            if rename { pane.renameSoon(item.url) }
+        })
         .fileDrag { FinderDrag.urls(item.url, in: pane) }
         .modifier(FolderDrop(item: item, targeted: $targeted))
         .contextMenu { FinderItemMenu(item: item, pane: pane) }
@@ -514,7 +539,7 @@ private struct FinderFolderMenu: View {
 
     var body: some View {
         if pane.list == nil {
-            Button("New Folder") { pane.naming = .newFolder }
+            Button("New Folder") { pane.newFolderInPlace() }
             Button("Paste") { pane.paste() }
             Button("Move Here") { pane.paste(move: true) }
             Divider()
@@ -523,52 +548,38 @@ private struct FinderFolderMenu: View {
     }
 }
 
-/// Asks for a name: a new folder's, or a file's new one (as Finder's New Folder and Rename).
+/// Why a rename or a new folder couldn't be done, and asking before files go to the Trash.
 private struct FinderNaming: ViewModifier {
-    let pane: FinderPane
-    @State private var name = ""
-    @State private var problem: String?
-    /// Asked again after it couldn't be done: the name typed and why stay.
-    @State private var again = false
+    @Bindable var pane: FinderPane
 
     func body(content: Content) -> some View {
         content
-            .alert(title, isPresented: Binding(get: { pane.naming != nil }, set: { if !$0 { pane.naming = nil } })) {
-                TextField("Name", text: $name)
-                Button(pane.naming == .newFolder ? "Create" : "Rename") { finish() }
-                Button("Cancel", role: .cancel) { pane.naming = nil }
+            .alert("Can’t Do That", isPresented: Binding(get: { pane.problem != nil }, set: { if !$0 { pane.problem = nil } })) {
+                Button("OK") { pane.problem = nil }
             } message: {
-                if let problem { Text(problem) }
+                Text(pane.problem ?? "")
             }
-            .onChange(of: pane.naming, initial: true) { _, naming in
-                guard naming != nil else { return }
-                if again { again = false; return }
-                problem = nil
-                switch naming {
-                case .rename(let url): name = url.lastPathComponent
-                default: name = pane.freeFolderName
-                }
+            .confirmationDialog(pane.trashing.count == 1 ? String(localized: "Move “\(pane.trashing[0].lastPathComponent)” to the Trash?")
+                                    : String(localized: "Move \(pane.trashing.count) items to the Trash?"),
+                                isPresented: Binding(get: { !pane.trashing.isEmpty }, set: { if !$0 { pane.trashing = [] } })) {
+                Button("Move to Trash", role: .destructive) { pane.trash(pane.trashing) }
+            } message: {
+                Text("You can put it back from the Trash in Finder.")
             }
     }
+}
 
-    private var title: String {
-        if case .rename(let url) = pane.naming { return String(localized: "Rename “\(url.lastPathComponent)”") }
-        return String(localized: "New Folder")
-    }
+/// A file's or folder's name typed over in place (Return, or a click on the selected one's name).
+struct FinderNameField: View {
+    let item: FinderItem
+    let pane: FinderPane
 
-    private func finish() {
-        guard let naming = pane.naming else { return }
-        let failed: String?
-        switch naming {
-        case .newFolder: failed = pane.newFolder(named: name)
-        case .rename(let url): failed = pane.rename(url, to: name)
-        }
-        // (Asked again, with why, when it couldn't be done.)
-        pane.naming = nil
-        if let failed {
-            problem = failed
-            again = true
-            Task { @MainActor in pane.naming = naming }
+    var body: some View {
+        InlineNameField(initial: item.url.lastPathComponent) { name in
+            pane.naming = nil
+            if let failed = pane.rename(item.url, to: name) { pane.problem = failed }
+        } cancel: {
+            pane.naming = nil
         }
     }
 }
@@ -602,7 +613,13 @@ private struct FinderItemMenu: View {
         }
         Divider()
         Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) }
-        if pane.list == nil { Button("Rename…") { pane.naming = .rename(item.url) } }
+        if pane.list == nil {
+            Button("Rename") { pane.selection = [item.url]; pane.anchor = item.url; pane.naming = .rename(item.url) }
+            Button("Duplicate") {
+                if !pane.selection.contains(item.url) { pane.selection = [item.url] }
+                pane.duplicateSelection()
+            }
+        }
         Button("Copy") {
             if !pane.selection.contains(item.url) { pane.selection = [item.url] }
             pane.copySelection()
@@ -618,7 +635,7 @@ private struct FinderItemMenu: View {
             }
         }
         Divider()
-        Button("Move to Trash", role: .destructive) {
+        Button("Move to Trash…", role: .destructive) {
             if !pane.selection.contains(item.url) { pane.selection = [item.url] }
             pane.trashSelection()
         }
@@ -638,7 +655,11 @@ private struct FinderListView: View {
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
                     FinderSmallIcon(item: row.item)
-                    Text(row.name).lineLimit(1).truncationMode(.middle)
+                    if pane.naming == .rename(row.item.url) {
+                        FinderNameField(item: row.item, pane: pane)
+                    } else {
+                        Text(row.name).lineLimit(1).truncationMode(.middle)
+                    }
                 }
                 .fileDrag { FinderDrag.urls(row.item.url, in: pane) }
             }
@@ -700,6 +721,42 @@ private struct FinderRow: Identifiable {
     var fps: Double { summary?.fps ?? 0 }
 }
 
+// MARK: - Gallery
+
+/// Finder's Gallery view: the chosen file large (a clip's picture, a photo), the folder in a
+/// filmstrip below; the arrows go along it.
+private struct FinderGalleryView: View {
+    let pane: FinderPane
+    @State private var thumbs = FinderThumbnails.shared
+
+    var body: some View {
+        StudioGallery(items: pane.shown, current: pane.anchor ?? pane.selection.first,
+                      choose: { pane.click($0, modifiers: EventModifiers.held) }, open: { pane.open($0) }) { item in
+            VStack(spacing: 10) {
+                picture(item).frame(maxWidth: .infinity, maxHeight: .infinity)
+                Text(item.name).font(Design.Studio.sectionTitle).lineLimit(1).truncationMode(.middle)
+                Text([item.kind, item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }].compactMap { $0 }.joined(separator: " · "))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .contextMenu { FinderItemMenu(item: item, pane: pane) }
+            .fileDrag { FinderDrag.urls(item.url, in: pane) }
+            .modifier(FinderWantsPicture(item: item))
+        } thumb: { item in
+            picture(item).frame(maxWidth: .infinity, maxHeight: .infinity).background(Design.Studio.raised)
+                .modifier(FinderWantsPicture(item: item))
+                .contextMenu { FinderItemMenu(item: item, pane: pane) }
+        }
+    }
+
+    @ViewBuilder private func picture(_ item: FinderItem) -> some View {
+        if let image = item.isClip ? thumbs.posters[item.url] : thumbs.pictures[item.url] {
+            Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit)
+        } else {
+            Image(nsImage: item.icon).resizable().aspectRatio(contentMode: .fit).padding(6)
+        }
+    }
+}
+
 // MARK: - Columns
 
 /// Folders side by side, as Finder's (and ranger's) column view: each folder chosen opens the
@@ -748,7 +805,11 @@ private struct FinderColumn: View {
                     let on = item.url.standardizedFileURL.path == chosen?.standardizedFileURL.path || (current && pane.selection.contains(item.url))
                     HStack(spacing: 6) {
                         FinderSmallIcon(item: item)
-                        Text(item.name).lineLimit(1).truncationMode(.middle)
+                        if current, pane.naming == .rename(item.url) {
+                            FinderNameField(item: item, pane: pane)
+                        } else {
+                            Text(item.name).lineLimit(1).truncationMode(.middle)
+                        }
                         Spacer(minLength: 4)
                         if item.isFolder { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary) }
                     }
@@ -818,7 +879,7 @@ private struct FinderPreview: View {
 /// A photo's picture (or a clip's poster) asked for while it's shown, for the file shown now (a
 /// list's row, or the column view's end, shows another file without appearing again), and no
 /// longer made once it's gone.
-private struct FinderWantsPicture: ViewModifier {
+struct FinderWantsPicture: ViewModifier {
     let item: FinderItem
 
     func body(content: Content) -> some View {

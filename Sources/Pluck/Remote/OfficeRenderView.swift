@@ -16,7 +16,7 @@ struct OfficeRenderView: View {
             }
         }
         .foregroundStyle(Design.Studio.text)
-        .frame(minWidth: 760, minHeight: 600)
+        .frame(minWidth: 760)
     }
 }
 
@@ -31,8 +31,8 @@ private struct AnywhereSidebar<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Edit Anywhere").font(.system(size: 20)).padding(.horizontal, 8)
-            WideSegmented(options: [(.home, "Use another Mac"), (.office, "Share this Mac")], selection: $side)
+            Text("Edit Anywhere").font(Design.Studio.pageTitle).padding(.horizontal, 8)
+            StudioSegmented(options: [(.home, "Use another Mac"), (.office, "Share this Mac")], selection: $side, fill: true)
                 .padding(.horizontal, 8)
                 .help("Use another Mac from this one, or share this Mac with others")
             content
@@ -47,35 +47,6 @@ private struct AnywhereSidebar<Content: View>: View {
         .frame(width: 280)
         .frame(maxHeight: .infinity, alignment: .top)
         .studioPanel()
-    }
-}
-
-/// StudioSegmented, but each choice takes an even share of the full width (board ToolAnywhere).
-private struct WideSegmented<Value: Hashable>: View {
-    let options: [(value: Value, title: LocalizedStringKey)]
-    @Binding var selection: Value
-
-    var body: some View {
-        HStack(spacing: 2) {
-            ForEach(options.indices, id: \.self) { index in
-                let option = options[index]
-                let on = option.value == selection
-                Button { selection = option.value } label: {
-                    Text(option.title)
-                        .font(Design.Studio.body)
-                        .foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 24)
-                        .background(on ? Design.Studio.line : .clear, in: .rect(cornerRadius: 6, style: .continuous))
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(on ? .isSelected : [])
-            }
-        }
-        .padding(2)
-        .background(Design.Studio.backdrop, in: .rect(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -273,6 +244,11 @@ private struct HomeRenderView: View {
                         NavRow(symbol: "sparkle.magnifyingglass", title: "Search the archive", selected: pane == .archive) { pane = .archive }
                         NavRow(symbol: "arrow.up.arrow.down", title: "Files", selected: pane == .proxies) { pane = .proxies }
                     }
+                } else {
+                    Text("Join a Mac to render, search and fetch files on it from here.")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 8)
                 }
             }
             if let office = client.office {
@@ -317,7 +293,7 @@ private struct HomeRenderView: View {
                 StudioTile(symbol: "globe.europe.africa", colour: Design.Studio.textQuiet)
                     .accessibilityHidden(true)
                     .padding(.bottom, 6)
-                Text("Edit from anywhere").font(Design.Studio.pageTitle)
+                Text("Edit from anywhere").font(Design.Studio.sectionTitle)
                 Text("Render on another Mac and search its footage, from home or on the road.")
                     .font(Design.Studio.body)
                     .multilineTextAlignment(.center)
@@ -413,7 +389,7 @@ private struct HomeRenderView: View {
     private var activity: some View {
         if joining {
             HStack(spacing: 8) {
-                ProgressView().controlSize(.small)
+                PlumSpinner()
                 Text("Connecting… The first time takes up to a minute.").foregroundStyle(Design.Studio.textQuiet)
             }
             .font(Design.Studio.body)
@@ -465,7 +441,7 @@ private struct HomeRenderView: View {
         HStack {
             Text("Render on \(office.name)").font(Design.Studio.sectionTitle)
             Spacer()
-            if working { ProgressView().controlSize(.small) }
+            if working { PlumSpinner() }
             IconButton(symbol: "arrow.clockwise", label: projects.isEmpty ? "Load the projects" : "Reload the projects") {
                 Task {
                     await run { projects = try await client.projects() }
@@ -854,7 +830,7 @@ private struct OfficeSideView: View {
                     Text("Reachable as \(name.isEmpty ? address : name)")
                         .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    if inviting { ProgressView().controlSize(.small) }
+                    if inviting { PlumSpinner() }
                     Button {
                         makeInvitation()
                     } label: {
@@ -1260,7 +1236,7 @@ private struct ArchiveSearchPane: View {
             }
             HStack(spacing: 8) {
                 if searching {
-                    ProgressView().controlSize(.small)
+                    PlumSpinner()
                     Text("Searching the footage…")
                 } else if let problem {
                     ProblemLine(text: problem)
@@ -1384,7 +1360,7 @@ private struct ProxiesPane: View {
         VStack(alignment: .leading, spacing: 12) {
             PaneHeader(title: Text("From the host Mac"),
                        subtitle: Text("Proxies of a footage folder to edit with, or the originals. Each file comes as soon as it’s ready.")) {
-                if loading { ProgressView().controlSize(.small) }
+                if loading { PlumSpinner() }
             }
             HStack(spacing: 24) {
                 HStack(spacing: 8) {
@@ -1454,7 +1430,7 @@ private struct ProxiesPane: View {
                     }
                     IconButton(symbol: "xmark", label: "Stop Fetching") { sync.remove(job) }
                 } else if starting == folder.id {
-                    ProgressView().controlSize(.small)
+                    PlumSpinner()
                 } else {
                     Button(format == .original ? "Fetch" : "Make proxies") { start(folder) }
                         .buttonStyle(StudioFlatButtonStyle())

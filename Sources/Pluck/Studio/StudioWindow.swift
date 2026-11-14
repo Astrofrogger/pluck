@@ -202,7 +202,8 @@ private struct PageButton: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .keyboardShortcut(page.shortcut, modifiers: .command)
+        // (On the Library, ⌘1 to ⌘4 choose its view, as in Finder.)
+        .keyboardShortcut(nav.page == .library && page != .tools ? nil : KeyboardShortcut(page.shortcut, modifiers: .command))
         .help(Text(page.title))
         .onHover { hovering = $0 }
         .animation(.snappy(duration: 0.2), value: on)
@@ -950,7 +951,8 @@ private struct ToolsPage: View {
                             if !shown.isEmpty {
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text(group.title).font(Design.Studio.sectionTitle)
-                                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 3), spacing: 8) {
+                                    // Three across as in the reference; two in a narrow window so the lines aren't cut.
+                                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 8)], spacing: 8) {
                                         ForEach(shown) { tool in
                                             Button { open(tool) } label: { ToolCard(tool: tool) }
                                                 .buttonStyle(.plain)
@@ -959,6 +961,9 @@ private struct ToolsPage: View {
                                     }
                                 }
                             }
+                        }
+                        if !Self.groups.contains(where: { $0.tools.contains(where: matches) }) {
+                            Text("No tool matches “\(find)”.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                         }
                     }
                     .padding(.horizontal, 32)
@@ -1122,10 +1127,7 @@ private struct ToolsActivity: View {
                     Spacer(minLength: 0)
                     Text(share, format: .percent.precision(.fractionLength(0))).font(Design.Studio.body.monospacedDigit())
                 }
-                Capsule().fill(Design.Studio.line).frame(height: 3)
-                    .overlay(alignment: .leading) {
-                        GeometryReader { g in Capsule().fill(Design.Brand.gradient).frame(width: g.size.width * share, height: 3) }
-                    }
+                StudioProgress(share: share)
                 if let footer {
                     HStack { footer.0; Spacer(); footer.1 }
                         .font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)

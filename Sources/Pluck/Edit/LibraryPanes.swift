@@ -27,9 +27,15 @@ final class LibraryPanes {
         }
     }
 
-    /// A drop: ⌘ held moves, as in Finder; otherwise a checked copy.
+    /// A drop, as in Finder: on the same drive it moves (⌥ held copies); to another drive (a
+    /// card, a disk) it's a checked copy (⌘ held moves).
     func drop(_ items: [URL], into folder: URL) {
-        copy(items, into: folder, move: NSEvent.modifierFlags.contains(.command))
+        let flags = NSEvent.modifierFlags
+        let files = items.filter(\.isFileURL)
+        let local = flags.contains(.option) ? [] : files.filter { FinderFiles.sameVolume($0, folder) }
+        if !local.isEmpty, let failed = FinderFiles.move(local, into: folder) { problem = failed }
+        let rest = files.filter { !local.contains($0) }
+        if !rest.isEmpty { copy(rest, into: folder, move: flags.contains(.command) && !flags.contains(.option)) }
     }
 }
 

@@ -285,17 +285,32 @@ struct PhotoPage: View {
             // Back in Edit (or one at a time) from last time: with the first photo.
             if view != .grid, focus == nil { focus = photos.first }
             FootageFolders.shared.start()
-            PhotoIndex.shared.enqueue(catalog.allPhotos)
             catalog.readSidecars(catalog.allPhotos)
-            checks.enqueue(catalog.allPhotos)
-            PhotoFacts.shared.enqueue(catalog.allPhotos)
-            PhotoPeople.shared.enqueue(catalog.allPhotos)
-            PhotoTagger.shared.enqueue(catalog.allPhotos)
+            // The library's background work (what's in each photo, checks, facts, faces, tags) a few seconds later: started
+            // at once, it shared the GPU with the first photo shown and made it wait.
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(ScreenshotMode.scene == "phototest" ? 0 : 4))
+                PhotoIndex.shared.enqueue(catalog.allPhotos)
+                checks.enqueue(catalog.allPhotos)
+                PhotoFacts.shared.enqueue(catalog.allPhotos)
+                PhotoPeople.shared.enqueue(catalog.allPhotos)
+                PhotoTagger.shared.enqueue(catalog.allPhotos)
+                PhotoPreviewBuilder.shared.enqueue(photos)
+            }
             PhotoRender.trimCaches()
             // Screenshots: -PluckScreenshotLoupe YES shows the first photo large.
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotLoupe") {
                 focus = photos.first
                 view = .edit
+            }
+            // -PluckScreenshotStep <seconds>: then on to the next photo every that many seconds, as the arrow key does (timing).
+            if ScreenshotMode.scene == "photo", let step = Double(UserDefaults.standard.string(forKey: "PluckScreenshotStep") ?? "") {
+                Task { @MainActor in
+                    for next in photos.dropFirst() {
+                        try? await Task.sleep(for: .seconds(step))
+                        focus = next
+                    }
+                }
             }
             // -PluckScreenshotCompare YES: the first two side by side (with -PluckScreenshotClipping YES: clipping shown).
             if ScreenshotMode.scene == "photo", UserDefaults.standard.bool(forKey: "PluckScreenshotCompare") {
@@ -369,7 +384,7 @@ struct PhotoPage: View {
                 source = .smart(saved.id)
             }
         }
-        .onChange(of: sourceKey) { mapPick = nil }
+        .onChange(of: sourceKey) { mapPick = nil; PhotoPreviewBuilder.shared.enqueue(photos) }
     }
 
     // MARK: - Sidebar
@@ -2055,14 +2070,26 @@ struct PhotoLoupe: View {
     /// slider rests; the helper's film (a second or so) after that.
     private func develop() async {
         problem = nil
+        LoupeTiming.start(path)
+        defer { LoupeTiming.mark(path, "end") }
         let shown = original ? PhotoRecord() : shownRecord
         let path = self.path, size = PhotoRender.previewSize
         let cached = PhotoRender.cachedPreview(path, record: shown)
         // The film through the helper (settings the shipped tables can't do): a wait.
+        // Another photo's picture showing: this one's saved preview at once (the screen-size one, PhotoPreviewBuilder, else the
+        // grid's copy), the exact picture when it's made.
+        PhotoPreviewBuilder.shared.lastAsked = .now
+        let screen = PhotoPreviewBuilder.screenFile(cached)
+        if picturePath != path, !original, let saved = CIImage(contentsOf: screen) ?? (FileManager.default.fileExists(atPath: cached.path) ? CIImage(contentsOf: cached) : nil) {
+            picture = saved
+            picturePath = path
+            LoupeTiming.mark(path, "saved preview shown")
+        }
         let film = shown.film
         let route = shown.filmOn ? await Task.detached(priority: .userInitiated) { FilmRoute.resolved(film) }.value : .instant
         guard !Task.isCancelled else { return }
         let helper = route != .instant
+        LoupeTiming.mark(path, "route \(route) film \(shown.filmOn)")
         filmHelper = helper
         // Without the film data, the advanced settings can't be made (the Film panel offers it): the picture stays.
         let pack = FilmEngine.shared.state == .ready
@@ -2118,6 +2145,7 @@ struct PhotoLoupe: View {
         } else if let quick {
             picture = quick
             picturePath = path
+            LoupeTiming.mark(path, "picture shown")
             liquify.shown(path: path, strokes: shown.adjust.liquify?.count ?? 0)
         } else if shown.filmOn, !helper {
             // The film's stock didn't load: damaged files go to the helper (asked again); else the last picture stays.
@@ -2145,9 +2173,14 @@ struct PhotoLoupe: View {
                 if !Task.isCancelled { editing.scopes = counted }
             }
             try? await Task.sleep(for: .milliseconds(550))
-            guard !Task.isCancelled, shown.isEdited else { return }
+            guard !Task.isCancelled, !original else { return }
+            let edited = shown.isEdited
             await Task.detached(priority: .utility) {
-                if let small = PhotoRender.picture(measured, maxSize: 1200, space: PhotoRender.screenSpace) { PhotoRender.savePreview(small, to: cached) }
+                // The screen-size one for the next time it's shown; the grid's copy when it's edited.
+                if !FileManager.default.fileExists(atPath: screen.path), let full = PhotoRender.picture(measured, maxSize: size, space: PhotoRender.screenSpace) {
+                    PhotoPreviewBuilder.save(full, to: screen)
+                }
+                if edited, let small = PhotoRender.picture(measured, maxSize: 1200, space: PhotoRender.screenSpace) { PhotoRender.savePreview(small, to: cached) }
             }.value
             return
         }
@@ -2160,6 +2193,7 @@ struct PhotoLoupe: View {
                 let film = CIImage(cgImage: developed)
                 picture = film
                 picturePath = path
+                LoupeTiming.mark(path, "film picture shown")
                 liquify.shown(path: path, strokes: shown.adjust.liquify?.count ?? 0)
                 FilmPictures.shared.keep(film, for: cached.path)
                 if primary { editing.histogram = await Task.detached(priority: .utility) { PhotoEngine.histogram(film) }.value }
@@ -2407,5 +2441,20 @@ struct HostWindow: NSViewRepresentable {
     final class Reader: NSView {
         var box: Box?
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); box?.window = window }
+    }
+}
+
+/// Timing of the loupe's steps, for tests: with PLUCK_LOUPE_TIMING=<file>, each step's time since the photo was asked for.
+enum LoupeTiming {
+    nonisolated(unsafe) private static var starts: [String: Date] = [:]
+    private static let file = ProcessInfo.processInfo.environment["PLUCK_LOUPE_TIMING"]
+
+    static func start(_ path: String) { if file != nil { starts[path] = .now; mark(path, "start") } }
+
+    static func mark(_ path: String, _ what: String) {
+        guard let file, let start = starts[path] else { return }
+        let line = "\(URL(fileURLWithPath: path).lastPathComponent) \(Int(Date().timeIntervalSince(start) * 1000)) ms \(what)\n"
+        if let handle = FileHandle(forWritingAtPath: file) { handle.seekToEndOfFile(); handle.write(Data(line.utf8)); try? handle.close() }
+        else { try? line.write(toFile: file, atomically: false, encoding: .utf8) }
     }
 }

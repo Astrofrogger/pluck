@@ -460,7 +460,8 @@ struct ProjectTimeline: View {
                 let x = CGFloat(t) * perSecond
                 context.fill(Path(CGRect(x: x, y: size.height - 6, width: 1, height: 6)), with: .color(.secondary.opacity(0.6)))
                 context.draw(Text(step < 0.5 ? model.timecode(t) : Format.duration(t)).font(.system(size: 10).monospacedDigit()).foregroundStyle(.secondary),
-                             at: CGPoint(x: x + 3, y: 1), anchor: .topLeading)
+                             // (Far enough right that the playhead's head, at the start, doesn't cover the first one.)
+                             at: CGPoint(x: x + 6, y: 1), anchor: .topLeading)
                 t += step
             }
         }

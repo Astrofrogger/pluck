@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The History panel: this photo's edit steps this session (newest at the top, the ones undone greyed), each named by what
+/// The History panel: this photo's edit steps, kept between sessions (newest at the top, the ones undone greyed), each named by what
 /// it changed, and the photo as it was at the start (Original). A click takes the photo back to that step, as a change of its
 /// own (so it can be undone again, and the steps after it stay in the list).
 struct PhotoHistoryPanel: View {

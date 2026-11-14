@@ -100,7 +100,7 @@ struct LogoAnimatorView: View {
             .studioPanel()
             inspector
         }
-        .frame(minWidth: 760, minHeight: 600)
+        .frame(minWidth: 760)
         .onChange(of: style) { restart() }
         .onChange(of: edits) { redesign() }
         .onChange(of: output) { redesign() }
@@ -129,7 +129,7 @@ struct LogoAnimatorView: View {
     /// The title, and the logo in use with Change… on the right.
     private var header: some View {
         HStack(spacing: 10) {
-            Text("Logo Animator").font(Design.Studio.pageTitle.weight(.medium)).foregroundStyle(Design.Studio.text)
+            Text("Logo Animator").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
             Spacer(minLength: 0)
             if let file, animation != nil {
                 HStack(spacing: 6) {
@@ -154,21 +154,18 @@ struct LogoAnimatorView: View {
     private var emptyStage: some View {
         VStack(spacing: 12) {
             if loading {
-                ProgressView().controlSize(.small)
+                PlumSpinner()
                 Text("Taking the logo apart…").foregroundStyle(Design.Studio.textQuiet)
             } else {
-                Image(systemName: "wand.and.stars").font(.system(size: 22)).foregroundStyle(Design.Studio.textQuiet)
-                Text("Drop a logo here: PNG, SVG, PDF or JPG.").foregroundStyle(Design.Studio.textQuiet)
-                Button("Choose Logo…", action: choose).buttonStyle(StudioFlatButtonStyle())
+                StudioEmptyState(symbol: "wand.and.stars", title: "Drop a logo here", line: "PNG, SVG, PDF or JPG.",
+                                 targeted: dropTargeted, button: "Choose Logo…", action: choose)
+                    .fixedSize()
             }
             if let problem { LogoKitProblem(text: problem).frame(maxWidth: 360) }
         }
         .font(Design.Studio.body)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(dropTargeted ? Design.Brand.pink : Design.Studio.line, style: StrokeStyle(lineWidth: dropTargeted ? 2 : 1, dash: [4, 3]))
-        }
+        .studioDropZone(targeted: dropTargeted)
         .help("Takes your logo apart into its shapes and animates them in, smooth and refined. Runs on this Mac.")
     }
 

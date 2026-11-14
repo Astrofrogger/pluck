@@ -497,11 +497,7 @@ private struct ProjectTextTab: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Picker("Text", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
-                .pickerStyle(.segmented)
-                .tint(Design.Studio.line)
-                .labelsHidden()
-                .controlSize(.small)
+            StudioSegmented(options: Part.allCases.map { ($0, $0.title) }, selection: $part, fill: true)
                 .padding(.horizontal, 14)
             switch part {
             case .transcript: ProjectFocusedFile(model: model, ai: false)
@@ -530,11 +526,7 @@ private struct ProjectAITab: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Picker("Local AI", selection: $part) { ForEach(Part.allCases) { Text($0.title).tag($0) } }
-                .pickerStyle(.segmented)
-                .tint(Design.Studio.line)
-                .labelsHidden()
-                .controlSize(.small)
+            StudioSegmented(options: Part.allCases.map { ($0, $0.title) }, selection: $part, fill: true)
                 .padding(.horizontal, 14)
             switch part {
             case .tools: ProjectFocusedFile(model: model, ai: true)
@@ -838,22 +830,11 @@ private struct ProjectExportPanel: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Picker("Format", selection: $audioOnly) {
-                    Label("Video", systemImage: "film").tag(false)
-                    Label("Audio", systemImage: "waveform").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .tint(Design.Studio.line)
-                .labelsHidden()
-                .padding(.horizontal, 8)
-                Picker("Part", selection: Binding(get: { shown }, set: { part = $0 })) {
-                    Text("Whole Edit").tag(Part.whole)
-                    if model.hasRange { Text("In to Out").tag(Part.range) }
-                    Text("Each Clip").tag(Part.each)
-                }
-                .pickerStyle(.segmented)
-                .tint(Design.Studio.line)
-                .labelsHidden()
+                StudioSegmented(options: [(false, "Video"), (true, "Audio")], selection: $audioOnly, fill: true)
+                    .padding(.horizontal, 8)
+                StudioSegmented(options: [(Part.whole, LocalizedStringKey("Whole Edit"))] + (model.hasRange ? [(Part.range, LocalizedStringKey("In to Out"))] : [])
+                                    + [(Part.each, LocalizedStringKey("Each Clip"))],
+                                selection: Binding(get: { shown }, set: { part = $0 }), fill: true)
                 .padding(.horizontal, 8)
                 .help("The whole edit, only from the in to the out point (I and O), or each clip as a file of its own")
                 RenderSettingsForm(audioOnly: audioOnly)

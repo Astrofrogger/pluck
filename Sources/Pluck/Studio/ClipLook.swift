@@ -323,12 +323,7 @@ struct ClipLookEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if parts.contains(.picture) {
-            Picker("On the Picture", selection: $viewer) {
-                ForEach(ViewerControls.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
-            }
-            .pickerStyle(.segmented).tint(Design.Studio.line)
-            .labelsHidden()
-            .controlSize(.small)
+            StudioSegmented(options: ViewerControls.allCases.map { ($0, $0.title) }, selection: $viewer, fill: true)
             .padding(.horizontal, 8)
             .help("What you can drag on the picture")
             FoldSection(title: "Transform", key: "clip-transform") {
@@ -399,7 +394,8 @@ struct ClipLookEditor: View {
             }
             }
             if parts.contains(.colour) {
-            FoldSection(title: "Colour", key: parts == [.colour] ? "tab-colour" : "clip-colour", open: parts == [.colour]) {
+            // (In the Colour tab it's the only section: the tab's own title names it.)
+            FoldSection(title: "Colour", key: parts == [.colour] ? "tab-colour" : "clip-colour", open: parts == [.colour], headed: parts != [.colour]) {
                 row("Camera") {
                     Picker("Camera", selection: binding(\.color.camera)) {
                         Text(path.flatMap(CameraLog.detect).map { "\(String(localized: "Auto")) · \($0.title)" } ?? String(localized: "Automatic"))

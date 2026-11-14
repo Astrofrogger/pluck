@@ -93,6 +93,7 @@ struct LiveRecorderView: View {
         .frame(height: 48)
         .studioBox(outline: session.state == .recording ? Self.recordingLine : nil)
         .help("Records a live stream and marks cheers, music and silence as it goes, with a live transcript and highlights for the edit.")
+        .studioToolTitle("Live Recorder")
         .padding(.vertical, 16)
         .padding(.horizontal, 20)
         .studioPanel()
@@ -229,7 +230,10 @@ struct LiveRecorderView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .overlay {
-                if session.words.isEmpty, search.isEmpty {
+                if session.words.isEmpty, search.isEmpty, session.state == .idle {
+                    StudioEmptyState(symbol: "dot.radiowaves.left.and.right", title: "Nothing recorded yet",
+                                     line: "Paste a live stream link above, then Record.")
+                } else if session.words.isEmpty, search.isEmpty {
                     Text(transcribe && LocalAI.canTranscribe ? "The transcript appears here as it’s spoken." : "Transcription is off.")
                         .foregroundStyle(Design.Studio.textQuiet)
                 }
@@ -313,22 +317,6 @@ private struct QuietSwitch: View {
         .frame(height: 28)
         .contentShape(.rect)
         .onTapGesture { isOn.toggle() }
-    }
-}
-
-/// A small plum arc going round: the analysis at work.
-private struct PlumSpinner: View {
-    @State private var turning = false
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(Design.Studio.line, lineWidth: 2)
-            Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(turning ? 360 : 0))
-        }
-        .frame(width: 11, height: 11)
-        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
-        .accessibilityLabel(Text("Working"))
     }
 }
 

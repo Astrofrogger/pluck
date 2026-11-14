@@ -113,19 +113,10 @@ struct OffloadView: View {
 
     /// No offloads yet: a dashed place to drop a card or folder.
     private var emptyList: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "externaldrive.badge.checkmark").font(.system(size: 22)).foregroundStyle(Design.Studio.textFaint)
-            Text("Drop a card or folder").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
-            Text("Copied to several drives at once, every file checked.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
-                .strokeBorder(dropping ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Design.Studio.line),
-                              style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .contentShape(.rect)
-        .onTapGesture(perform: pickSource)
+        StudioEmptyState(symbol: "externaldrive.badge.checkmark", title: "Drop a card or folder",
+                         line: "Copied to several drives at once, every file checked.", targeted: dropping)
+            .studioDropZone(targeted: dropping)
+            .onTapGesture(perform: pickSource)
     }
 
     // MARK: - A new offload

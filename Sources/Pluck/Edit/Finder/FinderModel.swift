@@ -3,9 +3,9 @@ import QuickLookThumbnailing
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// How a pane shows its folder, as Finder does (⌘1, ⌘2, ⌘3).
+/// How a pane shows its folder, as Finder does (⌘1, ⌘2, ⌘3, ⌘4).
 enum FinderViewMode: String, CaseIterable, Identifiable {
-    case icons, list, columns
+    case icons, list, columns, gallery
     var id: String { rawValue }
 
     var title: LocalizedStringKey {
@@ -13,6 +13,7 @@ enum FinderViewMode: String, CaseIterable, Identifiable {
         case .icons: "Icons"
         case .list: "List"
         case .columns: "Columns"
+        case .gallery: "Gallery"
         }
     }
 
@@ -21,6 +22,7 @@ enum FinderViewMode: String, CaseIterable, Identifiable {
         case .icons: "square.grid.2x2"
         case .list: "list.bullet"
         case .columns: "rectangle.split.3x1"
+        case .gallery: "rectangle.bottomthird.inset.filled"
         }
     }
 }
@@ -205,8 +207,15 @@ final class FinderPane: Identifiable {
     var playing: URL?
     /// A photo shown in the pane's viewer (Esc goes back to the folder).
     var viewing: URL?
-    /// A name being asked for: a new folder's, or a file's new one.
+    /// A name being typed in place: a new folder's, or a file's new one.
     var naming: Naming?
+    /// Why a rename, a move or a new folder couldn't be done (shown in an alert).
+    var problem: String?
+    /// Asking before these go to the Trash.
+    var trashing: [URL] = []
+    @ObservationIgnored private var typeSelect = TypeSelect()
+    /// Goes up whenever something's opened (a click on a name then doesn't rename it).
+    @ObservationIgnored private var opens = 0
     /// The folders above this one shown in the Columns view start here.
     private(set) var base: URL
     private var backStack: [URL] = []
@@ -308,6 +317,7 @@ final class FinderPane: Identifiable {
 
     /// A folder goes in, a clip plays, a photo shows in the viewer, anything else opens in its own app.
     func open(_ item: FinderItem) {
+        opens += 1
         if item.isFolder { go(to: item.url) }
         else if item.isClip { playing = item.url; selection = [item.url] }
         else if item.isPhoto { viewing = item.url; selection = [item.url]; anchor = item.url }
@@ -391,6 +401,30 @@ final class FinderPane: Identifiable {
 
     func selectAll() { selection = Set(shown.map(\.url)) }
 
+    /// Letters typed: the first name starting with them is selected.
+    func jump(_ characters: String) {
+        let list = shown
+        guard let index = TypeSelect.match(typeSelect.add(characters), in: list.map(\.name)) else { return }
+        selection = [list[index].url]
+        anchor = list[index].url
+    }
+
+    /// Return, or a click on the name of the one selected: its name is typed in place.
+    func beginRename() {
+        guard list == nil, selection.count == 1, let url = selection.first else { return }
+        naming = .rename(url)
+    }
+
+    /// A click on a selected item's name: renamed in place, unless it was a double-click's first.
+    func renameSoon(_ url: URL) {
+        let before = opens
+        Task {
+            try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval + 0.1))
+            guard opens == before, selection == [url], playing == nil, viewing == nil, naming == nil else { return }
+            beginRename()
+        }
+    }
+
     // MARK: Loading
 
     func reload() { load() }
@@ -440,19 +474,41 @@ final class FinderPane: Identifiable {
 
     // MARK: Files
 
-    /// The selected files to the Trash (they can be put back from there).
+    /// ⌘⌫: asks, then the selected files go to the Trash (they can be put back from there).
     func trashSelection() {
-        let urls = Array(selection)
-        guard !urls.isEmpty else { return }
-        NSWorkspace.shared.recycle(urls) { _, _ in }
-        selection = []
+        guard !selection.isEmpty else { return }
+        trashing = shown.map(\.url).filter { selection.contains($0) }
+    }
+
+    func trash(_ urls: [URL]) {
+        trashing = []
+        FinderFiles.trash(urls)
+        selection.subtract(urls)
     }
 
     func copySelection() {
-        let urls = shown.filter { selection.contains($0.url) }.map { $0.url as NSURL }
-        guard !urls.isEmpty else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects(urls)
+        FinderFiles.copyToPasteboard(shown.map(\.url).filter { selection.contains($0) })
+    }
+
+    /// ⌘D: a copy of each selected file beside it, the copies selected.
+    func duplicateSelection() {
+        guard list == nil else { return }
+        var made: Set<URL> = []
+        for url in shown.map(\.url) where selection.contains(url) {
+            do { made.insert(try FinderFiles.duplicate(url)) } catch { problem = error.localizedDescription }
+        }
+        guard !made.isEmpty else { return }
+        load()
+        selection = made
+        anchor = made.first
+    }
+
+    /// ⇧⌘N, as Finder: "untitled folder" made, selected, its name typed over.
+    func newFolderInPlace() {
+        guard list == nil else { return }
+        let name = freeFolderName
+        if let failed = newFolder(named: name) { problem = failed; return }
+        naming = .rename(url.appendingPathComponent(name, isDirectory: true))
     }
 
     /// Files copied (here or in Finder) into this folder: checked like an offload. `move` (⌥⌘V):
@@ -463,9 +519,8 @@ final class FinderPane: Identifiable {
         LibraryPanes.shared.copy(urls, into: url, move: move)
     }
 
-    /// What a name is being asked for.
+    /// What's being named in place (a new folder is made first, then named like any other).
     enum Naming: Equatable {
-        case newFolder
         case rename(URL)
     }
 
@@ -512,21 +567,13 @@ final class FinderPane: Identifiable {
     /// A file or folder here renamed. Nil when renamed; else why it couldn't be.
     @discardableResult
     func rename(_ item: URL, to name: String) -> String? {
-        if let problem = Self.nameProblem(name) { return problem }
-        let name = name.trimmingCharacters(in: .whitespaces)
-        guard name != item.lastPathComponent else { return nil }
-        // (A folder's URL ends in a slash, as the folder's listing has it.)
-        let target = item.deletingLastPathComponent().appendingPathComponent(name, isDirectory: item.hasDirectoryPath)
-        // (Only the case changed: the same file on most Mac drives.)
-        if FileManager.default.fileExists(atPath: target.path), name.lowercased() != item.lastPathComponent.lowercased() {
-            return String(localized: "\(name) is already in \(item.deletingLastPathComponent().lastPathComponent).")
-        }
+        let target: URL
         do {
-            try FileManager.default.moveItem(at: item, to: target)
+            target = try FinderFiles.rename(item, to: name)
         } catch {
             return error.localizedDescription
         }
-        FinderThumbnails.shared.refresh(item)
+        guard target != item else { return nil }
         load()
         selection = [target]
         anchor = target

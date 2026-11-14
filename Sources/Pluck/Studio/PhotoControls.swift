@@ -828,18 +828,24 @@ struct FoldSection<Content: View>: View {
     let title: LocalizedStringKey
     let key: String
     var open = true
+    /// False: the content alone, always open (the only section of a tab that already says its name).
+    var headed = true
     @ViewBuilder var content: Content
     @AppStorage private var isOpen: Bool
 
-    init(title: LocalizedStringKey, key: String, open: Bool = true, @ViewBuilder content: () -> Content) {
+    init(title: LocalizedStringKey, key: String, open: Bool = true, headed: Bool = true, @ViewBuilder content: () -> Content) {
         self.title = title
         self.key = key
         self.open = open
+        self.headed = headed
         self.content = content()
         _isOpen = AppStorage(wrappedValue: open, "fold-" + key)
     }
 
     var body: some View {
+        if !headed {
+            content.padding(.bottom, Design.Studio.sectionGap - Design.Sidebar.sectionGap)
+        } else {
         VStack(alignment: .leading, spacing: 1) {
             Button {
                 withAnimation(.snappy(duration: 0.2)) { isOpen.toggle() }
@@ -858,6 +864,7 @@ struct FoldSection<Content: View>: View {
             }
             .buttonStyle(.plain)
             if isOpen { content.padding(.bottom, Design.Studio.sectionGap - Design.Sidebar.sectionGap) }
+        }
         }
     }
 }

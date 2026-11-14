@@ -144,3 +144,68 @@ struct StudioFootnote: View {
             .frame(maxWidth: .infinity)
     }
 }
+
+/// A tool's empty work area, the same in every tool: its symbol on a tile, what to do in one line, and a button.
+struct StudioEmptyState: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    var line: LocalizedStringKey?
+    /// Pink while something is dragged over it.
+    var targeted = false
+    var button: LocalizedStringKey?
+    var action: (() -> Void)?
+
+    var body: some View {
+        VStack(spacing: 10) {
+            StudioTile(symbol: symbol, colour: targeted ? Design.Brand.pink : Design.Studio.textQuiet)
+                .padding(.bottom, 4)
+            Text(title).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            if let line {
+                Text(line).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    .multilineTextAlignment(.center).frame(maxWidth: 420)
+            }
+            if let button, let action {
+                Button(button, action: action).buttonStyle(StudioFlatButtonStyle()).padding(.top, 6)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+extension View {
+    /// A dashed drop area around an empty state; plum while a file is dragged over it.
+    func studioDropZone(targeted: Bool) -> some View {
+        overlay {
+            RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous)
+                .strokeBorder(targeted ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Design.Studio.line),
+                              style: StrokeStyle(lineWidth: targeted ? 2 : 1, dash: [4, 3]))
+        }
+        .contentShape(.rect)
+    }
+}
+
+extension View {
+    /// The tool's name before its top bar, so every tool screen says what it is (as the other pages' headers do).
+    func studioToolTitle(_ title: LocalizedStringKey) -> some View {
+        HStack(spacing: 20) {
+            Text(title).font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).lineLimit(1).fixedSize()
+            self
+        }
+    }
+}
+
+/// A small plum arc going round: work under way with no share to show (every tool's spinner).
+struct PlumSpinner: View {
+    @State private var turning = false
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Design.Studio.line, lineWidth: 2)
+            Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(turning ? 360 : 0))
+        }
+        .frame(width: 11, height: 11)
+        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
+        .accessibilityLabel(Text("Working"))
+    }
+}

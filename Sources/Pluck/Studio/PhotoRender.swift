@@ -1536,7 +1536,8 @@ enum PhotoRender {
 
     /// A developed preview, kept by the photo and its settings so the grid can show edits.
     static func cachedPreview(_ path: String, record: PhotoRecord) -> URL {
-        var key = path
+        // (v2, 2026-11-14: a test build saved scrambled previews; this leaves them behind.)
+        var key = "v2|" + path
         // (Sorted keys: JSONEncoder's own order isn't fixed, so the same edit could get a new name and be made again.)
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
@@ -1857,7 +1858,14 @@ final class BaseCache: @unchecked Sendable {
     /// Decodes the photo into a texture now and keeps it.
     func keep(_ source: CIImage, key: String) -> CIImage? {
         let extent = source.extent.integral
-        guard let image = Self.texture(source)?.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)) else { return nil }
+        // Each decode left the context it was drawn with holding something that slowed every later render (measured: +25 ms
+        // per decode, a first display 0.33 → 2 s after the photo suite's decodes). Decodes get a context of their own, one at a
+        // time, emptied after each. (Emptying the shared one scrambled pictures being drawn on other threads at that moment.)
+        let made: CIImage? = Self.decodeLock.withLock {
+            defer { Self.decodeContext.clearCaches() }
+            return Self.texture(source, context: Self.decodeContext)
+        }
+        guard let image = made?.transformed(by: CGAffineTransform(translationX: -extent.minX, y: -extent.minY)) else { return nil }
         let bytes = Int(extent.width) * Int(extent.height) * 8
         lock.lock()
         if let old = images[key] { total -= old.bytes; order.removeAll { $0 == key } }
@@ -1883,7 +1891,15 @@ final class BaseCache: @unchecked Sendable {
     /// `bands`: at most about this many pixels worked out at once (rows from the top), for a picture whose passes
     /// hold a lot of memory per pixel (the film).
     /// `cancelled`: asked before each band; true gives up (nil).
-    static func texture(_ image: CIImage, bands: Int = 0, cancelled: () -> Bool = { false }) -> CIImage? {
+    /// The context decodes are drawn with (BaseCache.keep), set up as PhotoEngine.context; used under `decodeLock` only.
+    private static let decodeContext: CIContext = {
+        let options: [CIContextOption: Any] = [.workingColorSpace: CGColorSpace(name: CGColorSpace.extendedLinearSRGB)!,
+                                               .workingFormat: CIFormat.RGBAh, .cacheIntermediates: false, .name: "Pluck Photo Decode"]
+        return PhotoEngine.device.map { CIContext(mtlDevice: $0, options: options) } ?? CIContext(options: options)
+    }()
+    private static let decodeLock = NSLock()
+
+    static func texture(_ image: CIImage, bands: Int = 0, context: CIContext = PhotoEngine.context, cancelled: () -> Bool = { false }) -> CIImage? {
         let extent = image.extent.integral
         let width = Int(extent.width), height = Int(extent.height)
         guard width > 0, height > 0, let device = PhotoEngine.device, let queue else { return nil }
@@ -1907,7 +1923,7 @@ final class BaseCache: @unchecked Sendable {
             guard let buffer = queue.makeCommandBuffer() else { return nil }
             let destination = CIRenderDestination(width: width, height: count, pixelFormat: .rgba16Float, commandBuffer: buffer) { strip }
             destination.colorSpace = linear
-            guard let task = try? PhotoEngine.context.startTask(toRender: placed.cropped(to: band).transformed(by: CGAffineTransform(translationX: 0, y: -band.minY)),
+            guard let task = try? context.startTask(toRender: placed.cropped(to: band).transformed(by: CGAffineTransform(translationX: 0, y: -band.minY)),
                                                                 to: destination) else { return nil }
             if strip !== texture, let blit = buffer.makeBlitCommandEncoder() {
                 blit.copy(from: strip, sourceSlice: 0, sourceLevel: 0, sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0), sourceSize: MTLSize(width: width, height: count, depth: 1),

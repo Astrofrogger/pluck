@@ -1,5 +1,6 @@
 import AVFoundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Fit Music to Length: a song in, the same song at an exact length out, cut on phrases with
 /// its intro and real ending kept (layout board ToolMusic).
@@ -16,6 +17,9 @@ struct MusicFitView: View {
     @State private var envelope: Envelope?
     @State private var player: AVAudioPlayer?
     @State private var playing = false
+    @State private var dropping = false
+    /// A song to open when the view appears (screenshot mode).
+    @MainActor static var openFile: URL?
 
     private var target: Double { Double(minutes * 60 + seconds) }
 
@@ -24,9 +28,17 @@ struct MusicFitView: View {
             VStack(alignment: .leading, spacing: 22) {
                 Text("Fit Music").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
                 songField
+                if song == nil {
+                    StudioEmptyState(symbol: "music.note.list", title: "Drop a song here",
+                                     line: "Set the new length above, then Fit. The intro and the ending stay.",
+                                     targeted: dropping, button: "Choose Song…", action: choose)
+                        .padding(.vertical, 48)
+                        .studioDropZone(targeted: dropping)
+                        .onTapGesture(perform: choose)
+                }
                 if let envelope { waveforms(envelope) }
                 if let status, let song {
-                    row(tile: AnyView(ProgressView().controlSize(.small)), title: Text(song.lastPathComponent), detail: Text(status)) { EmptyView() }
+                    row(tile: AnyView(PlumSpinner()), title: Text(song.lastPathComponent), detail: Text(status)) { EmptyView() }
                 }
                 if let problem {
                     row(tile: AnyView(StudioTile(symbol: "exclamationmark.triangle", colour: Design.Studio.bad)),
@@ -57,7 +69,16 @@ struct MusicFitView: View {
             guard !Task.isCancelled else { return }
             envelope = read
         }
+        .onAppear { if let url = Self.openFile { Self.openFile = nil; use(url) } }
         .onDisappear { player?.stop() }
+        .onDrop(of: [.fileURL], isTargeted: $dropping) { providers in
+            Task {
+                guard task == nil, let url = await providers.first?.load(URL.self),
+                      let type = UTType(filenameExtension: url.pathExtension), type.conforms(to: .audio) || type.conforms(to: .movie) else { return }
+                use(url)
+            }
+            return true
+        }
     }
 
     /// The song, the new length and Fit, in one 48 pt field.
@@ -202,6 +223,10 @@ struct MusicFitView: View {
         panel.allowedContentTypes = [.audio, .movie]
         panel.prompt = String(localized: "Choose")
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        use(url)
+    }
+
+    private func use(_ url: URL) {
         song = url
         done = nil
         problem = nil

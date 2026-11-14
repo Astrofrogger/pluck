@@ -46,7 +46,7 @@ struct DeliveryCheckView: View {
             }
         }
         .foregroundStyle(Design.Studio.text)
-        .frame(minWidth: 760, minHeight: 600)
+        .frame(minWidth: 760)
         .onAppear {
             if let url = Self.openFile {
                 Self.openFile = nil
@@ -120,29 +120,18 @@ struct DeliveryCheckView: View {
         .padding(.trailing, 8)
         .frame(height: 48)
         .studioBox(outline: Design.Studio.line)
+        .studioToolTitle("Delivery Check")
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
         .studioPanel()
     }
 
     private var dropZone: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "film.stack").font(.system(size: 26)).foregroundStyle(Design.Studio.textQuiet)
-            Text("Drop a finished video, or choose one").font(Design.Studio.sectionTitle)
-            Text("Flash frames, black, a frozen picture, sound dropping out, a silent channel, loudness for where it’s going, spelling in on-screen text, text too close to the edge, and the right size and frame rate.")
-                .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 440)
-        }
-        .padding(32)
-        .frame(maxWidth: 640, minHeight: 220)
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(dropping ? AnyShapeStyle(Design.Brand.gradient) : AnyShapeStyle(Design.Studio.line),
-                              style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .contentShape(.rect)
-        .onTapGesture { choose() }
+        StudioEmptyState(symbol: "checkmark.seal", title: "Drop a finished video",
+                         line: "Pluck looks for flash frames, dropouts, loudness, typos and the wrong size before it goes out.",
+                         targeted: dropping, button: "Choose Video…") { choose() }
+            .studioDropZone(targeted: dropping)
+            .onTapGesture { choose() }
     }
 
     private var checking: some View {

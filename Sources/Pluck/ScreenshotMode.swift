@@ -54,7 +54,14 @@ enum ScreenshotMode {
         // they're drawn and can be captured. Repeats for a while to catch windows opened later.
         // -PluckScreenshotQuiet YES: renders in the background (launched hidden), never brought to the front.
         let quiet = defaults.bool(forKey: "PluckScreenshotQuiet")
-        var rounds = quiet ? 31 : 0
+        // -PluckScreenshotOffscreen <file.png>: nothing ever shows on screen (windows see-through and far off it); after
+        // -PluckScreenshotWait seconds (6) the main window's content is drawn into that PNG, at -PluckScreenshotSize, and
+        // Pluck quits. For checking layouts while someone works at this Mac.
+        if let out = defaults.string(forKey: "PluckScreenshotOffscreen") {
+            Offscreen.start(out: out, wait: defaults.object(forKey: "PluckScreenshotWait") as? Double ?? Double(defaults.string(forKey: "PluckScreenshotWait") ?? "") ?? 6,
+                            size: defaults.string(forKey: "PluckScreenshotSize"))
+        }
+        var rounds = quiet || defaults.string(forKey: "PluckScreenshotOffscreen") != nil ? 31 : 0
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
             MainActor.assumeIsolated {
                 // A Pluck that was hidden (⌘H) when it quit comes back hidden.
@@ -125,7 +132,7 @@ enum ScreenshotMode {
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
             // In front and active, like a window someone is using (not when rendering quietly in the background).
-            if !defaults.bool(forKey: "PluckScreenshotQuiet") {
+            if !defaults.bool(forKey: "PluckScreenshotQuiet"), defaults.string(forKey: "PluckScreenshotOffscreen") == nil {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate()
                 NSApp.windows.first { $0.isVisible && $0.canBecomeMain }?.makeKeyAndOrderFront(nil)
@@ -521,6 +528,8 @@ enum ScreenshotMode {
                 LibraryView.startSearch = defaults.string(forKey: "PluckScreenshotLink") ?? ""
                 LibraryView.show(.all)
             case "musicfit":
+                // -PluckScreenshotFile <song> is chosen.
+                MusicFitView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
                 StudioNavigator.shared.open(windowID: "musicFit")
             case "resolvelog":
                 // Logs the open DaVinci Resolve project (with a search open to show it).
@@ -820,4 +829,41 @@ enum ScreenshotMode {
         }
     }
     #endif
+}
+
+/// Screenshot mode's off-screen drawing (-PluckScreenshotOffscreen).
+@MainActor
+enum Offscreen {
+    private static var hide: Timer?
+
+    /// Every window see-through, unclickable and far off the screen, from the moment it exists.
+    static func hideWindows(size: String?) {
+        guard hide == nil else { return }
+        let wanted = size?.split(separator: "x").compactMap { Double($0) }
+        hide = Timer.scheduledTimer(withTimeInterval: 0.02, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                for window in NSApp.windows {
+                    window.alphaValue = 0
+                    window.ignoresMouseEvents = true
+                    if let wanted, wanted.count == 2, window.canBecomeMain, window.contentView?.frame.size != NSSize(width: wanted[0], height: wanted[1]) {
+                        window.setContentSize(NSSize(width: wanted[0], height: wanted[1]))
+                    }
+                    if window.frame.origin.x > -10_000 { window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)) }
+                }
+            }
+        }
+    }
+
+    static func start(out: String, wait: Double, size: String?) {
+        hideWindows(size: size)
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.contentView != nil }),
+               let view = window.contentView?.superview ?? window.contentView,
+               let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: out))
+            }
+            NSApp.terminate(nil)
+        }
+    }
 }

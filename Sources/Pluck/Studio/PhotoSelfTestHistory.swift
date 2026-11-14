@@ -7,7 +7,8 @@ import simd
 extension PhotoSelfTest {
     static func historyTest() async {
         let catalog = PhotoCatalog.shared
-        let path = "/tmp/pluck-history/test.jpg"
+        // (A new photo each run: the test catalogue and its History.json stay between runs.)
+        let path = "/tmp/pluck-history/test-\(UUID().uuidString).jpg"
         catalog.endStep(); catalog.update([path]) { $0.adjust.exposure = 0.4 }
         catalog.endStep(); catalog.update([path]) { $0.adjust.masks = [PhotoMask(part: MaskPart(kind: .subject))] }
         catalog.endStep(); catalog.update([path]) { $0.rating = 3 }
@@ -25,6 +26,12 @@ extension PhotoSelfTest {
             catalog.undo()
             check("history: going back can be undone", catalog.record(path).rating == 3, "rating \(catalog.record(path).rating)")
         }
+        // After a restart: the done steps are still there (the undone one isn't), named the same, and none undone.
+        catalog.saveNow()
+        catalog.reloadHistory()
+        let again = catalog.history(of: path)
+        check("history: kept after a restart", again.count == 3 && !again.contains(where: \.undone)
+              && PhotoHistory.describe(again[0].before, again[0].after).contains("Exposure"), "\(again.count)")
     }
 }
 

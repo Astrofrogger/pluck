@@ -179,6 +179,9 @@ final class PhotoCatalog {
             smartAlbums = saved.smartAlbums ?? []
             tags = saved.tags ?? [:]
         }
+        if let data = try? Data(contentsOf: Self.historyFile), let saved = try? JSONDecoder().decode([String: [PastStep]].self, from: data) {
+            pastHistory = saved
+        }
     }
 
     func record(_ path: String) -> PhotoRecord { records[path] ?? PhotoRecord() }
@@ -223,6 +226,30 @@ final class PhotoCatalog {
     private struct Step {
         var before: [String: PhotoRecord?]
         var after: [String: PhotoRecord?]
+    }
+
+    /// Each photo's steps from earlier sessions (History after a restart), oldest first; kept in History.json beside the
+    /// catalogue, at most `historyKept` per photo.
+    struct PastStep: Codable {
+        var before: PhotoRecord?
+        var after: PhotoRecord?
+    }
+    @ObservationIgnored private var pastHistory: [String: [PastStep]] = [:]
+    static let historyKept = 40
+
+    nonisolated private static var historyFile: URL { file.deletingLastPathComponent().appendingPathComponent("History.json") }
+
+    /// Earlier sessions' steps and this session's done ones, per photo (the ones undone aren't kept).
+    private func historyToSave() -> [String: [PastStep]] {
+        var all = pastHistory
+        for step in undoSteps {
+            for (path, before) in step.before {
+                guard let after = step.after[path], records[path] != nil || after != nil else { continue }
+                all[path, default: []].append(PastStep(before: before, after: after))
+            }
+        }
+        // (Photos no longer in the catalogue go.)
+        return all.filter { records[$0.key] != nil }.mapValues { Array($0.suffix(Self.historyKept)) }
     }
 
     @ObservationIgnored private var undoSteps: [Step] = []
@@ -305,7 +332,8 @@ final class PhotoCatalog {
             guard let before = step.before[path], let after = step.after[path] else { return nil }
             return (before, after, true)
         }
-        return (done + undone).map { (before: $0.0, after: $0.1, undone: $0.2) }
+        let past = (pastHistory[path] ?? []).map { ($0.before, $0.after, false) }
+        return (past + done + undone).map { (before: $0.0, after: $0.1, undone: $0.2) }
     }
 
     private func apply(_ state: [String: PhotoRecord?]) {
@@ -671,9 +699,11 @@ final class PhotoCatalog {
             try? await Task.sleep(for: .seconds(1))
             saveScheduled = false
             let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
+            let history = historyToSave()
             await Task.detached(priority: .utility) {
                 try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
                 try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
+                try? JSONEncoder().encode(history).write(to: Self.historyFile, options: .atomic)
             }.value
         }
     }
@@ -683,6 +713,17 @@ final class PhotoCatalog {
         let saved = Saved(records: records, albums: albums, folders: folders, presets: presets, tags: tags.isEmpty ? nil : tags, smartAlbums: smartAlbums.isEmpty ? nil : smartAlbums)
         try? FileManager.default.createDirectory(at: Self.file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
+        try? JSONEncoder().encode(historyToSave()).write(to: Self.historyFile, options: .atomic)
+    }
+
+    /// History.json read back as a new session would (tests: History after a restart).
+    func reloadHistory() {
+        guard let data = try? Data(contentsOf: Self.historyFile),
+              let saved = try? JSONDecoder().decode([String: [PastStep]].self, from: data) else { pastHistory = [:]; return }
+        pastHistory = saved
+        undoSteps = []; redoSteps = []
+        canUndo = false; canRedo = false
+        historyVersion += 1
     }
 
     /// A catalogue file read and written again, keys sorted (tests).

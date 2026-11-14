@@ -142,6 +142,34 @@ final class LibraryStore {
         scheduleSave()
     }
 
+    /// A file (or a folder) moved or renamed through Pluck: its entries follow it.
+    func relocate(from old: String, to new: String) {
+        guard old != new else { return }
+        var list = entries, moved = false
+        for index in list.indices {
+            let path = list[index].path
+            if path == old { list[index].path = new; moved = true }
+            else if path.hasPrefix(old + "/") { list[index].path = new + path.dropFirst(old.count); moved = true }
+        }
+        guard moved else { return }
+        entries = list
+        scheduleSave()
+    }
+
+    /// A new entry (a file duplicated through Pluck), unless its file is already in.
+    func insert(_ entry: Entry) {
+        guard !entries.contains(where: { $0.path == entry.path }) else { return }
+        removedPaths[entry.path] = nil
+        entries.append(entry)
+        scheduleSave()
+    }
+
+    func setTitle(_ title: String, for path: String) {
+        guard let position = entries.firstIndex(where: { $0.path == path }) else { return }
+        entries[position].title = title
+        scheduleSave()
+    }
+
     var allTags: [String] {
         Array(Set(entries.flatMap(\.tags))).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
     }

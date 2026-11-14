@@ -212,7 +212,8 @@ struct DerushView: View {
     /// One for the app, so analysis keeps going when the window closes.
     @MainActor static let shared = DerushSession()
 
-    private var selected: DerushSession.Clip? { session.clips.first { $0.file == selection } }
+    /// The clip shown: the one picked, else the first, so the right side is never empty once there are clips.
+    private var selected: DerushSession.Clip? { session.clips.first { $0.file == selection } ?? session.clips.first }
     private var done: [DerushSession.Clip] { session.clips.filter { $0.state == .done } }
 
     var body: some View {
@@ -387,7 +388,7 @@ struct DerushView: View {
                 ForEach(session.clips) { clip in
                     Button { selection = clip.file } label: { clipRow(clip) }
                         .buttonStyle(.plain)
-                        .accessibilityAddTraits(clip.file == selection ? .isSelected : [])
+                        .accessibilityAddTraits(clip.file == selected?.file ? .isSelected : [])
                         .contextMenu {
                             Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([clip.file]) }
                             Button("Remove") { session.remove(clip.file) }.disabled(session.running)
@@ -422,7 +423,7 @@ struct DerushView: View {
         }
         .padding(.horizontal, 10)
         .frame(height: 44)
-        .background(clip.file == selection ? Design.Studio.raised : .clear, in: .rect(cornerRadius: 8, style: .continuous))
+        .background(clip.file == selected?.file ? Design.Studio.raised : .clear, in: .rect(cornerRadius: 8, style: .continuous))
         .contentShape(.rect)
     }
 
@@ -477,17 +478,10 @@ struct DerushView: View {
     }
 
     private var dropArea: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "film.stack").font(.system(size: 24)).foregroundStyle(dropTargeted ? Design.Brand.pink : Design.Studio.textQuiet)
-            Text("Drop clips or a folder here, or use Add Folder…").foregroundStyle(Design.Studio.textQuiet)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .overlay {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(dropTargeted ? Design.Brand.pink : Design.Studio.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-        }
-        .contentShape(.rect)
-        .onTapGesture { pick(folders: true) }
+        StudioEmptyState(symbol: "film.stack", title: "Drop a shoot here", line: "Clips or a folder: Pluck sorts them into usable takes.",
+                         targeted: dropTargeted, button: "Add Folder…") { pick(folders: true) }
+            .studioDropZone(targeted: dropTargeted)
+            .onTapGesture { pick(folders: true) }
         .help("Pluck goes through your raw footage: every shot for focus, light, faces, action and its look, plus cheers, music and the most quotable lines. Then it looks at the whole shoot and picks selects for the kind of video you’re making.")
     }
 
@@ -798,22 +792,6 @@ private struct QuietMenuLabel: View {
         .padding(.horizontal, 8)
         .frame(height: 28)
         .contentShape(.rect)
-    }
-}
-
-/// A small plum arc going round: a clip or a run at work.
-private struct PlumSpinner: View {
-    @State private var turning = false
-
-    var body: some View {
-        ZStack {
-            Circle().stroke(Design.Studio.line, lineWidth: 2)
-            Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(turning ? 360 : 0))
-        }
-        .frame(width: 11, height: 11)
-        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
-        .accessibilityLabel(Text("Working"))
     }
 }
 

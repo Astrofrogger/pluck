@@ -229,7 +229,11 @@ struct EditorAIPanel<Model: FileEditing>: View {
                     Button("Transcribe", systemImage: "waveform") {
                         if let item = fileItem() { ai.transcribeInBackground([item]) }
                     }
+                    #if STUDIO
+                    .buttonStyle(StudioFlatButtonStyle())
+                    #else
                     .buttonStyle(GlassCapsuleButtonStyle())
+                    #endif
                 } else {
                     Text("Transcripts need macOS 26 and Apple Intelligence.").foregroundStyle(.secondary)
                 }

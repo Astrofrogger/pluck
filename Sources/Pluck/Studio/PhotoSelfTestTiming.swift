@@ -25,4 +25,5 @@ extension PhotoSelfTest {
         }
         note("timing first display ms: " + lines.joined(separator: "; "))
     }
+
 }

@@ -37,6 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     static var launchedAtLogin = false
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        // Screenshot mode drawing off screen: windows hidden from the very start (ScreenshotMode's Offscreen).
+        if UserDefaults.standard.string(forKey: "PluckScreenshotOffscreen") != nil { Offscreen.hideWindows(size: UserDefaults.standard.string(forKey: "PluckScreenshotSize")) }
         if let event = NSAppleEventManager.shared().currentAppleEvent, event.eventID == kAEOpenApplication,
            event.paramDescriptor(forKeyword: keyAEPropData)?.enumCodeValue == keyAELaunchedAsLogInItem {
             Self.launchedAtLogin = true

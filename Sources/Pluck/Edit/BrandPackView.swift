@@ -95,7 +95,7 @@ struct BrandPackView: View {
             .studioPanel()
             inspector
         }
-        .frame(minWidth: 960, minHeight: 600)
+        .frame(minWidth: 960)
         .onChange(of: templateID) { started = .now; scrub = 0; playing = true }
         .onAppear { if let url = Self.openFile { Self.openFile = nil; loadLogo(url) } }
         .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
@@ -117,7 +117,7 @@ struct BrandPackView: View {
     private var gallery: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Brand Pack").font(.system(size: 20, weight: .medium)).foregroundStyle(Design.Studio.text).padding(.horizontal, 10)
+                Text("Brand Pack").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).padding(.horizontal, 10)
                 ForEach(MotionTemplate.Category.allCases) { category in
                     VStack(alignment: .leading, spacing: 1) {
                         Text(heading(category)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
@@ -355,7 +355,7 @@ struct BrandPackView: View {
 
     private var logoRow: some View {
         StudioField(label: "Logo") {
-            if loadingLogo { ProgressView().controlSize(.small) }
+            if loadingLogo { PlumSpinner() }
             if logo != nil {
                 Button("Use Its Colours") { useLogoColours() }
                     .buttonStyle(.plain)
