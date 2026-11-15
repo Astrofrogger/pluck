@@ -386,7 +386,7 @@ enum VisualIndex {
     }
 
     /// Apple Vision's aesthetics score (macOS 15 and later): composition, light, subject.
-    private static func aesthetics(of image: CGImage) -> Double {
+    static func aesthetics(of image: CGImage) -> Double {
         guard #available(macOS 15, *) else { return 0 }
         let request = VNCalculateImageAestheticsScoresRequest()
         try? VNImageRequestHandler(cgImage: image).perform([request])
@@ -415,7 +415,7 @@ enum VisualIndex {
     }
 
     /// Edge detail and exposure of a small grey version of the picture.
-    private static func measure(_ picture: CGImage) -> (sharpness: Double, focus: Double, brightness: Double, blown: Double, crushed: Double) {
+    static func measure(_ picture: CGImage) -> (sharpness: Double, focus: Double, brightness: Double, blown: Double, crushed: Double) {
         let scale = min(1, 320 / Double(max(picture.width, picture.height)))
         let width = max(Int(Double(picture.width) * scale), 3), height = max(Int(Double(picture.height) * scale), 3)
         var grey = [UInt8](repeating: 0, count: width * height)

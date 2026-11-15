@@ -35,15 +35,20 @@ enum ResolveBridge {
         let output = await Task.detached { () -> String in
             let process = Process()
             process.executableURL = python
-            process.arguments = ["-c", script, scripting + "/Modules", json]
-            var environment = ProcessInfo.processInfo.environment
-            environment["RESOLVE_SCRIPT_API"] = scripting
-            environment["RESOLVE_SCRIPT_LIB"] = library.path
+            // The instruction (comment text, paths) on stdin, never in the process list or ARG_MAX's way; a minimal
+            // environment, so nothing from the session (PYTHONPATH, PYTHONSTARTUP) runs in Resolve's Python.
+            process.arguments = ["-c", script, scripting + "/Modules"]
+            let inherited = ProcessInfo.processInfo.environment
+            var environment = ["RESOLVE_SCRIPT_API": scripting, "RESOLVE_SCRIPT_LIB": library.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"]
+            for key in ["HOME", "USER", "TMPDIR", "LANG"] { environment[key] = inherited[key] }
             process.environment = environment
-            let pipe = Pipe()
+            let pipe = Pipe(), input = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
+            process.standardInput = input
             guard (try? process.run()) != nil else { return "" }
+            try? input.fileHandleForWriting.write(contentsOf: Data(json.utf8))
+            try? input.fileHandleForWriting.close()
             let data = pipe.fileHandleForReading.readDataToEndOfFile()
             process.waitUntilExit()
             return String(decoding: data, as: UTF8.self)
@@ -73,7 +78,7 @@ def out(value):
 resolve = dvr.scriptapp("Resolve")
 if resolve is None:
     out({"error": "notReachable"})
-cmd = json.loads(sys.argv[2])
+cmd = json.loads(sys.stdin.read())
 pm = resolve.GetProjectManager()
 action = cmd["action"]
 """#
@@ -97,7 +102,7 @@ def out(value):
 resolve = dvr.scriptapp("Resolve")
 if resolve is None:
     out({"error": "notReachable"})
-cmd = json.loads(sys.argv[2])
+cmd = json.loads(sys.stdin.read())
 pm = resolve.GetProjectManager()
 action = cmd["action"]
 
@@ -224,7 +229,7 @@ if action == "buildTimeline":
     eases = {"in": resolve.DYNAMIC_ZOOM_EASE_IN, "out": resolve.DYNAMIC_ZOOM_EASE_OUT,
              "inOut": resolve.DYNAMIC_ZOOM_EASE_IN_AND_OUT, "linear": resolve.DYNAMIC_ZOOM_EASE_LINEAR}
     groups = {g.GetName(): g for g in (project.GetColorGroupsList() or [])}
-    zoomed = graded = grouped = 0
+    zoomed = graded = grouped = transitions = 0
     # Where each picture really went (as Resolve counts), to read changes against later.
     sent = []
     frozen = set()
@@ -242,6 +247,26 @@ if action == "buildTimeline":
             sent.append({"key": item["key"], "track": item.get("track", 1), "start": timelineItem.GetStart() - start,
                          "end": timelineItem.GetEnd() - start, "sourceStart": timelineItem.GetSourceStartFrame(),
                          "sourceEnd": timelineItem.GetSourceEndFrame()})
+        # The transition into it, centred on the cut (AddTransition is new in Resolve 21.2); else Cross Dissolve and a marker.
+        wanted_transition = item.get("transition")
+        if wanted_transition:
+            made, exact = None, False
+            tries = [(wanted_transition["type"], wanted_transition["category"])]
+            if wanted_transition["type"] != "Cross Dissolve":
+                tries.append(("Cross Dissolve", "simple"))
+            for number, (kind, category) in enumerate(tries):
+                try:
+                    made = timelineItem.AddTransition({"type": kind, "category": category, "position": "start", "alignment": "center",
+                                                       "duration": wanted_transition["frames"]})
+                except Exception:
+                    made = None
+                if made:
+                    exact = number == 0
+                    break
+            if made:
+                transitions += 1
+            if not exact and not wanted_transition.get("marked"):
+                timeline.AddMarker(item["recordIn"], "Sky", wanted_transition["name"], "", 1, "pluck")
         zoom = item.get("zoom")
         if zoom and timelineItem.SetProperties({"DynamicZoomEnabled": True, "DynamicZoomEase": eases.get(zoom, resolve.DYNAMIC_ZOOM_EASE_IN_AND_OUT)}):
             zoomed += 1
@@ -278,7 +303,7 @@ if action == "buildTimeline":
                 subtitles = "added" if added else "imported"
         except Exception:
             pass
-    out({"timeline": timeline.GetName(), "project": project.GetName(), "sent": sent, "missedMarkers": missed, "placed": len(placed), "asked": len(infos), "frozen": len(frozen), "zoomed": zoomed, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
+    out({"timeline": timeline.GetName(), "project": project.GetName(), "sent": sent, "missedMarkers": missed, "placed": len(placed), "asked": len(infos), "frozen": len(frozen), "zoomed": zoomed, "transitions": transitions, "graded": graded, "grouped": grouped, "start": start, "subtitles": subtitles})
 
 if action == "renderAnalysis":
     # Small H.264 copies with sound of clips Pluck can't read itself (RED, BRAW), rendered from a
@@ -414,10 +439,17 @@ if action == "readTimeline":
         timeline = project.GetCurrentTimeline()
     if timeline is None:
         out({"error": "No timeline"})
-    items = []
+    items, transitions = [], []
     for track in range(1, timeline.GetTrackCount("video") + 1):
         for i in timeline.GetItemListInTrack("video", track) or []:
             props = i.GetProperties() or {}
+            try:
+                kind = i.GetType()
+            except Exception:
+                kind = None
+            if kind == "transition":
+                transitions.append({"track": track, "start": i.GetStart(), "end": i.GetEnd(), "type": props.get("TransitionType") or i.GetName() or ""})
+                continue
             group = i.GetColorGroup()
             clip = i.GetMediaPoolItem()
             path = clip.GetClipProperty("File Path") if clip else None
@@ -440,8 +472,41 @@ if action == "readTimeline":
         markers.append({"frame": int(frame), "color": m.get("color", "Blue"), "name": m.get("name", ""), "note": m.get("note", ""),
                         "duration": int(m.get("duration", 1) or 1), "customData": m.get("customData", "")})
     out({"timeline": timeline.GetName(), "project": project.GetName(), "start": timeline.GetStartFrame(),
-         "rate": rate_of(timeline), "items": items, "sounds": sounds, "markers": markers,
+         "rate": rate_of(timeline), "items": items, "transitions": transitions, "sounds": sounds, "markers": markers,
          "audio": [{"track": t, "count": len(timeline.GetItemListInTrack("audio", t) or [])} for t in range(1, timeline.GetTrackCount("audio") + 1)]})
+
+if action == "timelineInfo":
+    # The open timeline (Deliver's comments become markers on it): its name, rate, range and markers.
+    timeline = project.GetCurrentTimeline() if project else None
+    if timeline is None:
+        out({"error": "noTimeline"})
+    markers = [{"frame": int(f), "data": m.get("customData", "")} for f, m in (timeline.GetMarkers() or {}).items()]
+    out({"timeline": timeline.GetName(), "rate": rate_of(timeline), "start": timeline.GetStartFrame(), "end": timeline.GetEndFrame(), "markers": markers})
+
+if action == "addMarkers":
+    # Pluck's markers by their data ("pluck:<comment id>"): the old ones go, then each is added, a frame on
+    # (up to 5) when one is there already.
+    timeline = project.GetCurrentTimeline() if project else None
+    if timeline is None:
+        out({"error": "noTimeline"})
+    for m in cmd["markers"]:
+        for _ in range(50):
+            if not timeline.DeleteMarkerByCustomData(m["data"]):
+                break
+    added, moved, skipped = 0, [], []
+    for m in cmd["markers"]:
+        done = False
+        for shift in range(0, 6):
+            if timeline.AddMarker(m["frame"] + shift, m["color"], m["name"], m["note"], m["duration"], m["data"]):
+                done = True
+                if shift:
+                    moved.append(m["data"])
+                break
+        if done:
+            added += 1
+        else:
+            skipped.append(m["data"])
+    out({"added": added, "moved": moved, "skipped": skipped})
 
 out({"error": "Unknown action " + action})
 """#

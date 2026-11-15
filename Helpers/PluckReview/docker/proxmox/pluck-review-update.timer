@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Pluck Review host update (quiet time)
+
+[Timer]
+# __PLUCK_UPDATE_TIME__ is replaced with HH:MM (PLUCK_UPDATE_TIME, default 04:00) by pluck-proxmox.sh;
+# a unit file can't read the env file for OnCalendar.
+OnCalendar=*-*-* __PLUCK_UPDATE_TIME__:00
+RandomizedDelaySec=20m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

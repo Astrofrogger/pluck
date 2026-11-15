@@ -53,7 +53,6 @@ struct ProjectManagerView: View {
             .clipShape(panel)
         }
         .background { shortcuts }
-        .searchTarget(.edit) { searchFocused = true }
         .task(id: nav.projectsChanged) {
             let (made, kept) = await Task.detached(priority: .userInitiated) {
                 (ProjectStore.madeProjects(trashed: true), ProjectStore.folders())

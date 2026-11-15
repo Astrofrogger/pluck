@@ -19,34 +19,29 @@ struct PhotoStyleSettings: View {
     private var style: PhotoStyle? { styles.styles.first { $0.id == selection } }
 
     var body: some View {
-        Section {
-            HStack {
-                Picker("Style", selection: $selection) {
-                    if styles.styles.isEmpty { Text("None").tag(UUID?.none) }
-                    ForEach(styles.styles) { Text($0.name).tag(UUID?.some($0.id)) }
-                }
-                Button("New Style", systemImage: "plus", action: add)
-                    .labelStyle(.iconOnly)
-                    .help("New Style")
-                if let style {
-                    Button("Delete", systemImage: "trash") { delete(style) }
-                        .labelStyle(.iconOnly)
-                        .help("Delete Style")
-                        .disabled(progress != nil)
+        SettingsCard("Styles", info: String(localized: "A style learns which photos of a moment you keep, from collections in Lightroom. Moments rank with it on the Photo page. Nothing in Lightroom is changed.")) {
+            SettingRow("Style") {
+                HStack(spacing: 6) {
+                    if let style {
+                        RowIconButton(symbol: "trash", help: String(localized: "Delete Style")) { delete(style) }
+                            .disabled(progress != nil)
+                    }
+                    RowIconButton(symbol: "plus", help: String(localized: "New Style"), action: add)
+                    SettingMenu(title: style?.name ?? String(localized: "None"), selection: $selection) {
+                        if styles.styles.isEmpty { Text("None").tag(UUID?.none) }
+                        ForEach(styles.styles) { Text($0.name).tag(UUID?.some($0.id)) }
+                    }
                 }
             }
             if let style {
-                TextField("Name", text: binding(\.name, of: style))
+                SettingRow("Name") {
+                    TextField("Name", text: binding(\.name, of: style)).settingField(width: 220)
+                }
                 catalogRow(style)
                 collectionsList(style)
                 trainRow(style)
                 if style.trained != nil, progress == nil { result(style) }
             }
-        } header: {
-            Text("Styles")
-        } footer: {
-            Text("A style learns which photos of a moment you keep, from collections in Lightroom. Moments rank with it on the Photo page. Nothing in Lightroom is changed.")
-                .font(.caption).foregroundStyle(.secondary)
         }
         .onAppear {
             if selection == nil { selection = styles.chosen ?? styles.styles.first?.id }
@@ -58,21 +53,21 @@ struct PhotoStyleSettings: View {
     // MARK: Rows
 
     private func catalogRow(_ style: PhotoStyle) -> some View {
-        LabeledContent("Catalog") {
-            HStack {
+        SettingRow("Catalog") {
+            HStack(spacing: 8) {
                 let known = LightroomCatalog.defaultCatalogs()
                 if known.count > 1 {
-                    Picker("Catalog", selection: catalogBinding(style)) {
+                    SettingMenu(title: style.catalog.deletingPathExtension().lastPathComponent, selection: catalogBinding(style)) {
                         ForEach(known, id: \.self) { Text($0.deletingPathExtension().lastPathComponent).tag($0) }
                         if !known.contains(style.catalog) { Text(style.catalog.deletingPathExtension().lastPathComponent).tag(style.catalog) }
                     }
-                    .labelsHidden()
                 } else if hasCatalog(style) {
                     Text(style.catalog.deletingPathExtension().lastPathComponent).lineLimit(1).truncationMode(.middle)
+                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                 } else {
-                    Text("No catalog").foregroundStyle(.secondary)
+                    Text("No catalog").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                 }
-                Button("Choose…") { chooseCatalog(style) }
+                Button("Choose…") { chooseCatalog(style) }.settingButton()
             }
         }
         .disabled(progress != nil)
@@ -81,52 +76,59 @@ struct PhotoStyleSettings: View {
     @ViewBuilder
     private func collectionsList(_ style: PhotoStyle) -> some View {
         if unreadable {
-            Label("Pluck can’t open this catalog. Is it still where it was?", systemImage: "exclamationmark.triangle")
-                .foregroundStyle(.secondary)
+            SettingNote(text: Text("Pluck can’t open this catalog. Is it still where it was?"))
         } else if loadingCollections {
-            HStack { ProgressView().controlSize(.small); Text("Reading catalog…").foregroundStyle(.secondary) }
+            SettingNote(text: Text("Reading catalog…"), symbol: "hourglass", colour: Design.Studio.textQuiet)
         } else if hasCatalog(style) {
             if collections.isEmpty {
-                Text("No collections with kept photos in this catalog.").foregroundStyle(.secondary)
+                SettingNote(text: Text("No collections with kept photos in this catalog."), symbol: "info.circle", colour: Design.Studio.textQuiet)
             } else {
-                LabeledContent("Collections") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Collections").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
                     ScrollView {
-                        VStack(alignment: .leading, spacing: Design.Spacing.controls / 2) {
+                        VStack(alignment: .leading, spacing: 2) {
                             ForEach(collections) { collection in
-                                Toggle(isOn: includeBinding(collection.id, in: style)) {
-                                    HStack {
-                                        Text(collection.name).lineLimit(1).truncationMode(.middle)
-                                        Spacer()
-                                        Text("\(collection.photos) photos · \(collection.keepers) kept")
-                                            .font(.caption).foregroundStyle(.secondary).monospacedDigit()
-                                    }
+                                HStack(spacing: 10) {
+                                    Toggle(isOn: includeBinding(collection.id, in: style)) { Text(collection.name) }
+                                        .toggleStyle(StudioSwitchStyle())
+                                    Text(collection.name).lineLimit(1).truncationMode(.middle).foregroundStyle(Design.Studio.text)
+                                    Spacer()
+                                    Text("\(collection.photos) photos · \(collection.keepers) kept")
+                                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
                                 }
-                                .toggleStyle(.checkbox)
+                                .font(Design.Studio.body)
+                                .frame(height: 26)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .frame(maxHeight: 180)
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
                 .disabled(progress != nil)
             }
         }
     }
 
     private func trainRow(_ style: PhotoStyle) -> some View {
-        HStack {
+        HStack(spacing: 8) {
             if let progress {
-                ProgressView(value: progress).frame(maxWidth: 220)
-                Button("Cancel") { training?.cancel() }
+                StudioProgress(share: progress).frame(maxWidth: 220)
+                Button("Cancel") { training?.cancel() }.settingButton()
             } else {
                 Button("Train") { train(style) }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
                     .disabled(style.collections.isEmpty || !hasCatalog(style))
                 Button("Use Look") { useLook(style) }
+                    .settingButton()
                     .disabled(style.trained == nil || savingLook)
                     .help("Save the usual look of your keepers as a look you can apply")
             }
             Spacer(minLength: 0)
         }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -134,10 +136,12 @@ struct PhotoStyleSettings: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(summary(style))
             if style.skipped > 0 { Text("Skipped \(style.skipped) without a preview") }
+            if let lookMessage { Text(lookMessage) }
+            if let failure { Text(failure) }
         }
-        .font(.callout).foregroundStyle(.secondary)
-        if let lookMessage { Text(lookMessage).font(.callout).foregroundStyle(.secondary) }
-        if let failure { Text(failure).font(.callout).foregroundStyle(.secondary) }
+        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+        .padding(.horizontal, 14)
+        .padding(.bottom, 6)
     }
 
     /// "About 6 in 10 of your keepers on top · 31 % of photos shown · measured on 4 of your shoots".

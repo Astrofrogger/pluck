@@ -161,6 +161,28 @@ if [[ -x "$CARGO" ]]; then
 else
   echo "PLUCK_NO_IROH=1: building without Edit Anywhere's iroh link" >&2
 fi
+# Pluck Review's WebRTC helper (str0m, in Rust): both architectures, signed like pluck-iroh.
+# Without Rust the build stops (a release would quietly lose review links); PLUCK_NO_REVIEW=1
+# builds without it.
+if [[ ! -x "$CARGO" && "${PLUCK_NO_REVIEW:-}" != 1 ]]; then
+  echo "error: Rust (cargo) isn't installed, so Pluck Review's helper can't be built." >&2
+  echo "       Install rustup (brew install rustup), or set PLUCK_NO_REVIEW=1 to build without it." >&2
+  exit 1
+fi
+if [[ -x "$CARGO" && "${PLUCK_NO_REVIEW:-}" != 1 ]]; then
+  REVIEW="$PWD/build/review"
+  for target in aarch64-apple-darwin x86_64-apple-darwin; do
+    (cd Helpers/PluckReview && PATH="${CARGO:h}:$PATH" MACOSX_DEPLOYMENT_TARGET=14.0 \
+      "$CARGO" build --locked --profile dist --target $target --target-dir "$REVIEW")
+  done
+  lipo -create "$REVIEW/aarch64-apple-darwin/dist/pluck-review" "$REVIEW/x86_64-apple-darwin/dist/pluck-review" \
+    -output "$APP/Contents/Helpers/pluck-review"
+  codesign --force --options runtime --sign "$SIGN_ID" "$APP/Contents/Helpers/pluck-review"
+  # The compose file Pluck fills in for its automatic TrueNAS install (TrueNASClient reads it from Resources).
+  cp Helpers/PluckReview/docker/truenas-compose.yml "$APP/Contents/Resources/truenas-compose.yml"
+else
+  echo "Building without Pluck Review's helper" >&2
+fi
 fi
 # Translations: compile the String Catalog into <language>.lproj/Localizable.strings.
 xcrun xcstringstool compile Resources/Localizable.xcstrings --output-directory "$APP/Contents/Resources" >/dev/null

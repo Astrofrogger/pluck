@@ -615,7 +615,6 @@ struct ToolSearchField: View {
         .padding(.horizontal, 8)
         .onExitCommand { editing.toolQuery = ""; editing.findingTool = false }
         .onAppear { if editing.findingTool { focused = true } }
-        .onChange(of: StudioNavigator.shared.searchRequests) { focused = true }
         .onChange(of: focused) { _, now in if !now, editing.toolQuery.isEmpty { editing.findingTool = false } }
     }
 }

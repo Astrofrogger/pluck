@@ -1,0 +1,640 @@
+// The host's sync endpoint: Pluck (and a backup host) talk to it over TLS 1.3 with the host's own
+// self-signed certificate, which the other side pins by SHA-256. The first line says who it is
+// (spec §12.6, §13.2):
+//   {"key":"<host key>"}                                   legacy: role mac, LAN or iroh
+//   {"device":"<id>","key":"<device key>"}                 a paired device (over iroh: its node)
+//   {"pair":"<code>","name","node","role"}                 pairing with an invitation's code
+//   → {"ok":true,"version","protocol":3,"host":{"id","name","role"},"device","key"?}
+// (a hello claiming "protocol" < 2 gets {"error":"incompatible","protocol":3}). Then JSON lines,
+// one answer per request:
+//   list | put + N bytes | delete | get (+ offset/length: a range) + N bytes | roots/browse/probe/thumb
+//   invite | devices | device-remove | device-node | rotate-key | update                (role mac)
+//   mkdir | upload-begin | upload-part + n bytes | upload-end | upload-cancel             (role mac, uploads root)
+//   pull | append | publish | changes | manifest | status | reload | prepare-update …   → host.rs `sync`
+// A backup may only use manifest, changes, pull, append, get (copies, branding) and status.
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+    time::Duration,
+};
+
+use anyhow::{Context, Result};
+use serde_json::{Value, json};
+use tokio::{
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader},
+    net::TcpListener,
+    sync::{mpsc, oneshot},
+};
+use tokio_rustls::{TlsAcceptor, rustls};
+
+use crate::{devices::Devices, host, keys, log, report, roots::Roots, store::PROTOCOL, update, upload_root::UploadRoot};
+
+const MAX_LINE: usize = 1 << 20;
+pub const MAX_PUT: u64 = 256 << 30;
+const BACKUP_OPS: &[&str] = &["manifest", "changes", "pull", "append", "get", "status"];
+
+fn read_or_make(path: &Path, make: impl FnOnce() -> Vec<u8>) -> Result<(Vec<u8>, bool)> {
+    if let Ok(b) = std::fs::read(path) {
+        return Ok((b, false));
+    }
+    let b = make();
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+        .with_context(|| format!("can't write {}", path.display()))?;
+    std::io::Write::write_all(&mut f, &b)?;
+    Ok((b, true))
+}
+
+/// A file read without following a symlink, refused unless it's a regular file of at most `max`
+/// bytes: the root-run updater's `--ctl` reads files the service user can replace (#21).
+pub fn read_plain(path: &Path, max: u64) -> Result<Vec<u8>> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let f = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(path)
+        .with_context(|| format!("can't open {} (a link?)", path.display()))?;
+    let m = f.metadata()?;
+    anyhow::ensure!(m.is_file() && m.len() <= max, "{} isn't a plain file of ≤ {max} bytes", path.display());
+    let mut b = vec![];
+    std::io::Read::read_to_end(&mut std::io::Read::take(f, max + 1), &mut b)?;
+    anyhow::ensure!(b.len() as u64 <= max, "{} grew", path.display());
+    Ok(b)
+}
+
+/// The host key: $PLUCK_HOST_KEY (base64url of 32 bytes) if set, else <data>/host-key, made on first run
+/// (a plain 32-byte file; a link or anything else is refused).
+pub fn host_key(data: &Path) -> Result<(Vec<u8>, bool)> {
+    if let Some(k) = std::env::var("PLUCK_HOST_KEY").ok().filter(|k| !k.trim().is_empty()) {
+        let k = keys::unb64(k.trim()).filter(|k| k.len() == 32).context("PLUCK_HOST_KEY must be base64url of 32 bytes")?;
+        return Ok((k, false));
+    }
+    let path = data.join("host-key");
+    if std::fs::symlink_metadata(&path).is_ok() {
+        let k = read_plain(&path, 32)?;
+        anyhow::ensure!(k.len() == 32, "{} isn't 32 bytes", path.display());
+        return Ok((k, false));
+    }
+    read_or_make(&path, || rand::random::<[u8; 32]>().to_vec())
+}
+
+/// A certificate's SHA-256 as uppercase hex with colons.
+pub fn cert_fp(der: &[u8]) -> String {
+    sha2::Digest::finalize(<sha2::Sha256 as sha2::Digest>::new_with_prefix(der)).iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(":")
+}
+
+/// The host's TLS (self-signed, made on first run, kept in the data folder) and its SHA-256.
+pub fn tls(data: &Path) -> Result<(TlsAcceptor, String)> {
+    let (cert_path, key_path) = (data.join("tls-cert.der"), data.join("tls-key.der"));
+    if !(cert_path.exists() && key_path.exists()) {
+        let c = rcgen::generate_simple_self_signed(vec!["pluck-review-host".into()])?;
+        let _ = (std::fs::remove_file(&cert_path), std::fs::remove_file(&key_path));
+        read_or_make(&key_path, || c.signing_key.serialize_der())?;
+        read_or_make(&cert_path, || c.cert.der().to_vec())?;
+    }
+    let (cert_der, key_der) = (std::fs::read(&cert_path)?, std::fs::read(&key_path)?);
+    let fp = cert_fp(&cert_der);
+    let config = rustls::ServerConfig::builder_with_protocol_versions(&[&rustls::version::TLS13])
+        .with_no_client_auth()
+        .with_single_cert(vec![cert_der.into()], rustls::pki_types::PrivateKeyDer::try_from(key_der).map_err(anyhow::Error::msg)?)?;
+    Ok((TlsAcceptor::from(Arc::new(config)), fp))
+}
+
+/// Everything a session needs.
+pub struct Ctx {
+    pub data: PathBuf,
+    pub key: Arc<RwLock<Vec<u8>>>, // shared with the admin page, so rotate-key reaches its first-visit check (#18)
+    pub roots: Arc<Roots>,
+    pub to_host: mpsc::Sender<host::Sync>,
+    pub devices: Arc<Devices>,
+    pub uploads: Option<Arc<UploadRoot>>,
+    pub ident: host::Ident,
+    pub fp: String,
+    pub acceptor: TlsAcceptor,
+}
+
+impl Ctx {
+    fn bundle(&self) -> PathBuf {
+        self.data.join("bundle")
+    }
+
+    pub fn pairing_line(&self) -> String {
+        format!("pluck-host:{}@{}", keys::b64(&self.key.read().unwrap()), self.fp)
+    }
+}
+
+/// Serves the sync endpoint on `listen`. The pairing line (key + certificate fingerprint) is
+/// printed when the key is new, and is also in <data>/pairing.txt for the owner to read later.
+pub async fn serve(ctx: Arc<Ctx>, listen: String, new_key: bool) -> Result<()> {
+    let listener = TcpListener::bind(&listen).await.with_context(|| format!("can't listen on {listen}"))?;
+    let pairing = ctx.pairing_line();
+    let _ = read_or_make(&ctx.data.join("pairing.txt"), || format!("{pairing}\n").into_bytes());
+    let mut info = json!({"listen": listener.local_addr()?.to_string(), "fingerprint": ctx.fp});
+    if new_key {
+        info["pairing"] = json!(pairing);
+    }
+    report(json!({ "host": info }));
+    accept_loop(ctx, listener, None).await
+}
+
+/// Accepts TLS sessions. `iroh`: the loopback listener pluck-iroh forwards streams to; each
+/// connection must match a stream report (its local port) from the last 2 s, else it's closed.
+pub async fn accept_loop(ctx: Arc<Ctx>, listener: TcpListener, iroh: Option<crate::iroh::Streams>) -> Result<()> {
+    loop {
+        let (tcp, from) = listener.accept().await?;
+        let (ctx, iroh) = (ctx.clone(), iroh.clone());
+        tokio::spawn(async move {
+            let r = async {
+                let node = match &iroh {
+                    Some(s) => {
+                        anyhow::ensure!(from.ip().is_loopback(), "an iroh-port connection not from loopback");
+                        Some(s.claim(from.port()).await.context("no iroh stream for this connection")?)
+                    }
+                    None => None,
+                };
+                let tls = tokio::time::timeout(Duration::from_secs(10), ctx.acceptor.accept(tcp)).await??;
+                session(tls, &ctx, node).await
+            };
+            if let Err(e) = r.await {
+                log(format!("sync: {e:#}")); // no address: logs keep no IPs (hardening §3)
+            }
+        });
+    }
+}
+
+async fn line<R: AsyncBufReadExt + Unpin>(r: &mut R) -> Result<Option<Value>> {
+    let mut buf = vec![];
+    let n = match (&mut *r).take(MAX_LINE as u64).read_until(b'\n', &mut buf).await {
+        // A client that just drops the connection between requests (no TLS close_notify) has simply left.
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof && buf.is_empty() => 0,
+        r => r?,
+    };
+    if n == 0 {
+        return Ok(None);
+    }
+    anyhow::ensure!(buf.ends_with(b"\n"), "line too long");
+    Ok(Some(serde_json::from_slice(&buf)?))
+}
+
+/// The first line: who's there. Err after the 1 s delay for anything wrong.
+async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devices::Who, Value)> {
+    let ok = |device: Option<String>, role: &str, key: Option<String>| {
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL,
+            "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
+        if let Some(d) = &device {
+            r["device"] = json!(d);
+        }
+        if let Some(k) = key {
+            r["key"] = json!(k);
+        }
+        (crate::devices::Who { device, role: role.into() }, r)
+    };
+    if let Some(code) = h["pair"].as_str() {
+        let role = h["role"].as_str().unwrap_or("mac");
+        let given = h["node"].as_str().filter(|n| !n.is_empty());
+        if let Some((id, key)) = ctx.devices.pair(code, h["name"].as_str().unwrap_or(""), given, role, node) {
+            return Ok(ok(Some(id), role, Some(key)));
+        }
+    } else if let (Some(id), Some(k)) = (h["device"].as_str(), h["key"].as_str()) {
+        if let Some(role) = ctx.devices.check(id, k, node) {
+            return Ok(ok(Some(id.to_owned()), &role, None));
+        }
+    } else {
+        let given = h["key"].as_str().and_then(keys::unb64).unwrap_or_default();
+        if keys::subtle_eq(&given, &ctx.key.read().unwrap()) {
+            return Ok(ok(None, "mac", None));
+        }
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await; // slows guessing (a 256-bit key anyway)
+    anyhow::bail!("wrong host key, device or code");
+}
+
+async fn to_host(ctx: &Ctx, op: Value) -> Result<Value> {
+    let (tx, rx) = oneshot::channel();
+    ctx.to_host.send(host::Sync { op, reply: tx }).await?;
+    Ok(rx.await?)
+}
+
+pub async fn session<S: AsyncRead + AsyncWrite + Unpin>(s: S, ctx: &Ctx, node: Option<String>) -> Result<()> {
+    let (r, mut w) = tokio::io::split(s);
+    let mut r = BufReader::new(r);
+    let h = tokio::time::timeout(Duration::from_secs(10), line(&mut r)).await??.unwrap_or_default();
+    if h["protocol"].as_u64().is_some_and(|p| p < 2) {
+        w.write_all(format!("{}\n", json!({"error": "incompatible", "protocol": PROTOCOL})).as_bytes()).await?;
+        w.flush().await?;
+        return Ok(());
+    }
+    let (who, reply) = hello(&h, ctx, node.as_deref()).await?;
+    w.write_all(format!("{reply}\n").as_bytes()).await?;
+    w.flush().await?;
+    // A legacy host-key session ends when the key is rotated (#22): it's checked again on every op.
+    let legacy = (who.device.is_none()).then(|| h["key"].as_str().and_then(keys::unb64).unwrap_or_default());
+    let mut mine: Vec<String> = vec![]; // uploads-root uploads this session began
+    let r2 = ops(&mut r, &mut w, ctx, &who, legacy.as_deref(), &mut mine).await;
+    if let Some(u) = &ctx.uploads {
+        for id in mine {
+            u.release(&id);
+        }
+    }
+    r2
+}
+
+/// An open session that sends nothing for this long is closed.
+const IDLE: Duration = Duration::from_secs(30 * 60);
+
+async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &mut W, ctx: &Ctx, who: &crate::devices::Who, legacy: Option<&[u8]>,
+                                                                mine: &mut Vec<String>) -> Result<()> {
+    let bundle = ctx.bundle();
+    let mac = who.role == "mac";
+    while let Some(op) = tokio::time::timeout(IDLE, line(r)).await.context("idle")?? {
+        if who.device.as_deref().is_some_and(|d| !ctx.devices.exists(d)) {
+            anyhow::bail!("device removed");
+        }
+        if legacy.is_some_and(|k| !keys::subtle_eq(k, &ctx.key.read().unwrap())) {
+            anyhow::bail!("host key rotated");
+        }
+        let name = op["op"].as_str().unwrap_or("").to_owned();
+        let rel = op["path"].as_str().and_then(host::safe_rel);
+        // Client uploads live next to the bundle (the quarantine), not in it; the partial folder is never handed out.
+        let upload = rel.filter(|p| p.starts_with("uploads") && !p.starts_with("uploads/.partial") && p.components().count() == 3).map(|p| ctx.data.join(p));
+        let path = rel.map(|p| bundle.join(p));
+        if name.starts_with('_') || (!mac && !BACKUP_OPS.contains(&name.as_str())) {
+            if name == "put" || name == "upload-part" {
+                anyhow::bail!("{name} not allowed"); // its bytes can't be skipped safely
+            }
+            w.write_all(format!("{}\n", json!({"error": "scope"})).as_bytes()).await?;
+            w.flush().await?;
+            continue;
+        }
+        let reply = match name.as_str() {
+            "list" => json!({"files": list(&bundle)}),
+            "put" => {
+                let size = op["size"].as_u64().filter(|s| *s <= MAX_PUT);
+                let (Some(path), Some(size)) = (path, size) else { anyhow::bail!("bad put") }; // can't skip the bytes safely
+                let tmp = path.with_extension("part-upload");
+                tokio::fs::create_dir_all(path.parent().unwrap_or(&bundle)).await?;
+                let mut f = tokio::fs::File::create(&tmp).await?;
+                let n = tokio::io::copy(&mut (&mut *r).take(size), &mut f).await?;
+                anyhow::ensure!(n == size, "upload cut short");
+                f.sync_all().await?;
+                tokio::fs::rename(&tmp, &path).await?;
+                json!({"ok": true})
+            }
+            "get" => {
+                // Ranges of copies/branding (and uploads), originals for Macs only (§13.1); a backup gets copies and branding.
+                let bundled = rel.filter(|p| p.starts_with("copies") || p.starts_with("branding") || (mac && p.starts_with("originals"))).map(|_| path.clone().unwrap());
+                let file = if mac { upload.clone().or(bundled) } else { bundled };
+                match file.as_ref().and_then(|p| std::fs::metadata(p).ok().filter(|m| m.is_file()).map(|m| (p, m.len()))) {
+                    Some((p, len)) => {
+                        let off = op["offset"].as_u64().unwrap_or(0).min(len);
+                        let n = op["length"].as_u64().unwrap_or(len - off).min(len - off);
+                        w.write_all(format!("{}\n", json!({"ok": true, "size": n})).as_bytes()).await?;
+                        let mut f = tokio::fs::File::open(p).await?;
+                        tokio::io::AsyncSeekExt::seek(&mut f, std::io::SeekFrom::Start(off)).await?;
+                        let sent = tokio::io::copy(&mut f.take(n), w).await?;
+                        anyhow::ensure!(sent == n, "file changed while sending");
+                        continue;
+                    }
+                    None => json!({"error": "not found"}),
+                }
+            }
+            "delete" if upload.is_some() => {
+                let _ = tokio::fs::remove_file(upload.unwrap()).await;
+                json!({"ok": true})
+            }
+            "delete" => match path {
+                Some(p) => {
+                    let _ = tokio::fs::remove_file(&p).await;
+                    json!({"ok": true})
+                }
+                None => json!({"error": "bad path"}),
+            },
+            "roots" => {
+                let mut v = ctx.roots.op(&op).await.unwrap_or_default();
+                v["writable"] = json!(ctx.uploads.iter().map(|u| u.id.clone()).collect::<Vec<_>>());
+                v
+            }
+            "browse" | "probe" | "thumb" => ctx.roots.op(&op).await.unwrap_or_default(),
+            "invite" => ctx.devices.invite(op["role"].as_str().unwrap_or("")),
+            "devices" => ctx.devices.list(),
+            "device-remove" => ctx.devices.remove(op["id"].as_str().unwrap_or("")),
+            "device-node" => match &who.device {
+                Some(d) => ctx.devices.set_node(d, op["node"].as_str().unwrap_or("")),
+                None => json!({"error": "invalid"}),
+            },
+            "rotate-key" => rotate_key(ctx),
+            "update" => match op["device"].as_str() {
+                Some(d) => ctx.devices.queue_update(d, op["version"].as_str().unwrap_or("")),
+                None => update::request(&ctx.data, op["version"].as_str().unwrap_or("")),
+            },
+            "mkdir" | "upload-begin" | "upload-part" | "upload-end" | "upload-cancel" => {
+                let Some(u) = ctx.uploads.as_ref().filter(|_| !ctx.ident.backup) else {
+                    if name == "upload-part" {
+                        anyhow::bail!("no uploads root"); // can't skip the bytes without a valid size
+                    }
+                    w.write_all(format!("{}\n", json!({"error": "scope"})).as_bytes()).await?;
+                    w.flush().await?;
+                    continue;
+                };
+                let device = who.device.clone().unwrap_or_else(|| "host-key".into());
+                match name.as_str() {
+                    "mkdir" => u.mkdir(op["path"].as_str().unwrap_or("")),
+                    "upload-begin" => {
+                        let v = u.begin(&op, &device);
+                        if let Some(id) = v["upload"].as_str() {
+                            mine.push(id.to_owned());
+                        }
+                        v
+                    }
+                    "upload-part" => u.part(&op, r).await?,
+                    "upload-end" => u.end(&op).await,
+                    _ => u.cancel(&op),
+                }
+            }
+            "status" => {
+                let mut s = to_host(ctx, op.clone()).await?;
+                if mac {
+                    s["backups"] = ctx.devices.backups();
+                } else if let Some(d) = &who.device {
+                    if let Some(v) = ctx.devices.backup_status(d, &op["replica"]) {
+                        s["update"] = json!(v); // an "Update now" for this backup, handed on
+                    }
+                }
+                s
+            }
+            _ => to_host(ctx, op).await?,
+        };
+        w.write_all(format!("{reply}\n").as_bytes()).await?;
+        w.flush().await?; // TLS: without a flush the end of a big answer can sit in the buffer (H3)
+    }
+    Ok(())
+}
+
+/// `rotate-key`: a new legacy host key; the old one stops working at once.
+fn rotate_key(ctx: &Ctx) -> Value {
+    if std::env::var("PLUCK_HOST_KEY").is_ok_and(|k| !k.trim().is_empty()) {
+        return json!({"error": "the host key is set by PLUCK_HOST_KEY; change it there"});
+    }
+    let new: [u8; 32] = rand::random();
+    let path = ctx.data.join("host-key");
+    let tmp = path.with_extension("new");
+    use std::os::unix::fs::OpenOptionsExt;
+    let _ = std::fs::remove_file(&tmp);
+    let r = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, &new)).and_then(|_| std::fs::rename(&tmp, &path));
+    if let Err(e) = r {
+        return json!({"error": format!("can't write the host key: {e}")});
+    }
+    *ctx.key.write().unwrap() = new.to_vec();
+    let _ = std::fs::write(ctx.data.join("pairing.txt"), format!("{}\n", ctx.pairing_line()));
+    json!({"ok": true, "key": keys::b64(&new)})
+}
+
+fn list(dir: &Path) -> Vec<Value> {
+    let mut out = vec![];
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let Ok(t) = e.file_type() else { continue };
+            if t.is_dir() {
+                stack.push(e.path());
+            } else if t.is_file() {
+                if let (Ok(rel), Ok(m)) = (e.path().strip_prefix(dir).map(Path::to_path_buf), e.metadata()) {
+                    out.push(json!({"path": rel.to_string_lossy(), "size": m.len()}));
+                }
+            }
+        }
+    }
+    out
+}
+
+// ---- the client side: a backup talking to its main, and `--ctl` ----
+
+/// Accepts exactly the certificate whose SHA-256 is pinned.
+#[derive(Debug)]
+struct Pin(String, Arc<rustls::crypto::CryptoProvider>);
+
+impl rustls::client::danger::ServerCertVerifier for Pin {
+    fn verify_server_cert(&self, cert: &rustls::pki_types::CertificateDer<'_>, _: &[rustls::pki_types::CertificateDer<'_>],
+                          _: &rustls::pki_types::ServerName<'_>, _: &[u8], _: rustls::pki_types::UnixTime)
+                          -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        if cert_fp(cert).eq_ignore_ascii_case(self.0.trim()) {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General("certificate fingerprint doesn't match the pinned one".into()))
+        }
+    }
+    fn verify_tls12_signature(&self, m: &[u8], c: &rustls::pki_types::CertificateDer<'_>, d: &rustls::DigitallySignedStruct)
+                              -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls12_signature(m, c, d, &self.1.signature_verification_algorithms)
+    }
+    fn verify_tls13_signature(&self, m: &[u8], c: &rustls::pki_types::CertificateDer<'_>, d: &rustls::DigitallySignedStruct)
+                              -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(m, c, d, &self.1.signature_verification_algorithms)
+    }
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        self.1.signature_verification_algorithms.supported_schemes()
+    }
+}
+
+type Tls = tokio_rustls::client::TlsStream<tokio::net::TcpStream>;
+
+pub struct Client {
+    r: BufReader<tokio::io::ReadHalf<Tls>>,
+    w: tokio::io::WriteHalf<Tls>,
+    pub hello: Value,
+}
+
+impl Client {
+    /// Connects to `addr`, pins `fp`, sends the hello line; Err unless the answer is ok.
+    pub async fn connect(addr: &str, fp: &str, hello: Value) -> Result<Client> {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let cfg = rustls::ClientConfig::builder_with_provider(provider.clone()).with_protocol_versions(&[&rustls::version::TLS13])?
+            .dangerous().with_custom_certificate_verifier(Arc::new(Pin(fp.to_owned(), provider))).with_no_client_auth();
+        let tcp = tokio::time::timeout(Duration::from_secs(15), tokio::net::TcpStream::connect(addr)).await.context("connect timed out")??;
+        let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg))
+            .connect(rustls::pki_types::ServerName::try_from("pluck-review-host")?, tcp).await?;
+        let (r, w) = tokio::io::split(tls);
+        let mut c = Client { r: BufReader::new(r), w, hello: Value::Null };
+        c.w.write_all(format!("{hello}\n").as_bytes()).await?;
+        c.w.flush().await?;
+        let h = tokio::time::timeout(Duration::from_secs(20), line(&mut c.r)).await??.context("closed: wrong key or code")?;
+        anyhow::ensure!(h["ok"] == true, "refused: {h}");
+        c.hello = h;
+        Ok(c)
+    }
+
+    pub async fn ask(&mut self, op: &Value) -> Result<Value> {
+        self.w.write_all(format!("{op}\n").as_bytes()).await?;
+        self.w.flush().await?; // a big op (append, publish) would otherwise stall half-sent
+        tokio::time::timeout(Duration::from_secs(120), line(&mut self.r)).await??.context("closed")
+    }
+
+    /// A ranged `get` (whole file when `range` is None); Ok(None) when the host hasn't got it.
+    pub async fn get(&mut self, path: &str, range: Option<(u64, u64)>, out: &mut (impl AsyncWrite + Unpin)) -> Result<Option<u64>> {
+        let mut op = json!({"op": "get", "path": path});
+        if let Some((o, n)) = range {
+            (op["offset"], op["length"]) = (json!(o), json!(n));
+        }
+        let h = self.ask(&op).await?;
+        let Some(n) = h["size"].as_u64().filter(|_| h["ok"] == true) else { return Ok(None) };
+        let got = tokio::io::copy(&mut (&mut self.r).take(n), out).await?;
+        anyhow::ensure!(got == n, "cut short");
+        Ok(Some(n))
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    pub fn ctx(data: &Path, uploads: Option<Arc<UploadRoot>>) -> (Arc<Ctx>, mpsc::Receiver<host::Sync>) {
+        let (tx, rx) = mpsc::channel(4);
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let (acceptor, fp) = tls(data).unwrap();
+        (Arc::new(Ctx { data: data.into(), key: Arc::new(RwLock::new(vec![7u8; 32])), roots: Arc::new(Roots(vec![])), to_host: tx,
+            devices: Arc::new(Devices::load(data)), uploads, ident: host::Ident { id: "H".into(), name: "Office NAS".into(), backup: false },
+            fp, acceptor }), rx)
+    }
+
+    async fn ask<R: AsyncBufReadExt + Unpin, W: AsyncWriteExt + Unpin>(r: &mut R, w: &mut W, v: Value) -> Value {
+        w.write_all(format!("{v}\n").as_bytes()).await.unwrap();
+        line(r).await.unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn uploads_can_be_fetched_and_deleted_but_nothing_else() {
+        let data = std::env::temp_dir().join(format!("pluck-sync-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("uploads/L1")).unwrap();
+        std::fs::create_dir_all(data.join("uploads/.partial")).unwrap();
+        std::fs::create_dir_all(data.join("bundle/copies/V/1080")).unwrap();
+        std::fs::create_dir_all(data.join("bundle/originals")).unwrap();
+        std::fs::write(data.join("bundle/copies/V/1080/media.m4s"), b"0123456789").unwrap();
+        std::fs::write(data.join("bundle/originals/V.mov"), b"orig").unwrap();
+        std::fs::write(data.join("uploads/L1/a.png"), b"hello").unwrap();
+        std::fs::write(data.join("uploads/.partial/x.part"), b"half").unwrap();
+        let (c, _rx) = ctx(&data, None);
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        let task = tokio::spawn(async move { session(server, &c2, None).await });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        let hello = ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 3})).await;
+        assert_eq!((hello["ok"].clone(), hello["protocol"].clone(), hello["host"]["name"].clone()), (json!(true), json!(3), json!("Office NAS")));
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "get", "path": "uploads/L1/a.png"})).await["size"], 5);
+        let mut body = [0u8; 5];
+        r.read_exact(&mut body).await.unwrap();
+        assert_eq!(&body, b"hello");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "get", "path": "copies/V/1080/media.m4s", "offset": 3, "length": 4})).await["size"], 4);
+        let mut body = [0u8; 4];
+        r.read_exact(&mut body).await.unwrap();
+        assert_eq!(&body, b"3456", "a range");
+        for bad in ["uploads/.partial/x.part", "host-key", "uploads/../host-key", "manifest.json", "uploads/L1"] {
+            assert!(ask(&mut r, &mut w, json!({"op": "get", "path": bad})).await["error"].is_string(), "{bad}");
+        }
+        assert!(ask(&mut r, &mut w, json!({"op": "_replica-own"})).await["error"].is_string(), "internal ops stay internal");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "delete", "path": "uploads/L1/a.png"})).await["ok"], true);
+        assert!(!data.join("uploads/L1/a.png").exists());
+        drop(task);
+        // An old client claiming protocol 1.
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        tokio::spawn(async move { let _ = session(server, &c2, None).await; });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        assert_eq!(ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 1})).await, json!({"error": "incompatible", "protocol": 3}));
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    /// #22: rotate-key ends a session that is open with the old legacy key.
+    /// #21: the host key and ctl.json are refused as links or odd files.
+    #[test]
+    fn host_key_refuses_links_and_odd_files() {
+        let d = std::env::temp_dir().join(format!("pluck-hk-{}", host::uuid()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("secret"), [1u8; 32]).unwrap();
+        std::os::unix::fs::symlink(d.join("secret"), d.join("host-key")).unwrap();
+        assert!(host_key(&d).is_err(), "a link to another file");
+        std::fs::remove_file(d.join("host-key")).unwrap();
+        std::fs::write(d.join("host-key"), [1u8; 33]).unwrap();
+        assert!(host_key(&d).is_err(), "wrong size");
+        std::fs::write(d.join("host-key"), [1u8; 32]).unwrap();
+        assert_eq!(host_key(&d).unwrap().0, vec![1u8; 32]);
+        std::fs::create_dir(d.join("dir")).unwrap();
+        assert!(read_plain(&d.join("dir"), 4096).is_err(), "not a regular file");
+        let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[tokio::test]
+    async fn rotate_key_ends_legacy_sessions() {
+        let data = std::env::temp_dir().join(format!("pluck-sync-r-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("bundle")).unwrap();
+        let (c, _rx) = ctx(&data, None);
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        let task = tokio::spawn(async move { session(server, &c2, None).await });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        assert_eq!(ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 3})).await["ok"], true);
+        assert!(ask(&mut r, &mut w, json!({"op": "list"})).await["files"].is_array());
+        assert_eq!(rotate_key(&c)["ok"], true);
+        w.write_all(b"{\"op\":\"list\"}\n").await.unwrap();
+        assert!(line(&mut r).await.unwrap_or(None).is_none(), "the old key's session is cut");
+        assert!(task.await.unwrap().is_err());
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn answers_are_flushed_through_a_buffering_stream() {
+        // TLS holds written bytes until a flush, as this BufWriter does: an answer must arrive without the next request.
+        let data = std::env::temp_dir().join(format!("pluck-sync-f-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("bundle/copies/V")).unwrap();
+        let (c, _rx) = ctx(&data, None);
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let (sr, sw) = tokio::io::split(server);
+        let c2 = c.clone();
+        let _task = tokio::spawn(async move { session(tokio::io::join(sr, tokio::io::BufWriter::with_capacity(1 << 20, sw)), &c2, None).await });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        let hello = tokio::time::timeout(Duration::from_secs(5), ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 3}))).await;
+        assert_eq!(hello.expect("hello answered without a flush")["ok"], true);
+        let list = tokio::time::timeout(Duration::from_secs(5), ask(&mut r, &mut w, json!({"op": "list"}))).await;
+        assert!(list.expect("list answered without a flush")["files"].is_array());
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    #[tokio::test]
+    async fn a_backup_gets_copies_only_and_removed_devices_are_cut() {
+        let data = std::env::temp_dir().join(format!("pluck-sync-b-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("bundle/copies/V")).unwrap();
+        std::fs::create_dir_all(data.join("bundle/originals")).unwrap();
+        std::fs::write(data.join("bundle/copies/V/poster.jpg"), b"jpg").unwrap();
+        std::fs::write(data.join("bundle/originals/V.mov"), b"orig").unwrap();
+        let (c, _rx) = ctx(&data, None);
+        let inv = c.devices.invite("backup");
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        let task = tokio::spawn(async move { session(server, &c2, None).await });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        let h = ask(&mut r, &mut w, json!({"pair": inv["code"], "name": "Backup", "node": null, "role": "backup"})).await;
+        let (id, key) = (h["device"].as_str().unwrap().to_owned(), h["key"].as_str().unwrap().to_owned());
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "get", "path": "copies/V/poster.jpg"})).await["size"], 3);
+        let mut b = [0u8; 3];
+        r.read_exact(&mut b).await.unwrap();
+        assert!(ask(&mut r, &mut w, json!({"op": "get", "path": "originals/V.mov"})).await["error"].is_string(), "never originals");
+        for op in ["list", "invite", "devices", "browse", "publish", "mkdir", "rotate-key"] {
+            assert_eq!(ask(&mut r, &mut w, json!({"op": op})).await["error"], "scope", "{op}");
+        }
+        drop(task);
+        // Its device key works on a new session until it's removed; then the session ends.
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        let task = tokio::spawn(async move { session(server, &c2, None).await });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        assert_eq!(ask(&mut r, &mut w, json!({"device": id, "key": key})).await["ok"], true);
+        assert_eq!(c.devices.remove(&id)["ok"], true);
+        w.write_all(b"{\"op\":\"manifest\"}\n").await.unwrap();
+        assert!(line(&mut r).await.unwrap_or(None).is_none(), "cut");
+        assert!(task.await.unwrap().is_err());
+        let _ = std::fs::remove_dir_all(data);
+    }
+}

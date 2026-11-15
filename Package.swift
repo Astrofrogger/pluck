@@ -24,7 +24,7 @@ let package = Package(
             name: "Pluck",
             dependencies: studio ? [.product(name: "FluidAudio", package: "FluidAudio")] : [],
             path: "Sources/Pluck",
-            exclude: studio ? [] : ["AI", "Edit", "Remote", "Studio"],
+            exclude: studio ? [] : ["AI", "Deliver", "Edit", "Remote", "Studio"],
             swiftSettings: [.swiftLanguageMode(.v5)] + (studio ? [.define("STUDIO")] : []),
             linkerSettings: [.unsafeFlags(weakFrameworks.flatMap { ["-Xlinker", "-weak_framework", "-Xlinker", $0] })]
         )

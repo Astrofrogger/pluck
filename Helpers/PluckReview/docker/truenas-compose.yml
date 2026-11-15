@@ -1,0 +1,75 @@
+# Pluck Review host for TrueNAS SCALE 25.04+ (Apps > Install via YAML / app.create custom compose).
+# Pluck fills this template in; you don't edit it by hand.
+#
+# Placeholders are double-curly-brace names only (the dollar-brace form is never used: TrueNAS would
+# interpolate it). Each is replaced by a YAML-escaped value inside double quotes; values with
+# newlines are rejected. The image is the full ghcr.io reference with its sha256 digest, never latest.
+# Optional blocks sit between a begin and an end marker comment line (names: media2, uploads). The
+# filler keeps a block's lines or drops everything between and including its two marker lines:
+#   media2    the second NAS over NFS (media2_id, media2_nfs_addr, media2_nfs_path)
+#   uploads   the uploads dataset, read-write (uploads, uploads_id)
+# Backup-only values (main_link, backup_max, backup_quality) are empty strings on a main host.
+services:
+  pluck-review:
+    image: "{{image}}"
+    restart: unless-stopped
+    # Host networking: WebRTC uses this NAS's own LAN and public addresses. It opens no ports to the
+    # internet: signaling and media go outbound; only the sync port and admin page listen, on the LAN.
+    network_mode: host
+    user: "568:568"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=64m"]
+    environment:
+      PLUCK_HOST_KEY: "{{host_key}}"
+      PLUCK_HOST_NAME: "{{host_name}}"
+      PLUCK_IROH: "{{iroh}}"
+      PLUCK_ROLE: "{{role}}"
+      PLUCK_MAIN_LINK: "{{main_link}}"
+      PLUCK_BACKUP_MAX: "{{backup_max}}"
+      PLUCK_BACKUP_QUALITY: "{{backup_quality}}"
+      PLUCK_RELAY_TOKEN: "{{relay_token}}"
+      PLUCK_TURN_SECRET: "{{turn_secret}}"
+      PLUCK_TURN_URLS: "{{turn_urls}}"
+      PLUCK_UPDATE_TIME: "{{update_time}}"
+      # begin:uploads
+      PLUCK_UPLOADS: "{{uploads_id}}=/uploads/{{uploads_id}}"
+      # end:uploads
+    command:
+      - --media
+      - "{{media1_id}}=/media/{{media1_id}}"
+      # begin:media2
+      - --media
+      - "{{media2_id}}=/media/{{media2_id}}"
+      # end:media2
+      - --listen
+      - "{{lan_addr}}:{{sync_port}}"
+      - --admin
+      - "{{lan_addr}}:{{admin_port}}"
+    volumes:
+      - "{{data}}:/data"
+      - "{{media1}}:/media/{{media1_id}}:ro"
+      # begin:media2
+      - "media2:/media/{{media2_id}}:ro"
+      # end:media2
+      # begin:uploads
+      - "{{uploads}}:/uploads/{{uploads_id}}"
+      # end:uploads
+    pids_limit: 256
+    mem_limit: "{{mem}}"   # one 1080p ffmpeg encode at a time fits in well under 3g
+    cpus: "{{cpus}}"       # leave the NAS room for its own work
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+# begin:media2
+volumes:
+  # The second NAS over NFS, read-only.
+  media2:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr={{media2_nfs_addr}},ro,nfsvers=4,soft,timeo=150"
+      device: ":{{media2_nfs_path}}"
+# end:media2

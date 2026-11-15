@@ -25,7 +25,7 @@ final class ProjectLayers: @unchecked Sendable {
         var fadeIn = 0.0
         var fadeOut = 0.0
         /// How it comes in over the clip before, during `fadeIn` (a main-line clip).
-        var transition: ProjectTransition.Kind?
+        var transition: ProjectTransition?
         /// A title drawn as it plays (no file), from this far into it.
         var motion: ProjectMotion?
         var sourceStart = 0.0
@@ -85,7 +85,7 @@ final class ProjectLayers: @unchecked Sendable {
     func mainLook(at seconds: Double) -> (look: ClipLook?, progress: Double) {
         lock.withLock {
             guard let span = spans.last(where: { $0.main && $0.clipStart <= seconds + 0.0005 && seconds < $0.clipEnd + 0.0005 }) else { return (nil, 0) }
-            return (span.look, (seconds - span.clipStart) / max(span.clipEnd - span.clipStart, 0.001))
+            return (span.look?.resolved(at: seconds - span.clipStart), (seconds - span.clipStart) / max(span.clipEnd - span.clipStart, 0.001))
         }
     }
 }
@@ -144,10 +144,12 @@ final class ProjectCompositor: NSObject, AVVideoCompositing, @unchecked Sendable
                     continue
                 }
                 let progress = (seconds - span.clipStart) / max(span.clipEnd - span.clipStart, 0.001)
-                var placed = ClipLook.place(source, look: span.look, progress: min(max(progress, 0), 1), in: size, onBlack: span.main)
+                // Keyframed settings at their value now (seconds into the clip).
+                var placed = ClipLook.place(source, look: span.look?.resolved(at: seconds - span.clipStart), progress: min(max(progress, 0), 1),
+                                            in: size, onBlack: span.main)
                 // A dissolve, wipe, push… from the picture so far into this one, mixed as the export mixes.
-                if span.main, let kind = span.transition, alpha < 0.999 {
-                    picture = ProjectTransitions.blend(kind, from: picture, to: placed, progress: alpha, size: size)
+                if span.main, let transition = span.transition, alpha < 0.999 {
+                    picture = ProjectTransitions.blend(transition, from: picture, to: placed, progress: alpha, size: size)
                     continue
                 }
                 if alpha < 0.999 {

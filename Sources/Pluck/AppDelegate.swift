@@ -67,6 +67,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         RemoteStream.install()
         RemoteNetwork.shared.install()
         RemoteResolve.install()
+        // Review projects: copies still to make, the helper while a link is live, reviews hosted for paired Macs.
+        DeliverCopies.shared.resume()
+        DeliverLink.shared.start()
+        ReviewHosting.shared.update()
+        ReviewPublish.shared.pullRegularly()
         // Proxies still to fetch from the host Mac carry on in the background.
         DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
             ProxySync.shared.resume()
@@ -140,6 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         ai.stopAll()
         // Photo edits made in the last second (saves wait a moment) are written before Pluck goes.
         PhotoSaving.saveAllNow()
+        DeliverStore.flushComments()
         // Streamed shares' drives unmounted before their server goes with Pluck (no dead mounts left).
         RemoteNetwork.shared.unmountAllNow()
         #endif
@@ -192,14 +198,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             NSSound.beep()
             return
         }
-        manager.add(links)
+        manager.add(links, fromOtherDevice: false)
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let action = response.actionIdentifier
         let info = response.notification.request.content.userInfo
         let files = info[Notifications.filesKey] as? [String] ?? []
-        await MainActor.run { Notifications.handle(action: action, userInfo: [Notifications.filesKey: files]) }
+        // (Review notifications carry the asset, version and comment they're about.)
+        var passed: [String: Any] = [Notifications.filesKey: files]
+        for key in ["reviewAsset", "reviewVersion", "reviewComment"] { passed[key] = info[key] as? String }
+        let userInfo = passed
+        await MainActor.run { Notifications.handle(action: action, userInfo: userInfo) }
     }
 
     /// A Dock icon only while a real window (main or Settings) is open.

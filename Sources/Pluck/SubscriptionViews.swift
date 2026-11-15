@@ -123,7 +123,7 @@ struct SubscribeSheet: View {
             return
         }
         guard let manager = Subscriptions.shared.manager else { return }
-        manager.add([valid])
+        manager.add([valid], fromOtherDevice: false)
         dismiss()
     }
 }

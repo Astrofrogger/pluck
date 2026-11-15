@@ -226,39 +226,41 @@ struct ShortcutSettings: View {
     @State private var monitor: Any?
 
     var body: some View {
-        Form {
+        VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
             ForEach(ShortcutAction.Group.allCases, id: \.self) { group in
-                Section(group.title) {
+                SettingsCard(text: Text(group.title), info: String(localized: "Click a key, then press the new one. Esc cancels.")) {
                     ForEach(ShortcutAction.allCases.filter { $0.group == group }) { action in
-                        LabeledContent {
+                        SettingRow(text: Text(action.title)) {
                             HStack(spacing: 6) {
                                 if !shortcuts.clashes(action).isEmpty {
-                                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Design.Studio.warn)
                                         .help(String(localized: "Also used for: \(shortcuts.clashes(action).map(\.title).joined(separator: ", "))"))
+                                }
+                                if shortcuts.shortcut(action) != action.standard {
+                                    Button { shortcuts.set(action, nil) } label: {
+                                        Image(systemName: "arrow.counterclockwise").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+                                            .frame(width: 22, height: 22).contentShape(.rect)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .help("Back to \(action.standard.label)")
                                 }
                                 Button(recording == action ? String(localized: "Type a key…") : shortcuts.shortcut(action).label) {
                                     recording == action ? stop() : record(action)
                                 }
-                                .frame(minWidth: 90)
-                                if shortcuts.shortcut(action) != action.standard {
-                                    Button { shortcuts.set(action, nil) } label: { Image(systemName: "arrow.counterclockwise") }
-                                        .buttonStyle(.borderless)
-                                        .help("Back to \(action.standard.label)")
+                                .buttonStyle(StudioFlatButtonStyle(height: 26))
+                                .overlay {
+                                    if recording == action {
+                                        RoundedRectangle(cornerRadius: Design.Studio.controlRadius, style: .continuous).strokeBorder(Design.Brand.pink, lineWidth: 1)
+                                    }
                                 }
                             }
-                        } label: {
-                            Text(action.title)
                         }
                     }
                 }
             }
-            Section {
-                Button("Restore All Keys") { shortcuts.resetAll() }
-            } footer: {
-                Text("Click a key, then press the new one. Esc cancels.").font(.caption).foregroundStyle(.secondary)
-            }
+            Button("Restore All Keys") { shortcuts.resetAll() }
+                .buttonStyle(StudioFlatButtonStyle())
         }
-        .formStyle(.grouped)
         .onDisappear { stop() }
     }
 

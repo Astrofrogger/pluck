@@ -117,6 +117,9 @@ final class OfficeRenderClient {
             try await Tunnel.home.start(key: key, office: address)
             guard let listen = Tunnel.home.listen else { throw PrivateNetwork.Failure.timeout }
             try await pair(.address(listen), code: invitation.code, network: address)
+        case .reviewHost:
+            // (A NAS review host's link: Deliver pairs with those, URLScheme sends them there.)
+            throw PrivateNetwork.Failure.inviteUsed
         case .iroh(let node, let relay, _):
             guard !invitation.expired else { throw PrivateNetwork.Failure.inviteExpired }
             // A helper the office turned away doesn't dial again: a new invitation starts afresh.

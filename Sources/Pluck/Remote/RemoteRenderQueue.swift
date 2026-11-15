@@ -165,6 +165,10 @@ final class RemoteRenderQueue {
             if !(inspected["presets"] as? [String] ?? []).contains(item.preset) {
                 problems.append(String(localized: "The render preset \(item.preset) isn’t on the host Mac."))
             }
+            let unsafe = inspected["unsafe"] as? [String] ?? []
+            if !unsafe.isEmpty {
+                problems.append(String(localized: "Fusion, generator or compound clips (\(unsafe.prefix(5).joined(separator: ", "))) aren’t rendered on the host Mac for other Macs. Render this one on your own Mac."))
+            }
             let clips = (inspected["items"] as? [[String: Any]] ?? []).map(RemoteResolveProject.Clip.init)
             let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies)
             problems += plan.problems

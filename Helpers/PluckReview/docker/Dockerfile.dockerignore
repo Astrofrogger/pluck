@@ -1,0 +1,9 @@
+# The build context is Helpers/; BuildKit reads this file because it sits next to the Dockerfile
+# (a .dockerignore in PluckReview/ would be ignored). Only what the Dockerfile copies goes in.
+*
+!PluckReview/Cargo.toml
+!PluckReview/Cargo.lock
+!PluckReview/src
+!PluckIroh/Cargo.toml
+!PluckIroh/Cargo.lock
+!PluckIroh/src

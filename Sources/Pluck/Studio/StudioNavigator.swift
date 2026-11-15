@@ -8,7 +8,7 @@ final class StudioNavigator {
     static let shared = StudioNavigator()
 
     enum Page: String, CaseIterable, Identifiable {
-        case home, library, edit, photo, tools
+        case home, library, edit, photo, deliver, tools
         var id: String { rawValue }
 
         var title: LocalizedStringKey {
@@ -17,6 +17,7 @@ final class StudioNavigator {
             case .library: "Library"
             case .edit: "Edit"
             case .photo: "Photo"
+            case .deliver: "Deliver"
             case .tools: "Tools"
             }
         }
@@ -27,6 +28,7 @@ final class StudioNavigator {
             case .library: "books.vertical"
             case .edit: "film"
             case .photo: "camera.aperture"
+            case .deliver: "paperplane"
             case .tools: "square.grid.2x2"
             }
         }
@@ -48,13 +50,17 @@ final class StudioNavigator {
     }
 
     var page: Page = .home {
-        didSet { if oldValue != page { moved(from: Place(page: oldValue, tool: tool)) } }
+        didSet { if oldValue != page { moved(from: Place(page: oldValue, tool: tool, deliver: deliver)) } }
+    }
+    /// Where the Deliver page is: its projects, a project or folder, an asset, links, inbox or a tool.
+    var deliver = Deliver.Selection.projects {
+        didSet { if oldValue != deliver { moved(from: Place(page: page, tool: tool, deliver: oldValue)) } }
     }
     private(set) var tabs: [Tab] = []
     var currentID: Tab.ID?
     /// The tool open on the Tools page (nil: the list of tools).
     var tool: PluckTool? {
-        didSet { if oldValue != tool { moved(from: Place(page: page, tool: oldValue)) } }
+        didSet { if oldValue != tool { moved(from: Place(page: page, tool: oldValue, deliver: deliver)) } }
     }
     /// A step back inside the open tool (a clip back to its folder), taken by the back button
     /// before it goes back to all tools.
@@ -68,15 +74,17 @@ final class StudioNavigator {
     private struct Place: Equatable {
         var page: Page
         var tool: PluckTool?
-        init(page: Page, tool: PluckTool?) {
+        var deliver: Deliver.Selection?
+        init(page: Page, tool: PluckTool?, deliver: Deliver.Selection) {
             self.page = page
             self.tool = page == .tools ? tool : nil
+            self.deliver = page == .deliver ? deliver : nil
         }
     }
     private var backward: [Place] = []
     private var forward: [Place] = []
     private var restoring = false
-    private var here: Place { Place(page: page, tool: tool) }
+    private var here: Place { Place(page: page, tool: tool, deliver: deliver) }
 
     private func moved(from place: Place) {
         guard !restoring, place != here, place != backward.last else { return }
@@ -89,6 +97,7 @@ final class StudioNavigator {
         restoring = true
         page = place.page
         if place.page == .tools { tool = place.tool }
+        if place.page == .deliver, let selection = place.deliver { deliver = selection }
         restoring = false
     }
 
@@ -255,6 +264,12 @@ final class StudioNavigator {
         UserDefaults.standard.set(recentDates, forKey: Self.recentDatesKey)
     }
 
+    /// A review asset on the Deliver page, at a version and a comment (notifications, the inbox).
+    func showReview(asset: UUID, version: UUID? = nil, comment: UUID? = nil) {
+        deliver = .asset(asset, version: version, comment: comment)
+        page = .deliver
+    }
+
     /// The Library on one of its collections.
     func showLibrary(_ collection: LibraryView.Collection) {
         LibraryView.startCollection = collection
@@ -266,27 +281,6 @@ final class StudioNavigator {
         recent.removeAll { $0 == path }
         UserDefaults.standard.set(recent, forKey: Self.recentKey)
     }
-
-    // MARK: - Edit ▸ Search (⌘F)
-
-    /// The pages showing a search field now (Edit ▸ Search is off on the others).
-    private(set) var searchPages: Set<Page> = []
-    /// Counts Edit ▸ Search; the shown page's field takes the typing when it changes.
-    private(set) var searchRequests = 0
-    /// The page whose field last took it (for the self-test).
-    private(set) var lastSearched: Page?
-
-    var canSearch: Bool { searchPages.contains(page) }
-
-    func search() {
-        if canSearch { searchRequests += 1 } else { NSSound.beep() }
-    }
-
-    fileprivate func registerSearch(_ page: Page, _ on: Bool) {
-        if on { searchPages.insert(page) } else { searchPages.remove(page) }
-    }
-
-    fileprivate func searched(_ page: Page) { lastSearched = page }
 
     /// Types in the title bar's search field from AppKit: FocusState doesn't reach the Library's (its toolbar is
     /// made again as the Library updates).
@@ -303,37 +297,10 @@ final class StudioNavigator {
     }
 }
 
-/// A page's search field, for Edit ▸ Search (⌘F): `focus` runs when it's asked for while this page is shown.
-private struct SearchTarget: ViewModifier {
-    let page: StudioNavigator.Page
-    let focus: () -> Void
-    @State private var nav = StudioNavigator.shared
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear { nav.registerSearch(page, true) }
-            .onDisappear { nav.registerSearch(page, false) }
-            .onChange(of: nav.searchRequests) {
-                guard nav.page == page else { return }
-                nav.searched(page)
-                focus()
-            }
-    }
-}
-
-extension View {
-    func searchTarget(_ page: StudioNavigator.Page, focus: @escaping () -> Void) -> some View {
-        modifier(SearchTarget(page: page, focus: focus))
-    }
-}
-
-/// Edit ▸ Search (⌘F): the search of the page shown. A real menu command, so the key always works.
+/// Edit ▸ Search (⌘F): the search popup over the page shown. A real menu command, so the key always works.
 struct SearchCommand: View {
-    @State private var nav = StudioNavigator.shared
-
     var body: some View {
-        Button("Search") { nav.search() }
+        Button("Search") { SearchPalette.shared.show() }
             .keyboardShortcut("f")
-            .disabled(!nav.canSearch)
     }
 }

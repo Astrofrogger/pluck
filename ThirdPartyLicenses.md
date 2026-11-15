@@ -118,6 +118,18 @@ and [attohttpc](https://github.com/sbstp/attohttpc) (MPL 2.0, used unmodified; i
 Every crate's licence text is in [ThirdPartyLicenses/iroh](ThirdPartyLicenses/iroh/LICENSE). The relays it uses by
 default are iroh's free public ones, run by n0.
 
+## str0m and Rust crates (Pluck Review, Pluck Studio)
+Pluck Review's helper, `pluck-review`, is built in Rust from [str0m](https://github.com/algesten/str0m)
+(0.25.0, © Martin Algesten and contributors, MIT OR Apache 2.0: WebRTC data channels, with
+[sctp-proto](https://github.com/webrtc-rs/sctp-proto) and [dimpl](https://crates.io/crates/dimpl)),
+[tokio-tungstenite](https://github.com/snapview/tokio-tungstenite) (MIT), [rustls](https://github.com/rustls/rustls)
+(Apache 2.0, ISC or MIT) with [ring](https://github.com/briansmith/ring) (Apache 2.0 AND ISC) and the system's root
+certificates, [rcgen](https://github.com/rustls/rcgen) (MIT OR Apache 2.0) and the RustCrypto hashes (MIT OR Apache 2.0):
+157 crates linked into the program in all (Helpers/PluckReview/Cargo.lock), all under MIT, Apache 2.0, BSD, ISC,
+Unicode-3.0 or Unlicense terms. Every crate's licence text is in
+[ThirdPartyLicenses/PluckReview](ThirdPartyLicenses/PluckReview/LICENSE). The NAS host image also contains
+Debian's `ffmpeg` (GPL v2 or later), used as a separate program; it isn't part of Pluck.
+
 ## MLX, mlx-swift-lm and Hugging Face Swift packages (shot descriptions, Pluck Studio)
 The vision helper, `pluck-vision`, runs a vision-language model on the GPU with
 [MLX](https://github.com/ml-explore/mlx-swift) (mlx-swift 0.32.3, © Apple Inc., MIT, including the Metal

@@ -124,7 +124,8 @@ final class RemoteShares {
                 return (url, stale ? try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) : nil)
             }
             let found = resolved ?? nil
-            guard let url = found?.0, !archive.folders.contains(where: { $0.path == url.path }) else { continue }
+            guard let url = found?.0, !archive.folders.contains(where: { $0.path == url.path }),
+                  !OfficeInbox.overlaps(url, OfficeInbox.shared.folder) else { continue }
             let fresh = found?.1
             let old = URL(fileURLWithPath: share.path, isDirectory: true)
             guard let index = shares.firstIndex(where: { $0.path == share.path }) else { continue }

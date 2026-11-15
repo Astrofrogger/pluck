@@ -221,7 +221,7 @@ extension Project {
             } else {
                 part.end = part.start + (to - from) * clip.speed
             }
-            if from > at { part.fadeIn = 0; part.transitionIn = nil }
+            if from > at { part.fadeIn = 0; part.transitionIn = nil; part.look?.shiftKeys(by: from - at) }
             if to < at + clip.length { part.fadeOut = 0; part.dipOut = nil }
             return part
         }

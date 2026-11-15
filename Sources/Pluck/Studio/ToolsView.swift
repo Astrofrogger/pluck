@@ -3,7 +3,7 @@ import SwiftUI
 /// Pluck's tools beyond downloading, in one place: the Tools button in the main window, the
 /// Tools menu and the menu bar. Each opens in its own window.
 enum PluckTool: String, CaseIterable, Identifiable {
-    case derush, offload, rawPlayer, findShots, liveRecorder, deliveryCheck, logoAnimator, brandPack, musicFit, library, officeRender
+    case derush, offload, syncCameras, rawPlayer, findShots, liveRecorder, deliveryCheck, logoAnimator, brandPack, musicFit, library, officeRender, archive, thumbnailMaker, cutdowns
 
     enum Group: CaseIterable {
         case editing, creating, sharing
@@ -28,8 +28,8 @@ enum PluckTool: String, CaseIterable, Identifiable {
 
     var group: Group {
         switch self {
-        case .derush, .offload, .rawPlayer, .findShots, .liveRecorder, .deliveryCheck: .editing
-        case .logoAnimator, .brandPack, .musicFit: .creating
+        case .derush, .offload, .syncCameras, .rawPlayer, .findShots, .liveRecorder, .deliveryCheck, .archive, .cutdowns: .editing
+        case .logoAnimator, .brandPack, .musicFit, .thumbnailMaker: .creating
         case .library, .officeRender: .sharing
         }
     }
@@ -38,6 +38,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         switch self {
         case .derush: "Derush Footage"
         case .offload: "Offload"
+        case .syncCameras: "Sync Cameras"
         case .rawPlayer: "Player"
         case .findShots: "Search"
         case .liveRecorder: "Live Recorder"
@@ -47,6 +48,9 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .musicFit: "Fit Music to Length"
         case .library: "Library"
         case .officeRender: "Edit Anywhere"
+        case .archive: "Archive Project"
+        case .thumbnailMaker: "Thumbnail Maker"
+        case .cutdowns: "Social Cutdowns"
         }
     }
 
@@ -54,6 +58,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         switch self {
         case .derush: "Sort a shoot into a timeline of usable takes, for DaVinci Resolve."
         case .offload: "Copy a card to several drives, every file checked."
+        case .syncCameras: "Line up every camera and the sound by audio, timecode or flashes, for DaVinci Resolve."
         case .rawPlayer: "Play camera raw and pro formats, with timecode and LUTs."
         case .findShots: "Find a moment by what was said or what’s in the picture."
         case .liveRecorder: "Record a stream and mark the moments as it plays."
@@ -63,6 +68,9 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .musicFit: "Make a song exactly as long as your edit."
         case .library: "Everything Pluck saved, with collections and tags."
         case .officeRender: "Render and search footage on another Mac, from anywhere."
+        case .archive: "After delivery, keep only what the edit used, checked, on the NAS or an archive drive."
+        case .thumbnailMaker: "The best frames of a video, with a title in the brand’s style."
+        case .cutdowns: "Turn a finished edit into 9:16, 1:1 and 4:5 versions that follow the subject."
         }
     }
 
@@ -70,6 +78,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         switch self {
         case .derush: "film.stack"
         case .offload: "externaldrive.badge.checkmark"
+        case .syncCameras: "rectangle.stack.badge.play"
         case .rawPlayer: "play.rectangle"
         case .findShots: "sparkle.magnifyingglass"
         case .liveRecorder: "record.circle"
@@ -79,6 +88,9 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .musicFit: "music.note.list"
         case .library: "books.vertical"
         case .officeRender: "globe.europe.africa"
+        case .archive: "archivebox"
+        case .thumbnailMaker: "photo.artframe"
+        case .cutdowns: "rectangle.portrait.on.rectangle.portrait"
         }
     }
 

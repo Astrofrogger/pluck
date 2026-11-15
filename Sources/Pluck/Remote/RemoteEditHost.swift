@@ -63,7 +63,8 @@ enum RemoteEditHost {
         guard let base = realPath(root.path) else {
             throw OfficeLink.Failure.office(String(localized: "The shared folder isn’t reachable on the host Mac right now."))
         }
-        guard let full = realPath(relative.isEmpty ? base : base + "/" + relative), full == base || full.hasPrefix(base + "/") else { throw refused }
+        guard let full = realPath(relative.isEmpty ? base : base + "/" + relative), full == base || full.hasPrefix(base + "/"),
+              !OfficeInbox.holds(full) else { throw refused }
         return URL(fileURLWithPath: full)
     }
 
@@ -86,7 +87,7 @@ enum RemoteEditHost {
         let items = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
         let entries = items.compactMap { url -> (name: String, folder: Bool, entry: [String: Any])? in
             let name = url.lastPathComponent
-            guard !name.hasPrefix("."), !systemNames.contains(name), let real = realPath(url.path), real.hasPrefix(base + "/"),
+            guard !name.hasPrefix("."), !systemNames.contains(name), let real = realPath(url.path), real.hasPrefix(base + "/"), !OfficeInbox.holds(real),
                   let values = try? URL(fileURLWithPath: real).resourceValues(forKeys: Set(keys)) else { return nil }
             let isFolder = values.isDirectory == true && values.isPackage != true
             return (name, isFolder, ["name": name, "folder": isFolder, "size": values.fileSize ?? 0,

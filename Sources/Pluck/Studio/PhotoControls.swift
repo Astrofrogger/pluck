@@ -76,8 +76,12 @@ final class PhotoEditing {
     var search = ""
     /// What's typed in the Adjust panel's search (tools whose name matches show).
     var toolQuery = ""
-    /// "Find a tool" shown (⌘F); it hides again when cleared.
+    /// "Find a tool" shown (a tool chosen in ⌘F's search); it hides again when cleared.
     var findingTool = false
+    /// A tool chosen in ⌘F's search that lives elsewhere: the inspector goes there.
+    var jump: ToolJump?
+    /// A photo chosen in ⌘F's search: the page shows it.
+    var reveal: String?
     /// The keyboard shortcuts shown (? or the … menu).
     var showingKeys = false
     /// A look being pointed at in Looks: shown on the big photo until the pointer leaves.

@@ -101,8 +101,8 @@ struct RemoteFilesPane<Legacy: View>: View {
     @ViewBuilder private var content: some View {
         switch host {
         case .offline(let problem):
-            StudioEmptyState(symbol: "wifi.slash", title: "The host Mac isn’t answering", line: LocalizedStringKey(problem),
-                             button: "Try Again") { Task { await check() } }
+            StudioEmptyState(symbol: "wifi.slash", title: "\(OfficeRenderClient.shared.office?.name ?? String(localized: "The host Mac")) is offline. Pluck connects when it’s back",
+                             line: LocalizedStringKey(problem), button: "Try Again") { Task { await check() } }
                 .frame(height: 220)
                 .studioBox()
         case .checking:

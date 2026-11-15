@@ -1,0 +1,10 @@
+[Unit]
+Description=Update request from Pluck for the Pluck Review host
+
+[Path]
+# The host (user pluck-review) writes the wanted version here when Pluck's "Update now" asks.
+PathChanged=/var/lib/pluck-review/update/request
+Unit=pluck-review-update.service
+
+[Install]
+WantedBy=multi-user.target

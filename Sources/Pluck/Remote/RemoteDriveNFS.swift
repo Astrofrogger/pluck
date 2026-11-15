@@ -78,7 +78,7 @@ final class RemoteDriveServer: @unchecked Sendable {
     }
 
     let backend: RemoteDriveBackend
-    /// The export name mount_nfs asks for ("/pluck").
+    /// The export name mount_nfs asks for: "/pluck-<random>" per run, given only to mount_nfs (never listed).
     let export: String
     private let queue = DispatchQueue(label: "pluck.drive")
     private var listener: NWListener?
@@ -92,7 +92,7 @@ final class RemoteDriveServer: @unchecked Sendable {
     private var mounting = false
     func allowMount(_ open: Bool) { lock.lock(); mounting = open; lock.unlock() }
 
-    init(backend: RemoteDriveBackend, export: String = "/pluck") {
+    init(backend: RemoteDriveBackend, export: String = "/pluck-" + UUID().uuidString.prefix(13).lowercased()) {
         self.backend = backend
         self.export = export
         _ = handle("")
@@ -204,14 +204,15 @@ final class RemoteDriveServer: @unchecked Sendable {
         var out = XDRWriter()
         out.u32(xid); out.u32(1) // REPLY
         guard let rpcVersion = try? input.u32(), let program = try? input.u32(), let version = try? input.u32(),
-              let procedure = try? input.u32(), let flavor = try? input.u32(), (try? input.opaque(max: 400)) != nil,
+              let procedure = try? input.u32(), let flavor = try? input.u32(), let credential = try? input.opaque(max: 400),
               (try? input.u32()) != nil, (try? input.opaque(max: 400)) != nil else { return nil }
         guard rpcVersion == 2 else {
             out.u32(1); out.u32(0); out.u32(2); out.u32(2) // MSG_DENIED, RPC_MISMATCH 2...2
             return out.data
         }
-        guard flavor == 0 || flavor == 1 else { // AUTH_NONE / AUTH_SYS only
-            out.u32(1); out.u32(1); out.u32(1) // MSG_DENIED, AUTH_ERROR, AUTH_BADCRED
+        // AUTH_SYS from this user (or root, the kernel's own) only; AUTH_NONE just for NULL pings.
+        guard flavor == 1 ? Self.isOwner(credential) : flavor == 0 && procedure == 0 else {
+            out.u32(1); out.u32(1); out.u32(flavor == 0 ? 5 : 1) // MSG_DENIED, AUTH_ERROR, AUTH_TOOWEAK / AUTH_BADCRED
             return out.data
         }
         out.u32(0); out.u32(0); out.u32(0) // MSG_ACCEPTED, verifier AUTH_NONE, empty
@@ -230,6 +231,15 @@ final class RemoteDriveServer: @unchecked Sendable {
         out.u32(0) // SUCCESS
         out.data.append(body.data)
         return out.data
+    }
+
+    /// An AUTH_SYS credential (stamp, machine name, uid, gid, gids) naming this user or root.
+    /// shortcut: AUTH_SYS is self-declared, so a local process can still claim the uid; the random export name and the
+    /// mount window are the real gates. Upgrade: tie the TCP peer to its process (or use a Unix socket) if that matters.
+    static func isOwner(_ credential: Data) -> Bool {
+        var reader = XDRReader(credential)
+        guard (try? reader.u32()) != nil, (try? reader.string(max: 255)) != nil, let uid = try? reader.u32() else { return false }
+        return uid == getuid() || uid == 0
     }
 
     // MARK: MOUNT v3
@@ -252,8 +262,8 @@ final class RemoteDriveServer: @unchecked Sendable {
         case 2: out.bool(false) // DUMP: no list
         case 3: _ = try input.string() // UMNT
         case 4: break // UMNTALL
-        case 5: // EXPORT
-            out.bool(true); out.string(export); out.bool(false); out.bool(false)
+        case 5: // EXPORT: no list either (the export name is what keeps other processes out)
+            out.bool(false)
         default: return false
         }
         return true
@@ -413,7 +423,7 @@ enum RemoteDriveMount {
         "vers=3,tcp,port=\(port),mountport=\(port),nolocks,noresvport,rdonly,nobrowse,soft,intr,timeo=30,retrans=3,deadtimeout=45,nonegnamecache,rsize=1048576,readahead=8"
     }
 
-    /// Mounts the server's 127.0.0.1:/pluck on `folder` (made if missing). Throws the tool's message on failure.
+    /// Mounts the server's 127.0.0.1:<export> on `folder` (made if missing). Throws the tool's message on failure.
     static func mount(_ server: RemoteDriveServer, at folder: URL) async throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         server.allowMount(true)

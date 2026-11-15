@@ -25,6 +25,39 @@ struct MotionColor: Codable, Hashable {
 
     static let white = MotionColor(r: 1, g: 1, b: 1)
     static let ink = MotionColor(r: 0.07, g: 0.07, b: 0.08)
+
+    /// WCAG relative luminance (linear light).
+    var relativeLuminance: Double {
+        func linear(_ c: Double) -> Double { c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    /// WCAG contrast ratio, 1 … 21 (alpha ignored).
+    func contrast(_ other: MotionColor) -> Double {
+        let a = relativeLuminance, b = other.relativeLuminance
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    func mixed(_ other: MotionColor, _ p: Double) -> MotionColor {
+        MotionColor(r: Ease.lerp(r, other.r, p), g: Ease.lerp(g, other.g, p), b: Ease.lerp(b, other.b, p), a: Ease.lerp(a, other.a, p))
+    }
+
+    /// Seen over `ground` (its alpha blended in).
+    func over(_ ground: MotionColor) -> MotionColor { MotionColor(r: ground.r, g: ground.g, b: ground.b).mixed(MotionColor(r: r, g: g, b: b), a) }
+
+    /// White or near black, whichever reads better on this colour.
+    var ink: MotionColor { Self.ink.contrast(self) > Self.white.contrast(self) ? .ink : .white }
+
+    /// This colour moved towards white or black (whichever helps) until it has `ratio` contrast with `ground`.
+    func readable(on ground: MotionColor, _ ratio: Double) -> MotionColor {
+        guard contrast(ground) < ratio else { return self }
+        let target = ground.ink
+        for step in 1...20 {
+            let c = mixed(target, Double(step) / 20)
+            if c.contrast(ground) >= ratio { return c }
+        }
+        return target
+    }
 }
 
 /// What the user sets for their brand (shared by every template), and for each template (its
@@ -34,9 +67,10 @@ struct MotionStyle: Codable, Hashable {
     var bodyFont = "Helvetica Neue"
     /// 0 light … 1 black, for the titles.
     var titleWeight = 0.75
-    var accent = MotionColor(r: 1.0, g: 0.36, b: 0.42)
+    /// Neutral until a logo or preset gives the brand's own (see `BrandPalette.neutral`).
+    var accent = MotionColor(r: 0.20, g: 0.45, b: 0.75)
     /// The accent's partner, for gradients (words, plates, the background's glow).
-    var accent2 = MotionColor(r: 0.93, g: 0.13, b: 0.38)
+    var accent2 = MotionColor(r: 0.10, g: 0.58, b: 0.56)
     var secondary = MotionColor(r: 0.09, g: 0.09, b: 0.11)
     var text = MotionColor.white
     /// Behind the full-frame cards (nil: see-through).
@@ -51,6 +85,9 @@ struct MotionStyle: Codable, Hashable {
     var grain = true
     /// The plates behind the words and the cards' background (nil: on); off, just the words.
     var plates: Bool?
+    /// Titles in capitals, and their letter spacing (a share of the size; nil: the template's own).
+    var uppercase: Bool?
+    var tracking: Double?
 
     /// As drawn: without plates, their colour and the background see-through.
     var drawn: MotionStyle {
@@ -397,7 +434,7 @@ enum MotionBackground {
                                     space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
         layer.setFillColor(base.cg)
         layer.fill(CGRect(origin: .zero, size: small))
-        lights(style, t: t, canvas: small, in: layer)
+        lights(style, base: base, t: t, canvas: small, in: layer)
         if let image = layer.makeImage() {
             context.saveGState()
             context.interpolationQuality = .high
@@ -406,7 +443,7 @@ enum MotionBackground {
         }
     }
 
-    private static func lights(_ style: MotionStyle, t: Double, canvas: CGSize, in context: CGContext) {
+    private static func lights(_ style: MotionStyle, base: MotionColor, t: Double, canvas: CGSize, in context: CGContext) {
         let w = canvas.width, h = canvas.height, f = t * 18
         func blob(_ color: MotionColor, _ size: Double, _ x: Double, _ y: Double, _ alpha: Double) {
             let r = size * min(w, h) / 1080 / 2
@@ -415,10 +452,11 @@ enum MotionBackground {
                                             locations: [0, 0.35, 0.68, 1]) else { return }
             context.drawRadialGradient(gradient, startCenter: CGPoint(x: x, y: y), startRadius: 0, endCenter: CGPoint(x: x, y: y), endRadius: r, options: [])
         }
-        let deep = MotionColor(r: style.accent2.r * 0.45 + 0.08, g: style.accent2.g * 0.2, b: style.accent2.b * 0.5 + 0.25)
+        // Only the brand's own colours (and the base), so nothing of any other palette shows.
+        let deep = style.accent2.mixed(base, 0.55)
         blob(style.accent2, 2000, w * 0.78 + sin(f / 70) * w * 0.11, h * 0.77 + cos(f / 90) * h * 0.13, 0.31)
         blob(deep, 2200, w * 0.18 + cos(f / 85) * w * 0.12, h * 0.21 + sin(f / 60) * h * 0.11, 0.4)
-        blob(MotionColor(r: 0.23, g: 0.17, b: 0.85), 1800, w * 0.47 + sin(f / 110) * w * 0.18, h * -0.06 + cos(f / 75) * h * 0.08, 0.24)
+        blob(style.accent.mixed(base, 0.35), 1800, w * 0.47 + sin(f / 110) * w * 0.18, h * -0.06 + cos(f / 75) * h * 0.08, 0.24)
         blob(style.accent, 1300, w * 0.16 + sin(f / 95) * w * 0.1, h * 0.9 + sin(f / 50) * h * 0.05, 0.17)
         // Light bands drifting across.
         for (offset, speed, alpha) in [(0.0, 3.2, 0.05), (1500.0, 2.1, 0.035)] {

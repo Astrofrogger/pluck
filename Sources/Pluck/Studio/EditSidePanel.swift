@@ -58,6 +58,7 @@ struct EditSidePanel: View {
         case .transitions: EditLibraryList(model: model, kind: .transitions)
         case .titles: EditLibraryList(model: model, kind: .titles)
         case .effects: EditLibraryList(model: model, kind: .effects)
+        case .assets: AssetLibraryView(model: model)
         }
     }
 }

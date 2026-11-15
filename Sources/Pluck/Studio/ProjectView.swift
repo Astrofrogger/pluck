@@ -222,6 +222,17 @@ struct ProjectView: View {
             if ScreenshotMode.scene == "project", UserDefaults.standard.bool(forKey: "PluckScreenshotSelectClip") {
                 try? await Task.sleep(for: .seconds(4))
                 if let first = model.project.clips.first { model.selected = [first.id] }
+                // -PluckScreenshotKeyframes YES: a zoom and a move keyframed on it, the playhead between, one keyframe chosen.
+                if UserDefaults.standard.bool(forKey: "PluckScreenshotKeyframes"), let first = model.project.clips.first {
+                    let end = min(first.length, 4)
+                    model.changeKeys(first.id) { look in
+                        look.setKey(.zoom, 1, at: 0); look.setKey(.zoom, 1.4, at: end)
+                        look.setKey(.x, 0, at: 0); look.setKey(.x, 0.1, at: end * 0.6)
+                        look.setKeyframes(.zoom, look.keyframes(.zoom).map { var k = $0; k.ease = KeyEase(x1: 0.2, y1: 0, x2: 0.3, y2: 1.2); return k })
+                    }
+                    model.seek(to: end * 0.3)
+                    if let key = model.project.clips.first?.look?.keyframes(.zoom).first { model.selectedKeys = [key.id] }
+                }
             }
         }
         .task {
@@ -342,14 +353,11 @@ struct ProjectView: View {
                     if model.project.subtitlesOn == true { ProjectSubtitleOverlay(model: model) }
                     if !model.isPlaying, sidebarShown, tab == .clip, let (index, _) = model.clip(at: model.time), model.project.clips.indices.contains(index) {
                         let clip = model.project.clips[index]
-                        ViewerControlsOverlay(look: clip.look ?? ClipLook(), pictureSize: model.pictureSizes[clip.path], frameSize: model.renderSize) { record, body in
+                        // As it is at the playhead: dragging a keyframed setting keyframes it there.
+                        let look = (clip.look ?? ClipLook()).resolved(at: model.localTime(clip.id) ?? 0)
+                        ViewerControlsOverlay(look: look, pictureSize: model.pictureSizes[clip.path], frameSize: model.renderSize) { record, body in
                             model.selected = [clip.id]
-                            model.set(clip.id, record: record) { clip in
-                                var look = clip.look ?? ClipLook()
-                                body(&look)
-                                look.reframed = nil   // placed by hand now
-                                clip.look = look.isDefault ? nil : look
-                            }
+                            model.editLook(clip.id, record: record, byHand: true, body)
                         }
                     }
                 }
@@ -508,9 +516,13 @@ struct ProjectView: View {
         if command, !option {
             // Zoom in and out of the timeline, as in the Editor; clips copied and pasted.
             switch letter {
+            // Keyframes chosen on the lane: those copied.
+            case "c" where !shift && !model.selectedKeys.isEmpty: if let id = model.keyedSelection?.clip.id, model.copyKeys(id) { return .handled }; return model.copySelection() ? .handled : .ignored
             case "c" where !shift: return model.copySelection() ? .handled : .ignored
             case "x" where !shift: model.cutSelection(); return .handled
             case "v" where !shift: return model.paste() ? .handled : .ignored
+            // ⌘T: the default transition on the cut nearest the playhead (as in Resolve).
+            case "t" where !shift: return model.putTransition(ProjectModel.defaultTransition, at: model.time) ? .handled : .ignored
             case "=", "+": zoom = min(zoom * 1.5, max(min(model.duration / 2, 400), 1)); return .handled
             case "-": zoom = max(zoom / 1.5, 1); return .handled
             case "0": zoom = 1; return .handled
@@ -540,7 +552,7 @@ struct ProjectView: View {
         case "l": model.shuttle(1)
         case .delete, .deleteForward:
             // Clips, items on the tracks (titles too), looks, songs or a plain title, whichever is selected.
-            model.deleteSelection()
+            if !model.deleteSelectedKeys() { model.deleteSelection() }
         default:
             switch Shortcuts.shared.action(for: press, in: .edit) {
             case .editSplit: model.split(at: model.time)

@@ -251,7 +251,7 @@ struct MenuBarView: View {
             return
         }
         guard isValid else { return }
-        manager.add(fieldLinks.count > 1 ? fieldLinks : [trimmed])
+        manager.add(fieldLinks.count > 1 ? fieldLinks : [trimmed], fromOtherDevice: false)
         urlText = ""
     }
 }

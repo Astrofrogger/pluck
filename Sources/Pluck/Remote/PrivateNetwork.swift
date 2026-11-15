@@ -16,6 +16,8 @@ enum PrivateNetwork {
     static let relayKey = "editAnywhereRelay"
     /// How long an iroh invitation works (the helper's limit too).
     static let invitationLifetime: TimeInterval = 15 * 60
+    /// A Tailscale invitation (its tagged join key and its pairing code): an hour.
+    static let tailscaleInvitationLifetime: TimeInterval = 3600
 
     /// The host Mac's way in from anywhere. New setups use iroh; a Mac already on Tailscale keeps
     /// it until it's switched (decided once, then saved). A build without pluck-iroh uses
@@ -130,10 +132,25 @@ enum PrivateNetwork {
             return json ?? [:]
         }
 
-        /// A key that lets one Mac join, once, within `expiry` seconds.
-        static func joinKey(expiry: Int) async throws -> String {
+        /// Tags Pluck's nodes join with, so the tailnet's access rules can confine them (`aclSnippet`).
+        static let officeTag = "tag:pluck-office", inviteeTag = "tag:pluck-invitee"
+
+        /// What the owner pastes into the tailnet policy (Access controls): invited Macs reach only this Mac's
+        /// Edit Anywhere port. A policy that still allows "*" → "*:*" must narrow that rule's src to autogroup:member.
+        static let aclSnippet = """
+        "tagOwners": {
+          "tag:pluck-office":  ["autogroup:admin"],
+          "tag:pluck-invitee": ["autogroup:admin"]
+        },
+        "acls": [
+          {"action": "accept", "src": ["tag:pluck-invitee"], "dst": ["tag:pluck-office:\(OfficeLink.port)"]}
+        ]
+        """
+
+        /// A tagged key that lets one Mac join, once, within `expiry` seconds.
+        static func joinKey(expiry: Int, tag: String) async throws -> String {
             let body: [String: Any] = [
-                "capabilities": ["devices": ["create": ["reusable": false, "ephemeral": false, "preauthorized": true]]],
+                "capabilities": ["devices": ["create": ["reusable": false, "ephemeral": false, "preauthorized": true, "tags": [tag]]]],
                 "expirySeconds": expiry,
                 "description": "Pluck Edit Anywhere",
             ]
@@ -143,15 +160,34 @@ enum PrivateNetwork {
             return key
         }
 
-        /// Pluck's Macs on the network keep their place: Tailscale otherwise asks them to sign
-        /// in again after six months, which nobody at home would know how to do.
-        static func keepPluckMacsConnected() async {
+        /// Pluck's Macs on the network keep their place (no sign-in again after six months), but only the ones that
+        /// paired: by the tailnet addresses recorded at pairing (`paired`), never by a name a device picks. An invited
+        /// node that never paired (a forwarded or leaked invitation), or was removed in Pluck, is deleted once its
+        /// invitation has run out.
+        static func keepPluckMacsConnected(paired: Set<String>, removed: Set<String> = []) async {
             guard let list = try? await request("tailnet/-/devices") as? [String: Any],
                   let devices = list["devices"] as? [[String: Any]] else { return }
-            for device in devices {
-                guard let id = device["id"] as? String, (device["hostname"] as? String ?? "").hasPrefix("pluck-"),
-                      device["keyExpiryDisabled"] as? Bool != true else { continue }
-                _ = try? await request("device/\(id)/key", method: "POST", body: ["keyExpiryDisabled": true])
+            for (id, action) in plan(devices, paired: paired, removed: removed, now: .now, lifetime: PrivateNetwork.tailscaleInvitationLifetime) {
+                switch action {
+                case .keep: _ = try? await request("device/\(id)/key", method: "POST", body: ["keyExpiryDisabled": true])
+                case .delete: _ = try? await request("device/\(id)", method: "DELETE")
+                }
+            }
+        }
+
+        enum NodeAction: Equatable { case keep, delete }
+
+        /// What to do with each invited node (only `inviteeTag` nodes are ever touched).
+        static func plan(_ devices: [[String: Any]], paired: Set<String>, removed: Set<String> = [], now: Date, lifetime: TimeInterval) -> [(String, NodeAction)] {
+            devices.compactMap { device in
+                guard let id = device["id"] as? String, (device["tags"] as? [String] ?? []).contains(inviteeTag) else { return nil }
+                let addresses = device["addresses"] as? [String] ?? []
+                if !removed.isDisjoint(with: addresses) { return (id, .delete) }
+                if !paired.isDisjoint(with: addresses) {
+                    return device["keyExpiryDisabled"] as? Bool == true ? nil : (id, .keep)
+                }
+                let created = (device["created"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast
+                return now.timeIntervalSince(created) > lifetime ? (id, .delete) : nil
             }
         }
     }
@@ -165,6 +201,8 @@ enum PrivateNetwork {
         enum Way: Equatable {
             case tailscale(key: String, address: String)
             case iroh(node: String, relay: String?, expires: Date)
+            /// v3, `k:"nas"` (§13.2): a NAS review host; `pin` is its certificate's SHA-256 (hex with colons).
+            case reviewHost(node: String, relay: String?, expires: Date, pin: String, lan: String?, role: String)
         }
         var way: Way
         var name: String
@@ -172,6 +210,7 @@ enum PrivateNetwork {
 
         var expired: Bool {
             if case .iroh(_, _, let expires) = way { return expires <= .now }
+            if case .reviewHost(_, _, let expires, _, _, _) = way { return expires <= .now }
             return false
         }
 
@@ -182,6 +221,10 @@ enum PrivateNetwork {
             case .iroh(let node, let relay, let expires):
                 json = ["v": 2, "o": node, "n": name, "c": code, "e": Int(expires.timeIntervalSince1970)]
                 if let relay { json["r"] = relay }
+            case .reviewHost(let node, let relay, let expires, let pin, let lan, let role):
+                json = ["v": 3, "k": "nas", "o": node, "n": name, "c": code, "e": Int(expires.timeIntervalSince1970), "fp": pin, "role": role]
+                if let relay { json["r"] = relay }
+                if let lan { json["lan"] = lan }
             }
             guard let data = try? JSONSerialization.data(withJSONObject: json, options: .sortedKeys) else { return nil }
             let text = data.base64EncodedString().replacingOccurrences(of: "+", with: "-")
@@ -199,7 +242,19 @@ enum PrivateNetwork {
             while value.count % 4 != 0 { value += "=" }
             guard let data = Data(base64Encoded: value),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-            if json["v"] as? Int == 2 {
+            if json["v"] as? Int == 3 {
+                // Only the NAS kind (other v3 kinds aren't Pluck's to read yet).
+                guard json["k"] as? String == "nas", let node = json["o"] as? String, PrivateNetwork.isNodeID(node),
+                      let code = json["c"] as? String, OfficeLink.normalised(code) != nil, let expires = json["e"] as? Double,
+                      let pin = (json["fp"] as? String)?.uppercased(), pin.split(separator: ":").count == 32,
+                      pin.split(separator: ":").allSatisfy({ $0.count == 2 && $0.allSatisfy(\.isHexDigit) }) else { return nil }
+                let relay = json["r"] as? String, role = json["role"] as? String ?? "mac"
+                if let relay, PrivateNetwork.relayAddress(relay) == nil { return nil }
+                guard ["mac", "backup"].contains(role) else { return nil }
+                let lan = (json["lan"] as? String).flatMap { $0.count <= 255 && !$0.contains("/") ? $0 : nil }
+                self.init(way: .reviewHost(node: node, relay: relay, expires: Date(timeIntervalSince1970: expires), pin: pin, lan: lan, role: role),
+                          name: String((json["n"] as? String ?? "NAS").prefix(60)), code: code)
+            } else if json["v"] as? Int == 2 {
                 guard let node = json["o"] as? String, PrivateNetwork.isNodeID(node),
                       let code = json["c"] as? String, OfficeLink.normalised(code) != nil,
                       let expires = json["e"] as? Double else { return nil }
@@ -272,9 +327,13 @@ final class Tunnel {
     /// iroh, home: the office (and relay) the running helper leads to.
     @ObservationIgnored private var target: [String?] = []
 
-    init(_ mode: Mode, _ transport: PrivateNetwork.Transport) {
+    /// iroh: a key of its own (a NAS review host's tunnel, §13.2), instead of Edit Anywhere's.
+    let keyFile: URL?
+
+    init(_ mode: Mode, _ transport: PrivateNetwork.Transport, keyFile: URL? = nil) {
         self.mode = mode
         self.transport = transport
+        self.keyFile = keyFile
     }
 
     private var directory: URL {
@@ -321,7 +380,7 @@ final class Tunnel {
     /// iroh, office: the Mac (node id) a local connection from the helper carries, by the port it
     /// came from here. Waits a moment for the helper's report (it's read separately).
     func peer(port: UInt16) async -> String? {
-        guard transport == .iroh, mode == .office, process?.isRunning == true else { return nil }
+        guard mode == .office, process?.isRunning == true else { return nil }
         for _ in 0..<40 {
             if let found = streams.removeValue(forKey: port) { return found.peer }
             try? await Task.sleep(for: .milliseconds(25))
@@ -369,7 +428,7 @@ final class Tunnel {
             if let key { settings["authKey"] = key }
             if let office { settings["office"] = office }
         case .iroh:
-            settings = ["mode": mode.rawValue, "keyFile": directory.appendingPathComponent("\(mode.rawValue).key").path,
+            settings = ["mode": mode.rawValue, "keyFile": (keyFile ?? directory.appendingPathComponent("\(mode.rawValue).key")).path,
                         "port": Int(OfficeLink.listenPort), "allow": allow]
             if let relay = PrivateNetwork.ownRelay { settings["relay"] = relay }
             if let office { settings["office"] = office }

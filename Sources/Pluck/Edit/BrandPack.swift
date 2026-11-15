@@ -283,7 +283,7 @@ struct BrandPack {
     }
 
     /// Whether two colours are far enough apart to see one on the other.
-    private static func differs(_ a: CGColor, _ b: CGColor) -> Bool {
+    static func differs(_ a: CGColor, _ b: CGColor) -> Bool {
         let d = rgb(a) - rgb(b)
         return (d * d).sum() > 0.08
     }

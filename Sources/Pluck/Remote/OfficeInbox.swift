@@ -10,6 +10,9 @@ final class OfficeInbox {
     private static let folderKey = "officeInboxFolder"
     /// The largest file a paired Mac can send.
     private static let largest: Int64 = 500_000_000_000
+    /// What one paired Mac may keep in its inbox folder, and the space always left free on the host's volume.
+    static var quota: Int64 = 1_000_000_000_000
+    static var freeFloor: Int64 = 20_000_000_000
 
     /// Where files from paired Macs go: chosen here, or Movies/Pluck Inbox.
     private(set) var folder: URL
@@ -25,28 +28,40 @@ final class OfficeInbox {
 
     private init() {
         folder = UserDefaults.standard.string(forKey: Self.folderKey).map { URL(fileURLWithPath: $0, isDirectory: true) } ?? Self.defaultFolder
+        Self.folderPath = folder.path
     }
+
+    /// The inbox's path for share requests on any thread (they refuse anything in it).
+    nonisolated(unsafe) private static var folderPath = ""
+    nonisolated static var realFolder: String { real(URL(fileURLWithPath: folderPath)) }
+    nonisolated static func real(_ url: URL) -> String { RemoteEditHost.realPath(url.path) ?? url.standardizedFileURL.path }
+    /// One folder inside the other (or the same), by real path.
+    nonisolated static func overlaps(_ a: URL, _ b: URL) -> Bool {
+        let p = real(a) + "/", q = real(b) + "/"
+        return p.hasPrefix(q) || q.hasPrefix(p)
+    }
+    /// A real path in the inbox (never shared content, whatever folder is shared).
+    nonisolated static func holds(_ path: String) -> Bool { (path + "/").hasPrefix(realFolder + "/") }
 
     func choose(_ folder: URL?) throws {
         if let folder {
             // (Inside shared footage, files paired Macs send would become proxy and search inputs;
             // around it, the footage would be left out of search as part of the inbox.)
-            let path = folder.standardizedFileURL.path + "/"
-            guard !OfficeArchive.shared.folders.contains(where: { footage in
-                let other = footage.standardizedFileURL.path + "/"
-                return path.hasPrefix(other) || other.hasPrefix(path)
-            }) else { throw OfficeProxies.ChoiceProblem.overlapsFootage }
+            guard !OfficeArchive.shared.folders.contains(where: { Self.overlaps(folder, $0) }) else { throw OfficeProxies.ChoiceProblem.overlapsFootage }
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             guard FileManager.default.isWritableFile(atPath: folder.path) else { throw OfficeProxies.ChoiceProblem.notWritable }
         }
         self.folder = folder ?? Self.defaultFolder
+        Self.folderPath = self.folder.path
         UserDefaults.standard.set(folder?.path, forKey: Self.folderKey)
     }
 
     enum Problem: LocalizedError {
-        case badPath, tooBig, mismatch
+        case badPath, tooBig, mismatch, noSpace, full
         var errorDescription: String? {
             switch self {
+            case .noSpace: String(localized: "The host Mac is low on disk space.")
+            case .full: String(localized: "Your inbox on the host Mac is full. Ask to have files there moved.")
             case .badPath: String(localized: "That file name can’t be used on the host Mac.")
             case .tooBig: String(localized: "That file is too big to send.")
             case .mismatch: String(localized: "The file changed while it was being sent. It starts again.")
@@ -67,8 +82,11 @@ final class OfficeInbox {
               parts.allSatisfy({ !$0.isEmpty && $0 != "." && $0 != ".." && !$0.hasPrefix(".") && !$0.contains(":") }) else {
             throw Problem.badPath
         }
-        let macFolder = folder.appendingPathComponent(Folders.sanitize(device).isEmpty ? "Mac" : Folders.sanitize(device), isDirectory: true)
-        return parts.reduce(macFolder) { $0.appendingPathComponent($1) }
+        return parts.reduce(macFolder(device)) { $0.appendingPathComponent($1) }
+    }
+
+    private func macFolder(_ device: String) -> URL {
+        folder.appendingPathComponent(Folders.sanitize(device).isEmpty ? "Mac" : Folders.sanitize(device), isDirectory: true)
     }
 
     /// (Named by the sender's size and date, so a part of an earlier version is never added to.)
@@ -92,6 +110,20 @@ final class OfficeInbox {
         return Self.size(Self.partial(target, size: size, modified: modified)) ?? 0
     }
 
+    static func room(in folder: URL, rest: Int64) throws {
+        guard let free = (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage,
+              free - rest >= freeFloor else { throw Problem.noSpace }
+    }
+
+    /// The bytes in a Mac's inbox folder.
+    nonisolated static func used(by folder: URL) -> Int64 {
+        var total: Int64 = 0
+        for case let url as URL in FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.fileSizeKey]) ?? .init() {
+            total += Int64((try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
+        }
+        return total
+    }
+
     /// One piece of a file, at the end of what's here. The piece that completes it puts the file
     /// in place (replacing an earlier version from the same Mac) with the sender's date.
     func receive(_ path: String, size: Int64, modified: Double, offset: Int64, data: Data, from device: String, sender: String? = nil) throws -> Int64 {
@@ -112,6 +144,11 @@ final class OfficeInbox {
             }
         }
         let here = Self.size(partial) ?? 0
+        // Room for the rest of it, and (on its first piece) within this Mac's share of the inbox. Unknown: refused.
+        try Self.room(in: target.deletingLastPathComponent(), rest: size - here)
+        if offset == 0, Self.used(by: macFolder(device)) + size > Self.quota {
+            throw Problem.full
+        }
         // Only ever added to at its end; anything else and the sender starts that file again.
         guard here == offset else {
             if here > offset { try? FileManager.default.removeItem(at: partial) }

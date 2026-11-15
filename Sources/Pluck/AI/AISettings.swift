@@ -13,54 +13,48 @@ struct AISettings: View {
     @State private var visionRefresh = 0
 
     var body: some View {
-        Form {
+        VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
             // Only what this Mac can run: features that need a newer macOS or Apple silicon
             // aren't listed at all.
             if LocalAI.canTranscribe {
-            Section {
-                Toggle(isOn: $autoTranscribe) {
-                    Text("Transcribe new videos automatically")
-                    Text("Downloads and videos you open or import, so Search finds what’s said in them. Runs in the background, on this Mac.")
-                }
-                let missing = studio.needsTranscript(manager.items).count
-                LabeledContent("Not transcribed yet") {
-                    HStack {
-                        Text("\(missing)").monospacedDigit().foregroundStyle(.secondary)
-                        Button("Transcribe Now") { studio.transcribeInBackground(manager.items) }
-                            .disabled(missing == 0)
-                    }
-                }
-            } header: {
-                Text("Transcripts & search")
-            }
-            }
-            Section {
-                LabeledContent("Library folders") {
-                    Text(verbatim: "\(FootageFolders.shared.folders.count)").monospacedDigit().foregroundStyle(.secondary)
-                }
-                Toggle("Look at new downloads", isOn: Binding(get: { UserDefaults.standard.object(forKey: VisualIndexer.autoKey) as? Bool ?? true },
-                                                               set: { UserDefaults.standard.set($0, forKey: VisualIndexer.autoKey) }))
-                    .help("So searches find what’s in their pictures")
-                LabeledContent("Film data (advanced settings)") {
-                    HStack {
-                        switch FilmEngine.shared.state {
-                        case .ready:
-                            Text("Installed").foregroundStyle(.secondary)
-                            Button("Remove", role: .destructive) { FilmEngine.shared.uninstall() }
-                        case .installing:
-                            ProgressView(value: FilmEngine.shared.progress).frame(width: 100)
-                        default:
-                            Text("Not installed").foregroundStyle(.secondary)
+                SettingsCard("Transcripts & search") {
+                    SettingSwitch("Transcribe new videos automatically",
+                                  help: String(localized: "Downloads and videos you open or import, so Search finds what’s said in them. Runs in the background, on this Mac."),
+                                  isOn: $autoTranscribe)
+                    let missing = studio.needsTranscript(manager.items).count
+                    SettingRow("Not transcribed yet") {
+                        HStack(spacing: 8) {
+                            Text("\(missing)").monospacedDigit().font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                            Button("Transcribe Now") { studio.transcribeInBackground(manager.items) }
+                                .settingButton()
+                                .disabled(missing == 0)
                         }
                     }
                 }
-            } header: {
-                Text("Search & photos")
-            } footer: {
-                Text("Add folders in the Library. Advanced film settings and the denoise engine are downloaded from the Photo page when you ask for them. Normal film works without them.")
+            }
+            SettingsCard("Search & photos", info: String(localized: "Add folders in the Library. Advanced film settings and the denoise engine are downloaded from the Photo page when you ask for them. Normal film works without them.")) {
+                SettingRow("Library folders") {
+                    Text(verbatim: "\(FootageFolders.shared.folders.count)").monospacedDigit().font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                }
+                SettingSwitch("Look at new downloads", help: String(localized: "So searches find what’s in their pictures"),
+                              isOn: Binding(get: { UserDefaults.standard.object(forKey: VisualIndexer.autoKey) as? Bool ?? true },
+                                            set: { UserDefaults.standard.set($0, forKey: VisualIndexer.autoKey) }))
+                SettingRow("Film data (advanced settings)") {
+                    HStack(spacing: 8) {
+                        switch FilmEngine.shared.state {
+                        case .ready:
+                            Text("Installed").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                            Button("Remove", role: .destructive) { FilmEngine.shared.uninstall() }.settingButton()
+                        case .installing:
+                            StudioProgress(share: FilmEngine.shared.progress).frame(width: 100)
+                        default:
+                            Text("Not installed").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                        }
+                    }
+                }
             }
 
-            Section("On this Mac") {
+            SettingsCard("On this Mac") {
                 if LocalAI.canTranscribe {
                     status("Transcripts, subtitles & translation", available: true, detail: nil)
                     status("Search inside downloads", available: true,
@@ -82,14 +76,14 @@ struct AISettings: View {
                 }
                 if Stems.isSupported {
                     status("Stems & karaoke", available: true, detail: nil)
-                    LabeledContent("Stem model") {
+                    SettingRow("Stem model") {
                         if Stems.isModelInstalled {
-                            HStack {
-                                Text("Downloaded (\(Format.bytes(Stems.modelSize)))").foregroundStyle(.secondary)
-                                Button("Remove") { Stems.removeModel() }
+                            HStack(spacing: 8) {
+                                Text("Downloaded (\(Format.bytes(Stems.modelSize)))").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                                Button("Remove") { Stems.removeModel() }.settingButton()
                             }
                         } else {
-                            Text("Downloads \(Format.bytes(Stems.modelSize)) the first time").foregroundStyle(.secondary)
+                            Text("Downloads \(Format.bytes(Stems.modelSize)) the first time").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                         }
                     }
                 }
@@ -99,63 +93,52 @@ struct AISettings: View {
                 }
                 if let model = VisionModel.selected {
                     let _ = visionRefresh
-                    // Only the models this Mac has the memory for.
-                    Picker(selection: $pickedModel) {
-                        ForEach(VisionModel.choices.filter(VisionModel.fits)) { choice in
-                            Text(verbatim: choice.name + " · " + Format.bytes(choice.size)
-                                 + (VisionModel.isInstalled(choice) ? " ✓" : ""))
-                                .tag(choice.repository)
+                    SettingRow("Model", help: VisionModel.detail(model)) {
+                        // Only the models this Mac has the memory for.
+                        SettingMenu(title: model.name, selection: $pickedModel) {
+                            ForEach(VisionModel.choices.filter(VisionModel.fits)) { choice in
+                                Text(verbatim: choice.name + " · " + Format.bytes(choice.size)
+                                     + (VisionModel.isInstalled(choice) ? " ✓" : ""))
+                                    .tag(choice.repository)
+                            }
                         }
-                    } label: {
-                        Text("Model")
-                        Text(VisionModel.detail(model))
                     }
                     .disabled(visionProgress != nil)
-                    LabeledContent {
+                    SettingRow(text: Text(verbatim: model.name),
+                               detail: !VisionModel.isInstalled(model) && visionProgress == nil ? Text("Downloads \(Format.bytes(model.size)) once") : nil) {
                         if let visionProgress {
-                            HStack {
-                                ProgressView(value: visionProgress).frame(width: 120)
-                                Text(visionProgress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit().foregroundStyle(.secondary)
+                            HStack(spacing: 8) {
+                                StudioProgress(share: visionProgress).frame(width: 120)
+                                Text(visionProgress.formatted(.percent.precision(.fractionLength(0)))).monospacedDigit()
+                                    .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                             }
                         } else if VisionModel.isInstalled(model) {
-                            HStack {
-                                Toggle("Use", isOn: $visionModelEnabled).labelsHidden()
-                                Button("Remove") { remove(model) }
+                            HStack(spacing: 8) {
+                                Toggle("Use", isOn: $visionModelEnabled).toggleStyle(StudioSwitchStyle())
+                                Button("Remove") { remove(model) }.settingButton()
                             }
                         } else {
-                            Button("Download") { download(model) }
-                        }
-                    } label: {
-                        Text(verbatim: model.name)
-                        if !VisionModel.isInstalled(model), visionProgress == nil {
-                            Text("Downloads \(Format.bytes(model.size)) once")
+                            Button("Download") { download(model) }.settingButton()
                         }
                     }
-                    if let visionError { Text(visionError).foregroundStyle(.red).font(.callout) }
+                    if let visionError { SettingNote(text: Text(visionError), colour: Design.Studio.bad) }
                     // Models downloaded earlier and no longer picked take space: they can go.
                     ForEach(VisionModel.choices.filter { $0 != model && VisionModel.isInstalled($0) }) { other in
-                        LabeledContent {
-                            Button("Remove") { remove(other) }
-                        } label: {
-                            Text(verbatim: other.name)
-                            Text("Also downloaded (\(Format.bytes(other.size)))")
+                        SettingRow(text: Text(verbatim: other.name), detail: Text("Also downloaded (\(Format.bytes(other.size)))")) {
+                            Button("Remove") { remove(other) }.settingButton()
                         }
                     }
                 }
             }
+
+            StudioFootnote(text: "Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus open-source models for stems and shot descriptions. Nothing you download, say or search is uploaded.")
+                .multilineTextAlignment(.center)
         }
-        .formStyle(.grouped)
         .onAppear {
             // The picker shows the model in use, also before one was ever picked.
             if let selected = VisionModel.selected, pickedModel != selected.repository { pickedModel = selected.repository }
         }
         .onChange(of: pickedModel) { visionError = nil }
-
-        Label("Pluck’s AI runs locally on this Mac: Apple’s on-device speech recognition, translation and Apple Intelligence, plus open-source models for stems and shot descriptions. Nothing you download, say or search is uploaded.",
-              systemImage: "lock.shield")
-            .noteStyle()
-            .padding(.horizontal, 20)
-            .padding(.bottom, 12)
     }
 
     private func download(_ model: VisionModel.Choice) {
@@ -179,13 +162,11 @@ struct AISettings: View {
     }
 
     private func status(_ title: LocalizedStringKey, available: Bool, detail: String?) -> some View {
-        LabeledContent {
+        // What's there is explained on hover; why something isn't stays in view.
+        SettingRow(title, help: available ? detail : nil, detail: available ? nil : detail.map { Text($0) }) {
             Image(systemName: available ? "checkmark.circle.fill" : "minus.circle")
-                .foregroundStyle(available ? .green : .secondary)
+                .foregroundStyle(available ? Design.Studio.good : Design.Studio.textFaint)
                 .accessibilityLabel(available ? "Available" : "Not available")
-        } label: {
-            Text(title)
-            if let detail { Text(detail) }
         }
     }
 }

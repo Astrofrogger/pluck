@@ -13,6 +13,7 @@ struct StudioWindow: View {
     @Environment(\.openWindow) private var openWindow
     @Environment(\.openPluckSettings) private var openSettings
     @State private var nav = StudioNavigator.shared
+    @State private var palette = SearchPalette.shared
     /// Once per launch: the window's view is made again when it's reopened, and nav is shared.
     private static var sideButtons: Any?
 
@@ -23,7 +24,7 @@ struct StudioWindow: View {
                 // The page floats as a rounded panel on the backdrop (brandbook v1); on Home the glow shows through.
                 // A background, not a clip: pages that reach under the title bar keep their top.
                 // Library draws its own panels (sidebar, grid, details) on the backdrop.
-                .background(Design.Studio.panel.opacity([.library, .photo, .edit, .tools].contains(nav.page) ? 0 : 1),
+                .background(Design.Studio.panel.opacity([.library, .photo, .edit, .deliver, .tools].contains(nav.page) ? 0 : 1),
                             in: RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous))
                 .padding(.horizontal, Design.Studio.panelGap)
                 // An update installing, over every page (Home shows it at its top).
@@ -39,6 +40,9 @@ struct StudioWindow: View {
                 .animation(.snappy, value: appUpdater.status == .installing)
             PageBar(nav: nav)
         }
+        // Edit ▸ Search (⌘F), over the page.
+        .overlay { if palette.shown { SearchPaletteView() } }
+        .onChange(of: nav.page) { palette.close() }
         // Home's glow runs under the whole window: title bar, page and page bar.
         .background {
             Design.Studio.backdrop.ignoresSafeArea()
@@ -67,6 +71,10 @@ struct StudioWindow: View {
             if ScreenshotMode.scene != nil, let name = UserDefaults.standard.string(forKey: "PluckScreenshotPage"),
                let page = StudioNavigator.Page(rawValue: name) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 5) { nav.show(page) }
+            }
+            // Screenshots: -PluckScreenshotSearch <text> opens ⌘F's search with that typed.
+            if ScreenshotMode.scene != nil, let text = UserDefaults.standard.string(forKey: "PluckScreenshotSearch") {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 6) { palette.show(); palette.query = text }
             }
             // Tests: -PluckScreenshotSearchTest <log> checks Edit ▸ Search on each page.
             if ScreenshotMode.scene != nil, let log = UserDefaults.standard.string(forKey: "PluckScreenshotSearchTest") {
@@ -100,6 +108,7 @@ struct StudioWindow: View {
         case .library: LibraryView()
         case .edit: EditPage(nav: nav)
         case .photo: PhotoPage()
+        case .deliver: DeliverPage(nav: nav)
         case .tools: ToolsPage(nav: nav)
         }
     }
@@ -123,7 +132,7 @@ private struct ClearToolbar: ViewModifier {
 
 // MARK: - Page bar
 
-/// The pages along the bottom of the window (⌘1 to ⌘5).
+/// The pages along the bottom of the window (⌘1 to ⌘6).
 private struct PageBar: View {
     @Bindable var nav: StudioNavigator
 
@@ -992,9 +1001,9 @@ private struct ToolsPage: View {
 
     /// The page's groups (Search and the Player are the Library's, so not here).
     static let groups: [(title: LocalizedStringResource, tools: [PluckTool])] = [
-        ("Footage", [.derush, .offload, .liveRecorder, .deliveryCheck]),
-        ("Motion & Music", [.logoAnimator, .brandPack, .musicFit]),
-        ("Delivery & Team", [.officeRender]),
+        ("Footage", [.derush, .offload, .syncCameras, .liveRecorder, .deliveryCheck, .archive]),
+        ("Motion & Music", [.logoAnimator, .brandPack, .musicFit, .thumbnailMaker]),
+        ("Delivery & Team", [.cutdowns, .officeRender]),
     ]
 
     private func matches(_ tool: PluckTool) -> Bool {
@@ -1022,12 +1031,16 @@ private struct ToolsPage: View {
         switch tool {
         case .derush: DerushView()
         case .offload: OffloadView()
+        case .syncCameras: CameraSyncView()
         case .liveRecorder: LiveRecorderView()
         case .deliveryCheck: DeliveryCheckView()
         case .logoAnimator: LogoAnimatorView()
         case .brandPack: BrandPackView()
         case .musicFit: MusicFitView()
         case .officeRender: OfficeRenderView()
+        case .archive: ProjectArchiveView()
+        case .thumbnailMaker: ThumbnailMakerView()
+        case .cutdowns: SocialCutdownsView()
         case .library, .findShots, .rawPlayer: EmptyView()
         }
     }
@@ -1161,6 +1174,7 @@ extension PluckTool {
         switch self {
         case .derush: "Sort a shoot into usable takes"
         case .offload: "Copy cards to several drives, checked"
+        case .syncCameras: "Line up cameras by sound or flashes"
         case .rawPlayer: "Camera raw, timecode and LUTs"
         case .findShots: "Find a moment by word or picture"
         case .liveRecorder: "Record a stream, mark moments"
@@ -1169,6 +1183,9 @@ extension PluckTool {
         case .brandPack: "Lower thirds and cards in brand colours"
         case .musicFit: "Make a song as long as the edit"
         case .officeRender: "Render on another Mac"
+        case .archive: "Used media, renders and project, checked"
+        case .thumbnailMaker: "Best frames, titled in brand style"
+        case .cutdowns: "9:16, 1:1 and 4:5 that follow the subject"
         case .library: "Everything Pluck saved"
         }
     }

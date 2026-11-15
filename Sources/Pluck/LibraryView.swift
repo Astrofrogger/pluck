@@ -132,6 +132,7 @@ struct LibraryView: View {
             #if STUDIO
             footageSection
             locationsSection
+            AssetLibraryView.librarySidebar
             #endif
             // (Kinds and the order are chosen above the items; tidying up is in the toolbar.)
             Section(Edition.isStudio ? "Downloads" : "Library") {
@@ -234,7 +235,7 @@ struct LibraryView: View {
             // As in the reference: search in the middle; sidebar, details and settings on the right.
             ToolbarItem(placement: .principal) {
                 // The last searches offered while it's empty; Escape clears it; Edit ▸ Search (⌘F) types in it.
-                StudioSearchField(text: $search, prompt: searchPrompt, focused: $searchFocused, suggestions: VisualSearchView.recentSearches)
+                StudioSearchField(text: $search, prompt: searchPrompt, key: "⇧⌘F", focused: $searchFocused, suggestions: VisualSearchView.recentSearches)
                     .onExitCommand { search = "" }
             }.studioFlat()
             ToolbarItem {
@@ -317,9 +318,6 @@ struct LibraryView: View {
         #endif
         .onReceive(NotificationCenter.default.publisher(for: Self.focusNotification)) { _ in takeFocus() }
         .toolbar { toolbarItems }
-        #if STUDIO
-        .searchTarget(.library) { searchFocused = true; DispatchQueue.main.async { StudioNavigator.focusTitleBarSearch() } }
-        #endif
         // Studio: the name is in the grid's header, not the title bar.
         .navigationTitle(Edition.isStudio ? "" : windowTitle)
         .navigationSubtitle(Edition.isStudio || isFootage || contentScope != nil ? "" : summary)
@@ -1213,7 +1211,7 @@ extension LibraryView {
     @ViewBuilder var splitDetail: some View {
         let panes = LibraryPanes.shared
         VStack(spacing: 0) {
-            primaryDetail
+            if collection == AssetLibraryView.libraryCollection { AssetLibraryView(librarySearch: search) } else { primaryDetail }
             LibraryTransfers()
         }
         .alert("Can’t Copy", isPresented: Binding(get: { panes.problem != nil }, set: { if !$0 { panes.problem = nil } })) {

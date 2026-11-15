@@ -78,7 +78,7 @@ struct ContinueEditing: View {
             HomeSection(title: "Continue") {
                 Button("All projects") { nav.show(.edit) }.buttonStyle(.plain)
             } content: {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18), count: 4), alignment: .leading, spacing: 18) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 18, alignment: .top), count: 4), alignment: .leading, spacing: 18) {
                     ForEach(items.prefix(4), id: \.self) { key in
                         if let id = StudioNavigator.projectID(in: key), let project = ProjectStore.load(id) {
                             EditCard(file: project.clips.first?.file, project: project, edited: nav.recentDates[key]) { nav.open(project) }
@@ -125,12 +125,17 @@ private struct EditCard: View {
                         .font(Design.Studio.body)
                         .foregroundStyle(Design.Studio.text)
                         .lineLimit(1)
-                    if let edited {
-                        Text("Edited \(edited, format: .relative(presentation: .named))")
-                            .font(Design.Studio.hint)
-                            .foregroundStyle(Design.Studio.textQuiet)
-                            .lineLimit(1)
+                    // Always a second line, so every card in the row is the same height (owner, 2026-11-15).
+                    Group {
+                        if let when = edited ?? project?.modified {
+                            Text("Edited \(when, format: .relative(presentation: .named))")
+                        } else {
+                            Text(verbatim: " ")
+                        }
                     }
+                    .font(Design.Studio.hint)
+                    .foregroundStyle(Design.Studio.textQuiet)
+                    .lineLimit(1)
                 }
             }
             .contentShape(.rect)

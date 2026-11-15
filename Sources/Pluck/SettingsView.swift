@@ -37,33 +37,33 @@ struct SettingsView: View {
     @AppStorage("settingsTab") private var tab: SettingsTab = .general
 
     var body: some View {
+        #if STUDIO
+        // Pluck Studio: its own Settings, in the Studio panels (StudioSettings.swift).
+        StudioSettingsView()
+        #else
         Group {
             switch tab {
             case .general: GeneralSettings()
             case .format: FormatSettingsView()
             case .downloads: DownloadSettings()
-            #if STUDIO
-            case .ai: AISettings()
-            case .keys: ShortcutSettings()
-            #else
             case .ai, .keys: EmptyView()
-            #endif
             case .advanced: AdvancedSettings()
             case .support: SupportSettings()
             }
         }
-        // Wide enough for all six tabs in the toolbar (narrower windows push the last ones into an overflow menu).
-        .frame(width: Edition.isStudio ? 680 : 600, height: 440)
+        // Wide enough for all the tabs in the toolbar (narrower windows push the last ones into an overflow menu).
+        .frame(width: 600, height: 440)
         .scenePadding()
         .navigationTitle("Settings")
         .toolbar {
             // One toolbar item per tab, so each is its own control for VoiceOver.
             ToolbarItemGroup(placement: .principal) {
-                ForEach(SettingsTab.allCases.filter { ($0 != .ai && $0 != .keys) || Edition.isStudio }) { item in
+                ForEach(SettingsTab.allCases.filter { $0 != .ai && $0 != .keys }) { item in
                     SettingsTabButton(tab: item, selection: $tab)
                 }
             }
         }
+        #endif
     }
 }
 
@@ -147,11 +147,6 @@ private struct GeneralSettings: View {
     @State private var loginNeedsApproval = LoginItem.needsApproval
     @State private var loginError: String?
     @AppStorage(Prefs.appAutoUpdate) private var appAutoUpdate = true
-    @AppStorage("photoWriteXMP") private var writeXMP = false
-    #if STUDIO
-    @AppStorage("photoUseLightroomEdits") private var useLightroomEdits = false
-    #endif
-    @AppStorage("redClipsAsItems") private var redClipsAsItems = false
     @Environment(AppUpdater.self) private var appUpdater
 
     var body: some View {
@@ -219,32 +214,6 @@ private struct GeneralSettings: View {
                     }
                 }
             }
-
-            #if STUDIO
-            Section {
-                Toggle("Write ratings and edits to XMP sidecars", isOn: $writeXMP)
-                    .onChange(of: writeXMP) { _, on in if on { PhotoCatalog.shared.writeAllSidecars() } }
-                Toggle("Use Lightroom edits", isOn: $useLightroomEdits)
-                    .help("A photo Pluck hasn’t edited starts from the Lightroom edit in its sidecar (close, not the same: the engines differ)")
-            } header: {
-                Text("Photos")
-            } footer: {
-                Text("A small .xmp file next to each photo, which Lightroom and Capture One read. Ratings and labels from those apps are always read.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-
-            PhotoStyleSettings()
-
-            Section {
-                Toggle("Show RED clips as one item in Finder", isOn: $redClipsAsItems)
-                    .onChange(of: redClipsAsItems) { _, on in RedClipFolders.apply(on) }
-            } header: {
-                Text("Camera Raw")
-            } footer: {
-                Text("Each .RDC folder shows as one clip with a thumbnail: the space bar plays the whole take with its sound, and a double-click plays it in Pluck. To see the files in it, right-click and choose Show Package Contents. Finder may need a moment, or a new login, to show it.")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            #endif
 
             Section {
                 Toggle("Show Pluck in the menu bar", isOn: $showMenuBarIcon)
@@ -695,28 +664,30 @@ private struct AdvancedSettings: View {
 
 /// Click, then press a key combination. Esc cancels. The current global shortcut is paused while
 /// recording, so pressing it doesn't start a download.
-private struct ShortcutRecorder: View {
+struct ShortcutRecorder: View {
     let combo: KeyCombo
     let onRecord: (KeyCombo) -> Void
     @State private var recording = false
     @State private var monitor: Any?
+    /// Studio's plum, the Mac's accent colour in basic Pluck.
+    private var accent: Color { Edition.isStudio ? Design.Brand.pink : .accentColor }
 
     var body: some View {
         Button {
             recording ? stop() : start()
         } label: {
             Text(recording ? String(localized: "Type shortcut…") : combo.display)
-                .foregroundStyle(recording ? Color.accentColor : Color.primary)
+                .foregroundStyle(recording ? accent : (Edition.isStudio ? Design.Studio.text : Color.primary))
                 .frame(minWidth: 96)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
                 .background {
                     RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                        .fill(recording ? AnyShapeStyle(Color.accentColor.opacity(0.14)) : AnyShapeStyle(.fill.tertiary))
+                        .fill(recording ? AnyShapeStyle(accent.opacity(0.14)) : Edition.isStudio ? AnyShapeStyle(Design.Studio.raised) : AnyShapeStyle(.fill.tertiary))
                 }
                 .overlay {
                     RoundedRectangle(cornerRadius: Design.Radius.control, style: .continuous)
-                        .strokeBorder(recording ? Color.accentColor : Color.clear, lineWidth: 1)
+                        .strokeBorder(recording ? accent : Color.clear, lineWidth: 1)
                 }
                 .contentShape(.rect(cornerRadius: Design.Radius.control))
         }

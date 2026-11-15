@@ -29,7 +29,17 @@ struct ProjectTimeline: View {
     private var looksTop: CGFloat { titlesTop + titlesHeight + 4 }
     private var hasLooks: Bool { !(model.project.adjustments ?? []).isEmpty }
     private var clipsTop: CGFloat { looksTop + (hasLooks ? looksHeight + 4 : 0) + CGFloat(overlays.count) * (overlayHeight + 4) }
-    private var soundsTop: CGFloat { clipsTop + clipsHeight + 4 }
+    /// The selected clip's keyframes: a lane under the main line, once it has some.
+    @AppStorage("projectKeyLaneOpen") private var keysOpen = false
+    private var keyed: (clip: ProjectClip, start: Double)? {
+        guard let target = model.keyedSelection, target.clip.look?.hasKeys == true else { return nil }
+        return target
+    }
+    private var keysTop: CGFloat { clipsTop + clipsHeight + 4 }
+    private var keysHeight: CGFloat {
+        keyed.map { KeyframeLane.height(open: keysOpen, rows: $0.clip.look?.keyedProperties.count ?? 0) + 4 } ?? 0
+    }
+    private var soundsTop: CGFloat { keysTop + keysHeight }
     private var musicTop: CGFloat { soundsTop + CGFloat(sounds.count) * (soundHeight + 4) }
     private var height: CGFloat { musicTop + musicHeight + 4 }
 
@@ -92,6 +102,18 @@ struct ProjectTimeline: View {
                 if let lane = laneTop(track) { trackName("V\(index + 2)", top: lane.top, height: lane.height) }
             }
             trackName("V1", top: clipsTop, height: clipsHeight)
+            if keyed != nil {
+                Button { keysOpen.toggle() } label: {
+                    Image(systemName: keysOpen ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(Design.Studio.textQuiet)
+                        .frame(width: 26, height: KeyframeLane.row)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(keysOpen ? "One row of keyframes" : "A row of keyframes per setting")
+                .offset(y: keysTop + 2)
+            }
             ForEach(Array(sounds.enumerated()), id: \.element.id) { index, track in
                 if let lane = laneTop(track) { trackName("A\(index + 1)", top: lane.top, height: lane.height) }
             }
@@ -324,6 +346,11 @@ struct ProjectTimeline: View {
                 lengthBlock(title.text, symbol: "textformat", tint: Design.Brand.violet, selected: model.selectedTitle == title.id)
                     .frame(width: w, height: titlesHeight)
                     .offset(x: left, y: titlesTop)
+            }
+            if let keyed {
+                KeyframeLane(model: model, clip: keyed.clip, start: keyed.start, x: x, seconds: t, open: keysOpen)
+                    .frame(width: width, height: keysHeight, alignment: .topLeading)
+                    .offset(y: keysTop)
             }
             marks(width: width, x: x)
             // The playhead.

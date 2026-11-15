@@ -203,7 +203,7 @@ enum RemoteResolveProject {
         guard let walker = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isRegularFileKey], options: [.skipsHiddenFiles, .skipsPackageDescendants]) else { return [] }
         var found: [String] = []
         for case let url as URL in walker {
-            if RemoteEditHost.systemNames.contains(url.lastPathComponent) { walker.skipDescendants(); continue }
+            if RemoteEditHost.systemNames.contains(url.lastPathComponent) || OfficeInbox.holds(OfficeInbox.real(url)) { walker.skipDescendants(); continue }
             guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true, Converting.isVideo(url) else { continue }
             found.append(RemoteEditHost.relative(url.resolvingSymlinksInPath(), in: root))
             if found.count >= 5000 { break }
@@ -262,7 +262,12 @@ enum RemoteResolveProject {
         func tell(_ clip: Clip, _ problem: String) {
             if told.insert(clip.file).inserted { problems.append(problem) }
         }
-        for clip in clips where !clip.file.isEmpty {
+        for clip in clips {
+            // A media pool clip with no file (compound, Fusion, generated): what it reads isn't known, so no render.
+            guard !clip.file.isEmpty else {
+                problems.append(String(localized: "\(clip.name): a compound, Fusion or generated clip, which the host Mac doesn’t render for other Macs."))
+                continue
+            }
             guard let original = swaps[clip.file] else {
                 if originals[clip.file] == nil { tell(clip, String(localized: "\(clip.name): offline on the host Mac.")) }
                 continue

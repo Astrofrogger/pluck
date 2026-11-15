@@ -295,16 +295,18 @@ final class DownloadManager {
     // MARK: - Queue
 
     /// Adds downloads for one or more links. When "Ask where to save" is on, asks once for the batch.
-    /// `fromOtherDevice`: links sent over Library sharing (the caller checks they're public sites).
+    /// `fromOtherDevice`: links sent over Library sharing (the caller checks they're public sites). No default: every
+    /// caller says where its links come from, so a new one can't get the browser cookies by forgetting it.
     func add(_ urls: [String], options: DownloadOptions = .current, folder override: String? = nil, clip: ClipRange? = nil,
-             fromOtherDevice: Bool = false) {
+             fromOtherDevice: Bool) {
         guard !urls.isEmpty, let folder = override ?? destinationFolder(count: urls.count) else { return }
         for url in urls {
             if Playlists.looksLikePlaylist(url) {
                 presentPicker(for: url, options: options, folder: folder, fromOtherDevice: fromOtherDevice)
             } else if !fromOtherDevice,
                       let existing = alreadyDownloaded(url, isAudio: options.isAudio || MusicLinks.isMusicLink(url), clip: clip) {
-                duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip))
+                duplicates.append(DuplicatePrompt(existing: existing, url: url, options: options, folder: folder, clip: clip,
+                                                  fromOtherDevice: fromOtherDevice))
                 AppDelegate.showMainWindow()
             } else if MusicLinks.isMusicLink(url) {
                 addSpotify(url, options: options, folder: folder, clip: clip, fromOtherDevice: fromOtherDevice)
@@ -319,7 +321,7 @@ final class DownloadManager {
     }
 
     func add(_ url: String, options: DownloadOptions = .current, folder: String? = nil, clip: ClipRange? = nil) {
-        add([url], options: options, folder: folder, clip: clip)
+        add([url], options: options, folder: folder, clip: clip, fromOtherDevice: false)
     }
 
     /// The Downloads setting, or a folder the user picks when "Always ask where to save" is on.
@@ -338,7 +340,7 @@ final class DownloadManager {
         guard panel.runModal() == .OK else { return }
         let links = panel.urls.flatMap(Links.extract(fromFile:))
         guard !links.isEmpty else { NSSound.beep(); return }
-        add(links)
+        add(links, fromOtherDevice: false)
         AppDelegate.showMainWindow()
     }
 
@@ -697,6 +699,7 @@ final class DownloadManager {
         let options: DownloadOptions
         let folder: String
         let clip: ClipRange?
+        let fromOtherDevice: Bool
     }
 
     var duplicates: [DuplicatePrompt] = []
@@ -721,10 +724,11 @@ final class DownloadManager {
             if let file = prompt.existing.existingFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
         case .downloadAgain:
             if MusicLinks.isMusicLink(prompt.url) {
-                addSpotify(prompt.url, options: prompt.options, folder: prompt.folder, clip: prompt.clip)
+                addSpotify(prompt.url, options: prompt.options, folder: prompt.folder, clip: prompt.clip, fromOtherDevice: prompt.fromOtherDevice)
             } else {
                 let item = DownloadItem(url: prompt.url, options: prompt.options, folder: prompt.folder)
                 item.clip = prompt.clip
+                item.fromOtherDevice = prompt.fromOtherDevice
                 items.insert(item, at: 0)
             }
             pump()
@@ -738,7 +742,7 @@ final class DownloadManager {
     /// Playlist links waiting for the user to choose videos; the first one is shown.
     var picks: [PlaylistPick] = []
 
-    private func presentPicker(for url: String, options: DownloadOptions, folder: String, fromOtherDevice: Bool = false) {
+    private func presentPicker(for url: String, options: DownloadOptions, folder: String, fromOtherDevice: Bool) {
         let pick = PlaylistPick(sourceURL: url, folder: folder, options: options)
         pick.fromOtherDevice = fromOtherDevice
         picks.append(pick)
@@ -866,7 +870,7 @@ final class DownloadManager {
 
     /// Spotify and Apple Music track links: read the song's details, then match it on YouTube Music.
     private func addSpotify(_ url: String, options: DownloadOptions, folder: String, clip: ClipRange? = nil,
-                            fromOtherDevice: Bool = false) {
+                            fromOtherDevice: Bool) {
         // Music services are always audio; keep the chosen audio format even if video is selected.
         var audio = options
         audio.kind = .audio
@@ -1081,7 +1085,7 @@ final class DownloadManager {
 
         // A raw stream found by loading a page is a link that page chose, and a link from another
         // device is that device's choice. Never send the user's browser cookies along with them.
-        let isPageStream = item.pageStream?.usePageTitle == true
+        let isPageStream = item.pageStream != nil // (an embed the page pointed to as well)
         if !isPageStream, !item.fromOtherDevice { args += cookieArguments() }
         args += ["--", url]
         return args

@@ -1,0 +1,24 @@
+Pluck and Pluck Studio
+Copyright (c) 2026 Lowie Sobry. All rights reserved.
+
+This repository is published so the app and its source can be seen. That does not grant any licence.
+
+You may download and use the released Pluck and Pluck Studio apps for your own work, including commercial
+work you make with them.
+
+Without prior written permission from the copyright holder, you may not:
+  1. copy, reproduce or reuse the source code, in whole or in part;
+  2. modify it, translate it, or make derivative works or other apps based on it;
+  3. distribute, publish, sublicense, sell, rent or lease the source code, the apps or builds made from it;
+  4. offer the apps or their functions as a service to others;
+  5. remove or change this notice or any copyright notice.
+
+Viewing and forking the repository on GitHub is allowed only as far as GitHub's Terms of Service require,
+and only for viewing; it gives no right to use the code in any other way.
+
+Third-party components keep their own licences, listed in ThirdPartyLicenses.md and ThirdPartyLicenses/.
+Separate programs distributed under their own licences are not covered by this notice, in particular
+Helpers/PluckSpektra (GNU GPL version 3 or later) and the bundled open-source tools and models.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR ITS USE.

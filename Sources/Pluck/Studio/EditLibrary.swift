@@ -10,24 +10,31 @@ struct EditLibraryList: View {
     @Bindable var model: ProjectModel
     let kind: Kind
     @State private var applying = false
+    @State private var search = ""
+    /// Transitions starred (their names, comma-separated), shown first.
+    @AppStorage("transitionFavourites") private var favourites = ""
+    /// What ⌘T puts on the cut nearest the playhead.
+    @AppStorage(ProjectModel.defaultTransitionKey) private var defaultTransition = ProjectTransition.Kind.dissolve.rawValue
 
     private let columns = [GridItem(.adaptive(minimum: 104), spacing: Design.Spacing.controls)]
 
     var body: some View {
         VStack(spacing: 0) {
+            if kind == .transitions { PaneSearchField(prompt: "Search transitions", text: $search) }
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     switch kind {
                     case .transitions:
-                        ForEach(Array(ProjectTransition.Group.allCases.enumerated()), id: \.element) { index, group in
+                        let sections = transitionSections
+                        ForEach(Array(sections.enumerated()), id: \.element.title) { index, section in
                             if index > 0 { SidebarGap() }
-                            SidebarSection(title: Text(group.label)) {
-                                grid(group.kinds.map { kind in
-                                    Tile(item: .transition(kind), title: Text(ProjectTransition(kind: kind, length: 1).label)) {
-                                        TransitionPreview(kind: kind, thumbnails: previewFrames)
-                                    }
-                                })
+                            SidebarSection(title: Text(section.title)) {
+                                grid(section.kinds.map(transitionTile))
                             }
+                        }
+                        if sections.isEmpty {
+                            Text("No transitions match").font(.callout).foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity).padding(.top, Design.Spacing.section)
                         }
                     case .titles:
                         grid([Tile(item: .plainTitle, title: Text("Title")) { SymbolPreview(symbol: "textformat") }])
@@ -61,6 +68,48 @@ struct EditLibraryList: View {
             } else if let problem = model.libraryProblem {
                 ProblemLabel(text: problem).padding(Design.Spacing.controls)
             }
+        }
+    }
+
+    private var starred: [ProjectTransition.Kind] { favourites.split(separator: ",").compactMap { ProjectTransition.Kind(rawValue: String($0)) } }
+
+    /// Favourites first, then each group; only those matching the search when there is one.
+    private var transitionSections: [(title: String, kinds: [ProjectTransition.Kind])] {
+        let words = search.lowercased().split(separator: " ").map(String.init)
+        func matches(_ kind: ProjectTransition.Kind) -> Bool {
+            let text = (kind.label + " " + kind.keywords + " " + kind.group.label).lowercased()
+            return words.allSatisfy { text.contains($0) }
+        }
+        var sections: [(String, [ProjectTransition.Kind])] = []
+        let stars = starred.filter(matches)
+        if !stars.isEmpty { sections.append((String(localized: "Favourites"), stars)) }
+        for group in ProjectTransition.Group.allCases {
+            let kinds = group.kinds.filter(matches)
+            if !kinds.isEmpty { sections.append((group.label, kinds)) }
+        }
+        return sections
+    }
+
+    private func transitionTile(_ kind: ProjectTransition.Kind) -> Tile {
+        let isFavourite = starred.contains(kind), isDefault = defaultTransition == kind.rawValue
+        return Tile(item: .transition(kind), title: Text(kind.label)) {
+            TransitionPreview(kind: kind, thumbnails: previewFrames)
+                .overlay(alignment: .topTrailing) {
+                    if isFavourite || isDefault {
+                        Image(systemName: isDefault ? "star.circle.fill" : "star.fill")
+                            .font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.6), radius: 2)
+                            .padding(4)
+                            .accessibilityLabel(isDefault ? "Default transition" : "Favourite")
+                    }
+                }
+                .contextMenu {
+                    Button(isFavourite ? "Remove from Favourites" : "Add to Favourites") {
+                        let rest = starred.filter { $0 != kind }
+                        favourites = (isFavourite ? rest : rest + [kind]).map(\.rawValue).joined(separator: ",")
+                    }
+                    Button("Use as Default (⌘T)") { defaultTransition = kind.rawValue }.disabled(isDefault)
+                }
         }
     }
 
@@ -100,7 +149,7 @@ struct EditLibraryList: View {
 
     private func help(_ item: EditLibraryItem) -> LocalizedStringKey {
         switch item {
-        case .transition: "Drag onto a cut, or double-click for the cut nearest the playhead"
+        case .transition: "Drag onto a cut, or double-click for the cut nearest the playhead. Right-click to star it or make it the default"
         case .title, .plainTitle: "Drag onto the timeline where it should start, or double-click for the playhead"
         case .adjustment: "Drag onto the timeline for a look over five seconds, or double-click for the playhead"
         case .stabilize: "Drag onto a clip to steady it, or double-click for the clip at the playhead"
@@ -144,7 +193,7 @@ private struct TransitionPreview: View {
 
     var body: some View {
         TimelineView(.animation(paused: !hovering)) { context in
-            let p = hovering ? (sin(context.date.timeIntervalSinceReferenceDate * 2) + 1) / 2 : 0.5
+            let p = hovering ? (sin(context.date.timeIntervalSinceReferenceDate * 2) + 1) / 2 : 0.35
             ZStack {
                 switch kind {
                 case .dipBlack, .dipWhite:
@@ -170,7 +219,7 @@ private struct TransitionPreview: View {
     }
 
     private func frame(_ p: Double) -> CGImage? {
-        let image = ProjectTransitions.blend(kind, from: source(0), to: source(1), progress: p, size: Self.size)
+        let image = ProjectTransitions.blend(ProjectTransition(kind: kind, length: 1), from: source(0), to: source(1), progress: p, size: Self.size)
         return Self.context.createCGImage(image, from: CGRect(origin: .zero, size: Self.size))
     }
 

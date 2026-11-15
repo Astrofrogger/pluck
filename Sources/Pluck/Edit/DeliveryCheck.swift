@@ -72,6 +72,11 @@ enum DeliveryCheck {
             static func < (a: Severity, b: Severity) -> Bool { a.rawValue < b.rawValue }
         }
 
+        /// What part of the check found it (for grouping, and marking it intended).
+        enum Kind: String {
+            case other, transition, picture, sound, text, file, compare
+        }
+
         let id = UUID()
         var severity: Severity
         /// Seconds into the video, if it's at a moment.
@@ -82,11 +87,17 @@ enum DeliveryCheck {
         /// On-screen text: where it is (normalized, origin bottom left) and the word to learn.
         var box: CGRect?
         var word: String?
+        var kind: Kind = .other
+        /// Not in the approved earlier version this was compared with.
+        var isNew = false
+
+        /// The same finding in the same file on another run: what "intended" is kept by.
+        var key: String { "\(kind.rawValue)|\(title)|\(time.map { Int(($0 * 10).rounded()) } ?? -1)|\(word ?? "")" }
     }
 
     struct Report {
         var file: URL
-        var destination: Destination
+        var spec: Spec
         var duration: Double
         var fps: Double
         /// The picture's size (for drawing on it).
@@ -94,6 +105,10 @@ enum DeliveryCheck {
         /// The technical facts, for the top of the report.
         var facts: [(String, String)]
         var issues: [Issue]
+        /// Integrated loudness (LUFS), for comparing versions.
+        var loudness: Double?
+        /// The file's content, for findings marked intended.
+        var fileKey = ""
     }
 
     /// Words someone told the check are spelled right (names, brands).
@@ -109,30 +124,40 @@ enum DeliveryCheck {
 
     static func run(_ file: URL, destination: Destination, ffmpeg: String, ffprobe: String,
                     progress: @escaping @Sendable (Double, String) -> Void) async throws -> Report {
+        try await run(file, spec: destination.spec, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
+    }
+
+    static func run(_ file: URL, spec: Spec, ffmpeg: String, ffprobe: String,
+                    progress: @escaping @Sendable (Double, String) -> Void) async throws -> Report {
         progress(0, String(localized: "Reading the file…"))
         guard let probe = await probe(file, ffprobe: ffprobe) else { throw Converting.Failure.noVideo }
-        var issues = technical(probe, destination: destination)
+        var issues = technical(probe, spec: spec)
         var facts = probe.facts
         try Task.checkCancellation()
 
+        var transitions: [Transition] = []
         if probe.hasVideo {
             progress(0.05, String(localized: "Looking at every frame…"))
-            issues += await picture(file, fps: probe.fps, duration: probe.duration, ffmpeg: ffmpeg) { value in
+            let picture = await picture(file, fps: probe.fps, duration: probe.duration, ffmpeg: ffmpeg) { value in
                 progress(0.05 + value * 0.4, String(localized: "Looking at every frame…"))
             }
+            issues += picture.issues
+            transitions = picture.transitions
         }
         try Task.checkCancellation()
 
+        var loudness: Double?
         if probe.channels > 0 {
             progress(0.45, String(localized: "Listening to the sound…"))
-            let sound = await sound(file, channels: probe.channels, duration: probe.duration, destination: destination, ffmpeg: ffmpeg)
+            let sound = await sound(file, channels: probe.channels, duration: probe.duration, spec: spec, transitions: transitions, ffmpeg: ffmpeg)
             issues += sound.issues
             facts += sound.facts
+            loudness = sound.loudness
         }
         try Task.checkCancellation()
 
         if probe.hasVideo {
-            issues += try await text(file, duration: probe.duration, destination: destination) { value in
+            issues += try await text(file, duration: probe.duration, spec: spec) { value in
                 // Apple's text recognition loads the first time after a restart, which can take a minute.
                 progress(0.55 + value * 0.45, value == 0 ? String(localized: "Reading the text on screen… The first time can take a minute.")
                                                          : String(localized: "Reading the text on screen…"))
@@ -140,8 +165,9 @@ enum DeliveryCheck {
         }
         progress(1, "")
         issues.sort { ($0.severity, $0.time ?? -1) < ($1.severity, $1.time ?? -1) }
-        return Report(file: file, destination: destination, duration: probe.duration, fps: probe.fps,
-                      size: CGSize(width: max(probe.width, 1), height: max(probe.height, 1)), facts: facts, issues: issues)
+        return Report(file: file, spec: spec, duration: probe.duration, fps: probe.fps,
+                      size: CGSize(width: max(probe.width, 1), height: max(probe.height, 1)), facts: facts, issues: issues,
+                      loudness: loudness, fileKey: contentKey(file))
     }
 
     // MARK: - The file itself
@@ -153,7 +179,11 @@ enum DeliveryCheck {
         var fps = 25.0
         var variableRate = false
         var videoCodec = ""
+        /// Mb/s (the video stream's, else the whole file's).
+        var bitrate: Double?
+        var primaries = "", transfer = "", matrix = ""
         var channels = 0
+        var layout = ""
         var sampleRate = 0
         var audioCodec = ""
 
@@ -161,14 +191,19 @@ enum DeliveryCheck {
             var result: [(String, String)] = []
             if hasVideo {
                 result.append((String(localized: "Picture"), "\(width)×\(height), \(Self.rate(fps)) fps, \(videoCodec)"))
+                if let bitrate { result.append((String(localized: "Bitrate"), String(format: "%.1f Mb/s", bitrate))) }
+                result.append((String(localized: "Colour"), colour))
             }
             if channels > 0 {
-                let layout = channels == 1 ? String(localized: "mono") : channels == 2 ? String(localized: "stereo") : String(localized: "\(channels) channels")
-                result.append((String(localized: "Sound"), "\(layout), \(sampleRate / 1000) kHz, \(audioCodec)"))
+                let name = channels == 1 ? String(localized: "mono") : channels == 2 ? String(localized: "stereo") : String(localized: "\(channels) channels")
+                result.append((String(localized: "Sound"), "\(name)\(layout.isEmpty || ["mono", "stereo"].contains(layout) ? "" : " (\(layout))"), \(sampleRate / 1000) kHz, \(audioCodec)"))
             }
             result.append((String(localized: "Length"), DeliveryCheck.timecode(duration, fps: fps)))
             return result
         }
+
+        /// "bt709 / bt709 / bt709" (primaries / transfer / matrix), "–" where untagged.
+        var colour: String { [primaries, transfer, matrix].map { $0.isEmpty ? "–" : $0 }.joined(separator: " / ") }
 
         static func rate(_ fps: Double) -> String {
             abs(fps - fps.rounded()) < 0.01 ? String(Int(fps.rounded())) : String(format: "%.3f", fps)
@@ -177,15 +212,17 @@ enum DeliveryCheck {
 
     private static func probe(_ file: URL, ffprobe: String) async -> Probe? {
         let output = await Self.output(ffprobe, ["-v", "error", "-show_entries",
-            "format=duration:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,channels,sample_rate:stream_disposition=attached_pic",
+            "format=duration,bit_rate:stream=codec_type,codec_name,width,height,avg_frame_rate,r_frame_rate,channels,channel_layout,sample_rate,bit_rate,color_primaries,color_transfer,color_space:stream_disposition=attached_pic",
             "-of", "json", file.path])
         guard let json = try? JSONSerialization.jsonObject(with: Data(output.utf8)) as? [String: Any] else { return nil }
         var probe = Probe()
-        probe.duration = ((json["format"] as? [String: Any])?["duration"] as? String).flatMap(Double.init) ?? 0
+        let format = json["format"] as? [String: Any]
+        probe.duration = (format?["duration"] as? String).flatMap(Double.init) ?? 0
         func rate(_ text: Any?) -> Double? {
             let parts = (text as? String)?.split(separator: "/").compactMap { Double($0) } ?? []
             return parts.count == 2 && parts[1] > 0 ? parts[0] / parts[1] : nil
         }
+        func tag(_ value: Any?) -> String { (value as? String).flatMap { $0 == "unknown" ? nil : $0 } ?? "" }
         for stream in json["streams"] as? [[String: Any]] ?? [] {
             let cover = ((stream["disposition"] as? [String: Any])?["attached_pic"] as? Int) == 1
             switch stream["codec_type"] as? String {
@@ -197,8 +234,14 @@ enum DeliveryCheck {
                 let average = rate(stream["avg_frame_rate"]), nominal = rate(stream["r_frame_rate"])
                 probe.fps = average ?? nominal ?? 25
                 if let average, let nominal, abs(average - nominal) > 0.05 { probe.variableRate = true }
+                let bits = (stream["bit_rate"] as? String).flatMap(Double.init) ?? (format?["bit_rate"] as? String).flatMap(Double.init)
+                probe.bitrate = bits.map { $0 / 1_000_000 }
+                probe.primaries = tag(stream["color_primaries"])
+                probe.transfer = tag(stream["color_transfer"])
+                probe.matrix = tag(stream["color_space"])
             case "audio" where probe.channels == 0:
                 probe.channels = stream["channels"] as? Int ?? 0
+                probe.layout = stream["channel_layout"] as? String ?? ""
                 probe.sampleRate = Int(stream["sample_rate"] as? String ?? "") ?? 0
                 probe.audioCodec = stream["codec_name"] as? String ?? ""
             default:
@@ -208,152 +251,80 @@ enum DeliveryCheck {
         return probe.duration > 0 ? probe : nil
     }
 
-    private static func technical(_ probe: Probe, destination: Destination) -> [Issue] {
+    private static func technical(_ probe: Probe, spec: Spec) -> [Issue] {
         var issues: [Issue] = []
+        // Off the spec: rejected for broadcast, something to check elsewhere.
+        let off: Issue.Severity = spec.strict ? .problem : .warning
+        func add(_ severity: Issue.Severity, _ title: String, _ detail: String) {
+            issues.append(Issue(severity: severity, title: title, detail: detail, kind: .file))
+        }
         // As a plain string: numbers inside localized text get thousands separators (1.920).
         let size = "\(probe.width)×\(probe.height)"
-        if probe.hasVideo, let aspect = destination.aspect, probe.height > 0 {
-            let actual = Double(probe.width) / Double(probe.height)
-            if abs(actual - aspect) > 0.02 {
-                issues.append(Issue(severity: .problem, title: String(localized: "Wrong picture shape"),
-                                    detail: String(localized: "It’s \(size); \(destination.label) expects \(aspect > 1 ? "16:9" : "9:16").")))
+        if probe.hasVideo, probe.height > 0 {
+            if let aspect = spec.aspect, abs(Double(probe.width) / Double(probe.height) - aspect) > 0.02 {
+                add(.problem, String(localized: "Wrong picture shape"),
+                    String(localized: "It’s \(size); \(spec.title) expects \(Spec.aspectText(aspect))."))
             }
-            let long = max(probe.width, probe.height)
-            if long < 1920 {
-                issues.append(Issue(severity: .warning, title: String(localized: "Lower than HD"),
-                                    detail: String(localized: "It’s \(size). Most places expect at least 1920 pixels along the long side.")))
+            if let width = spec.width, let height = spec.height, probe.width != width || probe.height != height {
+                add(.problem, String(localized: "Wrong size"), String(localized: "It’s \(size); \(spec.title) expects \("\(width)×\(height)")."))
+            }
+            if let least = spec.minLongSide, max(probe.width, probe.height) < least {
+                add(.warning, String(localized: "Lower than HD"),
+                    least == 1920 ? String(localized: "It’s \(size). Most places expect at least 1920 pixels along the long side.")
+                                  : String(localized: "It’s \(size); \(spec.title) expects at least \(String(least)) pixels along the long side."))
             }
         }
         if probe.hasVideo, probe.width % 2 != 0 || probe.height % 2 != 0 {
-            issues.append(Issue(severity: .problem, title: String(localized: "Odd picture size"),
-                                detail: String(localized: "\(size) has an odd number of pixels; many players and platforms reject that.")))
+            add(.problem, String(localized: "Odd picture size"),
+                String(localized: "\(size) has an odd number of pixels; many players and platforms reject that."))
         }
         if probe.variableRate {
-            issues.append(Issue(severity: .warning, title: String(localized: "Variable frame rate"),
-                                detail: String(localized: "The frame rate changes during the video, which can drift out of sync on some platforms. Export at a constant frame rate.")))
+            add(.warning, String(localized: "Variable frame rate"),
+                String(localized: "The frame rate changes during the video, which can drift out of sync on some platforms. Export at a constant frame rate."))
         }
-        switch destination {
-        case .broadcastEU where probe.hasVideo && ![25.0, 50.0].contains(where: { abs($0 - probe.fps) < 0.01 }):
-            issues.append(Issue(severity: .problem, title: String(localized: "Frame rate"),
-                                detail: String(localized: "European broadcast expects 25 or 50 fps; this is \(Probe.rate(probe.fps)).")))
-        case .broadcastUS where probe.hasVideo && ![29.97, 59.94].contains(where: { abs($0 - probe.fps) < 0.01 }):
-            issues.append(Issue(severity: .problem, title: String(localized: "Frame rate"),
-                                detail: String(localized: "US broadcast expects 29.97 or 59.94 fps; this is \(Probe.rate(probe.fps)).")))
-        default:
-            break
+        if probe.hasVideo, !spec.frameRates.isEmpty, !spec.frameRates.contains(where: { abs($0 - probe.fps) < 0.01 }) {
+            add(.problem, String(localized: "Frame rate"),
+                String(localized: "\(spec.title) expects \(spec.frameRates.map(Probe.rate).joined(separator: ", ")) fps; this is \(Probe.rate(probe.fps))."))
+        }
+        if probe.hasVideo, !spec.codecs.isEmpty, !spec.codecs.contains(where: { $0.lowercased() == probe.videoCodec.lowercased() }) {
+            add(.problem, String(localized: "Codec"),
+                String(localized: "It’s \(probe.videoCodec); \(spec.title) expects \(spec.codecs.joined(separator: ", "))."))
+        }
+        if probe.hasVideo, let bitrate = probe.bitrate {
+            let low = spec.minBitrate.map { bitrate < $0 } ?? false, high = spec.maxBitrate.map { bitrate > $0 } ?? false
+            if low || high {
+                let range = [spec.minBitrate, spec.maxBitrate].map { $0.map { String(format: "%g", $0) } ?? "…" }.joined(separator: "–")
+                add(off, String(localized: "Bitrate"),
+                    String(localized: "\(String(format: "%.1f", bitrate)) Mb/s; \(spec.title) expects \(range) Mb/s."))
+            }
+        }
+        if probe.hasVideo {
+            let wanted = [(spec.primaries, probe.primaries), (spec.transfer, probe.transfer), (spec.matrix, probe.matrix)]
+            if wanted.contains(where: { want, have in want.map { !$0.isEmpty && $0 != have } ?? false }) {
+                let expected = wanted.map { $0.0 ?? "–" }.joined(separator: " / ")
+                add(off, String(localized: "Colour space"),
+                    String(localized: "Tagged \(probe.colour); \(spec.title) expects \(expected)."))
+            }
         }
         if probe.channels == 0 {
-            issues.append(Issue(severity: .warning, title: String(localized: "No sound"),
-                                detail: String(localized: "The file has no sound track.")))
-        } else if [.broadcastEU, .broadcastUS].contains(destination), probe.sampleRate != 48_000 {
-            issues.append(Issue(severity: .problem, title: String(localized: "Sample rate"),
-                                detail: String(localized: "Broadcast expects 48 kHz sound; this is \(probe.sampleRate / 1000) kHz.")))
-        }
-        return issues
-    }
-
-    // MARK: - The picture
-
-    private static func picture(_ file: URL, fps: Double, duration: Double, ffmpeg: String,
-                                progress: @escaping @Sendable (Double) -> Void) async -> [Issue] {
-        let filter = "scale=320:-2,blackdetect=d=0:pix_th=0.1:pic_th=0.98,freezedetect=n=0.001:d=2,scdet=threshold=100,signalstats,metadata=print:file=-"
-        let output = await Self.output(ffmpeg, ["-nostdin", "-v", "error", "-i", file.path, "-an", "-vf", filter, "-f", "null", "-"]) { line in
-            if line.hasPrefix("frame:"), let range = line.range(of: "pts_time:"), let t = Double(line[range.upperBound...].trimmingCharacters(in: .whitespaces)) {
-                progress(min(t / max(duration, 1), 1))
+            add(.warning, String(localized: "No sound"), String(localized: "The file has no sound track."))
+        } else {
+            if let rate = spec.sampleRate, probe.sampleRate != rate {
+                add(.problem, String(localized: "Sample rate"),
+                    String(localized: "\(spec.title) expects \(String(format: "%g", Double(rate) / 1000)) kHz sound; this is \(String(format: "%g", Double(probe.sampleRate) / 1000)) kHz."))
             }
-        }
-        var times: [Double] = [], differences: [Double] = []
-        var blacks: [(Double, Double?)] = [], freezes: [(Double, Double?)] = []
-        // Each frame's darkest, brightest and average brightness (a plain frame has almost no range).
-        var lows: [Double: Double] = [:], highs: [Double: Double] = [:], averages: [Double: Double] = [:]
-        var time = 0.0
-        for line in output.split(separator: "\n") {
-            if line.hasPrefix("frame:") {
-                if let range = line.range(of: "pts_time:") { time = Double(line[range.upperBound...].trimmingCharacters(in: .whitespaces)) ?? time }
-                continue
+            if let channels = spec.channels, probe.channels != channels {
+                add(.problem, String(localized: "Sound channels"),
+                    String(localized: "\(spec.title) expects \(String(channels)) channels; this has \(String(probe.channels))."))
             }
-            let parts = line.split(separator: "=", maxSplits: 1)
-            guard parts.count == 2, let value = Double(parts[1]) else { continue }
-            switch parts[0] {
-            case "lavfi.scd.mafd": times.append(time); differences.append(value)
-            case "lavfi.black_start": blacks.append((value, nil))
-            case "lavfi.black_end": if !blacks.isEmpty { blacks[blacks.count - 1].1 = value }
-            case "lavfi.freezedetect.freeze_start": freezes.append((value, nil))
-            case "lavfi.freezedetect.freeze_end": if !freezes.isEmpty { freezes[freezes.count - 1].1 = value }
-            case "lavfi.signalstats.YLOW": lows[time] = value
-            case "lavfi.signalstats.YHIGH": highs[time] = value
-            case "lavfi.signalstats.YAVG": averages[time] = value
-            default: break
-            }
-        }
-        let frame = 1 / max(fps, 1)
-        var issues: [Issue] = []
-
-        // Flash frames: one or two frames between two hard changes (a shot of a frame or two,
-        // left behind on the timeline).
-        func jump(_ i: Int) -> Bool {
-            guard i >= 0, i < differences.count else { return false }
-            let window = differences[max(0, i - 12)..<min(differences.count, i + 13)].sorted()
-            return differences[i] >= max(8, window[window.count / 2] * 5)
-        }
-        var i = 1
-        while i < differences.count - 1 {
-            if jump(i) {
-                if jump(i + 1) || jump(i + 2) {
-                    let frames = jump(i + 1) ? 1 : 2
-                    // A plain frame (all white, or one colour) is usually a flash put there on purpose;
-                    // a frame of another shot is usually left over.
-                    let flash = times[i..<min(i + frames, times.count)]
-                    let plain = flash.allSatisfy { t in (highs[t] ?? 255) - (lows[t] ?? 0) < 24 }
-                    let white = plain && flash.allSatisfy { (averages[$0] ?? 0) > 200 }
-                    if plain {
-                        issues.append(Issue(severity: .warning, time: times[i], title: String(localized: "Flash frame"),
-                                            detail: white ? String(localized: "A white frame between two shots. Fine if it’s meant as a flash.")
-                                                          : String(localized: "A plain frame between two shots. Fine if it’s meant as a flash.")))
-                    } else {
-                        issues.append(Issue(severity: .problem, time: times[i], title: String(localized: "Flash frame"),
-                                            detail: frames == 1 ? String(localized: "A single frame between two shots, probably left over from an edit.")
-                                                                : String(localized: "Two frames between two shots, probably left over from an edit.")))
-                    }
-                    i += frames + 1
-                    continue
-                }
-            }
-            i += 1
-        }
-
-        // Black: a flash of black anywhere, or a stretch of it in the middle.
-        for (start, endTime) in blacks {
-            let end = endTime ?? duration
-            let length = end - start
-            let atEdge = start < frame * 1.5 || end > duration - frame * 1.5
-            if length < frame * 3.5, !atEdge {
-                issues.append(Issue(severity: .problem, time: start, end: end, title: String(localized: "Black flash"),
-                                    detail: String(localized: "A frame or two of black in the middle of the video.")))
-            } else if length >= 0.5, !atEdge {
-                issues.append(Issue(severity: .warning, time: start, end: end, title: String(localized: "Black"),
-                                    detail: String(localized: "\(String(format: "%.1f", length)) seconds of black. Fine if it’s meant as a pause.")))
-            } else if atEdge, length > 2 {
-                issues.append(Issue(severity: .note, time: start, end: end,
-                                    title: start < 1 ? String(localized: "Black at the start") : String(localized: "Black at the end"),
-                                    detail: String(localized: "\(String(format: "%.1f", length)) seconds of black. Some platforms pick a black first frame as the thumbnail.")))
-            }
-        }
-
-        // A picture that stands still in the middle (an end card or a title is fine).
-        for (start, endTime) in freezes {
-            let end = endTime ?? duration
-            guard end < duration - frame * 2, start > frame * 2 else { continue }
-            issues.append(Issue(severity: .note, time: start, end: end, title: String(localized: "Picture stands still"),
-                                detail: String(localized: "\(String(format: "%.1f", end - start)) seconds without any movement. Fine for a title or a still; check it isn’t a frozen render.")))
         }
         return issues
     }
 
     // MARK: - The sound
 
-    private static func sound(_ file: URL, channels: Int, duration: Double, destination: Destination,
-                              ffmpeg: String) async -> (issues: [Issue], facts: [(String, String)]) {
+    private static func sound(_ file: URL, channels: Int, duration: Double, spec: Spec, transitions: [Transition],
+                              ffmpeg: String) async -> (issues: [Issue], facts: [(String, String)], loudness: Double?) {
         // Two kinds of silence: a quiet second or more, and a gap of nothing at all (digital
         // silence, often a cut in the sound) as short as a tenth of a second.
         let filter = "ebur128=peak=true,silencedetect@long=n=-60dB:d=1,silencedetect@gap=n=-90dB:d=0.1,"
@@ -373,19 +344,21 @@ enum DeliveryCheck {
             if let peak { text += String(format: ", true peak %.1f dBTP", peak) }
             facts.append((String(localized: "Loudness"), text))
         }
-        if let target = destination.loudness, let integrated {
-            if integrated > target.target + target.tolerance {
-                issues.append(Issue(severity: destination == .broadcastEU || destination == .broadcastUS ? .problem : .warning,
-                                    title: String(localized: "Too loud"),
-                                    detail: String(localized: "\(String(format: "%.1f", integrated)) LUFS; the target is \(String(format: "%.0f", target.target)). \(destination == .online || destination == .social ? String(localized: "Platforms turn it down, so it gains nothing.") : String(localized: "Broadcasters reject it."))")))
-            } else if integrated < target.target - target.tolerance {
-                issues.append(Issue(severity: destination == .broadcastEU || destination == .broadcastUS ? .problem : .warning,
-                                    title: String(localized: "Too quiet"),
-                                    detail: String(localized: "\(String(format: "%.1f", integrated)) LUFS; the target is \(String(format: "%.0f", target.target)). It will sound weaker than what plays before and after it.")))
+        if let target = spec.loudness, let integrated {
+            let severity: Issue.Severity = spec.strict ? .problem : .warning
+            if integrated > target + spec.loudnessTolerance {
+                issues.append(Issue(severity: severity, title: String(localized: "Too loud"),
+                                    detail: String(localized: "\(String(format: "%.1f", integrated)) LUFS; the target is \(String(format: "%.0f", target)). \(spec.strict ? String(localized: "Broadcasters reject it.") : String(localized: "Platforms turn it down, so it gains nothing."))"),
+                                    kind: .sound))
+            } else if integrated < target - spec.loudnessTolerance {
+                issues.append(Issue(severity: severity, title: String(localized: "Too quiet"),
+                                    detail: String(localized: "\(String(format: "%.1f", integrated)) LUFS; the target is \(String(format: "%.0f", target)). It will sound weaker than what plays before and after it."),
+                                    kind: .sound))
             }
-            if let peak, peak > target.peak {
+            if let peak, peak > spec.truePeak {
                 issues.append(Issue(severity: .problem, title: String(localized: "Peaks too high"),
-                                    detail: String(localized: "The true peak is \(String(format: "%.1f", peak)) dBTP; keep it under \(String(format: "%.0f", target.peak)) or it can distort after the platform re-encodes it.")))
+                                    detail: String(localized: "The true peak is \(String(format: "%.1f", peak)) dBTP; keep it under \(String(format: "%.0f", spec.truePeak)) or it can distort after the platform re-encodes it."),
+                                    kind: .sound))
             }
         }
 
@@ -400,14 +373,22 @@ enum DeliveryCheck {
                 if kind == "gap" { gaps.append((from, value)) } else { quiet.append((from, value)) }
             }
         }
+        // Silence at a picture transition (a dip to black, a fade) is part of it.
+        func atTransition(_ from: Double, _ to: Double) -> Bool {
+            transitions.contains { from <= $0.end + Tune.soundAtTransition && $0.start - Tune.soundAtTransition <= to }
+        }
+        func dropout(_ from: Double, _ to: Double, _ detail: String) {
+            let transition = atTransition(from, to)
+            issues.append(Issue(severity: transition ? .note : .warning, time: from, end: to, title: String(localized: "Sound drops out"),
+                                detail: transition ? String(localized: "\(String(format: "%.1f", to - from)) seconds of silence at a transition.") : detail,
+                                kind: .sound))
+        }
         for (from, to) in quiet {
-            issues.append(Issue(severity: .warning, time: from, end: to, title: String(localized: "Sound drops out"),
-                                detail: String(localized: "\(String(format: "%.1f", to - from)) seconds of silence. Fine if it’s meant as a pause.")))
+            dropout(from, to, String(localized: "\(String(format: "%.1f", to - from)) seconds of silence. Fine if it’s meant as a pause."))
         }
         // A short gap of nothing at all, not already part of a longer silence.
         for (from, to) in gaps where !quiet.contains(where: { $0.0 <= to && from <= $0.1 }) {
-            issues.append(Issue(severity: .warning, time: from, end: to, title: String(localized: "Sound drops out"),
-                                detail: String(localized: "\(String(format: "%.1f", to - from)) seconds with no sound at all, often a gap left in the edit.")))
+            dropout(from, to, String(localized: "\(String(format: "%.1f", to - from)) seconds with no sound at all, often a gap left in the edit."))
         }
 
         // A channel without anything on it (a mono mix on one side only).
@@ -422,10 +403,10 @@ enum DeliveryCheck {
                 let detail = levels.count != 2 ? String(localized: "Channel \(index + 1) has no sound at all.")
                     : index == 0 ? String(localized: "The left channel has no sound at all. On headphones it plays on one side only.")
                     : String(localized: "The right channel has no sound at all. On headphones it plays on one side only.")
-                issues.append(Issue(severity: .problem, title: String(localized: "Silent channel"), detail: detail))
+                issues.append(Issue(severity: .problem, title: String(localized: "Silent channel"), detail: detail, kind: .sound))
             }
         }
-        return (issues, facts)
+        return (issues, facts, integrated)
     }
 
     // MARK: - Text on screen
@@ -436,7 +417,7 @@ enum DeliveryCheck {
         var time: Double
     }
 
-    private static func text(_ file: URL, duration: Double, destination: Destination,
+    private static func text(_ file: URL, duration: Double, spec: Spec,
                              progress: @escaping @Sendable (Double) -> Void) async throws -> [Issue] {
         let asset = AVURLAsset(url: file)
         let generator = AVAssetImageGenerator(asset: asset)
@@ -477,15 +458,15 @@ enum DeliveryCheck {
         let steady = seen.filter { (looks[$0.text] ?? 0) >= 2 }
         let languages = spellingLanguages(for: steady.map(\.text).joined(separator: " "))
         var reportedWords = Set<String>(), reportedEdges = Set<String>()
-        let safe = destination.safeArea
+        let safe = spec.safeArea
         for item in steady {
             // Text near the edge, once per piece of text (big enough to be a title, not a
             // screen recording's small print).
             if !safe.contains(item.box), item.box.height > 0.025, !reportedEdges.contains(item.text) {
                 reportedEdges.insert(item.text)
                 issues.append(Issue(severity: .warning, time: item.time, title: String(localized: "Text close to the edge"),
-                                    detail: String(localized: "“\(item.text)” is outside the safe area for \(destination.label); it can be cut off or covered."),
-                                    box: item.box))
+                                    detail: String(localized: "“\(item.text)” is outside the safe area for \(spec.title); it can be cut off or covered."),
+                                    box: item.box, kind: .text))
             }
             // Spelling, once per word. Web addresses and handles aren't words.
             guard !looksLikeAddress(item.text) else { continue }
@@ -497,7 +478,7 @@ enum DeliveryCheck {
                 let detail = typo ? String(localized: "“\(word)” in “\(item.text)”. Did you mean “\(guess!)”?")
                                   : String(localized: "“\(word)” in “\(item.text)” isn’t in the dictionary. Fine if it’s a name.")
                 issues.append(Issue(severity: typo ? .warning : .note, time: item.time, title: String(localized: "Check the spelling"),
-                                    detail: detail, box: item.box, word: word))
+                                    detail: detail, box: item.box, word: word, kind: .text))
             }
         }
         return issues
@@ -574,11 +555,33 @@ enum DeliveryCheck {
         return String(format: "%02d:%02d:%02d:%02d", frames / (rate * 3600), frames / (rate * 60) % 60, frames / rate % 60, frames % rate)
     }
 
+    /// A running tool, stopped when the task waiting for it is cancelled (Stop).
+    private final class Running: @unchecked Sendable {
+        private let lock = NSLock()
+        private var process: Process?
+        private var cancelled = false
+        /// False once cancelled: the caller stops the process it just started.
+        func started(_ process: Process) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            self.process = process
+            return !cancelled
+        }
+        func cancel() {
+            lock.lock()
+            cancelled = true
+            let process = process
+            lock.unlock()
+            if process?.isRunning == true { process?.terminate() }
+        }
+    }
+
     /// A tool's output (stdout, or stderr for ffmpeg's summaries), with each stdout line handed
-    /// to `line` as it arrives.
-    private static func output(_ tool: String, _ arguments: [String], stderr: Bool = false,
+    /// to `line` as it arrives. Cancelling the calling task stops the tool.
+    static func output(_ tool: String, _ arguments: [String], stderr: Bool = false,
                                line: (@Sendable (Substring) -> Void)? = nil) async -> String {
-        await Task.detached {
+        let running = Running()
+        return await withTaskCancellationHandler {
+            await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: tool)
             process.arguments = arguments
@@ -591,6 +594,7 @@ enum DeliveryCheck {
                 process.standardError = FileHandle.nullDevice
             }
             guard (try? process.run()) != nil else { return "" }
+            if !running.started(process) { process.terminate() }
             var data = Data()
             var pending = Data()
             while true {
@@ -607,7 +611,8 @@ enum DeliveryCheck {
             }
             process.waitUntilExit()
             return String(decoding: data, as: UTF8.self)
-        }.value
+            }.value
+        } onCancel: { running.cancel() }
     }
 }
 
@@ -629,6 +634,8 @@ extension DeliveryCheck {
                     let end = issue.end.map { String(format: "-%.2f", $0) } ?? ""
                     lines.append("  \(issue.severity) \(time)\(end) \(issue.title) | \(issue.detail)")
                 }
+                lines += measured.map { "  ~ " + $0 }
+                measured = []
             } catch {
                 lines.append("== \(file.lastPathComponent): error \(error.localizedDescription)")
             }

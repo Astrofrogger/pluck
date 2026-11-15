@@ -131,8 +131,9 @@ struct PhotoInspector: View {
             }
         }
         tabStrip
-            .searchTarget(.photo) { tab = .adjust; editing.findingTool = true }
         }
+        // A tool chosen in ⌘F's search.
+        .onChange(of: editing.jump, initial: true) { if let jump = editing.jump { editing.jump = nil; go(jump) } }
         .onChange(of: tab) { _, now in
             if now != .masks { editing.selectedMask = nil; editing.hoverMask = nil }
             if now != .heal { editing.selectedSpot = nil }

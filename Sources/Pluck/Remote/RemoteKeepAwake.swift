@@ -27,7 +27,8 @@ enum RemoteKeepAwake {
     }
 
     static var busy: Bool {
-        OfficeRenderServer.shared.isRunning
+        // A client watching a review over a share link (Deliver) keeps it awake too.
+        !DeliverServer.shared.peers.isEmpty || OfficeRenderServer.shared.isRunning
             && (OfficeRenderServer.shared.isRendering || OfficeProxies.shared.working != nil || RemoteProxyJobs.shared.working != nil
                 || Date.now.timeIntervalSince(lastTransfer) < 90)
     }
@@ -35,6 +36,7 @@ enum RemoteKeepAwake {
     static var isHolding: Bool { assertion != nil }
 
     static func update() {
+        start()
         if busy, assertion == nil {
             var id = IOPMAssertionID(0)
             let reason = "Pluck Edit Anywhere is serving a paired Mac" as CFString

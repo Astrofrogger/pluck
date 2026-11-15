@@ -89,7 +89,7 @@ struct PluckApp: App {
                 Divider()
                 Button("Download Link from Clipboard") {
                     let links = Links.extract(from: NSPasteboard.general)
-                    if links.isEmpty { NSSound.beep() } else { manager.add(links) }
+                    if links.isEmpty { NSSound.beep() } else { manager.add(links, fromOtherDevice: false) }
                 }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             }
@@ -140,6 +140,10 @@ struct PluckApp: App {
                 .environment(appUpdater)
                 .environment(toolsUpdater)
         }
+        #if STUDIO
+        // Pluck Studio's Settings draws its own top: sections on the backdrop under the window buttons.
+        .windowStyle(.hiddenTitleBar)
+        #endif
         .windowToolbarStyle(.unified(showsTitle: false))
         .windowResizability(.contentSize)
         .defaultPosition(.center)

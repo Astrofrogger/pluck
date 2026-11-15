@@ -49,6 +49,14 @@ struct ResolveTimelineRead: Decodable {
         var fps: Double?
     }
 
+    /// A transition there (Resolve 21.2 and later list them), by Resolve's name.
+    struct Transition: Decodable {
+        var track: Int
+        var start: Int
+        var end: Int
+        var type: String
+    }
+
     struct Sound: Decodable {
         var track: Int
         var start: Int
@@ -60,6 +68,7 @@ struct ResolveTimelineRead: Decodable {
     var rate: Double?
     var markers: [Marker]
     var items: [Item]
+    var transitions: [Transition]?
     var sounds: [Sound]?
 }
 
@@ -73,6 +82,8 @@ enum ProjectResolveRead {
         var trimmed = 0
         var added = 0
         var removed = 0
+        /// Transitions put on or changed there.
+        var transitions = 0
         /// What didn't come back, one phrase each ("speed changes on 2 clips").
         var skipped: [String] = []
     }
@@ -187,6 +198,29 @@ enum ProjectResolveRead {
         result.clips = line
         // Trims through setClip, so a clip's sound taken off stays in step with it.
         for clip in edits { result.setClip(clip) }
+
+        // Transitions put on or changed there: Resolve's own come back as Pluck's (a Pluck one Resolve
+        // shows as its nearest stays as it was). One taken off there stays (older Resolves don't list them).
+        for found in read.transitions ?? [] where found.track == 1 && found.end > found.start {
+            let centre = record((found.start + found.end) / 2), length = Double(found.end - found.start) / rate
+            guard let index = result.clips.indices.dropFirst().first(where: { startsThere[result.clips[$0].id].map { abs($0 - centre) <= 2 } ?? false })
+            else { continue }
+            let current = result.clips[index].transitionIn
+                ?? result.clips[index - 1].dipOut.map { ProjectTransition(kind: $0.white ? .dipWhite : .dipBlack, length: $0.length) }
+            var next: ProjectTransition
+            if let current, current.kind.resolve.name.caseInsensitiveCompare(found.type) == .orderedSame {
+                guard abs(current.length - length) > 1.5 / rate else { continue }
+                next = current
+                next.length = length
+            } else if let kind = ProjectTransition.Kind.from(resolve: found.type) {
+                next = ProjectTransition(kind: kind, length: length)
+            } else {
+                continue
+            }
+            result.clips[index].transitionIn = next.kind.overlaps ? next : nil
+            result.clips[index - 1].dipOut = next.kind.overlaps ? nil : ProjectDip(white: next.kind == .dipWhite, length: next.length)
+            summary.transitions += 1
+        }
 
         // The pictures laid over it (V2 and up), back on the lanes they were sent from.
         var tracks = result.tracks ?? []

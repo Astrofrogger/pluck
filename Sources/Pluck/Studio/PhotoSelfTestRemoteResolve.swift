@@ -43,9 +43,9 @@ extension PhotoSelfTest {
             "/NAS/c.mxf": .init(duration: 10, audio: 2), "/NAS/d.mxf": .init(timecode: "02:00:00:00"), "/NAS/x.mov": .init()]
         let plan = RemoteResolveProject.conform(clips, swaps: swaps, originals: originals)
         check("resolve: conform swaps every proxy with an original", plan.swaps == ["1": "/NAS/a.mxf", "2": "/NAS/b.mxf", "3": "/NAS/c.mxf", "4": "/NAS/d.mxf"], "\(plan.swaps)")
-        let named = ["short", "mono", "tc", "gone", "stray"]
-        check("resolve: conform reports length, channels, timecode, missing and offline (not the good, kept or empty)",
-              plan.problems.count == 5 && zip(plan.problems, named).allSatisfy { $0.hasPrefix($1 + ":") }, "\(plan.problems)")
+        let named = ["short", "mono", "tc", "gone", "stray", "title"]
+        check("resolve: conform reports length, channels, timecode, missing, offline and a clip without a file (not the good or kept)",
+              plan.problems.count == 6 && zip(plan.problems, named).allSatisfy { $0.hasPrefix($1 + ":") }, "\(plan.problems)")
 
         // The render queue: in order, cancel, and what a restart keeps.
         let queueFile = base.appendingPathComponent("queue.json")

@@ -261,5 +261,11 @@ Strings live in `Resources/Localizable.xcstrings` (a String Catalog you can open
 ```
 Add the version's notes to `Sources/Pluck/WhatsNew.swift` (both editions) or `Sources/Pluck/Studio/WhatsNewStudio.swift` (Studio only) first; the script refuses to release without them, and people see them after updating. It bumps the version, builds both editions, makes `Pluck.dmg` and `Pluck-Studio.dmg`, tags the release and uploads them to GitHub. Running copies pick up the new version within a day, or straight away with Pluck → Check for Updates….
 
+## Licence
+
+Pluck is not open source. © 2026 Lowie Sobry, all rights reserved: you may use the released apps for your own
+work, but the source code may not be copied, modified, redistributed or sold, and no other apps may be built from
+it. See [LICENSE](LICENSE). Third-party components keep their own licences ([ThirdPartyLicenses.md](ThirdPartyLicenses.md)).
+
 ---
 <sub>Screenshots show only openly licensed media. Films: <a href="https://mango.blender.org">Tears of Steel</a>, <a href="https://durian.blender.org">Sintel</a> and <a href="https://peach.blender.org">Big Buck Bunny</a>, © Blender Foundation, CC BY 3.0. Photos from Wikimedia Commons: <a href="https://commons.wikimedia.org/wiki/File:Friars%27_Crag_Derwentwater_Lake_District_2022_01.jpg">Friars' Crag, Derwentwater</a> by Julian Herzog (CC BY 4.0); <a href="https://commons.wikimedia.org/wiki/File:Breiðamerkurjökull_glacier,_Iceland,_20240719_1427_2618.jpg">Breiðamerkurjökull</a>, <a href="https://commons.wikimedia.org/wiki/File:Breiðamerkurjökull_glacier,_Iceland,_20240719_1514_2687.jpg">Breiðamerkurjökull ice</a> and <a href="https://commons.wikimedia.org/wiki/File:Fjallsárlón_glacier_lake,_Iceland,_20240719_1720_2774.jpg">Fjallsárlón</a> by Jakub Hałun (CC BY 4.0); <a href="https://commons.wikimedia.org/wiki/File:Barranco_Valle_de_la_Fuente_-_Fuerteventura.jpg">Barranco Valle de la Fuente</a> by H. Zell (CC BY 3.0); <a href="https://commons.wikimedia.org/wiki/File:Alone_in_the_unspoilt_wilderness_(Unsplash).jpg">Alone in the unspoilt wilderness</a> by David Marcu (CC0). The logo is made up. Pluck is meant for content you have the right to download. Third-party licences are in <a href="ThirdPartyLicenses.md">ThirdPartyLicenses.md</a>.</sub>

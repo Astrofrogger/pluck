@@ -160,8 +160,16 @@ enum ScreenshotMode {
             case "converttest":
                 // Every file in -PluckScreenshotFile <folder> through each conversion, into -PluckScreenshotOutput; to -PluckScreenshotLog.
                 Task { await ConvertSelfTest.run(defaults: defaults, manager: manager) }
-            case "library": openLibrary(openWindow)
-            case "settings": openSettings()
+            case "library":
+                #if STUDIO
+                // -PluckScreenshotAssets YES: on the asset library.
+                if defaults.bool(forKey: "PluckScreenshotAssets") { LibraryView.startCollection = AssetLibraryView.libraryCollection }
+                #endif
+                openLibrary(openWindow)
+            case "settings":
+                // -PluckScreenshotSettings <section>: Settings open on that section (general, format, downloads…).
+                if let section = defaults.string(forKey: "PluckScreenshotSettings") { defaults.set(section, forKey: "settingsTab") }
+                openSettings()
             case "subscriptiontest":
                 // -PluckScreenshotLink <channel or feed>, -PluckScreenshotFile <folder>, -PluckScreenshotLog <file>.
                 Subscriptions.shared.manager = manager
@@ -171,7 +179,7 @@ enum ScreenshotMode {
                 }
             case "picker":
                 // -PluckScreenshotLink <channel, playlist or feed>: the picker, nothing downloaded.
-                if let link = defaults.string(forKey: "PluckScreenshotLink") { manager.add([link]) }
+                if let link = defaults.string(forKey: "PluckScreenshotLink") { manager.add([link], fromOtherDevice: false) }
             case "subscriptions":
                 // The Library on the first subscription of the test list (subscriptions-test.json).
                 LibraryView.startCollection = Subscriptions.shared.list.first.map { .subscription($0.id, $0.title) }
@@ -528,6 +536,20 @@ enum ScreenshotMode {
                 // -PluckScreenshotLink <words> is searched for.
                 LibraryView.startSearch = defaults.string(forKey: "PluckScreenshotLink") ?? ""
                 LibraryView.show(.all)
+            case "archive":
+                // -PluckScreenshotFile <FCPXML, EDL, .drp>: its media planned.
+                ProjectArchiveView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                StudioNavigator.shared.open(windowID: "archive")
+            case "synccameras":
+                // -PluckScreenshotFile <folder> is added (and synced with -PluckScreenshotBuild).
+                CameraSyncView.openFiles = defaults.string(forKey: "PluckScreenshotFile").map { [URL(fileURLWithPath: $0)] } ?? []
+                StudioNavigator.shared.open(windowID: "syncCameras")
+                if defaults.bool(forKey: "PluckScreenshotBuild") { DispatchQueue.main.asyncAfter(deadline: .now() + 4) { CameraSyncModel.shared.sync() } }
+                // -PluckScreenshotItem <file name>: that clip chosen once synced.
+                if let item = defaults.string(forKey: "PluckScreenshotItem") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 14) { CameraSyncModel.shared.selected = CameraSyncModel.shared.clips.first { $0.name == item }?.id }
+                }
+            case "cutdowns": SocialCutdownsView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }; StudioNavigator.shared.open(windowID: "cutdowns")
             case "musicfit":
                 // -PluckScreenshotFile <song> is chosen.
                 MusicFitView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
@@ -727,6 +749,11 @@ enum ScreenshotMode {
                 }
             case "tools":
                 StudioNavigator.shared.show(.tools)
+            case "deliver":
+                // -PluckScreenshotFiles <a|b>: a review project of these (made once); -PluckScreenshotDeliver
+                // projects|project|asset|share: that view.
+                DeliverPage.snapshot(files: (defaults.string(forKey: "PluckScreenshotFiles") ?? "").split(separator: "|").map { URL(fileURLWithPath: String($0)) },
+                                     view: defaults.string(forKey: "PluckScreenshotDeliver") ?? "projects")
             case "derush":
                 // -PluckScreenshotFile <file or folder> is added and analysed.
                 StudioNavigator.shared.open(windowID: "derush")
@@ -858,7 +885,9 @@ enum Offscreen {
     static func start(out: String, wait: Double, size: String?) {
         hideWindows(size: size)
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
-            if let window = NSApp.windows.first(where: { $0.canBecomeMain && $0.contentView != nil }),
+            let windows = NSApp.windows.filter { $0.canBecomeMain && $0.contentView != nil }
+            // The settings scene draws the Settings window, not the main one behind it.
+            if let window = (ScreenshotMode.scene == "settings" ? windows.first { $0.identifier?.rawValue.hasPrefix("settings") == true } : nil) ?? windows.first,
                let view = window.contentView?.superview ?? window.contentView,
                let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                 view.cacheDisplay(in: view.bounds, to: rep)

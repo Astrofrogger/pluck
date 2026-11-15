@@ -1,0 +1,23 @@
+[Unit]
+Description=Update the Pluck Review host (verified, with rollback)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+# The script asks the host to prepare (prepare-update), waits while it is busy (up to an hour) and
+# logs to the journal. It does this itself, not in ExecStartPre, so the pluck-proxmox.sh install
+# (pct exec) and this unit share one code path.
+ExecStart=/usr/local/sbin/pluck-review-update.sh
+TimeoutStartSec=2h
+ProtectSystem=strict
+ReadWritePaths=/opt/pluck-review /var/lib/pluck-review/update
+# The updater's own lock, failed list and last result: root only (the update folder belongs to the
+# service user, and the script reads and writes there only as that user).
+StateDirectory=pluck-review-update
+StateDirectoryMode=0700
+# The script's temp files; ProtectSystem=strict would make /tmp read-only.
+PrivateTmp=yes
+ProtectHome=yes
+NoNewPrivileges=yes

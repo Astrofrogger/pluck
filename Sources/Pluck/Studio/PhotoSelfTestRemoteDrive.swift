@@ -35,10 +35,12 @@ extension PhotoSelfTest {
               && tree.children["Day 1"] == ["Day 1/A001.mov"] && tree.nodes["../escape.mov"] == nil && tree.nodes["a/./b.mov"] == nil, "\(tree.children)")
         check("drive: synthesized manifest decodes", (try? JSONDecoder().decode(RemoteManifest.self, from: tree.manifest))?.entries.count == 4)
         let server = RemoteDriveServer(backend: drive)
-        func call(_ program: UInt32, _ version: UInt32, _ procedure: UInt32, flavor: UInt32 = 1, _ args: (inout XDRWriter) -> Void = { _ in }) async -> XDRReader? {
+        func call(_ program: UInt32, _ version: UInt32, _ procedure: UInt32, flavor: UInt32 = 1, uid: UInt32 = getuid(), _ args: (inout XDRWriter) -> Void = { _ in }) async -> XDRReader? {
             var out = XDRWriter()
             out.u32(42); out.u32(0); out.u32(2); out.u32(program); out.u32(version); out.u32(procedure)
-            out.u32(flavor); out.opaque(Data(count: 8)); out.u32(0); out.u32(0)
+            var credential = XDRWriter() // AUTH_SYS: stamp, machine name, uid, gid, no gids
+            credential.u32(1); credential.string("mac"); credential.u32(uid); credential.u32(20); credential.u32(0)
+            out.u32(flavor); out.opaque(flavor == 1 ? credential.data : Data()); out.u32(0); out.u32(0)
             args(&out)
             return await server.reply(to: out.data).map { XDRReader($0) }
         }
@@ -52,10 +54,17 @@ extension PhotoSelfTest {
         check("drive: unknown program", head(await call(100021, 4, 0)) == [42, 1, 0, 0, 0, 1])
         check("drive: NFS v2 is a version mismatch", head(await call(100003, 2, 0)).prefix(6) == [42, 1, 0, 0, 0, 2])
         check("drive: Kerberos and other credentials refused", head(await call(100003, 3, 0, flavor: 6)).prefix(4) == [42, 1, 1, 1])
-        var closed = parts(await call(100005, 3, 1) { $0.string("/pluck") }).1
+        let export = server.export
+        var closed = parts(await call(100005, 3, 1) { $0.string(export) }).1
         check("drive: no root handle outside Pluck's own mount", (try? closed?.u32()) == 13)
         server.allowMount(true)
-        var mounted = parts(await call(100005, 3, 1) { $0.string("/pluck") }).1
+        let noneMNT = head(await call(100005, 3, 1, flavor: 0) { $0.string(export) }), otherUID = head(await call(100005, 3, 1, uid: getuid() &+ 4242) { $0.string(export) })
+        let nonePing = head(await call(100003, 3, 0, flavor: 0))
+        var listed = parts(await call(100005, 3, 5)).1, oldName = parts(await call(100005, 3, 1) { $0.string("/pluck") }).1
+        check("drive: only this user's AUTH_SYS (no AUTH_NONE, no other uid, no export list)", export.hasPrefix("/pluck-") && export.count > 12
+              && export != RemoteDriveServer(backend: drive).export && noneMNT.prefix(5) == [42, 1, 1, 1, 5] && otherUID.prefix(5) == [42, 1, 1, 1, 1]
+              && nonePing == [42, 1, 0, 0, 0, 0] && (try? listed?.u32()) == 0 && (try? oldName?.u32()) == 2, "\(noneMNT) \(otherUID) \(nonePing)")
+        var mounted = parts(await call(100005, 3, 1) { $0.string(export) }).1
         let rootHandle = (try? mounted?.u32()) == 0 ? try? mounted?.opaque(max: 64) : nil
         check("drive: MNT gives the root handle", rootHandle == server.handle(""))
         var missing = parts(await call(100005, 3, 1) { $0.string("/other") }).1

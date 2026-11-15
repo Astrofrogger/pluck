@@ -378,6 +378,17 @@ struct PhotoPage: View {
         // People waits while a photo is edited here, not while another page is open.
         .onChange(of: view, initial: true) { _, mode in PhotoPeople.pageEditing = mode == .edit || mode == .compare }
         .onChange(of: editing.search) { keepFocusInFilter() }
+        // A photo chosen in ⌘F's search: shown on its own, nothing filtering it out.
+        .onChange(of: editing.reveal, initial: true) {
+            guard let key = editing.reveal else { return }
+            editing.reveal = nil
+            editing.search = ""
+            source = .all
+            flagFilter = nil; minRating = 0; labelFilter = nil; checkFilter = nil
+            focus = key
+            selection = [key]
+            view = .edit
+        }
         .onDisappear {
             editing.cropping = false; PhotoPasteboard.perform = nil; SpeedEditor.shared.stop(); FilmHalation.purge()
             PhotoPeople.pageEditing = false

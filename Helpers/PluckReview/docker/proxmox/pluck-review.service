@@ -1,0 +1,34 @@
+[Unit]
+Description=Pluck Review host
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=pluck-review
+Group=pluck-review
+ExecStart=/opt/pluck-review/current/pluck-review --host /var/lib/pluck-review --backup
+EnvironmentFile=/etc/pluck-review/env
+Restart=on-failure
+RestartSec=5
+# /run/pluck-review/health is written here.
+RuntimeDirectory=pluck-review
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/pluck-review
+MemoryMax=2G
+TasksMax=256
+
+[Install]
+WantedBy=multi-user.target

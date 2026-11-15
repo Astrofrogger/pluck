@@ -45,6 +45,52 @@ extension PhotoSelfTest {
             do { try await work(); return false } catch { return true }
         }
 
+        // Audit fixes. Resolve's project list and project switch need the render right.
+        server.setRights(.init(browse: true, proxies: true, originals: true, render: false), for: device.id)
+        func deniedByRights(_ action: String, _ arguments: [String: Any]) async -> Bool {
+            do { _ = try await client.ask(action, arguments); return false } catch { return error.localizedDescription.contains("doesn’t allow this Mac") }
+        }
+        let noList = await deniedByRights("projects", [:])
+        let noSwitch = await deniedByRights("project", ["name": "Other", "folder": ""])
+        check("audit: project and projects need the render right", noList && noSwitch)
+        // The inbox never becomes shared content: no share around it, nothing in it through a share.
+        let inbox = OfficeInbox.shared.folder, around = inbox.deletingLastPathComponent()
+        try? fm.createDirectory(at: inbox.appendingPathComponent("Mac A", isDirectory: true), withIntermediateDirectories: true)
+        fm.createFile(atPath: inbox.appendingPathComponent("Mac A/sent.mov").path, contents: Data(count: 10))
+        let addedAround = archive.add(around), addedInside = archive.add(inbox.appendingPathComponent("Mac A", isDirectory: true))
+        let listed = ((try? RemoteEditHost.list(around, in: around)) ?? []).compactMap { $0["name"] as? String }
+        check("audit: a share can't hold the inbox, and the inbox isn't listed or served", !addedAround && !addedInside
+              && !archive.folders.contains(around) && !listed.contains(inbox.lastPathComponent)
+              && (try? RemoteEditHost.resolve(inbox.lastPathComponent + "/Mac A/sent.mov", in: around)) == nil
+              && (try? RemoteEditHost.resolve("clip.mov", in: root)) != nil, "\(listed)")
+        // Each Mac's share of the inbox, and space left free on the host.
+        let quota = OfficeInbox.quota
+        OfficeInbox.quota = 50
+        var full = false
+        do { _ = try OfficeInbox.shared.receive("big.bin", size: 100, modified: 0, offset: 0, data: Data(count: 10), from: "Mac Q") } catch { full = (error as? OfficeInbox.Problem) == .full }
+        OfficeInbox.quota = quota
+        let floor = OfficeInbox.freeFloor
+        OfficeInbox.freeFloor = Int64.max / 2
+        var noSpace = false
+        do { _ = try OfficeInbox.shared.receive("small.bin", size: 10, modified: 0, offset: 0, data: Data(count: 10), from: "Mac Q") } catch { noSpace = (error as? OfficeInbox.Problem) == .noSpace }
+        OfficeInbox.freeFloor = floor
+        check("audit: the inbox has a per-Mac quota and a free-space floor", full && noSpace)
+        try? fm.removeItem(at: inbox)
+        // Tailscale: only invited nodes are touched, paired ones by address, never-paired ones go after the invitation.
+        let now = Date.now, old = ISO8601DateFormatter().string(from: now.addingTimeInterval(-7200)), fresh = ISO8601DateFormatter().string(from: now)
+        let tag = PrivateNetwork.Account.inviteeTag
+        let nodes: [[String: Any]] = [
+            ["id": "paired", "tags": [tag], "addresses": ["100.64.0.2"], "created": old],
+            ["id": "pairedKept", "tags": [tag], "addresses": ["100.64.0.3"], "created": old, "keyExpiryDisabled": true],
+            ["id": "stray", "tags": [tag], "addresses": ["100.64.0.4"], "created": old],
+            ["id": "joining", "tags": [tag], "addresses": ["100.64.0.5"], "created": fresh],
+            ["id": "removed", "tags": [tag], "addresses": ["100.64.0.6"], "created": fresh],
+            ["id": "pluck-named", "hostname": "pluck-x", "addresses": ["100.64.0.7"], "created": old]]
+        let plan = PrivateNetwork.Account.plan(nodes, paired: ["100.64.0.2", "100.64.0.3"], removed: ["100.64.0.6"], now: now, lifetime: 3600)
+        check("audit: tailnet nodes kept by recorded address, strays deleted, others untouched",
+              plan.map(\.0) == ["paired", "stray", "removed"] && plan.map(\.1) == [.keep, .delete, .delete]
+              && PrivateNetwork.Account.aclSnippet.contains("\"tag:pluck-office:\(OfficeLink.port)\""), "\(plan)")
+
         // Streaming: ranges anywhere (inside a block, across blocks, the tail, past the end) and the whole file.
         server.setRights(.init(browse: true, proxies: true, originals: true, render: true), for: device.id)
         let id = OfficeProxies.id(root)

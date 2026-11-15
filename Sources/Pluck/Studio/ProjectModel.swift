@@ -391,6 +391,8 @@ final class ProjectModel {
     var isPlaying: Bool { rate != 0 }
     var selected: Set<UUID> = []
     var selectedTitle: UUID?
+    /// Keyframes chosen on the timeline's keyframe lane (of the selected clip).
+    var selectedKeys: Set<UUID> = []
     /// What went wrong putting something from a library into the edit (a title that couldn't be drawn).
     var libraryProblem: String?
     var tool: EditTool = .select
@@ -737,7 +739,12 @@ final class ProjectModel {
         let apply: (inout Project) -> Void = { project in
             var clip = project.clips[index]
             let fileLength = self.fileLengths[clip.path] ?? clip.end
-            if let start { clip.start = min(max(start, 0), clip.end - self.frame) }
+            if let start {
+                let old = clip.start
+                clip.start = min(max(start, 0), clip.end - self.frame)
+                let shift = (clip.start - old) / clip.speed
+                clip.look?.shiftKeys(by: shift)
+            }
             if let end { clip.end = max(min(end, fileLength), clip.start + self.frame) }
             project.setClip(clip)
             Self.followLinks(&project)
@@ -764,7 +771,7 @@ final class ProjectModel {
         var same = new
         same.look = old.look
         if !record { dragging() }
-        if same == old, new.speed == old.speed {
+        if same == old, new.speed == old.speed, new.look?.keyframes(.volume) == old.look?.keyframes(.volume) {
             if record { remember(beforeDrag ?? project); beforeDrag = nil; future = [] }
             project.clips[index] = new
             project.modified = .now
@@ -1313,15 +1320,21 @@ final class ProjectModel {
                                                 clipStart: at, clipEnd: at + clip.length, look: clip.look,
                                                 orientation: CGImagePropertyOrientation(pictures.transform), main: true,
                                                 fadeIn: index > 0 && before > 0 ? before * 2 : 0,
-                                                transition: before > 0 ? clip.transitionIn?.kind : nil))
+                                                transition: before > 0 ? clip.transitionIn : nil))
             }
             // Its sound, unless it was taken off to an audio track or it's a held frame.
             if clip.ownAudio != false, clip.freeze == nil, let sound = main.audio {
                 let source = CMTimeRange(start: cm(clip.start - before * clip.speed), duration: cm(length * clip.speed))
                 try? audio.insertTimeRange(source, of: sound, at: cm(start))
                 if clip.speed != 1 { audio.scaleTimeRange(CMTimeRange(start: cm(start), duration: source.duration), toDuration: cm(length)) }
-                let fade = fades(max(clip.fadeIn, before * 2), max(clip.fadeOut, after * 2), over: length)
-                Self.ramp(voice, volume: clip.volume, start: start, length: length, fadeIn: fade.in, fadeOut: fade.out)
+                // A transition's sound cut at the cut: this clip's sound only from it (and to the next one).
+                let cutIn = clip.transitionIn?.sound == .cut ? before : 0
+                let cutOut = index + 1 < clips.count && clips[index + 1].transitionIn?.sound == .cut ? after : 0
+                let fade = fades(max(clip.fadeIn, cutIn > 0 ? 0 : before * 2), max(clip.fadeOut, cutOut > 0 ? 0 : after * 2), over: length - cutIn - cutOut)
+                // Volume keyframes: its level along them (a curve in short straight pieces).
+                let keyed = clip.gainPoints(offset: at, length: clip.length)
+                Self.ramp(voice, volume: keyed.isEmpty ? clip.volume : 1, start: start + cutIn, length: length - cutIn - cutOut, fadeIn: fade.in, fadeOut: fade.out,
+                          ducking: keyed)
             }
         }
 
@@ -1362,7 +1375,8 @@ final class ProjectModel {
                     try? audio.insertTimeRange(source, of: sound, at: cm(at))
                     if item.speed != 1 { audio.scaleTimeRange(CMTimeRange(start: cm(at), duration: source.duration), toDuration: cm(item.length)) }
                     let fade = fades(item.fadeIn, item.fadeOut, over: item.length)
-                    Self.ramp(voice, volume: item.volume, start: at, length: item.length, fadeIn: fade.in, fadeOut: fade.out)
+                    let keyed = item.gainPoints(offset: at, length: item.length)
+                    Self.ramp(voice, volume: keyed.isEmpty ? item.volume : 1, start: at, length: item.length, fadeIn: fade.in, fadeOut: fade.out, ducking: keyed)
                 }
             }
             if let voice { mixes.append(voice) }

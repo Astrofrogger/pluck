@@ -8,13 +8,24 @@ enum Notifications {
     static let filesCategory = "pluck.files"
     static let filesKey = "files"
     private static let reveal = "reveal"
+    // Review (§13.4, §13.9, §13.15).
+    static let newVersionCategory = "DELIVER_NEW_VERSION", deadlineCategory = "DELIVER_DEADLINE", hostUpdateCategory = "DELIVER_HOST_UPDATE"
+    static let shareAction = "deliverShare", notNowAction = "deliverNotNow"
 
     static func registerActions() {
         let reveal = UNNotificationAction(identifier: reveal, title: String(localized: "Show in Finder"), options: [])
-        UNUserNotificationCenter.current().setNotificationCategories([
+        var categories: Set<UNNotificationCategory> = [
             UNNotificationCategory(identifier: fileCategory, actions: [reveal], intentIdentifiers: []),
             UNNotificationCategory(identifier: filesCategory, actions: [reveal], intentIdentifiers: []),
-        ])
+        ]
+        #if STUDIO
+        let share = UNNotificationAction(identifier: shareAction, title: String(localized: "Share with client"), options: [])
+        let notNow = UNNotificationAction(identifier: notNowAction, title: String(localized: "Not now"), options: [])
+        categories.insert(UNNotificationCategory(identifier: newVersionCategory, actions: [share, notNow], intentIdentifiers: []))
+        categories.insert(UNNotificationCategory(identifier: deadlineCategory, actions: [], intentIdentifiers: []))
+        categories.insert(UNNotificationCategory(identifier: hostUpdateCategory, actions: [], intentIdentifiers: []))
+        #endif
+        UNUserNotificationCenter.current().setNotificationCategories(categories)
     }
 
     /// Asks for permission the first time something is downloaded, when the request makes sense
@@ -42,6 +53,21 @@ enum Notifications {
 
     /// Clicking a notification for one file plays it; for several, it brings Pluck forward.
     @MainActor static func handle(action: String, userInfo: [AnyHashable: Any]) {
+        #if STUDIO
+        // A new version found in a watched render folder: nothing happens without OK (§13.4).
+        if let found = userInfo[DeliverWatch.foundKey] as? String {
+            if action == shareAction { DeliverWatch.shared.accept(found) } else { DeliverWatch.shared.later(found) }
+            if action == UNNotificationDefaultActionIdentifier { AppDelegate.showMainWindow() }
+            return
+        }
+        // A client's comment or approval: the asset on the Deliver page, at that comment.
+        if let asset = (userInfo[DeliverNotify.assetKey] as? String).flatMap(UUID.init(uuidString:)) {
+            StudioNavigator.shared.showReview(asset: asset, version: (userInfo[DeliverNotify.versionKey] as? String).flatMap(UUID.init(uuidString:)),
+                                              comment: (userInfo[DeliverNotify.commentKey] as? String).flatMap(UUID.init(uuidString:)))
+            AppDelegate.showMainWindow()
+            return
+        }
+        #endif
         let files = (userInfo[filesKey] as? [String] ?? [])
             .map { URL(fileURLWithPath: $0) }
             .filter { FileManager.default.fileExists(atPath: $0.path) }

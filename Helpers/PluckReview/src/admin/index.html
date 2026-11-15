@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Pluck Review host</title>
+<style>
+  :root { --bg:#0F0F11; --panel:#1A1A1D; --raised:#242428; --line:#333338; --text:#EDEBE6; --quiet:#A3A3A9; --faint:#66666C;
+          --good:#7CC294; --warn:#E0A15E; --bad:#E0605E; --accent:#B56C89; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 -apple-system, system-ui, sans-serif; }
+  main { display:grid; grid-template-columns: 1fr 1fr; gap:10px; padding:10px; max-width:1400px; margin:auto; }
+  section { background:var(--panel); border-radius:12px; padding:14px; min-width:0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { font-size:13px; font-weight:600; color:var(--quiet); margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; }
+  button, input, select { font:inherit; color:var(--text); background:var(--raised); border:1px solid var(--line); border-radius:7px; padding:6px 10px; }
+  button { cursor:pointer; } button.primary { background:var(--accent); border-color:var(--accent); }
+  input[type=checkbox] { padding:0; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:6px 0; }
+  .list { max-height:55vh; overflow:auto; border-top:1px solid var(--line); }
+  .item { display:flex; gap:8px; align-items:center; padding:6px 2px; border-bottom:1px solid var(--line); }
+  .item .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .item.dir .name { cursor:pointer; color:var(--text); } .quiet { color:var(--quiet); } .faint { color:var(--faint); }
+  .crumb { cursor:pointer; color:var(--quiet); } .crumb:hover { color:var(--text); }
+  .good { color:var(--good); } .warn { color:var(--warn); } .bad { color:var(--bad); }
+  .url { width:100%; font-family:ui-monospace, monospace; font-size:12px; }
+  #login { max-width:380px; margin:12vh auto; }
+  .hidden { display:none !important; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<section id="login" class="hidden">
+  <h2 id="login-title">Sign in</h2>
+  <div class="row hidden" id="key-row"><input id="host-key" placeholder="Host key" autocomplete="off" style="flex:1"></div>
+  <div class="row"><input id="password" type="password" placeholder="Password" style="flex:1"></div>
+  <div class="row"><button class="primary" id="login-go">Continue</button><span id="login-msg" class="bad"></span></div>
+</section>
+<main id="app" class="hidden">
+  <section>
+    <h2>Files on this host</h2>
+    <div class="row" id="crumbs"></div>
+    <div class="list" id="files"></div>
+  </section>
+  <section>
+    <h2>Publish</h2>
+    <div class="row"><select id="project"></select><input id="new-project" placeholder="New project name"></div>
+    <div class="row"><label><input type="checkbox" id="make-link" checked> Make a link</label></div>
+    <div id="link-opts">
+      <div class="row"><input id="link-title" placeholder="Link title (optional)" style="flex:1"></div>
+      <div class="row"><input id="link-password" type="password" placeholder="Link password (optional)" style="flex:1"></div>
+      <div class="row">
+        <select id="link-expires"><option value="0">Never expires</option><option value="1">1 day</option><option value="7">7 days</option><option value="30">30 days</option></select>
+        <select id="link-mode"><option value="review">Review</option><option value="presentation">Presentation</option></select>
+        <label><input type="checkbox" id="link-download"> Allow downloads</label>
+        <label><input type="checkbox" id="link-proxy"> Review copy downloads</label>
+        <label><input type="checkbox" id="link-name"> Ask for a name</label>
+      </div>
+      <div class="row"><input id="link-watermark" placeholder="Watermark, e.g. {name} · {date} (optional)" style="flex:1"></div>
+    </div>
+    <div class="row"><button class="primary" id="publish">Publish <span id="count">0</span> files</button><span id="publish-msg" class="quiet"></span></div>
+    <div class="row hidden" id="url-row"><input class="url" id="url" readonly><button id="copy">Copy</button></div>
+    <div class="faint" id="url-note"></div>
+  </section>
+  <section class="wide">
+    <div class="row"><h2 style="flex:1;margin:0">Projects</h2><span class="faint" id="fp"></span><button id="logout">Sign out</button></div>
+    <div id="projects"></div>
+  </section>
+  <section class="wide">
+    <div class="row"><h2 style="flex:1;margin:0">Devices</h2><button id="pair-mac">Pair a Mac</button><button id="pair-backup">Pair a backup host</button></div>
+    <div class="row hidden" id="pair-row"><input class="url" id="pair-link" readonly><button id="pair-copy">Copy</button><span class="quiet" id="pair-left"></span></div>
+    <div class="faint" id="pair-note"></div>
+    <div id="devices"></div>
+  </section>
+  <section class="wide hidden" id="activity-box">
+    <div class="row"><h2 style="flex:1;margin:0" id="activity-title">Activity</h2><button id="activity-close">Close</button></div>
+    <div id="activity"></div>
+  </section>
+  <section class="wide hidden" id="comments-box">
+    <div class="row"><h2 style="flex:1;margin:0" id="comments-title">Comments</h2><button id="comments-close">Close</button></div>
+    <div id="comments"></div>
+  </section>
+</main>
+<script src="/admin.js"></script>
+</body>
+</html>

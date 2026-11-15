@@ -1,0 +1,141 @@
+# Pluck Review host: the template for a local build on any Docker host (TrueNAS uses
+# truenas-compose.yml instead, which Pluck fills in). Fill in the ${…} values here, or put them in a
+# .env file next to this one. Nothing here is secret except HOST_KEY, TURN_SECRET, RELAY_TOKEN and
+# the SMB lines, which belong in the env file, never in this file.
+#
+# Build and run (from this folder):  docker compose up -d --build
+# The build context is Helpers/ (two folders up), because the image also builds pluck-iroh.
+#
+#   DATA               dataset for review copies, bundles and comments (writable), e.g. /mnt/tank/apps/pluck-review
+#   MEDIA_1            the local media dataset (mounted read-only), e.g. /mnt/tank/media
+#   MEDIA_1_ID         a short, stable name for it, e.g. nas1 (don't change it later: links refer to it)
+#   MEDIA_2_ID         the second NAS's stable name, e.g. nas2
+#   MEDIA_2_NFS_ADDR   the second NAS's address, e.g. 192.168.1.20
+#   MEDIA_2_NFS_PATH   its exported path, e.g. /mnt/tank/media
+#   UPLOADS            optional folder editors may upload renders into (read-write), e.g. /mnt/tank/renders
+#   UPLOADS_ID         its stable name, e.g. renders
+#   LAN_ADDR           this NAS's LAN address, e.g. 192.168.1.10 (the admin page and sync listen only here)
+#   SYNC_PORT          Pluck's sync port, e.g. 8790
+#   LAN_ADMIN_PORT     the admin page's port, e.g. 8791
+#   HOST_KEY           the host key Pluck made (base64url, 43 characters); empty = the host makes one
+#   HOST_NAME          the name clients see, e.g. "Office NAS"
+#   IROH               1 = reachable from anywhere through Pluck's secure tunnel (pluck-iroh)
+#   ROLE               main (default) or backup
+#   MAIN_LINK          backup only: the invite link from the main (used once, then ignored)
+#   BACKUP_MAX         backup only: the most it may store, e.g. 50G
+#   BACKUP_QUALITY     backup only: 540-low … 1080-high, or same (default 1080-low)
+#   RELAY_TOKEN        optional: the relay token from Pluck's settings
+#   TURN_SECRET        optional: your own TURN relay's shared secret
+#   TURN_URLS          optional: its URLs, comma separated, e.g. turns:turn.example.com:443?transport=tcp
+#   UPDATE_TIME        quiet time for updates, HH:MM (informational on Docker: no automatic updates here)
+#   PUID / PGID        the user it runs as (TrueNAS apps: 568); it needs read access to the media
+#   TURN_*             only for the relay profile, see coturn/README.md (the secret: TURN_SECRET_FILE)
+name: pluck-review
+services:
+  pluck-review:
+    build:
+      context: ../..
+      dockerfile: PluckReview/docker/Dockerfile
+    image: pluck-review-host:latest
+    restart: unless-stopped
+    # Host networking: WebRTC uses this NAS's own LAN and public addresses. It opens no ports to the
+    # internet: signaling and media go outbound; only the sync port and admin page listen, on LAN_ADDR.
+    network_mode: host
+    user: "${PUID:-568}:${PGID:-568}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=64m"]
+    environment:
+      PLUCK_HOST_KEY: "${HOST_KEY:-}"
+      PLUCK_HOST_NAME: "${HOST_NAME:-}"
+      PLUCK_IROH: "${IROH:-1}"
+      PLUCK_ROLE: "${ROLE:-main}"
+      PLUCK_MAIN_LINK: "${MAIN_LINK:-}"
+      PLUCK_BACKUP_MAX: "${BACKUP_MAX:-}"
+      PLUCK_BACKUP_QUALITY: "${BACKUP_QUALITY:-1080-low}"
+      PLUCK_RELAY_TOKEN: "${RELAY_TOKEN:-}"
+      PLUCK_TURN_SECRET: "${TURN_SECRET:-}"
+      PLUCK_TURN_URLS: "${TURN_URLS:-}"
+      PLUCK_UPDATE_TIME: "${UPDATE_TIME:-04:00}"
+      # Uploads folder (optional): uncomment this line and the uploads volume below.
+      # PLUCK_UPLOADS: "${UPLOADS_ID:-renders}=/uploads/${UPLOADS_ID:-renders}"
+    # A backup has no media roots: remove the three --media pairs / volumes (or leave them off).
+    command:
+      - --media
+      - "${MEDIA_1_ID:-nas1}=/media/${MEDIA_1_ID:-nas1}"
+      - --media
+      - "${MEDIA_2_ID:-nas2}=/media/${MEDIA_2_ID:-nas2}"
+      - --listen
+      - "${LAN_ADDR}:${SYNC_PORT:-8790}"
+      - --admin
+      - "${LAN_ADDR}:${LAN_ADMIN_PORT:-8791}"
+    volumes:
+      - "${DATA}:/data"
+      - "${MEDIA_1}:/media/${MEDIA_1_ID:-nas1}:ro"
+      - "media2:/media/${MEDIA_2_ID:-nas2}:ro"
+      # Uploads folder (optional, read-write; the media above stays read-only):
+      # - "${UPLOADS}:/uploads/${UPLOADS_ID:-renders}"
+    pids_limit: 256
+    mem_limit: 3g        # one 1080p ffmpeg encode at a time fits in well under this
+    cpus: 2.0            # leave the NAS room for its own work
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  # Your own TURN relay (coturn), only with:  docker compose --profile relay up -d
+  # Read coturn/README.md first (router steps, certificate). The shared secret comes from a file
+  # (TURN_SECRET_FILE, readable by user 65534 only), never from a flag, so the process list and
+  # `docker inspect` don't show it.
+  coturn:
+    profiles: ["relay"]
+    # Pinned by digest. To update: pull the new tag and replace the digest (4.19.0 at 2026-11-16).
+    image: coturn/coturn:4.19.0@sha256:0a3c026baaab092c79c9005823a72747bd09bf211071d537bb0865d95eae4638
+    restart: unless-stopped
+    network_mode: host
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=16m", "/var/lib/coturn:size=16m"]
+    cpus: 1.0
+    mem_limit: 256m
+    pids_limit: 128
+    # A private copy of the config with the secret appended, in the container's own tmpfs.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - 'umask 077 && { cat /etc/coturn/turnserver.conf && printf "\nstatic-auth-secret=%s\n" "$$(cat /run/turn-secret)"; } > /tmp/turnserver.conf && exec turnserver -c /tmp/turnserver.conf "$$@"'
+      - coturn
+    command:
+      - --realm=${TURN_REALM}
+      - --listening-ip=${LAN_ADDR}
+      - --relay-ip=${LAN_ADDR}
+      - --external-ip=${TURN_EXTERNAL_IP}/${LAN_ADDR}
+      - --allowed-peer-ip=${LAN_ADDR}
+    volumes:
+      - "./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro"
+      # The shared secret, one line (chmod 400, owned by 65534; the host gets it as PLUCK_TURN_SECRET):
+      - "${TURN_SECRET_FILE}:/run/turn-secret:ro"
+      # The DNS-challenge certificate (fullchain.pem and privkey.pem, readable by user 65534):
+      - "${TURN_CERT_DIR}:/certs:ro"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  # The second NAS over NFS, read-only (preferred: no password involved).
+  media2:
+    driver: local
+    driver_opts:
+      type: nfs
+      o: "addr=${MEDIA_2_NFS_ADDR},ro,nfsvers=4,soft,timeo=150"
+      device: ":${MEDIA_2_NFS_PATH}"
+  # SMB instead of NFS: replace the media2 block above with this one. The values come from the env
+  # file. Anyone who can run `docker volume inspect` on this NAS can read these options.
+  # media2:
+  #   driver: local
+  #   driver_opts:
+  #     type: cifs
+  #     o: "addr=${MEDIA_2_SMB_ADDR},ro,username=${MEDIA_2_SMB_USER},password=${MEDIA_2_SMB_PASSWORD},vers=3.0,uid=${PUID:-568},gid=${PGID:-568},file_mode=0444,dir_mode=0555"
+  #     device: "//${MEDIA_2_SMB_ADDR}/${MEDIA_2_SMB_SHARE}"

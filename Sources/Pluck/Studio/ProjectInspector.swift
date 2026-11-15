@@ -139,9 +139,9 @@ private struct ProjectClipPanel: View {
                     else if model.selected.count > 1 { several }
                     else { overview }
                 case .colour:
-                    if let clip { colourSettings(look: clip.look, path: clip.path) { record, body in model.set(clip.id, record: record, body) } }
+                    if let clip { colourSettings(clip) }
                     else if let look { lookSettings(look) }
-                    else if let item, isPicture(item) { colourSettings(look: item.look, path: item.path) { record, body in model.setItem(item.id, record: record, body) } }
+                    else if let item, isPicture(item) { colourSettings(item) }
                     else { hint("Select a clip or a look on the timeline.") }
                 case .audio:
                     if let clip { clipAudio(clip) }
@@ -156,10 +156,20 @@ private struct ProjectClipPanel: View {
     }
 
     private var several: some View {
-        Text("^[\(model.selected.count) clip](inflect: true) selected")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 8)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("^[\(model.selected.count) clip](inflect: true) selected")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            // Copied keyframes onto all of them (a subtle zoom over each, whatever its length).
+            if KeyClipboard.keys != nil {
+                HStack(spacing: 6) {
+                    Button("Paste Keyframes") { model.pasteKeys(into: model.selected, stretch: false) }
+                    Button("Paste and Stretch to Fit") { model.pasteKeys(into: model.selected, stretch: true) }
+                }
+                .buttonStyle(StudioFlatButtonStyle())
+            }
+        }
+        .padding(.horizontal, 8)
     }
 
     private func hint(_ text: LocalizedStringKey) -> some View {
@@ -171,12 +181,32 @@ private struct ProjectClipPanel: View {
     }
 
     /// The colour part of a clip's look, changed the way its picture is.
-    private func colourSettings(look: ClipLook?, path: String, set: @escaping (Bool, @escaping (inout ProjectClip) -> Void) -> Void) -> some View {
-        ClipLookEditor(look: look ?? ClipLook(), path: path, parts: [.colour]) { record, body in
-            set(record) { clip in
-                var look = clip.look ?? ClipLook()
-                body(&look)
-                clip.look = look.isDefault ? nil : look
+    private func colourSettings(_ clip: ProjectClip) -> some View {
+        lookEditor(clip, parts: [.colour], byHand: false)
+    }
+
+    /// A clip's (or item's) look as it is at the playhead, with a keyframe diamond by each setting that can move.
+    private func lookEditor(_ clip: ProjectClip, parts: Set<ClipLookEditor.Part>, byHand: Bool) -> some View {
+        let at = model.localTime(clip.id)
+        let look = clip.look ?? ClipLook()
+        return ClipLookEditor(look: at.map { look.resolved(at: $0) } ?? look, path: clip.path, parts: parts,
+                              change: { record, body in model.editLook(clip.id, record: record, byHand: byHand, body) },
+                              keyTime: at, keySeek: { property, forward in model.jumpToKey(clip.id, property, forward: forward) })
+    }
+
+    /// Volume: a slider (and its keyframe diamond); keyframed, it shows and sets the level at the playhead.
+    private func volumeRow(_ clip: ProjectClip) -> some View {
+        let at = model.localTime(clip.id)
+        let gain = at.map { clip.gain(at: $0) } ?? clip.volume
+        let keyed = clip.look?.isKeyed(.volume) == true
+        return inspectorRow("Volume") {
+            Slider(value: Binding(get: { gain }, set: { value in model.setVolume(clip.id, value, record: false) }), in: 0...2) { editing in
+                if !editing { model.setVolume(clip.id, gain, record: true) }
+            }
+            Text(verbatim: "\(Int(gain * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
+            if let at {
+                KeyDiamonds(on: clip.look?.keyframe(.volume, at: at) != nil, animated: keyed, toggle: { model.toggleVolumeKey(clip.id) },
+                            seek: { forward in model.jumpToKey(clip.id, .volume, forward: forward) })
             }
         }
     }
@@ -247,49 +277,11 @@ private struct ProjectClipPanel: View {
             }
             .padding(.horizontal, 8)
             .padding(.bottom, 4)
-            ClipLookEditor(look: clip.look ?? ClipLook(), path: clip.path, parts: [.picture]) { record, body in
-                model.set(clip.id, record: record) { clip in
-                    var look = clip.look ?? ClipLook()
-                    body(&look)
-                    look.reframed = nil   // placed by hand now
-                    clip.look = look.isDefault ? nil : look
-                }
-            }
+            lookEditor(clip, parts: [.picture], byHand: true)
+            KeyframeSection(model: model, clip: clip)
             if let index = model.project.clips.firstIndex(where: { $0.id == clip.id }), index + 1 < model.project.clips.count {
-                let transition = model.transition(into: index + 1)
                 FoldSection(title: "Transition", key: "clip-transition") {
-                    inspectorRow("At the End") {
-                        Picker("At the End", selection: Binding(get: { transition?.kind }, set: { kind in
-                            model.setTransition(into: index + 1, kind.map { ProjectTransition(kind: $0, length: transition?.length ?? 1) })
-                        })) {
-                            Text("Cut").tag(ProjectTransition.Kind?.none)
-                            ForEach(ProjectTransition.Group.allCases, id: \.self) { group in
-                                Section(group.label) {
-                                    ForEach(group.kinds, id: \.self) { kind in
-                                        Text(ProjectTransition(kind: kind, length: 1).label).tag(ProjectTransition.Kind?.some(kind))
-                                    }
-                                }
-                            }
-                        }
-                        .labelsHidden()
-                    }
-                    if let transition {
-                        inspectorRow("Length") {
-                            Slider(value: Binding(get: { transition.length }, set: { value in
-                                model.setTransition(into: index + 1, ProjectTransition(kind: transition.kind, length: value), record: false)
-                            }), in: 0.2...3) { editing in
-                                if !editing { model.setTransition(into: index + 1, model.transition(into: index + 1)) }
-                            }
-                            Text(String(format: "%.1f s", transition.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-                                .frame(minWidth: 38, alignment: .trailing).fixedSize()
-                        }
-                        // A dissolve needs footage past the cut on both sides; without it, it plays as a cut.
-                        if transition.kind.overlaps, ProjectModel.dissolveOverlaps(model.project.clips, lengths: model.knownLengths)[index + 1] == 0 {
-                            Text("No spare footage on both sides of this cut, so it plays as a cut. Trim the clips to make room.")
-                                .font(.caption).foregroundStyle(.secondary)
-                                .padding(.horizontal, 8)
-                        }
-                    }
+                    TransitionSettings(model: model, into: index + 1)
                 }
             }
         }
@@ -318,13 +310,8 @@ private struct ProjectClipPanel: View {
                     .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8)
             }
             if Converting.isVideo(item.file), model.project.tracks?.first(where: { $0.items.contains { $0.id == item.id } })?.kind == .video {
-                ClipLookEditor(look: item.look ?? ClipLook(), path: item.path, parts: [.picture]) { record, body in
-                    model.setItem(item.id, record: record) { item in
-                        var look = item.look ?? ClipLook()
-                        body(&look)
-                        item.look = look.isDefault ? nil : look
-                    }
-                }
+                lookEditor(item, parts: [.picture], byHand: false)
+                KeyframeSection(model: model, clip: item)
             }
         }
     }
@@ -333,12 +320,7 @@ private struct ProjectClipPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(clip.name, systemImage: "film").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8)
             FoldSection(title: "Volume and Fades", key: "clip-audio") {
-                inspectorRow("Volume") {
-                    Slider(value: Binding(get: { clip.volume }, set: { value in model.set(clip.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
-                        if !editing { model.set(clip.id) { _ in } }
-                    }
-                    Text(verbatim: "\(Int(clip.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
-                }
+                volumeRow(clip)
                 inspectorRow("Fade In") {
                     Slider(value: Binding(get: { clip.fadeIn }, set: { value in model.set(clip.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
                     if !editing { model.set(clip.id) { _ in } }
@@ -359,12 +341,7 @@ private struct ProjectClipPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             Label(item.name, systemImage: "waveform").font(.callout.weight(.semibold)).lineLimit(2).padding(.horizontal, 8)
             FoldSection(title: "Volume and Fades", key: "item-audio") {
-                inspectorRow("Volume") {
-                    Slider(value: Binding(get: { item.volume }, set: { value in model.setItem(item.id, record: false) { $0.volume = value } }), in: 0...2) { editing in
-                        if !editing { model.setItem(item.id) { _ in } }
-                    }
-                    Text(verbatim: "\(Int(item.volume * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
-                }
+                volumeRow(item)
                 inspectorRow("Fade In") {
                     Slider(value: Binding(get: { item.fadeIn }, set: { value in model.setItem(item.id, record: false) { $0.fadeIn = value } }), in: 0...3) { editing in
                         if !editing { model.setItem(item.id) { _ in } }
@@ -1022,5 +999,108 @@ extension ProjectModel {
         if adjustment(id) != nil { return .look }
         if let (t, i) = trackItem(id) { return project.tracks![t].items[i].motion != nil ? .title : .clip }
         return project.clips.contains { $0.id == id } ? .clip : .nothing
+    }
+}
+
+/// The transition at the end of a clip: which one, how long, and the settings that one has.
+private struct TransitionSettings: View {
+    @Bindable var model: ProjectModel
+    let into: Int
+
+    private var transition: ProjectTransition? { model.transition(into: into) }
+
+    /// Changes the transition; `record` false while a slider moves (its step comes when it's let go).
+    private func change(record: Bool = true, _ body: (inout ProjectTransition) -> Void) {
+        guard var t = transition else { return }
+        body(&t)
+        model.setTransition(into: into, t, record: record)
+    }
+
+    private func slider(_ value: KeyPath<ProjectTransition, Double>, _ set: @escaping (inout ProjectTransition, Double) -> Void,
+                        in range: ClosedRange<Double>) -> some View {
+        Slider(value: Binding(get: { transition?[keyPath: value] ?? range.lowerBound }, set: { v in change(record: false) { set(&$0, v) } }), in: range) { editing in
+            if !editing { model.setTransition(into: into, transition) }
+        }
+    }
+
+    var body: some View {
+        inspectorRow("At the End") {
+            Picker("At the End", selection: Binding(get: { transition?.kind }, set: { kind in
+                model.setTransition(into: into, kind.map { transition?.with(kind: $0) ?? ProjectTransition(kind: $0, length: 1) })
+            })) {
+                Text("Cut").tag(ProjectTransition.Kind?.none)
+                ForEach(ProjectTransition.Group.allCases, id: \.self) { group in
+                    Section(group.label) {
+                        ForEach(group.kinds, id: \.self) { kind in Text(kind.label).tag(ProjectTransition.Kind?.some(kind)) }
+                    }
+                }
+            }
+            .labelsHidden()
+        }
+        if let transition {
+            let settings = transition.kind.settings
+            inspectorRow("Length") {
+                slider(\.length, { $0.length = $1 }, in: 0.2...3)
+                Text(String(format: "%.1f s", transition.length)).font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .frame(minWidth: 38, alignment: .trailing).fixedSize()
+            }
+            if settings.contains(.direction) {
+                inspectorRow("Direction") {
+                    Picker("Direction", selection: Binding(get: { transition.way }, set: { way in change { $0.direction = way } })) {
+                        Image(systemName: "arrow.left").tag(ProjectTransition.Direction.left).accessibilityLabel("Left")
+                        Image(systemName: "arrow.right").tag(ProjectTransition.Direction.right).accessibilityLabel("Right")
+                        Image(systemName: "arrow.up").tag(ProjectTransition.Direction.up).accessibilityLabel("Up")
+                        Image(systemName: "arrow.down").tag(ProjectTransition.Direction.down).accessibilityLabel("Down")
+                    }
+                    .pickerStyle(.segmented)
+                    .tint(Design.Studio.line)
+                    .labelsHidden()
+                }
+            }
+            if settings.contains(.colour) {
+                inspectorRow("Colour") {
+                    ColorPicker("Colour", selection: Binding(get: {
+                        let c = transition.tint
+                        return Color(.sRGB, red: c.red, green: c.green, blue: c.blue)
+                    }, set: { colour in
+                        guard let c = NSColor(colour).usingColorSpace(.sRGB) else { return }
+                        change { $0.colour = TransitionColour(red: c.redComponent, green: c.greenComponent, blue: c.blueComponent) }
+                    }), supportsOpacity: false)
+                    .labelsHidden()
+                }
+            }
+            if settings.contains(.softness) {
+                inspectorRow("Softness") { slider(\.soft, { $0.softness = $1 }, in: 0...1) }
+            }
+            if settings.contains(.intensity) {
+                inspectorRow("Strength") { slider(\.strength, { $0.intensity = $1 }, in: 0...1) }
+            }
+            if transition.kind.overlaps {
+                inspectorRow("Easing") {
+                    Picker("Easing", selection: Binding(get: { transition.curve }, set: { curve in change { $0.easing = curve == .linear ? nil : curve } })) {
+                        Text("Linear").tag(ProjectTransition.Easing.linear)
+                        Text("Ease In").tag(ProjectTransition.Easing.easeIn)
+                        Text("Ease Out").tag(ProjectTransition.Easing.easeOut)
+                        Text("Ease In & Out").tag(ProjectTransition.Easing.easeInOut)
+                    }
+                    .labelsHidden()
+                }
+                inspectorRow("Sound") {
+                    Picker("Sound", selection: Binding(get: { transition.sound ?? .crossfade }, set: { sound in change { $0.sound = sound == .crossfade ? nil : sound } })) {
+                        Text("Crossfade").tag(ProjectTransition.Sound.crossfade)
+                        Text("Cut").tag(ProjectTransition.Sound.cut)
+                    }
+                    .pickerStyle(.segmented)
+                    .tint(Design.Studio.line)
+                    .labelsHidden()
+                }
+                // A dissolve needs footage past the cut on both sides; without it, it plays as a cut.
+                if ProjectModel.dissolveOverlaps(model.project.clips, lengths: model.knownLengths)[into] == 0 {
+                    Text("No spare footage on both sides of this cut, so it plays as a cut. Trim the clips to make room.")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                }
+            }
+        }
     }
 }

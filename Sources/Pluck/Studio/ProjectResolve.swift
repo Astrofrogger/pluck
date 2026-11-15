@@ -35,12 +35,16 @@ enum ProjectResolve {
             rates[path] = rate > 0 ? rate : 25
         }
         let (rate, name) = try await ResolveBridge.createTimeline(project.name, frameRate: rates[clips[0].path] ?? 25)
+        /// The transition into clip `index` (a dissolve or a dip).
+        func transitionInto(_ index: Int) -> ProjectTransition? {
+            clips[index].transitionIn ?? clips[index - 1].dipOut.map { ProjectTransition(kind: $0.white ? .dipWhite : .dipBlack, length: $0.length) }
+        }
         var items: [[String: Any]] = [], markers: [[String: Any]] = []
         var record = 0
         // Where each linked clip starts there, so what's laid over it keeps its place on it.
         var linkedAt: [UUID: Int] = [:]
         var ownMarkers: [[String: Any]] = []
-        for clip in clips {
+        for (index, clip) in clips.enumerated() {
             let clipRate = rates[clip.path] ?? 25
             // Whole timeline frames first, the source length from those (no gaps between rates).
             // Speed changes can't be set through Resolve's scripting: a sped-up clip goes in at
@@ -57,7 +61,9 @@ enum ProjectResolve {
                                    "note": String(localized: "Held in Pluck: set a freeze frame here (Retime Controls)."),
                                    "duration": frames, "customData": ProjectResolveRead.ownMarker, "freezeOf": clip.id.uuidString])
             }
-            let properties = self.properties(clip.look, size: size)
+            // Resolve's scripting can't set keyframes: the values at the clip's start, and a marker naming what moves.
+            let properties = self.properties(clip.look?.resolved(at: 0), size: size)
+            if let marker = keyMarker(clip, at: record, frames: frames) { ownMarkers.append(marker) }
             for mediaType in clip.freeze == nil ? [1, 2] : [1] {
                 var item: [String: Any] = ["path": clip.path, "track": 1, "recordIn": record, "sourceIn": sourceIn,
                                            "sourceOut": sourceOut, "mediaType": mediaType]
@@ -65,6 +71,16 @@ enum ProjectResolve {
                 if mediaType == 1, clip.freeze != nil { item["freeze"] = true }
                 if mediaType == 1, !properties.isEmpty { item["properties"] = properties }
                 if mediaType == 1, clip.look?.hasDynamicZoom == true { item["zoom"] = "inOut" }
+                if mediaType == 1, let transition = index > 0 ? transitionInto(index) : nil {
+                    // Resolve's own transition at the cut: the same one where Resolve has it, else the nearest and a marker naming Pluck's.
+                    let resolve = transition.kind.resolve
+                    item["transition"] = ["type": resolve.name, "category": resolve.category, "frames": max(Int((transition.length * rate).rounded()), 2),
+                                          "name": String(localized: "Transition: \(transition.label)"), "marked": !resolve.exact]
+                    if !resolve.exact {
+                        ownMarkers.append(["frame": record, "color": "Sky", "name": String(localized: "Transition: \(transition.label)"),
+                                           "note": String(localized: "Pluck’s \(transition.label) (here \(resolve.name))."), "customData": ProjectResolveRead.ownMarker])
+                    }
+                }
                 if let role = clip.role { item["clipColor"] = colour(role) }
                 items.append(item)
             }
@@ -86,7 +102,8 @@ enum ProjectResolve {
                     ?? Int(((item.at ?? 0) * rate).rounded())
                 var entry: [String: Any] = ["path": item.path, "track": number + 2, "recordIn": at,
                                             "sourceIn": sourceIn, "sourceOut": sourceOut, "mediaType": 1, "key": item.id.uuidString]
-                let properties = self.properties(item.look, size: size)
+                let properties = self.properties(item.look?.resolved(at: 0), size: size)
+                if let marker = keyMarker(item, at: at, frames: frames) { ownMarkers.append(marker) }
                 if !properties.isEmpty { entry["properties"] = properties }
                 items.append(entry)
                 laneOf[item.id] = lane.id
@@ -136,6 +153,15 @@ enum ProjectResolve {
         }
         return Result(timeline: timeline, subtitles: (answer["subtitles"] as? String) ?? "none",
                       link: (answer["project"] as? String).map { ResolveLink(project: $0, timeline: timeline, rate: rate, sent: sent) })
+    }
+
+    /// A marker over a keyframed clip: "Pluck keyframes on Zoom, Position X".
+    static func keyMarker(_ clip: ProjectClip, at frame: Int, frames: Int) -> [String: Any]? {
+        guard let keyed = clip.look?.keyedProperties, !keyed.isEmpty else { return nil }
+        let names = keyed.map(\.label).formatted(.list(type: .and))
+        return ["frame": frame, "color": "Lemon", "name": String(localized: "Pluck keyframes on \(names)"),
+                "note": String(localized: "Set in Pluck at the clip’s start; keyframe it here to match."), "duration": max(frames, 1),
+                "customData": ProjectResolveRead.ownMarker]
     }
 
     /// The look as Resolve's Inspector settings (pixels of the timeline's frame).
@@ -214,6 +240,7 @@ extension ProjectResolve {
                 let summary = try await model.updateFromResolve()
                 alert.messageText = String(localized: "Updated from DaVinci")
                 var lines = [String(localized: "^[\(summary.markers) marker](inflect: true), ^[\(summary.trimmed) trim](inflect: true), ^[\(summary.moved) clip](inflect: true) moved, \(summary.added) added, \(summary.removed) removed.")]
+                if summary.transitions > 0 { lines.append(String(localized: "^[\(summary.transitions) transition](inflect: true) from DaVinci.")) }
                 if !summary.skipped.isEmpty {
                     lines.append(String(localized: "Not brought back: \(summary.skipped.joined(separator: ", "))."))
                 }

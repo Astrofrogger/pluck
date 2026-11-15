@@ -17,6 +17,23 @@ enum EditSelfTest {
         media = defaults.string(forKey: "PluckScreenshotFile") ?? ""
         lines = []
         // -PluckScreenshotOnly libraryfiles: only the Library's files and panes.
+        // -PluckScreenshotOnly transitions: only the transitions (the library, and the viewer against the export).
+        if defaults.string(forKey: "PluckScreenshotOnly") == "transitions" {
+            await transitionLibrary()
+            await transitions(manager)
+            lines.append("done")
+            write()
+            NSApp.terminate(nil)
+            return
+        }
+        // -PluckScreenshotOnly keyframes: only keyframing (the curves, editing, the viewer against the export).
+        if defaults.string(forKey: "PluckScreenshotOnly") == "keyframes" {
+            await keyframes(manager)
+            lines.append("done")
+            write()
+            NSApp.terminate(nil)
+            return
+        }
         if defaults.string(forKey: "PluckScreenshotOnly") == "libraryfiles" {
             await libraryFiles()
             lines.append("done")
@@ -45,8 +62,10 @@ enum EditSelfTest {
         await offloadPhone()
         await mediaFixes(manager)
         await editBugs(manager)
+        await transitionLibrary()
         await projectManager()
         await reviewFixes()
+        await keyframes(manager)
         // The throwaway projects aren't kept.
         for made in ProjectStore.all() where made.name == "Self Test" { try? FileManager.default.removeItem(at: ProjectStore.url(for: made.id)) }
         lines.append("done")

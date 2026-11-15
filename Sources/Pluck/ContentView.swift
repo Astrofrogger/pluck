@@ -34,8 +34,7 @@ struct ContentView: View {
     @State private var isTargeted = false
     @FocusState private var fieldFocused: Bool
     #if STUDIO
-    /// Home's search (title bar): it opens the Library with the words.
-    @State private var homeSearch = ""
+    /// Home's search (title bar): a click opens Edit ▸ Search (⌘F), which looks everywhere.
     @FocusState private var homeSearchFocused: Bool
     #endif
 
@@ -99,9 +98,6 @@ struct ContentView: View {
         .navigationTitle(Edition.isStudio ? "" : "Pluck")
         .navigationSubtitle(Edition.isStudio ? "" : subtitle)
         .toolbar { toolbarContent }
-        #if STUDIO
-        .searchTarget(.home) { homeSearchFocused = true }
-        #endif
         .overlay { if isTargeted { dropHighlight } }
         .onDrop(of: [.fileURL, .url, .plainText], isTargeted: $isTargeted) { providers in
             Task { await handleDrop(providers) }
@@ -552,7 +548,7 @@ struct ContentView: View {
         }
         guard isValid else { return }
         if isMultiple {
-            manager.add(fieldLinks)
+            manager.add(fieldLinks, fromOtherDevice: false)
         } else if clipping {
             guard let clip else { NSSound.beep(); return }
             manager.add(trimmed, clip: clip)
@@ -690,7 +686,7 @@ struct ContentView: View {
         } actions: {
             let copied = Links.extract(from: NSPasteboard.general)
             if copied.count > 1 {
-                Button("Download \(copied.count) Links from Clipboard") { manager.add(copied) }
+                Button("Download \(copied.count) Links from Clipboard") { manager.add(copied, fromOtherDevice: false) }
                     .glassButtonStyle()
             } else if let link = Clipboard.videoURL() {
                 Button("Download from Clipboard") { manager.add(link) }
@@ -721,7 +717,7 @@ struct ContentView: View {
                 links += Links.extract(fromText: text)
             }
         }
-        if !links.isEmpty { manager.add(links) }
+        if !links.isEmpty { manager.add(links, fromOtherDevice: false) }
         if !media.isEmpty { manager.openConverter(for: media) }
         if links.isEmpty, media.isEmpty { NSSound.beep() }
     }
@@ -740,12 +736,9 @@ struct ContentView: View {
     private var toolbarContent: some ToolbarContent {
         #if STUDIO
         ToolbarItem(placement: .principal) {
-            StudioSearchField(text: $homeSearch, prompt: "Search everything", focused: $homeSearchFocused)
-                .onSubmit {
-                    LibraryView.startSearch = homeSearch
-                    homeSearch = ""
-                    StudioNavigator.shared.show(.library)
-                }
+            StudioSearchField(text: .constant(""), prompt: "Search everything", focused: $homeSearchFocused)
+                .overlay { Color.clear.contentShape(Rectangle()).onTapGesture { SearchPalette.shared.show() } }
+                .accessibilityAddTraits(.isButton)
         }.studioFlat()
         ToolbarItem {
             Button {

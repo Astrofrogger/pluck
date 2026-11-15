@@ -30,17 +30,30 @@ extension ProjectModel {
     /// How near a cut a transition has to land to go on it (seconds).
     static let transitionReach = 1.5
 
+    /// Where the default transition (⌘T) is kept.
+    static let defaultTransitionKey = "defaultTransition"
+
+    static var defaultTransition: ProjectTransition.Kind {
+        UserDefaults.standard.string(forKey: defaultTransitionKey).flatMap(ProjectTransition.Kind.init) ?? .dissolve
+    }
+
+    /// A transition on the cut nearest a time (within reach), keeping that cut's length and sound. True when it went on.
+    @discardableResult
+    func putTransition(_ kind: ProjectTransition.Kind, at seconds: Double) -> Bool {
+        let cuts = offsets.enumerated().dropFirst()
+        guard let (index, _) = cuts.min(by: { abs($0.element - seconds) < abs($1.element - seconds) }),
+              abs(offsets[index] - seconds) <= Self.transitionReach else { return false }
+        setTransition(into: index, transition(into: index)?.with(kind: kind) ?? ProjectTransition(kind: kind, length: 0.5))
+        libraryProblem = nil
+        return true
+    }
+
     /// Puts a library item into the edit at a time on the timeline. True when the edit changed.
     @discardableResult
     func apply(_ item: EditLibraryItem, at seconds: Double) async -> Bool {
         switch item {
         case .transition(let kind):
-            let cuts = offsets.enumerated().dropFirst()
-            guard let (index, _) = cuts.min(by: { abs($0.element - seconds) < abs($1.element - seconds) }),
-                  abs(offsets[index] - seconds) <= Self.transitionReach else { return false }
-            setTransition(into: index, ProjectTransition(kind: kind, length: transition(into: index)?.length ?? 0.5))
-            libraryProblem = nil
-            return true
+            return putTransition(kind, at: seconds)
         case .plainTitle:
             addTitle(at: max(seconds, 0))
             return true

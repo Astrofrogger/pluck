@@ -150,6 +150,13 @@ func office(srv *tsnet.Server, cfg config) {
 				c.Close()
 				return
 			}
+			// Which tailnet node this connection is, by the port Pluck sees it come from (Pluck counts
+			// slots, strikes and wrong pairing codes per node, not for every tailnet Mac at once).
+			if from, ok := c.RemoteAddr().(*net.TCPAddr); ok {
+				if to, ok := p.LocalAddr().(*net.TCPAddr); ok {
+					report(map[string]any{"stream": map[string]any{"port": to.Port, "peer": "ts:" + from.IP.String()}})
+				}
+			}
 			pipe(c, p)
 		}()
 	}

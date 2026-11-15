@@ -10,11 +10,38 @@ final class BrandKit {
 
     var style: MotionStyle { didSet { save() } }
     private(set) var placements: [String: MotionPlacement] { didSet { save() } }
+    /// The preset last chosen (its look is `style`, changed since perhaps).
+    private(set) var presetID: String? { didSet { save() } }
+    /// The brand's own colours, the main one first (from its logo, or picked); nil: none yet.
+    var colours: [MotionColor]? { didSet { save() } }
+
+    var palette: BrandPalette { colours.map(BrandPalette.init(colours:)) ?? .neutral }
 
     private init() {
         let defaults = UserDefaults.standard
-        style = defaults.data(forKey: "brandKitStyle").flatMap { try? JSONDecoder().decode(MotionStyle.self, from: $0) } ?? MotionStyle()
+        let saved = defaults.data(forKey: "brandKitStyle").flatMap { try? JSONDecoder().decode(MotionStyle.self, from: $0) }
+        var style = saved ?? MotionStyle()
         placements = defaults.data(forKey: "brandKitPlacements").flatMap { try? JSONDecoder().decode([String: MotionPlacement].self, from: $0) } ?? [:]
+        colours = defaults.data(forKey: "brandKitColours").flatMap { try? JSONDecoder().decode([MotionColor].self, from: $0) }
+        // Saved before there were presets: the built-in pink was the app's, no one's brand (now
+        // neutral), and the look it had is closest to Gradient.
+        if Self.isLegacyPink(style.accent), Self.isLegacyPink(style.accent2) {
+            style.accent = BrandPalette.neutral.primary
+            style.accent2 = BrandPalette.neutral.secondary
+        }
+        presetID = defaults.string(forKey: "brandKitPreset") ?? (saved != nil ? "gradient" : nil)
+        self.style = style
+    }
+
+    /// The look of a preset in the brand's colours.
+    func apply(_ preset: MotionPreset) {
+        presetID = preset.id
+        style = preset.style(palette)
+    }
+
+    /// The old default accents (1.0 0.36 0.42 and 0.93 0.13 0.38).
+    static func isLegacyPink(_ c: MotionColor) -> Bool {
+        [(1.0, 0.36, 0.42), (0.93, 0.13, 0.38)].contains { abs(c.r - $0.0) < 0.02 && abs(c.g - $0.1) < 0.02 && abs(c.b - $0.2) < 0.02 }
     }
 
     func placement(_ template: MotionTemplate) -> MotionPlacement { placements[template.id] ?? template.placement }
@@ -37,6 +64,8 @@ final class BrandKit {
         let defaults = UserDefaults.standard
         defaults.set(try? JSONEncoder().encode(style), forKey: "brandKitStyle")
         defaults.set(try? JSONEncoder().encode(placements), forKey: "brandKitPlacements")
+        defaults.set(presetID, forKey: "brandKitPreset")
+        defaults.set(colours.flatMap { try? JSONEncoder().encode($0) }, forKey: "brandKitColours")
     }
 }
 
@@ -65,6 +94,15 @@ struct BrandPackView: View {
     /// Where the last Fusion title went (in Resolve's titles, or saved).
     @State private var fusionDone: URL?
     @State private var problem: String?
+    /// The kind of graphic the presets show.
+    @AppStorage("brandPackCategory") private var category = MotionTemplate.Category.lowerThird
+    /// One group of presets, or all ("").
+    @AppStorage("brandPackGroup") private var group = ""
+    @AppStorage("brandPackFavouritesOnly") private var favouritesOnly = false
+    /// Favourite presets' ids, comma separated.
+    @AppStorage("brandPackFavourites") private var favourites = ""
+    /// The preset under the pointer, shown large on the stage.
+    @State private var hovered: MotionPreset?
 
     /// What's behind the graphics that go over a picture, in the preview only.
     enum Backdrop: String, CaseIterable, Identifiable {
@@ -74,18 +112,21 @@ struct BrandPackView: View {
             switch self {
             case .picture: String(localized: "Over a picture")
             case .checker: String(localized: "See-through")
-            case .black: String(localized: "Black")
+            case .black: String(localized: "On black")
             }
         }
     }
 
     private var template: MotionTemplate { MotionTemplate.all.first { $0.id == templateID } ?? .slab }
     private var placement: MotionPlacement { kit.placement(template) }
+    /// What the stage shows: the preset under the pointer, else what's chosen.
+    private var shownTemplate: MotionTemplate { hovered?.layout(category) ?? template }
+    private var shownStyle: MotionStyle { hovered?.style(kit.palette) ?? kit.style }
 
     // Layout board ToolBrand: the templates, the stage, and a 320 pt inspector.
     var body: some View {
         HStack(spacing: Design.Studio.panelGap) {
-            gallery.frame(width: 220).frame(maxHeight: .infinity).studioPanel()
+            gallery.frame(width: 300).frame(maxHeight: .infinity).studioPanel()
             VStack(spacing: 14) {
                 stage
                 transport
@@ -97,7 +138,15 @@ struct BrandPackView: View {
         }
         .frame(minWidth: 960)
         .onChange(of: templateID) { started = .now; scrub = 0; playing = true }
-        .onAppear { if let url = Self.openFile { Self.openFile = nil; loadLogo(url) } }
+        .onChange(of: category) {
+            guard template.category != category else { return }
+            templateID = (MotionPreset.named(kit.presetID)?.layout(category) ?? MotionTemplate.all.first { $0.category == category } ?? .slab).id
+        }
+        .onChange(of: hovered) { started = .now }
+        .onAppear {
+            category = template.category
+            if let url = Self.openFile { Self.openFile = nil; loadLogo(url) }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Self.openNotification)) { note in
             if let url = note.object as? URL { Self.openFile = nil; loadLogo(url) }
         }
@@ -105,45 +154,145 @@ struct BrandPackView: View {
 
     // MARK: - The templates
 
-    private func heading(_ category: MotionTemplate.Category) -> LocalizedStringKey {
-        switch category {
-        case .lowerThird: "Lower thirds"
-        case .title: "Titles & chapters"
-        case .logo: "Logo & end"
-        case .social: "Social"
-        }
-    }
-
     private var gallery: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Brand Pack").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).padding(.horizontal, 10)
-                ForEach(MotionTemplate.Category.allCases) { category in
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(heading(category)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
-                            .padding(.horizontal, 10).padding(.bottom, 4)
-                            .accessibilityAddTraits(.isHeader)
-                        ForEach(MotionTemplate.all.filter { $0.category == category }) { item in
-                            let on = item.id == templateID
-                            Button { templateID = item.id } label: {
-                                Text(item.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 10)
-                                    .frame(height: 30)
-                                    .background(on ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
-                                    .contentShape(.rect)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityAddTraits(on ? .isSelected : [])
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Brand Pack").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
+                StudioSegmented(options: MotionTemplate.Category.allCases.map { (value: $0, title: LocalizedStringKey($0.label)) },
+                                selection: $category, symbols: MotionTemplate.Category.allCases.map(\.symbol), fill: true)
+                HStack(spacing: 6) {
+                    LogoKitMenu(title: "Style", shown: MotionPreset.Group(rawValue: group)?.label ?? String(localized: "All Styles"), selection: $group) {
+                        Text("All Styles").tag("")
+                        ForEach(MotionPreset.Group.allCases) { Text($0.label).tag($0.rawValue) }
+                    }
+                    Spacer(minLength: 0)
+                    Button { favouritesOnly.toggle() } label: {
+                        Image(systemName: favouritesOnly ? "star.fill" : "star").font(.system(size: 12)).frame(width: 28, height: 28).contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(favouritesOnly ? Design.Brand.pink : Design.Studio.textQuiet)
+                    .help("Favourites only")
+                    .accessibilityLabel(Text("Favourites only"))
+                    .accessibilityAddTraits(favouritesOnly ? .isSelected : [])
+                }
+                presetGrid
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Layout").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+                        .padding(.horizontal, 10).padding(.bottom, 4)
+                        .accessibilityAddTraits(.isHeader)
+                    ForEach(MotionTemplate.all.filter { $0.category == category }) { item in
+                        let on = item.id == templateID
+                        Button { templateID = item.id } label: {
+                            Text(item.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 10)
+                                .frame(height: 30)
+                                .background(on ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+                                .contentShape(.rect)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
             }
-            .padding(.horizontal, 8)
+            .padding(.horizontal, 14)
             .padding(.vertical, 20)
         }
         .scrollIndicators(.never)
     }
+
+    // MARK: - Presets
+
+    private var favouriteIDs: Set<String> { Set(favourites.split(separator: ",").map(String.init)) }
+
+    private var shownPresets: [MotionPreset] {
+        MotionPreset.all.filter { (group.isEmpty || $0.group.rawValue == group) && (!favouritesOnly || favouriteIDs.contains($0.id)) }
+    }
+
+    private var presetGrid: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10, alignment: .top), count: format.aspect < 1 ? 3 : 2)
+        return LazyVGrid(columns: columns, alignment: .leading, spacing: 12) {
+            ForEach(shownPresets) { preset in presetTile(preset) }
+        }
+        .onHover { if !$0 { hovered = nil } }
+        .overlay {
+            if shownPresets.isEmpty {
+                Text("No favourites yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.vertical, 20)
+            }
+        }
+    }
+
+    private func presetTile(_ preset: MotionPreset) -> some View {
+        let on = preset.id == kit.presetID
+        let favourite = favouriteIDs.contains(preset.id)
+        return Button { choose(preset) } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                ZStack {
+                    if let image = thumbnail(preset) { Image(decorative: image, scale: 2).resizable() } else { Design.Studio.backdrop }
+                }
+                .aspectRatio(format.aspect, contentMode: .fit)
+                .clipShape(.rect(cornerRadius: 6, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(on ? Design.Brand.pink : Design.Studio.line, lineWidth: on ? 2 : 1)
+                }
+                Text(preset.name).font(Design.Studio.hint).foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet).lineLimit(1)
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .topTrailing) {
+            Button { toggleFavourite(preset) } label: {
+                Image(systemName: favourite ? "star.fill" : "star").font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(favourite ? Design.Brand.pink : .white.opacity(hovered == preset ? 0.9 : 0))
+                    .frame(width: 22, height: 22)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .shadow(color: .black.opacity(0.5), radius: 2)
+            .help(favourite ? "Remove from Favourites" : "Add to Favourites")
+            .accessibilityLabel(Text(favourite ? "Remove from Favourites" : "Add to Favourites"))
+        }
+        .onHover { inside in
+            if inside { hovered = preset } else if hovered == preset { hovered = nil }
+        }
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func choose(_ preset: MotionPreset) {
+        kit.apply(preset)
+        templateID = preset.layout(category).id
+        hovered = nil
+    }
+
+    private func toggleFavourite(_ preset: MotionPreset) {
+        var ids = favouriteIDs
+        if ids.contains(preset.id) { ids.remove(preset.id) } else { ids.insert(preset.id) }
+        favourites = MotionPreset.all.map(\.id).filter(ids.contains).joined(separator: ",")
+    }
+
+    /// A still of the preset's layout for this kind of graphic, in the brand's colours, with the
+    /// logo and the texts typed (cached until any of them change).
+    private func thumbnail(_ preset: MotionPreset) -> CGImage? {
+        let template = preset.layout(category)
+        let placement = kit.placement(template)
+        let key = "\(preset.id)|\(template.id)|\(format.rawValue)|\(kit.palette.hashValue)|\(logoFile?.path ?? "")|\(placement.hashValue)" as NSString
+        if let image = Self.thumbnails.object(forKey: key) { return image }
+        let width = 260.0, scale = width / canvas.width
+        guard let context = CGContext(data: nil, width: Int(width), height: Int(canvas.height * scale), bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: scale, y: scale)
+        // A dim picture behind the ones that go over video.
+        context.setFillColor(MotionTemplate.pictureStandIn.cg)
+        context.fill(CGRect(origin: .zero, size: canvas))
+        template.render(t: MotionPreset.stillTime(template, placement: placement, logoPlan: logo == nil ? nil : logoPlan), in: context, canvas: canvas,
+                        style: preset.style(kit.palette), placement: MotionPreset.stillPlacement(template, placement), logo: logo, logoPlan: logoPlan)
+        guard let image = context.makeImage() else { return nil }
+        Self.thumbnails.setObject(image, forKey: key)
+        return image
+    }
+
+    private static let thumbnails = NSCache<NSString, CGImage>()
 
     // MARK: - The picture
 
@@ -176,7 +325,7 @@ struct BrandPackView: View {
     }
 
     @ViewBuilder private var backdropView: some View {
-        if template.fullFrame && kit.style.background != nil {
+        if shownTemplate.fullFrame && shownStyle.background != nil {
             Color.clear
         } else {
             switch backdrop {
@@ -190,7 +339,7 @@ struct BrandPackView: View {
     }
 
     private func loopTime(_ date: Date) -> Double {
-        let length = placement.duration
+        let length = kit.placement(shownTemplate).duration
         // Plays, holds a moment on the last frame, plays again.
         return min(date.timeIntervalSince(started).truncatingRemainder(dividingBy: length + 0.8), length)
     }
@@ -203,7 +352,7 @@ struct BrandPackView: View {
                                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
         context.interpolationQuality = .high
         context.scaleBy(x: scale, y: scale)
-        template.render(t: t, in: context, canvas: canvas, style: kit.style, placement: placement, logo: logo, logoPlan: logoPlan)
+        shownTemplate.render(t: t, in: context, canvas: canvas, style: shownStyle, placement: kit.placement(shownTemplate), logo: logo, logoPlan: logoPlan)
         return context.makeImage()
     }
 
@@ -411,11 +560,12 @@ struct BrandPackView: View {
     private var fusionMenu: some View {
         Menu {
             Button("Add to DaVinci Resolve") { addToResolve([template]) }
-                .disabled(!FusionExport.hasResolve)
+                .disabled(!FusionExport.hasResolve || !FusionExport.supports(template))
             Button("Add All to DaVinci Resolve") { addToResolve(MotionTemplate.all) }
                 .disabled(!FusionExport.hasResolve)
             Divider()
             Button("Save as Fusion Title…") { saveFusion() }
+                .disabled(!FusionExport.supports(template))
         } label: {
             HStack(spacing: 6) {
                 Text("Fusion")
@@ -508,6 +658,10 @@ struct BrandPackView: View {
                 logoPlan = plan
                 logoFile = url
                 started = .now
+                // The presets take the logo's colours at once (the look chosen changes with Use Its Colours).
+                kit.colours = BrandPalette.colours(of: loaded)
+                // Still in the neutral colours (no brand's yet): the look takes the logo's now.
+                if kit.style.accent == BrandPalette.neutral.primary { kit.apply(MotionPreset.named(kit.presetID) ?? MotionPreset.all[0]) }
             } catch {
                 problem = error.localizedDescription
             }
@@ -515,9 +669,12 @@ struct BrandPackView: View {
         }
     }
 
-    /// The logo's colours as the brand's: its accent, and a second that reads under text.
+    /// The logo's colours as the brand's: the chosen preset in them, or (with none chosen) its
+    /// accent and a second that reads under text.
     private func useLogoColours() {
         guard let logo else { return }
+        kit.colours = BrandPalette.colours(of: logo)
+        if let preset = MotionPreset.named(kit.presetID) { kit.apply(preset); return }
         let pack = BrandPack(logo: logo, font: kit.style.titleFont, lowerThirdStyle: .plate, background: nil)
         kit.style.accent = MotionColor(pack.brand)
         // Its partner: the logo's next colour, or the accent a little deeper.

@@ -229,7 +229,7 @@ extension EditSelfTest {
 
     /// Every transition that shows both pictures, between a colour clip and a grey one: its middle
     /// frame is neither, and the export draws it as the viewer does.
-    private static func transitions(_ manager: DownloadManager) async {
+    static func transitions(_ manager: DownloadManager) async {
         let kinds = ProjectTransition.Kind.allCases.filter(\.overlaps)
         let model = await project(Array(repeating: "a.mp4", count: kinds.count + 1))
         guard model.project.clips.count == kinds.count + 1 else { return check("transitions: clips", false) }
@@ -283,7 +283,7 @@ extension EditSelfTest {
 
     private static let ciContext = CIContext()
 
-    private static func builtProject(_ model: ProjectModel) async {
+    static func builtProject(_ model: ProjectModel) async {
         for _ in 0..<60 {
             try? await Task.sleep(for: .milliseconds(250))
             if model.player.currentItem?.videoComposition != nil { break }
@@ -292,7 +292,7 @@ extension EditSelfTest {
     }
 
     /// The viewer's frame as 8 × 8 cells of RGB (0–255), the file's own numbers.
-    private static func previewCells(_ model: ProjectModel, at seconds: Double) async -> [Int] {
+    static func previewCells(_ model: ProjectModel, at seconds: Double) async -> [Int] {
         guard let item = model.player.currentItem else { return [] }
         let generator = AVAssetImageGenerator(asset: item.asset)
         generator.videoComposition = item.videoComposition
@@ -323,7 +323,7 @@ extension EditSelfTest {
     }
 
     /// The exported frame at a time as 8 × 8 cells of RGB.
-    private static func exportCells(_ file: URL, at seconds: Double, ffmpeg: String) -> [Int] {
+    static func exportCells(_ file: URL, at seconds: Double, ffmpeg: String) -> [Int] {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: ffmpeg)
         process.arguments = ["-v", "error", "-ss", String(format: "%.3f", seconds), "-i", file.path, "-frames:v", "1",
@@ -337,7 +337,7 @@ extension EditSelfTest {
     }
 
     /// The mean difference between two frames' cells (0–255; large when one is missing).
-    private static func cellsDifference(_ a: [Int], _ b: [Int]) -> Double {
+    static func cellsDifference(_ a: [Int], _ b: [Int]) -> Double {
         guard a.count == b.count, !a.isEmpty else { return 999 }
         return Double(zip(a, b).reduce(0) { $0 + abs($1.0 - $1.1) }) / Double(a.count)
     }

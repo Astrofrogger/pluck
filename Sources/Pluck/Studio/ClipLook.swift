@@ -80,6 +80,8 @@ struct ClipLook: Codable, Hashable {
     var color = ClipColor()
     /// Placed by Pluck for the project's frame shape (not by hand).
     var reframed: Bool?
+    /// Keyframes by `KeyProperty` name: those settings change over the clip (nil: none).
+    var keys: [String: [Keyframe]]?
 
     var isDefault: Bool { self == ClipLook() }
     var hasCrop: Bool { cropLeft > 0 || cropRight > 0 || cropTop > 0 || cropBottom > 0 }
@@ -112,6 +114,7 @@ struct ClipLook: Codable, Hashable {
         opacity = value(.opacity, 1); speed = value(.speed, 1); stabilize = value(.stabilize, false)
         color = value(.color, ClipColor())
         reframed = value(.reframed, nil as Bool?)
+        keys = value(.keys, nil as [String: [Keyframe]]?)
         // Before start and end frames: a zoom from `zoom` to this, about the middle.
         if zoomFrom == nil, let end = try? c.decodeIfPresent(Double.self, forKey: .legacyZoomEnd) {
             zoomFrom = ZoomFrame(size: 1 / max(zoom, 1))
@@ -122,7 +125,7 @@ struct ClipLook: Codable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case scaling, zoom, x, y, rotation, flipH, flipV, cropLeft, cropRight, cropTop, cropBottom
-        case zoomFrom, zoomTo, zoomEase, opacity, speed, stabilize, color, reframed
+        case zoomFrom, zoomTo, zoomEase, opacity, speed, stabilize, color, reframed, keys
         case legacyZoomEnd = "zoomEnd"
     }
 
@@ -135,6 +138,7 @@ struct ClipLook: Codable, Hashable {
         try c.encodeIfPresent(zoomFrom, forKey: .zoomFrom); try c.encodeIfPresent(zoomTo, forKey: .zoomTo); try c.encode(zoomEase, forKey: .zoomEase)
         try c.encode(opacity, forKey: .opacity); try c.encode(speed, forKey: .speed); try c.encode(stabilize, forKey: .stabilize)
         try c.encodeIfPresent(reframed, forKey: .reframed)
+        try c.encodeIfPresent(keys, forKey: .keys)
         if !color.isDefault { try c.encode(color, forKey: .color) }
     }
 }
@@ -201,17 +205,10 @@ extension ClipLook {
         return placed
     }
 
-    /// The same for ffmpeg: a filter chain from an input's picture to `[v<k>]` (trimmed to the
-    /// clip, at its speed), fitted to width × height.
-    /// `hold`: one frame (at `start`) kept for this long (a held frame). `clear`: on nothing rather
-    /// than black, keeping what's around the picture see-through (laid over another).
-    /// `pixelFormat`: the export's (`EditorRenderSettings.pixelFormat`); one with alpha (ProRes
-    /// 4444) is on nothing too. An HDR file is tone-mapped to SDR Rec.709 first.
-    static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
-                            width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = [],
-                            hold: Double? = nil, clear: Bool = false, path: String? = nil, pixelFormat: String = "yuv420p") -> [String] {
+    /// The file's own frames for a clip: trimmed, at its speed (or one held), steadied, its camera's
+    /// log made normal (or HDR tone-mapped): the picture before its look is applied.
+    static func ffmpegSourceSteps(start: Double, end: Double, look: ClipLook, steadied: Bool = false, hold: Double? = nil, path: String?) -> [String] {
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
-        let look = look ?? ClipLook()
         var steps = ["trim=start=\(number(start)):end=\(number(end))",
                      look.speed != 1 && hold == nil ? "setpts=(PTS-STARTPTS)/\(number(look.speed))" : "setpts=PTS-STARTPTS"]
         // The one frame plus the padding would be a frame too long: cut to the hold exactly.
@@ -224,6 +221,21 @@ extension ClipLook {
         } else if let path, let toneMap = EditorRenderSettings.toneMap(path) {
             steps.append(toneMap)
         }
+        return steps
+    }
+
+    /// The same for ffmpeg: a filter chain from an input's picture to `[v<k>]` (trimmed to the
+    /// clip, at its speed), fitted to width × height.
+    /// `hold`: one frame (at `start`) kept for this long (a held frame). `clear`: on nothing rather
+    /// than black, keeping what's around the picture see-through (laid over another).
+    /// `pixelFormat`: the export's (`EditorRenderSettings.pixelFormat`); one with alpha (ProRes
+    /// 4444) is on nothing too. An HDR file is tone-mapped to SDR Rec.709 first.
+    static func ffmpegChain(input: String, start: Double, end: Double, length: Double, look: ClipLook?, k: Int,
+                            width: Int, height: Int, rate: String, steadied: Bool = false, finish: [String] = [],
+                            hold: Double? = nil, clear: Bool = false, path: String? = nil, pixelFormat: String = "yuv420p") -> [String] {
+        func number(_ value: Double) -> String { String(format: "%.4f", value) }
+        let look = look ?? ClipLook()
+        var steps = ffmpegSourceSteps(start: start, end: end, look: look, steadied: steadied, hold: hold, path: path)
         // 10-bit exports (ProRes) stay deeper than 8 bits through the colour steps.
         let deep = pixelFormat != "yuv420p", rgb = deep ? "rgb48le" : "rgb24"
         let seeThrough = clear || pixelFormat.hasPrefix("yuva")
@@ -319,6 +331,11 @@ struct ClipLookEditor: View {
     var parts: Set<Part> = [.picture, .colour]
     /// Changes the look: `record` false while a slider moves (one undo step for the drag).
     let change: (Bool, @escaping (inout ClipLook) -> Void) -> Void
+    /// The playhead, in seconds into the clip: a keyframe diamond by each setting that can move
+    /// (nil: none, a file on its own). `look` is then as it is there.
+    var keyTime: Double?
+    /// To the keyframe before (false) or after (true) the playhead, of a setting.
+    var keySeek: ((KeyProperty, Bool) -> Void)?
     @AppStorage("viewerControls") private var viewer = ViewerControls.transform
 
     var body: some View {
@@ -458,18 +475,36 @@ struct ClipLookEditor: View {
     private func slider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipLook, Double>, _ range: ClosedRange<Double>,
                         format: String, scale: Double = 1, reset: Double = 0) -> some View {
         let value = look[keyPath: path]
-        return AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
-                            label: String(format: format, value * scale), done: { change(true) { _ in } }) { new in
-            change(false) { $0[keyPath: path] = new }
+        return keyed(path) {
+            AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
+                         label: String(format: format, value * scale), done: { change(true) { _ in } }) { new in
+                change(false) { $0[keyPath: path] = new }
+            }
+        }
+    }
+
+    /// A setting's slider, with its keyframe diamond when keyframing is on.
+    @ViewBuilder private func keyed<Content: View>(_ path: WritableKeyPath<ClipLook, Double>, @ViewBuilder _ content: () -> Content) -> some View {
+        if let time = keyTime, let property = KeyProperty.picture.first(where: { $0.path == path }) {
+            HStack(spacing: 0) {
+                content()
+                KeyDiamonds(on: look.keyframe(property, at: time) != nil, animated: look.isKeyed(property),
+                            toggle: { change(true) { $0.toggleKey(property, at: time, value: $0[keyPath: path]) } },
+                            seek: keySeek.map { seek in { forward in seek(property, forward) } })
+            }
+        } else {
+            content()
         }
     }
 
     private func colourSlider(_ title: LocalizedStringKey, _ path: WritableKeyPath<ClipColor, Double>, _ range: ClosedRange<Double>,
                               _ format: String, reset: Double = 0) -> some View {
         let value = look.color[keyPath: path]
-        return AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
-                            done: { change(true) { _ in } }) { new in
-            change(false) { $0.color[keyPath: path] = new }
+        return keyed((\ClipLook.color).appending(path: path)) {
+            AdjustSlider(title: title, value: value, range: range, neutral: reset, format: format,
+                         done: { change(true) { _ in } }) { new in
+                change(false) { $0.color[keyPath: path] = new }
+            }
         }
     }
 

@@ -17,7 +17,7 @@ final class ServiceProvider: NSObject {
             error.pointee = String(localized: "No link to download was selected.") as NSString
             return
         }
-        manager.add(links)
+        manager.add(links, fromOtherDevice: false)
     }
 
     #if STUDIO
@@ -44,6 +44,13 @@ enum URLScheme {
         // An Edit Anywhere invitation: Edit Anywhere opens and asks before joining.
         if url.scheme?.lowercased() == "pluck", url.host == "edit-anywhere" {
             guard let invitation = PrivateNetwork.Invitation(link: url.absoluteString) else { return }
+            // A NAS review host's (§13.2): Deliver's pairing sheet asks first.
+            if case .reviewHost = invitation.way {
+                DeliverPairing.shared.pending = invitation
+                StudioNavigator.shared.show(.deliver)
+                AppDelegate.showMainWindow()
+                return
+            }
             OfficeRenderClient.shared.pendingInvitation = invitation
             UserDefaults.standard.set("home", forKey: "officeRenderSide")
             if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.showMainWindow() }

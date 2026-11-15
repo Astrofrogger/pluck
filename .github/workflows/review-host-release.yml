@@ -1,0 +1,185 @@
+# Builds the Pluck Review host for Linux when a GitHub release is published, and uploads it to that
+# release. It runs ONLY on "release published": nothing is built or published on push, pull request,
+# schedule or by hand. It does NOT sign: afterwards run  scripts/sign-host-release.sh <tag>  locally.
+name: Review host release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+env:
+  # The same as the Dockerfile's rust image.
+  RUST_TOOLCHAIN: 1.99.0
+
+jobs:
+  binaries:
+    name: Binaries (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, arch: amd64, runner: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - name: Build
+        env:
+          # The host reports the release tag as its version (the updater's health check compares them).
+          PLUCK_REVIEW_VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          cargo build --profile dist --locked --no-default-features --features portable --manifest-path Helpers/PluckReview/Cargo.toml
+          cargo build --profile dist --locked --manifest-path Helpers/PluckIroh/Cargo.toml
+      - name: Licences and tarball
+        env:
+          TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          stage="$RUNNER_TEMP/stage"
+          mkdir -p "$stage/LICENSES"
+          cp Helpers/PluckReview/target/dist/pluck-review Helpers/PluckIroh/target/dist/pluck-iroh "$stage/"
+          : > "$stage/LICENSES/THIRD-PARTY.txt"
+          for crate in PluckReview PluckIroh; do
+            meta="$(cd "Helpers/$crate" && cargo metadata --format-version 1 --locked --filter-platform "$TARGET")"
+            printf '== %s ==\n' "$crate" >> "$stage/LICENSES/THIRD-PARTY.txt"
+            jq -r '.packages[] | "\(.name) \(.version)\n  license: \(.license // "see the crate")\n  repository: \(.repository // "n/a")\n"' <<<"$meta" >> "$stage/LICENSES/THIRD-PARTY.txt"
+            jq -r '.packages[] | [.name, .version, .manifest_path] | @tsv' <<<"$meta" | while IFS=$'\t' read -r name version manifest; do
+              dir="$(dirname "$manifest")"
+              for f in "$dir"/LICENSE* "$dir"/LICENCE* "$dir"/COPYING* "$dir"/NOTICE*; do
+                [ -f "$f" ] || continue
+                mkdir -p "$stage/LICENSES/$name-$version"
+                cp "$f" "$stage/LICENSES/$name-$version/"
+              done
+            done
+          done
+          cat > "$stage/LICENSES/README.txt" <<'NOTE'
+          The Rust crates in THIRD-PARTY.txt are linked into pluck-review and pluck-iroh; their licence
+          files are in the folders next to it. The container image also contains Debian's ffmpeg, which
+          is a separate program (GPL as Debian builds it); Debian publishes its source.
+          NOTE
+          tar -czf "pluck-review-host-linux-$ARCH.tar.gz" -C "$stage" pluck-review pluck-iroh LICENSES
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tarball-${{ matrix.arch }}
+          path: pluck-review-host-linux-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  image:
+    name: Image (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { platform: linux/amd64, arch: amd64, runner: ubuntu-24.04 }
+          - { platform: linux/arm64, arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          docker buildx build --platform "$PLATFORM" --provenance=false \
+            --build-arg "PLUCK_REVIEW_VERSION=$TAG" \
+            -f Helpers/PluckReview/docker/Dockerfile \
+            --output "type=image,name=ghcr.io/$owner/pluck-review-host,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file meta.json Helpers
+          mkdir -p digests
+          digest="$(jq -r '."containerimage.digest"' meta.json)"
+          echo "${digest#sha256:}" > "digests/$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/${{ matrix.arch }}
+          if-no-files-found: error
+
+  image-merge:
+    name: Image manifest
+    needs: image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.merge.outputs.ref }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge into one multi-arch image
+        id: merge
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/$owner/pluck-review-host"
+          sources=""
+          for f in digests/*; do sources="$sources $image@sha256:$(cat "$f")"; done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create -t "$image:$TAG" $sources
+          manifest="$(docker buildx imagetools inspect "$image:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "ref=$image@$manifest" >> "$GITHUB_OUTPUT"
+
+  assets:
+    name: Release assets
+    needs: [binaries, image-merge]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: tarball-*
+          path: out
+          merge-multiple: true
+      - name: Prepare and upload
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+          IMAGE: ${{ needs.image-merge.outputs.ref }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          src=Helpers/PluckReview/docker/proxmox
+          for f in pluck-proxmox.sh pluck-review-update.sh; do
+            sed -e "s|__PLUCK_REPO__|$REPO|g" -e "s|__PLUCK_TAG__|$TAG|g" "$src/$f" > "out/$f"
+          done
+          cp "$src"/pluck-review.service "$src"/pluck-review-update.service \
+             "$src"/pluck-review-update.timer "$src"/pluck-review-update.path out/
+          assets="$(cd out && sha256sum -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
+            | jq -Rn '[inputs | capture("^(?<v>[0-9a-f]+)  (?<k>.+)$") | {key: .k, value: .v}] | from_entries')"
+          jq -n --arg version "$TAG" --arg image "$IMAGE" --argjson assets "$assets" \
+            '{version: $version, protocol: 3, image: $image, assets: $assets}' > out/host-release.json
+          cat out/host-release.json
+          cd out
+          gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh \
+            pluck-review.service pluck-review-update.service pluck-review-update.timer pluck-review-update.path host-release.json

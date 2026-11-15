@@ -15,6 +15,7 @@ extension Project {
         second.fadeIn = 0
         second.transitionIn = nil
         second.link = nil
+        second.look?.shiftKeys(by: into)
         if let link = first.link, tracks != nil {
             let next = UUID()
             var moved = false

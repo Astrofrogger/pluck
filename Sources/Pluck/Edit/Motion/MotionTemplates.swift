@@ -37,10 +37,40 @@ struct MotionScene {
 
     /// White or near black, whichever reads on a colour (white over a plate that's off: the words
     /// are then over the picture).
-    func ink(on color: MotionColor) -> MotionColor { color.a > 0 && color.luminance > 0.55 ? .ink : .white }
+    func ink(on color: MotionColor) -> MotionColor { color.a > 0 ? color.ink : .white }
 
     func title(_ string: String, size: Double, color: MotionColor? = nil, tracking: Double = -0.02) -> MotionText {
-        MotionText(string, family: style.titleFont, size: size, weight: style.titleWeight, color: (color ?? style.text).cg, tracking: tracking)
+        let upper = style.uppercase == true
+        return MotionText(string, family: style.titleFont, size: size, weight: style.titleWeight, color: (color ?? style.text).cg,
+                          tracking: style.tracking ?? (upper ? max(tracking, 0.01) : tracking), uppercase: upper)
+    }
+
+    /// The title-safe part of the frame for its shape: clear of the edges, and on vertical and
+    /// portrait videos of the apps' captions and buttons.
+    var safe: CGRect { MotionTemplate.safeArea(canvas) }
+
+    /// The finished logo drawn in `rect` (in the scene's coordinates), noted for the self-test.
+    func drawLogo(_ logo: LogoAnimation, in rect: CGRect, alpha: Double = 1) {
+        guard alpha > 0.001 else { return }
+        context.saveGState()
+        if alpha < 0.999 { context.setAlpha(alpha) }
+        backLogo(logo, rect)
+        logo.drawLogo(in: rect, context)
+        context.restoreGState()
+        MotionTemplate.noteLogo(rect.applying(context.ctm))
+    }
+
+    /// The logo's own animation, centred on the frame and scaled by `scale` about it after moving
+    /// it by `offset` (scene units); where it lands is noted for the self-test.
+    func animateLogo(_ logo: LogoAnimation, plan: LogoAnimation.Plan, offset: CGPoint = .zero, scale: Double = 1) {
+        context.saveGState()
+        context.translateBy(x: offset.x, y: offset.y)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -canvas.width / 2, y: -canvas.height / 2)
+        backLogo(logo, logo.logoRect(canvas: canvas), alpha: Ease.clamp(clock.part(0, 0.4)))
+        logo.draw(at: time, plan: plan, in: context, canvas: canvas)
+        MotionTemplate.noteLogo(logo.logoRect(canvas: canvas).applying(context.ctm))
+        context.restoreGState()
     }
 
     func body(_ string: String, size: Double, color: MotionColor? = nil, alpha: Double = 1, tracking: Double = 0, uppercase: Bool = false) -> MotionText {
@@ -124,7 +154,16 @@ struct MotionTemplate: Identifiable, Hashable {
     /// over it all. Then the graphic at its place and size.
     func render(t: Double, in context: CGContext, canvas: CGSize, style: MotionStyle, placement: MotionPlacement,
                 logo: LogoAnimation? = nil, logoPlan: LogoAnimation.Plan? = nil) {
-        let style = style.drawn
+        var style = style.drawn
+        // Words straight on the picture are white when the brand's text colour is dark (it's for the cards).
+        if !fullFrame, Self.overPicture.contains(id), style.text.contrast(Self.pictureStandIn) < 4.5 { style.text = .white }
+        var placement = placement
+        if !fullFrame {
+            // Over the picture: kept inside the title-safe area for the frame's shape.
+            let safe = Self.safeArea(canvas)
+            placement.x = min(max(placement.x, safe.minX / canvas.width), safe.maxX / canvas.width)
+            placement.y = min(max(placement.y, safe.minY / canvas.height), safe.maxY / canvas.height)
+        }
         let card = fullFrame && style.background != nil
         if card, let base = style.background {
             MotionBackground.draw(style, base: base, t: t, canvas: canvas, in: context)
@@ -148,7 +187,7 @@ struct MotionTemplate: Identifiable, Hashable {
             // A soft bloom of light as it starts.
             let bloom = 0.22 * (1 - Ease.outCubic(Ease.phase(t * placement.speed, 0, 0.45)))
             if bloom > 0.002, let gradient = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB),
-                                                         colors: [CGColor(srgbRed: 1, green: 0.75, blue: 0.82, alpha: bloom), CGColor(gray: 1, alpha: 0)] as CFArray,
+                                                         colors: [style.accent.mixed(.white, 0.7).alpha(bloom), CGColor(gray: 1, alpha: 0)] as CFArray,
                                                          locations: [0, 1]) {
                 let center = CGPoint(x: canvas.width / 2, y: canvas.height / 2)
                 context.drawRadialGradient(gradient, startCenter: center, startRadius: 0, endCenter: center, endRadius: max(canvas.width, canvas.height) * 0.6, options: [])
@@ -161,12 +200,28 @@ struct MotionTemplate: Identifiable, Hashable {
 // MARK: - The templates
 
 extension MotionTemplate {
-    static let all: [MotionTemplate] = [slab, editorial, pill, stack, kinetic,
-                                        statement, headline, frame, chapter, split,
-                                        sting, endCard,
+    static let all: [MotionTemplate] = [slab, editorial, pill, stack, kinetic, outline, broadcast, tag, highlight,
+                                        statement, headline, frame, chapter, split, bigType, boxed, minimal,
+                                        sting, wipe, endCard, endMinimal, endSplit, endCorner, bug,
                                         typing, features, subscribe, quote, progress, caption]
 
-    private static let nameFields = [MotionField(key: "name", label: String(localized: "Name"), placeholder: "Alex Morgan"),
+    /// The title-safe area of a frame of this shape (canvas points, origin bottom left).
+    static func safeArea(_ canvas: CGSize) -> CGRect {
+        let aspect = canvas.width / max(canvas.height, 1)
+        // (left/right, bottom, top) as shares: 9:16 keeps clear of the apps' captions and buttons.
+        let (side, bottom, top): (Double, Double, Double) = aspect > 1.3 ? (0.05, 0.07, 0.07) : aspect > 0.95 ? (0.06, 0.08, 0.08)
+            : aspect > 0.7 ? (0.06, 0.12, 0.08) : (0.07, 0.2, 0.12)
+        return CGRect(x: canvas.width * side, y: canvas.height * bottom, width: canvas.width * (1 - side * 2), height: canvas.height * (1 - bottom - top))
+    }
+
+    /// Where logos were drawn (device pixels) while the self-test listens (nil: not listening).
+    @MainActor static var loggedLogos: [CGRect]?
+    static func noteLogo(_ rect: CGRect) {
+        guard Thread.isMainThread else { return }
+        MainActor.assumeIsolated { loggedLogos?.append(rect) }
+    }
+
+    static let nameFields = [MotionField(key: "name", label: String(localized: "Name"), placeholder: "Your Name"),
                                      MotionField(key: "role", label: String(localized: "Role"), placeholder: "Director")]
 
     // MARK: Lower thirds
@@ -304,8 +359,8 @@ extension MotionTemplate {
 
     // MARK: Titles & chapters
 
-    private static let titleFields = [MotionField(key: "title", label: String(localized: "Title"), placeholder: "The Long Way Home"),
-                                      MotionField(key: "subtitle", label: String(localized: "Subtitle"), placeholder: "A film by Alex Morgan")]
+    static let titleFields = [MotionField(key: "title", label: String(localized: "Title"), placeholder: "The Long Way Home"),
+                                      MotionField(key: "subtitle", label: String(localized: "Subtitle"), placeholder: "A short film")]
 
     /// Two lines, the second in the brand's gradient, word by word out of a blur (as the launch
     /// video's "Paste a link. Press Return.").
@@ -400,7 +455,7 @@ extension MotionTemplate {
     static let chapter = MotionTemplate(id: "chapter", name: String(localized: "Chapter"), category: .title,
                                         fields: [MotionField(key: "number", label: String(localized: "Number"), placeholder: "01"),
                                                  MotionField(key: "title", label: String(localized: "Title"), placeholder: "Getting There"),
-                                                 MotionField(key: "subtitle", label: String(localized: "Line"), placeholder: "Day one, Lisbon")],
+                                                 MotionField(key: "subtitle", label: String(localized: "Line"), placeholder: "Day one")],
                                         fullFrame: true, placement: MotionPlacement(x: 0.5, y: 0.5, duration: 5, align: .center), canAlign: false) { s in
         let u = s.u, c = s.clock, cx = s.context
         let number = s.title(s.text("number"), size: 220 * u, tracking: -0.04)
@@ -499,10 +554,7 @@ extension MotionTemplate {
             cx.setAlpha(1)
         }
         if let logo = s.logo, let plan = s.logoPlan {
-            cx.saveGState()
-            cx.translateBy(x: -s.canvas.width / 2, y: -s.canvas.height / 2)
-            logo.draw(at: s.time, plan: plan, in: cx, canvas: s.canvas)
-            cx.restoreGState()
+            s.animateLogo(logo, plan: plan)
         } else {
             let word = s.title(s.text("brand"), size: 160 * u, tracking: 0.02)
             let letters = word.letters
@@ -529,12 +581,9 @@ extension MotionTemplate {
                                         fullFrame: true, placement: MotionPlacement(x: 0.5, y: 0.5, duration: 6), canAlign: false) { s in
         let u = s.u, c = s.clock, cx = s.context
         if let logo = s.logo, let plan = s.logoPlan {
-            cx.saveGState()
-            cx.translateBy(x: 0, y: 170 * u)
-            cx.scaleBy(x: 0.6, y: 0.6)
-            cx.translateBy(x: -s.canvas.width / 2, y: -s.canvas.height / 2)
-            logo.draw(at: s.time, plan: plan, in: cx, canvas: s.canvas)
-            cx.restoreGState()
+            // Above the line, no taller than there's room for.
+            let k = min(0.6, 200 * u / max(logo.logoRect(canvas: s.canvas).height, 1))
+            s.animateLogo(logo, plan: plan, offset: CGPoint(x: 0, y: 115 * u + logo.logoRect(canvas: s.canvas).height * k / 2), scale: k)
         } else {
             cx.translateBy(x: 0, y: 110 * u)
         }
@@ -571,8 +620,10 @@ extension MotionTemplate {
                                        fullFrame: false, placement: MotionPlacement(x: 0.5, y: 0.5, duration: 4), canAlign: false) { s in
         let u = s.u, c = s.clock, cx = s.context, t = s.time
         let text = s.text("text")
-        let full = s.body(text, size: 40 * u)
-        let h = 92 * u, w = max(full.width + 210 * u, 640 * u)
+        // Smaller on a narrow frame, so the pill stays inside the safe area.
+        let fontSize = min(40 * u, 40 * u * (s.localSafe.width - 210 * u) / max(s.body(text, size: 40 * u).width, 1))
+        let full = s.body(text, size: fontSize)
+        let h = 92 * u, w = min(max(full.width + 210 * u, 640 * u), s.localSafe.width)
         let pIn = c.spring(0, damping: 15, stiffness: 160)
         let typedCount = Int(Ease.clamp((t - 0.45) / (0.045 * Double(max(text.count, 1)))) * Double(text.count))
         let enter = 0.55 + 0.045 * Double(text.count)
@@ -604,7 +655,7 @@ extension MotionTemplate {
             cx.restoreGState()
         }
         let x = -w / 2 + 92 * u
-        let shown = s.body(String(text.prefix(typedCount)), size: 40 * u)
+        let shown = s.body(String(text.prefix(typedCount)), size: fontSize)
         shown.draw(at: CGPoint(x: x, y: -shown.height / 2 + shown.descent), in: cx, alpha: Ease.clamp(pIn))
         if Int(t * 2.2) % 2 == 0 || (t > 0.45 && t < enter) {
             MotionDraw.plate(CGRect(x: x + shown.width + 4 * u, y: -22 * u, width: 3 * u, height: 44 * u), round: 1, color: s.style.accent.cg, in: cx)
@@ -621,7 +672,7 @@ extension MotionTemplate {
     static let features = MotionTemplate(id: "features", name: String(localized: "Feature Grid"), category: .social,
                                          fields: [MotionField(key: "heading", label: String(localized: "Heading"), placeholder: "And everything else you need."),
                                                   MotionField(key: "items", label: String(localized: "Cards (one per line: title, line)"),
-                                                              placeholder: "Fast, Ready in seconds\nPrivate, Runs on your Mac\nSimple, No settings to learn\nFree, Nothing to pay\nShared, Send it anywhere\nLoved, By people like you")],
+                                                              placeholder: "Fast, Ready in seconds\nSimple, Easy to start\nReliable, Built to last\nFriendly, Here to help\nFlexible, Fits your plans\nLocal, Close to you")],
                                          fullFrame: true, placement: MotionPlacement(x: 0.5, y: 0.5, duration: 6), canAlign: false) { s in
         let u = s.u, c = s.clock, cx = s.context
         let heading = s.title(s.text("heading"), size: 64 * u, tracking: -0.02)
@@ -629,7 +680,8 @@ extension MotionTemplate {
             let parts = row.split(separator: ",", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
         }
-        let columns = items.count > 4 ? 3 : 2, rows = Int(ceil(Double(items.count) / Double(columns)))
+        // Three across only where they fit (two on vertical and portrait frames).
+        let columns = items.count > 4 && s.localSafe.width > 1190 * u ? 3 : 2, rows = Int(ceil(Double(items.count) / Double(columns)))
         let cardW = 380 * u, cardH = 170 * u, gap = 24 * u
         let gridW = Double(columns) * cardW + Double(columns - 1) * gap, gridH = Double(rows) * cardH + Double(rows - 1) * gap
         let top = (gridH + 140 * u) / 2
@@ -745,7 +797,7 @@ extension MotionTemplate {
     /// A big quote mark springs in, the words come into focus one by one, the name after.
     static let quote = MotionTemplate(id: "quote", name: String(localized: "Quote"), category: .social,
                                       fields: [MotionField(key: "quote", label: String(localized: "Quote"), placeholder: "The best stories are the ones you didn’t plan."),
-                                               MotionField(key: "author", label: String(localized: "Who said it"), placeholder: "Alex Morgan")],
+                                               MotionField(key: "author", label: String(localized: "Who said it"), placeholder: "Your Name")],
                                       fullFrame: true, placement: MotionPlacement(x: 0.5, y: 0.5, duration: 7, align: .center), canAlign: true) { s in
         let u = s.u, c = s.clock, cx = s.context
         let size = 68 * u

@@ -11,7 +11,7 @@ enum DownloadSelfTest {
         for (n, folder) in folders.split(separator: "|").map(String.init).enumerated() {
             // A different link each time, so it isn't taken for a repeat of the one before.
             let url = link + (link.contains("?") ? "&" : "?") + "attempt=\(n)"
-            manager.add([url], folder: folder)
+            manager.add([url], folder: folder, fromOtherDevice: false)
             guard let item = manager.items.first(where: { $0.url == url }) else {
                 lines.append("\(folder)\tnot added")
                 continue

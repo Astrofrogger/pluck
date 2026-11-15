@@ -264,7 +264,7 @@ private struct HomeRenderView: View {
                     VStack(spacing: 2) {
                         NavRow(symbol: "play.rectangle", title: "Render", selected: pane == .render) { pane = .render }
                         NavRow(symbol: "sparkle.magnifyingglass", title: "Search the archive", selected: pane == .archive) { pane = .archive }
-                        NavRow(symbol: "arrow.up.arrow.down", title: "Files", selected: pane == .proxies) { pane = .proxies }
+                        NavRow(symbol: "folder", title: "Browse", selected: pane == .proxies) { pane = .proxies }
                         NavRow(symbol: "film.stack", title: "DaVinci Resolve", selected: pane == .resolve) { pane = .resolve }
                         NavRow(symbol: "text.bubble", title: "Review", selected: pane == .review) { pane = .review }
                     }
@@ -273,6 +273,8 @@ private struct HomeRenderView: View {
                         .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                         .fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 8)
+                    // (Always there, so it's easy to find; it says how to connect.)
+                    NavRow(symbol: "folder", title: "Browse", selected: pane == .proxies) { pane = .proxies }
                 }
             }
             if let office = client.office {
@@ -287,6 +289,12 @@ private struct HomeRenderView: View {
                     case .review: RemoteReviewPane()
                     }
                     activity
+                }
+            } else if pane == .proxies {
+                AnywherePane(scrolls: false) {
+                    StudioEmptyState(symbol: "folder", title: "Connect to a host Mac to browse its files", button: "Paste Invitation…") { pasteInvitation() }
+                        .frame(maxHeight: .infinity)
+                    StudioFootnote(text: "On the host Mac: Edit Anywhere › Invite a Mac", symbol: "macmini")
                 }
             } else {
                 AnywherePane(scrolls: false) { welcome }
@@ -312,6 +320,15 @@ private struct HomeRenderView: View {
             await run { try await client.refresh() }
             if client.jobs.contains(where: { $0.state == "rendering" || $0.makingPreview }) { client.follow() }
         }
+    }
+
+    /// An invitation link on the clipboard goes the usual way (the alert asks before joining).
+    private func pasteInvitation() {
+        guard let text = NSPasteboard.general.string(forType: .string), let invitation = PrivateNetwork.Invitation(link: text) else {
+            pane = .render
+            return
+        }
+        client.pendingInvitation = invitation
     }
 
     // MARK: Not connected yet
@@ -941,6 +958,15 @@ private struct OfficeSideView: View {
         .studioBox()
     }
 
+    /// The tailnet access rules invited Macs need (they join tagged and reach only this Mac's port).
+    private var tailscaleRules: some View {
+        PinkLink(title: "Copy Tailscale access rules") {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(PrivateNetwork.Account.aclSnippet, forType: .string)
+        }
+        .help("Paste into Access controls in your Tailscale admin page, before you invite anyone. Invited Macs then reach only this Mac’s Edit Anywhere port. If a rule still lets \"*\" reach \"*:*\", change its src to autogroup:member.")
+    }
+
     @ViewBuilder
     private var tailscaleSetup: some View {
         if PrivateNetwork.helper == nil {
@@ -966,11 +992,13 @@ private struct OfficeSideView: View {
                 NSWorkspace.shared.open(URL(string: "https://login.tailscale.com/admin/settings/keys")!)
             }
             .help("In your Tailscale account: Settings → Keys → Generate access token. Nobody else needs an account or the Tailscale app.")
+            tailscaleRules
         } else {
             switch server.network.state {
             case .running(let name, let address):
                 inviteRow(String(localized: "Reachable as \(name.isEmpty ? address : name)"),
-                          help: String(localized: "A one-time link for the Mac you want to connect, valid for a day"))
+                          help: String(localized: "A one-time link for the Mac you want to connect, valid for an hour"))
+                tailscaleRules
             case .failed(let message):
                 HStack {
                     ProblemLine(text: message, colour: Design.Studio.warn)
@@ -1224,7 +1252,9 @@ private struct OfficeSideView: View {
         panel.allowsMultipleSelection = true
         panel.prompt = String(localized: "Add")
         panel.message = String(localized: "Folders with footage that paired Macs can search. Nothing in them is changed.")
-        if panel.runModal() == .OK { for url in panel.urls { archive.add(url) } }
+        if panel.runModal() == .OK, panel.urls.map({ archive.add($0) }).contains(false) {
+            proxyProblem = String(localized: "A folder that holds the inbox can’t be shared. Choose one apart from it.")
+        }
     }
 
     private func makeInvitation() {
@@ -1280,7 +1310,7 @@ private struct InvitationSheet: View {
                 if case .iroh = PrivateNetwork.Invitation(link: link.absoluteString)?.way {
                     Label("Works once, for 15 minutes, for the first Mac that uses it. Send it only to people you trust.", systemImage: "lock.shield")
                 } else {
-                    Label("Works once, for 24 hours, for the first Mac that uses it. Send it only to people you trust.", systemImage: "lock.shield")
+                    Label("Works once, for an hour, for the first Mac that uses it. Send it only to people you trust.", systemImage: "lock.shield")
                 }
             }
                 .font(Design.Studio.hint)

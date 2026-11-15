@@ -111,11 +111,35 @@ if action == "inspect":
     project = pm.LoadProject(name)
     if project is None:
         out({"error": "DaVinci Resolve on the host Mac couldn't open the project."})
+    names = timeline_names(project)
     items = []
     for c in clips_in(project.GetMediaPool().GetRootFolder()):
+        if prop(c, "File Path") == "" and c.GetName() in names:
+            continue  # a timeline (its own items are looked at below)
         items.append({"id": c.GetUniqueId(), "name": c.GetName(), "file": prop(c, "File Path"), "frames": prop(c, "Frames"),
                       "fps": prop(c, "FPS"), "audio": prop(c, "Audio Ch"), "tc": prop(c, "Start TC")})
-    out({"items": items, "timelines": timeline_names(project), "presets": list(project.GetRenderPresetList() or [])})
+    # Fusion compositions and effects, generators and clips without a file of their own (compound clips) can reach
+    # files the media pool doesn't list (a Loader's path, a script). The scripting API can't list those safely, so
+    # the host refuses such projects. Transitions and subtitle text are fine.
+    unsafe = []
+    for i in range(1, project.GetTimelineCount() + 1):
+        t = project.GetTimelineByIndex(i)
+        if not t:
+            continue
+        for kind in ("video", "audio"):
+            for n in range(1, (t.GetTrackCount(kind) or 0) + 1):
+                for it in t.GetItemListInTrack(kind, n) or []:
+                    try:
+                        if it.GetType() == "transition":
+                            continue
+                        mp = it.GetMediaPoolItem()
+                        bad = it.GetType() == "generator" or (it.GetFusionCompCount() or 0) > 0 or bool(it.GetEffects("fusion")) \
+                            or mp is None or (prop(mp, "File Path") == "" and mp.GetName() not in names)
+                    except Exception:
+                        bad = True
+                    if bad and len(unsafe) < 50:
+                        unsafe.append(it.GetName() or "?")
+    out({"items": items, "timelines": names, "presets": list(project.GetRenderPresetList() or []), "unsafe": unsafe})
 
 if action == "render":
     # Proxies swapped for their originals (by media pool id), then one render with the preset.

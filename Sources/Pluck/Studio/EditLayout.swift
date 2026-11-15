@@ -39,7 +39,7 @@ enum EditPanelPosition: String, CaseIterable, Identifiable {
 
 /// The panel's tabs: the project's own media, then the libraries.
 enum EditLibraryTab: String, CaseIterable, Identifiable {
-    case media, transitions, titles, effects, music
+    case media, transitions, titles, effects, music, assets
 
     var id: String { rawValue }
 
@@ -50,6 +50,7 @@ enum EditLibraryTab: String, CaseIterable, Identifiable {
         case .titles: "Titles"
         case .effects: "Effects"
         case .music: "Music"
+        case .assets: "Assets"
         }
     }
 
@@ -60,6 +61,7 @@ enum EditLibraryTab: String, CaseIterable, Identifiable {
         case .titles: "textformat"
         case .effects: "wand.and.stars"
         case .music: "music.note"
+        case .assets: "square.stack.3d.up"
         }
     }
 

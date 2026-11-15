@@ -121,6 +121,14 @@ enum RemoteReview {
     /// script it would be Timeline.AddMarker(frameId, color, name, note, duration, customData).)
     /// shortcut: non-drop-frame and a whole-number frame rate only; drop-frame 29.97/59.94 timelines need a DF EDL.
     nonisolated static func markerEDL(_ comments: [ReviewComment], title: String, fps: Double, start: Double = 3600) -> String {
+        markerEDL(comments.map { comment in
+            let replies = comment.replies.map { " / \($0.author): \($0.text)" }.joined()
+            return (comment.time, comment.resolved ? "ResolveColorGreen" : "ResolveColorRed", comment.author + ": " + comment.text + replies)
+        }, title: title, fps: fps, start: start)
+    }
+
+    /// Any markers (seconds, a Resolve colour like ResolveColorRed, the note) in the same EDL layout.
+    nonisolated static func markerEDL(_ markers: [(time: Double, colour: String, note: String)], title: String, fps: Double, start: Double = 3600) -> String {
         let rate = max(1, Int(fps.rounded()))
         func timecode(_ seconds: Double) -> String {
             let frames = Int((seconds * Double(rate)).rounded())
@@ -130,13 +138,11 @@ enum RemoteReview {
             text.components(separatedBy: .newlines).joined(separator: " ").replacingOccurrences(of: "|", with: "/")
         }
         var lines = ["TITLE: \(clean(title))", "FCM: NON-DROP FRAME", ""]
-        for (index, comment) in comments.enumerated() {
-            let inPoint = timecode(start + comment.time), outPoint = timecode(start + comment.time + 1 / Double(rate))
+        for (index, marker) in markers.enumerated() {
+            let inPoint = timecode(start + marker.time), outPoint = timecode(start + marker.time + 1 / Double(rate))
             let number = String(format: "%03d", index + 1)
             lines.append("\(number)  001      V     C        \(inPoint) \(outPoint) \(inPoint) \(outPoint)  ")
-            let replies = comment.replies.map { " / \($0.author): \($0.text)" }.joined()
-            let colour = comment.resolved ? "ResolveColorGreen" : "ResolveColorRed"
-            lines.append(" |C:\(colour) |M:\(clean(comment.author + ": " + comment.text + replies)) |D:1")
+            lines.append(" |C:\(marker.colour) |M:\(clean(marker.note)) |D:1")
             lines.append("")
         }
         return lines.joined(separator: "\n")

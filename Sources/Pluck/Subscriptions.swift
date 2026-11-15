@@ -232,7 +232,7 @@ final class Subscriptions {
             if Self.isFeed(list[index].url) {
                 manager.addListed(upload.url, title: upload.title, show: upload.show, options: list[index].options, folder: list[index].folder)
             } else {
-                manager.add([upload.url], options: list[index].options, folder: list[index].folder)
+                manager.add([upload.url], options: list[index].options, folder: list[index].folder, fromOtherDevice: false)
             }
             list[index].downloaded.append(Links.identity(upload.url))
             list[index].lastFound = .now

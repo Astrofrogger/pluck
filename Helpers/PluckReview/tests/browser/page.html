@@ -1,0 +1,80 @@
+<!doctype html><meta charset="utf-8"><title>pluck-review browser check</title>
+<script>
+// A minimal stand-in for the client app (spec §7): signaling, the two channels, §3 auth with the
+// negotiated fingerprints, password, then every segment with acks, a JSON answer too big for one
+// message (it comes in parts), and an upload with credit; reports to the test server.
+const [SIG, ROOM, AUTH, SEGS, PUB] = location.hash.slice(1).split(",");
+const enc = (s) => new TextEncoder().encode(s);
+const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+const unb64u = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((s.length + 3) % 4)), (c) => c.charCodeAt(0));
+const fp = (sdp) => sdp.match(/a=fingerprint:sha-256 (\S+)/i)[1].toUpperCase();
+const report = (o) => fetch("/result", { method: "POST", body: JSON.stringify(o) });
+window.onerror = (m) => report({ error: String(m) });
+window.onunhandledrejection = (e) => report({ error: String(e.reason) });
+(async () => {
+  const t0 = performance.now();
+  const ws = new WebSocket(`ws://127.0.0.1:${SIG}/signal/${ROOM}`);
+  await new Promise((r) => (ws.onopen = r));
+  const pc = new RTCPeerConnection({ iceServers: [] });
+  const ctl = pc.createDataChannel("ctl"), media = pc.createDataChannel("media");
+  media.binaryType = "arraybuffer";
+  pc.onicecandidate = (e) => ws.send(JSON.stringify({ t: "candidate", cand: e.candidate ? e.candidate.toJSON() : null }));
+  ws.onmessage = async (e) => {
+    const v = JSON.parse(e.data);
+    if (v.t === "joined") { await pc.setLocalDescription(await pc.createOffer()); ws.send(JSON.stringify({ t: "offer", sdp: pc.localDescription.sdp })); }
+    else if (v.t === "answer") await pc.setRemoteDescription({ type: "answer", sdp: v.sdp });
+    else if (v.t === "candidate" && v.cand) await pc.addIceCandidate(v.cand);
+  };
+  ws.send(JSON.stringify({ t: "browser-join", v: 2, join: "rRaYJs5-07URNfm3gxhQ2HtP8i4RLTQ_J4wsbiDMdL4" }));
+  const pending = new Map(), events = []; let nextId = 1, wake = null, part = "", parts = 0, upAcked = 0;
+  ctl.onmessage = (e) => { let v = JSON.parse(e.data);
+    if (v.t === "part") { part += v.data; if (v.n + 1 < v.of) return; v = JSON.parse(part); part = ""; parts++; }
+    if (v.re != null && pending.has(v.re)) { pending.get(v.re)(v); pending.delete(v.re); } else { events.push(v); wake && wake(); } };
+  const call = (o) => new Promise((r) => { const id = nextId++; pending.set(id, r); ctl.send(JSON.stringify({ ...o, id })); });
+  const event = async (t) => { for (;;) { const i = events.findIndex((v) => v.t === t); if (i >= 0) return events.splice(i, 1)[0]; await new Promise((r) => (wake = r)); } };
+  const fetches = new Map(); // fetch → {parts, got, size, acked, done}
+  media.onmessage = (e) => {
+    if (typeof e.data === "string") { const v = JSON.parse(e.data); if (v.t === "upload-ack") upAcked = v.bytes; return; }
+    const d = new DataView(e.data), f = fetches.get(d.getUint32(0));
+    f.parts.push(e.data.slice(8)); f.got += e.data.byteLength - 8;
+    if (f.got - f.acked >= 2 << 20) { f.acked = f.got; media.send(JSON.stringify({ t: "ack", fetch: d.getUint32(0), bytes: f.got })); }
+    if (f.got === f.size) f.done();
+  };
+  const bytes = (r) => new Promise((done) => { const f = fetches.get(r.fetch); f.size = r.size; f.done = done; if (f.got === f.size) done(); });
+  const get = async (o) => { const id = nextId; fetches.set(id, { parts: [], got: 0, acked: 0 }); const r = await call(o); await bytes(r); return fetches.get(id).parts; };
+
+  const hello = await event("hello");
+  ws.close(1000);
+  const key = await crypto.subtle.importKey("raw", unb64u(AUTH), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const macN = unb64u(hello.nonce), brN = crypto.getRandomValues(new Uint8Array(32));
+  const fpMac = fp(pc.remoteDescription.sdp), fpBr = fp(pc.localDescription.sdp);
+  const pub = await crypto.subtle.importKey("raw", unb64u(PUB), { name: "Ed25519" }, false, ["verify"]);
+  if (hello.v !== 2 || !await crypto.subtle.verify("Ed25519", pub, unb64u(hello.sig), new Uint8Array([...enc("pluck-review/2 server\n"), ...macN, ...enc(fpMac + "\n" + fpBr)])))
+    return report({ error: "the hello signature didn't check out" });
+  const proof = async (role) => b64u(await crypto.subtle.sign("HMAC", key, new Uint8Array([...enc(`pluck-review/1 ${role}\n`), ...macN, ...brN, ...enc(fpMac + "\n" + fpBr)])));
+  const w = await call({ t: "auth", v: 2, nonce: b64u(brN), proof: await proof("browser"), token: b64u(crypto.getRandomValues(new Uint8Array(32))), name: "Tester" });
+  if (w.proof !== await proof("mac")) return report({ error: "the Mac's proof didn't check out" });
+  const ready = await call({ t: "password", password: "test" });
+  if (ready.t !== "ready") return report({ error: JSON.stringify(ready) });
+  const t1 = performance.now(), all = [];
+  for (let n = 0; n < Number(SEGS); n++) all.push(...await get({ t: "fetch", asset: "A1", version: "V1", what: "segment", rendition: "1080", n }));
+  const sha = b64u(await crypto.subtle.digest("SHA-256", await new Blob(all).arrayBuffer()));
+  const tr = await call({ t: "fetch", asset: "A1", version: "V1", what: "transcript" });
+  const data = new Uint8Array(3 << 20);
+  for (let i = 0; i < data.length; i += 65536) crypto.getRandomValues(data.subarray(i, i + 65536));
+  const up = await call({ t: "upload-begin", name: "ref.png", size: data.length, for: "attachment" });
+  if (!up.credit) return report({ error: JSON.stringify(up) });
+  for (let sent = 0, seq = 0; sent < data.length;) {
+    const n = Math.min(65528, data.length - sent);
+    if (sent + n - upAcked > up.credit || media.bufferedAmount > 1 << 20) { await new Promise((r) => setTimeout(r, 5)); continue; }
+    const f = new Uint8Array(8 + n), dv = new DataView(f.buffer);
+    dv.setUint32(0, up.upload); dv.setUint32(4, seq++); f.set(data.subarray(sent, sent + n), 8);
+    media.send(f); sent += n;
+  }
+  const end = await call({ t: "upload-end", upload: up.upload, sha256: b64u(await crypto.subtle.digest("SHA-256", data)) });
+  const stats = [...(await pc.getStats()).values()];
+  const pair = stats.find((s) => s.type === "candidate-pair" && s.nominated && s.state === "succeeded");
+  const local = pair && stats.find((s) => s.id === pair.localCandidateId), remote = pair && stats.find((s) => s.id === pair.remoteCandidateId);
+  report({ sha, words: tr.json && tr.json.words.length, parts, attachment: end.attachment && end.attachment.size, connectMs: Math.round(t1 - t0), streamMs: Math.round(performance.now() - t1), path: local && `${local.candidateType}→${remote.candidateType}`, ua: navigator.userAgent });
+})();
+</script>

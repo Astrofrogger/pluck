@@ -35,11 +35,15 @@ final class OfficeArchive {
             .appendingPathComponent("Pluck/Office Render/Clips", isDirectory: true)
     }
 
-    func add(_ folder: URL) {
-        guard !folders.contains(folder) else { return }
+    /// False when the folder holds the inbox or is inside it: what paired Macs send never becomes shared content.
+    @discardableResult
+    func add(_ folder: URL) -> Bool {
+        guard !OfficeInbox.overlaps(folder, OfficeInbox.shared.folder) else { return false }
+        guard !folders.contains(folder) else { return true }
         folders.append(folder)
         save()
         scan()
+        return true
     }
 
     func remove(_ folder: URL) {

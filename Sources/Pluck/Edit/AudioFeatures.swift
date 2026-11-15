@@ -33,13 +33,15 @@ struct AudioFeatures: Sendable {
 
     var duration: Double { Double(onset.count) * Self.step }
 
-    /// Reads a file's sound (any format ffmpeg reads) as 8 kHz mono, optionally only part of it.
-    static func samples(of file: URL, ffmpeg: String, from start: Double? = nil, duration: Double? = nil) async throws -> [Float] {
+    /// Reads a file's sound (any format ffmpeg reads) as 8 kHz mono, optionally only part of it
+    /// (or, for Fit Music, at another rate and channel count: interleaved).
+    static func samples(of file: URL, ffmpeg: String, from start: Double? = nil, duration: Double? = nil,
+                        channels: Int = 1, rate: Double = sampleRate) async throws -> [Float] {
         try await Task.detached {
             var arguments = ["-nostdin", "-v", "error"]
             if let start { arguments += ["-ss", String(start)] }
             if let duration { arguments += ["-t", String(duration)] }
-            arguments += ["-i", file.path, "-vn", "-ac", "1", "-ar", String(Int(sampleRate)), "-f", "f32le", "-"]
+            arguments += ["-i", file.path, "-vn", "-ac", String(channels), "-ar", String(Int(rate)), "-f", "f32le", "-"]
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = arguments

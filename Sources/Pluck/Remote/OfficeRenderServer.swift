@@ -24,6 +24,8 @@ final class OfficeRenderServer {
         var rights: Rights?
         /// Its iroh node id, when it paired through an iroh invitation: the key it gets in with.
         var iroh: String?
+        /// Its tailnet address, when it paired over Tailscale: only these nodes keep their place there.
+        var tailnet: String?
 
         /// What this Mac may do here (Edit Anywhere's remote editing).
         struct Rights: Codable, Hashable {
@@ -264,12 +266,12 @@ final class OfficeRenderServer {
                 do {
                     try await network.start()
                 } catch PrivateNetwork.Failure.needsInvite {
-                    let key = try await PrivateNetwork.Account.joinKey(expiry: 3600)
+                    let key = try await PrivateNetwork.Account.joinKey(expiry: 3600, tag: PrivateNetwork.Account.officeTag)
                     // Disconnected while waiting for Tailscale: stay off.
                     guard PrivateNetwork.Account.token != nil else { return }
                     try await network.start(key: key)
                 }
-                await PrivateNetwork.Account.keepPluckMacsConnected()
+                await PrivateNetwork.Account.keepPluckMacsConnected(paired: pairedTailnet)
             } catch {
                 networkProblem = error.localizedDescription
             }
@@ -314,7 +316,7 @@ final class OfficeRenderServer {
     }
 
     /// A one-time invitation link for a Mac at home: it joins the private network and pairs with
-    /// this Mac in one go. Works for a day (Tailscale) or 15 minutes (iroh).
+    /// this Mac in one go. Works for an hour (Tailscale) or 15 minutes (iroh).
     func invite() async throws -> URL {
         guard case .running(_, let address) = network.state, !address.isEmpty else {
             throw OfficeLink.Failure.office(String(localized: "This Mac isn’t on the private network yet."))
@@ -323,6 +325,7 @@ final class OfficeRenderServer {
             let lifetime = PrivateNetwork.invitationLifetime
             let code = OfficeLink.newPairingCode()
             irohInvitations[code] = Date.now.addingTimeInterval(lifetime)
+            pairingFails = [:]
             pairingTriesLeft = max(pairingTriesLeft, OfficeLink.pairingTries * 2)
             // (Macs that came in on it but never paired are let go by the helper when it ends.)
             network.openPairing(lifetime)
@@ -331,18 +334,29 @@ final class OfficeRenderServer {
             guard let link = invitation.link else { throw OfficeLink.Failure.office(String(localized: "The invitation couldn’t be made.")) }
             return link
         }
-        let key = try await PrivateNetwork.Account.joinKey(expiry: 86_400)
+        let lifetime = PrivateNetwork.tailscaleInvitationLifetime
+        let key = try await PrivateNetwork.Account.joinKey(expiry: Int(lifetime), tag: PrivateNetwork.Account.inviteeTag)
         let code = OfficeLink.newPairingCode()
-        invitations[code] = Date.now.addingTimeInterval(86_400)
+        invitations[code] = Date.now.addingTimeInterval(lifetime)
+        pairingFails = [:]
         pairingTriesLeft = max(pairingTriesLeft, OfficeLink.pairingTries * 2)
         let invitation = PrivateNetwork.Invitation(way: .tailscale(key: key, address: address), name: Host.current().localizedName ?? "Mac", code: code)
         guard let link = invitation.link else { throw OfficeLink.Failure.office(String(localized: "The invitation couldn’t be made.")) }
         return link
     }
 
+    /// The tailnet addresses of the Macs paired over Tailscale.
+    private var pairedTailnet: Set<String> { Set(devices.compactMap(\.tailnet)) }
+
     func remove(_ device: Device) {
         devices.removeAll { $0.id == device.id }
         saveDevices()
+        // Its tailnet node goes too (an invited node no longer paired is deleted there).
+        if device.tailnet != nil, PrivateNetwork.Account.token != nil {
+            Task { [paired = pairedTailnet, gone = Set(device.tailnet.map { [$0] } ?? [])] in
+                await PrivateNetwork.Account.keepPluckMacsConnected(paired: paired, removed: gone)
+            }
+        }
         Tunnel.irohOffice.setAllow(allowedNodes)
         lastSeen[device.id] = nil
         saveLastSeen()
@@ -374,34 +388,48 @@ final class OfficeRenderServer {
     // MARK: - Connections
 
     private func accept(_ connection: NWConnection) {
-        guard case .hostPort(let host, _) = connection.endpoint, OfficeLink.isPrivate(host), open < 16, open + answering < 64 else {
+        guard case .hostPort(let host, let port) = connection.endpoint, OfficeLink.isPrivate(host), open < 16, open + answering < 64 else {
             connection.cancel()
             return
         }
-        let client = "\(host)"
-        if let record = strikes[client], record.count >= 10, Date.now.timeIntervalSince(record.since) < 600 {
-            connection.cancel()
-            return
-        }
+        let address = "\(host)"
         open += 1
+        Task {
+            // Over the private network (iroh or Tailscale) every Mac arrives from this Mac itself: which one it really
+            // is, by the helper, so strikes, slots and wrong pairing codes count per Mac, not for all of them at once.
+            let via = address == "127.0.0.1" || address == "::1" ? await network.peer(port: port.rawValue) : nil
+            let iroh = PrivateNetwork.transport == .iroh ? via : nil
+            let client = iroh.map { "iroh:" + $0 } ?? via ?? address
+            if let record = strikes[client], record.count >= 10, Date.now.timeIntervalSince(record.since) < 600 { return refuse(connection) }
+            // One Mac (or address) can't hold every slot with requests it never finishes. (Loopback the helper can't
+            // name is this Mac itself: a test copy, the streaming drive's own parallel reads.)
+            let local = client == "127.0.0.1" || client == "::1"
+            guard local || openBy[client, default: 0] < Self.openPerClient else { return refuse(connection) }
+            openBy[client, default: 0] += 1
+            read(connection, client: client, iroh: iroh)
+        }
+    }
+
+    static let openPerClient = 8
+    @ObservationIgnored private var openBy: [String: Int] = [:]
+
+    private func refuse(_ connection: NWConnection) {
+        open = max(open - 1, 0)
+        connection.cancel()
+    }
+
+    private func read(_ connection: NWConnection, client: String, iroh: String?) {
         connection.start(queue: queue)
         FrameReader.read(from: connection, limit: OfficeLink.maxRequest, timeout: 90) { [weak self] frame in
             Task { @MainActor in
                 guard let self else { connection.cancel(); return }
                 // The request is read: its slot is free for the next one while this one is answered.
                 self.open = max(self.open - 1, 0)
+                self.openBy[client] = self.openBy[client].map { $0 > 1 ? $0 - 1 : nil } ?? nil
                 self.answering += 1
                 guard let frame else { return self.drop(connection, strike: client) }
                 switch frame.kind {
-                case .pair:
-                    // Over iroh it arrives from this Mac itself: which Mac it really is, by the helper.
-                    Task {
-                        var iroh: String?
-                        if case .hostPort(_, let port) = connection.endpoint, client == "127.0.0.1" || client == "::1" {
-                            iroh = await Tunnel.irohOffice.peer(port: port.rawValue)
-                        }
-                        self.pair(frame.payload, client: client, iroh: iroh, on: connection)
-                    }
+                case .pair: self.pair(frame.payload, client: client, iroh: iroh, on: connection)
                 case .request: self.request(frame.payload, client: client, on: connection)
                 case .data: self.drop(connection, strike: client)
                 }
@@ -411,8 +439,8 @@ final class OfficeRenderServer {
 
     /// Closes without a word (a stranger learns nothing), counting it against the address.
     private func drop(_ connection: NWConnection, strike client: String?) {
-        // Everything over the private network arrives from this Mac itself (the helper hands it
-        // on): counting those would let one removed Mac lock everyone out. The keys guard it.
+        // Loopback the helper couldn't name (a test copy, a local process) isn't counted: that would lock out every
+        // Mac at once. Tunneled Macs are counted by who they are ("iroh:<node>", "ts:<tailnet address>").
         if let client, client != "127.0.0.1", client != "::1" {
             let record = strikes[client]
             strikes[client] = record.map { Date.now.timeIntervalSince($0.since) < 600 ? ($0.count + 1, $0.since) : (1, .now) } ?? (1, .now)
@@ -433,8 +461,8 @@ final class OfficeRenderServer {
     /// `iroh`: the node id of the Mac it came from over iroh (the helper says), if it did.
     private func pair(_ payload: Data, client: String, iroh: String?, on connection: NWConnection) {
         let codes = activeCodes
-        // Over iroh every Mac arrives as this Mac: its wrong codes count by its node id instead.
-        let sender = iroh.map { "iroh:" + $0 } ?? client
+        // (client is already the Mac's own identity over iroh or Tailscale.)
+        let sender = client
         guard !codes.isEmpty, pairingFails[sender, default: 0] < pairingTriesLeft, payload.count > 32,
               let clientKey = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: payload.prefix(32)),
               let box = try? ChaChaPoly.SealedBox(combined: payload.dropFirst(32)) else {
@@ -475,7 +503,8 @@ final class OfficeRenderServer {
         if self.pairing?.code == code { self.pairing = nil }
         invitations[code] = nil
         let viaIroh = irohInvitations.removeValue(forKey: code) != nil
-        Task { await PrivateNetwork.Account.keepPluckMacsConnected() }
+        if client.hasPrefix("ts:") { device.tailnet = String(client.dropFirst(3)) }
+        Task { [paired = pairedTailnet.union(device.tailnet.map { [$0] } ?? [])] in await PrivateNetwork.Account.keepPluckMacsConnected(paired: paired) }
         devices.append(device)
         saveDevices()
         if let node = device.iroh {
@@ -574,10 +603,12 @@ final class OfficeRenderServer {
             if let hello = try? await OfficeResolve.run(["action": "hello"]) { answer["resolve"] = hello }
             return answer
         case "projects":
+            try OfficeActions.require(\.render, device)
             if rendering != nil { throw OfficeLink.Failure.office(busyMessage) }
             let projects = try await OfficeResolve.projects()
             return ["projects": projects.map { ["folder": $0.folder, "name": $0.name] }]
         case "project":
+            try OfficeActions.require(\.render, device)
             let name = try text(arguments["name"]), folder = try folder(arguments["folder"])
             if let busy = rendering, busy.project != name { throw OfficeLink.Failure.office(busyMessage) }
             return try await resolve(["action": "project", "folder": folder, "name": name])

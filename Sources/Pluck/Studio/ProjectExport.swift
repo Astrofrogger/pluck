@@ -216,11 +216,32 @@ final class ProjectExports {
             }
             speech = Ducking.speech(in: project, fileSpans: { found[$0] })
         }
+        // The transitions ffmpeg can't draw, drawn as the viewer draws them.
+        let transitionFolder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-transitions-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: transitionFolder) }
+        var blended: [Int: URL] = [:]
+        var keyed: [UUID: URL] = [:]
+        if !audioOnly {
+            try? FileManager.default.createDirectory(at: transitionFolder, withIntermediateDirectories: true)
+            let even = CGSize(width: Int(size.width) / 2 * 2, height: Int(size.height) / 2 * 2)
+            // Keyframed clips, placed frame by frame as the viewer places them.
+            let placed = await ProjectKeyframeRender.render(project, streams: streams, lengths: lengths, size: even, fps: fps,
+                                                           ffmpeg: ffmpeg, folder: transitionFolder)
+            if let failure = placed.problem { problem = failure; return false }
+            guard !Task.isCancelled else { return false }
+            keyed = placed.files
+            let drawn = await ProjectTransitionRender.render(project, streams: streams, lengths: lengths, settings: settings, size: even, fps: fps,
+                                                            ffmpeg: ffmpeg, folder: transitionFolder, keyed: keyed)
+            if let failure = drawn.problem { problem = failure; return false }
+            guard !Task.isCancelled else { return false }
+            blended = drawn.files
+        }
         // Written as "Name.part.ext", named once whole.
         var made: [[String]] = []
         let arguments = { (hardware: Bool) -> [String] in
             let arguments = Self.arguments(project, streams: streams, lengths: lengths, settings: settings, audioOnly: audioOnly, size: size, fps: fps,
-                                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: EditorExport.partial(output), speech: speech)
+                                           titles: assFile, subtitles: subtitleFile, hardware: hardware, output: EditorExport.partial(output), speech: speech,
+                                           blended: blended, keyed: keyed)
             made.append(arguments)
             return arguments
         }
@@ -293,6 +314,21 @@ final class ProjectExports {
         return steps.joined(separator: ",")
     }
 
+    /// A keyframed clip's frames (drawn by `ProjectKeyframeRender`), untagged like the clips' own (else
+    /// ffmpeg converts them from 709 to meet them, shifting their colours).
+    nonisolated static func keyedSteps(rate: String, width: Int, height: Int) -> [String] {
+        ["setparams=range=unknown:color_primaries=unknown:color_trc=unknown:colorspace=unknown", "fps=\(rate)",
+         "scale=\(width):\(height)", "setsar=1", "setpts=PTS-STARTPTS"]
+    }
+
+    /// Volume keyframes as an envelope on the sound (after its speed change: the stream's time is
+    /// the timeline's, `offset` seconds before the clip's start).
+    nonisolated static func volumeKeys(_ clip: ProjectClip, offset: Double) -> String {
+        let points = clip.gainPoints(offset: offset, length: clip.length)
+        guard !points.isEmpty else { return "" }
+        return "," + Ducking.smallFrames + "," + Ducking.ffmpegExpression(points.map { ($0.time, $0.gain) })
+    }
+
     nonisolated static func videoChain(input: String, clip: ProjectClip, k: Int, width: Int, height: Int, rate: String) -> [String] {
         ClipLook.ffmpegChain(input: input, start: clip.start, end: clip.end, length: clip.length, look: clip.look, k: k,
                              width: width, height: height, rate: rate, path: clip.path)
@@ -300,7 +336,8 @@ final class ProjectExports {
 
     nonisolated static func arguments(_ project: Project, streams: [String: Set<String>], lengths: [String: Double] = [:], settings: EditorRenderSettings,
                                               audioOnly: Bool, size: CGSize, fps: Double, titles: URL?, subtitles: URL?, hardware: Bool,
-                                              output: URL, speech: [ClosedRange<Double>] = []) -> [String] {
+                                              output: URL, speech: [ClosedRange<Double>] = [], taps: ProjectTransitionRender.Taps? = nil,
+                                              blended: [Int: URL] = [:], keyed: [UUID: URL] = [:]) -> [String] {
         let width = Int(size.width) / 2 * 2, height = Int(size.height) / 2 * 2
         let rate = EditorRenderSettings.rate(fps), pixelFormat = settings.pixelFormat
         func number(_ value: Double) -> String { String(format: "%.4f", value) }
@@ -323,6 +360,8 @@ final class ProjectExports {
         let overlap = ProjectModel.dissolveOverlaps(clips, lengths: lengths)
         var segments: [(video: String, audio: String, length: Double)] = []
         for (k, clip) in clips.enumerated() {
+            // The frames either side of one cut only: its two clips' pictures.
+            if let taps, k != taps.into - 1, k != taps.into { segments.append(("", "", 0)); continue }
             let kinds = streams[clip.path] ?? []
             let before = overlap[k], after = k + 1 < clips.count ? overlap[k + 1] : 0
             let start = clip.start - before * clip.speed, end = clip.end + after * clip.speed
@@ -341,7 +380,11 @@ final class ProjectExports {
                         let half = min(dip.length / 2, clip.length / 2)
                         finish.append("fade=t=out:st=\(number(before + max(clip.length - half, 0))):d=\(number(half)):color=\(dip.white ? "white" : "black")")
                     }
-                    if let freeze = clip.freeze {
+                    if let file = keyed[clip.id] {
+                        // Placed frame by frame (keyframes), at the export's size already.
+                        let (v, _) = input(file.path, 0, length)
+                        graph.append("[\(v):v:0]" + (Self.keyedSteps(rate: rate, width: width, height: height) + finish + ["format=\(pixelFormat)"]).joined(separator: ",") + "[v\(k)]")
+                    } else if let freeze = clip.freeze {
                         // One frame, held for the clip's length.
                         let (v, from) = input(copy ?? clip.path, freeze, freeze + 1)
                         graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: freeze - from, end: freeze - from + 1, length: length,
@@ -357,21 +400,42 @@ final class ProjectExports {
                     graph.append("color=black:s=\(width)x\(height):r=\(rate):d=\(number(length)),format=\(pixelFormat)[v\(k)]")
                 }
             }
+            if taps != nil { segments.append(("[v\(k)]", "", 0)); continue }
             var audio: String
             // Its own sound, unless it was taken off to a track of its own or it's a held frame.
             if kinds.contains("audio"), clip.ownAudio != false, clip.freeze == nil {
                 let (i, from) = input(clip.path, max(start, 0), end)
-                audio = "[\(i):a:0]atrim=start=\(number(start - from)):end=\(number(end - from)),asetpts=PTS-STARTPTS,volume=\(number(clip.volume))"
+                audio = "[\(i):a:0]atrim=start=\(number(start - from)):end=\(number(end - from)),asetpts=PTS-STARTPTS,volume=\(number(clip.look?.isKeyed(.volume) == true ? 1 : clip.volume))"
                 // Faster or slower, at the same pitch (atempo goes from half to double speed per step).
                 if clip.speed != 1 { audio += "," + tempo(clip.speed) }
+                audio += Self.volumeKeys(clip, offset: before)
             } else {
                 audio = "anullsrc=r=48000:cl=stereo,atrim=duration=\(number(length))"
             }
             let fade = fades(clip.fadeIn, clip.fadeOut, over: clip.length)
             if fade.in > 0 { audio += ",afade=t=in:st=\(number(before)):d=\(number(fade.in))" }
             if fade.out > 0 { audio += ",afade=t=out:st=\(number(before + max(clip.length - fade.out, 0))):d=\(number(fade.out))" }
+            // A transition's sound cut at the cut: silent on the far side of it (the two then added, unfaded).
+            if before > 0, clip.transitionIn?.sound == .cut { audio += ",volume=0:enable='lt(t,\(number(before)))'" }
+            if after > 0, clips[k + 1].transitionIn?.sound == .cut { audio += ",volume=0:enable='gte(t,\(number(before + clip.length)))'" }
             graph.append(audio + ",aformat=sample_rates=48000:channel_layouts=stereo[a\(k)]")
             segments.append(("[v\(k)]", "[a\(k)]", length))
+        }
+        if let taps {
+            // The outgoing clip's last frames and the incoming one's first, for `blend`.
+            let blend = overlap[taps.into] * 2, tail = clips[taps.into - 1].length + overlap[taps.into - 1] + overlap[taps.into]
+            let tag = "setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
+            graph.append("[v\(taps.into - 1)]trim=start=\(number(max(tail - blend, 0))),setpts=PTS-STARTPTS,\(tag)[ta]")
+            graph.append("[v\(taps.into)]trim=duration=\(number(blend)),setpts=PTS-STARTPTS,\(tag)[tb]")
+            var inputs: [String] = []
+            for file in opened {
+                if file.from > 0 { inputs += ["-ss", number(file.from)] }
+                inputs += ["-t", number(file.to - file.from + 1), "-i", file.path]
+            }
+            let prores = ["-c:v", "prores_ks", "-profile:v", "3", "-pix_fmt", "yuv422p10le", "-color_primaries", "bt709", "-color_trc", "bt709",
+                          "-colorspace", "bt709", "-an"]
+            return ["-nostdin", "-y", "-v", "error", "-progress", "pipe:1"] + inputs + ["-filter_complex", graph.joined(separator: ";"),
+                    "-map", "[ta]"] + prores + [taps.a.path, "-map", "[tb]"] + prores + [taps.b.path]
         }
         // Runs of clips cut together, joined to the next run by a dissolve.
         var runs: [(video: String, audio: String, length: Double, overlap: Double)] = []
@@ -394,21 +458,24 @@ final class ProjectExports {
         for (r, run) in runs.enumerated().dropFirst() {
             let blend = run.overlap * 2
             if !audioOnly {
-                let kind = clips[firsts[r]].transitionIn?.kind ?? .dissolve
-                if kind == .dissolve {
-                    graph.append("\(video)\(run.video)xfade=transition=fade:duration=\(number(blend)):offset=\(number(max(length - blend, 0)))[x\(r)v]")
-                } else if kind == .blurDissolve {
-                    graph += ProjectTransitions.blurDissolve(video, run.video, out: "[x\(r)v]", offset: max(length - blend, 0), duration: blend,
-                                                             width: width, label: "xd\(r)")
+                let transition = clips[firsts[r]].transitionIn ?? ProjectTransition(kind: .dissolve, length: blend)
+                let offset = max(length - blend, 0)
+                if let file = blended[firsts[r]] {
+                    // Drawn by `blend` (as the viewer draws it): A up to the overlap, those frames, then the rest of B.
+                    let (i, _) = input(file.path, 0, blend)
+                    graph.append("\(video)trim=end=\(number(offset)),setpts=PTS-STARTPTS[xp\(r)]")
+                    // Untagged like the clips' frames (else ffmpeg converts it from 709 to meet them, shifting its colours).
+                    graph.append("[\(i):v:0]setparams=range=unknown:color_primaries=unknown:color_trc=unknown:colorspace=unknown,fps=\(rate),"
+                                 + "scale=\(width):\(height),setsar=1,format=\(pixelFormat),setpts=PTS-STARTPTS[xm\(r)]")
+                    graph.append("\(run.video)trim=start=\(number(blend)),setpts=PTS-STARTPTS[xn\(r)]")
+                    graph.append("[xp\(r)][xm\(r)][xn\(r)]concat=n=3:v=1:a=0,fps=\(rate)[x\(r)v]")
                 } else {
-                    // Drawn by an expression on full-size planes, then back to the edit's pixels.
-                    let full = pixelFormat.replacingOccurrences(of: "420", with: "444").replacingOccurrences(of: "422", with: "444")
-                    graph.append("\(video)format=\(full)[xa\(r)];\(run.video)format=\(full)[xb\(r)]")
-                    graph.append("[xa\(r)][xb\(r)]xfade=\(ProjectTransitions.xfade(kind)):duration=\(number(blend)):offset=\(number(max(length - blend, 0))),format=\(pixelFormat)[x\(r)v]")
+                    graph.append("\(video)\(run.video)xfade=transition=\(ProjectTransitions.native(transition) ?? "fade"):duration=\(number(blend)):offset=\(number(offset))[x\(r)v]")
                 }
                 video = "[x\(r)v]"
             }
-            graph.append("\(audio)\(run.audio)acrossfade=d=\(number(blend))[x\(r)a]")
+            let cut = clips[firsts[r]].transitionIn?.sound == .cut ? ":c1=nofade:c2=nofade" : ""
+            graph.append("\(audio)\(run.audio)acrossfade=d=\(number(blend))\(cut)[x\(r)a]")
             audio = "[x\(r)a]"
             length += run.length - blend
         }
@@ -425,10 +492,16 @@ final class ProjectExports {
                     var finish: [String] = []
                     if item.fadeIn > 0 { finish.append("fade=t=in:st=0:d=\(number(item.fadeIn)):alpha=1") }
                     if item.fadeOut > 0 { finish.append("fade=t=out:st=\(number(max(item.length - item.fadeOut, 0))):d=\(number(item.fadeOut)):alpha=1") }
-                    let (v, from) = input(item.path, item.start, item.end)
-                    graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: item.start - from, end: item.end - from, length: item.length,
-                                                  look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true, path: item.path,
-                                                  pixelFormat: pixelFormat)
+                    if let file = keyed[item.id] {
+                        let (v, _) = input(file.path, 0, item.length)
+                        let clearFormat = pixelFormat.hasPrefix("yuva") ? pixelFormat : "yuva" + pixelFormat.dropFirst(3)
+                        graph.append("[\(v):v:0]" + (Self.keyedSteps(rate: rate, width: width, height: height) + ["format=\(clearFormat)"] + finish).joined(separator: ",") + "[v\(k)]")
+                    } else {
+                        let (v, from) = input(item.path, item.start, item.end)
+                        graph += ClipLook.ffmpegChain(input: "[\(v):v:0]", start: item.start - from, end: item.end - from, length: item.length,
+                                                      look: item.look, k: k, width: width, height: height, rate: rate, finish: finish, clear: true, path: item.path,
+                                                      pixelFormat: pixelFormat)
+                    }
                     graph.append("[v\(k)]setpts=PTS+\(number(at))/TB[o\(layer)]")
                     graph.append("\(picture)[o\(layer)]overlay=x=0:y=0:eof_action=pass\(pixelFormat == "yuv420p" ? "" : ":format=auto"):enable='between(t,\(number(at)),\(number(at + item.length)))'[l\(layer)]")
                     picture = "[l\(layer)]"
@@ -461,8 +534,9 @@ final class ProjectExports {
             for item in track.items where item.ownAudio != false && streams[item.path]?.contains("audio") == true {
                 let (i, from) = input(item.path, item.start, item.end)
                 let delay = Int((item.at ?? 0) * 1000)
-                var chain = "[\(i):a:0]atrim=start=\(number(item.start - from)):end=\(number(item.end - from)),asetpts=PTS-STARTPTS,volume=\(number(item.volume))"
+                var chain = "[\(i):a:0]atrim=start=\(number(item.start - from)):end=\(number(item.end - from)),asetpts=PTS-STARTPTS,volume=\(number(item.look?.isKeyed(.volume) == true ? 1 : item.volume))"
                 if item.speed != 1 { chain += "," + tempo(item.speed) }
+                chain += Self.volumeKeys(item, offset: 0)
                 let fade = fades(item.fadeIn, item.fadeOut, over: item.length)
                 if fade.in > 0 { chain += ",afade=t=in:d=\(number(fade.in))" }
                 if fade.out > 0 { chain += ",afade=t=out:st=\(number(max(item.length - fade.out, 0))):d=\(number(fade.out))" }
