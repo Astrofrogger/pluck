@@ -57,6 +57,7 @@ struct State {
     progress: HashMap<String, f64>,
     backoff: HashMap<String, (Instant, Duration)>, // failed copies: not before, current step
     quiet: Repeat,
+    branding: Option<Value>, // the last branding + activityDays applied here (memory only: a restart applies once)
 }
 
 pub struct Shared {
@@ -118,6 +119,8 @@ impl Shared {
         let v = std::fs::read(data.join("replica.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
             .unwrap_or_else(|| json!({"mainSeq": 0, "storeSeq": 0, "pushed": 0, "versions": {}}));
         let mut st = State { v, ..Default::default() };
+        // Left over from a copy cut short by the last run.
+        let _ = std::fs::remove_dir_all(replica_tmp(data));
         // A copy interrupted by a restart starts again.
         for (_, x) in st.v["versions"].as_object_mut().into_iter().flatten() {
             if x["state"] == "making" {
@@ -191,6 +194,11 @@ impl Shared {
         if let Some(n) = st.inflight.get_mut(vid) {
             *n = n.saturating_sub(1);
         }
+    }
+
+    #[cfg(test)]
+    pub fn inflight(&self, vid: &str) -> usize {
+        self.st.lock().unwrap().inflight.get(vid).copied().unwrap_or(0)
     }
 
     /// A fetch of a version this backup hasn't got: Some(progress) when it's coming (it goes to
@@ -423,7 +431,8 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
         anyhow::ensure!(page.get("error").is_none(), "changes: {page}");
         let mut op = page.clone();
         op["op"] = json!("_replica-apply");
-        host_op(to_host, op).await?;
+        let r = host_op(to_host, op).await?;
+        anyhow::ensure!(r.get("error").is_none(), "applying the main's changes: {r}"); // retried next round, storeSeq unchanged
         store_seq = page["storeSeq"].as_u64().unwrap_or(store_seq);
         if page["more"] != true {
             break;
@@ -504,7 +513,73 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
         }
         let _ = host_op(to_host, json!({"op": "reload"})).await; // ready.json is there: browsers can play it
     }
+    // Last, so a manifest too big for one line costs only the branding: `changes` doesn't carry it.
+    let line = branding(shared, to_host, c).await.err().and_then(|e| shared.st.lock().unwrap().quiet.note(format!("backup: branding: {e:#}")));
+    if let Some(l) = line {
+        log(l);
+    }
     Ok(())
+}
+
+/// The bundle files a manifest's branding and link headers name (only branding/…, all a backup may `get`).
+fn branding_files(m: &Value) -> Vec<String> {
+    let b = &m["branding"];
+    let mut out: Vec<String> = ["logo", "logoLight", "header"].iter().filter_map(|k| b[*k].as_str())
+        .chain(m["links"].as_array().into_iter().flatten().filter_map(|l| l["header"].as_str()))
+        .filter(|p| p.starts_with("branding/") && host::safe_rel(p).is_some()).map(str::to_owned).collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// The main's branding (with its pictures) and activityDays, applied here (§13.3).
+async fn branding(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut Client) -> Result<()> {
+    let m = c.ask(&json!({"op": "manifest"})).await?;
+    anyhow::ensure!(m.get("error").is_none(), "manifest: {m}");
+    // The names are fixed (logo.png, header.jpg…), so a new logo only shows in its bytes: fetched each round (small),
+    // replaced only when they differ.
+    let mut changed = false;
+    for rel in branding_files(&m) {
+        let dest = shared.data.join("bundle").join(&rel);
+        let part = part_of(&dest);
+        let got = fetch_to(c, &rel, &part).await;
+        if got.is_err() {
+            let _ = tokio::fs::remove_file(&part).await;
+        }
+        changed |= settle(got?, &part, &dest)?;
+    }
+    let mut op = json!({"op": "_replica-apply", "branding": m.get("branding").cloned().unwrap_or(Value::Null)});
+    if let Some(d) = m.get("activityDays").filter(|d| d.is_i64()) {
+        op["activityDays"] = d.clone();
+    }
+    if !changed && shared.st.lock().unwrap().branding.as_ref() == Some(&op) {
+        return Ok(()); // nothing new since the last round
+    }
+    let r = host_op(to_host, op.clone()).await?;
+    anyhow::ensure!(r.get("error").is_none(), "applying the branding: {r}");
+    shared.st.lock().unwrap().branding = Some(op);
+    Ok(())
+}
+
+fn part_of(dest: &Path) -> PathBuf {
+    let mut p = dest.as_os_str().to_owned();
+    p.push(".part");
+    p.into()
+}
+
+/// A downloaded `part` into place whole (a browser never gets half a picture), only when its bytes are new;
+/// gone from the main (`got` false): gone here. True when `dest` changed.
+fn settle(got: bool, part: &Path, dest: &Path) -> Result<bool> {
+    if !got {
+        let _ = std::fs::remove_file(part);
+        return Ok(std::fs::remove_file(dest).is_ok());
+    }
+    if std::fs::read(dest).ok() == Some(std::fs::read(part)?) {
+        std::fs::remove_file(part)?;
+        return Ok(false);
+    }
+    std::fs::rename(part, dest)?;
+    Ok(true)
 }
 
 /// One version's copies from the main, complete, in a temp folder (`place` puts it in copies/<V>).
@@ -572,6 +647,11 @@ async fn copy_rendition(c: &mut Client, from: &str, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Not data/tmp: sweep_tmp prunes that after 10 min, mid-download.
+fn replica_tmp(data: &Path) -> PathBuf {
+    data.join("replica-tmp")
+}
+
 /// The pictures of one copies folder (plain or wm-<link>): renditions per quality, stills, extras.
 #[allow(clippy::too_many_arguments)]
 async fn copy_dir(c: &mut Client, from: &str, to: &Path, renditions: &[String], info: &Value, quality: &str, kind: &str, data: &Path, vid: &str) -> Result<Vec<String>> {
@@ -597,13 +677,14 @@ async fn copy_dir(c: &mut Client, from: &str, to: &Path, renditions: &[String], 
         }
         return Ok(have);
     }
-    // The main's highest video rendition, as one MP4 in /tmp, transcoded to ours, then deleted.
+    // The main's highest video rendition, as one MP4 under the data dir (/tmp may be a small tmpfs), transcoded to ours, then deleted.
     let top = video.iter().max_by_key(|r| r.parse::<u64>().unwrap_or(0)).unwrap();
     let mut ib = Vec::new();
     c.get(&format!("{from}/{top}/index.json"), None, &mut ib).await?.context("no index.json")?;
     let idx: Value = serde_json::from_slice(&ib)?;
-    let src = std::env::temp_dir().join(format!("pluck-replica-{vid}-{}.mp4", host::uuid()));
+    let src = replica_tmp(data).join(format!("{vid}-{}.mp4", host::uuid()));
     let r = async {
+        tokio::fs::create_dir_all(src.parent().unwrap()).await?;
         let mut f = tokio::fs::File::create(&src).await?;
         for part in std::iter::once(&idx["init"]).chain(idx["segments"].as_array().into_iter().flatten()) {
             let file = part["file"].as_str().filter(|f| crate::upload_root::name_ok(f)).context("bad index")?;
@@ -625,7 +706,6 @@ async fn copy_dir(c: &mut Client, from: &str, to: &Path, renditions: &[String], 
         anyhow::Ok(name.to_owned())
     }.await;
     let _ = tokio::fs::remove_file(&src).await;
-    let _ = data;
     have.push(r?);
     // The main's 360 copy as it is (no transcode, ~0.5 Mbit/s): slow links still play from a backup.
     if video.iter().any(|r| r.as_str() == "360") && !have.iter().any(|r| r == "360") {
@@ -753,6 +833,43 @@ mod tests {
         s.st.lock().unwrap().last_ok = Some(Instant::now());
         assert_eq!(s.recall("V1"), Some(0.0));
         assert_eq!(s.next(&plan).unwrap()["id"], "V1", "but a recall makes one");
+    }
+
+    #[test]
+    fn leftover_replica_temp_goes_at_start() {
+        let d = std::env::temp_dir().join(format!("pluck-replica-{}", host::uuid()));
+        std::fs::create_dir_all(replica_tmp(&d)).unwrap();
+        std::fs::write(replica_tmp(&d).join("V-x.mp4"), b"x").unwrap();
+        Shared::load(&d, 1, "1080-low");
+        assert!(!replica_tmp(&d).exists());
+        assert!(replica_tmp(&d).starts_with(&d), "under the data dir, not a tmpfs /tmp");
+    }
+
+    #[test]
+    fn branding_files_go_in_whole_and_only_when_new() {
+        let d = std::env::temp_dir().join(format!("pluck-replica-{}", host::uuid()));
+        std::fs::create_dir_all(&d).unwrap();
+        let (dest, part) = (d.join("logo.png"), part_of(&d.join("logo.png")));
+        std::fs::write(&part, b"one").unwrap();
+        assert!(settle(true, &part, &dest).unwrap(), "new: moved into place");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"one");
+        assert!(!part.exists());
+        std::fs::write(&part, b"one").unwrap();
+        assert!(!settle(true, &part, &dest).unwrap(), "same bytes: unchanged");
+        assert!(!part.exists());
+        std::fs::write(&part, b"two").unwrap();
+        assert!(settle(true, &part, &dest).unwrap());
+        assert_eq!(std::fs::read(&dest).unwrap(), b"two");
+        assert!(settle(false, &part, &dest).unwrap() && !dest.exists(), "gone from the main: gone here");
+        assert!(!settle(false, &part, &dest).unwrap());
+    }
+
+    #[test]
+    fn branding_files_are_only_safe_branding_paths() {
+        let m = json!({"branding": {"logo": "branding/logo.png", "logoLight": "../x.png", "header": "branding/h.jpg"},
+            "links": [{"header": "branding/l1.jpg"}, {"header": "copies/V/poster.jpg"}, {"header": "branding/h.jpg"}]});
+        assert_eq!(branding_files(&m), ["branding/h.jpg", "branding/l1.jpg", "branding/logo.png"]);
+        assert!(branding_files(&json!({})).is_empty());
     }
 
     #[test]

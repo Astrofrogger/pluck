@@ -6,7 +6,8 @@ Wants=network-online.target
 [Service]
 User=pluck-review
 Group=pluck-review
-ExecStart=/opt/pluck-review/current/pluck-review --host /var/lib/pluck-review --backup
+# The role and, for a main host, its media and ports come from the env file (PLUCK_ROLE, PLUCK_ARGS).
+ExecStart=/opt/pluck-review/current/pluck-review --host /var/lib/pluck-review $PLUCK_ARGS
 EnvironmentFile=/etc/pluck-review/env
 Restart=on-failure
 RestartSec=5
@@ -20,7 +21,7 @@ PrivateDevices=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectControlGroups=yes
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
 LockPersonality=yes
 MemoryDenyWriteExecute=yes

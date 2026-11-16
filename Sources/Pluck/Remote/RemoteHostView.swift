@@ -161,7 +161,7 @@ struct RemoteSharesList: View {
     }
 }
 
-/// What a paired Mac may do on this Mac (Paired Macs): browse, fetch proxies, fetch originals, render.
+/// What a paired Mac may do on this Mac (Paired Macs): browse, fetch proxies, fetch originals, render, full trust.
 struct RemoteRightsMenu: View {
     let device: OfficeRenderServer.Device
 
@@ -180,6 +180,13 @@ struct RemoteRightsMenu: View {
                     OfficeRenderServer.shared.setRights(rights, for: device.id)
                 }))
             }
+            Divider()
+            Toggle("Full Trust", isOn: Binding(get: { device.allowed.fullTrust }, set: { value in
+                var rights = device.allowed
+                rights.fullTrust = value
+                OfficeRenderServer.shared.setRights(rights, for: device.id)
+            }))
+            .help("Renders anything this Mac sends, without checking which files it uses. Only for your own Macs.")
         } label: {
             HStack(spacing: 6) {
                 ForEach(Self.rights.indices, id: \.self) { index in
@@ -187,6 +194,7 @@ struct RemoteRightsMenu: View {
                     Image(systemName: symbol).font(.system(size: 11))
                         .foregroundStyle(device.allowed[keyPath: key] ? Design.Studio.text : Design.Studio.textFaint)
                 }
+                if device.allowed.fullTrust { Image(systemName: "checkmark.shield").font(.system(size: 11)).foregroundStyle(Design.Studio.text) }
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
             }
             .frame(height: 28)

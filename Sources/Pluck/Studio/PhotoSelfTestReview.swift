@@ -1211,6 +1211,8 @@ final class ReviewFakeHost {
     var paired: [String] = []
     var offsetOnce = true
     var uploads: [String: Data] = [:]
+    /// `changes` in pages of this many objects (oldest first), like the real host.
+    var pageLimit: Int?
 
     private func stamp(_ wire: [String: Any]) -> DeliverMerge.Stamp {
         DeliverMerge.Stamp(rev: wire["rev"] as? Int ?? 0, at: (wire["at"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .distantPast, by: wire["by"] as? String ?? "")
@@ -1264,6 +1266,16 @@ final class ReviewFakeHost {
                 _ = put(tombstone["kind"] as? String ?? "", tombstone, tombstone: true)
             }
             return ["ok": true, "missing": [String](), "stale": stale, "storeSeq": storeSeq]
+        case "changes" where pageLimit != nil:
+            let since = request["since"] as? Int ?? 0
+            let all = objects.filter { $0.value.seq > since }.sorted { $0.value.seq < $1.value.seq }
+            let page = all.prefix(pageLimit!)
+            var answer: [String: Any] = ["more": page.count < all.count, "storeSeq": page.count < all.count ? page.last!.value.seq : storeSeq]
+            for (kind, field) in [("project", "projects"), ("folder", "folders"), ("asset", "assets"), ("link", "links")] {
+                answer[field] = page.filter { $0.key.hasPrefix(kind + ":") && !$0.value.tombstone }.map { $0.value.wire.merging(["seq": $0.value.seq]) { $1 } }
+            }
+            answer["removed"] = page.filter(\.value.tombstone).map { $0.value.wire.merging(["seq": $0.value.seq]) { $1 } }
+            return answer
         case "changes":
             let since = request["since"] as? Int ?? 0
             var answer: [String: Any] = ["storeSeq": storeSeq, "more": false]
@@ -1308,6 +1320,105 @@ final class ReviewFakeHost {
 }
 
 extension PhotoSelfTest {
+    /// Regressions for the second bug pass on the data host (sync paging, host versions, foreign links, wire fields…).
+    static func reviewFixes2(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, sync: DeliverSync, host: Deliver.Host, project: UUID, base: URL) async {
+        // A host version: no copy job (nothing to stamp or send), and its `original` goes back as it came.
+        if let teaser = store.content(project).assets.first(where: { $0.name == "Teaser" }) {
+            var wire = fake.objects["asset:" + teaser.id.uuidString]!.wire
+            var versions = wire["versions"] as? [[String: Any]] ?? []
+            versions[0]["original"] = "originals/\(teaser.current.id.uuidString).mov"
+            versions[0]["renditions"] = ["1080", "540"]
+            wire["versions"] = versions
+            wire["rev"] = (wire["rev"] as? Int ?? 1) + 1
+            fake.storeSeq += 1
+            fake.objects["asset:" + teaser.id.uuidString] = (wire, fake.storeSeq, false)
+            await sync.round()
+            let copies = DeliverCopies(store: store)
+            let rev = store.find(teaser.id)?.asset.rev, waiting = sync.outbox().count
+            copies.enqueue(asset: teaser.id, version: teaser.current.id)
+            let state = store.find(teaser.id)?.asset.current.copy
+            let item = (publish.manifest(project: project, only: [teaser.id], host: host, onlyLinks: []).json["projects"] as? [[String: Any]])?.first?["assets"] as? [[String: Any]]
+            let sent = (item?.first?["versions"] as? [[String: Any]])?.first ?? [:]
+            let plain = (publish.manifest(project: project, only: [teaser.id], host: host).json["projects"] as? [[String: Any]])?.first?["assets"] as? [[String: Any]]
+            check("fixes2: a plain publish to another host doesn't claim the data host's original",
+                  ((plain?.first?["versions"] as? [[String: Any]])?.first ?? [:])["original"] == nil, "")
+            check("fixes2: a host version makes no copies and keeps its original and renditions", copies.working == nil && state == .ready(["1080", "540"])
+                  && store.find(teaser.id)?.asset.rev == rev && sync.outbox().count == waiting
+                  && sent["original"] as? String == "originals/\(teaser.current.id.uuidString).mov" && sent["renditions"] as? [String] == ["1080", "540"],
+                  "\(String(describing: rev)) \(waiting) \(sent)")
+        }
+
+        // `changes` in pages: an asset on an earlier page than its project's meta still goes in.
+        let newProject = UUID(), newAsset = UUID(), stamp = DeliverServer.date(.now)
+        fake.storeSeq += 1
+        fake.objects["asset:" + newAsset.uuidString] = (["id": newAsset.uuidString, "project": newProject.uuidString, "name": "Paged", "kind": "video", "status": "none",
+                                                          "versions": [["id": UUID().uuidString, "number": 1, "size": 1, "renditions": ["1080"]]],
+                                                          "rev": 1, "at": stamp, "by": "another"], fake.storeSeq, false)
+        fake.storeSeq += 1
+        fake.objects["project:" + newProject.uuidString] = (["id": newProject.uuidString, "name": "Paged project", "hidden": true, "rev": 1, "at": stamp, "by": "another"], fake.storeSeq, false)
+        fake.pageLimit = 1
+        await sync.round()
+        fake.pageLimit = nil
+        check("fixes2: changes pages apply together (projects first), hidden comes over", store.find(newAsset)?.project == newProject
+              && store.project(newProject)?.hidden == true && sync.state.storeSeq == fake.storeSeq, "\(sync.state.storeSeq) \(fake.storeSeq)")
+        // A folder whose project never comes (all pages read): storeSeq still moves on, not re-read every round.
+        fake.storeSeq += 1
+        fake.objects["folder:" + UUID().uuidString] = (["id": UUID().uuidString, "project": UUID().uuidString, "name": "Orphan", "rev": 1, "at": stamp, "by": "another"], fake.storeSeq, false)
+        fake.pageLimit = 1
+        await sync.round()
+        fake.pageLimit = nil
+        check("fixes2: an object whose project never comes doesn't hold storeSeq back", sync.state.storeSeq == fake.storeSeq, "\(sync.state.storeSeq) \(fake.storeSeq)")
+        if var hidden = store.project(newProject) {
+            hidden.hidden = true
+            check("fixes2: hidden goes on the wire", ReviewPublish.meta(hidden)["hidden"] as? Bool == true && DeliverSync.project(ReviewPublish.meta(hidden))?.hidden == true, "")
+        }
+
+        // A link made on another Mac (no key here) isn't "dead": a publish never asks a host to drop it.
+        let foreignID = UUID()
+        if let foreign = DeliverSync.link(["id": foreignID.uuidString, "roomID": "room-\(foreignID.uuidString.prefix(8))", "project": project.uuidString,
+                                           "root": ["kind": "project", "id": project.uuidString], "madeOn": "Another Mac", "rev": 1, "at": stamp, "by": "another"]) {
+            store.applyLink(foreign)
+        }
+        check("fixes2: another Mac's link isn't removed from hosts", store.link(foreignID).map(store.isForeign) == true && !publish.deadLinks(project).contains(foreignID.uuidString), "")
+        // Turning it off here reaches the data host by the merge, without secrets (the host keeps its own).
+        store.revoke(foreignID)
+        await sync.round()
+        let offWire = fake.objects["link:" + foreignID.uuidString]?.wire ?? [:]
+        check("fixes2: another Mac's link turned off here reaches the NAS", offWire["revoked"] is String && offWire["reg"] == nil && offWire["sign"] == nil
+              && (offWire["rev"] as? Int ?? 0) >= 2, "\(offWire.keys.sorted())")
+
+        // An error answer (not just offline) shows in the footer.
+        ReviewHostClient.fake = { request, payload in request["op"] as? String == "changes" ? ["error": "auth"] : fake.answer(request, payload) }
+        await sync.round()
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        let refused = sync.problem
+        await sync.round()
+        check("fixes2: a refused sync says so, then clears", refused != nil && sync.problem == nil && sync.footer?.hasPrefix(String(localized: "Synced with")) == true, "\(String(describing: refused))")
+        ReviewHostClient.fake = { request, payload in request["op"] as? String == "changes" ? ["error": "disk-full"] : fake.answer(request, payload) }
+        await sync.round()
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        check("fixes2: an unknown host error reads as a sentence, not its code", sync.problem == String(localized: "the NAS refused the change"), "\(String(describing: sync.problem))")
+        await sync.round()
+
+        // Captions: word times in seconds, spread over their cue.
+        let clip = base.appendingPathComponent("Words.mov"), out = base.appendingPathComponent("words-copy", isDirectory: true)
+        try? "1\n00:00:01,000 --> 00:00:03,000\nhello world\n".write(to: base.appendingPathComponent("Words.srt"), atomically: true, encoding: .utf8)
+        try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        DeliverCopies.captions(for: clip, duration: 4, into: out)
+        let words = ((try? Data(contentsOf: out.appendingPathComponent("transcript.json"))).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["words"] as? [[Any]] ?? []
+        let times = words.map { [($0[0] as? NSNumber)?.doubleValue ?? -1, ($0[1] as? NSNumber)?.doubleValue ?? -1] }
+        check("fixes2: caption word times", times == [[1, 2], [2, 3]], "\(times)")
+
+        // The proof hashes the highest copy there.
+        let copyFolder = base.appendingPathComponent("hash-copy", isDirectory: true)
+        try? FileManager.default.createDirectory(at: copyFolder.appendingPathComponent("540"), withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: copyFolder.appendingPathComponent("540/media.m4s").path, contents: Data([1]))
+        let picked = DeliverProof.copyToHash(copyFolder).path.hasSuffix("540/media.m4s")
+        try? FileManager.default.removeItem(at: copyFolder.appendingPathComponent("540"))
+        FileManager.default.createFile(atPath: copyFolder.appendingPathComponent("image.jpg").path, contents: Data([1]))
+        check("fixes2: proof hashes the highest copy or the picture", picked && DeliverProof.copyToHash(copyFolder).lastPathComponent == "image.jpg", "")
+    }
+
     /// Round 3 (§13.18, R1): merge vectors, the outbox and migration against a fake NAS, NAS invitations, the route,
     /// watched folders, Resolve markers, the message, the proof, deadlines, protocol levels, TrueNAS, host release
     /// signatures, and Browse.
@@ -1408,6 +1519,7 @@ extension PhotoSelfTest {
         await reloaded.round()
         let teaser = store.content(project.id).assets.first { $0.name == "Teaser" }
         check("round3: changes from the host merge in", teaser != nil && teaser?.current.path.hasPrefix("host:") == true, "\(store.content(project.id).assets.map(\.name))")
+        await reviewFixes2(fake: fake, store: store, publish: publish, sync: reloaded, host: host, project: project.id, base: base)
 
         // NAS invitations (v3, k:"nas").
         let node = String(repeating: "a1", count: 32)
@@ -1511,6 +1623,22 @@ extension PhotoSelfTest {
               && at50.map { $0["frame"] as? Int } == [21, 40] && at50.map { $0["duration"] as? Int } == [2, 20]
               && at25.first?["color"] as? String == "Red" && at25.first?["name"] as? String == "Client: Logo early"
               && note == "Logo early\n— Editor: Moved" && at25.first?["data"] as? String == "pluck:\(c1.id.uuidString)", "\(at25) \(at50)")
+
+        // Sending again removes only this asset's (and deleted comments') Pluck markers, not another asset's.
+        let otherAsset = UUID(), otherComment = UUID(), gone = UUID(), oldVersion = UUID()
+        var removed: [String] = []
+        DeliverResolveMarkers.bridge = { instruction in
+            if instruction["action"] as? String == "timelineInfo" {
+                return ["timeline": "Hero edit", "rate": 25.0, "start": 0, "end": 100,
+                        "markers": [["frame": 50, "data": "pluck:\(otherComment.uuidString)"], ["frame": 60, "data": "pluck:\(gone.uuidString)"],
+                                    ["frame": 70, "data": "pluck:\(oldVersion.uuidString)"], ["frame": 80, "data": "pluck:\(c1.id.uuidString)"]]]
+            }
+            removed = instruction["remove"] as? [String] ?? []
+            return ["added": 0]
+        }
+        _ = try? await DeliverResolveMarkers.send(asset, asset.current, comments: [c1, c2], openOnly: true, includeInternal: false,
+                                                  owner: { $0 == otherComment ? otherAsset : $0 == oldVersion ? asset.id : nil }) { _ in true }
+        check("fixes2: Resolve markers of another asset stay", Set(removed) == Set(["pluck:\(gone.uuidString)", "pluck:\(oldVersion.uuidString)", "pluck:\(c1.id.uuidString)"]), "\(removed)")
 
         // The message.
         let message = DeliverMessage.render("en", title: "Spring – cuts", link: "https://pluck.tools/r/x#k", password: true, deadline: nil, expires: nil, recipient: nil)
@@ -1695,6 +1823,44 @@ extension PhotoSelfTest {
               && DeliverBackup.command(tag: "v1.0.0", sha256: "x", storage: "local-lvm", size: 58, quality: "1080-low", cores: 2, memory: 2048, bridge: "vmbr0", name: "pluck-backup", ip: nil, link: "pluck://edit-anywhere/join?i=a") == nil
               && DeliverBackup.command(tag: "v1.0.0", sha256: String(repeating: "a", count: 64), storage: "local-lvm", size: 58, quality: "1080-low", cores: 2, memory: 2048, bridge: "vmbr0", name: "Bad Name", ip: nil, link: "pluck://edit-anywhere/join?i=a") == nil
               && DeliverBackup.hours(50, quality: "1080-low").map { Int($0) } == 36 && DeliverBackup.hours(50, quality: "same") == nil, command ?? "")
+        // Either platform in either role: Proxmox as the main host (media mounts, no link), TrueNAS as a backup (its own app and ports).
+        let sha = String(repeating: "a", count: 64)
+        let mainCommand = DeliverBackup.command(tag: "v1.0.0", sha256: sha, storage: "local-lvm", size: 50, quality: "1080-low", cores: 2, memory: 2048,
+                                                bridge: "vmbr0", name: "pluck-review", ip: nil, media: ["/tank/media", "/tank/b-roll"], link: nil)
+        let mainBad = ["relative", "/a b", "/a,ro=0", "/tank/../etc", "/x'y"].allSatisfy {
+            DeliverBackup.command(tag: "v1.0.0", sha256: sha, storage: "local-lvm", size: 50, quality: "1080-low", cores: 2, memory: 2048,
+                                  bridge: "vmbr0", name: "pluck-review", ip: nil, media: [$0], link: nil) == nil }
+        let noMedia = DeliverBackup.command(tag: "v1.0.0", sha256: sha, storage: "local-lvm", size: 50, quality: "1080-low", cores: 2, memory: 2048,
+                                            bridge: "vmbr0", name: "pluck-review", ip: nil, link: nil) == nil
+        let both = DeliverBackup.command(tag: "v1.0.0", sha256: sha, storage: "local-lvm", size: 50, quality: "1080-low", cores: 2, memory: 2048,
+                                         bridge: "vmbr0", name: "pluck-review", ip: nil, media: ["/tank/media"], link: "pluck://edit-anywhere/join?i=a") == nil
+        let fpLine = Array(repeating: "AB", count: 32).joined(separator: ":")
+        let keyLine = DeliverKeys.base64url(Data(repeating: 9, count: 32))
+        let line = DeliverBackup.hostLine("192.0.2.50:8790 pluck-host:\(keyLine)@\(fpLine)\n")
+        let truenasBackup = TrueNASSetup()
+        truenasBackup.role = .backup
+        truenasBackup.mainLink = "pluck://edit-anywhere/join?i=a"
+        truenasBackup.quality = "same"
+        let backupValues = truenasBackup.values(hostKey: "k").values
+        let mainWithMedia = TrueNASSetup()
+        mainWithMedia.media = [(dataset: "tank/media", id: "nas1")]
+        check("roles: a TrueNAS backup (or a main without media) mounts no media, never its data dataset",
+              !truenasBackup.values(hostKey: "k").blocks.contains("media1") && !TrueNASSetup().values(hostKey: "k").blocks.contains("media1")
+              && mainWithMedia.values(hostKey: "k").blocks.contains("media1") && mainWithMedia.values(hostKey: "k").values["media1"] == "/mnt/tank/media", "")
+        let mainValues = TrueNASSetup().values(hostKey: "k").values
+        check("roles: Proxmox main command, its pairing line, TrueNAS backup values",
+              mainCommand?.contains("--role host ") == true && mainCommand?.contains("--media '/tank/media' --media '/tank/b-roll'") == true
+              && mainCommand?.contains("--pair") == false && mainCommand?.contains("--quality") == false && command?.contains("--role") == false
+              && mainBad && noMedia && both
+              && DeliverBackup.ipOK("192.0.2.50/24,gw=192.0.2.1") && !DeliverBackup.ipOK("192.0.2.50/24") && !DeliverBackup.ipOK("192.0.2.50")
+              && DeliverBackup.command(tag: "v1.0.0", sha256: sha, storage: "local-lvm", size: 50, quality: "1080-low", cores: 2, memory: 2048,
+                                       bridge: "vmbr0", name: "pluck-review", ip: "192.0.2.50/24", media: ["/tank/media"], link: nil) == nil
+              && line?.address == "192.0.2.50:8790" && line.flatMap { ReviewHostClient.pairing($0.pairing)?.pin } == fpLine
+              && DeliverBackup.hostLine("192.0.2.50:8790 \(keyLine)") == nil && DeliverBackup.hostLine("pluck-host:\(keyLine)@\(fpLine)") == nil
+              && backupValues["role"] == "backup" && backupValues["main_link"] == "pluck://edit-anywhere/join?i=a" && backupValues["backup_quality"] == "same"
+              && backupValues["backup_max"] == "50G" && backupValues["sync_port"] == "8792"
+              && mainValues["role"] == "main" && mainValues["main_link"] == "" && mainValues["backup_max"] == "" && mainValues["sync_port"] == "8790",
+              mainCommand ?? "")
 
         // Browse: a NAS's places through its Finder source, offline keeps the last listing; Share for review matches by key.
         let source = NASFinderSource(host: host)

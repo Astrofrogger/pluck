@@ -48,7 +48,9 @@ enum DeliverResolveMarkers {
     struct Failure: LocalizedError { var message: String; var errorDescription: String? { message } }
 
     /// The open timeline's info, then the markers; `confirm` is asked when the lengths differ by more than a second.
+    /// `owner`: the asset a comment id belongs to, nil when no comment has it (deleted).
     static func send(_ asset: Deliver.Asset, _ version: Deliver.Version, comments: [Deliver.Comment], openOnly: Bool, includeInternal: Bool,
+                     owner: @MainActor (UUID) -> UUID? = { DeliverStore.shared.comment($0)?.asset },
                      confirm: (String) async -> Bool) async throws -> Result? {
         guard let probe = version.probe else { throw Failure(message: String(localized: "This version has no frames to mark.")) }
         let info: [String: Any]
@@ -65,14 +67,21 @@ enum DeliverResolveMarkers {
             guard await confirm(String(localized: "The open timeline \(name) is \(a) long; this video is \(b). Add markers anyway?")) else { return nil }
         }
         let ours = markers(comments, probe: probe, rate: rate, openOnly: openOnly, includeInternal: includeInternal)
-        let mine = Set(ours.map(\.data))
-        // Pluck's own markers go before the new ones are added, so their frames aren't taken.
-        let occupied = Set((info["markers"] as? [[String: Any]] ?? []).compactMap { marker -> Int? in
-            guard let frame = marker["frame"] as? Int, !mine.contains(marker["data"] as? String ?? "") else { return nil }
+        // This asset's Pluck markers (any version) and those of deleted comments go before the new ones are added
+        // (a comment since resolved or left out this time too), so their frames aren't taken. Other assets' stay.
+        let there = info["markers"] as? [[String: Any]] ?? []
+        let mine = Set(comments.map(\.id))
+        let old = Set(there.compactMap { $0["data"] as? String }.filter { data in
+            guard data.hasPrefix("pluck:") else { return false }
+            guard let id = UUID(uuidString: String(data.dropFirst(6))), !mine.contains(id) else { return true }
+            return owner(id).map { $0 == asset.id } ?? true
+        })
+        let occupied = Set(there.compactMap { marker -> Int? in
+            guard let frame = marker["frame"] as? Int, !old.contains(marker["data"] as? String ?? "") else { return nil }
             return frame
         })
         let (placed, moved, skipped) = place(ours, occupied: occupied)
-        let answer = try await bridge(["action": "addMarkers", "markers": placed.map(\.json)])
+        let answer = try await bridge(["action": "addMarkers", "markers": placed.map(\.json), "remove": old.sorted()])
         return Result(timeline: name, added: answer["added"] as? Int ?? 0, moved: moved + (answer["moved"] as? [String] ?? []),
                       skipped: skipped + (answer["skipped"] as? [String] ?? []))
     }

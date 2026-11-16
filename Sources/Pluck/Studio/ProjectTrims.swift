@@ -15,6 +15,7 @@ enum TrimMath {
         var left = left, right = right
         left.end += moved * left.speed
         right.start += moved * right.speed
+        right.look?.shiftKeys(by: moved)
         return (left, right, moved)
     }
 
@@ -58,7 +59,7 @@ extension ProjectModel {
         let old = project.clips[index]
         guard cut >= frame, cut <= old.length - frame else { return }
         let at = offsets[index]
-        change { project in var clip = old; clip.start += cut * old.speed; project.setClip(clip) }
+        change { project in var clip = old; clip.start += cut * old.speed; let shift = cut; clip.look?.shiftKeys(by: shift); project.setClip(clip) }
         seek(to: at)
     }
 

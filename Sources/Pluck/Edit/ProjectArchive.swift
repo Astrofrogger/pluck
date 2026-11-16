@@ -492,8 +492,18 @@ out({"error": "Unknown action " + action})
             }
             // A piece cut on an earlier run is used again (cut anew it might differ, and the copy already
             // archived would then not match it).
+            // ...but only if it was cut from the same source and range (a sidecar remembers which).
+            let sidecar = output.deletingLastPathComponent().appendingPathComponent(".cut-" + output.lastPathComponent)
+            let signature = (arguments + ["\(item.size)", "\(item.modified.timeIntervalSince1970)"]).joined(separator: "\u{1}")
+            if (try? String(contentsOf: sidecar, encoding: .utf8)) != signature {
+                try? FileManager.default.removeItem(at: output)
+                try? FileManager.default.removeItem(at: sidecar)
+            }
             if !FileManager.default.fileExists(atPath: output.path) {
-                if run(ffmpeg, arguments + ["-f", kind(of: output), partial.path]).status == 0 { try? FileManager.default.moveItem(at: partial, to: output) }
+                if run(ffmpeg, arguments + ["-f", kind(of: output), partial.path]).status == 0 {
+                    try? FileManager.default.moveItem(at: partial, to: output)
+                    try? signature.write(to: sidecar, atomically: true, encoding: .utf8)
+                }
                 try? FileManager.default.removeItem(at: partial)
             }
             guard let values = try? output.resourceValues(forKeys: [.fileSizeKey]), (values.fileSize ?? 0) > 0 else {
@@ -525,7 +535,7 @@ out({"error": "Unknown action " + action})
 
     /// The Pluck project, pointing at the archived copies (a trimmed clip's times moved to its
     /// piece), as a new project of its own (so it never replaces the original when opened).
-    static func relinked(_ project: Project, items: [Item], archive: URL) -> Project {
+    @MainActor static func relinked(_ project: Project, items: [Item], archive: URL) -> Project {
         var copy = project
         // Its own ID, the same on every run (so a run carried on writes the same file).
         let digest = Array(SHA256.hash(data: Data("archive \(project.id.uuidString)".utf8)))
@@ -540,6 +550,23 @@ out({"error": "Unknown action " + action})
                 clip.end -= trim.lowerBound
                 clip.freeze = clip.freeze.map { $0 - trim.lowerBound }
             }
+        }
+        // Subtitles are kept by file path (and a line's start in that file): follow the clip to its
+        // archived copy, with a transcript made for the original written out as lines, times minus the trim.
+        var cues: [String: [SubtitleCue]] = [:], rekey: [String: String] = [:]
+        for clip in project.clips + (project.tracks ?? []).flatMap(\.items) where cues[clip.path] == nil {
+            guard let item = byOriginal[clip.path], clip.freeze == nil else { continue }
+            let found = project.fileSubtitles?[clip.path]
+                ?? TranscriptStore.find(forFile: clip.path).map { Project.transcriptLines($0, language: project.subtitleLanguage).map { SubtitleCue(start: $0.start, end: $0.end, text: $0.text) } }
+            guard let found else { continue }
+            let by = item.trim?.lowerBound ?? 0, path = archive.appendingPathComponent(item.archived).path
+            cues[clip.path] = found
+            // A line's key is its start rounded to 2 places, so map each key rather than re-rounding a shifted one.
+            for cue in found { rekey["\(clip.path)|\(String(format: "%.2f", cue.start))"] = "\(path)|\(String(format: "%.2f", cue.start - by))" }
+            copy.fileSubtitles = (copy.fileSubtitles ?? [:]).merging([path: found.map { var cue = $0; cue.start -= by; cue.end -= by; return cue }]) { $1 }
+        }
+        if let edits = project.subtitleEdits {
+            copy.subtitleEdits = Dictionary(edits.map { (rekey[$0.key] ?? $0.key, $0.value) }, uniquingKeysWith: { a, _ in a })
         }
         for index in copy.clips.indices { move(&copy.clips[index]) }
         for track in (copy.tracks ?? []).indices { for index in copy.tracks![track].items.indices { move(&copy.tracks![track].items[index]) } }
@@ -738,15 +765,18 @@ final class ArchiveRun {
         folders = targets.map { $0.appendingPathComponent(plan.name, isDirectory: true) }
         let staging = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Pluck/Archive/\(plan.name)", isDirectory: true)
+        let settings = settings.filter { $0.value.codec != .original }
+        // The masters are made on the first target and then copied, so they take room there twice
+        // (their size is about the original's).
+        let staged = plan.items.filter { settings[$0.original] != nil && ProjectArchive.masterable($0) }.reduce(Int64(0)) { $0 + $1.size }
         for target in targets {
             if let problem = OffloadCenter.problem(source: URL(fileURLWithPath: plan.mediaRoot), roots: [target], quick: true), plan.items.contains(where: { $0.kind == .media }) {
                 phase = .failed(problem); return
             }
-            if let free = OffloadCenter.freeSpace(target), free < plan.bytes {
+            if let free = OffloadCenter.freeSpace(target), free < plan.bytes + (target == targets.first ? staged : 0) {
                 phase = .failed(String(localized: "There isn’t enough room on \(OffloadCenter.volumeName(target)).")); return
             }
         }
-        let settings = settings.filter { $0.value.codec != .original }
         // A master replaces the whole original (it isn't trimmed).
         var items = plan.items.map { item in
             var item = item

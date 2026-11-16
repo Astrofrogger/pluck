@@ -477,10 +477,11 @@ struct SocialCutdownsView: View {
                 guard !Task.isCancelled else { return }
                 analysis = result
                 replan()
-            } catch is CancellationError {
             } catch {
-                problem = error.localizedDescription
+                if !Task.isCancelled { problem = error.localizedDescription }
             }
+            // A cancelled (replaced) run mustn't clear the new run's state.
+            guard !Task.isCancelled else { return }
             status = nil
             share = nil
             task = nil

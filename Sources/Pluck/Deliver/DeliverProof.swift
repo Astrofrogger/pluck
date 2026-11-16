@@ -125,13 +125,19 @@ enum DeliverProof {
 
     private static var hashing: Set<UUID> = []
 
+    /// The review copy a proof hashes without an original: the highest rendition there (1080, 540, 360, audio), else the picture.
+    nonisolated static func copyToHash(_ folder: URL) -> URL {
+        let made = (DeliverCopies.renditions + ["a"]).map { folder.appendingPathComponent("\($0)/media.m4s") } + [folder.appendingPathComponent("image.jpg")]
+        return made.first { FileManager.default.fileExists(atPath: $0.path) } ?? made[0]
+    }
+
     /// The original's SHA-256 (16 MiB reads), or the review copy's when there's no original here (`hashOf: copy`),
     /// into the version and its approvals still without one.
     static func hashSoon(asset: UUID, version: UUID, store: DeliverStore) {
         guard !hashing.contains(version), let (project, found) = store.find(asset), let made = found.versions.first(where: { $0.id == version }) else { return }
         hashing.insert(version)
         let original = store.original(made)
-        let copy = store.copies(version).appendingPathComponent("1080/media.m4s")
+        let copy = copyToHash(store.copies(version))
         Task {
             defer { hashing.remove(version) }
             var sha: String?, of = "original"

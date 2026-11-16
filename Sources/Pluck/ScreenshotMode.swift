@@ -170,6 +170,11 @@ enum ScreenshotMode {
                 // -PluckScreenshotSettings <section>: Settings open on that section (general, format, downloads…).
                 if let section = defaults.string(forKey: "PluckScreenshotSettings") { defaults.set(section, forKey: "settingsTab") }
                 openSettings()
+            case "whatsnew":
+                // What's New as someone updating from -PluckScreenshotFrom <version> (3.9.8) sees it.
+                let from = defaults.string(forKey: "PluckScreenshotFrom") ?? "3.9.8"
+                WhatsNew.pending = WhatsNew.releases.filter { WhatsNew.isNewer($0.version, than: from) }
+                WhatsNew.showIfNeeded()
             case "subscriptiontest":
                 // -PluckScreenshotLink <channel or feed>, -PluckScreenshotFile <folder>, -PluckScreenshotLog <file>.
                 Subscriptions.shared.manager = manager
@@ -886,8 +891,9 @@ enum Offscreen {
         hideWindows(size: size)
         DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
             let windows = NSApp.windows.filter { $0.canBecomeMain && $0.contentView != nil }
-            // The settings scene draws the Settings window, not the main one behind it.
-            if let window = (ScreenshotMode.scene == "settings" ? windows.first { $0.identifier?.rawValue.hasPrefix("settings") == true } : nil) ?? windows.first,
+            // The settings and whatsnew scenes draw their own window, not the main one behind it.
+            let own = ["settings", "whatsnew"].first { $0 == ScreenshotMode.scene }
+            if let window = own.flatMap({ own in windows.first { $0.identifier?.rawValue.hasPrefix(own) == true } }) ?? windows.first,
                let view = window.contentView?.superview ?? window.contentView,
                let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                 view.cacheDisplay(in: view.bounds, to: rep)

@@ -275,13 +275,14 @@ enum MusicFit {
         var pieceStart = start
         for (i, j) in pairs {
             let join = refine(i, j, song)
-            pieces.append(pieceStart...join.from)
+            pieces.append(pieceStart...max(pieceStart, join.from))
             pieceStart = join.to
             joins.append(join)
         }
         let body = pieces.reduce(0) { $0 + $1.upperBound - $1.lowerBound } + d[end] - pieceStart
         let tail = min(max(request.target - body, range.lowerBound), range.upperBound)
-        pieces.append(pieceStart...(d[end] + tail))
+        // (A chosen end just after a bar line can land before the piece's start.)
+        pieces.append(pieceStart...max(pieceStart, d[end] + tail))
         var plan = Plan(pieces: pieces, joins: joins, tempo: 1, fadeIn: 0, fadeOut: 0, ending: kind, score: score, target: request.target)
         let length = plan.length
         plan.tempo = abs(length / request.target - 1) < 0.0005 ? 1 : length / request.target

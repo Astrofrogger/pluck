@@ -28,6 +28,8 @@ final class DeliverSync {
     /// Tests: a round never sleeps or schedules.
     @ObservationIgnored var manual = false
     @ObservationIgnored private var nextLine = 1
+    /// Asked for while a round ran: one more right after it.
+    @ObservationIgnored private var again = false
     @ObservationIgnored private var soon: Task<Void, Never>?
     @ObservationIgnored private var loop: Task<Void, Never>?
 
@@ -147,9 +149,18 @@ final class DeliverSync {
 
     /// One round: the outbox, then `changes` (all pages), then `pull`, merged into the store.
     func round() async {
-        guard let host = dataHost, !syncing else { return }
+        guard let host = dataHost else { return }
+        guard !syncing else { again = true; return }
         syncing = true
-        defer { syncing = false }
+        await once(host)
+        syncing = false
+        if again {
+            again = false
+            await round()
+        }
+    }
+
+    private func once(_ host: Deliver.Host) async {
         do {
             try await ReviewHostClient.session(host) { session in
                 let compatibility = DeliverHostUpdate.compatibility(host: session.protocolLevel)
@@ -164,6 +175,11 @@ final class DeliverSync {
             saveState()
         } catch let failure as Deliver.Failure where failure.code == "incompatible" {
             problem = String(localized: "Update the NAS host")
+        } catch is ReviewHostClient.Unconfirmed {
+            problem = String(localized: "confirm the NAS’s fingerprint")
+        } catch let failure as Deliver.Failure where failure.code != "internal" {
+            // The NAS answered, but no (a device it doesn't know, a disk it can't write…): not just offline.
+            problem = failure.code == "auth" ? String(localized: "the NAS didn’t accept this Mac") : String(localized: "the NAS refused the change")
         } catch {
             problem = nil   // offline: the footer says so
             state.lastSync = state.lastSync
@@ -205,15 +221,23 @@ final class DeliverSync {
         }
     }
 
+    /// Every page first, then one apply (projects before their folders and assets, whatever page they came on).
     private func changes(_ session: HostSession, host: Deliver.Host) async throws {
-        var more = true, pages = 0
+        var all: [String: [[String: Any]]] = [:], seq = state.storeSeq, more = true, pages = 0, early = false
         while more, pages < 10_000 {
             pages += 1
-            let answer = try await session.ask(["op": "changes", "since": state.storeSeq, "limit": 500])
-            apply(answer, host: host)
+            let answer = try await session.ask(["op": "changes", "since": seq, "limit": 500])
+            for key in ["projects", "folders", "assets", "links", "removed"] { all[key, default: []] += answer[key] as? [[String: Any]] ?? [] }
             more = answer["more"] as? Bool ?? false
-            if let seq = answer["storeSeq"] as? Int { state.storeSeq = seq }
+            guard let next = answer["storeSeq"] as? Int else { early = more; break }
+            if more, next <= seq { early = true; break } // a host that doesn't move on
+            seq = next
         }
+        early = early || more   // the page cap
+        // Stopped early: never past an object whose project may still be on a later page; it comes again next round.
+        // All pages read: a project that never came won't come by rewinding, so move on (else every round re-reads all).
+        let unapplied = apply(all, host: host)
+        state.storeSeq = early ? unapplied.map { min(seq, $0 - 1) } ?? seq : seq
     }
 
     private func pull(_ session: HostSession, host: Deliver.Host) async throws {
@@ -227,14 +251,21 @@ final class DeliverSync {
         if let seq = answer["seq"] as? Int { state.logSeq = seq }
     }
 
-    /// A `changes` page into the store, rule M per object.
-    func apply(_ answer: [String: Any], host: Deliver.Host) {
+    /// `changes` into the store, rule M per object; the lowest seq of a folder or asset whose project isn't here.
+    @discardableResult
+    func apply(_ answer: [String: Any], host: Deliver.Host) -> Int? {
+        var unapplied: Int?
+        func missing(_ project: UUID, _ wire: [String: Any]) -> Bool {
+            guard store.project(project) == nil else { return false }
+            unapplied = min(unapplied ?? Int.max, wire["seq"] as? Int ?? 1)
+            return true
+        }
         for meta in answer["projects"] as? [[String: Any]] ?? [] { if let project = Self.project(meta) { store.applyMeta(project) } }
         for wire in answer["folders"] as? [[String: Any]] ?? [] {
-            if let project = (wire["project"] as? String).flatMap(UUID.init(uuidString:)), let folder = Self.folder(wire) { store.applyFolder(folder, project: project) }
+            if let project = (wire["project"] as? String).flatMap(UUID.init(uuidString:)), !missing(project, wire), let folder = Self.folder(wire) { store.applyFolder(folder, project: project) }
         }
         for wire in answer["assets"] as? [[String: Any]] ?? [] {
-            if let project = (wire["project"] as? String).flatMap(UUID.init(uuidString:)), let asset = Self.asset(wire, host: host) { store.applyAsset(asset, project: project) }
+            if let project = (wire["project"] as? String).flatMap(UUID.init(uuidString:)), !missing(project, wire), let asset = Self.asset(wire, host: host) { store.applyAsset(asset, project: project) }
         }
         for wire in answer["links"] as? [[String: Any]] ?? [] { if let link = Self.link(wire) { store.applyLink(link) } }
         for wire in answer["removed"] as? [[String: Any]] ?? [] {
@@ -245,6 +276,7 @@ final class DeliverSync {
                                      summary: String(localized: "\(name) was removed on \(Self.deviceName(tombstone.by, host: host))"), author: ""))
             }
         }
+        return unapplied
     }
 
     private static func deviceName(_ by: String, host: Deliver.Host) -> String {
@@ -265,6 +297,7 @@ final class DeliverSync {
         guard let id = uuid(wire["id"]), let name = wire["name"] as? String else { return nil }
         var project = Deliver.Project(id: id, name: name, created: date(wire["created"]) ?? .now, cover: uuid(wire["cover"]),
                                       order: wire["order"] as? Int, deadline: date(wire["deadline"]))
+        project.hidden = (wire["hidden"] as? Bool) == true ? true : nil
         stamp(&project, wire)
         return project
     }
@@ -296,6 +329,7 @@ final class DeliverSync {
             if let renditions = item["renditions"] as? [String], !renditions.isEmpty { version.copy = .ready(renditions) }
             version.pages = item["pages"] as? Int
             version.sha256 = item["sha256"] as? String
+            version.hostOriginal = item["original"] as? String
             return version
         }
         guard !versions.isEmpty else { return nil }
@@ -353,7 +387,8 @@ final class DeliverSync {
 
     /// Steps 2–5 of §13.1's migration; each can run again (an interrupted move continues on the next launch).
     func migrate(to host: Deliver.Host) async throws {
-        state.host = host.id
+        // Another NAS: its seqs start again. The outbox stays and goes to the new one at the end (nothing unsent is lost).
+        if state.host != host.id { state = State(host: host.id) }
         saveState()
         store.journal = { [weak self] in self?.write($0) }
         store.stampUnrevised(by: DeliverMerge.device)
@@ -382,6 +417,7 @@ final class DeliverSync {
             for start in stride(from: 0, to: entries.count, by: 500) {
                 _ = try await session.ask(["op": "append", "entries": Array(entries[start..<min(start + 500, entries.count)])])
             }
+            try await self.flush(session, host: host)
         }
         state.migrated = state.migrated ?? .now
         saveState()

@@ -1012,6 +1012,7 @@ enum CameraSync {
         // Each frame over the time it shows (cameras' frames fall at different moments).
         func lay(_ value: Float, from t: Double, frame: Double, into values: inout [Float]) {
             let a = Int((t / step).rounded()), b = max(Int(((t + frame) / step).rounded()), a + 1)
+            guard a < values.count, b > 0 else { return }
             for index in max(a, 0)..<min(b, values.count) { values[index] = max(values[index], min(value, 30)) }
         }
         for (clip, rises) in placed {

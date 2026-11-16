@@ -268,11 +268,13 @@ final class SearchPalette {
             // By name, keywords, tags and the text in it, as the Photo page's Find.
             let words = PhotoSearch.words(text)
             var keys: [String] = []
-            for key in PhotoCatalog.shared.allPhotos where PhotoSearch.matches(words, PhotoSearch.words(of: key)) {
+            let all = PhotoCatalog.shared.allPhotos
+            // Yield and check for a newer keystroke every 200 photos, match or not, so a huge catalog doesn't hold the main actor.
+            for (n, key) in all.enumerated() {
+                if n % 200 == 199 { await Task.yield(); if Task.isCancelled { return found } }
+                guard PhotoSearch.matches(words, PhotoSearch.words(of: key)) else { continue }
                 keys.append(key)
                 if keys.count == Self.perGroup { break }
-                await Task.yield()
-                if Task.isCancelled { return found }
             }
             found += keys.map { key in
                 let file = URL(fileURLWithPath: PhotoCatalog.file(of: key))

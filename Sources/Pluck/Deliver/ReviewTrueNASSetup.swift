@@ -42,6 +42,7 @@ final class TrueNASSetup {
     func connect() async {
         problem = nil
         let client = TrueNASClient(address: address, pin: TrueNASKeychain.pin(address))
+        client.appName = role == .main ? "pluck-review" : "pluck-backup"
         self.client = client
         do {
             step = String(localized: "Connecting…")
@@ -53,7 +54,7 @@ final class TrueNASSetup {
             pools = try await client.pools()
             datasets = try await client.datasets()
             if pool.isEmpty { pool = pools.first ?? "" }
-            if data.isEmpty { data = "\(pool)/apps/pluck-review" }
+            if data.isEmpty { data = "\(pool)/apps/\(client.appName)" }
             connected = true
             step = nil
         } catch let unconfirmed as TrueNASClient.Unconfirmed {
@@ -76,15 +77,19 @@ final class TrueNASSetup {
     /// The template's values (R2's names) and which optional blocks stay.
     func values(hostKey: String) -> (values: [String: String], blocks: Set<String>) {
         let relay = DeliverRelay.shared.environment
-        let first = media.first ?? (dataset: data, id: "nas1")
+        // No media (always on a backup): no media mount at all, never the data dataset (its host key, its manifest).
+        let first = media.first ?? (dataset: "", id: "nas1")
         var values: [String: String] = [
             "image": image ?? "", "host_key": hostKey, "host_name": name, "iroh": iroh ? "1" : "0", "role": role.rawValue,
             "main_link": role == .backup ? mainLink : "", "backup_max": role == .backup ? "\(backupMax)G" : "", "backup_quality": role == .backup ? quality : "",
             "relay_token": relay["PLUCK_RELAY_TOKEN"] ?? "", "turn_secret": relay["PLUCK_TURN_SECRET"] ?? "", "turn_urls": relay["PLUCK_TURN_URLS"] ?? "",
-            "update_time": "04:00", "media1_id": first.id, "media1": "/mnt/\(first.dataset)", "lan_addr": address, "sync_port": "8790", "admin_port": "8791",
+            "update_time": "04:00", "media1_id": first.id, "media1": "/mnt/\(first.dataset)", "lan_addr": address,
+            // (A backup next to a main on the same NAS: its own ports.)
+            "sync_port": role == .main ? "8790" : "8792", "admin_port": role == .main ? "8791" : "8793",
             "data": "/mnt/\(data)", "mem": "\(memory)g", "cpus": "\(cpus).0",
         ]
         var blocks: Set<String> = []
+        if role == .main, !media.isEmpty { blocks.insert("media1") }
         if !secondAddress.isEmpty, !secondPath.isEmpty {
             blocks.insert("media2")
             values["media2_id"] = media.count > 1 ? media[1].id : "nas2"
@@ -161,7 +166,7 @@ struct ReviewTrueNASSetupSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("TrueNAS (automatic)").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            Text(setup.role == .main ? LocalizedStringKey("TrueNAS (automatic)") : "TrueNAS Backup").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     StudioField(label: "NAS") { TextField("192.0.2.10", text: $setup.address).settingField(width: 220) }
@@ -217,6 +222,16 @@ struct ReviewTrueNASSetupSheet: View {
             Picker(selection: $setup.pool) { ForEach(setup.pools, id: \.self) { Text(verbatim: $0).tag($0) } } label: { EmptyView() }.fixedSize()
         }
         StudioField(label: "Data") { TextField("tank/apps/pluck-review", text: $setup.data).settingField(width: 280) }
+        // The role comes from Set Up Server (a backup's invite is made first); a backup keeps copies, not media.
+        if setup.role == .main { mainChoices } else { DeliverBackupFields(maxStorage: $setup.backupMax, quality: $setup.quality) }
+        StudioField(label: "Limits") {
+            Stepper("\(setup.cpus) CPUs", value: $setup.cpus, in: 1...8).fixedSize()
+            Stepper("\(setup.memory) GB", value: $setup.memory, in: 2...16).fixedSize()
+        }
+        StudioSwitchRow(title: "Reach it from anywhere (iroh)", isOn: $setup.iroh)
+    }
+
+    @ViewBuilder private var mainChoices: some View {
         StudioField(label: "Media") {
             Menu {
                 ForEach(setup.datasets.filter { d in !setup.media.contains { $0.dataset == d } }, id: \.self) { dataset in
@@ -231,15 +246,6 @@ struct ReviewTrueNASSetupSheet: View {
             TextField("/mnt/tank/media", text: $setup.secondPath).settingField(width: 150)
         }
         StudioField(label: "Uploads") { TextField("Optional: tank/renders", text: $setup.uploads).settingField(width: 280) }
-        StudioField(label: "Role") {
-            StudioSegmented(options: [(TrueNASSetup.Role.main, LocalizedStringKey("Main")), (.backup, LocalizedStringKey("Backup"))], selection: $setup.role).fixedSize()
-        }
-        if setup.role == .backup { DeliverBackupFields(maxStorage: $setup.backupMax, quality: $setup.quality) }
-        StudioField(label: "Limits") {
-            Stepper("\(setup.cpus) CPUs", value: $setup.cpus, in: 1...8).fixedSize()
-            Stepper("\(setup.memory) GB", value: $setup.memory, in: 2...16).fixedSize()
-        }
-        StudioSwitchRow(title: "Reach it from anywhere (iroh)", isOn: $setup.iroh)
     }
 
     /// The first sync connect on the LAN pins the certificate (confirmed by the owner), then this Mac's node is registered.

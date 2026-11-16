@@ -57,6 +57,7 @@ enum Deliver {
         var copy: CopyState = .pending
         var pages: Int?                  // documents: page count
         var sha256: String?              // the original's (lowercase hex), for approval proofs (§13.8)
+        var hostOriginal: String?        // a host's version: its bundle path of the original (sent back as it came)
     }
 
     /// An asset's metadata fields (§6.1); a link sends only those in its `fields`.

@@ -511,6 +511,8 @@ enum ThumbnailMaker {
     static func batch(_ videos: [URL], design: Design, brand: Brand, sizes: [Size], format: Format, to folder: URL, ffmpeg: String,
                       progress: @escaping @Sendable (Double) -> Void = { _ in }) async -> [URL] {
         var written: [URL] = []
+        // Names already in the folder or just written (videos of the same name never overwrite each other).
+        var taken = Set(((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).map { $0.lowercased() })
         for (n, video) in videos.enumerated() {
             guard let best = try? await candidates(video, ffmpeg: ffmpeg, count: 1) { p in progress((Double(n) + p) / Double(videos.count)) }.first,
                   let frame = await frame(video, at: best.time) else { continue }
@@ -518,7 +520,10 @@ enum ThumbnailMaker {
             if mine.title.trimmingCharacters(in: .whitespaces).isEmpty { mine.title = video.deletingPathExtension().lastPathComponent }
             for size in sizes {
                 guard let rendered = render(frame, focus: best.focus, design: mine, brand: brand, size: size) else { continue }
-                let url = folder.appendingPathComponent(fileName(video, size, format))
+                var name = fileName(video, size, format)
+                if taken.contains(name.lowercased()) { name = FileClash.freeName(name, taken: taken) }
+                taken.insert(name.lowercased())
+                let url = folder.appendingPathComponent(name)
                 if (try? write(rendered.image, to: url, format: format)) != nil { written.append(url) }
             }
         }

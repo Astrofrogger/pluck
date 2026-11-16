@@ -1,286 +1,177 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// What's New for Pluck Studio's own features: kept here so basic Pluck isn't built with them
 /// (it would count as a change to basic Pluck). Merged into WhatsNew.releases by version.
+/// Only the big features, five to seven at most; fixes go in the GitHub notes.
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
-            Release(version: "3.9.8", items: [
-                Item(symbol: "photo", title: String(localized: "Photos in the right place"),
-                     detail: String(localized: "The photo could show enlarged and off to the right on the Photo page. It’s centred and sharp again.")),
-            ]),
-            Release(version: "3.9.7", items: [
-                Item(symbol: "photo", title: String(localized: "Photos load again"),
-                     detail: String(localized: "After updating to 3.9.6, the Photo page could stay empty. Photos now load again, and a photo that can’t be read no longer makes Pluck quit.")),
-            ]),
-            Release(version: "3.9.6", items: [
-                Item(symbol: "paintpalette", title: String(localized: "Richer colour grading"),
-                     detail: String(localized: "Lift, Gamma and Gain wheels, Hue vs curves, Point Colour and a Colour Warper. The Colour Grading wheels and the Colour Mixer work the same at any brightness.")),
-                Item(symbol: "camera.aperture", title: String(localized: "Natural colours"),
-                     detail: String(localized: "RAW photos start from a new Standard profile with natural colours. Saturation keeps each colour’s brightness, for richer colours without a glow.")),
-                Item(symbol: "sun.haze", title: String(localized: "Dehaze, Clarity and Glow"),
-                     detail: String(localized: "Dehaze no longer tints or crushes shadows, Clarity adds contrast without halos, and a new Glow in Effects has blend modes.")),
-                Item(symbol: "circle.grid.cross", title: String(localized: "More detail"),
-                     detail: String(localized: "High-ISO photos keep their texture: Luminance shows the automatic noise reduction, and 0 turns it off. Texture no longer boosts noise, and Sharpen has Masking.")),
-                Item(symbol: "film", title: String(localized: "Favourite film"),
-                     detail: String(localized: "Star a film stock to start with it every time you turn Film on. With Halation off, film no longer looks oversharpened.")),
-                Item(symbol: "checkmark.circle", title: String(localized: "Fixes"),
-                     detail: String(localized: "AI Denoise no longer shows double edges, and profiles look right on JPEG and HEIC photos. Press Update on older photos to use the new engine.")),
-            ]),
-            Release(version: "3.9.5", items: [
-                Item(symbol: "camera.aperture", title: String(localized: "Truer RAW photos"),
-                     detail: String(localized: "RAW photos keep far more fine detail, with natural colours, cleaner shadows, deeper blacks and no dark corners. Press Update on older photos to use it.")),
-                Item(symbol: "paintpalette", title: String(localized: "More profiles"),
-                     detail: String(localized: "Accurate, Landscape and Portrait join the profiles, and with film on, the profile now colours the film too.")),
-                Item(symbol: "waveform.path.ecg", title: String(localized: "Scopes"),
-                     detail: String(localized: "Next to the histogram: a parade, a waveform and a vectorscope.")),
-                Item(symbol: "wand.and.stars", title: String(localized: "AI Denoise for RAW"),
-                     detail: String(localized: "AI Denoise now cleans RAW photos from the sensor’s own data: crisper detail, cleaner shadows.")),
-                Item(symbol: "checkmark.circle", title: String(localized: "Fixes"),
-                     detail: String(localized: "Tint goes the right way, Highlights recovers more on every profile, and the photo no longer squeezes when you resize the window.")),
-            ]),
-            Release(version: "3.9.4", items: [
-                Item(symbol: "wand.and.stars", title: String(localized: "Better Denoise"),
-                     detail: String(localized: "Denoise removes far more noise, and analyses each photo only once: Amount and the new Luminance and Colour sliders change live afterwards, as in Lightroom.")),
-                Item(symbol: "circle.lefthalf.filled", title: String(localized: "Cleaner shadows"),
-                     detail: String(localized: "Lifting Shadows no longer brings out coloured blotches in dark areas.")),
-                Item(symbol: "camera.filters", title: String(localized: "Closer Lightroom presets"),
-                     detail: String(localized: "Presets now bring their parametric curve, split toning, vignette shape, grain, creative profile and older settings along. RAW photos can start from a new Classic profile.")),
-            ]),
-            Release(version: "3.9.3", items: [
-                Item(symbol: "slider.horizontal.3", title: String(localized: "Calibration"),
-                     detail: String(localized: "A Calibration panel on the Photo page moves the red, green and blue primaries and tints the shadows, as in Lightroom. Lightroom presets that use it now bring it along.")),
-                Item(symbol: "film", title: String(localized: "Softer film edges"),
-                     detail: String(localized: "Film photos no longer look oversharpened. The couplers keep their colour, and a new Edge Effect slider sets how much they sharpen edges, as real film does.")),
-            ]),
-            Release(version: "3.9.2", items: [
-                Item(symbol: "camera.aperture", title: String(localized: "Calmer sharpening"),
-                     detail: String(localized: "With film on, Sharpen now works on the developed picture instead of before the film, so photos are no longer oversharpened. Sharpening also looks the same in the preview, at 100 % and in the export.")),
-            ]),
-            Release(version: "3.9.1", items: [
-                Item(symbol: "folder", title: String(localized: "A project manager"),
-                     detail: String(localized: "With no project open, the Edit page shows your projects: in folders, recent, as a grid or a list, with search and a Trash you can put projects back from.")),
-                Item(symbol: "textformat", title: String(localized: "Titles and transitions"),
-                     detail: String(localized: "Edit a title’s words and colours, or turn its background off. 15 new transitions: wipes, iris, pushes, whip pans, zooms and blur. Canon Log 2 is supported too.")),
-                Item(symbol: "sidebar.left", title: String(localized: "Calmer sidebars"),
-                     detail: String(localized: "Sidebars and inspectors have more room, and the Photo sidebar can be resized.")),
-                Item(symbol: "checkmark.seal", title: String(localized: "Smaller fixes"),
-                     detail: String(localized: "Contrast, Whites, Blacks and curves work with film on, Clarity reaches the highlights, and holding \\ compares without a beep. Closing a Library pane no longer crashes (⌘W closes it), and the Library shows real photo thumbnails. Backspace deletes titles and colour layers, and the inspector’s text is no longer cut off.")),
-            ]),
-            Release(version: "3.9.0", items: [
-                Item(symbol: "film", title: String(localized: "Film without the wait"),
-                     detail: String(localized: "Film looks, grain and halation now update instantly as you edit, with no wait and no download. Advanced film settings prepare briefly the first time.")),
-                Item(symbol: "rectangle.3.group", title: String(localized: "Edit page layout"),
-                     detail: String(localized: "The media panel can sit at the bottom, the top or the full height, and the viewer stays 16:9 and as large as the window allows. The inspector is regrouped into six tabs: Clip, Colour, Audio, Text, AI and Export.")),
-                Item(symbol: "rectangle.split.2x1", title: String(localized: "Library: split and move"),
-                     detail: String(localized: "Space opens Quick Look on the selection, and panes can be split side by side or one above the other. Files can be moved as well as copied; across drives Pluck copies and checks every file first, then puts the originals in the Trash. You can also drag the selection out to Finder, Mail or other apps as copies.")),
-            ]),
-            Release(version: "3.8.0", items: [
-                Item(symbol: "square.stack.3d.up", title: String(localized: "Moments, ranked your way"),
-                     detail: String(localized: "Bursts become moments with the strongest frames on top and the rest one click away, ranked by what you kept in Lightroom. Take your usual look from Lightroom, and level exposure across a set in one go.")),
-                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload projects"),
-                     detail: String(localized: "Set up a shoot with its operators once: cards are recognised, named and filed per person, clips already copied are skipped, and every drive's speed shows. Back up the whole project, see the day's wrap report, and follow offloads from your phone.")),
-            ]),
-            Release(version: "3.7.1", items: [
-                Item(symbol: "checkmark.seal", title: String(localized: "Smaller fixes"),
-                     detail: String(localized: "Shortcuts with ⌃ work, and keys you choose for the player win over its own. Watermarks fit small photos, presets that would write the same file get their own folder, a photo edited in HDR keeps it when exported, and undo after bringing an edit back from Resolve is complete.")),
-            ]),
-            Release(version: "3.7.0", items: [
-                Item(symbol: "arrow.left.and.right", title: String(localized: "Trim like an editor"),
-                     detail: String(localized: "The Trim tool (T) rolls a cut between two clips or slips a clip to show another part. Q and W trim to the playhead, ⌥ and the arrows nudge by a frame.")),
-                Item(symbol: "keyboard", title: String(localized: "Cut with the keyboard"),
-                     detail: String(localized: "Choose in the media panel, then E appends, comma inserts, full stop overwrites, P places on top and R replaces. F marks a favourite moment. Quick Export (⌃⌘E) queues exports with your saved settings.")),
-                Item(symbol: "waveform.badge.mic", title: String(localized: "Voice-over and music that makes room"),
-                     detail: String(localized: "Record a voice-over while the timeline plays. Songs can lower themselves while someone speaks, and come back after.")),
-                Item(symbol: "camera.filters", title: String(localized: "A look over part of the edit"),
-                     detail: String(localized: "Colour, a LUT and an amount over any stretch of the timeline, on everything under it: the same in the viewer and the export. The viewer's colours now match the export too.")),
-                Item(symbol: "arrow.down.forward.app", title: String(localized: "Back from DaVinci Resolve"),
-                     detail: String(localized: "After sending an edit, bring back its markers, order and trims from Resolve. What can't come back is named.")),
-                Item(symbol: "chart.bar.xaxis", title: String(localized: "Scopes and A/B in the player"),
-                     detail: String(localized: "Waveform, RGB parade and vectorscope, false colour (⌥F), and a still to compare with, split or side by side (⌥G, ⌥C).")),
-                Item(symbol: "photo.stack", title: String(localized: "Faster photo editing"),
-                     detail: String(localized: "Copy and paste settings with ⌘C and ⌘V, or from the previous photo (⌥⌘V). Edit all selected photos or just one. Hold Q, W, A, S, D, F, T, Y or V and scroll to change a setting.")),
-                Item(symbol: "square.and.arrow.up.on.square", title: String(localized: "Export in every size at once"),
-                     detail: String(localized: "Tick several export presets for a file of each, add a text or logo watermark, and give photos a creator, copyright and keywords as they're imported.")),
-                Item(symbol: "plus.square.on.square", title: String(localized: "Lightroom presets, virtual copies, before and after"),
-                     detail: String(localized: "Bring in your Lightroom presets and edits. Make a virtual copy (⌘') to try another look. Compare before and after (B), and edit in HDR on a screen that shows it.")),
-            ]),
-            Release(version: "3.6.1", items: [
-                Item(symbol: "wand.and.rays", title: String(localized: "Brand Pack in DaVinci Resolve"),
-                     detail: String(localized: "Every template as a Fusion title, built from Resolve's own nodes. Add them to Resolve's Titles in one click, then change the words, fonts, colours, place and size right there.")),
-                Item(symbol: "rectangle.split.3x1", title: String(localized: "Columns that stay"),
-                     detail: String(localized: "In the Library's columns, the folders before the one you open stay put, as in Finder, and the left and right arrows go out of and into folders. Search narrows every pane, clicking a place again goes back to it, and a drive plugged back in opens where it was.")),
-            ]),
-            Release(version: "3.6.0", items: [
-                Item(symbol: "sparkles.rectangle.stack", title: String(localized: "A new Brand Pack"),
-                     detail: String(localized: "18 animated templates (lower thirds, titles and chapters, logo stings, end cards, social overlays) that spring, glow and come into focus. Change the words, fonts, colours, size, place and timing, and watch it play as you do.")),
-            ]),
-            Release(version: "3.5.0", items: [
-                Item(symbol: "folder", title: String(localized: "A Finder that works with you"),
-                     detail: String(localized: "The Library looks and works like Finder: Favorites and Locations, icons, list and columns, a path bar, and the keys you know. Every file shows; clips play in place.")),
-                Item(symbol: "rectangle.split.2x2", title: String(localized: "Panes, tiled"),
-                     detail: String(localized: "Split a pane right (⌘\\) or below (⇧⌘\\), up to four. ⌥⌘ and the arrows move between them, ⇧⌥⌘ swaps them, ⌥⌘W closes one. Drag between panes to copy, every file checked.")),
-            ]),
-            Release(version: "3.4.0", items: [
-                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload, your way"),
-                     detail: String(localized: "A simpler page: the card, the drives and one button. Copy into a new folder or only the contents, only the video if you like, skip what's already there, start by itself when a card goes in, and see when a card is safe to format.")),
-                Item(symbol: "bell.badge", title: String(localized: "Word when it's done"),
-                     detail: String(localized: "A notification when an export, a copy, a raw export, a photo export or steadying finishes while you're in another app.")),
-            ]),
-            Release(version: "3.3.1", items: [
-                Item(symbol: "server.rack", title: String(localized: "Copying to servers"),
-                     detail: String(localized: "Offload and the Library's copies saw no room on network servers and wouldn't start. They read the free space right now.")),
-            ]),
-            Release(version: "3.3.0", items: [
-                Item(symbol: "rectangle.split.2x1", title: String(localized: "Two folders side by side"),
-                     detail: String(localized: "Split the Library (⌘\\) and drag clips or folders across to copy them. Every file is read back and checked, as Offload does, and a copy carries on if a drive comes back.")),
-            ]),
-            Release(version: "3.2.0", items: [
-                Item(symbol: "books.vertical", title: String(localized: "Library and Player in one"),
-                     detail: String(localized: "Browse your Mac and its drives folder by folder, and play any clip where it is. Add the folders you want Search to know; nothing is copied.")),
-                Item(symbol: "magnifyingglass", title: String(localized: "One search"),
-                     detail: String(localized: "The Library's search field finds names, what was said and what's in the picture. Fewer buttons all round.")),
-                Item(symbol: "play.rectangle", title: String(localized: "Play from Finder"),
-                     detail: String(localized: "Open With, Play in Pluck under Quick Actions, a clip dropped on the Dock icon, and the keyboard's play keys.")),
-                Item(symbol: "camera.filters", title: String(localized: "Log footage, shown normal"),
-                     detail: String(localized: "Clips filmed in log (Sony, Panasonic, Canon, ARRI, RED, Blackmagic, Fujifilm, Nikon) play and export as a normal picture. Pluck reads which log from the file; choose another under Colour.")),
-            ]),
-            Release(version: "3.1.7", items: [
-                Item(symbol: "wrench.and.screwdriver", title: String(localized: "Send to DaVinci works again"),
-                     detail: String(localized: "Sending camera clips to DaVinci Resolve stopped with an error in 3.1.6. It's fixed.")),
-            ]),
-            Release(version: "3.1.6", items: [
-                Item(symbol: "folder.badge.plus", title: String(localized: "Your bins in DaVinci"),
-                     detail: String(localized: "Pick the bin and sub-bin clips go in, from the project’s own or a new name. Clips already in the project are left out, and each clip’s Comments say the rate it was shot at.")),
-            ]),
-            Release(version: "3.1.5", items: [
-                Item(symbol: "waveform.badge.plus", title: String(localized: "Every sound, in its own bin"),
-                     detail: String(localized: "Send to DaVinci links every .wav the camera wrote for a clip (CinemaDNG folders too) and keeps the clip’s own sound. The sound files go in an Audio bin, so the clips stand on their own.")),
-            ]),
-            Release(version: "3.1.4", items: [
-                Item(symbol: "photo.on.rectangle", title: String(localized: "Thumbnails for RED clips shown as one item"),
-                     detail: String(localized: "With RED clips shown as one item in Finder, each now gets a picture from its take. Log out and back in once for Finder to pick it up.")),
-            ]),
-            Release(version: "3.1.3", items: [
-                Item(symbol: "speaker.wave.2", title: String(localized: "Whole RED takes, with sound"),
-                     detail: String(localized: "Quick Look plays a take the camera split into several files from start to end, with its sound. In Settings, RED clips can show as one item in Finder.")),
-                Item(symbol: "arrow.up.forward.app", title: String(localized: "Camera clips to DaVinci, with sound"),
-                     detail: String(localized: "Send clips from the Player or a folder to DaVinci Resolve: the sound the camera recorded beside them comes along, linked by timecode.")),
-            ]),
-            Release(version: "3.1.2", items: [
-                Item(symbol: "slider.horizontal.below.rectangle", title: String(localized: "Scrub in Quick Look"),
-                     detail: String(localized: "Press Space on a RED or Blackmagic RAW clip in Finder and drag the bar to go anywhere in it; it plays on from there.")),
-            ]),
-            Release(version: "3.1.0", items: [
-                Item(symbol: "film.stack", title: String(localized: "One editor"),
-                     detail: String(localized: "A file you open is edited like a project, with the transcript and Local AI. New: overlay and sound tracks, cross dissolves, freeze frames, detached audio, markers, in and out points, copy and paste.")),
-                Item(symbol: "square.and.arrow.up", title: String(localized: "Export your way"),
-                     detail: String(localized: "Export the whole edit, only the in to the out point, or each clip as a file of its own. Save the frame on screen as a picture.")),
-                Item(symbol: "rectangle.expand.vertical", title: String(localized: "Roomier and quicker"),
-                     detail: String(localized: "A larger viewer, tools with names, text with room to breathe, and searching your media that keeps up with a big library.")),
-            ]),
-            Release(version: "3.0.2", items: [
-                Item(symbol: "slowmo", title: String(localized: "Frame rates at a glance"),
-                     detail: String(localized: "The Player shows the rate a clip plays at and was shot at, with slow motion marked, and the camera, lens and recording in plain words. Clips in a folder show it too.")),
-                Item(symbol: "eye", title: String(localized: "Smoother Quick Look"),
-                     detail: String(localized: "Raw clips play smoothly when you press Space in Finder, decoded on the graphics chip, and stay a still in Finder’s preview pane.")),
-            ]),
-            Release(version: "3.0.1", items: [
-                Item(symbol: "computermouse", title: String(localized: "Back and forward"),
-                     detail: String(localized: "Your mouse’s side buttons go back and forward, as in a browser. In the Player, back takes a clip to its folder, with a clearer button for it too.")),
-            ]),
-            Release(version: "3.0.0", items: [
-                Item(symbol: "play.rectangle", title: String(localized: "Player, for camera raw"),
-                     detail: String(localized: "Play .r3d and Blackmagic RAW smoothly, decoded on the Mac’s graphics chip, with ISO, white balance, LUTs, timecode and sound. ProRes, MXF and image sequences too. Open a folder to skim every clip in it, and press Space in Finder to preview raw clips.")),
-                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Offload"),
-                     detail: String(localized: "Copy a card to several drives at once, every file checked against the original. A drive that’s pulled out picks up where it stopped, with a report for the production.")),
-                Item(symbol: "wand.and.stars", title: String(localized: "Animations designed for your logo"),
-                     detail: String(localized: "The Logo Animator reads your logo like a motion designer and makes an animation from its own shapes. Change its feel or any part, export a reveal, intro, sting, loop or still in 4K, with transparency and a sound on the landing.")),
-                Item(symbol: "film.stack", title: String(localized: "A stronger Editor"),
-                     detail: String(localized: "Edit by deleting words from the transcript, cut to the beat, reframe for vertical, dip to black or white, see waveforms and relink missing media. Long renders can be stopped.")),
-                Item(symbol: "mountain.2", title: String(localized: "Depth and sky masks"),
-                     detail: String(localized: "Select the sky or what’s near and far in a photo, worked out on your Mac.")),
-            ]),
-            Release(version: "2.3.0", items: [
-                Item(symbol: "camera.aperture", title: String(localized: "A faster, truer photo engine"),
-                     detail: String(localized: "Sliders follow the mouse straight from the GPU, colours past sRGB are kept, white balance uses CAT16 and dehaze is real. Earlier edits keep their look until you update them.")),
-                Item(symbol: "circle.dashed.inset.filled", title: String(localized: "Masks, Lightroom style"),
-                     detail: String(localized: "Subject, people, objects, gradients, brush and brightness or colour ranges, combined as you like, with all the main sliders. Found by AI that runs locally on your Mac.")),
-                Item(symbol: "square.grid.2x2", title: String(localized: "A friendlier Photo page"),
-                     detail: String(localized: "Browse and Edit, one filter menu, sliders that show what they do, Looks with live previews, crop on the photo, tool search and ? for every key.")),
-                Item(symbol: "rectangle.split.2x1", title: String(localized: "Cull and share like a pro"),
-                     detail: String(localized: "Compare two photos zoomed together, clipping warnings, colour label keys, undo, snapshots, selective paste, Match Exposure and XMP sidecars for Lightroom and Capture One.")),
-            ]),
-            Release(version: "2.2.0", items: [
-                Item(symbol: "camera.aperture", title: String(localized: "A real RAW developer"),
-                     detail: String(localized: "Every camera starts from the same neutral point, with profiles, Kelvin white balance and highlights and shadows that recover without halos. Masks, colour mixer, Auto, live histogram and zoom up to 400%. Your originals are never changed.")),
-                Item(symbol: "film", title: String(localized: "Film, fast"),
-                     detail: String(localized: "spektrafilm now runs natively: a 9 MB download instead of hundreds, renders several times quicker, and every setting as a dial.")),
-                Item(symbol: "rectangle.stack", title: String(localized: "Cull, then edit"),
-                     detail: String(localized: "Grid, Cull and Edit views, crop with rotation and locked ratios, and keys you can change in Settings. AI denoise is an optional download that runs locally on your Mac.")),
-                Item(symbol: "film.stack", title: String(localized: "Editing like an NLE"),
-                     detail: String(localized: "A full-width timeline, drag to transform and zoom on the picture, dynamic zoom with start and end frames, stabilization you can preview, and clip colour with LUTs, for projects and single files alike.")),
-            ]),
-            Release(version: "2.1.0", items: [
-                Item(symbol: "camera.aperture", title: String(localized: "Photo"),
-                     detail: String(localized: "A new page to cull and edit photos: ratings, picks, albums in folders, live adjustments, curves, colour wheels, crop, presets and denoise. Add real film looks with spektrafilm, an optional download.")),
-                Item(symbol: "rectangle.stack", title: String(localized: "Projects"),
-                     detail: String(localized: "Drop several videos to start a project. Local AI lays out a story across all of them, at the length you choose. Add subtitles, titles and music, and move, zoom, crop or speed up each clip.")),
-                Item(symbol: "arrow.up.forward.app", title: String(localized: "Send to DaVinci Resolve"),
-                     detail: String(localized: "A project becomes a new timeline in the open Resolve project, with its subtitles. Files already there aren’t imported again.")),
-                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Search more"),
-                     detail: String(localized: "Point Pluck at your footage folders and find videos and photos by what’s in them, in your own language. It all runs locally on your Mac.")),
-            ]),
-            Release(version: "2.0.0", items: [
-                Item(symbol: "macwindow", title: String(localized: "One window for everything"),
-                     detail: String(localized: "Pluck Studio is now one window with pages along the bottom: Home, Library, Edit, Search and Tools. Every tool opens in it instead of a window of its own; only Settings stays separate.")),
-                Item(symbol: "house", title: String(localized: "A new Home"),
-                     detail: String(localized: "Paste a link or drop a file, pick up the files you were editing, and see what’s new from your subscriptions and what’s downloading, all at a glance.")),
-                Item(symbol: "film", title: String(localized: "Edit with tabs and media"),
-                     detail: String(localized: "Open several files in tabs, with your media beside them. The Convert window and Pluck Player are part of the Editor now, with the transcript, summary, speakers and Save Frame.")),
-                Item(symbol: "text.book.closed", title: String(localized: "Find the story in an interview"),
-                     detail: String(localized: "Local AI marks the passages worth building a story with (the hook, context, key points, emotion and an ending) in the transcript and on the timeline. Keep only those in one click. It runs locally on your Mac.")),
-                Item(symbol: "captions.bubble", title: String(localized: "Subtitles your way"),
-                     detail: String(localized: "Choose the font, weight, size, colour, outline or box, shadow, italics and capitals. Drag lines on the timeline to change when they show, and add, split or join them.")),
-                Item(symbol: "character.book.closed", title: String(localized: "Names spelled right"),
-                     detail: String(localized: "Tell Pluck the names of people and companies, and every transcript and subtitle writes them correctly. Read the transcript, summary and story in English, Dutch or another language, translated on your Mac.")),
-            ]),
-            Release(version: "1.19.0", items: [
-                Item(symbol: "sparkles", title: String(localized: "Local AI in the Editor"),
-                     detail: String(localized: "The Editor’s sidebar finds the best moments and filler words and cuts them out, and makes subtitles you can edit, resize and drag into place before they’re burned into the export. It all runs locally on your Mac.")),
-                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "One search"),
-                     detail: String(localized: "Search finds a moment by what was said and by what’s in the picture, in one place (⇧⌘F).")),
-                Item(symbol: "arrow.up.arrow.down", title: String(localized: "Proxies and files with Edit Anywhere"),
-                     detail: String(localized: "Fetch proxies or the originals of the host Mac’s footage, choose where the host keeps them, and keep folders in step with the host Mac. Everything stays on your own private network.")),
-                Item(symbol: "person.and.background.dotted", title: String(localized: "Better New Background and Fit Music"),
-                     detail: String(localized: "New Background keeps logos and graphics instead of only people. Fit Music to Length works from a few seconds to many minutes and lands exactly on time.")),
-            ]),
-            Release(version: "1.18.0", items: [
-                Item(symbol: "square.on.square.dashed", title: String(localized: "One look for every tool"),
-                     detail: String(localized: "Brand Pack, Logo Animator, Delivery Check, Fit Music, Derush, Live Recorder and Find Shots now look and work like the main window: a clear start, one bar with the main action, and settings in tidy cards. Everything still runs locally on your Mac.")),
-            ]),
-            Release(version: "1.17.2", items: [
-                Item(symbol: "globe.europe.africa", title: String(localized: "A cleaner Edit Anywhere"),
-                     detail: String(localized: "Edit Anywhere has a new look in line with the rest of Pluck, and plainer words: use another Mac, or share this one. Everything you need is on one screen, with the details a hover away.")),
-            ]),
-            Release(version: "1.17.0", items: [
-                Item(symbol: "checkmark.seal", title: String(localized: "Delivery Check"),
-                     detail: String(localized: "Drop a finished export and Pluck looks it over before it goes out: flash frames, black, a frozen picture, sound dropping out, loudness for where it’s going, typos in titles, text too close to the edge. Each finding opens at its moment. It runs locally on your Mac.")),
-                Item(symbol: "rectangle.3.group", title: String(localized: "Brand Pack"),
-                     detail: String(localized: "From a logo: lower thirds, a title card and an end card in its colours, animated and transparent, ready for the edit. One lower third per name, all at once.")),
-                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Search footage on another Mac"),
-                     detail: String(localized: "In Edit Anywhere, search the footage on another Mac by what’s in the picture, from anywhere, and fetch just the shots you need. That Mac looks at the footage with local AI; nothing leaves your own private network.")),
-            ]),
-            Release(version: "1.16.0", items: [
-                Item(symbol: "square.grid.2x2", title: String(localized: "All tools in one place"),
-                     detail: String(localized: "Pluck Studio’s tools (Derush, Find Shots, Live Recorder, Logo Animator, Fit Music, Edit Anywhere) are under the new Tools button and Tools menu. Features your Mac can’t run are no longer shown.")),
+            Release(version: "4.0.0", items: [
+                Item(symbol: "paperplane", title: String(localized: "Deliver"),
+                     detail: String(localized: "Review links for clients, hosted on your Mac or NAS, with comments on the frame."),
+                     image: "deliver"),
                 Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere"),
-                     detail: String(localized: "Render DaVinci Resolve timelines on another Mac from anywhere, with the originals on its storage, and get a preview back. Invite a Mac with a one-time link; everything stays on your own private network.")),
-                Item(symbol: "tag", title: String(localized: "Log in Resolve"),
-                     detail: String(localized: "Find Shots writes what local AI on your Mac sees in every shot into your DaVinci Resolve project: a description, keywords and a marker per shot, ready to search or make smart bins from.")),
-                Item(symbol: "wand.and.stars", title: String(localized: "A calmer Assemble"),
-                     detail: String(localized: "In the Logo Animator, the dot or sparkle now grows in, glides to its place and settles, without bouncing around, and the name slides out cleanly.")),
+                     detail: String(localized: "Edit in DaVinci Resolve from anywhere on proxies, and render on the Mac with the originals.")),
+                Item(symbol: "checkmark.seal", title: String(localized: "Delivery Check with brand books"),
+                     detail: String(localized: "Every export checked against your brand book before it goes out."),
+                     image: "deliverycheck"),
+                Item(symbol: "timeline.selection", title: String(localized: "New editing tools"),
+                     detail: String(localized: "Sync Cameras, Fit Music, Social Cutdowns, Thumbnail Maker, keyframes and transitions."),
+                     image: "edittools"),
+                Item(symbol: "camera.aperture", title: String(localized: "A deeper Photo page"),
+                     detail: String(localized: "AI Remove, Liquify, HDR and panorama merges, Super Resolution and Auto Cull."),
+                     image: "photo"),
+                Item(symbol: "macwindow", title: String(localized: "A new look"),
+                     detail: String(localized: "Every page redesigned, a Finder-style Library and a new app icon."),
+                     image: "newlook"),
             ]),
         ]
+    }
+}
+
+/// Pluck Studio's What's New, like a pro app's update screen: a header with the version, the big
+/// features as cards with a picture, and the fixes one link away.
+struct StudioWhatsNewView: View {
+    let releases: [WhatsNew.Release]
+    let onClose: () -> Void
+
+    private var newest: WhatsNew.Release? { releases.first }
+
+    /// "4.0" for 4.0.0; other versions as they are.
+    private var shortVersion: String {
+        let parts = (newest?.version ?? "").split(separator: ".")
+        return parts.count == 3 && parts[2] == "0" ? parts.prefix(2).joined(separator: ".") : newest?.version ?? ""
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            hero
+            ScrollView {
+                VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
+                    cards
+                    if releases.count > 1 { earlier }
+                }
+                .padding(24)
+            }
+            bottomBar
+        }
+        .frame(width: 880, height: 668)
+        .background(Design.Studio.backdrop.ignoresSafeArea())
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var hero: some View {
+        HStack(spacing: 20) {
+            StudioMark().frame(width: 76, height: 76)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("What’s new in this version")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Design.Studio.textQuiet)
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text(verbatim: Edition.name).font(.system(size: 40, weight: .semibold)).foregroundStyle(Design.Studio.text)
+                    Text(verbatim: shortVersion).font(.system(size: 40, weight: .light)).foregroundStyle(Design.Brand.gradient)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 32)
+        .padding(.top, 12)
+        .padding(.bottom, 22)
+        .background {
+            ZStack {
+                Design.Studio.panel
+                LinearGradient(colors: [Design.Brand.pink.opacity(0.28), Design.Brand.violet.opacity(0.16), .clear],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+            }
+            .ignoresSafeArea()  // up under the see-through title bar
+        }
+        .overlay(alignment: .bottom) { Design.Studio.line.frame(height: 1) }
+    }
+
+    /// Three cards a row, each row as tall as its tallest card.
+    private var cards: some View {
+        let items = newest?.items ?? []
+        return Grid(horizontalSpacing: 16, verticalSpacing: 16) {
+            ForEach(Array(stride(from: 0, to: items.count, by: 3)), id: \.self) { start in
+                GridRow(alignment: .top) {
+                    ForEach(items[start..<min(start + 3, items.count)]) { card($0) }
+                }
+            }
+        }
+    }
+
+    private func card(_ item: WhatsNew.Item) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            picture(item)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title).font(.system(size: 14, weight: .semibold)).foregroundStyle(Design.Studio.text)
+                Text(item.detail).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(Design.Studio.raised, in: RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: Design.Studio.panelRadius, style: .continuous).strokeBorder(Design.Studio.line))
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The card's screenshot, or its symbol on a brand tile when there is none.
+    private func picture(_ item: WhatsNew.Item) -> some View {
+        let image = item.image
+            .flatMap { Bundle.main.url(forResource: $0, withExtension: "jpg", subdirectory: "WhatsNew") }
+            .flatMap(NSImage.init(contentsOf:))
+        return Color.clear
+            .frame(height: 124)
+            .overlay {
+                if let image {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    ZStack {
+                        LinearGradient(colors: [Design.Brand.pink.opacity(0.35), Design.Brand.violet.opacity(0.3)],
+                                       startPoint: .topLeading, endPoint: .bottomTrailing)
+                        Image(systemName: item.symbol).font(.system(size: 52, weight: .light)).foregroundStyle(Design.Studio.text)
+                    }
+                }
+            }
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: Design.Studio.panelRadius, topTrailingRadius: Design.Studio.panelRadius,
+                                              style: .continuous))
+            .accessibilityHidden(true)
+    }
+
+    /// Older versions since the one that last ran, folded away.
+    private var earlier: some View {
+        DisclosureGroup("Earlier versions") {
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(releases.dropFirst()) { release in
+                    ForEach(release.items) { item in
+                        Label(item.title, systemImage: item.symbol).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                }
+            }
+            .padding(.top, 8)
+        }
+        .foregroundStyle(Design.Studio.text)
+    }
+
+    private var bottomBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "wrench.and.screwdriver").foregroundStyle(Design.Studio.textQuiet).accessibilityHidden(true)
+            Text("Bug fixes and improvements").foregroundStyle(Design.Studio.text)
+            if let newest {
+                Text(verbatim: "·").foregroundStyle(Design.Studio.textFaint)
+                Link("All changes on GitHub", destination: WhatsNew.releasePage(newest.version)).foregroundStyle(Design.Brand.pink)
+            }
+            Spacer()
+            Button("Continue", action: onClose)
+                .buttonStyle(BrandButtonStyle())
+                .keyboardShortcut(.defaultAction)
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 24)
+        .padding(.vertical, 14)
+        .background(Design.Studio.panel)
+        .overlay(alignment: .top) { Design.Studio.line.frame(height: 1) }
     }
 }

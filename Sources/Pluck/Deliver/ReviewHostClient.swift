@@ -195,8 +195,13 @@ final class HostSession: @unchecked Sendable {
         }
         var data = try JSONSerialization.data(withJSONObject: request)
         data.append(0x0A)
-        if let payload { data.append(payload) }
         try await send(data)
+        // (In 4 MB pieces as `put` sends: each has its own timeout, so a big part finishes on a slow uplink.)
+        if let payload {
+            for start in stride(from: payload.startIndex, to: payload.endIndex, by: Self.chunk) {
+                try await send(payload.subdata(in: start..<min(start + Self.chunk, payload.endIndex)))
+            }
+        }
         return try await answer()
     }
 

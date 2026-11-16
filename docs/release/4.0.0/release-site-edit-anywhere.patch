@@ -1,0 +1,13 @@
+--- /Users/lowiesobry/Documents/_CLAUDE/pluck-site/src/pages/edit-anywhere.astro	2026-11-15 00:13:04
++++ /private/tmp/claude-501/-Users-lowiesobry-Documents--CLAUDE-pluck/bca57195-d348-4e92-b1ee-be2f4314764f/scratchpad/ea-new.astro	2026-11-16 01:24:46
+@@ -63,8 +63,8 @@
+   <section class="get-field" aria-labelledby="get-title">
+     <div class="get wrap">
+       <div class="get-fan" aria-hidden="true"><Fan /></div>
+-      <h2 id="get-title">Edit Anywhere comes in an update.</h2>
+-      <p class="lead">Everything else in Pluck Studio works today, and it is free.</p>
++      <h2 id="get-title">Edit Anywhere is in Pluck Studio 4.0.</h2>
++      <p class="lead">Free, like everything else in Pluck Studio.</p>
+       <div class="get-act">
+         <a class="button on-field" href={downloads.studio}><PickMark />Download for Mac</a>
+         <a class="button on-field-quiet" href={coffee} rel="noopener"><PickMark />Buy me a coffee</a>

@@ -408,7 +408,9 @@ enum SocialCutdowns {
                 centres = centres.map { _ in min(max(lock, low), high) }
                 locked = true
             }
-            let framing = edit.framing[format] ?? (wholeTitle ? .blur : .follow)
+            // A source narrower than the format has nothing to crop (following would stretch it): fit it on a blur.
+            let narrower = f >= 0.999 && abs(Double(analysis.width) / Double(max(analysis.height, 1)) - format.aspect) > 0.01
+            let framing = edit.framing[format] ?? (wholeTitle || narrower ? .blur : .follow)
             return ShotPlan(start: shot.start, end: shot.end, framing: framing, times: times, centres: centres,
                             flagged: flagged && framing == .follow, locked: locked)
         }
@@ -587,14 +589,17 @@ final class CutdownQueue {
 
     private(set) var jobs: [Job] = []
     private var runner: Task<Void, Never>?
+    private var runnerID = UUID()
 
     var busy: Bool { jobs.contains { if case .waiting = $0.state { true } else if case .running = $0.state { true } else { false } } }
 
     func add(_ name: String, work: @escaping @Sendable (@escaping @Sendable (Double) -> Void) async throws -> URL) {
         jobs.append(Job(name: name, work: work))
         guard runner == nil else { return }
+        let token = UUID()
+        runnerID = token
         runner = Task {
-            while let index = jobs.firstIndex(where: { if case .waiting = $0.state { true } else { false } }) {
+            while !Task.isCancelled, let index = jobs.firstIndex(where: { if case .waiting = $0.state { true } else { false } }) {
                 let id = jobs[index].id
                 jobs[index].state = .running(0)
                 do {
@@ -608,7 +613,8 @@ final class CutdownQueue {
                     update(id, .failed(error.localizedDescription))
                 }
             }
-            runner = nil
+            // A stopped run must not clear a newer one.
+            if runnerID == token { runner = nil }
         }
     }
 
@@ -622,6 +628,7 @@ final class CutdownQueue {
 
     func stop() {
         runner?.cancel()
+        runner = nil
         jobs.removeAll { if case .waiting = $0.state { true } else { false } }
     }
 

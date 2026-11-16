@@ -91,8 +91,8 @@ final class DeliverCopies {
         guard task == nil, !queue.isEmpty else { return }
         let job = queue.removeFirst()
         guard let (_, asset) = store.find(job.asset), let version = asset.versions.first(where: { $0.id == job.version }) else { return next() }
-        // (On a NAS host: it makes those copies itself.)
-        if ReviewPublish.browsed(version.path) != nil { return next() }
+        // (On a NAS host: it makes those copies itself. A data host's version has no original here: nothing to make or stamp.)
+        if ReviewPublish.browsed(version.path) != nil || version.path.hasPrefix("host:") { return next() }
         working = job.version
         task = Task {
             await make(asset: asset, version: version)
@@ -259,7 +259,7 @@ final class DeliverCopies {
             let parts = cue.text.split(whereSeparator: \.isWhitespace)
             let step = (cue.end - cue.start) / Double(max(parts.count, 1))
             for (n, word) in parts.enumerated() {
-                words.append([(cue.start + step * Double(n) * 1000).rounded() / 1000, (cue.start + step * Double(n + 1) * 1000).rounded() / 1000, String(word)])
+                words.append([((cue.start + step * Double(n)) * 1000).rounded() / 1000, ((cue.start + step * Double(n + 1)) * 1000).rounded() / 1000, String(word)])
             }
         }
         let lang = Locale.current.language.languageCode?.identifier ?? "en"

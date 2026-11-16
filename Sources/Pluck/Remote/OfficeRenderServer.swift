@@ -33,6 +33,8 @@ final class OfficeRenderServer {
             var proxies = true
             var originals = false
             var render = true
+            /// Renders skip the check of what Fusion and grades reach (for the owner's own Macs).
+            var fullTrust = false
         }
 
         var allowed: Rights { rights ?? Rights() }
@@ -815,5 +817,17 @@ final class OfficeRenderServer {
             }
             saveJobs()
         }
+    }
+}
+
+extension OfficeRenderServer.Device.Rights {
+    /// Rights saved before one existed take its default (a missing key must not drop the pairing).
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self), base = Self()
+        browse = try values.decodeIfPresent(Bool.self, forKey: .browse) ?? base.browse
+        proxies = try values.decodeIfPresent(Bool.self, forKey: .proxies) ?? base.proxies
+        originals = try values.decodeIfPresent(Bool.self, forKey: .originals) ?? base.originals
+        render = try values.decodeIfPresent(Bool.self, forKey: .render) ?? base.render
+        fullTrust = try values.decodeIfPresent(Bool.self, forKey: .fullTrust) ?? base.fullTrust
     }
 }

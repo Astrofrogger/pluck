@@ -155,6 +155,9 @@ pub fn stamp(old: &Value, new: &mut Value, by: &str, now: &str, cutoff: &str) {
     new["storeSeq"] = json!(seq);
 }
 
+/// What only the Mac holding a link's key can make (registration, auth, room signing, join hash).
+const LINK_SECRETS: [&str; 4] = ["reg", "auth", "sign", "join"];
+
 /// `publish` with `merge:true` (§13.1): each project meta, folder, asset (with all its versions)
 /// and link merged on its own under M; only tombstones delete. Returns the merged manifest (not
 /// yet stamped: `stamp` gives the winners their seq) and the ids that lost.
@@ -235,8 +238,25 @@ pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value) -> (Value, Vec<
         }
     }
     for inc in arr(m, "links") {
-        let inc = clean(inc);
+        let mut inc = clean(inc);
         let stored = arr(&out, "links").find(|x| x["id"] == inc["id"]).cloned();
+        // A Mac without the link's keys (made on another Mac) sends it without them: the stored ones stay.
+        // A new link without them can't be served, so it isn't taken.
+        let has = |v: &Value, k: &str| v[k].as_str().is_some_and(|x| !x.is_empty());
+        match &stored {
+            Some(s) => {
+                for k in LINK_SECRETS {
+                    if !has(&inc, k) && has(s, k) {
+                        inc[k] = s[k].clone();
+                    }
+                }
+            }
+            None if !["reg", "sign", "join"].iter().all(|k| has(&inc, k)) => {
+                stale.push(inc["id"].clone());
+                continue;
+            }
+            None => {}
+        }
         if decide(&out, "link", stored.as_ref(), &inc) {
             let l = out["links"].as_array_mut().unwrap();
             match l.iter_mut().find(|o| o["id"] == inc["id"]) {
@@ -349,6 +369,30 @@ pub fn changes(m: &Value, since: u64, limit: usize) -> Value {
 mod tests {
     use super::*;
 
+    #[test]
+    fn link_merge_keeps_secrets() {
+        let full = json!({"id": "L", "roomID": "R", "reg": "r", "auth": "a", "sign": "s", "join": "j", "paused": false, "rev": 1, "at": "2026-11-16T09:00:00Z", "by": "A"});
+        let raw = json!({"format": 1, "projects": [], "links": [full]});
+        // From another Mac (no keys there): its changes win, the secrets stay.
+        let bare = json!({"id": "L", "roomID": "R", "paused": true, "revoked": "2026-11-16T10:00:00Z", "rev": 2, "at": "2026-11-16T10:00:00Z", "by": "B"});
+        let (out, stale) = merge_publish(&raw, &json!({"links": [bare]}), &Value::Null);
+        let l = &out["links"][0];
+        assert!(stale.is_empty());
+        assert_eq!((l["paused"].clone(), l["revoked"].clone()), (json!(true), json!("2026-11-16T10:00:00Z")));
+        assert_eq!((l["reg"].as_str(), l["auth"].as_str(), l["sign"].as_str(), l["join"].as_str()), (Some("r"), Some("a"), Some("s"), Some("j")));
+        // Empty or null ones never overwrite them either.
+        let blank = json!({"id": "L", "roomID": "R", "reg": "", "auth": null, "rev": 3, "at": "2026-11-16T11:00:00Z", "by": "B"});
+        let (out, _) = merge_publish(&out, &json!({"links": [blank]}), &Value::Null);
+        assert_eq!((out["links"][0]["reg"].as_str(), out["links"][0]["auth"].as_str()), (Some("r"), Some("a")));
+        // From the Mac with the keys: new secrets replace the old.
+        let rekeyed = json!({"id": "L", "roomID": "R", "reg": "r2", "auth": "a2", "sign": "s2", "join": "j2", "rev": 4, "at": "2026-11-16T12:00:00Z", "by": "A"});
+        let (out, _) = merge_publish(&out, &json!({"links": [rekeyed]}), &Value::Null);
+        assert_eq!((out["links"][0]["reg"].as_str(), out["links"][0]["join"].as_str()), (Some("r2"), Some("j2")));
+        // A new link without them isn't taken.
+        let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"}]}), &Value::Null);
+        assert_eq!((out["links"].as_array().unwrap().len(), stale), (1, vec![json!("N")]));
+    }
+
     const T0: &str = "2026-11-16T09:00:00Z";
     const T1: &str = "2026-11-16T10:00:00Z";
     const T2: &str = "2026-11-16T11:00:00Z";
@@ -386,7 +430,7 @@ mod tests {
         // An older asset loses (stale), a newer folder and link come in.
         let inc = json!({"format": 1, "projects": [{"id": "P", "folders": [{"id": "F", "name": "Socials", "rev": 1, "at": T1, "by": "B"}],
             "assets": [{"id": "A1", "name": "Old", "rev": 1, "at": T2, "by": "B", "versions": []}]}],
-            "links": [{"id": "L", "title": "T", "rev": 1, "at": T1, "by": "B"}]});
+            "links": [{"id": "L", "title": "T", "reg": "r", "sign": "s", "join": "j", "rev": 1, "at": T1, "by": "B"}]});
         let (mut out, stale) = merge_publish(&raw, &inc, &Value::Null);
         assert_eq!(stale, [json!("A1")]);
         assert_eq!(out["projects"][0]["assets"][0]["name"], "Hero");

@@ -104,7 +104,11 @@ final class ReviewPublish {
         return Deliver.Host(name: office.name, kind: .mac, address: office.device.uuidString)
     }
 
-    var choices: [Deliver.Host] { (pairedMac.map { [$0] } ?? []) + hosts.filter { $0.kind == .nas } }
+    var choices: [Deliver.Host] { (pairedMac.map { [$0] } ?? []) + hosts.filter { $0.kind == .nas && !Self.isDataHost($0.id) } }
+
+    /// The NAS that holds the review data (§13.1): it gets changes through DeliverSync's merge, never a plain publish
+    /// (that replaces its lists, and the tombstones would delete objects on every Mac).
+    static func isDataHost(_ id: UUID) -> Bool { id == DeliverSync.shared.state.host }
 
     /// A NAS by its address and its pairing line (`pluck-host:<key>@<fingerprint>`) or a key Pluck made.
     @discardableResult
@@ -300,6 +304,8 @@ final class ReviewPublish {
                     let name = "originals/\(version.id.uuidString)" + (ext.isEmpty ? "" : ".\(ext)")
                     files.append((name, original))
                     item["original"] = name
+                } else if original == nil, let kept = version.hostOriginal, onlyLinks != nil || host.map({ Self.isDataHost($0.id) }) == true {
+                    item["original"] = kept   // (the data host's own file, as `changes` gave it; another host doesn't have it)
                 }
                 return item
             }
@@ -309,7 +315,9 @@ final class ReviewPublish {
             return wire.merging(Self.stamp(asset)) { $1 }
         }
         let wireLinks: [[String: Any]] = links.compactMap { link in
-            guard let key = store.key(link.id), let secret = store.secret(link.id) else { return nil }
+            let keys = store.key(link.id).flatMap { key in store.secret(link.id).map { (key, $0) } }
+            // Made on another Mac: only to the data host's merge (onlyLinks), without the secrets; it keeps its own.
+            guard keys != nil || (onlyLinks != nil && store.isForeign(link)) else { return nil }
             let (kind, target): (String, UUID) = switch link.scope {
             case .project(let p): ("project", p)
             case .folder(let f, _): ("folder", f)
@@ -318,8 +326,7 @@ final class ReviewPublish {
             }
             var root: [String: Any] = ["kind": kind, "id": target.uuidString, "name": store.name(link.scope)]
             if case .assets(let ids, _) = link.scope { root = ["kind": "assets", "id": link.id.uuidString, "name": link.title, "assets": ids.map(\.uuidString)] }
-            var wire: [String: Any] = ["id": link.id.uuidString, "roomID": link.roomID, "reg": DeliverKeys.registerKey(root: secret), "auth": DeliverKeys.base64url(DeliverKeys.authKey(key)),
-                                       "sign": DeliverKeys.base64url(DeliverKeys.signSeed(root: secret)), "join": DeliverKeys.joinHash(key),
+            var wire: [String: Any] = ["id": link.id.uuidString, "roomID": link.roomID,
                                        "title": link.title, "mode": link.mode.rawValue, "allowDownload": link.allowDownload, "latestOnly": link.latestOnly,
                                        "expires": link.expires.map { DeliverServer.date($0) as Any } ?? NSNull(), "revoked": link.revoked.map { DeliverServer.date($0) as Any } ?? NSNull(),
                                        "passwordHash": link.passwordHash.map { $0 as Any } ?? NSNull(), "project": project.uuidString, "root": root,
@@ -328,6 +335,10 @@ final class ReviewPublish {
             var info = DeliverServer.linkInfo(link, store: store)
             for key in ["title", "mode", "allowDownload", "latestOnly", "expires", "header"] { info[key] = nil }
             wire.merge(info) { a, _ in a }
+            if case let (key, secret)? = keys {
+                wire.merge(["reg": DeliverKeys.registerKey(root: secret), "auth": DeliverKeys.base64url(DeliverKeys.authKey(key)),
+                            "sign": DeliverKeys.base64url(DeliverKeys.signSeed(root: secret)), "join": DeliverKeys.joinHash(key)]) { $1 }
+            }
             wire["created"] = DeliverServer.date(link.created)
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()
             if let madeOn = link.madeOn { wire["madeOn"] = madeOn }
@@ -370,12 +381,13 @@ final class ReviewPublish {
                                    "deadline": project.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()]
         if let order = project.order { meta["order"] = order }
         if let cover = project.cover { meta["cover"] = cover.uuidString }
+        if project.hidden == true { meta["hidden"] = true }
         return meta.merging(stamp(project)) { $1 }
     }
 
-    /// The project's links a host must drop (turned off, expired, or without their key): `remove.links` on every publish.
+    /// The project's links a host must drop (turned off, expired, or made here and without their key): `remove.links` on every publish.
     func deadLinks(_ project: UUID) -> [String] {
-        store.links.filter { $0.project == project && (!$0.isLive || store.key($0.id) == nil) }.map(\.id.uuidString)
+        store.links.filter { $0.project == project && (!$0.isLive || (store.key($0.id) == nil && !store.isForeign($0))) }.map(\.id.uuidString)
     }
 
     /// What a host knows of a project's links; a change is sent on at once (Turn Off, password, expiry…).
@@ -517,6 +529,7 @@ final class ReviewPublish {
     // MARK: - Publishing, pulling back, removing
 
     func publish(_ scope: Deliver.Scope, to host: Deliver.Host) async {
+        guard !Self.isDataHost(host.id) else { return }
         if !hosts.contains(where: { $0.id == host.id }) { hosts.append(host) }
         var publication = publications.first { $0.scope == scope && $0.host == host.id } ?? Deliver.Publication(scope: scope, host: host.id)
         let project = scope.project, name = Self.dataName(host: host.id, project: project)
@@ -669,7 +682,7 @@ final class ReviewPublish {
             guard sentLinks[project] != state else { continue }
             var reached = true
             for hostID in Set(publications.filter { $0.scope.project == project }.map(\.host)) {
-                guard let host = host(hostID) else { continue }
+                guard let host = host(hostID), !Self.isDataHost(hostID) else { continue }
                 let only = published(project, on: hostID)
                 var links = manifest(project: project, only: only, host: host).json
                 links["projects"] = [Any]()
@@ -746,7 +759,7 @@ final class ReviewPublish {
         let project = publication.scope.project, name = Self.dataName(host: publication.host, project: project)
         let left = publications.contains { $0.id != id && $0.host == publication.host && $0.scope.project == project }
         let only = published(project, on: publication.host, without: id)
-        if let host = host(publication.host) {
+        if let host = host(publication.host), !Self.isDataHost(host.id) {
             switch host.kind {
             case .mac:
                 let folder = folder(publication)
@@ -881,6 +894,9 @@ final class HostHelper {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        // A helper that died fails the write instead of ending Pluck, and its waiting asks fail.
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
+        process.terminationHandler = { [weak self] _ in Task { @MainActor in self?.failWaiting() } }
         guard (try? process.run()) != nil else { return }
         self.process = process
         input = stdin.fileHandleForWriting
@@ -921,7 +937,12 @@ final class HostHelper {
     func stop() {
         try? input?.close()
         process?.terminate()
-        for continuation in waiting { continuation.resume(throwing: CancellationError()) }
+        failWaiting()
+    }
+
+    private func failWaiting() {
+        let pending = waiting
         waiting = []
+        for continuation in pending { continuation.resume(throwing: CancellationError()) }
     }
 }

@@ -37,9 +37,14 @@ extension ProjectModel {
 
     /// Changes the keyframes of one clip or item.
     func changeKeys(_ id: UUID, record: Bool = true, _ body: @escaping (inout ClipLook) -> Void) {
+        let at = localTime(id) ?? 0
         let apply: (inout ProjectClip) -> Void = { clip in
+            let level = clip.gain(at: at)
             var look = clip.look ?? ClipLook()
+            let hadVolume = look.isKeyed(.volume)
             body(&look)
+            // The last volume keyframe gone: the level it had at the playhead stays.
+            if hadVolume, !look.isKeyed(.volume) { clip.volume = level }
             clip.look = look.isDefault ? nil : look
         }
         if project.clips.contains(where: { $0.id == id }) { set(id, record: record, apply) } else { setItem(id, record: record, apply) }
@@ -102,13 +107,16 @@ extension ProjectModel {
     func moveKeys(_ ids: Set<UUID>, of clipID: UUID, by delta: Double, from start: ClipLook, record: Bool) {
         guard let (clip, _) = keyTarget(clipID) else { return }
         let length = clip.length
+        // One shift for the whole group, so the spacing between the keys stays.
+        let times = start.keyedProperties.flatMap { start.keyframes($0).filter { ids.contains($0.id) }.map(\.time) }
+        let delta = times.isEmpty ? delta : max(min(delta, max(0, length - times.max()!)), -times.min()!)
         let body: (inout ClipLook) -> Void = { look in
             look.keys = start.keys
             for property in look.keyedProperties {
                 look.setKeyframes(property, look.keyframes(property).map { key in
                     guard ids.contains(key.id) else { return key }
                     var moved = key
-                    moved.time = min(max(key.time + delta, 0), length)
+                    moved.time = key.time + delta
                     return moved
                 })
             }

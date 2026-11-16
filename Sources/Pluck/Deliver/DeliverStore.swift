@@ -703,6 +703,8 @@ final class DeliverStore {
     }
 
     func link(_ id: UUID) -> Deliver.ShareLink? { links.first { $0.id == id } }
+    /// Made on another Mac (its key is in that Mac's Keychain): only that Mac can change it on a host.
+    func isForeign(_ link: Deliver.ShareLink) -> Bool { key(link.id) == nil && link.madeOn.map { $0 != Host.current().localizedName } == true }
     /// The link key (what's in the link). The keychain item is key ‖ R; a level-1 item (key only) counts as none.
     func key(_ link: UUID) -> Data? { DeliverKeychain.load(link.uuidString).flatMap { $0.count == 64 ? Data($0.prefix(32)) : nil } }
     /// R: the owner-only root of the registration secret and the room signing key (never in the link).

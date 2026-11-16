@@ -67,6 +67,8 @@ if [[ "$EDITION" == studio ]]; then
   cp Helpers/RedClipTypes/Info.plist "$TYPES_APP/Contents/Info.plist"
   clang -O2 -arch arm64 -arch x86_64 -mmacosx-version-min=14.0 Helpers/RedClipTypes/main.c -o "$TYPES_APP/Contents/MacOS/RedClipTypes"
   codesign --force --options runtime --sign "$SIGN_ID" "$TYPES_APP"
+  # The pictures on What's New's feature cards (WhatsNewStudio.swift).
+  cp -R Resources/WhatsNew "$APP/Contents/Resources/WhatsNew"
 fi
 
 if [[ "$EDITION" == studio ]]; then

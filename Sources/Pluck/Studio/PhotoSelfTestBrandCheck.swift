@@ -187,6 +187,8 @@ extension PhotoSelfTest {
         BrandBookImport.apply(suggestions, to: &fromBook)
         check("brand: ticked suggestions applied", fromBook.palette.contains { $0.hex == "#E4002B" } && fromBook.clearSpace.amount == 20 && fromBook.minimumWidth == 120)
 
+        let percent = BrandBookImport.rules(in: "Clear space\n25% of the logo width")
+        check("brand: brand book percent clear space", percent.contains { if case .clearSpace(let s) = $0.kind { s.amount == 25 && s.percent } else { false } }, percent.map(\.label).joined(separator: ", "))
         // The editor drawn off screen (never shown), beside the log, for looking at.
         if let log = UserDefaults.standard.string(forKey: "PluckScreenshotLog") {
             var shown = profile

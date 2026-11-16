@@ -192,6 +192,7 @@ private struct ProjectClipPanel: View {
         return ClipLookEditor(look: at.map { look.resolved(at: $0) } ?? look, path: clip.path, parts: parts,
                               change: { record, body in model.editLook(clip.id, record: record, byHand: byHand, body) },
                               keyTime: at, keySeek: { property, forward in model.jumpToKey(clip.id, property, forward: forward) })
+            .disabled(at == nil && look.hasKeys)   // keyed, the playhead must be over the clip to set a value
     }
 
     /// Volume: a slider (and its keyframe diamond); keyframed, it shows and sets the level at the playhead.
@@ -203,6 +204,7 @@ private struct ProjectClipPanel: View {
             Slider(value: Binding(get: { gain }, set: { value in model.setVolume(clip.id, value, record: false) }), in: 0...2) { editing in
                 if !editing { model.setVolume(clip.id, gain, record: true) }
             }
+            .disabled(at == nil && keyed)
             Text(verbatim: "\(Int(gain * 100))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(minWidth: 38, alignment: .trailing).fixedSize()
             if let at {
                 KeyDiamonds(on: clip.look?.keyframe(.volume, at: at) != nil, animated: keyed, toggle: { model.toggleVolumeKey(clip.id) },

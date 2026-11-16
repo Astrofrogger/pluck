@@ -217,7 +217,10 @@ async fn backup_pairs_syncs_and_pushes_its_own_comments() {
     let mut main = Proc::start(bin, &["--host", main_dir.to_str().unwrap(), "--signal", &sig, "--local", "--iroh", "--iroh-bin", iroh.to_str().unwrap(), "--name", "Office NAS"], &[], None);
     main.wait(|v| v["host"]["iroh"]["id"].is_string()).await;
     let m = json!({"format": 1, "links": [], "projects": [{"id": "P1", "name": "Spring", "rev": 1, "at": "2026-11-16T10:00:00Z", "by": "mac", "folders": [],
-        "assets": [{"id": "A1", "name": "Hero", "kind": "video", "folder": null, "rev": 1, "at": "2026-11-16T10:00:00Z", "by": "mac", "versions": []}]}]});
+        "assets": [{"id": "A1", "name": "Hero", "kind": "video", "folder": null, "rev": 1, "at": "2026-11-16T10:00:00Z", "by": "mac", "versions": []}]}],
+        "branding": {"name": "Studio", "accent": "#336699", "logo": "branding/logo.png"}, "activityDays": 30});
+    std::fs::create_dir_all(main_dir.join("bundle/branding")).unwrap();
+    std::fs::write(main_dir.join("bundle/branding/logo.png"), b"\x89PNG\r\n\x1a\nxx").unwrap();
     assert_eq!(ctl(&main_dir, json!({"op": "publish", "merge": true, "manifest": m})).await["ok"], true);
     ctl(&main_dir, json!({"op": "append", "entries": [{"comment": {"id": "C1", "asset": "A1", "version": "V1", "text": "from the office", "rev": 1, "replies": []}}]})).await;
     let inv = ctl(&main_dir, json!({"op": "invite", "role": "backup"})).await;
@@ -231,7 +234,8 @@ async fn backup_pairs_syncs_and_pushes_its_own_comments() {
     loop {
         let man = ctl(&backup_dir, json!({"op": "manifest"})).await;
         let pulled = ctl(&backup_dir, json!({"op": "pull", "since": 0})).await;
-        let got = man["projects"][0]["assets"][0]["id"] == "A1" && pulled["entries"].as_array().is_some_and(|e| e.iter().any(|e| e["comment"]["id"] == "C1" && e["main"].is_u64()));
+        let got = man["projects"][0]["assets"][0]["id"] == "A1" && pulled["entries"].as_array().is_some_and(|e| e.iter().any(|e| e["comment"]["id"] == "C1" && e["main"].is_u64()))
+            && man["branding"]["accent"] == "#336699" && man["activityDays"] == 30 && backup_dir.join("bundle/branding/logo.png").is_file();
         if got { break }
         assert!(tokio::time::Instant::now() < until, "the backup never synced: {man} {pulled}");
         tokio::time::sleep(Duration::from_millis(300)).await;

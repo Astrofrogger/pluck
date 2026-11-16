@@ -119,6 +119,36 @@ extension EditSelfTest {
         let second = model.project.clips[1]
         check("keyframes: cut in two, the second half's move continues", near(second.look?.resolved(at: 0).x ?? 0, 0.2, 0.01)
               && near(second.look?.resolved(at: 2).x ?? 0, 0.4, 0.01), "\(second.look?.keyframes(.x).map { ($0.time, $0.value) } ?? [])")
+        // Trimmed to the playhead and rolled: the move stays with the footage too.
+        let t = await project(["a.mp4", "a.mp4"])
+        let c = t.project.clips[0].id, d = t.project.clips[1].id
+        t.trim(c, start: 0, end: 4, record: true); t.trim(d, start: 0, end: 4, record: true)
+        t.changeKeys(c) { $0.setKey(.x, 0, at: 0); $0.setKey(.x, 0.4, at: 4) }
+        t.changeKeys(d) { $0.setKey(.x, 0, at: 0); $0.setKey(.x, 0.4, at: 4) }
+        t.seek(to: 1)
+        t.trimStartToPlayhead()
+        check("keyframes: trimmed to the playhead, the move stays with the footage", near(t.project.clips[0].look?.resolved(at: 0).x ?? 0, 0.1, 0.01),
+              "\(t.project.clips[0].look?.keyframes(.x).map { ($0.time, $0.value) } ?? [])")
+        var l = ProjectClip(path: "/x.mp4", start: 0, end: 4), r = ProjectClip(path: "/x.mp4", start: 1, end: 5)
+        r.look = { var k = ClipLook(); k.setKey(.x, 0, at: 0); k.setKey(.x, 0.4, at: 4); return k }()
+        l.end = 4
+        let rolled = TrimMath.roll(left: l, right: r, by: 1, leftFileLength: 10, frame: 0.04)
+        check("keyframes: rolled, the right clip's move stays with the footage", near(rolled.right.look?.resolved(at: 0).x ?? 0, 0.1, 0.01))
+        // The last volume key removed: the level at the playhead stays; a group moved keeps its spacing.
+        let v = model.project.clips[0].id
+        model.changeKeys(v) { $0.setKey(.volume, -6, at: 0); $0.setKey(.volume, -6, at: 1) }
+        model.seek(to: 0)
+        model.changeKeys(v) { $0.setKeyframes(.volume, []) }
+        check("keyframes: last volume key gone, the level stays", near(20 * log10(model.project.clips[0].volume), -6, 0.01), "\(model.project.clips[0].volume)")
+        model.changeKeys(v) { $0.setKeyframes(.x, [Keyframe(time: 1, value: 0), Keyframe(time: 2, value: 1)]) }
+        let both = Set(model.project.clips[0].look?.keyframes(.x).map(\.id) ?? [])
+        model.moveKeys(both, of: v, by: -5, from: model.project.clips[0].look ?? ClipLook(), record: true)
+        let kept = model.project.clips[0].look?.keyframes(.x).map(\.time) ?? []
+        check("keyframes: a group dragged past the start keeps its spacing", kept.count == 2 && near(kept[0], 0) && near(kept[1], 1), "\(kept)")
+        model.changeKeys(v) { $0.setKeyframes(.x, [Keyframe(time: 1, value: 0), Keyframe(time: 1000, value: 1)]) }
+        model.moveKeys(Set(model.project.clips[0].look?.keyframes(.x).map(\.id) ?? []), of: v, by: -0.5, from: model.project.clips[0].look ?? ClipLook(), record: true)
+        let past = model.project.clips[0].look?.keyframes(.x).map(\.time) ?? []
+        check("keyframes: a key past the clip end doesn't stop a drag left", past.count == 2 && near(past[0], 0.5) && near(past[1], 999.5), "\(past)")
     }
 
     private static func resolveBake() {

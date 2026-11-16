@@ -120,7 +120,9 @@ impl UploadRoot {
             }
             let parent = parts[..parts.len() - 1].iter().fold(self.dir.clone(), |p, c| p.join(c));
             self.inside(&parent)?;
-            let id = format!("{sha}-{size}");
+            // Same bytes to another path or from another device are another upload; the same ones resume.
+            let to: String = <sha2::Sha256 as sha2::Digest>::digest(format!("{device}\0{path}")).iter().take(8).map(|b| format!("{b:02x}")).collect();
+            let id = format!("{sha}-{size}-{to}");
             {
                 let mut a = self.active.lock().unwrap();
                 if !a.contains_key(&id) {
@@ -331,5 +333,16 @@ mod tests {
         assert!(begin(4, "E").get("upload").is_some() && begin(5, "F").get("upload").is_some());
         assert_eq!(begin(6, "G"), json!({"error": "limit"}), "4 in all");
         assert_eq!(begin(MAX_FILE + 1, "H"), json!({"error": "tooLarge"}));
+    }
+
+    #[test]
+    fn same_bytes_to_another_path_or_device_is_another_upload() {
+        let r = root();
+        let sha = "b".repeat(64);
+        let id = |p: &str, d: &str| r.begin(&json!({"path": p, "size": 7, "sha256": sha}), d)["upload"].as_str().unwrap().to_owned();
+        let a = id("renders/a.mov", "D");
+        assert_eq!(id("renders/a.mov", "D"), a, "the same upload resumes");
+        assert_ne!(id("renders/Clients/a.mov", "D"), a);
+        assert_ne!(id("renders/a.mov", "E"), a);
     }
 }

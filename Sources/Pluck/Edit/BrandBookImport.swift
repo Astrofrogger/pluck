@@ -94,7 +94,7 @@ enum BrandBookImport {
         for (i, line) in lines.enumerated() {
             let lower = line.lowercased()
             let context = i + 1 < lines.count ? line + " " + lines[i + 1] : line
-            let number = matches(#"(\d+(?:[.,]\d+)?)\s*(px|pixels?|%|mm|pt|x)\b"#, in: context.lowercased()).first
+            let number = matches(#"(\d+(?:[.,]\d+)?)\s*((?:px|pixels?|mm|pt|x)\b|%)"#, in: context.lowercased()).first
             if ["clear space", "clearspace", "clear zone", "exclusion zone", "protection zone", "safe zone"].contains(where: lower.contains) {
                 if let number, let value = Double(number[1].replacingOccurrences(of: ",", with: ".")), number[2].hasPrefix("p") || number[2] == "%" {
                     let space = BrandProfile.ClearSpace(amount: value, percent: number[2] == "%")

@@ -205,9 +205,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         let action = response.actionIdentifier
         let info = response.notification.request.content.userInfo
         let files = info[Notifications.filesKey] as? [String] ?? []
-        // (Review notifications carry the asset, version and comment they're about.)
+        // (Review notifications carry the asset, version and comment they’re about; "deliverFound" = DeliverWatch.foundKey.)
         var passed: [String: Any] = [Notifications.filesKey: files]
-        for key in ["reviewAsset", "reviewVersion", "reviewComment"] { passed[key] = info[key] as? String }
+        for key in ["reviewAsset", "reviewVersion", "reviewComment", "deliverFound"] { passed[key] = info[key] as? String }
         let userInfo = passed
         await MainActor.run { Notifications.handle(action: action, userInfo: userInfo) }
     }

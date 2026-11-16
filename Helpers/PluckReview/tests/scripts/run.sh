@@ -248,6 +248,8 @@ case "$cmd" in
     printf 'hostname: %s\ndescription: pluck-review\nrootfs: %s:vm-%s-disk-0,size=%sG\n' "$host" "${rootfs%%:*}" "$id" "${rootfs##*:}" > "$PS/ct/$id.conf";;
   status) [ -f "$PS/started" ] && echo "status: running" || echo "status: stopped";;
   start) touch "$PS/started";;
+  stop) rm -f "$PS/started";;
+  set) id="$1"; shift; while [ $# -gt 1 ]; do echo "${1#--}: $2" >> "$PS/ct/$id.conf"; shift 2; done;;
   resize) ;;
   push) mkdir -p "$PS/root$(dirname "$3")"; cp "$2" "$PS/root$3";;
   exec) shift; [ "$1" = -- ] && shift
@@ -258,7 +260,8 @@ case "$cmd" in
       systemctl) if [ "$PS_PAIR" = 1 ] && [ "$1 $2" = "enable --now" ]; then
           mkdir -p "$PS/root/var/lib/pluck-review"
           echo '{"name":"Office NAS","host":"h"}' > "$PS/root/var/lib/pluck-review/main.json"
-          echo abcdef0123456789 > "$PS/root/var/lib/pluck-review/iroh-id"; fi;;
+          echo abcdef0123456789 > "$PS/root/var/lib/pluck-review/iroh-id"
+          printf 'pluck-host-iroh:NODEid@relay\npluck-host:KEYkey_-@AB:CD\n' > "$PS/root/var/lib/pluck-review/pairing.txt"; fi;;
       journalctl) echo "journal lines";;
       *) ;;
     esac;;
@@ -272,7 +275,7 @@ case "$1" in
   list) echo "local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst";;
 esac
 X
-printf '#!/bin/sh\necho 100\n' > "$PS/bin/pvesh"
+printf '#!/bin/sh\nn=100; while [ -f "$PS/ct/$n.conf" ]; do n=$((n + 1)); done; echo $n\n' > "$PS/bin/pvesh"
 chmod +x "$PS/bin"/*
 export PS PS_PAIR=1
 PXS="$SRC/pluck-proxmox.sh"
@@ -298,6 +301,7 @@ grep -qx 'PLUCK_ROLE=backup' "$env" && grep -qx "PLUCK_MAIN_LINK=$LINK" "$env" &
   && grep -q 'etc/pluck-review/env --perms 0600' "$PS/log" && ok "env file content (first install)" || bad "env file"
 grep -qxF 'OnCalendar=*-*-* 04:00:00' "$PS/root/etc/systemd/system/pluck-review-update.timer" && ok "timer has the substituted time" || bad "timer time"
 grep -q 'pluck-review-update.sh --install v9.9.9' "$PS/log" && ok "step 5 runs the updater with --install <tag>" || bad "updater run"
+grep -qx 'MemoryMax=2G' "$PS/root/etc/systemd/system/pluck-review.service.d/memory.conf" && ok "backup: service memory cap 2G (drop-in)" || bad "backup memory drop-in"
 grep -q 'SystemMaxUse=20M' "$PS/log" && ok "the journal is capped (a log flood can't fill the disk)" || bad "journal cap"
 
 : > "$PS/log"
@@ -312,6 +316,37 @@ px --storage local-lvm --size 80 --name pluck-backup; rc=$?
 : > "$PS/log"
 px --name pluck-backup --size 20; rc=$?
 [ $rc = 0 ] && lacks 'pct resize' "$PS/log" && ok "a smaller --size never shrinks" || bad "no shrink"
+
+# --role host: a main host with read-only media mounts, no pairing link, prints its pairing line
+for args in "--role host" "--role host --media relative/path" "--role host --media /nonexistent-pluck-x" "--role host --media $S/media --pair $LINK" "--media $S" "--role mirror --media $S"; do
+  mkdir -p "$S/media"; : > "$PS/log"
+  # shellcheck disable=SC2086
+  px $args; rc=$?
+  [ $rc != 0 ] && lacks 'pct create' "$PS/log" && ok "rejects: $args" || bad "rejects: $args" "rc=$rc"
+done
+# (the stub's container files are shared: start the host's from empty)
+rm -rf "${PS:?}/root"; mkdir -p "$PS/root"
+: > "$PS/log"
+px --role host --media "$S/media" --ip 192.0.2.50/24,gw=192.0.2.1; rc=$?
+[ $rc = 0 ] && grep -q -- '--hostname pluck-review ' "$PS/log" && grep -qxF "pct set 101 --mp0 $S/media,mp=/media/nas1,ro=1" "$PS/log" \
+  && ok "host: own container (pluck-review) with the media mounted read-only" || bad "host create" "rc=$rc $(tail -3 "$PS/out")"
+envh="$PS/root/etc/pluck-review/env"
+grep -qx 'PLUCK_ROLE=host' "$envh" && grep -qx 'PLUCK_ARGS=--listen 0.0.0.0:8790 --admin 0.0.0.0:8791 --media nas1=/media/nas1' "$envh" \
+  && lacks PLUCK_MAIN_LINK "$envh" && lacks PLUCK_BACKUP "$envh" && ok "host: env has the role, ports and media" || bad "host env" "$(cat "$envh")"
+grep -qx 'MemoryMax=3G' "$PS/root/etc/systemd/system/pluck-review.service.d/memory.conf" && grep -q -- '--memory 4096 ' "$PS/log" \
+  && ok "host: service memory cap 3G (drop-in), container 4 GB" || bad "host memory" "$(grep 'pct create' "$PS/log")"
+grep -qxF '192.0.2.50:8790 pluck-host:KEYkey_-@AB:CD' "$PS/out" && ok "host: prints address and pairing line for Pluck (not the iroh line written first)" || bad "host pairing line" "$(tail -2 "$PS/out")"
+: > "$PS/log"
+px --role host --media "$S/media" --ip 192.0.2.50/24,gw=192.0.2.1; rc=$?
+[ $rc = 0 ] && lacks 'pct create' "$PS/log" && lacks 'pct set' "$PS/log" && lacks 'pct stop' "$PS/log" && ok "host: second run keeps the container and its mounts" || bad "host rerun" "rc=$rc"
+: > "$PS/log"
+px --role host --media "$S/media" --media "$S" --ip 192.0.2.50/24,gw=192.0.2.1; rc=$?
+[ $rc = 0 ] && grep -qxF 'pct stop 101' "$PS/log" && grep -qF -- "--mp1 $S,mp=/media/nas2,ro=1" "$PS/log" && ok "host: a new media folder stops, mounts, starts" || bad "host new media" "rc=$rc"
+: > "$PS/log"
+px --role backup --name pluck-review --pair "$LINK"; rc=$?
+[ $rc != 0 ] && grep -q 'is a Pluck host' "$PS/out" && ok "refuses to turn a host container into a backup" || bad "role switch" "rc=$rc $(tail -1 "$PS/out")"
+grep -qxF 'ExecStart=/opt/pluck-review/current/pluck-review --host /var/lib/pluck-review $PLUCK_ARGS' "$PX/pluck-review.service" \
+  && ok "service takes the role and host arguments from the env file" || bad "service ExecStart"
 
 # bad signature: nothing is pushed or run
 rm -rf "${PS:?}/ct" "${PS:?}/root" "${PS:?}/started"; mkdir -p "$PS/ct" "$PS/root"; : > "$PS/log"
@@ -331,7 +366,7 @@ check "service has RuntimeDirectory for the health file" grep -qx 'RuntimeDirect
 check "path unit watches the request file" grep -q 'PathChanged=/var/lib/pluck-review/update/request' "$PX/pluck-review-update.path"
 check "timer is persistent with 20m jitter" sh -c "grep -qx 'Persistent=true' '$PX/pluck-review-update.timer' && grep -qx 'RandomizedDelaySec=20m' '$PX/pluck-review-update.timer'"
 missing=""
-for k in NoNewPrivileges=yes ProtectSystem=strict ProtectHome=yes PrivateTmp=yes PrivateDevices=yes ProtectKernelTunables=yes ProtectKernelModules=yes ProtectControlGroups=yes 'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX' RestrictNamespaces=yes LockPersonality=yes MemoryDenyWriteExecute=yes 'SystemCallFilter=@system-service' 'CapabilityBoundingSet=' ReadWritePaths=/var/lib/pluck-review MemoryMax=2G TasksMax=256 User=pluck-review Restart=on-failure RestartSec=5 EnvironmentFile=/etc/pluck-review/env; do
+for k in NoNewPrivileges=yes ProtectSystem=strict ProtectHome=yes PrivateTmp=yes PrivateDevices=yes ProtectKernelTunables=yes ProtectKernelModules=yes ProtectControlGroups=yes 'RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK' RestrictNamespaces=yes LockPersonality=yes MemoryDenyWriteExecute=yes 'SystemCallFilter=@system-service' 'CapabilityBoundingSet=' ReadWritePaths=/var/lib/pluck-review MemoryMax=2G TasksMax=256 User=pluck-review Restart=on-failure RestartSec=5 EnvironmentFile=/etc/pluck-review/env; do
   grep -qxF "$k" "$PX/pluck-review.service" || missing="$missing $k"
 done
 [ -z "$missing" ] && ok "pluck-review.service hardening list present" || bad "pluck-review.service lacks" "$missing"

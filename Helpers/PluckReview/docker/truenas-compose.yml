@@ -4,8 +4,9 @@
 # Placeholders are double-curly-brace names only (the dollar-brace form is never used: TrueNAS would
 # interpolate it). Each is replaced by a YAML-escaped value inside double quotes; values with
 # newlines are rejected. The image is the full ghcr.io reference with its sha256 digest, never latest.
-# Optional blocks sit between a begin and an end marker comment line (names: media2, uploads). The
+# Optional blocks sit between a begin and an end marker comment line (names: media1, media2, uploads). The
 # filler keeps a block's lines or drops everything between and including its two marker lines:
+#   media1    the first media dataset, read-only (media1, media1_id); never on a backup
 #   media2    the second NAS over NFS (media2_id, media2_nfs_addr, media2_nfs_path)
 #   uploads   the uploads dataset, read-write (uploads, uploads_id)
 # Backup-only values (main_link, backup_max, backup_quality) are empty strings on a main host.
@@ -37,8 +38,10 @@ services:
       PLUCK_UPLOADS: "{{uploads_id}}=/uploads/{{uploads_id}}"
       # end:uploads
     command:
+      # begin:media1
       - --media
       - "{{media1_id}}=/media/{{media1_id}}"
+      # end:media1
       # begin:media2
       - --media
       - "{{media2_id}}=/media/{{media2_id}}"
@@ -49,7 +52,9 @@ services:
       - "{{lan_addr}}:{{admin_port}}"
     volumes:
       - "{{data}}:/data"
+      # begin:media1
       - "{{media1}}:/media/{{media1_id}}:ro"
+      # end:media1
       # begin:media2
       - "media2:/media/{{media2_id}}:ro"
       # end:media2

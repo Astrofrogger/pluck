@@ -175,6 +175,16 @@ extension PhotoSelfTest {
         let trimmedProject = try? JSONDecoder.iso.decode(Project.self, from: Data(contentsOf: folder.appendingPathComponent("Project/Test Job.pluckproject")))
         check("archive: trimmed project times moved", trimmedProject?.clips.first.map { abs($0.start - 1) < 0.01 && abs($0.end - 4) < 0.01 } == true,
               "\(trimmedProject?.clips.map { ($0.start, $0.end) } ?? [])")
+        // A hand edit keyed by a line's start survives an odd trim (9.3125 - 3.0417 must not re-round to another key).
+        if var item = trimPlan.items.first(where: { $0.original == clip1 }) {
+            item.trim = 3.0417...20
+            var edited = project
+            edited.fileSubtitles = [clip1: [SubtitleCue(start: 9.3125, end: 11, text: "a")]]
+            edited.subtitleEdits = ["\(clip1)|9.31": "fixed"]
+            let moved = ProjectArchive.relinked(edited, items: [item], archive: base.appendingPathComponent("Rekey"))
+            let newKey = "\(base.appendingPathComponent("Rekey").appendingPathComponent(item.archived).path)|\(String(format: "%.2f", 9.3125 - 3.0417))"
+            check("archive: subtitle edit follows an odd trim", moved.subtitleEdits == [newKey: "fixed"], "\(moved.subtitleEdits ?? [:]) vs \(newKey)")
+        }
         await archiveMasters(base: base, ffmpeg: ffmpeg, ffprobe: ffprobe)
     }
 

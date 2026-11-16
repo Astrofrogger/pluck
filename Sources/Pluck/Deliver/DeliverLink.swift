@@ -108,6 +108,8 @@ final class DeliverLink {
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
         process.terminationHandler = { [weak self] ended in Task { @MainActor in self?.ended(ended) } }
+        // A helper that died fails the write instead of ending Pluck.
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         guard (try? process.run()) != nil else { return }
         self.process = process
         input = stdin.fileHandleForWriting

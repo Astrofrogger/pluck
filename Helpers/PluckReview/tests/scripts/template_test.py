@@ -30,7 +30,7 @@ def render(keep):
     # double-quoted YAML escaping of the value, like the filler does
     return re.sub(r"\{\{(\w+)\}\}", lambda m: SAMPLE[m.group(1)].replace("\\", "\\\\").replace('"', '\\"'), s)
 
-for keep in (set(), {"media2"}, {"uploads"}, {"media2", "uploads"}):
+for keep in (set(), {"media1"}, {"media1", "media2"}, {"uploads"}, {"media1", "media2", "uploads"}):
     doc = yaml.safe_load(render(keep))
     assert "services" in doc and "include" not in doc
     svc = doc["services"]["pluck-review"]
@@ -42,6 +42,9 @@ for keep in (set(), {"media2"}, {"uploads"}, {"media2", "uploads"}):
     assert ("PLUCK_UPLOADS" in env) == ("uploads" in keep)
     assert (("volumes" in doc) and "media2" in doc["volumes"]) == ("media2" in keep)
     assert any(v.endswith("/media/nas2:ro") for v in svc["volumes"]) == ("media2" in keep)
+    assert any(v.endswith("/media/nas1:ro") for v in svc["volumes"]) == ("media1" in keep)
+    assert ("nas1=/media/nas1" in svc["command"]) == ("media1" in keep)
+    assert all(not v.startswith("/mnt/tank/apps/") for v in svc["volumes"] if v.endswith(":ro"))
     assert any(v.startswith("/mnt/tank/renders:") for v in svc["volumes"]) == ("uploads" in keep)
     assert env["PLUCK_HOST_NAME"] == 'Office "NAS"'
     assert not re.search(r"\{\{|\$\{", render(keep))

@@ -489,9 +489,9 @@ if action == "addMarkers":
     timeline = project.GetCurrentTimeline() if project else None
     if timeline is None:
         out({"error": "noTimeline"})
-    for m in cmd["markers"]:
+    for data in set([m["data"] for m in cmd["markers"]] + cmd.get("remove", [])):
         for _ in range(50):
-            if not timeline.DeleteMarkerByCustomData(m["data"]):
+            if not timeline.DeleteMarkerByCustomData(data):
                 break
     added, moved, skipped = 0, [], []
     for m in cmd["markers"]:

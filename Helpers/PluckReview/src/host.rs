@@ -884,7 +884,7 @@ impl Host {
             let bye = self.peers.get(&id).and_then(|p| self.link(&p.room)).map_or_else(|| json!({"t": "bye", "code": code}), |l| self.bye(l, code));
             self.send(&id, bye);
             self.close_later(&id);
-            self.peers.remove(&id);
+            self.drop_peer(&id);
         }
         // Dropping a room closes its peers at once, so let the byes go out first.
         let out = self.out.clone();
@@ -892,6 +892,21 @@ impl Host {
             tokio::time::sleep(Duration::from_millis(1500)).await;
             let _ = out.send(Ev::Cmd(rooms));
         });
+    }
+
+    /// A peer gone (closed, or ended by check_links): its fetches end (temp files go, a backup's
+    /// versions become evictable again) and its partial uploads go.
+    fn drop_peer(&mut self, id: &str) -> Option<HPeer> {
+        let p = self.peers.remove(id)?;
+        for f in p.fetches.values() {
+            if let (Some(r), Some(v)) = (&self.replica, &f.version) {
+                r.fetch_end(v);
+            }
+            if let Some(t) = &f.temp { let _ = std::fs::remove_file(t); }
+        }
+        // A finished writer no longer deletes its partial file, so the host does (#14).
+        self.uploads.retain(|(peer, _), u| peer != id || { let _ = std::fs::remove_file(&u.part); false });
+        Some(p)
     }
 
     /// A link's expiry or deadline falls in the next 31 s (ISO strings compare in time order).
@@ -946,7 +961,10 @@ impl Host {
     /// "YYYY-MM-DDTHH:MM:SSZ" so it compares as a string with now_iso().
     fn deadline(&self, l: &Value) -> Option<String> {
         let d = l["deadline"].as_str().or_else(|| self.project(l)?["deadline"].as_str())?;
-        Some(norm_iso(d).unwrap_or_else(|| d.to_owned()))
+        let d = norm_iso(d).unwrap_or_else(|| d.to_owned());
+        // Pluck's "reopened, no deadline" is a far-future date (it must outrank a past project deadline).
+        if d.get(..4).and_then(|y| y.parse::<u32>().ok()).is_some_and(|y| y >= 4000) { return None; }
+        Some(d)
     }
 
     fn project(&self, l: &Value) -> Option<&Value> {
@@ -1250,7 +1268,10 @@ impl Host {
             }
             "_replica-apply" => {
                 // A page of the main's `changes`, applied to this backup's manifest under M.
-                let m = crate::store::fragment(op);
+                let mut m = crate::store::fragment(op);
+                for k in ["branding", "activityDays"] { // not in `changes`: from the main's manifest (replica::branding)
+                    if let Some(v) = op.get(k) { m[k] = v.clone(); }
+                }
                 self.merge_publish(&m, &op["removed"], false)
             }
             "reload" => {
@@ -1348,12 +1369,7 @@ impl Host {
                     self.send(&id, json!({"t": "hello", "v": 2, "nonce": keys::b64(&nonce), "sig": sig}));
                 }
                 Some("closed") => {
-                    if let Some(p) = self.peers.remove(&id) {
-                        for f in p.fetches.into_values() {
-                            if let Some(t) = f.temp { let _ = std::fs::remove_file(t); }
-                        }
-                        // A finished writer no longer deletes its partial file, so the host does (#14).
-                        self.uploads.retain(|(peer, _), u| *peer != id || { let _ = std::fs::remove_file(&u.part); false });
+                    if let Some(p) = self.drop_peer(&id) {
                         self.presence(&p.room);
                     }
                 }
@@ -2228,10 +2244,13 @@ impl Host {
             return Ok((h.to_owned(), ap["hashOf"].as_str().unwrap_or("original").to_owned()));
         }
         let aid = ap["id"].as_str().unwrap_or("").to_owned();
-        if let Some(h) = self.proof_hashes.get(&aid) {
+        if let Some(h) = self.proof_hashes.get(&aid).cloned() {
             return match (h["sha256"].as_str(), h["hashOf"].as_str()) {
                 (Some(s), Some(o)) => Ok((s.to_owned(), o.to_owned())),
-                _ if h["failed"] == true => Err("internal"),
+                _ if h["failed"] == true => {
+                    self.proof_hashes.remove(&aid); // reported once; the next fetch tries again
+                    Err("internal")
+                }
                 _ => Err("notReady"),
             };
         }
@@ -2305,7 +2324,7 @@ impl Host {
     /// told to accept the bytes (before the reply, so it knows the id when the first frame comes).
     fn upload_begin(&mut self, peer: &str, id: &Value, l: &Value, m: &Value) {
         let r = (|| -> Result<(u64, HUp), &'static str> {
-            let up = l["uploads"].as_object().ok_or("scope")?;
+            let up = l["uploads"].as_object().filter(|_| !self.ident.backup).ok_or("scope")?; // uploads are off on a backup (§13.3)
             let lid = l["id"].as_str().filter(|s| id_ok(s)).ok_or("internal")?.to_owned();
             let uid = id.as_u64().filter(|u| *u <= u32::MAX as u64).ok_or("invalid")?;
             let attachment = match m["for"].as_str() { Some("asset") => false, Some("attachment") => true, _ => return Err("invalid") };
@@ -2740,6 +2759,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_peer_ended_by_check_links_ends_its_fetches() {
+        let (mut h, _rx) = test_host();
+        let r = crate::replica::Shared::load(&h.data, 1 << 30, "1080-low");
+        h.replica = Some(r.clone());
+        h.publish(&sample(json!([link("L1", "R1", json!({"kind": "project", "id": "P"}))])), &json!({}));
+        ready_peer(&mut h, "p1", "R1");
+        let temp = h.data.join("tmp/f.part");
+        std::fs::create_dir_all(temp.parent().unwrap()).unwrap();
+        std::fs::write(&temp, b"x").unwrap();
+        r.fetch_start("V");
+        h.peers.get_mut("p1").unwrap().fetches.insert(5, Fetched { temp: Some(temp.clone()), version: Some("V".into()), ..Default::default() });
+        let mut m = sample(json!([link("L1", "R1", json!({"kind": "project", "id": "P"}))]));
+        m["links"][0]["paused"] = json!(true);
+        h.publish(&m, &json!({}));
+        assert!(!h.peers.contains_key("p1"));
+        assert_eq!(r.inflight("V"), 0, "the version can be evicted again");
+        assert!(!temp.exists());
+    }
+
+    #[tokio::test]
     async fn paused_links_answer_paused_and_keep_their_room() {
         let (mut h, mut rx) = test_host();
         h.publish(&sample(json!([link("L1", "R1", json!({"kind": "project", "id": "P"}))])), &json!({}));
@@ -3139,6 +3178,9 @@ mod tests {
         h.request("p1", &json!({"id": 1, "t": "list", "folder": null}));
         assert!(answer(&mut rx, "p1", 1)["assets"].is_array(), "the link's own deadline wins over the project's");
         assert_eq!(h.deadline(h.link("R1").unwrap()).as_deref(), Some("2030-01-01T08:00:00Z"));
+        let mut far = link("L3", "R3", json!({"kind": "project", "id": "P"}));
+        far["deadline"] = json!("4001-01-01T00:00:00Z"); // reopened without a deadline
+        assert_eq!(h.deadline(&far), None, "a far-future deadline is no deadline");
         h.report(&json!({"peer": {"peer": "p2", "state": "open", "room": "R2"}}));
         h.request("p2", &json!({"id": 2, "t": "auth"}));
         let e = answer(&mut rx, "p2", 2);
@@ -3249,6 +3291,38 @@ mod tests {
         assert_eq!((busy["busy"].clone(), busy["why"].clone()), (json!(true), json!(["upload"])));
         let st = h.sync(&json!({"op": "status"}));
         assert_eq!((st["protocol"].clone(), st["role"].clone()), (json!(3), json!("main")));
+    }
+
+    #[test]
+    fn a_failed_proof_hash_is_tried_again() {
+        let (mut h, _rx) = test_host();
+        h.proof_hashes.insert("AP".into(), json!({"failed": true}));
+        assert_eq!(h.proof_hash(&json!({"id": "AP", "version": "V"})), Err("internal"));
+        assert!(!h.proof_hashes.contains_key("AP"), "not cached: the next fetch hashes again");
+    }
+
+    #[test]
+    fn a_backup_refuses_uploads() {
+        let (mut h, mut rx) = test_host();
+        h.ident.backup = true;
+        let mut l = link("L1", "R1", json!({"kind": "project", "id": "P"}));
+        l["uploads"] = json!({"folder": null});
+        h.publish(&sample(json!([l])), &json!({}));
+        named_peer(&mut h, "p1", "R1", "t1", "Anna");
+        h.request("p1", &json!({"id": 1, "t": "upload-begin", "name": "a.png", "size": 1, "for": "attachment"}));
+        assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "scope");
+    }
+
+    #[test]
+    fn replica_apply_takes_branding_and_activity_days() {
+        let (mut h, _rx) = test_host();
+        let r = h.sync(&json!({"op": "_replica-apply", "branding": {"name": "Studio", "accent": "#336699"}, "activityDays": 30}));
+        assert!(r.get("error").is_none(), "{r}");
+        assert_eq!((h.raw["branding"]["accent"].clone(), h.raw["activityDays"].clone()), (json!("#336699"), json!(30)));
+        h.sync(&json!({"op": "_replica-apply"}));
+        assert_eq!(h.raw["branding"]["accent"], "#336699", "a page without branding leaves it");
+        h.sync(&json!({"op": "_replica-apply", "branding": null}));
+        assert!(h.raw.get("branding").is_none(), "the main has none: gone here too");
     }
 
     #[test]

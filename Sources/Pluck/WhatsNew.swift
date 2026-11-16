@@ -1,14 +1,16 @@
 import AppKit
 import SwiftUI
 
-/// The "What's New" sheet shown on the first launch after an update. It lists every release newer
-/// than the version that last ran, so someone coming from 1.1.0 sees everything since then and
-/// someone coming from the previous version sees just the latest notes.
+/// The "What's New" sheet shown on the first launch after an update: the big features of the newest
+/// release, older releases since the version that last ran folded away, and a link to the full
+/// list of fixes on GitHub.
 enum WhatsNew {
     struct Item: Identifiable {
         let symbol: String
         let title: String
         let detail: String
+        /// A picture for the card (Pluck Studio): a JPEG in Resources/WhatsNew, by name.
+        var image: String? = nil
         var id: String { title }
     }
 
@@ -54,12 +56,20 @@ enum WhatsNew {
     /// menu bar only. Closing the window (or Continue) marks them as read.
     @MainActor static func showIfNeeded() {
         guard !pending.isEmpty, window == nil else { return }
+        #if STUDIO
+        let hosting = NSHostingController(rootView: StudioWhatsNewView(releases: pending) { window?.close() })
+        #else
         let hosting = NSHostingController(rootView: WhatsNewView(releases: pending) { window?.close() })
+        #endif
         let newWindow = NSWindow(contentViewController: hosting)
         newWindow.styleMask = [.titled, .closable, .fullSizeContentView]
         newWindow.titlebarAppearsTransparent = true
         newWindow.titleVisibility = .hidden
         newWindow.title = String(localized: "What’s New in Pluck")
+        newWindow.identifier = NSUserInterfaceItemIdentifier("whatsnew")
+        #if STUDIO
+        newWindow.appearance = NSAppearance(named: .darkAqua)  // Studio is dark, whatever the Mac uses
+        #endif
         newWindow.isReleasedWhenClosed = false
         newWindow.center()
         NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: newWindow, queue: .main) { _ in
@@ -86,9 +96,10 @@ enum WhatsNew {
         return false
     }
 
-    /// Every release since 1.1.0, written for people rather than developers, with Pluck Studio's
-    /// own notes (in Studio/WhatsNewStudio.swift, so basic Pluck isn't built with them) added in.
-    /// Add the new version's notes before releasing it.
+    /// The big features of each release, written for people rather than developers, with Pluck
+    /// Studio's own (in Studio/WhatsNewStudio.swift, so basic Pluck isn't built with them) added in.
+    /// Fixes and small changes aren't listed: the sheet links to the release on GitHub for those.
+    /// Add the new version's entry before releasing it (an entry with no items still shows that link).
     static var releases: [Release] {
         var all = shared
         #if STUDIO
@@ -106,269 +117,13 @@ enum WhatsNew {
     /// Notes for everyone (both editions).
     private static var shared: [Release] {
         [
-            Release(version: "3.7.1", items: [
-                Item(symbol: "square.grid.2x2", title: String(localized: "A tidier Library grid"),
-                     detail: String(localized: "Cards in the Library's grid line up at the top, even when some have tags or a longer title.")),
-            ]),
-            Release(version: "3.6.2", items: [
-                Item(symbol: "lock.shield", title: String(localized: "Permissions that stay"),
-                     detail: String(localized: "Pluck now has a signature of its own, so macOS knows each update as the same app. Allow it once more after this update, and it keeps Full Disk Access and your folders from then on.")),
-                Item(symbol: "gauge.with.dots.needle.67percent", title: String(localized: "A quicker Library"),
-                     detail: String(localized: "Big libraries open and scroll without waiting: counts, duplicates and drives are worked out once, not on every redraw.")),
-            ]),
-            Release(version: "3.4.0", items: [
-                Item(symbol: "stethoscope", title: String(localized: "Downloads that mend themselves"),
-                     detail: String(localized: "When YouTube changes, Pluck fetches the newest yt-dlp at once and says what happened in plain words. An update that breaks downloads can be undone in Settings.")),
-            ]),
-            Release(version: "3.1.3", items: [
-                Item(symbol: "bell.badge", title: String(localized: "Updates you won’t miss"),
-                     detail: String(localized: "A new version is offered in a window of its own. Install it now, or let it go in when you quit Pluck.")),
-            ]),
-            Release(version: "3.1.1", items: [
-                Item(symbol: "arrow.down.circle", title: String(localized: "See updates install"),
-                     detail: String(localized: "Installing an update shows how far the download is, then checking, installing and relaunching. Cancel it any time; what came in is kept for the next try.")),
-            ]),
-            Release(version: "3.0.0", items: [
-                Item(symbol: "checklist", title: String(localized: "Choose several in the Library"),
-                     detail: String(localized: "Shift-click or Command-click to pick several, then delete them all at once. File ▸ Remove Missing Files from Library clears out what’s no longer on your Mac.")),
-                Item(symbol: "text.bubble", title: String(localized: "Clearer when something goes wrong"),
-                     detail: String(localized: "A full drive, a folder Pluck can’t write to or a dropped connection are now said in plain words, for downloads and for converting.")),
-            ]),
-            Release(version: "2.2.0", items: [
-                Item(symbol: "books.vertical", title: String(localized: "A tidier Library"),
-                     detail: String(localized: "Files you take out of the Library stay out, and files that aren’t there any more no longer come back.")),
-            ]),
-            Release(version: "2.0.0", items: [
-                Item(symbol: "square.and.arrow.up", title: String(localized: "Export like an editing program"),
-                     detail: String(localized: "The Editor’s export is now in its sidebar, with presets (Web, YouTube 4K, Email, ProRes master) and every setting by hand: MP4 or QuickTime, H.264, HEVC or ProRes, resolution, frame rate, quality or a file size to fit, and the sound. It shows how big the file will be before you start.")),
-            ]),
-            Release(version: "1.19.0", items: [
-                Item(symbol: "timeline.selection", title: String(localized: "The Editor"),
-                     detail: String(localized: "Open any video or song on a timeline, like in an editing program: cut with the blade, take parts out, mark in and out, and export the edit or each part. Right-click a download and choose Open in Editor.")),
-                Item(symbol: "dot.radiowaves.up.forward", title: String(localized: "Subscriptions"),
-                     detail: String(localized: "Follow a YouTube channel, a playlist or a podcast and Pluck downloads what’s new while it’s open. Manage them in the Library.")),
-                Item(symbol: "list.number", title: String(localized: "Clip a chapter"),
-                     detail: String(localized: "When clipping a download, pick one of the video’s chapters instead of typing times. Links with a start time fill it in.")),
-                Item(symbol: "desktopcomputer", title: String(localized: "Other Macs’ Libraries open again"),
-                     detail: String(localized: "Macs with more than one network connection couldn’t open each other’s shared Library. Fixed.")),
-            ]),
-            Release(version: "1.18.0", items: [
-                Item(symbol: "externaldrive", title: String(localized: "One file per version"),
-                     detail: String(localized: "Each release now comes as two disk images: Pluck.dmg and Pluck-Studio.dmg. Updates install from the same disk image, checked before they open.")),
-            ]),
-            Release(version: "1.17.1", items: [
-                Item(symbol: "arrow.down.to.line.circle", title: String(localized: "Sturdier setup on slow connections"),
-                     detail: String(localized: "Downloading yt-dlp, ffmpeg and Deno now shows how far along it is, carries on where it stopped instead of starting over, and can always be stopped and tried again. If something goes wrong, the main window says what.")),
-                Item(symbol: "arrow.down.circle", title: String(localized: "Only updates that matter to you"),
-                     detail: String(localized: "Pluck now only asks to update when there’s something new in your version. Updates that only add to Pluck Studio no longer come to Pluck.")),
-            ]),
-            Release(version: "1.16.0", items: [
-                Item(symbol: "square.split.2x1", title: String(localized: "Two versions of Pluck"),
-                     detail: String(localized: "Pluck is now small and focused on downloading, the Library, sharing and converting. Pluck Studio adds the local AI, the editing tools and Edit Anywhere. Switch any time in Settings → General.")),
-            ]),
-            Release(version: "1.15.0", items: [
-                Item(symbol: "wand.and.stars", title: String(localized: "A new Logo Animator"),
-                     detail: String(localized: "New styles that move like hand-made motion design: Assemble (in two acts, the symbol or the dot first, then the whole logo opens out of it), Bounce, Stretch, Liquid and Line Draw, with real springs, squash and stretch and motion blur. Automatic lets the local AI on your Mac pick the style that suits your logo, and says why.")),
-                Item(symbol: "photo.badge.checkmark", title: String(localized: "Logos on a background, and SVG"),
-                     detail: String(localized: "Drop a JPG on a plain colour or a gradient and Pluck lifts the logo off it. Save as SVG turns your logo into a vector file, colour by colour.")),
-                Item(symbol: "film.stack", title: String(localized: "A cut derush timeline"),
-                     detail: String(localized: "Build Derush in Resolve now makes a timeline of cuts: every usable shot as its own clip, grouped by subject, the picks in green, speech kept whole. Earlier derush results come back when you add the folder again, and timelines build reliably.")),
-            ]),
-            Release(version: "1.14.1", items: [
-                Item(symbol: "checkmark.circle", title: String(localized: "Pick your vision model"),
-                     detail: String(localized: "Choosing a different model in Settings → AI works now. The menu lists the models your Mac has the memory for.")),
-            ]),
-            Release(version: "1.14.0", items: [
-                Item(symbol: "eye", title: String(localized: "Sharper shot descriptions"),
-                     detail: String(localized: "Download an open vision model in Settings → AI, such as Qwen3.8 or Gemma 4, and Find Shots and Derush Footage describe every shot like an editor would: what the crew is doing, the gear, the setting. It runs locally on your Mac’s GPU. Choose between sharper and quicker models.")),
-                Item(symbol: "arrow.up.and.down.and.arrow.left.and.right", title: String(localized: "Camera moves and speed ramps"),
-                     detail: String(localized: "Each push-in, pull-out, pan or tilt is now a shot of its own, from start to end. Smooth gimbal and slider moves are marked “Speed ramp” and kept whole in your selects.")),
-                Item(symbol: "sparkle.magnifyingglass", title: String(localized: "Tidier Find Shots"),
-                     detail: String(localized: "The search field and filters line up at the top of the window.")),
-            ]),
-            Release(version: "1.13.0", items: [
-                Item(symbol: "film.stack", title: String(localized: "Derush Footage"),
-                     detail: String(localized: "Drop a folder of raw footage and local AI on your Mac judges every shot for focus, light, faces, action and its look, and marks cheers, music and the best quotes. It then looks at the whole shoot, picks selects for a corporate, commercial, aftermovie, music or brand video, and says which shots are missing. Build it as a marked-up timeline in DaVinci Resolve. Find it in the File menu.")),
-                Item(symbol: "magnifyingglass", title: String(localized: "Find Shots"),
-                     detail: String(localized: "Search your downloads and footage by what’s in the picture, like “drone shot of a forest” or “whip pan”, with filters for camera movement and framing. Local AI on your Mac describes every shot. Press ⌥⌘F.")),
-                Item(symbol: "record.circle", title: String(localized: "Live Recorder"),
-                     detail: String(localized: "Record a live stream and Pluck marks cheers, music and silence as it goes, with a live transcript by local AI on your Mac and highlights for the edit.")),
-            ]),
-            Release(version: "1.12.0", items: [
-                Item(symbol: "dot.radiowaves.left.and.right", title: String(localized: "Share your Library on your network"),
-                     detail: String(localized: "Phones and computers on the same network can browse, play and download your Library in a browser. Turn it on with the network button in the Library window and scan the QR code with your phone. Protected by an access code, and off until you turn it on.")),
-                Item(symbol: "arrow.down.circle", title: String(localized: "Download from your phone"),
-                     detail: String(localized: "Paste a link on your phone and your Mac downloads it, or send files from your phone to your Mac. The page shows what’s downloading. Both are switches in the share panel.")),
-                Item(symbol: "iphone.and.arrow.forward", title: String(localized: "Send to Phone"),
-                     detail: String(localized: "Right-click something in the Library, scan the QR code, and it saves straight to your phone.")),
-                Item(symbol: "desktopcomputer", title: String(localized: "Libraries on your network"),
-                     detail: String(localized: "Colleagues’ Macs that share their Library appear in yours: play, copy to your Mac, or send a link for that Mac to download, so one Mac can download for the whole team.")),
-            ]),
-            Release(version: "1.11.0", items: [
-                Item(symbol: "lock.shield", title: String(localized: "Downloads keep working on macOS 27"),
-                     detail: String(localized: "macOS 27 no longer lets other apps read the logins of Chrome, Brave, Edge and Firefox, which made downloads fail. Pluck now notices this and downloads without them. For members-only videos, pick Safari, Zen, Vivaldi, Opera or Chrome Beta in Settings.")),
-                Item(symbol: "wand.and.stars", title: String(localized: "Logo Animator"),
-                     detail: String(localized: "Turn a logo into a smooth animation. Pluck finds the shapes and letters in it and animates them in, with an outro and the length you choose. Export transparent ProRes or MP4, in any format. Find it in the File menu.")),
-                Item(symbol: "square.stack.3d.down.right", title: String(localized: "Make Deliverables"),
-                     detail: String(localized: "From one finished video: 16:9, 9:16, 1:1 and 4:5 versions framed on the people in each shot, the right loudness for online or broadcast, and subtitles in several languages, made with local AI on your Mac. All named the way your client wants.")),
-                Item(symbol: "music.note.list", title: String(localized: "Fit Music to Length"),
-                     detail: String(localized: "Shorten or lengthen a song to an exact length on its musical phrases, keeping the intro and the real ending.")),
-                Item(symbol: "space", title: String(localized: "Quick Look in the Library"),
-                     detail: String(localized: "Click something in the Library and press Space to play it. The arrow keys move to the next one.")),
-                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Sharper shorts framing"),
-                     detail: String(localized: "Titles in a shot always stay whole, and the rest of the shot stays on the people in it.")),
-            ]),
-            Release(version: "1.10.0", items: [
-                Item(symbol: "scissors", title: String(localized: "Remove silences and filler words"),
-                     detail: String(localized: "Local AI on your Mac cuts long pauses and filler words like “uhm” out of a video or recording, into a tightened copy. For editing, it can also save an edit list for DaVinci Resolve or Premiere Pro.")),
-                Item(symbol: "waveform", title: String(localized: "Clean up audio"),
-                     detail: String(localized: "Local AI on your Mac removes background noise, hum and wind around voices, and levels the loudness for online video, podcasts or broadcast.")),
-                Item(symbol: "sparkles.tv", title: String(localized: "Upscale and smooth motion"),
-                     detail: String(localized: "Local AI on your Mac makes low-resolution video sharp in 1080p or 4K, and adds frames for smoother motion or slow motion.")),
-                Item(symbol: "person.and.background.dotted", title: String(localized: "New background, no green screen"),
-                     detail: String(localized: "Local AI on your Mac separates people from what’s behind them: blur the background, replace it with a colour or picture, or make it transparent for editing.")),
-                Item(symbol: "eye.slash", title: String(localized: "Privacy blur"),
-                     detail: String(localized: "Local AI on your Mac finds faces and follows them through the video, and blurs everyone except the people you keep sharp. It can blur licence plates and other text too.")),
-                Item(symbol: "person.2.wave.2", title: String(localized: "Who said what"),
-                     detail: String(localized: "Local AI on your Mac tells up to four speakers apart. Subtitles and transcripts show their names, which you can change in Pluck Player, and summaries know who said what.")),
-                Item(symbol: "books.vertical", title: String(localized: "Pluck Library"),
-                     detail: String(localized: "Everything you’ve saved with Pluck in one place, kept for good: collections by kind and site, your own tags, search, duplicates, missing files and the space it all takes (⇧⌘L).")),
-                Item(symbol: "character.bubble", title: String(localized: "Translate into several languages"),
-                     detail: String(localized: "Subtitles can now be translated into several languages at once, with local AI on your Mac.")),
-                Item(symbol: "square.stack.3d.up", title: String(localized: "Several files at once"),
-                     detail: String(localized: "Select several items with ⌘ or ⇧ and add subtitles, remove silences or clean up the audio of all of them in one go.")),
-                Item(symbol: "play.rectangle.on.rectangle", title: String(localized: "More from Pluck Player"),
-                     detail: String(localized: "Export a transcript with its summary, chapters and speakers as text, Markdown or Word, save a frame as a picture, and send files straight to DaVinci Resolve.")),
-                Item(symbol: "checkmark.seal", title: String(localized: "Fixes"),
-                     detail: String(localized: "The player no longer crashes on macOS 27. Summaries, chapters and shorts ask which language is spoken in your own files, work better in Chinese, Japanese and Korean, and file names no longer end in two dots.")),
-            ]),
-            Release(version: "1.9.4", items: [
-                Item(symbol: "globe", title: String(localized: "Firefox Nightly and Chrome Beta"),
-                     detail: String(localized: "Pluck can now use the logins from Firefox Nightly and Google Chrome Beta. Pick one in Settings under Use cookies from.")),
-            ]),
-            Release(version: "1.9.3", items: [
-                Item(symbol: "character.bubble", title: String(localized: "Translate subtitle files"),
-                     detail: String(localized: "Drop .srt or .vtt subtitles on Pluck to translate them to another language with local AI on your Mac. The translation is saved next to the original.")),
-            ]),
-            Release(version: "1.9.2", items: [
-                Item(symbol: "bold", title: String(localized: "Font weights for captions"),
-                     detail: String(localized: "Pick Light, Regular, Bold or Black for shorts captions and burned-in subtitles.")),
-            ]),
-            Release(version: "1.9.1", items: [
-                Item(symbol: "sparkles", title: String(localized: "Local AI for your own videos"),
-                     detail: String(localized: "Drop a video or song from your Mac on Pluck to make shorts, subtitles, summaries, chapters or stems with local AI, right from the original file.")),
-                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Better shorts"),
-                     detail: String(localized: "Steady framing shot by shot, titles shown whole, a Framing choice, and sleek new captions with the spoken word highlighted in pink.")),
-                Item(symbol: "textformat", title: String(localized: "Style your captions"),
-                     detail: String(localized: "Choose how captions and burned-in subtitles look: a highlight box or colored text, the color, a size and a font, including your own fonts.")),
-                Item(symbol: "list.bullet", title: String(localized: "One AI job at a time"),
-                     detail: String(localized: "AI jobs now wait their turn, so starting several at once won’t slow your Mac down.")),
-            ]),
-            Release(version: "1.9.0", items: [
-                Item(symbol: "sparkles", title: String(localized: "Local AI, right on your Mac"),
-                     detail: String(localized: "Pluck’s new AI features run entirely on your Mac with local AI: Apple’s on-device speech recognition, translation and Apple Intelligence. Nothing you download, say or search is uploaded.")),
-                Item(symbol: "captions.bubble", title: String(localized: "Subtitles & transcripts"),
-                     detail: String(localized: "Transcribe any video or song with local AI, save subtitles, add them to the video or burn them in, and translate them into another language.")),
-                Item(symbol: "text.magnifyingglass", title: String(localized: "Search inside your downloads"),
-                     detail: String(localized: "Search what was said in your videos and jump straight to that moment (⇧⌘F). Local AI understands questions, not just keywords.")),
-                Item(symbol: "text.badge.star", title: String(localized: "Summaries & chapters"),
-                     detail: String(localized: "Local AI summarizes a video in a few lines and adds chapters to videos that don’t have them.")),
-                Item(symbol: "rectangle.portrait.on.rectangle.portrait.angled", title: String(localized: "Shorts"),
-                     detail: String(localized: "Turn a long video into vertical shorts: local AI picks the best moments, keeps the speaker in frame and captions every word.")),
-                Item(symbol: "slider.vertical.3", title: String(localized: "Stems & karaoke"),
-                     detail: String(localized: "Split a song into vocals, drums, bass and other, plus a karaoke version, with an open-source AI model running locally on your Mac (macOS 27, Apple silicon).")),
-                Item(symbol: "play.rectangle.on.rectangle", title: String(localized: "Pluck Player"),
-                     detail: String(localized: "Watch with the transcript, summary and chapters beside the video. Click a line to jump there.")),
-            ]),
-            Release(version: "1.8.0", items: [
-                Item(symbol: "music.note", title: String(localized: "Apple Music links"),
-                     detail: String(localized: "Paste a song, album or playlist from Apple Music. Pluck finds it on YouTube Music and tags it with Apple’s details and sharp album art.")),
-                Item(symbol: "music.note.house", title: String(localized: "Add to Apple Music"),
-                     detail: String(localized: "Turn it on in Settings → Downloads to add every song you download to Apple Music, or only the file types you choose.")),
-                Item(symbol: "photo", title: String(localized: "Compress photos"),
-                     detail: String(localized: "Drop photos on Pluck to make them smaller as JPEG or HEIC, with a live size estimate and the option to remove location details.")),
-            ]),
-            Release(version: "1.7.1", items: [
-                Item(symbol: "scissors", title: String(localized: "Trim your own videos and songs"),
-                     detail: String(localized: "When converting a file, choose Only part of the file to keep just a section, or use it with any other option.")),
-                Item(symbol: "photo.on.rectangle.angled", title: String(localized: "Make GIFs"),
-                     detail: String(localized: "Turn a video, or part of it, into an animated GIF in three sizes.")),
-            ]),
-            Release(version: "1.7.0", items: [
-                Item(symbol: "doc.on.clipboard", title: String(localized: "Many links at once"),
-                     detail: String(localized: "Paste or drop a list of links, or a text file full of them, and Pluck downloads them all.")),
-                Item(symbol: "list.number", title: String(localized: "Split into chapters"),
-                     detail: String(localized: "Turn on Split into Chapters in the format menu to save DJ mixes and full albums as separate, tagged tracks.")),
-                Item(symbol: "arrow.triangle.2.circlepath", title: String(localized: "Convert files on your Mac"),
-                     detail: String(localized: "Drop a video or song on Pluck to extract the audio, convert it to MP4, or compress it to the size and resolution you choose.")),
-                Item(symbol: "checkmark.seal", title: String(localized: "Lossless badge"),
-                     detail: String(localized: "Downloads that stay lossless from the source to your file are marked Lossless.")),
-                Item(symbol: "bell.badge", title: String(localized: "Buttons in notifications"),
-                     detail: String(localized: "Play a finished download or show it in Finder straight from the notification.")),
-                Item(symbol: "sparkles", title: String(localized: "What’s New after updates"),
-                     detail: String(localized: "After every update Pluck shows what changed, just like this.")),
-                Item(symbol: "globe", title: String(localized: "Speaks your language"),
-                     detail: String(localized: "Pluck is now also in German, French, Spanish, Italian, Portuguese, Japanese, Korean and Chinese, and follows your Mac’s language.")),
-            ]),
-            Release(version: "1.6.1", items: [
-                Item(symbol: "person.badge.key", title: String(localized: "Cookies work out of the box"),
-                     detail: String(localized: "Pluck picks the browser to use cookies from by itself, so sites that need a login just work. You can change it in Settings → Advanced.")),
-            ]),
-            Release(version: "1.6.0", items: [
-                Item(symbol: "magnifyingglass", title: String(localized: "Search inside Pluck"),
-                     detail: String(localized: "Type a song or video name instead of a link, then download it from YouTube Music or YouTube with one click.")),
-                Item(symbol: "quote.bubble", title: String(localized: "Lyrics"),
-                     detail: String(localized: "Songs get their lyrics, so they show up in Apple Music and on iPhone.")),
-                Item(symbol: "pause.circle", title: String(localized: "Pause and resume"),
-                     detail: String(localized: "Pause big downloads and continue later, even after quitting Pluck.")),
-                Item(symbol: "arrow.clockwise", title: String(localized: "Automatic retry"),
-                     detail: String(localized: "If the connection drops, Pluck waits for the internet to come back and carries on.")),
-                Item(symbol: "folder", title: String(localized: "Tidy files"),
-                     detail: String(localized: "Choose how files are named. Albums and playlists get their own folder, and Pluck notices songs you already have.")),
-            ]),
-            Release(version: "1.5.0", items: [
-                Item(symbol: "keyboard", title: String(localized: "Your own shortcut"),
-                     detail: String(localized: "Download the link you copied from any app with ⌃⌥⌘D, or set your own shortcut in Settings → General.")),
-                Item(symbol: "waveform", title: String(localized: "Better audio"),
-                     detail: String(localized: "Pluck takes the best audio on offer and shows the quality you got. With YouTube Premium that’s about 256 kbps.")),
-                Item(symbol: "character.bubble", title: String(localized: "Nederlands"),
-                     detail: String(localized: "Pluck is translated into Dutch and follows your Mac’s language.")),
-            ]),
-            Release(version: "1.4.0", items: [
-                Item(symbol: "checklist", title: String(localized: "Pick from playlists"),
-                     detail: String(localized: "Paste a YouTube playlist or a Spotify album or playlist and choose one video, a few, or all of them.")),
-            ]),
-            Release(version: "1.3.0", items: [
-                Item(symbol: "scissors", title: String(localized: "Download a clip"),
-                     detail: String(localized: "Click the scissors to download just part of a video, like 1:30 to 2:45.")),
-                Item(symbol: "list.bullet.rectangle", title: String(localized: "Your downloads stay listed"),
-                     detail: String(localized: "The list survives quitting. Press Space for Quick Look, or drag a download into Finder or Mail.")),
-                Item(symbol: "contextualmenu.and.cursorarrow", title: String(localized: "Download from any app"),
-                     detail: String(localized: "Right-click a link and choose Services → Download with Pluck.")),
-            ]),
-            Release(version: "1.2.3", items: [
-                Item(symbol: "lock.shield", title: String(localized: "Safer downloads"),
-                     detail: String(localized: "Browser cookies are never sent to videos found on web pages, and the tools Pluck downloads are checked for their developers’ signatures.")),
-            ]),
-            Release(version: "1.2.2", items: [
-                Item(symbol: "cup.and.saucer", title: String(localized: "Support Pluck"),
-                     detail: String(localized: "A new Support tab in Settings to buy me a coffee or star Pluck on GitHub.")),
-            ]),
-            Release(version: "1.2.1", items: [
-                Item(symbol: "gauge.with.dots.needle.67percent", title: String(localized: "Live progress"),
-                     detail: String(localized: "Progress, speed and status now update smoothly instead of in jumps.")),
-            ]),
-            Release(version: "1.2.0", items: [
-                Item(symbol: "globe", title: String(localized: "Almost any website"),
-                     detail: String(localized: "When yt-dlp doesn’t know a page, Pluck finds the video on it, including embedded Vimeo, YouTube and SoundCloud players.")),
-                Item(symbol: "menubar.rectangle", title: String(localized: "Lives in your menu bar"),
-                     detail: String(localized: "Paste links and follow progress from the menu bar. Pluck keeps running there when you close the window, and can open at login.")),
-                Item(symbol: "macwindow", title: String(localized: "A fresh look"),
-                     detail: String(localized: "Liquid Glass on macOS 26 and a redesigned Settings window.")),
-                Item(symbol: "accessibility", title: String(localized: "Works with VoiceOver"),
-                     detail: String(localized: "Every button has a proper label.")),
-            ]),
+            Release(version: "4.0.0", items: []),
         ]
+    }
+
+    /// Everything else in that release, on GitHub.
+    static func releasePage(_ version: String) -> URL {
+        SupportLinks.gitHub.appending(path: "releases/tag/v\(version)")
     }
 }
 
@@ -398,31 +153,27 @@ struct WhatsNewView: View {
             .padding(.bottom, 18)
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 22) {
-                    ForEach(releases) { release in
-                        VStack(alignment: .leading, spacing: 14) {
-                            if releases.count > 1 {
-                                Text("Version \(release.version)")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.secondary)
-                            }
-                            ForEach(release.items) { item in
-                                HStack(alignment: .top, spacing: 14) {
-                                    Image(systemName: item.symbol)
-                                        .font(.title2)
-                                        .foregroundStyle(.tint)
-                                        .frame(width: 32)
-                                        .accessibilityHidden(true)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(item.title).font(.headline)
-                                        Text(item.detail)
-                                            .foregroundStyle(.secondary)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
+                VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                    if let newest = releases.first {
+                        ForEach(newest.items, content: itemRow)
+                    }
+                    // Older versions stay out of the way: the newest one's big features come first.
+                    if releases.count > 1 {
+                        DisclosureGroup("Earlier versions") {
+                            VStack(alignment: .leading, spacing: Design.Spacing.section) {
+                                ForEach(releases.dropFirst()) { release in
+                                    Text("Version \(release.version)")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    ForEach(release.items, content: itemRow)
                                 }
-                                .accessibilityElement(children: .combine)
                             }
+                            .padding(.top, Design.Spacing.controls)
                         }
+                    }
+                    if let newest = releases.first {
+                        row("wrench.and.screwdriver", String(localized: "Bug fixes and improvements"),
+                            Link("All changes on GitHub", destination: WhatsNew.releasePage(newest.version)))
                     }
                 }
                 .padding(.horizontal, 32)
@@ -443,5 +194,24 @@ struct WhatsNewView: View {
             .padding(Design.Spacing.sheet)
         }
         .frame(width: 480)
+    }
+
+    private func itemRow(_ item: WhatsNew.Item) -> some View {
+        row(item.symbol, item.title, Text(item.detail).foregroundStyle(.secondary))
+            .accessibilityElement(children: .combine)
+    }
+
+    private func row(_ symbol: String, _ title: String, _ detail: some View) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: symbol)
+                .font(.title2)
+                .foregroundStyle(Design.Brand.chosen)
+                .frame(width: 32)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.headline)
+                detail.fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

@@ -30,18 +30,39 @@ enum DeliverBackup {
         return Double(gigabytes) * 1e9 / bytesPerHour
     }
 
-    /// The Proxmox command (every value checked; the link must be a pairing link, nothing that breaks out of its quotes).
+    /// The Proxmox command (every value checked; nothing can break out of its quotes). A backup (`link`: its pairing
+    /// link) or, with `media` (folders on the Proxmox host, mounted read-only) and no link, a main host.
     static func command(tag: String, sha256: String, storage: String, size: Int, quality: String, cores: Int, memory: Int,
-                        bridge: String, name: String, ip: String?, link: String) -> String? {
+                        bridge: String, name: String, ip: String?, media: [String] = [], link: String?) -> String? {
         guard tag.wholeMatch(of: #/v[0-9A-Za-z.\-]{1,40}/#) != nil, sha256.wholeMatch(of: #/[0-9a-f]{64}/#) != nil,
               storage.wholeMatch(of: #/[A-Za-z0-9_.\-]{1,64}/#) != nil, bridge.wholeMatch(of: #/[A-Za-z0-9_.\-]{1,32}/#) != nil,
               name.wholeMatch(of: #/[a-z0-9-]{1,32}/#) != nil, (1...10_000).contains(size), (1...64).contains(cores), (512...262_144).contains(memory),
-              qualities.contains(quality), link.wholeMatch(of: #/pluck://edit-anywhere/join\?i=[A-Za-z0-9_\-]{1,4000}/#) != nil else { return nil }
-        if let ip, ip.wholeMatch(of: #/[0-9.]{7,15}/[0-9]{1,2}(,gw=[0-9.]{7,15})?/#) == nil { return nil }
+              qualities.contains(quality) else { return nil }
+        if let ip, !ipOK(ip) { return nil }
+        let lead: String
+        if let link {
+            guard media.isEmpty, link.wholeMatch(of: #/pluck://edit-anywhere/join\?i=[A-Za-z0-9_\-]{1,4000}/#) != nil else { return nil }
+            lead = "--quality \(quality) "
+        } else {
+            guard (1...8).contains(media.count), media.allSatisfy({ $0.wholeMatch(of: #/\/[A-Za-z0-9._\/\-]{1,200}/#) != nil && !$0.split(separator: "/").contains("..") }) else { return nil }
+            lead = "--role host "
+        }
+        let tail = link.map { "--pair '\($0)'" } ?? media.map { "--media '\($0)'" }.joined(separator: " ")
         return "cd /root && curl -fsSLO https://github.com/Astrofrogger/pluck/releases/download/\(tag)/pluck-proxmox.sh \\\n"
             + "  && echo \"\(sha256)  pluck-proxmox.sh\" | sha256sum -c - \\\n"
-            + "  && bash pluck-proxmox.sh --storage \(storage) --size \(size) --quality \(quality) --cores \(cores) --memory \(memory) \\\n"
-            + "     --bridge \(bridge) --name \(name) \(ip.map { "--ip \($0) " } ?? "")--pair '\(link)'"
+            + "  && bash pluck-proxmox.sh \(lead)--storage \(storage) --size \(size) --cores \(cores) --memory \(memory) \\\n"
+            + "     --bridge \(bridge) --name \(name) \(ip.map { "--ip \($0) " } ?? "")\(tail)"
+    }
+
+    /// A static IP as pluck-proxmox.sh takes it: "a.b.c.d/nn,gw=a.b.c.d" (the gateway can't be guessed).
+    static func ipOK(_ ip: String) -> Bool { ip.wholeMatch(of: #/[0-9.]{7,15}/[0-9]{1,2},gw=[0-9.]{7,15}/#) != nil }
+
+    /// What pluck-proxmox.sh --role host prints for Pluck: "<ip>:8790 pluck-host:<key>@<fingerprint>".
+    @MainActor static func hostLine(_ text: String) -> (address: String, pairing: String)? {
+        let parts = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard parts.count == 2, parts[0].wholeMatch(of: #/[0-9]{1,3}(\.[0-9]{1,3}){3}:[0-9]{2,5}/#) != nil,
+              parts[1].hasPrefix("pluck-host:"), ReviewHostClient.pairing(parts[1])?.pin != nil else { return nil }
+        return (parts[0], parts[1])
     }
 
     /// The check code the script prints: the first 8 characters of the backup's node id, grouped ("ABCD-EFGH").
@@ -76,7 +97,7 @@ struct DeliverBackupSheet: View {
     let main: Deliver.Host
     enum Kind: String { case truenas, proxmox, docker }
     @Environment(\.dismiss) private var dismiss
-    @State private var kind = Kind.proxmox
+    @State var kind = Kind.proxmox
     @State private var maxStorage = 50
     @State private var quality = "1080-low"
     @State private var storage = "local-lvm"
@@ -101,7 +122,10 @@ struct DeliverBackupSheet: View {
                     Stepper("\(cores)", value: $cores, in: 1...16).fixedSize()
                     Stepper("\(memory) GB", value: $memory, in: 1...32).fixedSize()
                 }
-                StudioField(label: "IP") { TextField("DHCP", text: $ip).settingField(width: 160) }
+                StudioField(label: "IP") {
+                    TextField("DHCP", text: $ip).settingField(width: 160)
+                    if !ip.isEmpty, !DeliverBackup.ipOK(ip) { Text(verbatim: "192.0.2.50/24,gw=192.0.2.1").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn) }
+                }
                 StudioField(label: "Bridge") { TextField("vmbr0", text: $bridge).settingField(width: 160) }
                 StudioField(label: "Name") { TextField("pluck-backup", text: $name).settingField(width: 160) }
             }
@@ -144,7 +168,7 @@ struct DeliverBackupSheet: View {
         case .truenas: return nil
         case .proxmox:
             guard let release = DeliverHostUpdate.shared.release, let sha = release.assets["pluck-proxmox.sh"] else { return nil }
-            return DeliverBackup.command(tag: "v" + DeliverHostUpdate.pluckVersion, sha256: sha, storage: storage, size: maxStorage + 8, quality: quality,
+            return DeliverBackup.command(tag: "v" + DeliverHostUpdate.pluckVersion, sha256: sha, storage: storage, size: maxStorage, quality: quality,
                                          cores: cores, memory: memory * 1024, bridge: bridge, name: name, ip: ip.isEmpty ? nil : ip, link: link)
         case .docker:
             var env = ["PLUCK_ROLE": "backup", "PLUCK_IROH": "1", "PLUCK_MAIN_LINK": link, "PLUCK_BACKUP_MAX": "\(maxStorage)G", "PLUCK_BACKUP_QUALITY": quality]
@@ -162,6 +186,94 @@ struct DeliverBackupSheet: View {
             if kind == .truenas { truenas = true }
         } catch {
             problem = String(localized: "\(main.name) didn’t answer.")
+        }
+    }
+}
+
+/// "Set Up Server › Main server › Proxmox": one command makes the main host in an LXC container with the Proxmox
+/// host's media folders mounted read-only; the line it prints (address, key and certificate) pairs this Mac.
+struct DeliverProxmoxMainSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var media = ""
+    @State private var size = 50
+    @State private var storage = "local-lvm"
+    @State private var cores = 2
+    @State private var memory = 4
+    @State private var ip = ""
+    @State private var bridge = "vmbr0"
+    @State private var name = "pluck-review"
+    @State private var line = ""
+    @State private var connecting = false
+    @State private var connected = false
+    @State private var problem: String?
+
+    private var folders: [String] { media.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
+
+    private var command: String? {
+        guard let release = DeliverHostUpdate.shared.release, let sha = release.assets["pluck-proxmox.sh"] else { return nil }
+        return DeliverBackup.command(tag: "v" + DeliverHostUpdate.pluckVersion, sha256: sha, storage: storage, size: size, quality: "1080-low",
+                                     cores: cores, memory: memory * 1024, bridge: bridge, name: name, ip: ip.isEmpty ? nil : ip, media: folders, link: nil)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Proxmox Main Server").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            StudioField(label: "Media") { TextField("/tank/media, /tank/archive", text: $media).settingField(width: 280) }
+            StudioField(label: "Max storage") { Stepper("\(size) GB", value: $size, in: 10...10_000, step: 10).fixedSize() }
+            StudioField(label: "Storage") { TextField("local-lvm", text: $storage).settingField(width: 160) }
+            StudioField(label: "CPUs, RAM") {
+                Stepper("\(cores)", value: $cores, in: 1...16).fixedSize()
+                Stepper("\(memory) GB", value: $memory, in: 1...32).fixedSize()
+            }
+            StudioField(label: "IP") {
+                    TextField("DHCP", text: $ip).settingField(width: 160)
+                    if !ip.isEmpty, !DeliverBackup.ipOK(ip) { Text(verbatim: "192.0.2.50/24,gw=192.0.2.1").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn) }
+                }
+            StudioField(label: "Bridge") { TextField("vmbr0", text: $bridge).settingField(width: 160) }
+            StudioField(label: "Name") { TextField("pluck-review", text: $name).settingField(width: 160) }
+            if DeliverHostUpdate.shared.release?.assets["pluck-proxmox.sh"] == nil {
+                Text("No signed host release for this version of Pluck yet.").font(Design.Studio.hint).foregroundStyle(Design.Studio.bad)
+            } else if let command {
+                Text(verbatim: command).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.text).textSelection(.enabled)
+                    .padding(8).frame(maxWidth: .infinity, alignment: .leading).background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius))
+                Button("Copy") { DeliverLinkShare.copy(command) }.buttonStyle(StudioFlatButtonStyle())
+                StudioField(label: "Pairing line") { TextField("The line it prints: 192.0.2.50:8790 pluck-host:…", text: $line).settingField(width: 340) }
+            } else if !folders.isEmpty {
+                Text("Media folders start with / (no spaces or commas inside).").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+            }
+            if connected { Text("Connected").font(Design.Studio.hint).foregroundStyle(Design.Studio.good) }
+            if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
+            HStack {
+                if connecting { PlumSpinner() }
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
+                Button("Connect") { Task { await connect() } }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    .disabled(DeliverBackup.hostLine(line) == nil || connecting || connected)
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 560)
+        .background(Design.Studio.panel)
+    }
+
+    /// Adds the host with its pinned certificate, then registers this Mac's node (as the TrueNAS setup does).
+    private func connect() async {
+        connecting = true
+        defer { connecting = false }
+        guard let parsed = DeliverBackup.hostLine(line), let host = ReviewPublish.shared.addNAS(name: "Proxmox", address: parsed.address, pairing: parsed.pairing) else {
+            problem = String(localized: "That pairing line isn’t complete.")
+            return
+        }
+        do {
+            let node = try? await ReviewHostTunnel.nodeID(host)
+            try await ReviewHostClient.session(host) { session in
+                if let node { _ = try await session.ask(["op": "device-node", "node": node]) }
+            }
+            line = ""
+            problem = nil
+            connected = true
+        } catch {
+            problem = String(localized: "The NAS didn’t answer. Is the app running?")
         }
     }
 }

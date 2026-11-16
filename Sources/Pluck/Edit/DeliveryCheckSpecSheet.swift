@@ -81,7 +81,9 @@ struct DeliveryCheckSpecSheet: View {
                     .buttonStyle(StudioFlatButtonStyle(height: 32))
                     .keyboardShortcut(.cancelAction)
                 Button(spec.builtIn ? "Save as New" : "Done") {
-                    spec.frameRates = rates.split(whereSeparator: { ", ;".contains($0) }).compactMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
+                    // "23,976" is one rate (decimal comma, only for the fractional broadcast rates); "24,25" is two rates.
+                    let decimal = rates.replacingOccurrences(of: #"\b(23|29|47|59|98|119),(976|97|952|94|88)\b"#, with: "$1.$2", options: .regularExpression)
+                    spec.frameRates = decimal.split(whereSeparator: { ", ;".contains($0) }).compactMap { Double($0) }
                     spec.codecs = codecs.split(whereSeparator: { ", ;".contains($0) }).map { $0.lowercased() }
                     done(DeliveryCheck.save(spec).id)
                     dismiss()

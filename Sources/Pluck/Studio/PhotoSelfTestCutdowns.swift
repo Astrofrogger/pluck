@@ -67,6 +67,10 @@ extension PhotoSelfTest {
         let still = zip(frameTimes, centres).filter { $0.0 > 4.2 }.map(\.1)
         check("cutdowns: holds on a still subject", (still.max() ?? 1) - (still.min() ?? 0) < 0.002 && abs((still.first ?? 0) - 0.6) < 0.03,
               "\(still.min() ?? -1)…\(still.max() ?? -1)")
+        // A source narrower than the format is fitted on a blur, not stretched.
+        var narrow = analysis
+        narrow.width = 400; narrow.height = 1000
+        check("cutdowns: narrower source fits on a blur", SocialCutdowns.plan(narrow, format: .vertical, edits: [:]).allSatisfy { $0.framing == .blur }, "")
         // The text is kept inside the crop's safe area, or the shot says it isn't.
         let safe = SocialCutdowns.safeArea(.vertical)
         if let shot = analysis.shots.first, let text = shot.graphics.first, let plan = plans.first {

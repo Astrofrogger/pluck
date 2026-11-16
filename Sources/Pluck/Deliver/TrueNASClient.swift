@@ -8,7 +8,8 @@ import Foundation
 final class TrueNASClient {
     /// Roles the `pluck` user needs (shown in the guide, checked against `privilege.roles`).
     static let roles = ["APPS_READ", "APPS_WRITE", "DATASET_READ", "DATASET_WRITE", "FILESYSTEM_ATTRS_READ", "FILESYSTEM_ATTRS_WRITE"]
-    static let appName = "pluck-review"
+    /// The app's name on TrueNAS: "pluck-backup" for a backup, so one NAS can run a main and a backup side by side.
+    var appName = "pluck-review"
 
     /// Tests: the NAS's side (method and params in, the `result` or an `error` out).
     static var fake: ((String, [Any]) -> [String: Any])?
@@ -139,7 +140,7 @@ final class TrueNASClient {
     func ensureDataset(_ name: String) async throws {
         let found = try await call("pool.dataset.query", [[["id", "=", name]]]) as? [[String: Any]] ?? []
         guard found.isEmpty else { return }
-        try await call("pool.dataset.create", [["name": name, "type": "FILESYSTEM"]])
+        try await call("pool.dataset.create", [["name": name, "type": "FILESYSTEM", "create_ancestors": true]])
     }
 
     /// The app's own datasets (data, uploads) for uid/gid 568. Media datasets are never changed.
@@ -158,14 +159,14 @@ final class TrueNASClient {
     /// `app.create`, or `app.update` when it's there already; both are jobs.
     func deploy(_ compose: String) async throws {
         if try await app() != nil {
-            try await job("app.update", [Self.appName, ["custom_compose_config_string": compose]])
+            try await job("app.update", [appName, ["custom_compose_config_string": compose]])
         } else {
-            try await job("app.create", [["custom_app": true, "app_name": Self.appName, "custom_compose_config_string": compose]])
+            try await job("app.create", [["custom_app": true, "app_name": appName, "custom_compose_config_string": compose]])
         }
     }
 
     func app() async throws -> [String: Any]? {
-        (try await call("app.query", [[["name", "=", Self.appName]]]) as? [[String: Any]])?.first
+        (try await call("app.query", [[["name", "=", appName]]]) as? [[String: Any]])?.first
     }
 
     /// Until the app is RUNNING (120 s at most).
@@ -182,12 +183,12 @@ final class TrueNASClient {
     enum UpdateResult: String { case ok, rolledBack, failed }
     func update(to compose: String, previous: String, poll: Duration = .seconds(3), healthy: () async -> Bool) async -> UpdateResult {
         do {
-            try await job("app.update", [Self.appName, ["custom_compose_config_string": compose]])
+            try await job("app.update", [appName, ["custom_compose_config_string": compose]])
             try await waitRunning(poll: poll)
             if await healthy() { return .ok }
         } catch {}
         do {
-            try await job("app.update", [Self.appName, ["custom_compose_config_string": previous]])
+            try await job("app.update", [appName, ["custom_compose_config_string": previous]])
             try await waitRunning(poll: poll)
             return .rolledBack
         } catch {

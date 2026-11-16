@@ -262,12 +262,8 @@ enum RemoteResolveProject {
         func tell(_ clip: Clip, _ problem: String) {
             if told.insert(clip.file).inserted { problems.append(problem) }
         }
-        for clip in clips {
-            // A media pool clip with no file (compound, Fusion, generated): what it reads isn't known, so no render.
-            guard !clip.file.isEmpty else {
-                problems.append(String(localized: "\(clip.name): a compound, Fusion or generated clip, which the host Mac doesn’t render for other Macs."))
-                continue
-            }
+        // (A media pool clip with no file of its own, a compound, Fusion or generated clip: what it reaches is checked by `uses`.)
+        for clip in clips where !clip.file.isEmpty {
             guard let original = swaps[clip.file] else {
                 if originals[clip.file] == nil { tell(clip, String(localized: "\(clip.name): offline on the host Mac.")) }
                 continue
@@ -291,8 +287,8 @@ enum RemoteResolveProject {
     nonisolated private static func normal(_ timecode: String) -> String { timecode.replacingOccurrences(of: ";", with: ":") }
 
     /// The conform check on this host: each proxy's original looked up in its share (and checked to
-    /// stay in it), other files kept only when they are in a share here.
-    static func conform(_ clips: [Clip], proxies: [RemoteRenderQueue.Proxy]) async -> (swaps: [String: String], problems: [String]) {
+    /// stay in it), other files kept only when they are in a share here (any file here with full trust).
+    static func conform(_ clips: [Clip], proxies: [RemoteRenderQueue.Proxy], trusted: Bool = false) async -> (swaps: [String: String], problems: [String]) {
         var swaps: [String: String] = [:], originals: [String: Original] = [:]
         for proxy in proxies {
             guard let root = try? RemoteEditHost.share(proxy.share).root else { swaps[proxy.file] = proxy.path; continue }
@@ -302,10 +298,140 @@ enum RemoteResolveProject {
             let info = (try? await RemoteEditHost.mediaInfo(original)) ?? [:]
             originals[original.path] = Original(duration: info["duration"] as? Double, audio: info["audioChannels"] as? Int, timecode: info["timecode"] as? String)
         }
-        let roots = OfficeArchive.shared.folders.compactMap { RemoteEditHost.realPath($0.path) }
+        let roots = shareRoots()
         for clip in clips where !clip.file.isEmpty && swaps[clip.file] == nil {
-            if let real = RemoteEditHost.realPath(clip.file), roots.contains(where: { real.hasPrefix($0 + "/") }) { originals[clip.file] = Original() }
+            if let real = RemoteEditHost.realPath(clip.file), trusted || roots.contains(where: { real.hasPrefix($0 + "/") }) { originals[clip.file] = Original() }
         }
         return conform(clips, swaps: swaps, originals: originals)
+    }
+
+    // MARK: - What Fusion and grades reach
+
+    /// The shares' real paths: everything a paired Mac may have a render read or write.
+    static func shareRoots() -> [String] { OfficeArchive.shared.folders.compactMap { RemoteEditHost.realPath($0.path) } }
+
+    /// Resolve's own content (the app, its shared Fusion templates and LUTs): only LUTs and known readers may load from it.
+    nonisolated static let lutRoot = "/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT"
+    nonisolated static var builtInRoots: [String] {
+        ["/Applications/DaVinci Resolve", "/Library/Application Support/Blackmagic Design/DaVinci Resolve/Fusion", lutRoot]
+            .compactMap { RemoteEditHost.realPath($0) }
+    }
+
+    /// Fusion tools that only read the file they name (FusionToolReference); any other tool's file may be written.
+    nonisolated static let readers: Set<String> = ["Loader", "uLoader", "OGrafLoader", "SurfaceFBXMesh", "SurfaceAlembicMesh", "FileLUT",
+                                                   "Fuse.LUTCubeApply", "OCIOCDLTransform", "OCIOColorSpace", "OCIODisplay", "OCIOFileTransform",
+                                                   "CineonLog", "uDomeLight", "uImagePlane", "uMaterialX", "uProjector", "uReplaceMaterial",
+                                                   "uShape", "uTexture", "uVolume"]
+
+    /// Tools known to write their file (Saver, FBX exporter, LUT creators and analyzers).
+    nonisolated static func writes(_ regid: String) -> Bool {
+        ["Saver", "Export", "Creator", "Writer", "Analyzer"].contains { regid.contains($0) }
+    }
+
+    /// A path as the system would open it: symlinks and `..` resolved; a missing file through its nearest
+    /// folder that is there. nil: it can't be told (a `..` past what is there).
+    nonisolated static func hostPath(_ path: String) -> String? {
+        let full = (path as NSString).expandingTildeInPath
+        guard full.hasPrefix("/"), !full.contains("\0") else { return nil }
+        if let real = RemoteEditHost.realPath(full) { return real }
+        var parts = full.split(separator: "/", omittingEmptySubsequences: true).map(String.init), rest: [String] = []
+        while let last = parts.popLast() {
+            rest.insert(last, at: 0)
+            let folder = "/" + parts.joined(separator: "/")
+            guard let real = RemoteEditHost.realPath(folder) else { continue }
+            guard !rest.contains(".."), !rest.contains(".") else { return nil }
+            // Something there that realpath can't follow (a dangling symlink, no access): it can't be told where it leads.
+            var info = stat()
+            if lstat(folder + (folder == "/" ? "" : "/") + rest[0], &info) == 0 { return nil }
+            return ([real == "/" ? "" : real] + rest).joined(separator: "/")
+        }
+        return nil
+    }
+
+    /// What the host refuses to render for a paired Mac from what `uses` in the Resolve script found:
+    /// a file outside the shares (LUTs and known readers may read Resolve's own content; media must be
+    /// a media pool clip), an expression it can't vouch for, a Lua script or Run Command, or a part it
+    /// couldn't read (also from the exported project, so inside compound and multicam clips). `roots` and `builtIn` are real paths; a fully
+    /// trusted Mac is never refused.
+    nonisolated static func uses(_ found: [String: Any], roots: [String], builtIn: [String], trusted: Bool = false) -> [String] {
+        guard !trusted else { return [] }
+        func inside(_ path: String, _ list: [String]) -> Bool { list.contains { path == $0 || path.hasPrefix($0 == "/" ? "/" : $0 + "/") } }
+        func who(_ entry: [String: Any]) -> String {
+            let item = entry["item"] as? String ?? "?", tool = entry["tool"] as? String ?? ""
+            return tool.isEmpty ? item : "\(item) (\(tool))"
+        }
+        var problems: [String] = []
+        func add(_ problem: String) { if !problems.contains(problem) { problems.append(problem) } }
+        for entry in found["unchecked"] as? [[String: Any]] ?? [] {
+            add(String(localized: "\(entry["item"] as? String ?? "?"): its Fusion composition or grade couldn’t be read on the host Mac."))
+        }
+        // Media a comp or the exported project names: a media pool clip (checked by conform) or in a share.
+        let media = Set((found["items"] as? [[String: Any]] ?? []).compactMap { $0["file"] as? String }.filter { !$0.isEmpty })
+        for entry in found["scripts"] as? [[String: Any]] ?? [] {
+            add(String(localized: "\(who(entry)) runs a Lua script or a command, which the host Mac doesn’t run for other Macs."))
+        }
+        for entry in found["expressions"] as? [[String: Any]] ?? [] where !safeExpression(entry["text"] as? String ?? "") {
+            add(String(localized: "\(who(entry)) has an expression the host Mac can’t check."))
+        }
+        for entry in found["refs"] as? [[String: Any]] ?? [] {
+            guard var path = entry["path"] as? String, !path.isEmpty else { continue }
+            let regid = entry["regid"] as? String ?? "", lut = entry["lut"] as? Bool == true, write = writes(regid)
+            // A LUT without a folder is one of Resolve's LUT folders.
+            if lut, !path.hasPrefix("/") { path = lutRoot + "/" + path }
+            if regid == "media", media.contains(path) { continue }
+            // A path in a blob may run on by a byte; a media pool clip or its folder is the clip's own (checked by conform).
+            if regid == "blob", media.contains(where: { [$0, ($0 as NSString).deletingLastPathComponent].contains { $0 == path || $0 == String(path.dropLast()) } }) { continue }
+            let real = hostPath(path)
+            let allowed = real.map { inside($0, roots) || ((lut || regid == "blob" || readers.contains(regid)) && inside($0, builtIn)) } ?? false
+            guard !allowed else { continue }
+            add(write ? String(localized: "\(who(entry)) writes \(path), which isn’t shared with this Mac.")
+                      : String(localized: "\(who(entry)) loads \(path), which isn’t shared with this Mac."))
+        }
+        return problems
+    }
+
+    /// Whether a Fusion simple expression (Lua) can only compute: no method calls, indexing, tables or
+    /// functions, and calls only to Point, Text, iif and math. Anything else could read a file or run a program.
+    nonisolated static func safeExpression(_ text: String) -> Bool {
+        let callable: Set<String> = ["Point", "Text", "iif", "tonumber", "tostring", "abs", "floor", "ceil", "min", "max", "sin", "cos", "tan",
+                                     "asin", "acos", "atan", "atan2", "sqrt", "exp", "log", "log10", "pow", "fmod", "mod", "random"]
+        let banned: Set<String> = ["io", "os", "require", "dofile", "loadfile", "load", "loadstring", "package", "debug", "_G", "_ENV",
+                                   "getfenv", "setfenv", "rawget", "rawset", "setmetatable", "getmetatable", "ffi", "jit", "bmd",
+                                   "fusion", "fu", "app", "coroutine", "collectgarbage", "function", "string", "pcall", "xpcall"]
+        let chars = Array(text)
+        var i = 0, previous: Character = " "
+        while i < chars.count {
+            let c = chars[i]
+            if c == "\"" || c == "'" {
+                // A string literal: skipped (escapes too); a call written as f"x" was caught at its name.
+                i += 1
+                while i < chars.count, chars[i] != c { i += chars[i] == "\\" ? 2 : 1 }
+                guard i < chars.count else { return false }
+                i += 1; previous = c
+                continue
+            }
+            if "[]{}:;".contains(c) || c == "\\" { return false }
+            if c.isLetter || c == "_" {
+                var name = ""
+                while i < chars.count, chars[i].isLetter || chars[i].isNumber || chars[i] == "_" || (chars[i] == "." && i + 1 < chars.count && chars[i + 1] != ".") {
+                    name.append(chars[i]); i += 1
+                }
+                let parts = name.split(separator: ".").map(String.init)
+                if parts.contains(where: banned.contains) { return false }
+                var next = i
+                while next < chars.count, chars[next].isWhitespace { next += 1 }
+                if next < chars.count, "(\"'".contains(chars[next]) {
+                    let math = parts.count == 2 && parts[0] == "math" && callable.contains(parts[1])
+                    guard math || (parts.count == 1 && callable.contains(name)) else { return false }
+                }
+                previous = "a"
+                continue
+            }
+            // A call on a result: f(x)(y), (f)(x).
+            if c == "(" && (previous == ")" || previous == "\"" || previous == "'") { return false }
+            if !c.isWhitespace { previous = c }
+            i += 1
+        }
+        return true
     }
 }

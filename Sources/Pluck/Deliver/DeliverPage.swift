@@ -70,6 +70,9 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
+            case "server": panelInPage = AnyView(DeliverServerChooser()); nav.deliver = .inbox
+            case "serverbackup": panelInPage = AnyView(DeliverServerChooser(role: .backup)); nav.deliver = .inbox
+            case "proxmoxmain": panelInPage = AnyView(DeliverProxmoxMainSheet()); nav.deliver = .inbox
             case "truenas": panelInPage = AnyView(ReviewTrueNASSetupSheet()); nav.deliver = .inbox
             case "backup", "hostsheet":
                 let sample = Deliver.Host(name: "Office NAS", kind: .nas, address: "192.0.2.10:8790", version: "0.3.0", protocol: 3)
@@ -160,7 +163,12 @@ struct DeliverSidebar: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             // Browse (§13.16): this Mac, each NAS host and the Edit Anywhere host Mac.
-            header("Browse") { EmptyView() }
+            header("Browse") {
+                if hasServer {
+                    Button { settingUp = true } label: { Image(systemName: "plus").font(.system(size: 12)) }
+                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…")
+                }
+            }
             ForEach(DeliverPlaces.all()) { place in
                 let state = DeliverPlaces.state(place.id)
                 row(place.name, symbol: place.symbol, on: nav.deliver == .browse(place.id), detail: state) { nav.deliver = .browse(place.id) }
@@ -208,8 +216,8 @@ struct DeliverSidebar: View {
             .scrollContentBackground(.hidden)
             .frame(maxHeight: .infinity)
             row(String(localized: "Inbox"), symbol: "tray", on: nav.deliver == .inbox, count: store.unread) { nav.deliver = .inbox }
-            if !ReviewPublish.shared.hosts.contains(where: { $0.kind == .nas }) {
-                row(String(localized: "Set Up a NAS Host…"), symbol: "externaldrive.badge.plus", on: false) { settingUp = true }
+            if !hasServer {
+                row(String(localized: "Set Up Server…"), symbol: "externaldrive.badge.plus", on: false) { settingUp = true }
             }
             Divider().overlay(Design.Studio.line).padding(.vertical, 8)
             row(String(localized: PluckTool.deliveryCheck.name), symbol: PluckTool.deliveryCheck.symbol, on: nav.deliver == .deliveryCheck) {
@@ -253,9 +261,11 @@ struct DeliverSidebar: View {
             Text("Its review copies, comments and links go. The original files stay where they are.")
         }
         .sheet(item: Binding(get: { sharing.map(DeliverShareTarget.init) }, set: { sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
-        .sheet(isPresented: $settingUp) { ReviewNASGuideSheet() }
+        .sheet(isPresented: $settingUp) { DeliverServerChooser() }
         .sheet(item: Binding(get: { branding.map(DeliverProjectID.init) }, set: { branding = $0?.id })) { DeliverProjectBrandingSheet(project: $0.id) }
     }
+
+    private var hasServer: Bool { ReviewPublish.shared.hosts.contains { $0.kind == .nas } }
 
     private func header<Trailing: View>(_ title: LocalizedStringKey, @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack {
@@ -335,6 +345,7 @@ struct DeliverShareTarget: Identifiable {
 struct DeliverProjects: View {
     @Bindable var nav: StudioNavigator
     @State private var store = DeliverStore.shared
+    @State private var settingUp = false
     @State private var naming = false
     @State private var name = ""
 
@@ -362,9 +373,23 @@ struct DeliverProjects: View {
                     }
                     .buttonStyle(.plain)
                 }
+                if !ReviewPublish.shared.hosts.contains(where: { $0.kind == .nas }) {
+                    HStack(spacing: 12) {
+                        Image(systemName: "externaldrive.badge.plus").font(.system(size: 22)).foregroundStyle(Design.Studio.textQuiet)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Your own review server").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                            Text("Links stay up when this Mac sleeps.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                        }
+                        Spacer()
+                        Button("Set Up Server…") { settingUp = true }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    }
+                    .padding(14)
+                    .studioBox()
+                }
             }
             .padding(24)
         }
+        .sheet(isPresented: $settingUp) { DeliverServerChooser() }
         .alert("New Project", isPresented: $naming) {
             TextField("Name", text: $name)
             Button("Create") { if let made = try? store.newProject(name) { nav.deliver = .project(made.id, folder: nil) } }

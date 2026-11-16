@@ -403,7 +403,8 @@ enum DeliveryCheck {
                 let detail = levels.count != 2 ? String(localized: "Channel \(index + 1) has no sound at all.")
                     : index == 0 ? String(localized: "The left channel has no sound at all. On headphones it plays on one side only.")
                     : String(localized: "The right channel has no sound at all. On headphones it plays on one side only.")
-                issues.append(Issue(severity: .problem, title: String(localized: "Silent channel"), detail: detail, kind: .sound))
+                // (An empty LFE or surround channel is normal in a 5.1 mix.)
+                issues.append(Issue(severity: levels.count > 2 && index >= 3 ? .note : .problem, title: String(localized: "Silent channel"), detail: detail, kind: .sound))
             }
         }
         return (issues, facts, integrated)

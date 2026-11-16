@@ -156,7 +156,8 @@ final class RemoteRenderQueue {
                 throw OfficeLink.Failure.office(String(localized: "That version isn’t on the host Mac any more."))
             }
             let name = RemoteResolveProject.hostName(item.projectName, id: item.project)
-            let inspected = try await RemoteResolveScript.run(["action": "inspect", "name": name, "drp": drp.path])
+            let inspected = try await RemoteResolveScript.run(["action": "inspect", "name": name, "drp": drp.path, "timeline": item.timeline,
+                                                                       "label": item.projectName])
             guard self.item(id)?.state == .preparing else { return }
             var problems: [String] = []
             if !(inspected["timelines"] as? [String] ?? []).contains(item.timeline) {
@@ -165,12 +166,12 @@ final class RemoteRenderQueue {
             if !(inspected["presets"] as? [String] ?? []).contains(item.preset) {
                 problems.append(String(localized: "The render preset \(item.preset) isn’t on the host Mac."))
             }
-            let unsafe = inspected["unsafe"] as? [String] ?? []
-            if !unsafe.isEmpty {
-                problems.append(String(localized: "Fusion, generator or compound clips (\(unsafe.prefix(5).joined(separator: ", "))) aren’t rendered on the host Mac for other Macs. Render this one on your own Mac."))
-            }
+            // What Fusion and grades reach must stay in the shares, unless the owner trusts that Mac fully.
+            let trusted = OfficeRenderServer.shared.devices.first { $0.id == item.deviceID }?.allowed.fullTrust == true
+            problems += RemoteResolveProject.uses(inspected, roots: RemoteResolveProject.shareRoots(), builtIn: RemoteResolveProject.builtInRoots,
+                                                  trusted: trusted).prefix(20)
             let clips = (inspected["items"] as? [[String: Any]] ?? []).map(RemoteResolveProject.Clip.init)
-            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies)
+            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies, trusted: trusted)
             problems += plan.problems
             guard problems.isEmpty else {
                 update(id) { $0.state = .problems; $0.problems = problems }
@@ -179,7 +180,9 @@ final class RemoteRenderQueue {
             let target = try RemoteResolveProject.renderFolder(share: item.share ?? item.proxies.first?.share, project: item.projectName)
             let stamp = Date.now.formatted(.verbatim("\(year: .defaultDigits)-\(month: .twoDigits)-\(day: .twoDigits) \(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased)).\(minute: .twoDigits)",
                                                      timeZone: .current, calendar: .current))
-            let answer = try await RemoteResolveScript.run(["action": "render", "name": name, "swaps": plan.swaps, "timeline": item.timeline,
+            let answer = try await RemoteResolveScript.run(["action": "render", "name": name, "swaps": plan.swaps,
+                                                            // (A copy with its multicam clips flattened, when it has any.)
+                                                            "timeline": inspected["render"] as? String ?? item.timeline,
                                                             "preset": item.preset, "target": target.path,
                                                             "output": Folders.sanitize(item.timeline) + " v\(item.version) " + stamp])
             guard let job = answer["job"] as? String else { throw OfficeLink.Failure.office(String(localized: "DaVinci Resolve couldn’t start rendering.")) }

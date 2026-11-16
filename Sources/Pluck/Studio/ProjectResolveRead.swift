@@ -135,7 +135,10 @@ enum ProjectResolveRead {
             guard moved != 0 || longer != 0 else { return nil }
             var clip = clip
             let length = max(clip.length + longer, 1 / rate)
+            let was = clip.start
             clip.start = max(clip.start + moved, 0)
+            let shift = (clip.start - was) / clip.speed
+            clip.look?.shiftKeys(by: shift)
             clip.end = clip.start + length * clip.speed
             return clip
         }

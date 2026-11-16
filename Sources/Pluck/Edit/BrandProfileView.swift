@@ -443,7 +443,11 @@ struct BrandProfileEditor: View {
         var lines = [String(localized: "\(p.anchor.label): \(BrandCheck.pixels(p.x)) px across, \(BrandCheck.pixels(p.y)) px down, \(BrandCheck.pixels(p.width)) px wide (\(p.referenceWidth)×\(p.referenceHeight))."),
                      String(localized: "Colour \(m.colour).")]
         if let timing = m.timing {
-            lines.append(timing.mode == .endCard ? String(localized: "End card: the last \(BrandCheck.pixels(timing.endCard)) s.") : String(localized: "On screen all the time."))
+            switch timing.mode {
+            case .endCard: lines.append(String(localized: "End card: the last \(BrandCheck.pixels(timing.endCard)) s."))
+            case .ranges: lines.append(String(localized: "On screen at set times."))
+            case .always: lines.append(String(localized: "On screen all the time."))
+            }
         }
         return lines.joined(separator: "\n")
     }
@@ -463,6 +467,7 @@ struct BrandProfileEditor: View {
         if let timing = m.timing {
             profile.timing.mode = timing.mode
             profile.timing.endCard = timing.endCard
+            profile.timing.ranges = timing.ranges
         }
         profile.logoColour = m.colour
     }

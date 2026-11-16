@@ -389,7 +389,8 @@ final class ProjectModel {
     private(set) var time: Double = 0
     private(set) var rate: Float = 0
     var isPlaying: Bool { rate != 0 }
-    var selected: Set<UUID> = []
+    /// Choosing another clip drops the keyframes chosen on the lane.
+    var selected: Set<UUID> = [] { didSet { if selected != oldValue { selectedKeys = [] } } }
     var selectedTitle: UUID?
     /// Keyframes chosen on the timeline's keyframe lane (of the selected clip).
     var selectedKeys: Set<UUID> = []
