@@ -40,7 +40,7 @@ final class DeliverHostUpdate {
 
     /// The Ed25519 public key (32 raw bytes, base64) that signs host releases. The owner puts the key from
     /// `Pluck Signing/host-update-ed25519.pem` here; until then no update is ever installed.
-    nonisolated static let releaseKey: String? = nil
+    nonisolated static let releaseKey: String? = "fOPL13shEB3uNAhz5Fz6CYPWGucTgWLv3jcC17ZusAI="
     /// Tests: another key.
     static var testKey: Curve25519.Signing.PublicKey?
 

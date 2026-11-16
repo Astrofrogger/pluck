@@ -7,6 +7,7 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.1", items: []),
             Release(version: "4.0.0", items: [
                 Item(symbol: "paperplane", title: String(localized: "Deliver"),
                      detail: String(localized: "Review links for clients, hosted on your Mac or NAS, with comments on the frame."),
@@ -37,6 +38,8 @@ struct StudioWhatsNewView: View {
     let onClose: () -> Void
 
     private var newest: WhatsNew.Release? { releases.first }
+    /// The newest release with feature cards (a fixes-only release, like 4.0.1, has none of its own).
+    private var featured: WhatsNew.Release? { releases.first { !$0.items.isEmpty } }
 
     /// "4.0" for 4.0.0; other versions as they are.
     private var shortVersion: String {
@@ -50,7 +53,7 @@ struct StudioWhatsNewView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: Design.Studio.sectionGap) {
                     cards
-                    if releases.count > 1 { earlier }
+                    if releases.contains(where: { $0.id != featured?.id && !$0.items.isEmpty }) { earlier }
                 }
                 .padding(24)
             }
@@ -91,7 +94,7 @@ struct StudioWhatsNewView: View {
 
     /// Three cards a row, each row as tall as its tallest card.
     private var cards: some View {
-        let items = newest?.items ?? []
+        let items = featured?.items ?? []
         return Grid(horizontalSpacing: 16, verticalSpacing: 16) {
             ForEach(Array(stride(from: 0, to: items.count, by: 3)), id: \.self) { start in
                 GridRow(alignment: .top) {
@@ -144,7 +147,7 @@ struct StudioWhatsNewView: View {
     private var earlier: some View {
         DisclosureGroup("Earlier versions") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(releases.dropFirst()) { release in
+                ForEach(releases.filter { $0.id != featured?.id }) { release in
                     ForEach(release.items) { item in
                         Label(item.title, systemImage: item.symbol).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                     }

@@ -31,7 +31,7 @@ BUILT_FOR_TAG="__PLUCK_TAG__"
 # The release signing key (Ed25519). Replace REPLACE with the PEM that
 # `scripts/sign-host-release.sh --init` prints. While it says REPLACE, nothing is installed.
 PUBKEY_PEM='-----BEGIN PUBLIC KEY-----
-REPLACE_WITH_PUBLIC_KEY_FROM_sign-host-release.sh_--init
+MCowBQYDK2VwAyEAfOPL13shEB3uNAhz5Fz6CYPWGucTgWLv3jcC17ZusAI=
 -----END PUBLIC KEY-----'
 
 P="${PLUCK_PREFIX:-}"
