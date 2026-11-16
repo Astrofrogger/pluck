@@ -65,7 +65,8 @@ struct RawPlayerView: View {
                         RawTransportBar(player: player, goingTo: $goingTo, goTo: $goTo, timecodeMode: $timecodeMode, saveFrame: saveFrame)
                     }
                     Divider()
-                    sidebar.frame(width: 290)
+                    // (Clipped: nothing in it may spill over the picture.)
+                    sidebar.frame(width: 290).clipped()
                 }
             }
         }
@@ -192,19 +193,26 @@ struct RawPlayerView: View {
 
     // MARK: - Settings
 
+    /// A folder name short enough for the back button (the capsule style never truncates): middle cut, like Finder.
+    static func short(_ name: String, max: Int = 24) -> String {
+        guard name.count > max else { return name }
+        let head = (max - 1) / 2, tail = max - 1 - head
+        return String(name.prefix(head)) + "…" + String(name.suffix(tail))
+    }
+
     private var sidebar: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: Design.Spacing.section) {
                 if let info = player.info {
                     if let folder {
                         Button { player.eject() } label: {
-                            Label(folder.url.lastPathComponent, systemImage: "square.grid.2x2")
+                            Label(Self.short(folder.url.lastPathComponent), systemImage: "square.grid.2x2")
                         }
                         .buttonStyle(GlassCapsuleButtonStyle())
                         .help("Back to the folder (Esc). ⌘↑ and ⌘↓ go to the previous and next clip.")
                     } else if case .clip(let url) = source, let close {
                         Button(action: close) {
-                            Label(FileManager.default.displayName(atPath: url.deletingLastPathComponent().path), systemImage: "chevron.backward")
+                            Label(Self.short(FileManager.default.displayName(atPath: url.deletingLastPathComponent().path)), systemImage: "chevron.backward")
                         }
                         .buttonStyle(GlassCapsuleButtonStyle())
                         .help("Back to the folder (Esc). ⌘↑ and ⌘↓ go to the previous and next clip.")
@@ -248,6 +256,8 @@ struct RawPlayerView: View {
                     clipInfo(info)
                 }
             }
+            // Exactly the panel's width, from its leading edge: a wide control can't push the rest off both sides.
+            .frame(width: 290 - 2 * Design.Spacing.inset, alignment: .leading)
             .padding(Design.Spacing.inset)
         }
     }
