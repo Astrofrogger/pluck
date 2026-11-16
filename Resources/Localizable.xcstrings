@@ -315515,6 +315515,360 @@
           }
         }
       }
+    },
+    "Edit Anywhere, simpler": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Überall bearbeiten, einfacher"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar en cualquier lugar, más sencillo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Monter partout, plus simple"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Montaggio ovunque, più semplice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "どこでも編集がもっとシンプルに"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 간단해진 어디서나 편집"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overal monteren, eenvoudiger"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Editar de qualquer lugar, mais simples"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "随处剪辑，更简单"
+          }
+        }
+      }
+    },
+    "Macs, Folders, Proxies and Renders, and a Finder sidebar to browse the other Mac.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs, Ordner, Proxys und Renderings – und eine Finder-Seitenleiste zum Durchsuchen des anderen Macs."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac, carpetas, proxies y renders, y una barra lateral como en Finder para explorar el otro Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac, dossiers, proxys et rendus, et une barre latérale façon Finder pour parcourir l’autre Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac, cartelle, proxy e render, e una barra laterale come nel Finder per sfogliare l’altro Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac、フォルダ、プロキシ、レンダリング。もう一台の Mac は Finder 風のサイドバーで閲覧できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac, 폴더, 프록시, 렌더, 그리고 다른 Mac을 둘러보는 Finder 스타일 사이드바."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs, mappen, proxy’s en renders, en een Finder-zijbalk om door de andere Mac te bladeren."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs, pastas, proxies e renders, e uma barra lateral como a do Finder para navegar no outro Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac、文件夹、代理和渲染，并可用 Finder 式边栏浏览另一台 Mac。"
+          }
+        }
+      }
+    },
+    "Streaming on slow connections": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streamen bei langsamen Verbindungen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming con conexiones lentas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lecture en flux sur les connexions lentes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming su connessioni lente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "低速回線でのストリーミング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "느린 연결에서도 스트리밍"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streamen over trage verbindingen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming em conexões lentas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "慢速连接下的流式播放"
+          }
+        }
+      }
+    },
+    "Light 720p proxies when the office line is slow, or download them with one click.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leichte 720p-Proxys, wenn die Leitung im Büro langsam ist – oder mit einem Klick herunterladen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies ligeros de 720p cuando la línea de la oficina es lenta, o descárgalos con un clic."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des proxys 720p légers quand la ligne du bureau est lente, ou téléchargez-les en un clic."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy leggeri a 720p quando la linea dell’ufficio è lenta, oppure scaricali con un clic."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフィスの回線が遅いときは軽量な 720p プロキシを使用。ワンクリックでダウンロードもできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사무실 회선이 느리면 가벼운 720p 프록시를 사용하거나, 클릭 한 번으로 다운로드하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lichte 720p-proxy’s als de lijn op kantoor traag is, of download ze met één klik."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies leves em 720p quando a conexão do escritório é lenta, ou baixe-os com um clique."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "办公室线路较慢时使用轻量 720p 代理，或一键下载。"
+          }
+        }
+      }
+    },
+    "Review links from the faster server": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review-Links vom schnelleren Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enlaces de revisión desde el servidor más rápido"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Liens de relecture depuis le serveur le plus rapide"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Link di revisione dal server più veloce"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "より速いサーバーからレビューリンクを配信"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "더 빠른 서버에서 검토 링크 제공"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewlinks vanaf de snellere server"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Links de revisão pelo servidor mais rápido"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从更快的服务器提供审阅链接"
+          }
+        }
+      }
+    },
+    "Clients watch from your backup NAS when its upload is faster.": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kunden schauen über dein Backup-NAS, wenn dessen Upload schneller ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus clientes ven desde el NAS de respaldo cuando su subida es más rápida."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos clients regardent depuis le NAS de secours quand son envoi est plus rapide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I clienti guardano dal NAS di backup quando il suo upload è più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "バックアップ NAS のアップロードが速い場合、クライアントはそこから視聴します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "백업 NAS의 업로드가 더 빠르면 고객이 그곳에서 시청합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klanten kijken via je back-up-NAS als die sneller uploadt."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus clientes assistem pelo NAS de backup quando o upload dele é mais rápido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当备份 NAS 的上传更快时，客户将从它观看。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -7,7 +7,14 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
-            Release(version: "4.0.2", items: []),
+            Release(version: "4.0.2", items: [
+                Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere, simpler"),
+                     detail: String(localized: "Macs, Folders, Proxies and Renders, and a Finder sidebar to browse the other Mac.")),
+                Item(symbol: "speedometer", title: String(localized: "Streaming on slow connections"),
+                     detail: String(localized: "Light 720p proxies when the office line is slow, or download them with one click.")),
+                Item(symbol: "server.rack", title: String(localized: "Review links from the faster server"),
+                     detail: String(localized: "Clients watch from your backup NAS when its upload is faster.")),
+            ]),
             Release(version: "4.0.1", items: []),
             Release(version: "4.0.0", items: [
                 Item(symbol: "paperplane", title: String(localized: "Deliver"),
