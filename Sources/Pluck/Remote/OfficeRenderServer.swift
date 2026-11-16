@@ -26,6 +26,12 @@ final class OfficeRenderServer {
         var iroh: String?
         /// Its tailnet address, when it paired over Tailscale: only these nodes keep their place there.
         var tailnet: String?
+        /// The office group's own key (OfficeGroup): the other office Macs ask with it. Never listed as a paired Mac.
+        var peer: Bool?
+        /// Its other iroh node ids, one per office Mac of the group it reaches (each link has a key of its own).
+        var irohMore: [String]?
+        /// When its rights were last set, so the office Macs of a group keep the newest.
+        var changed: Date?
 
         /// What this Mac may do here (Edit Anywhere's remote editing).
         struct Rights: Codable, Hashable {
@@ -38,6 +44,7 @@ final class OfficeRenderServer {
         }
 
         var allowed: Rights { rights ?? Rights() }
+        var isPeer: Bool { peer == true }
     }
 
     /// A render a paired Mac asked for.
@@ -174,6 +181,7 @@ final class OfficeRenderServer {
         }
         listener.start(queue: queue)
         self.listener = listener
+        OfficeGroup.shared.start()
         watch()
         startNetwork()
         OfficeArchive.removeOldClips()
@@ -184,6 +192,7 @@ final class OfficeRenderServer {
     }
 
     func stop() {
+        OfficeGroup.shared.stop()
         OfficeProxies.shared.stop()
         listener?.cancel()
         listener = nil
@@ -328,8 +337,49 @@ final class OfficeRenderServer {
         startNetwork()
     }
 
-    /// The node ids of the paired Macs that came in over iroh.
-    private var allowedNodes: [String] { devices.compactMap(\.iroh) }
+    /// The node ids of the paired Macs that came in over iroh (and their links to the group's other office Macs).
+    private var allowedNodes: [String] { devices.flatMap { [$0.iroh].compactMap { $0 } + ($0.irohMore ?? []) } }
+
+    /// The paired Macs people see (not the office group's own key).
+    var pairedMacs: [Device] { devices.filter { !$0.isPeer } }
+
+    /// The office group's devices and key (OfficeGroup), after a sync: paired Macs added, removed or with new rights, and
+    /// the group's key as the one device the other office Macs ask with (nil: no group, its key goes).
+    func adoptGroup(_ shared: OfficeGroup.Shared?) {
+        loadDevices()
+        var list = devices.filter { !$0.isPeer }
+        if let shared {
+            let gone = Set(shared.removedDevices)
+            list.removeAll { gone.contains($0.id) }
+            for device in shared.devices where !gone.contains(device.id) {
+                if let index = list.firstIndex(where: { $0.id == device.id }) {
+                    if (device.changed ?? .distantPast) > (list[index].changed ?? .distantPast) {
+                        list[index].rights = device.rights
+                        list[index].changed = device.changed
+                    }
+                    let more = Set((list[index].irohMore ?? []) + (device.irohMore ?? []))
+                    list[index].irohMore = more.isEmpty ? nil : more.sorted()
+                } else {
+                    list.append(device)
+                }
+            }
+            list.append(Device(id: shared.key.device, name: "Office group", secret: shared.key.secret, added: Date(timeIntervalSince1970: 0),
+                               rights: Device.Rights(browse: true, proxies: true, originals: true, render: true), peer: true))
+        }
+        guard list != devices else { return }
+        devices = list
+        saveDevices()
+        Tunnel.irohOffice.setAllow(allowedNodes)
+    }
+
+    /// A paired Mac's link to another office Mac of the group (OfficeGroup's "groupNode").
+    func addNode(_ node: String, for id: UUID) {
+        guard let index = devices.firstIndex(where: { $0.id == id }), devices[index].iroh != node,
+              !(devices[index].irohMore ?? []).contains(node) else { return }
+        devices[index].irohMore = (devices[index].irohMore ?? []) + [node]
+        saveDevices()
+        Tunnel.irohOffice.setAllow(allowedNodes)
+    }
 
     func connectAccount(token: String) {
         PrivateNetwork.Account.save(token: token)
@@ -372,6 +422,7 @@ final class OfficeRenderServer {
     func remove(_ device: Device) {
         devices.removeAll { $0.id == device.id }
         saveDevices()
+        if !device.isPeer { OfficeGroup.shared.removed(device: device.id) }
         // Its tailnet node goes too (an invited node no longer paired is deleted there).
         if device.tailnet != nil, PrivateNetwork.Account.token != nil {
             Task { [paired = pairedTailnet, gone = Set(device.tailnet.map { [$0] } ?? [])] in
@@ -520,6 +571,23 @@ final class OfficeRenderServer {
         guard let shared = try? officeKey.sharedSecretFromKeyAgreement(with: clientKey) else { return drop(connection, strike: nil) }
         let answerKey = OfficeLink.pairingAnswerKey(shared, code: code, clientKey: clientKey.rawRepresentation,
                                                    officeKey: officeKey.publicKey.rawRepresentation)
+        // Another office Mac joining this one's group ("Add another office Mac"): it gets the group's key and state, sealed
+        // like any pairing answer, and joins as a member instead of a paired Mac.
+        if hello["role"] as? String == "peer" {
+            guard let joining = (hello["member"] as? String).flatMap(OfficeGroup.decode(OfficeGroup.Member.self)),
+                  let shared = OfficeGroup.shared.admit(joining),
+                  let state = OfficeGroup.encode(shared) else { return drop(connection, strike: nil) }
+            let answer: [String: Any] = ["device": shared.key.device.uuidString, "secret": shared.key.secret.base64EncodedString(),
+                                         "office": Host.current().localizedName ?? "Mac", "addresses": Self.addresses(), "group": state]
+            guard let body = try? JSONSerialization.data(withJSONObject: answer),
+                  let sealed = try? ChaChaPoly.seal(body, using: answerKey, authenticating: Data("pluck-pair-answer".utf8)) else {
+                return drop(connection, strike: nil)
+            }
+            if self.pairing?.code == code { self.pairing = nil }
+            invitations[code] = nil
+            justPaired = name
+            return send(OfficeLink.frame(.pair, officeKey.publicKey.rawRepresentation + sealed.combined), on: connection)
+        }
         var device = Device(id: UUID(), name: name, secret: OfficeLink.randomBytes(32), added: .now)
         // Paired over iroh: its node id (as the helper saw it, never just what it claims) is how it
         // gets in from now on. A claim that doesn't match where it came from is turned away.
@@ -631,13 +699,15 @@ final class OfficeRenderServer {
     func setRights(_ rights: Device.Rights, for id: UUID) {
         guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
         devices[index].rights = rights
+        devices[index].changed = .now
         saveDevices()
     }
 
     private func perform(_ action: String, _ arguments: [String: Any], from device: Device) async throws -> [String: Any] {
         switch action {
         case "hello":
-            var answer: [String: Any] = ["office": Host.current().localizedName ?? "Mac", "hasFolder": renderFolder != nil]
+            var answer: [String: Any] = ["office": Host.current().localizedName ?? "Mac", "hasFolder": renderFolder != nil,
+                                         "group": OfficeGroup.shared.members.count]
             if let hello = try? await OfficeResolve.run(["action": "hello"]) { answer["resolve"] = hello }
             return answer
         case "projects":

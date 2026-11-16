@@ -11,7 +11,9 @@ enum RemoteEditHost {
     static func register() {
         OfficeActions.register("shares") { _, _ in ["shares": await shares()] }
         OfficeActions.register("status") { _, _ in
-            ["office": Host.current().localizedName ?? "Mac", "busy": OfficeRenderServer.shared.isRendering, "shares": await shares()]
+            // (load: what waits here, so a home Mac of a group picks the least busy office Mac.)
+            ["office": Host.current().localizedName ?? "Mac", "busy": OfficeRenderServer.shared.isRendering || RemoteRenderQueue.shared.isBusy,
+             "load": RemoteProxyJobs.shared.requests.filter { $0.state == .queued || $0.state == .making }.count, "shares": await shares()]
         }
         OfficeActions.register("browse") { arguments, device in
             try OfficeActions.require(\.browse, device)
@@ -38,10 +40,11 @@ enum RemoteEditHost {
     /// the same id the proxy actions use.
     static func share(_ value: Any?) throws -> (root: URL, id: String) {
         let id = try OfficeActions.text(value, 40)
-        guard let folder = OfficeArchive.shared.folders.first(where: { OfficeProxies.id($0) == id }) else {
+        guard let folder = OfficeArchive.shared.folders.first(where: { OfficeProxies.isShare($0, id: id) }) else {
             throw OfficeLink.Failure.office(String(localized: "That folder isn’t shared on the host Mac any more."))
         }
-        return (folder, id)
+        // (Any of the group's ids for it: work goes on under the one paired Macs see.)
+        return (folder, OfficeProxies.id(folder))
     }
 
     /// Online state and free space with a timeout per share (RemoteShares).

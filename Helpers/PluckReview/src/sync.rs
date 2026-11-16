@@ -696,4 +696,41 @@ pub mod tests {
         assert!(task.await.unwrap().is_err());
         let _ = std::fs::remove_dir_all(data);
     }
+
+    /// §13.25: a backup takes uploads (not mkdir/move) only once its main takes them on; the push ops are a backup's,
+    /// never a Mac's; a main says it takes them in its hello.
+    #[tokio::test]
+    async fn outage_ops_by_role() {
+        let data = std::env::temp_dir().join(format!("pluck-sync-o-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("bundle")).unwrap();
+        std::fs::create_dir_all(data.join(crate::outage::EDITOR_DIR)).unwrap();
+        let root = UploadRoot::parse(&format!("outage={}", data.join(crate::outage::EDITOR_DIR).display()), &[], Arc::default()).map(Arc::new);
+        let (main, _rx) = ctx(&data, None);
+        let o = crate::outage::Outage::load(&data, true, None);
+        let backup = Arc::new(Ctx { data: data.clone(), key: main.key.clone(), roots: main.roots.clone(), to_host: main.to_host.clone(), devices: main.devices.clone(),
+            uploads: root, outage: Some(o.clone()), ident: host::Ident { id: "B".into(), name: "Backup".into(), backup: true }, fp: main.fp.clone(),
+            acceptor: main.acceptor.clone() });
+        let open = |c: Arc<Ctx>| async move {
+            let (client, server) = tokio::io::duplex(1 << 16);
+            tokio::spawn(async move { let _ = session(server, &c, None).await; });
+            let (r, mut w) = tokio::io::split(client);
+            let mut r = BufReader::new(r);
+            let h = ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 3})).await;
+            (r, w, h)
+        };
+        let (mut r, mut w, h) = open(main.clone()).await;
+        assert_eq!(h["outage"], 1);
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "outage-begin", "item": {}})).await["error"], "scope", "a Mac doesn't push");
+        assert!(ask(&mut r, &mut w, json!({"op": "outage-list"})).await["items"].is_array());
+        let (mut r, mut w, _) = open(backup.clone()).await;
+        let sha = "c".repeat(64);
+        let begin = json!({"op": "upload-begin", "path": "outage/a.mov", "size": 1, "sha256": sha, "folder": "renders/Client"});
+        assert_eq!(ask(&mut r, &mut w, begin.clone()).await["error"], "scope", "not before its main takes them on");
+        o.set_main(true);
+        assert!(ask(&mut r, &mut w, begin).await["upload"].is_string());
+        for op in ["mkdir", "move", "outage-list"] {
+            assert_eq!(ask(&mut r, &mut w, json!({"op": op, "path": "outage/x", "to": "outage"})).await["error"], "scope", "{op}");
+        }
+        let _ = std::fs::remove_dir_all(data);
+    }
 }

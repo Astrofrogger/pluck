@@ -1,0 +1,61 @@
+# https://github.com/EmbarkStudios/cargo-deny
+#
+# cargo-deny checks our dependency tree for copy-left licenses,
+# duplicate dependencies, and rustsec advisories
+# (https://rustsec.org/advisories).
+#
+# Install: `cargo install cargo-deny`
+# Check: `cargo deny check`
+
+# Note: running just `cargo deny check` without a `--target`
+# can result in false positives due to
+# https://github.com/EmbarkStudios/cargo-deny/issues/324
+[graph]
+targets = [
+  { triple = "aarch64-apple-darwin" },
+  { triple = "i686-pc-windows-gnu" },
+  { triple = "i686-pc-windows-msvc" },
+  { triple = "i686-unknown-linux-gnu" },
+  { triple = "wasm32-unknown-unknown" },
+  { triple = "x86_64-apple-darwin" },
+  { triple = "x86_64-pc-windows-gnu" },
+  { triple = "x86_64-pc-windows-msvc" },
+  { triple = "x86_64-unknown-linux-gnu" },
+  { triple = "x86_64-unknown-linux-musl" },
+  { triple = "x86_64-unknown-redox" },
+]
+
+[advisories]
+yanked = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "deny"
+# at least until
+# https://github.com/EmbarkStudios/cargo-deny/issues/241
+wildcards = "allow"
+deny = []
+
+skip = []
+skip-tree = []
+
+[licenses]
+private = { ignore = true }
+# We want really high confidence when inferring
+# licenses from text
+confidence-threshold = 0.92
+allow = [
+  "Apache-2.0 WITH LLVM-exception",
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "ISC",
+  "MIT-0",
+  "MIT",
+  "MPL-2.0",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "Zlib",
+]

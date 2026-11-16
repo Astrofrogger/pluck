@@ -131,10 +131,11 @@ impl Outage {
     /// `outage-list` (a main, for Pluck's Inbox): what arrived during an outage, newest first.
     pub fn list(&self) -> Value {
         let i = self.items.lock().unwrap();
-        let mut out: Vec<Value> = i.iter().filter(|x| x["state"] == "delivered").map(|x| {
+        // (Comment attachments aren't deliveries: they stay with their comment.)
+        let mut out: Vec<Value> = i.iter().filter(|x| x["state"] == "delivered" && x["kind"] != "attachment").map(|x| {
             let mut x = x.clone();
             if let Some(o) = x.as_object_mut() {
-                for k in ["state", "part", "target"] { o.remove(k); }
+                for k in ["state", "part", "target", "targetDir"] { o.remove(k); }
             }
             x
         }).collect();
@@ -310,7 +311,7 @@ impl Outage {
                 let mut placed = None;
                 if !part.exists() {
                     // Linked and unlinked before a restart: the recorded target is it.
-                    placed = x["target"].as_str().filter(|t| x["targetDir"].as_str() == Some(&dir.to_string_lossy())).map(str::to_owned)
+                    placed = x["target"].as_str().filter(|_| x["targetDir"].as_str() == Some(&dir.to_string_lossy())).map(str::to_owned)
                         .filter(|t| dir.join(t).is_file());
                     if placed.is_none() {
                         return Err("lost");
@@ -516,6 +517,7 @@ mod tests {
         assert_eq!(logged.lock().unwrap().len(), 1, "an editor's file isn't logged");
         let list = o.list();
         assert_eq!(list["items"].as_array().unwrap().len(), 2);
+        assert!(list["items"][0].get("targetDir").is_none() && list["items"][0].get("part").is_none());
         assert_eq!(list["items"][0]["moved"], true, "already where the editor wanted it");
         assert_eq!(list["items"][1]["moved"], false);
         assert_eq!(o.done("U1", Some("renders/Client/2026/Interview A.mov"))["ok"], true);

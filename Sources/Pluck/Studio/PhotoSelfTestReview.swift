@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import AppKit
 import CryptoKit
@@ -976,6 +977,13 @@ extension PhotoSelfTest {
         server.helper(["upload": ["peer": "p_c", "upload": firstOpen, "state": "cancelled", "bytes": 0]])
         check("parity: a cancelled upload goes", server.peers["p_c"]?.uploads[firstOpen] == nil, "")
 
+        // A comment, reply or approval needs a name, on any link.
+        _ = connect("p_nn", store.link(client.id)!, name: "  ")
+        let nameless = code(ask("p_nn", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 1, "text": "x"]))
+        _ = ask("p_nn", ["t": "identify", "name": "Faye"])
+        let named = ask("p_nn", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 1, "text": "x"])
+        check("parity: a comment needs a name", nameless == "needName" && (named["comment"] as? [String: Any])?["author"] as? String == "Faye", "\(nameless ?? "-") \(named)")
+
         // A name first; personal links; pausing.
         store.updateLink(client.id) { $0.requireName = true }
         _ = connect("p_n", store.link(client.id)!, name: "")
@@ -1590,6 +1598,50 @@ extension PhotoSelfTest {
         check("round3: changes from the host merge in", teaser != nil && teaser?.current.path.hasPrefix("host:") == true, "\(store.content(project.id).assets.map(\.name))")
         await reviewFixes2(fake: fake, store: store, publish: publish, sync: reloaded, host: host, project: project.id, base: base)
 
+        // A long push holds the round; a comment written on the NAS meanwhile (on an asset that's new there too) still
+        // comes in at once by refresh, its own session, the asset first; the push then finishes.
+        if let hero {
+            reloaded.testFlushPause = .seconds(20)
+            store.rename(asset: hero.id, to: "Hero 30s long push")
+            let pushing = Task { await reloaded.round() }
+            try? await Task.sleep(for: .milliseconds(300))
+            let newAsset = UUID(), newVersion = UUID()
+            var wire = (fake.objects["asset:" + hero.id.uuidString]?.wire) ?? [:]
+            wire["id"] = newAsset.uuidString; wire["name"] = "Arrived"; wire["rev"] = 1; wire["by"] = "another"
+            wire["versions"] = [["id": newVersion.uuidString, "number": 1, "size": 1, "renditions": ["1080"]]]
+            fake.storeSeq += 1
+            fake.objects["asset:" + newAsset.uuidString] = (wire, fake.storeSeq, false)
+            let note = Deliver.Comment(asset: newAsset, version: newVersion, frame: 3, text: "From the NAS mid-push", author: "Dee", authorToken: "u")
+            fake.entries.append((ReviewPublish.entry(note) ?? [:]).merging(["seq": fake.entries.count + 1]) { $1 })
+            let began = Date.now
+            await reloaded.refresh()
+            let took = Date.now.timeIntervalSince(began), stillPushing = reloaded.syncing
+            check("sync: a comment on the NAS comes in while a long push runs (its new asset first), within seconds",
+                  store.comment(note.id)?.text == "From the NAS mid-push" && store.find(newAsset) != nil && stillPushing && took < 5 && reloaded.state.logSeq == fake.entries.count,
+                  "comment \(store.comment(note.id) != nil) asset \(store.find(newAsset) != nil) pushing \(stillPushing) \(String(format: "%.1f", took)) s")
+            reloaded.testFlushPause = nil
+            await pushing.value
+            check("sync: …and the push then goes through", reloaded.outbox().isEmpty && fake.objects["asset:" + hero.id.uuidString]?.wire["name"] as? String == "Hero 30s long push",
+                  "\(reloaded.outbox().count)")
+            store.rename(asset: hero.id, to: hero.name)
+            await reloaded.round()
+        }
+
+        // Streaming from a NAS chooses and changes renditions as the web player does (round3.test.ts's vectors).
+        let main = ["1080", "540", "360"], rates: [String: Double] = ["1080": 1.03e6, "540": 0.27e6, "360": 0.048e6]
+        let start = DeliverPlayback.startRendition, step = DeliverPlayback.autoStep
+        let starts = [start(main, rates, 3e6, false), start(main, rates, 1.2e6, false), start(main, rates, 0.05e6, false), start(main, rates, 0.01e6, false),
+                      start(main, rates, nil, false), start(main, [:], 0.05e6, false), start(main, rates, 0.05e6, true), start(["1080"], rates, nil, false)]
+        let steps = [step(main, "540", [4], 2.5e6, rates, false), step(main, "360", [9], 0.6e6, rates, false), step(main, "540", [3, 3], 1.7e6, rates, false),
+                     step(main, "540", [3, 3, 3], 1.7e6, rates, false), step(main, "540", [3, 3, 3], 0.8e6, rates, false), step(main, "540", [3, 1.0], 2.5e6, rates, false),
+                     step(main, "1080", [9], 9e6, rates, false), step(main, "540", [2, 2, 2], 0, [:], false), step(main, "1080", [0.8], 0.5e6, rates, false),
+                     step(main, "1080", [0.8], 0.5e6, rates, true), step(main, "1080", [0], 0, rates, true), step(main, "540", [4], 2.5e6, rates, true)]
+        check("stream: start and step renditions as the web player (startRendition, autoStep, firstTooSlow)",
+              starts == ["1080", "540", "360", "360", "1080", "1080", "1080", "1080"]
+              && steps == ["1080", "540", "540", "1080", "540", "360", "1080", "1080", "540", "1080", "1080", "1080"]
+              && !DeliverPlayback.firstTooSlow(1.5, 2) && DeliverPlayback.firstTooSlow(1.9, 2) && DeliverPlayback.firstTooSlow(0.5, 0.4)
+              && DeliverPlayback.sortRenditions(["360", "a", "1080", "540"]) == ["1080", "540", "360", "a"], "\(starts) \(steps)")
+
         // NAS invitations (v3, k:"nas").
         let node = String(repeating: "a1", count: 32)
         let good = PrivateNetwork.Invitation(way: .reviewHost(node: node, relay: nil, expires: Date(timeIntervalSince1970: 2_000_000_000), pin: fp, lan: "192.0.2.10:8790", role: "mac"),
@@ -1993,6 +2045,7 @@ extension PhotoSelfTest {
               && stacked?.current.path == ReviewPublish.nasPath(host: host.id, path: "nas1/Hero 30s_v2.mov"), "\(String(describing: stacked?.versions.map(\.path)))")
 
         await uploadDestinationTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
+        await outageTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
 
         // A backup paired straight with the main (no host record here): a Backup row under the main, not a browse root.
         let seen = ISO8601DateFormatter().string(from: .now)
@@ -2377,6 +2430,7 @@ extension PhotoSelfTest {
 
         await inviteTeammateE2E(publish.host(host.id) ?? host, sync: sync, roots: roots)
         await uploadsE2E(publish.host(host.id) ?? host, root: root, connected: connected)
+        await streamE2E(publish.host(host.id) ?? host, sync: sync, root: root)
     }
 
     /// (i) Change Folders sets an uploads folder; a file only on this Mac is shared into a folder made in it
@@ -2526,6 +2580,116 @@ extension PhotoSelfTest {
 }
 
 extension PhotoSelfTest {
+    /// §13.25, uploads during an outage: the backup's way in is learnt from the main (only when both say so) and this
+    /// Mac's node registered there; "Upload to Backup" sends a share there with the folder picked, and once the main is
+    /// back it lands where the main put it; the Inbox lists what arrived and Move to… marks it done; a client's file
+    /// in the uploads folder is added by reference, once.
+    static func outageTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL) async {
+        let before = publish.host(host.id) ?? host
+        defer {
+            ReviewHostClient.fake = { fake.answer($0, $1) }
+            DeliverOutage.fakeNode = nil
+            publish.update(host: host.id) { $0.device = before.device; $0.outage = nil }
+        }
+        publish.update(host: host.id) { $0.device = "D-outage"; $0.outage = nil }
+        DeliverKeychain.save(Data("devkey".utf8), as: "\(host.id.uuidString)/D-outage", service: DeliverKeychain.hostService)
+        DeliverOutage.fakeNode = String(repeating: "ab", count: 32)
+        let office: [String: Any] = ["node": String(repeating: "c4", count: 32), "fp": "AA:BB", "relay": NSNull()]
+        let old: [String: Any] = ["backups": [["id": "b1", "name": "Proxmox", "replica": ["office": office]]]]
+        let new: [String: Any] = ["backups": [["id": "b1", "name": "Proxmox", "replica": ["office": office, "outage": 1]]]]
+        var registered: [String] = []
+        ReviewHostClient.fake = { request, body in
+            if request["op"] as? String == "outage-node" { return ["error": "unknown op"] } // a 4.0.3 main
+            return fake.answer(request, body)
+        }
+        await DeliverOutage.note(status: old, host: publish.host(host.id)!, publish: publish)
+        let fromOld = publish.host(host.id)?.outage
+        await DeliverOutage.note(status: new, host: publish.host(host.id)!, publish: publish)
+        let refused = publish.host(host.id).flatMap(DeliverOutage.backup(for:))
+        ReviewHostClient.fake = { request, body in
+            if request["op"] as? String == "outage-node" { registered.append(request["node"] as? String ?? ""); return ["ok": true] }
+            return fake.answer(request, body)
+        }
+        await DeliverOutage.note(status: new, host: publish.host(host.id)!, publish: publish)
+        await DeliverOutage.note(status: new, host: publish.host(host.id)!, publish: publish)
+        let main = publish.host(host.id)!
+        let backup = DeliverOutage.backup(for: main)
+        let copied = main.outage.flatMap { DeliverKeychain.load("\($0.id.uuidString)/D-outage", service: DeliverKeychain.hostService) }
+        check("outage: the backup's way in only when both say so, this Mac's node registered once, the device key under the route",
+              fromOld == nil && refused == nil && registered == [DeliverOutage.fakeNode!] && backup?.role == "backup" && backup?.node == office["node"] as? String
+              && backup?.pin == "AA:BB" && backup?.device == "D-outage" && backup?.id == main.outage?.id && backup?.id != host.id && copied == Data("devkey".utf8),
+              "\(String(describing: fromOld)) \(registered) \(String(describing: backup))")
+
+        // "Upload to Backup": the main away, the share goes to the backup with the folder picked; nothing is added yet.
+        let spot = base.appendingPathComponent("Outage Spot.mov")
+        FileManager.default.createFile(atPath: spot.path, contents: Data(repeating: 5, count: 2000))
+        var sent: [String: Any] = [:]
+        ReviewHostClient.fake = { request, body in
+            switch request["op"] as? String {
+            case "roots": return nil
+            case "upload-begin": sent = request; return ["upload": "b1", "path": request["path"] ?? "", "have": 0]
+            case "upload-part": return ["ok": true, "have": (request["offset"] as? Int ?? 0) + (body?.count ?? 0)]
+            case "upload-end": return ["ok": true, "path": "outage/Outage Spot.mov", "size": 2000, "outage": "OUT1"]
+            default: return fake.answer(request, body)
+            }
+        }
+        let queue = DeliverShareQueue(store: store, publish: publish)
+        queue.chooseBackup(host.id, true)
+        queue.add(.init(file: spot.path, size: 2000, project: project, upload: .init(host: host.id, folder: "renders/Client/2026")))
+        _ = await queue.attempt()
+        let onBackup = queue.entries.first?.onBackup
+        let early = store.content(project).assets.contains { $0.name == "Outage Spot" }
+        // The main back: the backup moved it there; the share is added where the main put it.
+        let list: [String: Any] = ["items": [["id": "OUT1", "kind": "editor", "name": "Outage Spot.mov", "path": "renders/Client/2026/Outage Spot.mov", "by": "Edit Suite",
+                                              "at": "2026-11-17T10:00:00Z", "moved": true],
+                                             ["id": "OUT2", "kind": "asset", "name": "Interview A.mov", "path": "renders/Delivered while offline/2026-11-17/Interview A.mov",
+                                              "by": "Anna", "at": "2026-11-17T10:01:00Z", "moved": false]]]
+        var done: [String: Any] = [:]
+        ReviewHostClient.fake = { request, body in
+            switch request["op"] as? String {
+            case "outage-list": return list
+            case "outage-done": done = request; return ["ok": true]
+            case "move": return ["ok": true, "path": (request["to"] as? String ?? "") + "/Interview A.mov"]
+            default: return fake.answer(request, body)
+            }
+        }
+        let back = await queue.attempt()
+        let landed = store.content(project).assets.first { $0.name == "Outage Spot" }
+        check("outage: Upload to Backup sends it there with the folder picked; once the main is back it's added where the main put it",
+              onBackup == "OUT1" && !early && sent["folder"] as? String == "renders/Client/2026" && sent["path"] as? String == "outage/Outage Spot.mov"
+              && back == 1 && queue.entries.isEmpty && landed?.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Client/2026/Outage Spot.mov"),
+              "\(String(describing: onBackup)) \(sent) \(back) \(landed?.current.path ?? "-")")
+        queue.chooseBackup(host.id, false)
+        queue.add(.init(file: spot.path, size: 2000, project: project, upload: .init(host: host.id, folder: "renders/Client/2026")))
+        let waits = queue.entries.first?.viaBackup == nil
+        queue.cancel(queue.entries.first?.id ?? UUID())
+
+        // The Inbox: both listed; Move to… moves the client's file and marks it done.
+        let items = (try? await DeliverOutage.delivered(main)) ?? []
+        if let interview = items.first(where: { $0.id == "OUT2" }) { try? await DeliverOutage.move(interview, to: "renders/Client/Final", host: main) }
+        check("outage: the Inbox lists what arrived (who, when, where); Move to… marks it done with its new place; Send When It's Back still waits",
+              items.count == 2 && items[1].by == "Anna" && items[1].at != nil && !items[1].moved && items[0].moved && waits
+              && done["id"] as? String == "OUT2" && done["path"] as? String == "renders/Client/Final/Interview A.mov", "\(items) \(done)")
+
+        // A client's file the backup moved into the uploads folder: added by reference to the link's project, once.
+        if let link = try? store.newLink(scope: .project(project), title: "Outage") {
+            let entry: [String: Any] = ["upload": ["id": "OUT2", "link": link.id.uuidString, "name": "Interview A.mov", "size": 9,
+                                                   "path": "renders/Delivered while offline/2026-11-17/Interview A.mov", "root": true, "outage": true]]
+            ReviewHostClient.fake = { fake.answer($0, $1) }
+            await publish.importUploads([entry], project: project, host: main)
+            await publish.importUploads([entry], project: project, host: main)
+            let added = store.content(project).assets.filter { $0.name == "Interview A" }
+            check("outage: a client's file in the uploads folder is added where it is, once",
+                  added.count == 1 && added.first?.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Delivered while offline/2026-11-17/Interview A.mov"),
+                  "\(added.map(\.current.path))")
+            for asset in added { store.remove(asset: asset.id) }
+            store.revoke(link.id)
+        }
+        if let landed { store.remove(asset: landed.id) }
+        if let route = main.outage { DeliverKeychain.delete("\(route.id.uuidString)/D-outage", service: DeliverKeychain.hostService) }
+        DeliverKeychain.delete("\(host.id.uuidString)/D-outage", service: DeliverKeychain.hostService)
+    }
+
     /// Share for Review's destination step: the folder remembered per project and server, files already on the NAS
     /// skip it, no uploads folder offers the fallback, and an upload lands where chosen (the NAS makes the copies).
     static func uploadDestinationTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL) async {
@@ -2649,5 +2813,187 @@ extension PhotoSelfTest {
               && !groups.contains { $0.title == "Review server" || $0.title == "On the NAS" }
               && !(group?.places.contains { $0.title == "nas1" } ?? true), "\(groups.map { "\($0.title): \($0.places.map(\.title))" })")
         publish.update(host: host.id) { $0.rootNames = nil }
+    }
+}
+
+extension PhotoSelfTest {
+    /// (j) A teammate's Mac plays a review copy that's only on the real helper: streamed in ranges over one session
+    /// (nothing kept on disk), from the office network at 1080; a seek to the middle starts soon without fetching what's
+    /// before it; under a throttled link the rendition steps down, and up again when it's fast; a dropped server fails over
+    /// to the next; a copy nowhere, or a server away, says so instead of waiting forever.
+    static func streamE2E(_ a: Deliver.Host, sync: String, root: String) async {
+        let publish = ReviewPublish.shared, store = DeliverStore.shared, fm = FileManager.default, pairing = DeliverPairing.shared
+        guard let keyA = ReviewHostClient.key(a), let manager = AppDelegate.shared?.manager, let ffmpeg = manager.tool("ffmpeg") else {
+            return check("e2e (j): setup", false, "")
+        }
+        func become(_ who: Deliver.Host?, hostKey: String?) {
+            for h in publish.hosts.filter({ $0.address == sync }) { publish.removeHost(h.id) }
+            if let who { publish.add(who) }
+            if let hostKey { DeliverKeychain.save(Data(hostKey.utf8), as: sync, service: DeliverKeychain.hostService) }
+            ReviewHostTunnel.forgetRoute(a.id)
+        }
+        func waitFor(_ seconds: Double, _ condition: () -> Bool) async -> Bool {
+            let end = Date.now.addingTimeInterval(seconds)
+            while !condition() { if Date.now > end { return false }; try? await Task.sleep(for: .milliseconds(100)) }
+            return true
+        }
+        defer {
+            DeliverPlayback.testHosts = nil
+            DeliverPlayback.HostRanges.testRate = nil
+            DeliverPlayback.HostRanges.testDelay = 0
+            become(a, hostKey: keyA)
+        }
+
+        // A: a 30 s 1080p clip with grain (several MB a rendition) to the NAS's uploads folder; the helper makes its copies.
+        let dir = fm.temporaryDirectory.appendingPathComponent("pluck-e2e-stream-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let clip = dir.appendingPathComponent("Stream 30s.mov")
+        _ = await DeliveryCheck.output(ffmpeg, ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25:d=30", "-f", "lavfi", "-i", "sine=f=440:d=30",
+                                                "-vf", "noise=alls=12:allf=t", "-c:v", "mpeg4", "-q:v", "3", "-c:a", "aac", "-shortest", clip.path])
+        guard let project = try? store.newProject("E2E stream") else { return check("e2e (j): project", false, "") }
+        defer { store.deleteProject(project.id) }
+        let named = publish.host(a.id) ?? a
+        let client = (try? await DeliverUploadDestination.makeFolder("Client", in: "renders", host: named)) ?? "renders/Client"
+        let folder = (try? await DeliverUploadDestination.makeFolder("2026", in: client, host: named)) ?? "renders/Client/2026"
+        let size = (try? clip.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        await DeliverShareForReview.place([DeliverBrowseItem(name: clip.lastPathComponent, location: .local(clip), folder: false, size: size)],
+                                          into: project.id, asVersions: false, host: named, upload: .init(host: named.id, folder: folder))
+        guard let asset = store.content(project.id).assets.first(where: { $0.name == "Stream 30s" }) else { return check("e2e (j): uploaded", false, folder) }
+        let version = asset.current
+        let data = URL(fileURLWithPath: root).appendingPathComponent("mnt/tank/apps/pluck-review", isDirectory: true)
+        var ready: URL?
+        for _ in 0..<120 where ready == nil {
+            ready = (fm.enumerator(at: data, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+                .first { $0.lastPathComponent == "ready.json" && $0.deletingLastPathComponent().lastPathComponent.uppercased() == version.id.uuidString }
+            if ready == nil { try? await Task.sleep(for: .seconds(2)) }
+        }
+        // The helper keeps the copy under the id exactly as Swift writes it (uppercase), which is the path asked for.
+        let stored = ready?.deletingLastPathComponent().lastPathComponent
+        let listed = ready.flatMap { try? JSONSerialization.jsonObject(with: Data(contentsOf: $0)) as? [String: Any] }?["renditions"] as? [String] ?? []
+        check("e2e (j): the helper made the copy (1080/540/360) under the version id as Swift spells it", stored == version.id.uuidString && listed == ["1080", "540", "360"],
+              "\(stored ?? "-") \(listed)")
+        guard ready != nil else { return }
+
+        // B: a teammate's Mac (its own device key only), with neither the original nor a copy.
+        let answer = try? await ReviewHostClient.ask(a, ["op": "invite", "role": "mac"])
+        guard let invitation = PrivateNetwork.Invitation(link: answer?["link"] as? String ?? "") else { return check("e2e (j): invitation", false, "\(answer ?? [:])") }
+        become(nil, hostKey: nil)
+        pairing.problem = nil
+        await pairing.pair(invitation)
+        pairing.askMove = nil
+        guard let b = publish.hosts.first(where: { $0.address == sync }), let device = b.device, let deviceKey = ReviewHostClient.deviceKey(b) else {
+            return check("e2e (j): B joins", false, pairing.problem ?? "-")
+        }
+        defer { DeliverKeychain.delete("\(b.id.uuidString)/\(device)", service: DeliverKeychain.hostService) }
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck/HostCopies")
+        try? fm.removeItem(at: caches)
+        let temp = { (try? fm.contentsOfDirectory(atPath: fm.temporaryDirectory.path))?.filter { $0.hasPrefix("pluck-range-") }.count ?? 0 }
+        let localCopy = DeliverCopies.index(store.copies(version.id).appendingPathComponent("1080")) != nil
+        check("e2e (j): B has no original and no copy of the version", store.original(version) == nil && !localCopy, "\(store.original(version)?.path ?? "-") \(localCopy)")
+
+        // Plays from the office network (the LAN route, no tunnel) at 1080 from the start, and stays there.
+        let p = DeliverPlayback()
+        let began = Date.now
+        p.load(asset, version)
+        let readied = await waitFor(30) { p.player.currentItem?.status == .readyToPlay }
+        let startup = Date.now.timeIntervalSince(began)
+        p.player.play()
+        let advanced = await waitFor(15) { p.player.currentTime().seconds > 3 }
+        let total1080 = p.copy.map { c in c.indexes["1080"].map { i in i.segments.reduce(i.`init`.length) { $0 + $1.length } } ?? 0 } ?? 0
+        check("e2e (j): B plays the NAS's copy: ready, then the time runs after play()", readied && advanced && p.problem == nil,
+              "ready \(readied) in \(String(format: "%.1f", startup)) s, at \(p.player.currentTime().seconds) \(p.problem ?? "-") \(p.player.currentItem?.error.map { "\($0)" } ?? "")")
+        check("e2e (j): on the office network: the LAN route, 1080 from the start and no step", p.copy?.lan == true && p.copy?.ranges.via == .lan && p.steps == ["1080"],
+              "lan \(p.copy?.lan ?? false) via \(String(describing: p.copy?.ranges.via)) steps \(p.steps)")
+        check("e2e (j): a copy of several MB, nothing kept on disk (no cache, no copy, scratch files gone)",
+              total1080 > 8_000_000 && !fm.fileExists(atPath: caches.path) && DeliverCopies.index(store.copies(version.id).appendingPathComponent("1080")) == nil && temp() == 0,
+              "\(total1080) bytes, cache \(fm.fileExists(atPath: caches.path)) temp \(temp())")
+        p.player.pause()
+        p.stop()
+
+        // A seek to the middle starts within seconds, over a link with a 24 ms round trip, without fetching all before it.
+        DeliverPlayback.HostRanges.testDelay = 0.024
+        let q = DeliverPlayback()
+        q.load(asset, version)
+        _ = await waitFor(30) { q.player.currentItem?.status == .readyToPlay }
+        let middle = CMTimeMakeWithSeconds(15, preferredTimescale: 600)
+        let seekAt = Date.now
+        await q.player.seek(to: middle, toleranceBefore: .zero, toleranceAfter: .zero)
+        q.player.play()
+        let fromMiddle = await waitFor(10) { q.player.currentTime().seconds > 15.5 }
+        let seekTook = Date.now.timeIntervalSince(seekAt), fetched = q.copy?.ranges.fetched ?? 0
+        check("e2e (j): a seek to the middle plays within seconds, without fetching what's before it",
+              fromMiddle && seekTook < 5 && fetched > 0 && Double(fetched) < 0.75 * Double(total1080), "\(String(format: "%.1f", seekTook)) s, fetched \(fetched) of \(total1080)")
+        q.player.pause()
+        q.stop()
+
+        // Throttled below 1080's bitrate: a step down; the link fast again: back up.
+        let rate1080 = p.copy?.rates["1080"] ?? 1_000_000
+        DeliverPlayback.HostRanges.testRate = 0.5 * rate1080
+        let t = DeliverPlayback()
+        t.load(asset, version)
+        _ = await waitFor(30) { t.player.currentItem?.status == .readyToPlay }
+        t.player.play()
+        let down = await waitFor(60) { t.steps.count > 1 && t.rendition != "1080" }
+        DeliverPlayback.HostRanges.testRate = nil
+        let up = await waitFor(30) { t.rendition == "1080" && t.steps.count > 2 }
+        let moving = await waitFor(10) { t.player.timeControlStatus == .playing }
+        check("e2e (j): a throttled link steps down from 1080, a fast one steps back up, and it plays on", down && up && moving,
+              "steps \(t.steps) at \(t.player.currentTime().seconds)")
+        t.player.pause()
+        t.stop()
+        DeliverPlayback.HostRanges.testDelay = 0
+
+        // Failover: the first server drops mid-play (and won't take this Mac again): the next one carries on.
+        var first = b
+        first.id = UUID()
+        DeliverKeychain.save(Data(deviceKey.utf8), as: "\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
+        DeliverPlayback.testHosts = [first, b]
+        let f = DeliverPlayback()
+        f.load(asset, version)
+        _ = await waitFor(30) { f.player.currentItem?.status == .readyToPlay }
+        f.player.play()
+        _ = await waitFor(10) { f.player.currentTime().seconds > 1 }
+        let servedFirst = f.copy?.serving == first.id
+        DeliverKeychain.delete("\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
+        await f.player.seek(to: CMTimeMakeWithSeconds(20, preferredTimescale: 600)) // (past what's buffered: new ranges are needed)
+        f.copy?.ranges.dropConnection()
+        let carried = await waitFor(20) { f.player.currentTime().seconds > 22 }
+        check("e2e (j): a server dropping mid-play fails over to the next and playback goes on", servedFirst && carried && f.copy?.serving == b.id && f.problem == nil,
+              "first \(servedFirst) serving \(f.copy?.serving == b.id) at \(f.player.currentTime().seconds) \(f.problem ?? "-")")
+        // …and when none is left, it says so.
+        DeliverKeychain.save(Data(deviceKey.utf8), as: "\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
+        DeliverPlayback.testHosts = [first]
+        let g = DeliverPlayback()
+        g.load(asset, version)
+        _ = await waitFor(30) { g.player.currentItem?.status == .readyToPlay }
+        g.player.play()
+        DeliverKeychain.delete("\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
+        await g.player.seek(to: CMTimeMakeWithSeconds(25, preferredTimescale: 600))
+        g.copy?.ranges.dropConnection()
+        let offlineText = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
+        let saidGone = await waitFor(30) { g.problem == offlineText }
+        check("e2e (j): the server gone mid-play: the player says so", saidGone, g.problem ?? "-")
+        f.stop(); g.stop()
+
+        // A version no server has, and a server away: said, instead of an endless wait.
+        DeliverPlayback.testHosts = nil
+        var nowhere = asset
+        nowhere.versions = [Deliver.Version(id: UUID(), number: 9, path: ReviewPublish.nasPath(host: b.id, path: "renders/none.mov"), size: 1, added: .now)]
+        let m = DeliverPlayback()
+        m.load(nowhere, nowhere.versions[0])
+        let saidMissing = await waitFor(20) { m.problem == String(localized: "The review copy isn’t on this Mac or on a server it can reach.") }
+        var away = b
+        away.id = UUID()
+        away.address = "127.0.0.1:1"
+        away.node = nil
+        DeliverKeychain.save(Data(deviceKey.utf8), as: "\(away.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
+        defer { DeliverKeychain.delete("\(away.id.uuidString)/\(device)", service: DeliverKeychain.hostService) }
+        DeliverPlayback.testHosts = [away]
+        let o = DeliverPlayback()
+        o.load(asset, version)
+        let saidAway = await waitFor(40) { o.problem == offlineText }
+        check("e2e (j): a copy no server has, and a server away, each said", saidMissing && saidAway, "\(m.problem ?? "-") | \(o.problem ?? "-")")
+        m.stop(); o.stop()
     }
 }

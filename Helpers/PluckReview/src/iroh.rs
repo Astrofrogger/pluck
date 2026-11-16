@@ -104,21 +104,26 @@ pub async fn supervise(c: Child, mut cmds: mpsc::UnboundedReceiver<Value>, first
     }
 }
 
+/// Tests (PLUCK_IROH_LOCAL): a backup's Macs-only side's addresses, for its status.
+pub static OFFICE_ADDRS: Mutex<Value> = Mutex::new(Value::Null);
+
 fn local() -> bool {
     std::env::var("PLUCK_IROH_LOCAL").is_ok_and(|v| v == "1")
 }
 
 /// The office side on a main host: starts the loopback listener and the child. Returns the
 /// listener (for sync::accept_loop), the stream table and a watch of the node id.
-pub async fn office(data: &Path, bin: PathBuf, relay: Option<String>, devices: Arc<crate::devices::Devices>)
+/// `key`: the key file's name in the data folder ("iroh-key"; a backup's second, Macs-only side "iroh-office-key").
+pub async fn office(data: &Path, bin: PathBuf, relay: Option<String>, devices: Arc<crate::devices::Devices>, key: &str)
                     -> Result<(tokio::net::TcpListener, Streams, watch::Receiver<Option<String>>)> {
+    let main = key == "iroh-key";
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let port = listener.local_addr()?.port();
     let streams = Streams::default();
     let (id_tx, id_rx) = watch::channel(None);
     let (tx, rx) = mpsc::unbounded_channel();
     *devices.iroh.lock().unwrap() = Some(tx);
-    let mut settings = json!({"mode": "office", "keyFile": data.join("iroh-key").to_string_lossy(), "port": port, "allow": devices.allow()});
+    let mut settings = json!({"mode": "office", "keyFile": data.join(key).to_string_lossy(), "port": port, "allow": devices.allow()});
     if let Some(r) = relay {
         settings["relay"] = json!(r);
     }
@@ -131,6 +136,13 @@ pub async fn office(data: &Path, bin: PathBuf, relay: Option<String>, devices: A
             if let (Some(p), Some(n)) = (s["port"].as_u64().and_then(|p| u16::try_from(p).ok()), s["peer"].as_str()) {
                 st.report(p, n.to_owned());
             }
+        } else if v["state"] == "running" && !main {
+            // A backup's Macs-only side: only its id, for its status (tests: no discovery, so its loopback addresses too).
+            if local() {
+                *OFFICE_ADDRS.lock().unwrap() = json!(v["addrs"].as_array().into_iter().flatten().filter_map(|x| x.as_str())
+                    .map(|x| x.replace("0.0.0.0:", "127.0.0.1:").replace("[::]:", "[::1]:")).collect::<Vec<_>>());
+            }
+            let _ = id_tx.send(v["id"].as_str().map(str::to_owned));
         } else if v["state"] == "running" {
             let id = v["id"].as_str().unwrap_or("").to_owned();
             let _ = std::fs::write(data.join("iroh-id"), format!("{id}\n"));

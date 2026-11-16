@@ -63,6 +63,7 @@ pub struct Peer {
     tokens_at: Instant,
     /// UDP payload bytes to and from this peer's relay candidates (§13.10), both ways.
     pub relay: crate::relay::Count,
+    tr_at: Instant, tr_err: u32, tr_tx: u32, tr_last_ok: Instant, // TRACE-TMP
 }
 
 /// The `a=fingerprint:sha-256` value of an SDP, as written (uppercase hex with colons).
@@ -110,6 +111,7 @@ impl Peer {
             serves: vec![], waiting: VecDeque::new(), cancelled: VecDeque::new(), ctl_out: VecDeque::new(), media_out: VecDeque::new(), queued: 0, max_msg, uploads: vec![],
             rate_start: now, rate_n: 0, tokens: CTL_BURST, tokens_at: now,
             relay: Default::default(),
+            tr_at: now, tr_err: 0, tr_tx: 0, tr_last_ok: now, // TRACE-TMP
         };
         Ok((peer, answer))
     }
@@ -155,6 +157,17 @@ impl Peer {
     }
 
     pub fn tick(&mut self, now: Instant, socks: &Sockets) {
+        // TRACE-TMP
+        if std::env::var_os("PLUCK_SCTP_TRACE").is_some() && now.duration_since(self.tr_at) >= Duration::from_secs(1) {
+            self.tr_at = now;
+            let cb = self.ctl.and_then(|c| self.rtc.channel(c)).map(|mut c| c.buffered_amount()).unwrap_or(0);
+            let mb = self.media.and_then(|c| self.rtc.channel(c)).map(|mut c| c.buffered_amount()).unwrap_or(0);
+            if cb > 0 || !self.ctl_out.is_empty() || self.tr_err > 0 {
+                let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+                eprintln!("RTCTR {ms} peer {} ctl_out={} ctl_buf={cb} media_buf={mb} serves={} waiting={} tx={} txerr={} rx_ago={}ms", self.id, self.ctl_out.len(), self.serves.len(), self.waiting.len(), self.tr_tx, self.tr_err, now.duration_since(self.last_rx).as_millis());
+            }
+            (self.tr_tx, self.tr_err) = (0, 0);
+        }
         if self.deadline <= now {
             let _ = self.rtc.handle_input(Input::Timeout(now));
             self.drain(socks);
@@ -173,7 +186,9 @@ impl Peer {
                 Ok(Output::Transmit(t)) => {
                     // A full socket buffer drops the packet; SCTP resends it.
                     if let Some((_, s)) = socks.iter().find(|(a, _)| *a == t.source) {
-                        let _ = s.try_send_to(&t.contents, t.destination);
+                        let r = s.try_send_to(&t.contents, t.destination); // TRACE-TMP
+                        self.tr_tx += 1;
+                        if let Err(e) = r { self.tr_err += 1; if std::env::var_os("PLUCK_SCTP_TRACE").is_some() { eprintln!("RTCTR peer {} send err {e}", self.id); } }
                     }
                     self.relay.add(self.relays.contains(&t.destination), t.contents.len());
                 }

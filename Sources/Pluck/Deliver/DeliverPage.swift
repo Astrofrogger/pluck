@@ -657,7 +657,7 @@ struct DeliverActivityFeed: View {
         case "commented": return String(localized: "commented on \(name)")
         case "downloaded": return entry.detail?.what == "proxy" ? String(localized: "downloaded \(name) (review copy)") : String(localized: "downloaded \(name)")
         case "uploaded": return String(localized: "uploaded \(entry.detail?.name ?? name)")
-        case "approved": return entry.detail?.what == "changes" ? String(localized: "asked for changes on \(name)") : String(localized: "approved \(name)")
+        case "approved": return (entry.detail?.what ?? entry.detail?.decision) == "changes" ? String(localized: "asked for changes on \(name)") : String(localized: "approved \(name)")
         default: return entry.kind
         }
     }
@@ -814,6 +814,7 @@ struct DeliverInbox: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Inbox").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).padding(.bottom, 12)
+                DeliverOutageInbox(nav: nav)
                 if store.inbox.isEmpty { Text("Nothing new").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet) }
                 ForEach(store.inbox) { item in
                     Button {

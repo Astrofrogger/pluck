@@ -260,7 +260,7 @@ private struct HomeRenderView: View {
             AnywhereSidebar(side: $side, footnote: client.office != nil ? "Private and encrypted" : nil,
                             footnoteDetail: Text("Everything between the two Macs is encrypted and signed, and the host Mac is never open to the internet.")) {
                 if let office = client.office {
-                    hostBox(office)
+                    if client.members.count > 1 { groupBox } else { hostBox(office) }
                     VStack(spacing: 2) {
                         NavRow(symbol: "folder", title: "Browse", selected: pane == .proxies) { pane = .proxies }
                         NavRow(symbol: "play.rectangle", title: "Render", selected: pane == .render) { pane = .render }
@@ -301,6 +301,13 @@ private struct HomeRenderView: View {
         }
         .onChange(of: client.pendingInvitation?.link, initial: true) { takeInvitation() }
         .onChange(of: shownInvitation == nil) { takeInvitation() }
+        .task(id: client.office?.device) {
+            // Several office Macs: learnt from the paired one, then each looked at again now and then.
+            while client.office != nil, !Task.isCancelled {
+                await client.refreshGroup()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
         .task(id: client.office?.device) {
             guard client.office != nil else { return }
             await run { try await client.refresh() }
@@ -401,6 +408,46 @@ private struct HomeRenderView: View {
     }
 
     // MARK: Connected
+
+    /// An office of several Macs: "Office · 3 Macs", then each with how it's doing (the one in use marked).
+    private var groupBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                StudioTile(symbol: "building.2", colour: Design.Studio.good, size: 32)
+                Text("Office · \(client.members.count) Macs").font(Design.Studio.body).lineLimit(1)
+                Spacer(minLength: 0)
+                Menu {
+                    Button("Forget the Office", role: .destructive) { client.forget(); projects = []; project = nil }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Design.Studio.textQuiet)
+                        .frame(width: 28, height: 28)
+                        .contentShape(.rect)
+                }
+                .plainMenu()
+                .help("Forget the office on this Mac. Remove this Mac on an office Mac too.")
+            }
+            ForEach(client.members) { member in
+                let state = client.memberStates[member.id]
+                HStack(spacing: 6) {
+                    Circle().fill(state?.online == false ? Design.Studio.textQuiet : state?.busy == true ? Design.Studio.warn : Design.Studio.good)
+                        .frame(width: 6, height: 6).accessibilityHidden(true)
+                    Text(member.name).lineLimit(1).truncationMode(.middle)
+                    Spacer(minLength: 4)
+                    Group {
+                        if state?.online == false { Text("Offline") } else if state?.busy == true { Text("Rendering") }
+                        else if (client.active ?? client.primary) == member.id { Text("In use") } else { Text("Online") }
+                    }
+                    .foregroundStyle(Design.Studio.textQuiet)
+                }
+                .font(Design.Studio.hint)
+            }
+        }
+        .padding(12)
+        .studioBox()
+        .padding(.horizontal, 4)
+    }
 
     /// The host Mac: a tile in the good colour, its name, how it's connected, and ⋯ with Unpair.
     private func hostBox(_ office: OfficeRenderClient.Office) -> some View {
@@ -678,7 +725,7 @@ private struct OfficeSideView: View {
                     let making = proxyJobs.requests.filter { $0.state == .making || $0.state == .queued }.count
                     VStack(spacing: 2) {
                         NavRow(symbol: "laptopcomputer", title: "Macs", selected: section == .macs,
-                               badge: server.devices.isEmpty ? nil : Text(verbatim: "\(server.devices.count)")) { section = .macs }
+                               badge: server.pairedMacs.isEmpty ? nil : Text(verbatim: "\(server.pairedMacs.count)")) { section = .macs }
                         NavRow(symbol: "folder", title: "Folders", selected: section == .folders,
                                badge: archive.folders.isEmpty ? nil : Text(verbatim: "\(archive.folders.count)")) { section = .folders }
                         NavRow(symbol: "photo.on.rectangle", title: "Proxies", selected: section == .proxies,
@@ -780,6 +827,8 @@ private struct HostMacsPane: View {
     @State private var invitation: InvitationLink?
     @State private var inviteProblem: String?
     @State private var connection = false
+    @State private var group = OfficeGroup.shared
+    @State private var joiningGroup = false
 
     private var iroh: Bool { transport == PrivateNetwork.Transport.iroh.rawValue }
 
@@ -802,10 +851,10 @@ private struct HostMacsPane: View {
                     Button("Try again", action: makeInvitation).buttonStyle(StudioFlatButtonStyle()).disabled(inviting)
                 }
             }
-            if server.devices.isEmpty {
+            if server.pairedMacs.isEmpty {
                 Text("No Macs yet. Invite one.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
-            ForEach(server.devices) { device in row(device) }
+            ForEach(server.pairedMacs) { device in row(device) }
             if let pairing = server.pairing {
                 codePanel(pairing)
             } else {
@@ -819,13 +868,73 @@ private struct HostMacsPane: View {
                     }
                 }
             }
+            officeMacs
             Divider().overlay(Design.Studio.line)
             FootLine(text: Text("Connection: \(iroh ? String(localized: "Pluck (no account)") : "Tailscale")")) {
                 PinkLink(title: "Change…") { connection = true }
             }
         }
         .sheet(item: $invitation) { link in InvitationSheet(link: link.url) }
+        .sheet(isPresented: $joiningGroup) { JoinOfficeSheet() }
         .sheet(isPresented: $connection) { ConnectionSheet() }
+    }
+
+    /// The office Macs that share and serve Edit Anywhere together (OfficeGroup), and how to add one.
+    @ViewBuilder
+    private var officeMacs: some View {
+        Divider().overlay(Design.Studio.line)
+        GroupTitle(text: group.isGrouped ? Text("Office Macs · \(group.members.count)") : Text("Office Macs"))
+        if group.isGrouped {
+            ForEach(group.members) { member in memberRow(member) }
+        } else {
+            Text("Another Mac at the office can share and serve Edit Anywhere with this one.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+        }
+        HStack(spacing: 16) {
+            PinkLink(title: "Add another office Mac") { server.startPairing() }
+                .disabled(!server.isRunning)
+                .help("Shows a code to type on the other office Mac")
+            PinkLink(title: "Join another office Mac") { joiningGroup = true }
+                .disabled(!server.isRunning)
+                .help("Type the code another office Mac shows")
+        }
+    }
+
+    private func memberRow(_ member: OfficeGroup.Member) -> some View {
+        HStack(spacing: 12) {
+            StudioTile(symbol: "desktopcomputer", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(member.name).font(Design.Studio.body)
+                Group {
+                    if member.id == group.me {
+                        Text("This Mac")
+                    } else if let seen = group.seen[member.id], Date.now.timeIntervalSince(seen) < 90 {
+                        Text("● Online")
+                    } else if let seen = group.seen[member.id] {
+                        Text("Last seen \(seen.formatted(.relative(presentation: .named)))")
+                    } else {
+                        Text("Not reached yet")
+                    }
+                }
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+            }
+            Spacer()
+            Menu {
+                if member.id == group.me {
+                    Button("Leave the Group", role: .destructive) { Task { await group.leave() } }
+                } else {
+                    Button("Remove", role: .destructive) { Task { await group.remove(member) } }
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+                    .frame(width: 28, height: 28).contentShape(.rect)
+            }
+            .plainMenu()
+            .accessibilityLabel("More")
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .studioBox()
     }
 
     private func row(_ device: OfficeRenderServer.Device) -> some View {
@@ -928,6 +1037,77 @@ private struct HostMacsPane: View {
     }
 }
 
+/// Joins another office Mac's group: it's found on this network (or typed), with the code it shows.
+private struct JoinOfficeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var finder = OfficeFinder()
+    @State private var picked: OfficeFinder.Found?
+    @State private var address = ""
+    @State private var code = ""
+    @State private var working = false
+    @State private var problem: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            PaneHeader(title: Text("Join another office Mac"),
+                       subtitle: Text("On that Mac: Edit Anywhere › Macs › Add another office Mac. Both then serve paired Macs."))
+            if !finder.found.isEmpty {
+                StudioField(label: "Office Mac") {
+                    Menu {
+                        Picker("Office Mac", selection: $picked) {
+                            ForEach(finder.found) { Text($0.name).tag(Optional($0)) }
+                            Text("Other (type its address)").tag(OfficeFinder.Found?.none)
+                        }
+                        .pickerStyle(.inline)
+                    } label: {
+                        PlainMenuLabel(title: picked?.name ?? String(localized: "Other (type its address)"))
+                    }
+                    .plainMenu()
+                }
+            }
+            if picked == nil {
+                TextField("Office Mac address", text: $address, prompt: Text("Its address on the local network, e.g. 10.0.0.13"))
+                    .textFieldStyle(.plain).font(Design.Studio.body).anywhereInput(inBox: true)
+            }
+            TextField("Pairing code", text: $code, prompt: Text(verbatim: "XXXX-XXXX-XXXX"))
+                .textFieldStyle(.plain).font(Design.Studio.body.monospaced()).anywhereInput(inBox: true)
+            if let problem { ProblemLine(text: problem) }
+            HStack {
+                if working { PlumSpinner() }
+                Spacer()
+                Button("Cancel") { dismiss() }.buttonStyle(StudioFlatButtonStyle(height: 32))
+                Button("Join") { join() }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
+                    .disabled((picked == nil && address.trimmingCharacters(in: .whitespaces).isEmpty) || OfficeLink.normalised(code) == nil || working)
+            }
+        }
+        .foregroundStyle(Design.Studio.text)
+        .padding(Design.Spacing.sheet)
+        .frame(width: 480)
+        .background(Design.Studio.panel)
+        .onAppear { finder.start() }
+        .onDisappear { finder.stop() }
+        .onChange(of: finder.found) { _, found in
+            if picked == nil, address.isEmpty, let first = found.first { picked = first }
+        }
+    }
+
+    private func join() {
+        working = true
+        problem = nil
+        let target: OfficeRenderClient.Target = picked.map { .found($0.endpoint) } ?? .address(address)
+        Task {
+            defer { working = false }
+            do {
+                try await OfficeGroup.shared.join(target, code: code)
+                dismiss()
+            } catch {
+                problem = error.localizedDescription
+            }
+        }
+    }
+}
+
 /// How Macs elsewhere reach this one: the built-in way (iroh, an own relay optional) or Tailscale.
 /// Switching asks first: Macs invited the other way need a new invitation.
 private struct ConnectionSheet: View {
@@ -1014,7 +1194,7 @@ private struct ConnectionSheet: View {
 
     /// The paired Macs that came in the current way from anywhere (they lose the way in after a switch).
     private var reachedFromAnywhere: Int {
-        server.devices.filter { iroh ? $0.iroh != nil : $0.tailnet != nil }.count
+        server.pairedMacs.filter { iroh ? $0.iroh != nil : $0.tailnet != nil }.count
     }
 
     private func ask(_ raw: String) {
@@ -1193,6 +1373,9 @@ private struct HostProxiesPane: View {
     @State private var made: [OfficeProxies.Made] = []
     @State private var deleting: OfficeProxies.Made?
     @State private var problem: String?
+    @State private var group = OfficeGroup.shared
+    /// Whether the proxy folder is on a NAS (all the office Macs of a group can reach it); nil until looked.
+    @State private var onNAS: Bool?
 
     private static let keepChoices: [(Int, LocalizedStringKey)] = [(7, "1 week"), (21, "3 weeks"), (90, "3 months"), (0, "Never")]
 
@@ -1241,6 +1424,13 @@ private struct HostProxiesPane: View {
                 }
             }
             .help(proxies.chosenFolder?.path ?? String(localized: "Where proxies that paired Macs ask for are made on this Mac"))
+            if group.isGrouped {
+                if let problem = group.problem {
+                    ProblemLine(text: problem, colour: Design.Studio.warn)
+                } else if onNAS == false {
+                    ProblemLine(text: String(localized: "Choose a folder on the NAS, so every office Mac makes and serves the same proxies."), colour: Design.Studio.warn)
+                }
+            }
             FootLine(text: Text("Delete unused after")) {
                 Menu {
                     Picker("Delete unused after", selection: $keepDays) {
@@ -1258,6 +1448,12 @@ private struct HostProxiesPane: View {
             // (Every 30 s, each look given up on after 20 s: a chosen folder on a NAS that hangs keeps the last list.)
             while !Task.isCancelled {
                 if let found = await proxies.made() { made = found }
+                if group.isGrouped {
+                    let folder = proxies.chosenFolder
+                    if let looked = await RemoteShares.withTimeout("proxies.onNAS", nil, { folder.map { OfficeGroup.place($0) != nil } ?? false }) {
+                        onNAS = looked
+                    }
+                }
                 try? await Task.sleep(for: .seconds(30))
             }
         }
@@ -1354,11 +1550,12 @@ private struct HostProxiesPane: View {
     }
 
     private func shareName(_ id: String) -> String {
-        archive.folders.first { OfficeProxies.id($0) == id }?.lastPathComponent ?? String(localized: "A removed folder")
+        archive.folders.first { OfficeProxies.isShare($0, id: id) }?.lastPathComponent ?? String(localized: "A removed folder")
     }
 
     private func asker(_ request: RemoteProxyJobs.Request) -> String {
         if request.byHost == true { return String(localized: "This Mac") }
+        if let peer = request.peer { return String(localized: "Shared by \(peer)") }
         guard let device = request.device else { return String(localized: "Kept up to date") }
         return server.devices.first { $0.id == device }?.name ?? String(localized: "A paired Mac")
     }

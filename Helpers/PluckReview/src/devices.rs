@@ -374,4 +374,34 @@ mod tests {
         assert!(d.invite("mac").get("error").is_some(), "no new ones while locked");
         assert_eq!(d.list()["pairingLocked"], true);
     }
+
+    /// §13.25: a main hands its Macs' outage nodes to its backups; on the backup such a Mac gets in only on that node,
+    /// as role "outage", and goes when the main drops it.
+    #[test]
+    fn outage_macs_reach_the_backup_on_their_own_node() {
+        let d = std::env::temp_dir().join(format!("pluck-dev-o-{}", crate::host::uuid()));
+        std::fs::create_dir_all(d.join("main")).unwrap();
+        let main = Devices::load(&d.join("main"));
+        let inv = main.invite("mac");
+        let node = "a".repeat(64);
+        let (id, key) = main.pair(&code(&inv), "Edit Suite", Some(&node), "mac", Some(&node)).unwrap();
+        assert_eq!(main.outage_macs()["macs"].as_array().unwrap().len(), 0, "not before it registered an outage node");
+        let outage = "b".repeat(64);
+        assert!(main.set_outage_node(&id, "nope")["error"].is_string());
+        assert_eq!(main.set_outage_node(&id, &outage)["ok"], true);
+        let macs = main.outage_macs()["macs"].clone();
+        assert_eq!((macs[0]["node"].clone(), macs[0]["id"].clone()), (json!(outage), json!(id)));
+        std::fs::create_dir_all(d.join("backup")).unwrap();
+        let backup = Devices::load(&d.join("backup"));
+        backup.set_outage(&macs);
+        assert!(backup.allow().contains(&outage) && backup.exists(&id));
+        assert_eq!(backup.check(&id, &key, Some(&outage)).as_deref(), Some("outage"));
+        assert!(backup.check(&id, &key, Some(&node)).is_none(), "only on its outage node");
+        assert!(backup.check(&id, &key, None).is_none(), "never off iroh");
+        assert!(backup.check(&id, &keys::b64(&[0u8; 32]), Some(&outage)).is_none());
+        assert_eq!(Devices::load(&d.join("backup")).check(&id, &key, Some(&outage)).as_deref(), Some("outage"), "kept for the outage");
+        backup.set_outage(&json!([]));
+        assert!(backup.check(&id, &key, Some(&outage)).is_none() && !backup.exists(&id), "gone with the main's list");
+        let _ = std::fs::remove_dir_all(d);
+    }
 }

@@ -40,3 +40,7 @@ strip = true
 lto = "fat"
 codegen-units = 1
 panic = "abort"
+
+# sctp-proto (str0m's SCTP) with RTO.max capped: see vendor/sctp-proto/PLUCK-PATCH.md.
+[patch.crates-io]
+sctp-proto = { path = "vendor/sctp-proto" }

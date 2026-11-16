@@ -2047,6 +2047,10 @@ impl Host {
     /// client whose link holds the asset.
     fn write(&mut self, peer: &str, t: &str, l: &Value, m: &Value) -> Result<Value, &'static str> {
         let (tok, name) = { let p = &self.peers[peer]; (p.token.clone(), p.name.clone()) };
+        // Comments, replies (drawings too) and approvals carry a name: the page asks for one on `needName`.
+        if name.is_empty() && matches!(t, "comment-add" | "reply-add" | "approve") {
+            return Err("needName");
+        }
         let author = if name.is_empty() { "Guest".to_owned() } else { name };
         let text = clean(m["text"].as_str().unwrap_or(""), 2001);
         let text_ok = (1..=2000).contains(&text.chars().count());
@@ -2517,7 +2521,10 @@ impl Host {
         self.activity(peer, "uploaded", Value::Null, Value::Null, json!({"name": u.name, "size": u.size}));
         let item = json!({"id": fid, "name": u.name, "size": u.size, "type": u.kind});
         // Asset uploads wait in the quarantine until the editor's Pluck takes them in (pull → upload entries).
-        let r = if u.attachment { json!({"re": id, "attachment": item}) } else { json!({"re": id, "uploaded": item}) };
+        let mut r = if u.attachment { json!({"re": id, "attachment": item}) } else { json!({"re": id, "uploaded": item}) };
+        if self.ident.backup && !u.attachment {
+            r["later"] = json!(true); // a backup in an outage: the page says the editor gets it once the office is back (§13.25)
+        }
         self.send(peer, r);
     }
 }
@@ -3113,6 +3120,27 @@ mod tests {
     }
 
     #[test]
+    fn a_comment_needs_a_name() {
+        let (mut h, mut rx) = test_host();
+        h.publish(&sample(json!([link("L1", "R1", json!({"kind": "project", "id": "P"}))])), &json!({}));
+        named_peer(&mut h, "p1", "R1", "t1", "");
+        let add = json!({"id": 1, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": "who am I"});
+        h.request("p1", &add);
+        assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "needName");
+        h.request("p1", &json!({"id": 2, "t": "approve", "asset": "A", "version": "V", "decision": "approve"}));
+        assert_eq!(answer(&mut rx, "p1", 2)["error"]["code"], "needName");
+        h.request("p1", &json!({"id": 3, "t": "identify", "name": "  Anna  "}));
+        h.request("p1", &json!({"id": 4, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": "who am I"}));
+        assert_eq!(answer(&mut rx, "p1", 4)["comment"]["author"], "Anna");
+        let c = h.comments[0]["id"].clone();
+        h.request("p1", &json!({"id": 5, "t": "reply-add", "comment": c, "text": "me"}));
+        assert!(answer(&mut rx, "p1", 5)["comment"].is_object());
+        h.peers.get_mut("p1").unwrap().name.clear();
+        h.request("p1", &json!({"id": 6, "t": "reply-add", "comment": c, "text": "me"}));
+        assert_eq!(answer(&mut rx, "p1", 6)["error"]["code"], "needName");
+    }
+
+    #[test]
     fn a_torn_last_line_is_cut_and_later_entries_survive() {
         let dir = std::env::temp_dir().join(format!("pluck-host-{}", uuid()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -3566,6 +3594,42 @@ mod tests {
         named_peer(&mut h, "p1", "R1", "t1", "Anna");
         h.request("p1", &json!({"id": 1, "t": "upload-begin", "name": "a.png", "size": 1, "for": "attachment"}));
         assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "scope");
+        // §13.25: once its main takes them on (and only then), the same limits as the main, kept for the main.
+        let o = crate::outage::Outage::load(&h.data, true, None);
+        h.outage = Some(o.clone());
+        h.request("p1", &json!({"id": 2, "t": "upload-begin", "name": "a.png", "size": 1, "for": "attachment"}));
+        assert_eq!(answer(&mut rx, "p1", 2)["error"]["code"], "scope", "a main that can't take them on");
+        o.set_main(true);
+        h.request("p1", &json!({"id": 3, "t": "upload-begin", "name": "a.exe", "size": 1, "for": "asset"}));
+        assert_eq!(answer(&mut rx, "p1", 3)["error"]["code"], "invalid", "the same checks");
+        h.request("p1", &json!({"id": 4, "t": "upload-begin", "name": "a.png", "size": 60 << 20, "for": "attachment"}));
+        assert_eq!(answer(&mut rx, "p1", 4)["error"]["code"], "tooLarge");
+        h.request("p1", &json!({"id": 5, "t": "upload-begin", "name": "Shot.png", "size": 3, "for": "asset"}));
+        assert!(answer(&mut rx, "p1", 5)["upload"].is_u64());
+        let part = h.uploads[&("p1".to_owned(), 5)].part.clone();
+        std::fs::write(&part, b"abc").unwrap();
+        let sha = keys::sha256_b64(b"abc");
+        h.report(&json!({"upload": {"peer": "p1", "upload": 5, "state": "done", "bytes": 3, "sha256": sha}}));
+        h.request("p1", &json!({"id": 6, "t": "upload-end", "upload": 5, "sha256": sha}));
+        let done = answer(&mut rx, "p1", 6);
+        assert_eq!((done["uploaded"]["name"].clone(), done["later"].clone()), (json!("Shot.png"), json!(true)), "the page says it's kept for later");
+        let items = o.items();
+        assert_eq!((items.len(), items[0]["kind"].clone(), items[0]["link"].clone(), items[0]["sha256"].clone()), (1, json!("asset"), json!("L1"), json!(sha)));
+        assert_eq!(std::fs::read(h.data.join(items[0]["file"].as_str().unwrap())).unwrap(), b"abc", "in its own quarantine");
+        assert!(items[0]["file"].as_str().unwrap().starts_with("uploads/L1/"));
+        assert!(h.sync(&json!({"op": "_replica-own", "since": 0}))["entries"].as_array().unwrap().iter().all(|e| e.get("upload").is_none()),
+            "the file goes by the outage push, not as an entry");
+    }
+
+    /// The main logs a pushed upload once by its id, however often it's handed over.
+    #[test]
+    fn an_outage_entry_is_logged_once() {
+        let (mut h, _rx) = test_host();
+        let e = json!({"id": "U1", "link": "L1", "name": "a.png", "path": "uploads/L1/U1.png", "for": "attachment"});
+        assert_eq!(h.sync(&json!({"op": "_outage-entry", "entry": e})), json!({"ok": true}));
+        assert_eq!(h.sync(&json!({"op": "_outage-entry", "entry": e})), json!({"ok": true}));
+        assert_eq!(h.entries.iter().filter(|x| x["upload"]["id"] == "U1").count(), 1);
+        assert!(h.attachments.contains_key("U1"), "a comment's attachment finds it");
     }
 
     #[test]

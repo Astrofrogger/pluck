@@ -54,6 +54,8 @@ extension Deliver {
         var lastSeen: Date? = nil
         /// What the owner calls each root ("nas1" → "Wide-open-2026"): the TrueNAS datasets or Proxmox folders from setup or Change Folders.
         var rootNames: [String: String]? = nil
+        /// A main's backup as this Mac reaches it while the main is down (§13.25), when both take outage uploads.
+        var outage: OutageRoute? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }
@@ -682,6 +684,7 @@ final class ReviewPublish {
                         pulled = try await Self.pages(since) { try await session.ask(["op": "pull", "since": $0]) }
                         status = try await session.ask(["op": "status"])
                     }
+                    await DeliverOutage.note(status: status, host: host)
                     answer = pulled
                     let copies = (status["copies"] as? [String: [String: Any]] ?? [:]).values
                     let making = copies.filter { $0["state"] as? String != "ready" && $0["state"] as? String != "failed" }
@@ -710,6 +713,20 @@ final class ReviewPublish {
         guard !uploads.isEmpty else { return }
         try? await ReviewHostClient.session(host) { session in
             for upload in uploads {
+                // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
+                if upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
+                   let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
+                    let name = DeliverServer.safeName(upload["name"] as? String ?? "")
+                    let file = URL(fileURLWithPath: name)
+                    let reference = Self.nasPath(host: host.id, path: path)
+                    guard !name.isEmpty, !self.store.content(project).assets.contains(where: { $0.versions.contains { $0.path == reference } }) else { continue }
+                    if let made = self.store.addReferences([(name: file.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(file), path: reference,
+                                                             size: (upload["size"] as? NSNumber)?.int64Value ?? 0)], to: project).first {
+                        if let folder = link.uploads?.folder { self.store.move(asset: made.id, to: folder) }
+                        self.store.addInbox(.init(id: made.current.id, project: project, asset: made.id, version: made.current.id, kind: "upload", summary: name, author: link.recipient ?? link.title))
+                    }
+                    continue
+                }
                 guard let path = upload["path"] as? String, path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
                       let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project,
                       let raw = upload["name"] as? String else { continue }
@@ -800,8 +817,8 @@ final class ReviewPublish {
         puller = Task {
             while !Task.isCancelled, !publications.isEmpty {
                 await pull()
-                // (Every few seconds while a NAS makes review copies, to show how far it is.)
-                try? await Task.sleep(for: .seconds(hostState.values.contains { $0.making != nil } ? 5 : 60))
+                // (Every few seconds while a NAS makes review copies, to show how far it is; new comments within 30 s while Deliver shows.)
+                try? await Task.sleep(for: .seconds(hostState.values.contains { $0.making != nil } ? 5 : StudioNavigator.shared.page == .deliver ? 30 : 60))
             }
             puller = nil
         }

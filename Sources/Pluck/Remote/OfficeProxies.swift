@@ -130,8 +130,20 @@ final class OfficeProxies {
     /// A shared folder's id for paired Macs (never its path).
     /// A shared folder's id: the one RemoteShares keeps for it (so it stays when the folder moves or a
     /// NAS remounts under another name), else made from its path as before.
+    /// In an office group (OfficeGroup) the same NAS folder has one id on all its office Macs.
     nonisolated static func id(_ folder: URL) -> String {
+        OfficeGroup.canonical(ownID(folder))
+    }
+
+    nonisolated static func ownID(_ folder: URL) -> String {
         RemoteShares.ids.withLock { $0[folder.path] } ?? pathID(folder.path)
+    }
+
+    /// Whether an id a paired Mac (or a request from before a group) uses is this share: its own, or another office
+    /// Mac's for the same NAS folder.
+    nonisolated static func isShare(_ folder: URL, id: String) -> Bool {
+        let own = ownID(folder)
+        return id == own || OfficeGroup.sameShare.withLock { $0[own]?.contains(id) == true }
     }
 
     nonisolated static func pathID(_ path: String) -> String {
@@ -139,7 +151,7 @@ final class OfficeProxies {
     }
 
     private func folder(_ id: String) throws -> URL {
-        guard let folder = OfficeArchive.shared.folders.first(where: { Self.id($0) == id }) else {
+        guard let folder = OfficeArchive.shared.folders.first(where: { Self.isShare($0, id: id) }) else {
             throw OfficeLink.Failure.office(String(localized: "That folder isn’t shared on the host Mac any more."))
         }
         return folder
@@ -179,7 +191,16 @@ final class OfficeProxies {
         }
         chosenFolder = folder
         UserDefaults.standard.set(folder?.path, forKey: Self.folderKey)
+        OfficeGroup.shared.proxyFolderChosen(folder)
         // Each proxy's place is worked out when it's made, so the next one goes to the new folder.
+        run()
+    }
+
+    /// The office group's NAS proxy folder, where this Mac mounted it (chosen on another office Mac).
+    func adopt(_ folder: URL) {
+        guard folder != chosenFolder, FileManager.default.isWritableFile(atPath: folder.path) else { return }
+        chosenFolder = folder
+        UserDefaults.standard.set(folder.path, forKey: Self.folderKey)
         run()
     }
 
@@ -283,7 +304,7 @@ final class OfficeProxies {
             guard let dash = name.lastIndex(of: "-"), let format = Format(rawValue: String(name[name.index(after: dash)...])) else { continue }
             let id = String(name[..<dash]), path = Self.root.appendingPathComponent(name, isDirectory: true).path
             if places[path] == nil {
-                places[path] = (id, OfficeArchive.shared.folders.first { Self.id($0) == id }?.lastPathComponent
+                places[path] = (id, OfficeArchive.shared.folders.first { Self.isShare($0, id: id) }?.lastPathComponent
                                     ?? kept.values.first { $0.first == id && $0.count == 3 }?[1] ?? String(localized: "A removed folder"), format)
             }
         }
@@ -319,7 +340,7 @@ final class OfficeProxies {
 
     /// The watched folders that keep making these proxies (Delete offers to stop them too).
     func watches(of made: Made) -> [(folder: URL, watch: RemoteShares.Watch)] {
-        OfficeArchive.shared.folders.filter { Self.id($0) == made.share }.flatMap { folder in
+        OfficeArchive.shared.folders.filter { Self.isShare($0, id: made.share) }.flatMap { folder in
             (RemoteShares.shared.share(folder)?.watch ?? []).filter { $0.format == made.format }.map { (folder, $0) }
         }
     }
@@ -495,6 +516,12 @@ final class OfficeProxies {
     /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.
     func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
                  progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+        await makeClaimed(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress) ?? false
+    }
+
+    /// makeOne, and nil when another office Mac of the group is making it (its claim, see OfficeGroup.claim).
+    func makeClaimed(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+                     progress: @escaping @Sendable (Double) -> Void) async -> Bool? {
         while encoding { await withCheckedContinuation { encodeQueue.append($0) } }
         encoding = true
         defer {
@@ -502,7 +529,28 @@ final class OfficeProxies {
             if !encodeQueue.isEmpty { encodeQueue.removeFirst().resume() }
         }
         if FileManager.default.fileExists(atPath: target.path) { return true }
-        // Parts a quit left behind (only this encode runs now, so none is in use).
+        // Several office Macs make into the same NAS folder: the clip is this Mac's only once it's claimed.
+        var claim: OfficeGroup.Claim?
+        if OfficeGroup.shared.isGrouped {
+            let mac = Host.current().localizedName ?? "Mac"
+            guard let taken = await Task.detached(operation: { OfficeGroup.claim(target, mac: mac) }).value else { return nil }
+            claim = taken
+            // (Finished by another Mac just before.)
+            if FileManager.default.fileExists(atPath: target.path) { OfficeGroup.release(taken); return true }
+        }
+        let renewing = claim.map { claim in
+            Task.detached {
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(OfficeGroup.claimRenewal))
+                    if !Task.isCancelled { OfficeGroup.renew(claim) }
+                }
+            }
+        }
+        defer {
+            renewing?.cancel()
+            if let claim { Task.detached { OfficeGroup.release(claim) } }
+        }
+        // Parts a quit left behind (only this encode runs now, and the claim keeps the other office Macs off it).
         let base = target.deletingPathExtension().lastPathComponent + ".", place = target.deletingLastPathComponent()
         for name in (try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? [] where name.hasPrefix(base) && name.hasSuffix(".part.mov") {
             try? FileManager.default.removeItem(at: place.appendingPathComponent(name))
@@ -576,14 +624,21 @@ final class OfficeProxies {
         guard info.frames > 0, info.height > 0 else { return false }
         var scale = 1
         while scale < 16, info.height / scale > format.height { scale *= 2 }
+        // Written under a name of its own and renamed into place: on a shared NAS folder nobody serves it half made.
+        let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
         do {
-            try RawExport.write(raw, to: target, codec: format == .prores ? .proresProxy : .h264, scale: scale, settings: RawSettings(),
+            try RawExport.write(raw, to: partial, codec: format == .prores ? .proresProxy : .h264, scale: scale, settings: RawSettings(),
                                 frames: 0...(info.frames - 1), stop: RawExport.Stop(), progress: progress,
                                 bitRate: format == .stream ? 3_000_000 : 8_000_000)
         } catch {
+            try? FileManager.default.removeItem(at: partial)
             return false
         }
-        return FileManager.default.fileExists(atPath: target.path)
+        guard rename(partial.path, target.path) == 0 else {
+            try? FileManager.default.removeItem(at: partial)
+            return FileManager.default.fileExists(atPath: target.path)
+        }
+        return true
     }
 
     /// Containers that open other files (playlists, manifests, scripts): a file named .mov can be one.

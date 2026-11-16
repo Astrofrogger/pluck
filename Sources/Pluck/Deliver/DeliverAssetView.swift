@@ -73,6 +73,7 @@ struct DeliverAssetView: View {
                 if let comment, let at = store.comment(comment) { version = at.version; if let p = at.page { page = p } }
                 if let current = self.current { playback.load(found, current) }
                 if let comment { store.markRead(comment) }
+                Task { await DeliverSync.shared.refresh() }
             }
             .onChange(of: version) { if let current = self.current { playback.load(found, current) } }
             .onChange(of: comparing?.version) {
@@ -90,10 +91,17 @@ struct DeliverAssetView: View {
                 DeliverUploadPicker(host: host, project: store.find(asset)?.project, done: { folder in
                     uploadingTo = nil
                     if let folder { upload(current, of: found, to: host, folder: folder) }
-                }, back: { uploadingTo = nil })
+                }, back: { uploadingTo = nil }, later: { folder in
+                    // The server away: "Waiting for NAS" (or its backup, §13.25), then this version points at the file there.
+                    uploadingTo = nil
+                    guard let file = store.original(current), let project = store.find(found.id)?.project else { return }
+                    let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+                    DeliverShareQueue.shared.add(.init(file: file.path, size: size, project: project, asset: found.id,
+                                                       upload: .init(host: host.id, folder: folder), version: current.id))
+                })
                 .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity).background(Design.Studio.panel)
             }
-            .onDisappear { playback.player.pause(); other.player.pause() }
+            .onDisappear { playback.player.pause(); other.player.pause(); playback.stop(); other.stop() }
         }
     }
 
@@ -231,6 +239,13 @@ struct DeliverAssetView: View {
                     }
                 case .video, .audio:
                     DeliverPlayerSurface(player: playback.player)
+                    if let problem = playback.problem {
+                        VStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.triangle").font(.title2)
+                            Text(verbatim: problem).font(Design.Studio.hint).multilineTextAlignment(.center)
+                        }
+                        .foregroundStyle(Design.Studio.textQuiet).padding(Design.Spacing.window)
+                    }
                 case .other:
                     StudioEmptyState(symbol: "doc", title: "Download only")
                 }
@@ -278,8 +293,10 @@ struct DeliverAssetView: View {
 
 private extension Int { var asDouble: Double { Double(self) } }
 
-/// An AVPlayer on the original (it's on this Mac), or on the 1080 review copy stitched from init + segments
-/// when AVFoundation can't open the original (raw, some MXF). The frame shown, by the probe's frame rate.
+/// An AVPlayer on the original (it's on this Mac), or on the review copy stitched from init + segments when
+/// AVFoundation can't open the original (raw, some MXF), or that copy streamed from a NAS server (a teammate's Mac):
+/// ranges over one kept session, the rendition chosen and changed as the web player does (player.ts). The frame shown,
+/// by the probe's frame rate.
 @MainActor
 @Observable
 final class DeliverPlayback {
@@ -289,10 +306,25 @@ final class DeliverPlayback {
     private(set) var playing = false
     private(set) var fpsNum = 25
     private(set) var fpsDen = 1
+    /// Why nothing plays (no copy anywhere, the server away): said over the picture instead of an endless wait.
+    private(set) var problem: String?
+    /// Streaming from a server: the rendition playing ("1080", "540", …).
+    private(set) var rendition: String?
     /// Compare: the second player follows this one's playhead.
     @ObservationIgnored weak var follower: DeliverPlayback?
     @ObservationIgnored private var stream: RemoteStream?
     @ObservationIgnored private var observer: Any?
+    @ObservationIgnored private(set) var copy: HostCopy?
+    /// Each rendition taken, in order (tests).
+    @ObservationIgnored private(set) var steps: [String] = []
+    @ObservationIgnored private var got: [(Double, Double, Double)] = []   // [start, end, media seconds] per fetch (player.ts `got`)
+    @ObservationIgnored private var sizes: [(Double, Double, Double)] = [] // the same in bytes
+    @ObservationIgnored private var speeds: [Double] = []
+    @ObservationIgnored private var switched = 0.0
+    @ObservationIgnored private var played = false
+    @ObservationIgnored private var loading = UUID()
+    @ObservationIgnored private var watching: [NSKeyValueObservation] = []
+    @ObservationIgnored private var ticker: Task<Void, Never>?
 
     func load(_ asset: Deliver.Asset, _ version: Deliver.Version) {
         let store = DeliverStore.shared
@@ -301,11 +333,18 @@ final class DeliverPlayback {
         frames = max(version.probe?.frames ?? 1, 1)
         frame = 0
         player.pause()
+        stop()
         if observer == nil {
             observer = player.addPeriodicTimeObserver(forInterval: CMTime(value: 1, timescale: 30), queue: .main) { [weak self] time in
                 MainActor.assumeIsolated { self?.ticked(time.seconds) }
             }
+            watching.append(player.observe(\.timeControlStatus) { [weak self] player, _ in
+                let waiting = player.timeControlStatus == .waitingToPlayAtSpecifiedRate && player.reasonForWaitingToPlay == .toMinimizeStalls
+                Task { @MainActor in if waiting { self?.stalled() } else if player.timeControlStatus == .playing { self?.played = true } }
+            })
         }
+        let token = UUID()
+        loading = token
         Task {
             var item: AVPlayerItem?
             if let original = store.original(version) {
@@ -317,14 +356,183 @@ final class DeliverPlayback {
                 stream = stitched
                 item = AVPlayerItem(asset: stitched.asset())
             }
-            // A teammate's Mac (or the file moved): the review copy streamed from the NAS server.
-            if item == nil, let remote = await Self.fromHost(asset.id, version.id, rendition) {
-                stream = remote
-                item = AVPlayerItem(asset: remote.asset())
+            // A teammate's Mac (or the file moved): the review copy streamed from a NAS server.
+            if item == nil {
+                switch await Self.fromHost(asset.id, version.id, audio: asset.kind == .audio) {
+                case .copy(let found):
+                    guard loading == token else { return found.ranges.close() }
+                    copy = found
+                    found.ranges.measured = { [weak self] bytes, start, end, generation in
+                        Task { @MainActor in self?.measured(bytes, start, end, generation) }
+                    }
+                    found.ranges.failed = { [weak self] in
+                        Task { @MainActor in self?.problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.") }
+                    }
+                    self.rendition = found.start
+                    steps = [found.start]
+                    item = streamItem(found.start)
+                    ticker = Task { [weak self] in
+                        while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(250)); self?.tick() }
+                    }
+                case .missing:
+                    problem = String(localized: "The review copy isn’t on this Mac or on a server it can reach.")
+                case .offline:
+                    problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
+                }
             }
-            player.replaceCurrentItem(with: item)
+            guard loading == token else { return }
+            replace(with: item)
         }
     }
+
+    /// The player goes (or shows another version): the server's session closes.
+    func stop() {
+        ticker?.cancel()
+        ticker = nil
+        copy?.ranges.close()
+        copy = nil
+        stream = nil
+        problem = nil
+        rendition = nil
+        steps = []
+        got = []; sizes = []; speeds = []
+        played = false
+    }
+
+    private func replace(with item: AVPlayerItem?) {
+        player.replaceCurrentItem(with: item)
+        watching.removeSubrange(min(1, watching.count)...)
+        guard let item else { return }
+        watching.append(item.observe(\.status) { [weak self] item, _ in
+            guard item.status == .failed else { return }
+            Task { @MainActor in
+                guard let self, self.problem == nil else { return }
+                self.problem = self.copy?.ranges.failure != nil
+                    ? String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
+                    : String(localized: "This review copy can’t be played.")
+            }
+        })
+    }
+
+    /// One rendition of the streamed copy, its pieces asked of the server as AVFoundation reads them.
+    private func streamItem(_ rendition: String) -> AVPlayerItem? {
+        guard let copy, let index = copy.indexes[rendition] else { return nil }
+        let ranges = copy.ranges, base = copy.base + rendition + "/"
+        let generation = ranges.next()
+        let remote = Self.stitched(index) { file, offset, length in try await ranges.read(base + file, offset, length, generation: generation) }
+        stream = remote
+        return AVPlayerItem(asset: remote.asset())
+    }
+
+    // MARK: - Auto quality (player.ts: startRendition, autoStep, the step down on a stall)
+
+    /// A fetch done: the link's speed, remembered for the next start; then autoStep.
+    private func measured(_ bytes: Int, _ start: Double, _ end: Double, _ generation: Int) {
+        guard let copy, let rendition, generation == copy.ranges.generation, bytes >= 128 << 10, end > start else { return }
+        let rate = copy.rates[rendition] ?? 0
+        got = Array((got + [(start, end, rate > 0 ? Double(bytes) / rate : 0)]).suffix(8))
+        sizes = Array((sizes + [(start, end, Double(bytes))]).suffix(8))
+        let bps = Self.linkRate(Array(sizes.suffix(3)))
+        Self.saveSeen(copy.serving ?? copy.host, bps)
+        speeds = Array((speeds + [Self.linkRate(Array(got.suffix(3)))]).suffix(3))
+        let to = Self.autoStep(copy.renditions, rendition, speeds, bps, copy.rates, lan: copy.lan)
+        if to != rendition { take(to) }
+    }
+
+    /// player.ts tick: a first visit started at the top; a first fetch slower than real time steps down before it's in
+    /// (not on the office network). (Small fetches, as the init piece, are mostly the round trip: not counted.)
+    private func tick() {
+        guard let copy, let rendition, got.isEmpty, !copy.lan, let busy = copy.ranges.busy, busy.generation == copy.ranges.generation,
+              busy.length >= 128 << 10, let rate = copy.rates[rendition], rate > 0, let i = copy.renditions.firstIndex(of: rendition),
+              i < copy.renditions.count - 1 else { return }
+        if Self.firstTooSlow(ProcessInfo.processInfo.systemUptime - busy.since, Double(busy.length) / rate) { take(copy.renditions[i + 1]) }
+    }
+
+    nonisolated static func firstTooSlow(_ elapsed: Double, _ d: Double) -> Bool { elapsed > d / 1.1 }
+
+    /// Playback waits for data: on a link slower than the video, the smallest copy now (measure climbs back). AVPlayer
+    /// itself holds until enough is buffered (player.ts's hold).
+    private func stalled() {
+        guard let copy, let rendition, played, player.rate != 0, ProcessInfo.processInfo.systemUptime - switched > 3, !got.isEmpty else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        let busy = copy.ranges.busy.map { [($0.since, now, 0.0)] } ?? []
+        guard Self.linkRate(Array(got.suffix(3)) + busy) < 1, let low = copy.renditions.last, low != rendition else { return }
+        take(low)
+    }
+
+    /// Another rendition from where the playhead is (still playing if it was).
+    private func take(_ to: String) {
+        guard let item = streamItem(to) else { return }
+        let at = player.currentTime(), going = player.rate != 0
+        rendition = to
+        steps.append(to)
+        speeds = []
+        switched = ProcessInfo.processInfo.systemUptime
+        replace(with: item)
+        player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .zero)
+        if going { player.play() }
+    }
+
+    /// Highest first by number; names that aren't numbers go last, in name order.
+    nonisolated static func sortRenditions(_ list: [String]) -> [String] {
+        let n = { (r: String) in Int(r) ?? -1 }
+        return Array(Set(list)).sorted { n($0) != n($1) ? n($0) > n($1) : $0 < $1 }
+    }
+
+    /// A rendition's bytes per second, from its index's segment lengths (0 when it has none).
+    nonisolated static func bitrate(_ index: Deliver.CopyIndex) -> Double {
+        let d = index.segments.reduce(0) { $0 + $1.d }, b = index.segments.reduce(Int64(0)) { $0 + $1.length }
+        return d > 0 ? Double(b) / d : 0
+    }
+
+    /// player.ts startRendition: the highest, unless the link speed remembered for this server (under 3 days old) says
+    /// less (the highest it carried 1.5× over; the lowest when none). On the office network always the highest. A
+    /// first visit is measured on its first fetch (tick).
+    nonisolated static func startRendition(_ renditions: [String], rates: [String: Double], seen: Double?, lan: Bool) -> String {
+        guard let top = renditions.first, let low = renditions.last else { return "1080" }
+        if !lan, let seen, seen > 0, renditions.contains(where: { (rates[$0] ?? 0) > 0 }) {
+            return renditions.first { (rates[$0] ?? 0) > 0 && seen >= 1.5 * rates[$0]! } ?? low
+        }
+        return top
+    }
+
+    /// player.ts autoStep: one down when the last fetch came in under 1.1× real time (never for speed on the office
+    /// network: only a real stall steps down there); one up when the link carries the next rendition 1.5× over after 3
+    /// fetches, at once when twice over; without bitrates, up after 3 over 1.5×.
+    nonisolated static func autoStep(_ renditions: [String], _ current: String, _ speeds: [Double], _ bps: Double, _ rates: [String: Double], lan: Bool = false) -> String {
+        guard let i = renditions.firstIndex(of: current) else { return current }
+        if !lan, i < renditions.count - 1, let last = speeds.last, last < 1.1 { return renditions[i + 1] }
+        guard i > 0 else { return current }
+        let up = renditions[i - 1], three = speeds.count == 3 && speeds.allSatisfy { $0 > 1.5 }
+        guard let rate = rates[up], rate > 0 else { return three ? up : current }
+        return bps >= 2 * rate || (three && bps >= 1.5 * rate) ? up : current
+    }
+
+    /// player.ts linkRate: everything fetched over the time at least one fetch ran ([start, end, amount] in seconds).
+    nonisolated static func linkRate(_ got: [(Double, Double, Double)]) -> Double {
+        var busy = 0.0, from = 0.0, to = -Double.infinity
+        for (a, b, _) in got.sorted(by: { $0.0 < $1.0 }) {
+            if a > to { if to > from { busy += to - from }; from = a; to = b } else { to = max(to, b) }
+        }
+        if to > from { busy += to - from }
+        return got.reduce(0) { $0 + $1.2 } / max(0.001, busy)
+    }
+
+    /// The link speed (bytes/s) measured to each server, kept 3 days.
+    private static let seenKey = "deliverHostRate"
+    static func seen(_ host: UUID) -> Double? {
+        guard let entry = (UserDefaults.standard.dictionary(forKey: seenKey)?[host.uuidString] as? [Double]), entry.count == 2,
+              Date.now.timeIntervalSince1970 - entry[1] < 3 * 86_400 else { return nil }
+        return entry[0]
+    }
+    static func saveSeen(_ host: UUID, _ bps: Double) {
+        guard bps > 0 else { return }
+        var all = UserDefaults.standard.dictionary(forKey: seenKey) ?? [:]
+        all[host.uuidString] = [bps.rounded(), Date.now.timeIntervalSince1970]
+        UserDefaults.standard.set(all, forKey: seenKey)
+    }
+
+    // MARK: - The copy and where it comes from
 
     /// The copy's init piece then every segment, as one fragmented MP4 (read through a resource loader, as RemoteStream does).
     nonisolated static func stitched(_ folder: URL) -> RemoteStream? {
@@ -337,11 +545,14 @@ final class DeliverPlayback {
         }
     }
 
-    /// The same, each piece read by `read(file, offset, length)`.
+    /// The same, each piece read by `read(file, offset, length)`; pieces back to back in one file are one read.
     nonisolated static func stitched(_ index: Deliver.CopyIndex, read: @escaping @Sendable (String, Int64, Int) async throws -> Data) -> RemoteStream {
-        let pieces = [(index.`init`.file, index.`init`.offset, index.`init`.length)] + index.segments.map { ($0.file, $0.offset, $0.length) }
+        var pieces: [(String, Int64, Int64)] = []
+        for piece in [(index.`init`.file, index.`init`.offset, index.`init`.length)] + index.segments.map({ ($0.file, $0.offset, $0.length) }) {
+            if let last = pieces.last, last.0 == piece.0, last.1 + last.2 == piece.1 { pieces[pieces.count - 1].2 += piece.2 } else { pieces.append(piece) }
+        }
         let total = pieces.reduce(Int64(0)) { $0 + $1.2 }
-        return RemoteStream(contentType: UTType.mpeg4Movie.identifier) { offset, length in
+        return RemoteStream(contentType: UTType.mpeg4Movie.identifier) { [pieces] offset, length in
             var data = Data(), at = offset, start = Int64(0)
             for piece in pieces where data.count < length {
                 let end = start + piece.2
@@ -357,29 +568,199 @@ final class DeliverPlayback {
         }
     }
 
-    /// The review copy on a NAS server this project is published on (or any paired NAS): its index, then byte ranges with `get`.
-    static func fromHost(_ asset: UUID, _ version: UUID, _ rendition: String) async -> RemoteStream? {
+    /// A copy on a server: its renditions (highest first) with their indexes and bitrates, the one to start on.
+    struct HostCopy {
+        var ranges: HostRanges
+        var host: UUID
+        var base: String
+        var renditions: [String]
+        var indexes: [String: Deliver.CopyIndex]
+        var rates: [String: Double]
+        var start: String
+        var lan: Bool
+        /// The server answering now (another after a failover).
+        var serving: UUID? { ranges.serving }
+    }
+    enum Found { case copy(HostCopy), missing, offline }
+
+    /// Tests: these servers, in this order, instead of the ones paired here.
+    static var testHosts: [Deliver.Host]?
+
+    /// The review copy on a server this project is published on (or any paired NAS, or a main's backup): one on the
+    /// office network first (played from there, at the highest rendition), else the one clients are served from.
+    static func fromHost(_ asset: UUID, _ version: UUID, audio: Bool) async -> Found {
         let publish = ReviewPublish.shared
         var hosts: [Deliver.Host] = []
-        for host in publish.publications(asset: asset).compactMap({ publish.host($0.host) }) + publish.hosts
+        for host in testHosts ?? (publish.publications(asset: asset).compactMap({ publish.host($0.host) }) + publish.hosts)
         where host.kind == .nas && !hosts.contains(where: { $0.id == host.id }) { hosts.append(host) }
-        let base = "copies/\(version.uuidString)/\(rendition)/"
-        for host in hosts {
-            guard let data = try? await Self.hostBytes(host, base + "index.json", nil, nil),
-                  let index = try? Deliver.decoder.decode(Deliver.CopyIndex.self, from: data) else { continue }
-            return stitched(index) { file, offset, length in
-                try await Self.hostBytes(host, base + file, offset, Int64(length))
+        if testHosts == nil {
+            for main in hosts where main.role != "backup" {
+                if let backup = DeliverOutage.backup(for: main), !hosts.contains(where: { $0.id == backup.id }) { hosts.append(backup) }
             }
         }
-        return nil
+        guard !hosts.isEmpty else { return .missing }
+        // On the office network: straight to its address, never through the tunnel (a route kept from before is dropped).
+        var lan: Set<UUID> = []
+        for host in hosts {
+            guard let address = host.address, await (ReviewHostTunnel.lanProbe ?? ReviewHostTunnel.reachable)(address, 1.5) else { continue }
+            lan.insert(host.id)
+            ReviewHostTunnel.forgetRoute(host.id)
+        }
+        if lan.isEmpty { hosts = await fastestFirst(hosts) } else { hosts = hosts.filter { lan.contains($0.id) } + hosts.filter { !lan.contains($0.id) } }
+
+        let base = "copies/\(version.uuidString)/"
+        var offline = false
+        for start in hosts.indices {
+            let ranges = HostRanges(hosts: Array(hosts[start...] + hosts[..<start]))
+            do {
+                let ready = try await ranges.read(base + "ready.json", 0, 1 << 20)
+                let listed = (try? JSONSerialization.jsonObject(with: ready) as? [String: Any])?["renditions"] as? [String] ?? []
+                let renditions = sortRenditions(listed.filter { audio ? $0 == "a" : Int($0) != nil })
+                var indexes: [String: Deliver.CopyIndex] = [:], rates: [String: Double] = [:]
+                for r in renditions {
+                    guard let data = try? await ranges.read(base + r + "/index.json", 0, 8 << 20),
+                          let index = try? Deliver.decoder.decode(Deliver.CopyIndex.self, from: data) else { continue }
+                    indexes[r] = index
+                    rates[r] = bitrate(index)
+                }
+                let usable = renditions.filter { indexes[$0] != nil }
+                guard !usable.isEmpty else { ranges.close(); continue }
+                let host = hosts[start].id
+                let first = startRendition(usable, rates: rates, seen: seen(ranges.serving ?? host), lan: lan.contains(ranges.serving ?? host))
+                return .copy(HostCopy(ranges: ranges, host: host, base: base, renditions: usable, indexes: indexes, rates: rates, start: first,
+                                      lan: lan.contains(ranges.serving ?? host)))
+            } catch {
+                ranges.close()
+                // Not there: the next server. Away (every server tried): said.
+                if (error as? Deliver.Failure)?.code != "not found" { offline = true; break }
+            }
+        }
+        return offline ? .offline : .missing
     }
 
-    /// One `get` (a range, or the whole file) through a temporary file.
-    nonisolated static func hostBytes(_ host: Deliver.Host, _ path: String, _ offset: Int64?, _ length: Int64?) async throws -> Data {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-get-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: file) }
-        try await ReviewHostClient.session(host) { try await $0.get(path, to: file, offset: offset, length: length, expected: length ?? 64 << 20) }
-        return try Data(contentsOf: file)
+    /// The Room's rule (rules.ts `pick`, as Server settings shows it): a backup uploading over 1.2 × the main's speed
+    /// whose copies are the main's own quality (or any, with Prefer fastest) first; else the main.
+    private static func fastestFirst(_ hosts: [Deliver.Host]) async -> [Deliver.Host] {
+        guard hosts.contains(where: { $0.role == "backup" }), let main = hosts.first(where: { $0.role != "backup" }),
+              let status = try? await ReviewHostClient.ask(main, ["op": "status"]), let up = status["uplinkMbps"] as? Int else { return hosts }
+        let prefer = status["preferFastest"] as? Bool ?? false
+        let fast = (status["backups"] as? [[String: Any]] ?? []).filter { backup in
+            let replica = backup["replica"] as? [String: Any]
+            return Double(replica?["uplinkMbps"] as? Int ?? 0) > Double(up) * 1.2 && (replica?["quality"] as? String == "same" || prefer)
+        }.max { ($0["replica"] as? [String: Any])?["uplinkMbps"] as? Int ?? 0 < ($1["replica"] as? [String: Any])?["uplinkMbps"] as? Int ?? 0 }
+        guard let name = fast?["name"] as? String, let backup = hosts.first(where: { $0.role == "backup" && $0.name == name }) else { return hosts }
+        return [backup] + hosts.filter { $0.id != backup.id }
+    }
+
+    /// Byte ranges of a server's files over ONE kept session, one request at a time (a new connection per range was far
+    /// too slow over a VPN). A dropped session is opened again once; then the next server. Nothing is kept on disk
+    /// (each range passes through a temporary file, as `get` writes one).
+    final class HostRanges: @unchecked Sendable {
+        private struct Job { var path: String; var offset: Int64; var length: Int; var generation: Int; var done: CheckedContinuation<Data, Error> }
+        private let feed: AsyncStream<Job>.Continuation
+        private let lock = NSLock()
+        private var _generation = 0, _failure: Error?, _serving: UUID?, _via: ReviewHostTunnel.Via?, _fetched = 0
+        private var _busy: (since: Double, length: Int, generation: Int)?
+        private var drop: (() -> Void)?
+        /// Each fetch: bytes, start and end (system uptime), the generation it was asked in.
+        var measured: (@Sendable (Int, Double, Double, Int) -> Void)?
+        /// Every server failed.
+        var failed: (@Sendable () -> Void)?
+        /// Tests: the link's speed (bytes/s) and a round trip added to each range.
+        nonisolated(unsafe) static var testRate: Double?
+        nonisolated(unsafe) static var testDelay: Double = 0
+
+        var generation: Int { lock.withLock { _generation } }
+        var failure: Error? { lock.withLock { _failure } }
+        var serving: UUID? { lock.withLock { _serving } }
+        var via: ReviewHostTunnel.Via? { lock.withLock { _via } }
+        /// The range being fetched: since when, its length, the generation it was asked in.
+        var busy: (since: Double, length: Int, generation: Int)? { lock.withLock { _busy } }
+        var fetched: Int { lock.withLock { _fetched } }
+
+        /// A new reader (another rendition): ranges still queued for the old one are dropped.
+        func next() -> Int { lock.withLock { _generation += 1; return _generation } }
+
+        @MainActor
+        init(hosts: [Deliver.Host]) {
+            let (jobs, feed) = AsyncStream.makeStream(of: Job.self)
+            self.feed = feed
+            Task { @MainActor [weak self] in
+                var iterator = jobs.makeAsyncIterator()
+                var pending: Job?, at = 0, retried = false
+                while at < hosts.count {
+                    var served = false
+                    do {
+                        try await ReviewHostClient.session(hosts[at]) { session in
+                            let via = try? await ReviewHostTunnel.route(hosts[at]).via
+                            self?.lock.withLock { self?._serving = hosts[at].id; self?._via = via; self?.drop = { session.close() } }
+                            while true {
+                                if pending == nil { pending = await iterator.next() }
+                                guard let job = pending else { return }
+                                guard job.generation >= (self?.generation ?? 0) || job.generation == 0 else {
+                                    pending = nil; job.done.resume(throwing: CancellationError()); continue
+                                }
+                                do {
+                                    let data = try await Self.fetch(job, session: session, owner: self)
+                                    pending = nil; served = true; retried = false
+                                    job.done.resume(returning: data)
+                                } catch let failure as Deliver.Failure where failure.code == "not found" {
+                                    pending = nil; job.done.resume(throwing: failure)
+                                }
+                            }
+                        }
+                        break // closed
+                    } catch {
+                        self?.lock.withLock { self?._busy = nil; self?.drop = nil }
+                        // Dropped after serving: once more on the same server. Didn't open, or dropped again: the next one.
+                        if served, !retried { retried = true } else { at += 1; retried = false }
+                        if at < hosts.count { ReviewHostTunnel.forgetRoute(hosts[at].id) }
+                    }
+                }
+                guard at >= hosts.count else { return }
+                let failure = Deliver.Failure("offline")
+                self?.lock.withLock { self?._failure = failure }
+                self?.failed?()
+                feed.finish()
+                pending?.done.resume(throwing: failure)
+                while let job = await iterator.next() { job.done.resume(throwing: failure) }
+            }
+        }
+
+        deinit { feed.finish() }
+
+        /// The session closes (once what's being fetched is done); reads after it fail.
+        func close() { feed.finish() }
+
+        /// Tests: the connection breaks, as when a server goes away mid-play.
+        func dropConnection() { lock.withLock { drop }?() }
+
+        func read(_ path: String, _ offset: Int64, _ length: Int, generation: Int = 0) async throws -> Data {
+            if let failure { throw failure }
+            return try await withCheckedThrowingContinuation { done in
+                if case .terminated = feed.yield(Job(path: path, offset: offset, length: length, generation: generation, done: done)) {
+                    done.resume(throwing: failure ?? CancellationError())
+                }
+            }
+        }
+
+        private static func fetch(_ job: Job, session: HostSession, owner: HostRanges?) async throws -> Data {
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-range-\(UUID().uuidString)")
+            defer { try? FileManager.default.removeItem(at: file) }
+            let start = ProcessInfo.processInfo.systemUptime
+            owner?.lock.withLock { owner?._busy = (start, job.length, job.generation) }
+            if testDelay > 0 { try? await Task.sleep(for: .seconds(testDelay)) }
+            try await session.get(job.path, to: file, offset: job.offset, length: Int64(job.length), expected: Int64(job.length))
+            let data = try Data(contentsOf: file)
+            if let rate = testRate {
+                let left = Double(data.count) / rate - (ProcessInfo.processInfo.systemUptime - start)
+                if left > 0 { try? await Task.sleep(for: .seconds(left)) }
+            }
+            let end = ProcessInfo.processInfo.systemUptime
+            owner?.lock.withLock { owner?._busy = nil; owner?._fetched += data.count }
+            owner?.measured?(data.count, start, end, job.generation)
+            return data
+        }
     }
 
     private func ticked(_ seconds: Double) {

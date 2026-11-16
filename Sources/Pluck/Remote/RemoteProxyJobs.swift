@@ -30,8 +30,10 @@ final class RemoteProxyJobs {
         var done = 0
         var failed: [String] = []
         var problem: String?
+        /// Taken from another office Mac's queue on the NAS (OfficeGroup): that Mac's name.
+        var peer: String?
 
-        var watch: Bool { device == nil && byHost != true }
+        var watch: Bool { device == nil && byHost != true && peer == nil }
     }
 
     private(set) var requests: [Request] = []
@@ -159,6 +161,7 @@ final class RemoteProxyJobs {
             return requests[index]
         }
         requests.append(request)
+        OfficeGroup.shared.publish(request)
         // Old finished requests go (watched folders stay).
         let finished = requests.filter { !$0.watch && ($0.state == .ready || $0.state == .failed) }
         if finished.count > 100 { requests.removeAll { finished.prefix(finished.count - 100).contains($0) } }
@@ -177,7 +180,30 @@ final class RemoteProxyJobs {
     /// shortcut: the file being encoded finishes first (ffmpeg isn't cancelled), cancel the encode if that's too slow.
     func remove(_ id: UUID) {
         requests.removeAll { $0.id == id }
+        OfficeGroup.shared.unpublish(id)
         save()
+    }
+
+    /// The group's queue on the NAS (OfficeGroup.scanQueue): other office Macs' jobs taken on here, copies of jobs gone
+    /// from it dropped (unless being made), and jobs finished here taken off it. `all`: every job in the queue.
+    func take(_ jobs: [OfficeGroup.Job], all: Set<UUID>) {
+        var changed = false
+        let before = requests.count
+        requests.removeAll { $0.peer != nil && !all.contains($0.id) && $0.state != .making }
+        changed = requests.count != before
+        for request in requests where (request.state == .ready || request.state == .failed) && all.contains(request.id) {
+            OfficeGroup.shared.unpublish(request.id)
+        }
+        for job in jobs where !requests.contains(where: { $0.id == job.id }) {
+            // (Only shares this Mac has too, paths checked again when it's made: RemoteEditHost.resolve.)
+            guard let share = try? RemoteEditHost.share(job.share).id else { continue }
+            requests.append(Request(id: job.id, share: share, paths: job.paths, format: job.format, device: job.device,
+                                    asked: job.asked, peer: job.from))
+            changed = true
+        }
+        guard changed else { return }
+        save()
+        run()
     }
 
     /// Every watched folder of every share as a request, looked through again: new files get proxies.
@@ -190,6 +216,8 @@ final class RemoteProxyJobs {
     }
 
     func dropWatch(share: String, _ watch: RemoteShares.Watch) {
+        for request in requests where request.watch && request.share == share && request.paths == [watch.path] && request.format == watch.format
+            && request.state != .making { OfficeGroup.shared.unpublish(request.id) }
         requests.removeAll { $0.watch && $0.share == share && $0.paths == [watch.path] && $0.format == watch.format && $0.state != .making }
         save()
     }
@@ -259,7 +287,17 @@ final class RemoteProxyJobs {
         let missing = files.filter { !FileManager.default.fileExists(atPath: target($0).path) }
         set(id) { $0.total = files.count; $0.done = files.count - missing.count }
         save()
-        for relative in missing where !Task.isCancelled {
+        // Clips another office Mac is making come again at the end (and again, until made or let go).
+        var waiting = missing, round = 0
+        while !waiting.isEmpty, !Task.isCancelled {
+          let pass = waiting
+          waiting = []
+          if round > 0 {
+              try? await Task.sleep(for: .seconds(15))
+              guard requests.contains(where: { $0.id == id }) else { return }
+          }
+          round += 1
+          for relative in pass where !Task.isCancelled {
             // A render has the Mac to itself; the whole-folder proxies go one at a time with these.
             while OfficeRenderServer.shared.isRendering, !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
@@ -267,10 +305,13 @@ final class RemoteProxyJobs {
             guard requests.contains(where: { $0.id == id }) else { return }
             working = (relative as NSString).lastPathComponent
             progress = 0
-            // (One encode at a time with OfficeProxies' own: makeOne waits its turn.)
-            let made = await OfficeProxies.shared.makeOne(root.appendingPathComponent(relative), to: target(relative), format: request.format,
-                                                          ffmpeg: ffmpeg, ffprobe: ffprobe) { value in
+            // (One encode at a time with OfficeProxies' own: makeClaimed waits its turn.)
+            guard let made = await OfficeProxies.shared.makeClaimed(root.appendingPathComponent(relative), to: target(relative), format: request.format,
+                                                                    ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
                 Task { @MainActor in RemoteProxyJobs.shared.progress = value }
+            }) else {
+                waiting.append(relative)
+                continue
             }
             if made {
                 set(id) { $0.done += 1 }
@@ -280,6 +321,7 @@ final class RemoteProxyJobs {
                 set(id) { $0.failed.append(relative) }
             }
             save()
+          }
         }
         working = nil
         set(id) { request in

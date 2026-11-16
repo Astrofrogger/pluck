@@ -242,7 +242,9 @@ enum Deliver {
         var asset: UUID?
         var version: UUID?
         var detail: Detail?
-        struct Detail: Codable, Hashable { var from: Int?; var to: Int?; var what: String?; var name: String? }
+        struct Detail: Codable, Hashable { var from: Int?; var to: Int?; var what: String?; var name: String?
+            /// A NAS host writes an approval's decision here ("approve"/"changes"), Pluck in `what`.
+            var decision: String? }
     }
 
     struct InboxItem: Codable, Identifiable, Hashable {

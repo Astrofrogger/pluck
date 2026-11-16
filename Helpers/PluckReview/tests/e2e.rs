@@ -838,3 +838,263 @@ async fn mac_stands_by_while_host_holds_the_room() {
     assert_eq!(first["prio"], "mac");
     assert_eq!(second["prio"], "mac");
 }
+
+// ---- §13.25: uploads during an outage ----
+
+fn iroh_bin() -> Option<std::path::PathBuf> {
+    let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../PluckIroh/target");
+    std::env::var("PLUCK_IROH_BIN").ok().map(Into::into).or_else(|| ["release", "debug"].iter().map(|d| base.join(d).join("pluck-iroh")).find(|p| p.is_file()))
+}
+
+/// A child speaking JSON lines (the host with flags, or pluck-iroh with its settings line).
+struct Proc {
+    child: Child,
+    _stdin: ChildStdin,
+    out: mpsc::UnboundedReceiver<Value>,
+}
+
+impl Proc {
+    async fn start(bin: &Path, args: &[&str], settings: Option<Value>) -> Proc {
+        let mut child = Command::new(bin).args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).kill_on_drop(true)
+            .env("PLUCK_IROH_LOCAL", "1").env("PLUCK_STANDBY_SECS", "1").env("PLUCK_REPLICA_ROUND_SECS", "1")
+            .env("PLUCK_HEALTH_FILE", std::env::temp_dir().join(format!("pluck-e2e-health-{}", std::process::id()))).spawn().unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        if let Some(s) = settings {
+            stdin.write_all(format!("{s}\n").as_bytes()).await.unwrap();
+        }
+        let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+        let (tx, out) = mpsc::unbounded_channel();
+        tokio::spawn(async move {
+            while let Ok(Some(l)) = lines.next_line().await {
+                if std::env::var("PLUCK_REVIEW_TEST_LOG").is_ok() { eprintln!("proc: {l}") }
+                if let Ok(v) = serde_json::from_str::<Value>(&l) { let _ = tx.send(v); }
+            }
+        });
+        Proc { child, _stdin: stdin, out }
+    }
+
+    async fn wait(&mut self, what: impl Fn(&Value) -> bool) -> Value {
+        loop {
+            let v = tokio::time::timeout(T, self.out.recv()).await.expect("silent").expect("exited");
+            if what(&v) { return v }
+        }
+    }
+
+    fn signal(&self, sig: &str) {
+        std::process::Command::new("kill").args([sig, &self.child.id().unwrap().to_string()]).status().unwrap();
+    }
+}
+
+async fn ctl(data: &Path, op: Value) -> Value {
+    let out = Command::new(env!("CARGO_BIN_EXE_pluck-review")).arg("--ctl").arg(data).arg(op.to_string()).output().await.unwrap();
+    serde_json::from_slice(&out.stdout).unwrap_or(Value::Null)
+}
+
+/// A sync session as Pluck opens one (TLS; the pin isn't what this test is about).
+mod sync_client {
+    use super::*;
+    use tokio_rustls::rustls;
+
+    #[derive(Debug)]
+    struct Any(Arc<rustls::crypto::CryptoProvider>);
+    impl rustls::client::danger::ServerCertVerifier for Any {
+        fn verify_server_cert(&self, _: &rustls::pki_types::CertificateDer<'_>, _: &[rustls::pki_types::CertificateDer<'_>], _: &rustls::pki_types::ServerName<'_>, _: &[u8], _: rustls::pki_types::UnixTime) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+            Ok(rustls::client::danger::ServerCertVerified::assertion())
+        }
+        fn verify_tls12_signature(&self, m: &[u8], c: &rustls::pki_types::CertificateDer<'_>, d: &rustls::DigitallySignedStruct) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls12_signature(m, c, d, &self.0.signature_verification_algorithms)
+        }
+        fn verify_tls13_signature(&self, m: &[u8], c: &rustls::pki_types::CertificateDer<'_>, d: &rustls::DigitallySignedStruct) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+            rustls::crypto::verify_tls13_signature(m, c, d, &self.0.signature_verification_algorithms)
+        }
+        fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+            self.0.signature_verification_algorithms.supported_schemes()
+        }
+    }
+
+    type S = tokio_rustls::client::TlsStream<tokio::net::TcpStream>;
+    pub struct C(BufReader<tokio::io::ReadHalf<S>>, tokio::io::WriteHalf<S>);
+
+    impl C {
+        pub async fn open(addr: &str) -> C {
+            let _ = rustls::crypto::ring::default_provider().install_default();
+            let p = Arc::new(rustls::crypto::ring::default_provider());
+            let cfg = rustls::ClientConfig::builder_with_provider(p.clone()).with_protocol_versions(&[&rustls::version::TLS13]).unwrap()
+                .dangerous().with_custom_certificate_verifier(Arc::new(Any(p))).with_no_client_auth();
+            let tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let tls = tokio_rustls::TlsConnector::from(Arc::new(cfg)).connect(rustls::pki_types::ServerName::try_from("x").unwrap(), tcp).await.unwrap();
+            let (r, w) = tokio::io::split(tls);
+            C(BufReader::new(r), w)
+        }
+
+        /// One line (and its bytes) out, one line back (None: closed).
+        pub async fn ask(&mut self, v: Value, bytes: &[u8]) -> Option<Value> {
+            self.1.write_all(format!("{v}\n").as_bytes()).await.ok()?;
+            self.1.write_all(bytes).await.ok()?;
+            self.1.flush().await.ok()?;
+            let mut l = String::new();
+            match tokio::time::timeout(Duration::from_secs(30), self.0.read_line(&mut l)).await {
+                Ok(Ok(n)) if n > 0 => serde_json::from_str(&l).ok(),
+                _ => None,
+            }
+        }
+    }
+}
+
+/// The main stops (frozen, as a NAS that's away); its backup holds the room. A client uploads a file and a comment
+/// attachment there, an editor's Pluck uploads a render (over iroh, its own node, its main's device key) with the
+/// folder it picked. The main comes back: the backup pushes all three, and is restarted half way through. Each
+/// lands once: the client's file in "Delivered while offline/<date>/", the editor's in its folder, the attachment
+/// in the quarantine under its id (the comment pushed from the backup finds it), and the backup keeps nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn uploads_during_an_outage_move_to_the_main() {
+    let Some(iroh) = iroh_bin() else { return eprintln!("pluck-iroh not built: skipped") };
+    str0m::crypto::from_feature_flags().install_process_default();
+    let signal = signaling().await;
+    let sig = format!("ws://{signal}/signal");
+    let (main_dir, backup_dir, root) = (tmp("om"), tmp("ob"), tmp("oroot"));
+    let bin = Path::new(env!("CARGO_BIN_EXE_pluck-review"));
+    let ib = iroh.to_str().unwrap();
+    let manifest = json!({"format": 1,
+        "links": [{"id": "L1", "roomID": ROOM, "reg": REG, "auth": AUTH, "sign": SEED, "join": JOIN, "title": "Cuts", "mode": "review", "expires": null,
+                   "revoked": null, "project": "P1", "root": {"kind": "project", "id": "P1", "name": "Spring"},
+                   "uploads": {"folder": null, "maxBytes": 200 << 20, "types": ["image", "video"]}}],
+        "projects": [{"id": "P1", "name": "Spring", "folders": [], "assets": [{"id": "A1", "name": "Hero", "kind": "video", "folder": null,
+            "versions": [{"id": "V1", "number": 1, "frames": 250, "fpsNum": 25, "fpsDen": 1, "renditions": []}]}]}]});
+    let uploads = format!("renders={}", root.display());
+    let mut main = Proc::start(bin, &["--host", main_dir.to_str().unwrap(), "--signal", &sig, "--local", "--iroh", "--iroh-bin", ib,
+        "--uploads", &uploads, "--name", "Office NAS"], None).await;
+    let main_iroh = main.wait(|v| v["host"]["iroh"]["id"].is_string()).await["host"]["iroh"].clone();
+    assert_eq!(ctl(&main_dir, json!({"op": "publish", "merge": true, "manifest": manifest})).await["ok"], true);
+    main.wait(|v| v["room"]["state"] == "active").await;
+
+    // The editor's Mac pairs with the main over iroh, then registers the node it will reach the backups with.
+    let inv = ctl(&main_dir, json!({"op": "invite", "role": "mac"})).await;
+    let link: Value = serde_json::from_slice(&B64.decode(inv["link"].as_str().unwrap().split("i=").nth(1).unwrap()).unwrap()).unwrap();
+    let mut home = Proc::start(&iroh, &[], Some(json!({"mode": "home", "keyFile": main_dir.join("mac-key"), "port": 1, "office": main_iroh["id"],
+        "officeAddrs": link["a"], "local": true}))).await;
+    let mac_node = home.wait(|v| v["state"] == "running").await["id"].as_str().unwrap().to_owned();
+    let to_main = home.wait(|v| v["listen"].is_string()).await["listen"].as_str().unwrap().to_owned();
+    let mut c = sync_client::C::open(&to_main).await;
+    let h = c.ask(json!({"pair": inv["code"], "name": "Edit Suite", "node": mac_node, "role": "mac", "protocol": 3}), b"").await.unwrap();
+    assert_eq!((h["outage"].clone(), h["links"].clone()), (json!(1), json!(3)), "the main says it takes outage uploads: {h}");
+    let (dev, dkey) = (h["device"].as_str().unwrap().to_owned(), h["key"].as_str().unwrap().to_owned());
+
+    // The backup pairs, syncs, and takes the room (the stub gives it to the last to register).
+    let binv = ctl(&main_dir, json!({"op": "invite", "role": "backup"})).await;
+    let mut backup = Proc::start(bin, &["--host", backup_dir.to_str().unwrap(), "--signal", &sig, "--local", "--backup", "--iroh", "--iroh-bin", ib,
+        "--main-link", binv["link"].as_str().unwrap(), "--quality", "same", "--name", "Backup"], None).await;
+    backup.wait(|v| v["room"]["state"] == "active").await;
+    // The main hands the backup's Macs-only side to its Macs; the Mac's outage node reaches the backup.
+    let office = loop {
+        let st = c.ask(json!({"op": "status"}), b"").await.unwrap();
+        if let Some(o) = st["backups"][0]["replica"]["office"].as_object() { break Value::Object(o.clone()) }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+    };
+    assert!(office["fp"].is_string() && office["node"].as_str() != main_iroh["id"].as_str(), "{office}");
+    // (Its node: the key's public half. Pluck works it out; here a pluck-iroh that runs once says it.)
+    let tunnel = || json!({"mode": "home", "keyFile": main_dir.join("mac-outage-key"), "port": 1, "office": office["node"], "officeAddrs": office["addrs"], "local": true});
+    let outage_node = Proc::start(&iroh, &[], Some(json!({"mode": "home", "keyFile": main_dir.join("mac-outage-key"), "port": 1, "office": main_iroh["id"], "local": true})))
+        .await.wait(|v| v["state"] == "running").await["id"].as_str().unwrap().to_owned();
+    assert_eq!(c.ask(json!({"op": "outage-node", "node": outage_node}), b"").await.unwrap()["ok"], true);
+    let until = Instant::now() + T;
+    while !std::fs::read_to_string(backup_dir.join("main-macs.json")).unwrap_or_default().contains(&dev) {
+        assert!(Instant::now() < until, "the backup never heard of the Mac");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    drop(c);
+
+    // The main goes away.
+    main.signal("-STOP");
+
+    // A client uploads to the backup: no error.
+    let mut br = Browser::connect(signal).await;
+    br.auth("Anna").await;
+    br.next(|m| m["t"] == "ready").await;
+    let film = random_file(&tmp("ofilm").join("a.mov"), 40 << 20);
+    let up = br.call(json!({"t": "upload-begin", "name": "Interview A.mov", "size": film.len(), "for": "asset"})).await;
+    assert!(up["upload"].is_u64(), "the backup takes uploads in an outage: {up}");
+    br.upload(up["upload"].as_u64().unwrap() as u32, &film, up["credit"].as_u64().unwrap()).await;
+    let done = br.call(json!({"t": "upload-end", "upload": up["upload"], "sha256": B64.encode(Sha256::digest(&film))})).await;
+    assert_eq!(done["uploaded"]["name"], "Interview A.mov", "{done}");
+    let png = b"\x89PNG\r\n\x1a\nref".to_vec();
+    let up = br.call(json!({"t": "upload-begin", "name": "ref.png", "size": png.len(), "for": "attachment"})).await;
+    br.upload(up["upload"].as_u64().unwrap() as u32, &png, up["credit"].as_u64().unwrap()).await;
+    let att = br.call(json!({"t": "upload-end", "upload": up["upload"], "sha256": B64.encode(Sha256::digest(&png))})).await["attachment"].clone();
+    let cm = br.call(json!({"t": "comment-add", "asset": "A1", "version": "V1", "frame": null, "text": "Like this", "attachments": [att["id"]]})).await;
+    assert_eq!(cm["comment"]["attachments"][0]["id"], att["id"], "{cm}");
+
+    // The editor's Pluck uploads to the backup: its main's device key, on its outage node; uploads only.
+    let mut to_backup_iroh = Proc::start(&iroh, &[], Some(tunnel())).await;
+    let to_backup = to_backup_iroh.wait(|v| v["listen"].is_string()).await["listen"].as_str().unwrap().to_owned();
+    let mut e = sync_client::C::open(&to_backup).await;
+    assert_eq!(e.ask(json!({"device": dev, "key": dkey, "protocol": 3}), b"").await.unwrap()["ok"], true);
+    for op in ["browse", "mkdir", "move", "devices", "pull", "manifest"] {
+        assert_eq!(e.ask(json!({"op": op, "path": "outage/x"}), b"").await.unwrap()["error"], "scope", "{op}");
+    }
+    let spot = b"spot 30s".repeat(1000);
+    let hex: String = Sha256::digest(&spot).iter().map(|b| format!("{b:02x}")).collect();
+    let b = e.ask(json!({"op": "upload-begin", "path": "outage/Spot 30s.mov", "size": spot.len(), "sha256": hex, "folder": "renders/Client/2026"}), b"").await.unwrap();
+    let id = b["upload"].as_str().unwrap().to_owned();
+    assert_eq!(e.ask(json!({"op": "upload-part", "upload": id, "offset": 0, "size": spot.len()}), &spot).await.unwrap()["have"], spot.len());
+    let end = e.ask(json!({"op": "upload-end", "upload": id}), b"").await.unwrap();
+    assert!(end["outage"].is_string(), "{end}");
+    let waiting: Vec<Value> = serde_json::from_slice(&std::fs::read(backup_dir.join("outage.json")).unwrap()).unwrap();
+    assert_eq!(waiting.len(), 3, "{waiting:?}");
+
+    // The main is back: the backup pushes; it's restarted while the 40 MB file is on its way.
+    main.signal("-CONT");
+    let part = root.join(".pluck-partial");
+    let until = Instant::now() + T;
+    let mut cut = false;
+    while Instant::now() < until {
+        let midway = std::fs::read_dir(&part).into_iter().flatten().flatten()
+            .any(|f| f.file_name().to_string_lossy().starts_with("outage-") && f.metadata().is_ok_and(|m| m.len() > 0 && m.len() < film.len() as u64));
+        if midway {
+            drop(backup);
+            cut = true;
+            break;
+        }
+        if waiting_on(&backup_dir) == 0 { break }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    eprintln!("outage push cut half way: {cut}");
+    let _backup = Proc::start(bin, &["--host", backup_dir.to_str().unwrap(), "--signal", &sig, "--local", "--backup", "--iroh", "--iroh-bin", ib,
+        "--quality", "same", "--name", "Backup"], None).await;
+    let until = Instant::now() + T * 2;
+    while waiting_on(&backup_dir) > 0 {
+        assert!(Instant::now() < until, "never pushed: {}", std::fs::read_to_string(backup_dir.join("outage.json")).unwrap_or_default());
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    tokio::time::sleep(Duration::from_secs(3)).await; // another round or two: nothing more arrives
+    let today = |d: &Path| std::fs::read_dir(d).unwrap().flatten().map(|f| f.path()).collect::<Vec<_>>();
+    let days = today(&root.join("Delivered while offline"));
+    assert_eq!(days.len(), 1);
+    let files = today(&days[0]);
+    assert_eq!(files.len(), 1, "once: {files:?}");
+    assert!(files[0].ends_with("Interview A.mov") && std::fs::read(&files[0]).unwrap() == film);
+    assert_eq!(std::fs::read(root.join("Client/2026/Spot 30s.mov")).unwrap(), spot, "the editor's file in the folder it picked");
+    assert_eq!(std::fs::read(main_dir.join(format!("uploads/L1/{}.png", att["id"].as_str().unwrap()))).unwrap(), png);
+    let pulled = ctl(&main_dir, json!({"op": "pull", "since": 0})).await;
+    let entries = pulled["entries"].as_array().unwrap();
+    let ups: Vec<&Value> = entries.iter().filter_map(|e| e.get("upload")).collect();
+    assert_eq!(ups.len(), 2, "the client's file and the attachment, logged once each: {ups:?}");
+    let asset = ups.iter().find(|u| u["for"] == "asset").unwrap();
+    assert_eq!((asset["root"].clone(), asset["outage"].clone()), (json!(true), json!(true)));
+    assert!(asset["path"].as_str().unwrap().starts_with("renders/Delivered while offline/") && asset["path"].as_str().unwrap().ends_with("/Interview A.mov"));
+    assert!(ups.iter().any(|u| u["for"] == "attachment" && u["id"] == att["id"] && u["path"] == format!("uploads/L1/{}.png", att["id"].as_str().unwrap())));
+    assert_eq!(entries.iter().filter(|e| e["comment"]["id"] == cm["comment"]["id"]).count(), 1, "the backup's comment, once");
+    let list = ctl(&main_dir, json!({"op": "outage-list"})).await;
+    assert_eq!(list["items"].as_array().unwrap().len(), 2, "the Inbox lists the client's file and the editor's: {list}");
+    let ed = list["items"].as_array().unwrap().iter().find(|x| x["kind"] == "editor").unwrap();
+    assert_eq!((ed["path"].clone(), ed["moved"].clone(), ed["id"].clone()), (json!("renders/Client/2026/Spot 30s.mov"), json!(true), end["outage"].clone()));
+    // The backup keeps nothing of it.
+    assert!(std::fs::read_dir(backup_dir.join("outage-editor")).unwrap().flatten().all(|f| f.file_name() == ".pluck-partial"));
+    assert!(std::fs::read_dir(backup_dir.join("uploads/L1")).map_or(true, |d| d.count() == 0));
+    drop((home, to_backup_iroh, main));
+    let _ = (std::fs::remove_dir_all(main_dir), std::fs::remove_dir_all(backup_dir), std::fs::remove_dir_all(root));
+}
+
+fn waiting_on(backup: &Path) -> usize {
+    std::fs::read(backup.join("outage.json")).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()).map_or(usize::MAX, |v| v.len())
+}

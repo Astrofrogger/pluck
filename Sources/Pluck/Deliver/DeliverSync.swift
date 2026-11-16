@@ -27,11 +27,17 @@ final class DeliverSync {
     private(set) var readOnly = false
     /// Tests: a round never sleeps or schedules.
     @ObservationIgnored var manual = false
+    /// Tests: each outbox line waits this long first (a long push in progress).
+    @ObservationIgnored var testFlushPause: Duration?
     @ObservationIgnored private var nextLine = 1
     /// Asked for while a round ran: one more right after it.
     @ObservationIgnored private var again = false
     @ObservationIgnored private var soon: Task<Void, Never>?
     @ObservationIgnored private var loop: Task<Void, Never>?
+    @ObservationIgnored private var poll: Task<Void, Never>?
+    /// The light refresh running (changes + pull), its number and when it began; one left hanging is given up after a minute.
+    @ObservationIgnored private var refreshing: (task: Task<Void, Never>, number: Int, began: Date)?
+    @ObservationIgnored private var refreshes = 0
 
     init(store: DeliverStore, publish: ReviewPublish) {
         self.store = store
@@ -124,7 +130,9 @@ final class DeliverSync {
 
     // MARK: - Rounds
 
-    /// At launch, 2 s after each change, every 30 s while Deliver shows and every 2 min otherwise.
+    /// At launch, 2 s after each change, every 30 s while Deliver shows and every 2 min otherwise. New comments and
+    /// changes come on their own besides (refresh): every 30 s while Deliver shows, at once when it comes to the front,
+    /// whatever a round is pushing.
     func start() {
         guard state.host != nil, !manual, ScreenshotMode.scene == nil else { return }
         loop?.cancel()
@@ -133,6 +141,19 @@ final class DeliverSync {
                 await self?.round()
                 let visible = StudioNavigator.shared.page == .deliver
                 try? await Task.sleep(for: .seconds(visible ? 30 : 120))
+            }
+        }
+        poll?.cancel()
+        poll = Task { [weak self] in
+            var last = Date.now, shown = true
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                let visible = StudioNavigator.shared.page == .deliver
+                if (visible && !shown) || Date.now.timeIntervalSince(last) >= (visible ? 30 : 120) {
+                    last = .now
+                    await self?.refresh()
+                }
+                shown = visible
             }
         }
     }
@@ -152,7 +173,7 @@ final class DeliverSync {
         guard let host = dataHost else { return }
         guard !syncing else { again = true; return }
         syncing = true
-        await once(host)
+        if await once(host) { await refresh() }
         syncing = false
         if again {
             again = false
@@ -160,20 +181,32 @@ final class DeliverSync {
         }
     }
 
-    private func once(_ host: Deliver.Host) async {
+    /// The outbox to the host (its files too: pushFiles), then its status; whether the host answered.
+    /// (changes and pull come after it, in refresh's own session.)
+    private func once(_ host: Deliver.Host) async -> Bool {
+        var status: [String: Any] = [:]
         do {
             try await ReviewHostClient.session(host) { session in
                 let compatibility = DeliverHostUpdate.compatibility(host: session.protocolLevel)
                 guard compatibility != .refused else { throw Deliver.Failure("incompatible") }
                 self.readOnly = compatibility == .readOnly
                 if !self.readOnly { try await self.flush(session, host: host) }
-                try await self.changes(session, host: host)
-                try await self.pull(session, host: host)
+                status = (try? await session.ask(["op": "status"])) ?? [:]
             }
+            await DeliverOutage.note(status: status, host: host)
             state.lastSync = .now
             problem = waiting >= 10_000 ? problem : nil
             saveState()
-        } catch let failure as Deliver.Failure where failure.code == "incompatible" {
+            return true
+        } catch {
+            said(error)
+        }
+        return false
+    }
+
+    /// A round's (or refresh's) failure in the footer.
+    private func said(_ error: Error) {
+        do { throw error } catch let failure as Deliver.Failure where failure.code == "incompatible" {
             problem = String(localized: "Update the NAS host")
         } catch is ReviewHostClient.Unconfirmed {
             problem = String(localized: "confirm the NAS’s fingerprint")
@@ -182,13 +215,43 @@ final class DeliverSync {
             problem = failure.code == "auth" ? String(localized: "the NAS didn’t accept this Mac") : String(localized: "the NAS refused the change")
         } catch {
             problem = nil   // offline: the footer says so
-            state.lastSync = state.lastSync
         }
+    }
+
+    /// New changes and comments from the host in a session of their own, so they never wait behind a long push (or a
+    /// round stuck on a dead connection). `changes` first: a comment merges only once its asset is here. One at a time;
+    /// one still running after a minute is given up (what it got is merged again next time: the merge is idempotent),
+    /// and its seqs aren't kept.
+    func refresh() async {
+        guard let host = dataHost else { return }
+        if let running = refreshing, Date.now.timeIntervalSince(running.began) < 60 { return await running.task.value }
+        refreshes += 1
+        let number = refreshes
+        let task = Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await ReviewHostClient.session(host) { session in
+                    guard DeliverHostUpdate.compatibility(host: session.protocolLevel) != .refused else { throw Deliver.Failure("incompatible") }
+                    try await self.changes(session, host: host) { self.refreshing?.number == number }
+                    try await self.pull(session, host: host) { self.refreshing?.number == number }
+                }
+                guard self.refreshing?.number == number else { return }
+                self.state.lastSync = .now
+                self.problem = self.waiting >= 10_000 ? self.problem : nil
+                self.saveState()
+            } catch {
+                if self.refreshing?.number == number { self.said(error) }
+            }
+        }
+        refreshing = (task, number, .now)
+        await task.value
+        if refreshing?.number == number { refreshing = nil }
     }
 
     private func flush(_ session: HostSession, host: Deliver.Host) async throws {
         for line in outbox() {
             guard let n = line["n"] as? Int else { continue }
+            if let testFlushPause { try await Task.sleep(for: testFlushPause) }
             if let fragment = line["publish"] as? [String: Any], let manifest = fragment["manifest"] as? [String: Any] {
                 if let project = (fragment["project"] as? String).flatMap(UUID.init(uuidString:)) {
                     try await pushFiles(session, project: project, manifest: manifest, host: host)
@@ -222,7 +285,7 @@ final class DeliverSync {
     }
 
     /// Every page first, then one apply (projects before their folders and assets, whatever page they came on).
-    private func changes(_ session: HostSession, host: Deliver.Host) async throws {
+    private func changes(_ session: HostSession, host: Deliver.Host, live: () -> Bool = { true }) async throws {
         var all: [String: [[String: Any]]] = [:], seq = state.storeSeq, more = true, pages = 0, early = false
         while more, pages < 10_000 {
             pages += 1
@@ -236,12 +299,14 @@ final class DeliverSync {
         early = early || more   // the page cap
         // Stopped early: never past an object whose project may still be on a later page; it comes again next round.
         // All pages read: a project that never came won't come by rewinding, so move on (else every round re-reads all).
+        guard live() else { return }
         let unapplied = apply(all, host: host)
         state.storeSeq = early ? unapplied.map { min(seq, $0 - 1) } ?? seq : seq
     }
 
-    private func pull(_ session: HostSession, host: Deliver.Host) async throws {
+    private func pull(_ session: HostSession, host: Deliver.Host, live: () -> Bool = { true }) async throws {
         let answer = try await ReviewPublish.pages(state.logSeq) { try await session.ask(["op": "pull", "since": $0]) }
+        guard live() else { return }
         let entries = answer["entries"] as? [[String: Any]] ?? []
         if !entries.isEmpty {
             store.applying = true
@@ -427,6 +492,7 @@ final class DeliverSync {
     /// "This Mac": syncing stops; the NAS keeps what it has.
     func stop() {
         loop?.cancel()
+        poll?.cancel()
         soon?.cancel()
         store.journal = nil
         state = State()

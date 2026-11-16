@@ -29,6 +29,8 @@ final class RemoteShares {
         /// Not used any more; still saved (always on) so older builds, which need the key, can read the list.
         var search = true
         var watch: [Watch] = []
+        /// The NAS folder it is (OfficeGroup.nasKey), so the office Macs of a group know it's the same one; nil on a local disk.
+        var nas: String?
     }
 
     struct State: Sendable, Hashable {
@@ -139,6 +141,15 @@ final class RemoteShares {
             guard let made = made ?? nil else { continue }
             update(folder) { $0.bookmark = made.0; $0.volume = made.1 }
         }
+        // Which NAS folder each is (a group's office Macs match shares by it).
+        var nasChanged = false
+        for folder in archive.folders {
+            let found = await Self.withTimeout(folder.path + "#nas", nil) { OfficeGroup.nasKey(folder) }
+            guard let found, share(folder)?.nas != found else { continue }
+            update(folder) { $0.nas = found }
+            nasChanged = true
+        }
+        if nasChanged { OfficeGroup.shared.updateAliases() }
         for share in shares {
             guard let bookmark = share.bookmark, !(await state(URL(fileURLWithPath: share.path, isDirectory: true)).online) else { continue }
             let resolved = await Self.withTimeout(share.path + "#resolve", nil) { () -> (URL, Data?)? in
@@ -249,5 +260,6 @@ extension RemoteShares.Share {
         bookmark = try values.decodeIfPresent(Data.self, forKey: .bookmark)
         volume = try values.decodeIfPresent(String.self, forKey: .volume)
         watch = try values.decodeIfPresent([RemoteShares.Watch].self, forKey: .watch) ?? []
+        nas = try values.decodeIfPresent(String.self, forKey: .nas)
     }
 }

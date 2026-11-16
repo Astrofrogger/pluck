@@ -337,6 +337,8 @@ final class DeliverServer {
         if link.requireName == true, peer.name.isEmpty, type != "identify", type != "name" { throw Deliver.Failure("auth") }
         if Self.writes.contains(type) {
             guard link.mode == .review else { throw Deliver.Failure("readonly") }
+            // Comments, replies (drawings too) and approvals carry a name: the page asks for one on `needName`.
+            if peer.name.isEmpty, ["comment-add", "reply-add", "approve"].contains(type) { throw Deliver.Failure("needName") }
             // Every write, ticks included: 30 a minute per peer.
             peer.writes = peer.writes.filter { Date.now.timeIntervalSince($0) < 60 }
             guard peer.writes.count < 30 else { throw Deliver.Failure("limit") }

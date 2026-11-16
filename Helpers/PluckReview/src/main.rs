@@ -253,6 +253,14 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         if let Some(u) = &uploads {
             roots.add_uploads(u);
         }
+        // A backup's own uploads root, for the main's Macs while the main is down (§13.25): never browsed, never a source.
+        let uploads = if backup {
+            let d = data.join(outage::EDITOR_DIR);
+            let _ = std::fs::create_dir_all(&d);
+            upload_root::UploadRoot::parse(&format!("outage={}", d.display()), &[], busy.clone()).map(Arc::new)
+        } else { uploads };
+        let devices = Arc::new(devices::Devices::load(&data));
+        let outage = outage::Outage::load(&data, backup, backup.then(|| devices.clone()));
         let roots = Arc::new(roots);
         let (job_tx, job_rx) = mpsc::unbounded_channel();
         let (prog_tx, prog_rx) = mpsc::unbounded_channel();
@@ -266,11 +274,16 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
             hc["quality"].as_str().filter(|q| *q == "same" || copies::quality(q).is_some()).unwrap_or("1080-low")));
         signal::SAME.store(replica.as_ref().is_some_and(|r| !r.lighter()), std::sync::atomic::Ordering::Relaxed);
         h.replica = replica.clone();
+        if backup {
+            h.outage = Some(outage.clone());
+        }
+        if let Some(r) = &replica {
+            let _ = r.outage.set(outage.clone());
+        }
         h.reload();
         tokio::spawn(host::run(h, tap_rx, sync_rx, prog_rx));
         let (acceptor, fp) = sync::tls(&data)?;
         let (key, new_key) = sync::host_key(&data)?;
-        let devices = Arc::new(devices::Devices::load(&data));
         let paired = devices.clone();
         tokio::spawn(uplink::run(local, move || backup || paired.has_backup())); // the upload speed the Room routes viewers by
         *devices.link.lock().unwrap() = json!({"n": me.name, "fp": fp});
@@ -279,7 +292,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         }
         let shared_key = Arc::new(std::sync::RwLock::new(key));
         let ctx = Arc::new(sync::Ctx { data: data.clone(), key: shared_key.clone(), roots: roots.clone(), to_host: sync_tx.clone(),
-            devices: devices.clone(), uploads, ident: me.clone(), fp: fp.clone(), acceptor: acceptor.clone() });
+            devices: devices.clone(), uploads, outage: Some(outage.clone()), ident: me.clone(), fp: fp.clone(), acceptor: acceptor.clone() });
         if let Some(listen) = hc["listen"].as_str() {
             let (ctx, listen) = (ctx.clone(), listen.to_owned());
             tokio::spawn(async move {
@@ -301,8 +314,31 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         tokio::spawn(sync::accept_loop(ctx.clone(), ctl, None));
         let bin = iroh::binary(hc["irohBin"].as_str().map(str::to_owned));
         if hc["iroh"] == true && !backup {
-            let (l, streams, _id) = iroh::office(&data, bin.clone(), hc["irohRelay"].as_str().map(str::to_owned), devices.clone()).await?;
+            let (l, streams, _id) = iroh::office(&data, bin.clone(), hc["irohRelay"].as_str().map(str::to_owned), devices.clone(), "iroh-key").await?;
             tokio::spawn(sync::accept_loop(ctx.clone(), l, Some(streams)));
+        }
+        // A backup also lets the main's Macs in (only those, on the node each registered there), with a key of its own
+        // (its home-mode child dials the main with iroh-key): its route for uploads while the main is down (§13.25).
+        if let (true, Some(r)) = (hc["iroh"] == true && backup, &replica) {
+            let relay = hc["irohRelay"].as_str().map(str::to_owned);
+            let (l, streams, mut id) = iroh::office(&data, bin.clone(), relay.clone(), devices.clone(), "iroh-office-key").await?;
+            tokio::spawn(sync::accept_loop(ctx.clone(), l, Some(streams)));
+            let (r, fp) = (r.clone(), fp.clone());
+            tokio::spawn(async move {
+                loop {
+                    if let Some(node) = id.borrow_and_update().clone() {
+                        let mut o = json!({"node": node, "fp": fp, "relay": relay});
+                        let addrs = iroh::OFFICE_ADDRS.lock().unwrap().clone();
+                        if !addrs.is_null() {
+                            o["addrs"] = addrs;
+                        }
+                        *r.office.lock().unwrap() = o;
+                    }
+                    if id.changed().await.is_err() {
+                        break;
+                    }
+                }
+            });
         }
         if let Some(r) = replica {
             tokio::spawn(replica::run(r, sync_tx.clone(), replica::Setup { link: hc["mainLink"].as_str().map(str::to_owned), bin, name: me.name.clone() }));

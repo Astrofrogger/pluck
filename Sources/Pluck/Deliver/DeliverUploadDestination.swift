@@ -164,7 +164,13 @@ struct DeliverUploadPicker: View {
                 } else if case .unreachable = stage {
                     Button("Try Again") { stage = .loading; Task { stage = await DeliverUploadDestination.stage(host) } }.buttonStyle(StudioFlatButtonStyle())
                     if let later, let folder = DeliverUploadDestination.whileAway(host, project: project) {
-                        Button("Send When It’s Back") { later(folder) }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                        let backup = DeliverOutage.backup(for: host) != nil
+                        Button("Send When It’s Back") { DeliverShareQueue.shared.chooseBackup(host.id, false); later(folder) }
+                            .buttonStyle(StudioFlatButtonStyle(prominent: !backup))
+                        if backup {
+                            Button("Upload to Backup") { DeliverShareQueue.shared.chooseBackup(host.id, true); later(folder) }
+                                .buttonStyle(StudioFlatButtonStyle(prominent: true))
+                        }
                     }
                 }
             }
@@ -233,6 +239,10 @@ struct DeliverUploadPicker: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Pluck can’t reach \(host.name) right now.").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
             Text(verbatim: why).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            if later != nil, DeliverOutage.backup(for: host) != nil, DeliverUploadDestination.whileAway(host, project: project) != nil {
+                Text("The main server is offline. Upload to the backup now? It moves to the main when it’s back.")
+                    .font(Design.Studio.body).foregroundStyle(Design.Studio.text).fixedSize(horizontal: false, vertical: true)
+            }
             if let folder = DeliverUploadDestination.whileAway(host, project: project) {
                 Text("Pluck can keep it waiting and send it to \(path(folder)) as soon as the server is back, even after a restart.")
                     .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
@@ -272,6 +282,12 @@ final class DeliverShareQueue {
         /// A server it's published to afterwards (not the one holding the review data, which syncs).
         var publishTo: UUID?
         var added = Date()
+        /// "Upload to Backup" (§13.25): sent to the main's backup while the main is down; `onBackup` is the backup's id for
+        /// it once there, found on the main (outage-list) when it's back.
+        var viaBackup: Bool?
+        var onBackup: String?
+        /// "Upload to <NAS>…" for a version: that version points at the file once it's there (no new version).
+        var version: UUID?
         var name: String { URL(fileURLWithPath: file).lastPathComponent }
     }
 
@@ -296,10 +312,16 @@ final class DeliverShareQueue {
     func waiting(_ project: UUID) -> [Entry] { entries.filter { $0.project == project } }
 
     func add(_ entry: Entry) {
+        var entry = entry
+        if let at = backupChosen[entry.upload.host], Date.now.timeIntervalSince(at) < 60 { entry.viaBackup = true }
         entries.append(entry)
         save()
         resume()
     }
+
+    /// The editor's answer to "Upload to the backup now?" for what's queued for that server next (one Share at a time).
+    @ObservationIgnored private var backupChosen: [UUID: Date] = [:]
+    func chooseBackup(_ host: UUID, _ yes: Bool) { backupChosen[host] = yes ? .now : nil }
 
     func cancel(_ id: UUID) {
         entries.removeAll { $0.id == id }
@@ -317,12 +339,43 @@ final class DeliverShareQueue {
     func attempt() async -> Int {
         var sent = 0
         for entry in entries {
-            guard let host = publish.host(entry.upload.host), (try? await ReviewHostClient.ask(host, ["op": "roots"])) != nil else { continue }
-            guard let path = try? await DeliverUploads.shared.upload(URL(fileURLWithPath: entry.file), to: entry.upload.folder + "/" + entry.name, host: host, attempts: 2) else { continue }
+            guard let host = publish.host(entry.upload.host) else { continue }
+            let up = (try? await ReviewHostClient.ask(host, ["op": "roots"])) != nil
+            var path: String?
+            if let id = entry.onBackup {
+                // On the backup: the backup moves it to the main once it's back; the main says where it went.
+                guard up, let item = (try? await DeliverOutage.delivered(host))?.first(where: { $0.id == id }) else { continue }
+                if item.quarantine {
+                    path = await takeIn(item, host: host, entry: entry)
+                    if path == nil { continue }
+                } else { path = item.path }
+            } else if !up {
+                guard entry.viaBackup == true, DeliverOutage.backup(for: host) != nil,
+                      let id = try? await DeliverOutage.upload(URL(fileURLWithPath: entry.file), folder: entry.upload.folder, main: host),
+                      let index = entries.firstIndex(where: { $0.id == entry.id }) else { continue }
+                entries[index].onBackup = id
+                save()
+                continue
+            } else {
+                path = try? await DeliverUploads.shared.upload(URL(fileURLWithPath: entry.file), to: entry.upload.folder + "/" + entry.name, host: host, attempts: 2)
+            }
+            guard let path else { continue }
             // (Cancelled while it was on its way: the file stays on the NAS, nothing is added.)
             guard entries.contains(where: { $0.id == entry.id }) else { continue }
+            if path.hasPrefix("/") {
+                // Taken in here (no uploads folder on the server): a local file, as before; a version keeps its own original.
+                let local = URL(fileURLWithPath: path)
+                if entry.version == nil, let asset = entry.asset, store.find(asset) != nil { _ = try? store.addVersion(local, to: asset) }
+                else if entry.version == nil { _ = try? store.add([local], to: entry.project, folder: nil) }
+                entries.removeAll { $0.id == entry.id }
+                save()
+                sent += 1
+                continue
+            }
             let reference = ReviewPublish.nasPath(host: host.id, path: path)
-            if let asset = entry.asset, store.find(asset) != nil {
+            if let version = entry.version, let asset = entry.asset, store.find(asset) != nil {
+                store.update(version: version, of: asset) { $0.path = reference }
+            } else if let asset = entry.asset, store.find(asset) != nil {
                 _ = try? store.addVersion(reference: reference, size: entry.size, to: asset)
             } else {
                 store.addReferences([(name: URL(fileURLWithPath: entry.name).deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(URL(fileURLWithPath: entry.file)),
@@ -334,6 +387,21 @@ final class DeliverShareQueue {
             if let other = entry.publishTo.flatMap(publish.host), !ReviewPublish.isDataHost(other.id) { await publish.publish(.project(entry.project), to: other) }
         }
         return sent
+    }
+
+    /// The main had no uploads folder any more when the backup's file arrived: it's in the server's own quarantine, so it
+    /// comes here (Review/Uploads) as clients' uploads do, and goes there. The local path, nil when that didn't work.
+    private func takeIn(_ item: DeliverOutage.Item, host: Deliver.Host, entry: Entry) async -> String? {
+        let target = DeliverServer.unique(store.root.appendingPathComponent("Uploads/outage/\(DeliverServer.safeName(item.name))"))
+        try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        do {
+            try await ReviewHostClient.session(host) { session in
+                try await session.get(item.path, to: target, expected: entry.size)
+                _ = try? await session.ask(["op": "delete", "path": item.path])
+                _ = try? await session.ask(["op": "outage-done", "id": item.id])
+            }
+            return target.path
+        } catch { return nil }
     }
 
     /// Tries every 30 s while anything waits (started at launch and when something is queued).
@@ -363,7 +431,11 @@ struct DeliverWaitingRows: View {
                     HStack(spacing: 8) {
                         Image(systemName: "clock.arrow.circlepath").foregroundStyle(Design.Studio.textQuiet)
                         Text(verbatim: entry.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
-                        StudioChip(text: Text("Waiting for NAS"), colour: Design.Studio.warn, tinted: true)
+                        if entry.onBackup != nil {
+                            StudioChip(text: Text("On the backup"), colour: Design.Studio.textQuiet)
+                        } else {
+                            StudioChip(text: entry.viaBackup == true ? Text("Uploading to backup") : Text("Waiting for NAS"), colour: Design.Studio.warn, tinted: true)
+                        }
                         Spacer(minLength: 8)
                         Text(verbatim: (queue.publish.host(entry.upload.host)?.name ?? "") + " › " + entry.upload.folder.split(separator: "/").dropFirst().joined(separator: " › "))
                             .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.head)

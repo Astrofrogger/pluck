@@ -31,6 +31,12 @@ final class DeliverUploads {
 
     /// Sends `url` to `path` (inside the uploads root) and returns the path the host gave it (" 2" when taken).
     func upload(_ url: URL, to path: String, host: Deliver.Host, attempts: Int = 5) async throws -> String {
+        let end = try await send(url, to: path, host: host, attempts: attempts)
+        return end["path"] as? String ?? path
+    }
+
+    /// The same, with more fields for `upload-begin` (a backup's `folder`, §13.25); the host's `upload-end` answer.
+    func send(_ url: URL, to path: String, host: Deliver.Host, extra: [String: Any] = [:], attempts: Int = 5) async throws -> [String: Any] {
         guard let sha = await Self.sha256(url), let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) else {
             throw Deliver.Failure("notFound")
         }
@@ -39,9 +45,9 @@ final class DeliverUploads {
         var lastError: Error = Deliver.Failure("internal")
         for _ in 0..<attempts {
             do {
-                var final = path
+                var final: [String: Any] = [:]
                 try await ReviewHostClient.session(host) { session in
-                    let begin = try await session.ask(["op": "upload-begin", "path": path, "size": size, "sha256": sha])
+                    let begin = try await session.ask(["op": "upload-begin", "path": path, "size": size, "sha256": sha].merging(extra) { a, _ in a })
                     guard let id = begin["upload"] as? String else { throw Deliver.Failure("internal") }
                     var have = (begin["have"] as? NSNumber)?.int64Value ?? 0
                     let handle = try FileHandle(forReadingFrom: url)
@@ -60,8 +66,7 @@ final class DeliverUploads {
                         }
                         self.progress[path] = Double(have) / Double(max(size, 1))
                     }
-                    let end = try await session.ask(["op": "upload-end", "upload": id])
-                    final = end["path"] as? String ?? path
+                    final = try await session.ask(["op": "upload-end", "upload": id])
                 }
                 return final
             } catch let failure as Deliver.Failure where ["checksum", "space", "exists", "limit", "scope"].contains(failure.code) {

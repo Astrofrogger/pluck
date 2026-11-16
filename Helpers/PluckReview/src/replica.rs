@@ -66,6 +66,10 @@ pub struct Shared {
     pub quality: String,
     st: Mutex<State>,
     wake: Notify,
+    /// Uploads taken during an outage, pushed to the main each round (§13.25).
+    pub outage: std::sync::OnceLock<Arc<crate::outage::Outage>>,
+    /// The Macs-only iroh side's {"node","fp","relay"}: reported to the main, which hands it to its Macs.
+    pub office: Mutex<Value>,
 }
 
 /// "50G", "500M", "2T" or plain bytes.
@@ -127,7 +131,8 @@ impl Shared {
                 x["state"] = json!("queued");
             }
         }
-        Arc::new(Shared { data: data.into(), max, quality: quality.into(), st: Mutex::new(st), wake: Notify::new() })
+        Arc::new(Shared { data: data.into(), max, quality: quality.into(), st: Mutex::new(st), wake: Notify::new(),
+            outage: Default::default(), office: Mutex::new(Value::Null) })
     }
 
     fn copies(&self) -> PathBuf {
@@ -408,6 +413,9 @@ pub async fn run(shared: Arc<Shared>, to_host: mpsc::Sender<host::Sync>, setup: 
         match Client::connect(&at, main["pin"].as_str().unwrap_or(""), hello).await {
             Ok(mut c) => {
                 let _ = std::fs::write(shared.data.join("main-protocol"), format!("{}\n", c.hello["protocol"].as_u64().unwrap_or(0)));
+                if let Some(o) = shared.outage.get() {
+                    o.set_main(c.hello["outage"] == 1); // a 4.0.3 main can't take them on: no uploads here then
+                }
                 if let Some(n) = c.hello["host"]["name"].as_str().filter(|n| *n != main["name"]) {
                     main["name"] = json!(n);
                 }
@@ -472,6 +480,16 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
         anyhow::ensure!(r["ok"] == true, "append: {r}");
         pushed = last;
     }
+    // 3b. what arrived here during an outage, to the main (§13.25), and the main's Macs that may upload here.
+    if let Some(o) = shared.outage.get().filter(|o| o.accepting()) {
+        if let Some(d) = &o.devices {
+            d.set_outage(&c.ask(&json!({"op": "outage-macs"})).await?["macs"]);
+        }
+        let n = o.push(c).await?;
+        if n > 0 {
+            log(format!("backup: {n} upload(s) from the outage moved to the main"));
+        }
+    }
     {
         let mut st = shared.st.lock().unwrap();
         (st.v["storeSeq"], st.v["mainSeq"], st.v["pushed"]) = (json!(store_seq), json!(main_seq), json!(pushed));
@@ -480,6 +498,11 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
     }
     // Our own summary up; an "Update now" for this backup comes back.
     let mut summary = shared.summary();
+    // Its Macs-only iroh side, once both ends take outage uploads: the main hands it to its Macs (devices, status).
+    if shared.outage.get().is_some_and(|o| o.accepting()) && !shared.office.lock().unwrap().is_null() {
+        summary["office"] = shared.office.lock().unwrap().clone();
+        summary["outage"] = json!(1);
+    }
     // "Serving now" on the main's device list: this backup has viewers of its own.
     summary["serving"] = json!(host_op(to_host, json!({"op": "status"})).await?["viewers"].as_u64().unwrap_or(0) > 0);
     let s = c.ask(&json!({"op": "status", "replica": summary})).await?;

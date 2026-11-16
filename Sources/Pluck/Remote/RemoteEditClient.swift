@@ -55,7 +55,8 @@ extension OfficeRenderClient {
     enum FileKind: String { case original, proxy, thumb }
 
     func shares() async throws -> [RemoteShare] {
-        (try await ask("shares", timeout: 30)["shares"] as? [[String: Any]] ?? []).compactMap(RemoteShare.init)
+        if members.count > 1, account != nil { return try await groupShares() }
+        return (try await ask("shares", timeout: 30)["shares"] as? [[String: Any]] ?? []).compactMap(RemoteShare.init)
     }
 
     /// The folder's entries, folders first; `path` is relative to the share ("" for its top).
@@ -93,7 +94,9 @@ extension OfficeRenderClient {
     /// The host's name, whether it's rendering, and its shares.
     func status() async throws -> (office: String, busy: Bool, shares: [RemoteShare]) {
         let answer = try await ask("status", timeout: 30)
-        return (answer["office"] as? String ?? "", answer["busy"] as? Bool ?? false,
-                (answer["shares"] as? [[String: Any]] ?? []).compactMap(RemoteShare.init))
+        // (Several office Macs: all their shares.)
+        let shares = members.count > 1 && account != nil ? try await groupShares()
+            : (answer["shares"] as? [[String: Any]] ?? []).compactMap(RemoteShare.init)
+        return (answer["office"] as? String ?? "", answer["busy"] as? Bool ?? false, shares)
     }
 }
