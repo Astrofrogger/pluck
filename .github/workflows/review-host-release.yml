@@ -1,11 +1,18 @@
 # Builds the Pluck Review host for Linux when a GitHub release is published, and uploads it to that
-# release. It runs ONLY on "release published": nothing is built or published on push, pull request,
-# schedule or by hand. It does NOT sign: afterwards run  scripts/sign-host-release.sh <tag>  locally.
+# release. It runs on "release published", or by hand for an existing release tag (workflow_dispatch); never on
+# push, pull request or schedule. It does NOT sign: afterwards run  scripts/sign-host-release.sh <tag>  locally.
 name: Review host release
 
 on:
   release:
     types: [published]
+  # By hand, only to rebuild the host files of an existing release (e.g. 4.0.3's Proxmox binaries, built for the
+  # wrong glibc). The result still has to be signed locally, as after a release.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag, e.g. v4.0.3"
+        required: true
 
 permissions:
   contents: read
@@ -23,19 +30,37 @@ jobs:
           - { target: x86_64-unknown-linux-gnu, arch: amd64, runner: ubuntu-24.04 }
           - { target: aarch64-unknown-linux-gnu, arch: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
+    # Built on Debian 12 (bookworm), like the image: the Proxmox container is Debian 12 (glibc 2.36). On the runner's
+    # Ubuntu 24.04 the binary needed glibc 2.39 and "did not run here" (owner's Proxmox, 4.0.3).
+    container: rust:1.99.0-bookworm
+    defaults:
+      run:
+        shell: bash   # (a container job's default is sh; the steps use bash)
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: Tools
+        run: apt-get update && apt-get install -y --no-install-recommends jq binutils
       - name: Rust toolchain
         run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
       - name: Build
         env:
           # The host reports the release tag as its version (the updater's health check compares them).
-          PLUCK_REVIEW_VERSION: ${{ github.event.release.tag_name }}
+          PLUCK_REVIEW_VERSION: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           cargo build --profile dist --locked --no-default-features --features portable --manifest-path Helpers/PluckReview/Cargo.toml
           cargo build --profile dist --locked --manifest-path Helpers/PluckIroh/Cargo.toml
+      - name: Runs on Debian 12 (glibc 2.36 at most)
+        run: |
+          set -euo pipefail
+          for b in Helpers/PluckReview/target/dist/pluck-review Helpers/PluckIroh/target/dist/pluck-iroh; do
+            need=$(objdump -T "$b" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -V | tail -1)
+            echo "$b needs glibc $need"
+            [ "$(printf '%s\n2.36\n' "$need" | sort -V | tail -1)" = "2.36" ] || { echo "too new for Debian 12" >&2; exit 1; }
+          done
       - name: Licences and tarball
         env:
           TARGET: ${{ matrix.target }}
@@ -84,6 +109,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -94,7 +121,7 @@ jobs:
         env:
           PLATFORM: ${{ matrix.platform }}
           ARCH: ${{ matrix.arch }}
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
@@ -136,7 +163,7 @@ jobs:
       - name: Merge into one multi-arch image
         id: merge
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           set -euo pipefail
           owner="${GITHUB_REPOSITORY_OWNER,,}"
@@ -156,6 +183,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: tarball-*
@@ -163,7 +192,7 @@ jobs:
           merge-multiple: true
       - name: Prepare and upload
         env:
-          TAG: ${{ github.event.release.tag_name }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
           REPO: ${{ github.repository }}
           IMAGE: ${{ needs.image-merge.outputs.ref }}
           GH_TOKEN: ${{ github.token }}
