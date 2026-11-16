@@ -155,9 +155,10 @@ pub fn stamp(old: &Value, new: &mut Value, by: &str, now: &str, cutoff: &str) {
     new["storeSeq"] = json!(seq);
 }
 
-/// What only the Mac holding a link's key can make (registration, auth, room signing, join hash), and the level they
-/// belong to (§13.24: a level-3 record has no `sign`).
-const LINK_SECRETS: [&str; 5] = ["reg", "auth", "sign", "join", "level"];
+/// What only the Mac holding a link's key can make (registration, auth, room signing, join hash), the level they
+/// belong to (§13.24: a level-3 record has no `sign`), and the room they're for: a keyless Mac's copy may still name
+/// the room from before "Make a New Link", which must never be paired with the new reg.
+const LINK_SECRETS: [&str; 6] = ["roomID", "reg", "auth", "sign", "join", "level"];
 
 /// `publish` with `merge:true` (§13.1): each project meta, folder, asset (with all its versions)
 /// and link merged on its own under M; only tombstones delete. Returns the merged manifest (not
@@ -398,6 +399,10 @@ mod tests {
         let bare = json!({"id": "L", "roomID": "R3", "paused": true, "rev": 6, "at": "2026-11-16T14:00:00Z", "by": "B"});
         let (out, _) = merge_publish(&out, &json!({"links": [bare]}), &Value::Null);
         assert!(out["links"][0]["sign"].is_null() && out["links"][0]["level"] == 3 && out["links"][0]["reg"] == "r3");
+        // A keyless Mac that hasn't heard of the new link yet still names the old room: the room stays with its reg.
+        let stale_room = json!({"id": "L", "roomID": "R", "paused": false, "rev": 7, "at": "2026-11-16T15:00:00Z", "by": "B"});
+        let (out, _) = merge_publish(&out, &json!({"links": [stale_room]}), &Value::Null);
+        assert_eq!((out["links"][0]["roomID"].as_str(), out["links"][0]["reg"].as_str(), out["links"][0]["paused"].clone()), (Some("R3"), Some("r3"), json!(false)));
         // A new link without them isn't taken; a new level-3 one is.
         let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"},
             {"id": "N3", "roomID": "R4", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "B"}]}), &Value::Null);

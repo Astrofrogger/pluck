@@ -312,9 +312,15 @@ final class DeliverPlayback {
                 let asset = AVURLAsset(url: original)
                 if (try? await asset.load(.isPlayable)) == true { item = AVPlayerItem(asset: asset) }
             }
-            if item == nil, let stitched = Self.stitched(store.copies(version.id).appendingPathComponent(asset.kind == .audio ? "a" : "1080")) {
+            let rendition = asset.kind == .audio ? "a" : "1080"
+            if item == nil, let stitched = Self.stitched(store.copies(version.id).appendingPathComponent(rendition)) {
                 stream = stitched
                 item = AVPlayerItem(asset: stitched.asset())
+            }
+            // A teammate's Mac (or the file moved): the review copy streamed from the NAS server.
+            if item == nil, let remote = await Self.fromHost(asset.id, version.id, rendition) {
+                stream = remote
+                item = AVPlayerItem(asset: remote.asset())
             }
             player.replaceCurrentItem(with: item)
         }
@@ -323,6 +329,16 @@ final class DeliverPlayback {
     /// The copy's init piece then every segment, as one fragmented MP4 (read through a resource loader, as RemoteStream does).
     nonisolated static func stitched(_ folder: URL) -> RemoteStream? {
         guard let index = DeliverCopies.index(folder) else { return nil }
+        return stitched(index) { file, offset, length in
+            let handle = try FileHandle(forReadingFrom: folder.appendingPathComponent(file))
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(offset))
+            return try handle.read(upToCount: length) ?? Data()
+        }
+    }
+
+    /// The same, each piece read by `read(file, offset, length)`.
+    nonisolated static func stitched(_ index: Deliver.CopyIndex, read: @escaping @Sendable (String, Int64, Int) async throws -> Data) -> RemoteStream {
         let pieces = [(index.`init`.file, index.`init`.offset, index.`init`.length)] + index.segments.map { ($0.file, $0.offset, $0.length) }
         let total = pieces.reduce(Int64(0)) { $0 + $1.2 }
         return RemoteStream(contentType: UTType.mpeg4Movie.identifier) { offset, length in
@@ -330,10 +346,8 @@ final class DeliverPlayback {
             for piece in pieces where data.count < length {
                 let end = start + piece.2
                 if at < end {
-                    let handle = try FileHandle(forReadingFrom: folder.appendingPathComponent(piece.0))
-                    defer { try? handle.close() }
-                    try handle.seek(toOffset: UInt64(piece.1 + at - start))
-                    let chunk = try handle.read(upToCount: min(length - data.count, Int(end - at))) ?? Data()
+                    let chunk = try await read(piece.0, piece.1 + at - start, min(length - data.count, Int(end - at)))
+                    guard !chunk.isEmpty else { break }
                     data += chunk
                     at += Int64(chunk.count)
                 }
@@ -341,6 +355,31 @@ final class DeliverPlayback {
             }
             return (data, total)
         }
+    }
+
+    /// The review copy on a NAS server this project is published on (or any paired NAS): its index, then byte ranges with `get`.
+    static func fromHost(_ asset: UUID, _ version: UUID, _ rendition: String) async -> RemoteStream? {
+        let publish = ReviewPublish.shared
+        var hosts: [Deliver.Host] = []
+        for host in publish.publications(asset: asset).compactMap({ publish.host($0.host) }) + publish.hosts
+        where host.kind == .nas && !hosts.contains(where: { $0.id == host.id }) { hosts.append(host) }
+        let base = "copies/\(version.uuidString)/\(rendition)/"
+        for host in hosts {
+            guard let data = try? await Self.hostBytes(host, base + "index.json", nil, nil),
+                  let index = try? Deliver.decoder.decode(Deliver.CopyIndex.self, from: data) else { continue }
+            return stitched(index) { file, offset, length in
+                try await Self.hostBytes(host, base + file, offset, Int64(length))
+            }
+        }
+        return nil
+    }
+
+    /// One `get` (a range, or the whole file) through a temporary file.
+    nonisolated static func hostBytes(_ host: Deliver.Host, _ path: String, _ offset: Int64?, _ length: Int64?) async throws -> Data {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-get-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: file) }
+        try await ReviewHostClient.session(host) { try await $0.get(path, to: file, offset: offset, length: length, expected: length ?? 64 << 20) }
+        return try Data(contentsOf: file)
     }
 
     private func ticked(_ seconds: Double) {

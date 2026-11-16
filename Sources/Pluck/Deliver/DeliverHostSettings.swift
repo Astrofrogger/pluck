@@ -431,8 +431,8 @@ struct DeliverInviteSheet: View {
             if let invite {
                 HStack(spacing: 8) {
                     Text(verbatim: invite.link).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
-                        .textSelection(.enabled)
-                        .padding(.horizontal, 8).frame(height: 28).frame(maxWidth: .infinity, alignment: .leading)
+                        // (Not selectable: selected, the whole link spilled over the buttons. Copy link copies it.)
+                        .padding(.horizontal, 8).frame(height: 28).frame(maxWidth: .infinity, alignment: .leading).clipped()
                         .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius))
                     Button { DeliverLinkShare.copy(invite.link); copied = true } label: {
                         Label(copied ? "Copied" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")

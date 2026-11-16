@@ -4,14 +4,17 @@
 //   {"key":"<host key>"}                                   legacy: role mac, LAN or iroh
 //   {"device":"<id>","key":"<device key>"}                 a paired device (over iroh: its node)
 //   {"pair":"<code>","name","node","role"}                 pairing with an invitation's code
-//   → {"ok":true,"version","protocol":3,"host":{"id","name","role"},"device","key"?}
+//   → {"ok":true,"version","protocol":3,"links":3,"host":{"id","name","role"},"device","key"?}
 // (a hello claiming "protocol" < 2 gets {"error":"incompatible","protocol":3}). Then JSON lines,
 // one answer per request:
 //   list | put + N bytes | delete | get (+ offset/length: a range) + N bytes | roots/browse/probe/thumb
 //   invite | devices | device-remove | device-node | rotate-key | update                (role mac)
 //   mkdir | move {path,to} | upload-begin | upload-part + n bytes | upload-end | upload-cancel  (role mac, uploads root)
+//   outage-node | outage-list | outage-done                                              (role mac, §13.25)
 //   pull | append | publish | changes | manifest | status | reload | prepare-update …   → host.rs `sync`
-// A backup may only use manifest, changes, pull, append, get (copies, branding) and status.
+// A backup may only use manifest, changes, pull, append, get (copies, branding), status and the outage push
+// (outage-macs, outage-begin, outage-part + n bytes, outage-end). On a backup, one of the main's Macs (role
+// "outage", over iroh on the node it registered there) may only upload (upload-begin/-part/-end/-cancel).
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -31,7 +34,9 @@ use crate::{devices::Devices, host, keys, log, report, roots::Roots, store::PROT
 
 const MAX_LINE: usize = 1 << 20;
 pub const MAX_PUT: u64 = 256 << 30;
-const BACKUP_OPS: &[&str] = &["manifest", "changes", "pull", "append", "get", "status"];
+const BACKUP_OPS: &[&str] = &["manifest", "changes", "pull", "append", "get", "status", "outage-macs", "outage-begin", "outage-part", "outage-end"];
+const OUTAGE_OPS: &[&str] = &["upload-begin", "upload-part", "upload-end", "upload-cancel"];
+const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "outage-end"];
 
 fn read_or_make(path: &Path, make: impl FnOnce() -> Vec<u8>) -> Result<(Vec<u8>, bool)> {
     if let Ok(b) = std::fs::read(path) {
@@ -105,6 +110,7 @@ pub struct Ctx {
     pub to_host: mpsc::Sender<host::Sync>,
     pub devices: Arc<Devices>,
     pub uploads: Option<Arc<UploadRoot>>,
+    pub outage: Option<Arc<crate::outage::Outage>>,
     pub ident: host::Ident,
     pub fp: String,
     pub acceptor: TlsAcceptor,
@@ -176,7 +182,9 @@ async fn line<R: AsyncBufReadExt + Unpin>(r: &mut R) -> Result<Option<Value>> {
 /// The first line: who's there. Err after the 1 s delay for anything wrong.
 async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devices::Who, Value)> {
     let ok = |device: Option<String>, role: &str, key: Option<String>| {
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL,
+        // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
+        // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say.
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);
@@ -255,8 +263,13 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
         // Client uploads live next to the bundle (the quarantine), not in it; the partial folder is never handed out.
         let upload = rel.filter(|p| p.starts_with("uploads") && !p.starts_with("uploads/.partial") && p.components().count() == 3).map(|p| ctx.data.join(p));
         let path = rel.map(|p| bundle.join(p));
-        if name.starts_with('_') || (!mac && !BACKUP_OPS.contains(&name.as_str())) {
-            if name == "put" || name == "upload-part" {
+        let allowed = match who.role.as_str() {
+            "mac" => !OUTAGE_PUSH.contains(&name.as_str()),
+            "backup" => BACKUP_OPS.contains(&name.as_str()),
+            _ => OUTAGE_OPS.contains(&name.as_str()),
+        };
+        if name.starts_with('_') || !allowed {
+            if name == "put" || name == "upload-part" || name == "outage-part" {
                 anyhow::bail!("{name} not allowed"); // its bytes can't be skipped safely
             }
             w.write_all(format!("{}\n", json!({"error": "scope"})).as_bytes()).await?;
@@ -324,8 +337,30 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 Some(d) => ctx.devices.queue_update(d, op["version"].as_str().unwrap_or("")),
                 None => update::request(&ctx.data, op["version"].as_str().unwrap_or("")),
             },
+            "outage-node" => match &who.device {
+                Some(d) => ctx.devices.set_outage_node(d, op["node"].as_str().unwrap_or("")),
+                None => json!({"error": "invalid"}),
+            },
+            "outage-macs" => ctx.devices.outage_macs(),
+            "outage-list" | "outage-done" | "outage-begin" | "outage-part" | "outage-end" => {
+                let Some(o) = ctx.outage.as_ref().filter(|_| !ctx.ident.backup) else {
+                    if name == "outage-part" {
+                        anyhow::bail!("not a main"); // can't skip the bytes
+                    }
+                    w.write_all(format!("{}\n", json!({"error": "scope"})).as_bytes()).await?;
+                    w.flush().await?;
+                    continue;
+                };
+                match name.as_str() {
+                    "outage-list" => o.list(),
+                    "outage-done" => o.done(op["id"].as_str().unwrap_or(""), op["path"].as_str()),
+                    _ => o.receive(&name, &op, r, ctx.uploads.as_deref(), &ctx.to_host).await?,
+                }
+            }
             "mkdir" | "move" | "upload-begin" | "upload-part" | "upload-end" | "upload-cancel" => {
-                let Some(u) = ctx.uploads.as_ref().filter(|_| !ctx.ident.backup) else {
+                // A backup takes uploads (not mkdir/move) only while its main can take them on (§13.25).
+                let on_backup = name.starts_with("upload-") && ctx.outage.as_ref().is_some_and(|o| o.accepting());
+                let Some(u) = ctx.uploads.as_ref().filter(|_| !ctx.ident.backup || on_backup) else {
                     if name == "upload-part" {
                         anyhow::bail!("no uploads root"); // can't skip the bytes without a valid size
                     }
@@ -345,6 +380,19 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                         v
                     }
                     "upload-part" => u.part(&op, r).await?,
+                    "upload-end" if ctx.ident.backup => {
+                        let meta = u.meta(op["upload"].as_str().unwrap_or("")).unwrap_or_default();
+                        let mut v = u.end(&op).await;
+                        if let (Some(o), Some(path)) = (&ctx.outage, v["path"].as_str()) {
+                            let id = host::uuid();
+                            let rel = path.strip_prefix(&format!("{}/", u.id)).unwrap_or("");
+                            o.add(json!({"id": id, "kind": "editor", "file": format!("{}/{rel}", crate::outage::EDITOR_DIR),
+                                "name": rel.rsplit('/').next().unwrap_or(rel), "size": v["size"], "sha256": meta["sha256"], "by": ctx.devices.name(&device),
+                                "device": device, "folder": meta["folder"], "at": host::now_iso()}));
+                            v["outage"] = json!(id);
+                        }
+                        v
+                    }
                     "upload-end" => u.end(&op).await,
                     _ => u.cancel(&op),
                 }
@@ -462,6 +510,14 @@ impl Client {
         Ok(c)
     }
 
+    /// An op followed by its raw bytes (outage-part).
+    pub async fn send(&mut self, op: &Value, bytes: &[u8]) -> Result<Value> {
+        self.w.write_all(format!("{op}\n").as_bytes()).await?;
+        self.w.write_all(bytes).await?;
+        self.w.flush().await?;
+        tokio::time::timeout(Duration::from_secs(120), line(&mut self.r)).await??.context("closed")
+    }
+
     pub async fn ask(&mut self, op: &Value) -> Result<Value> {
         self.w.write_all(format!("{op}\n").as_bytes()).await?;
         self.w.flush().await?; // a big op (append, publish) would otherwise stall half-sent
@@ -491,7 +547,8 @@ pub mod tests {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let (acceptor, fp) = tls(data).unwrap();
         (Arc::new(Ctx { data: data.into(), key: Arc::new(RwLock::new(vec![7u8; 32])), roots: Arc::new(Roots(vec![])), to_host: tx,
-            devices: Arc::new(Devices::load(data)), uploads, ident: host::Ident { id: "H".into(), name: "Office NAS".into(), backup: false },
+            devices: Arc::new(Devices::load(data)), uploads, outage: Some(crate::outage::Outage::load(data, false, None)),
+            ident: host::Ident { id: "H".into(), name: "Office NAS".into(), backup: false },
             fp, acceptor }), rx)
     }
 
@@ -519,6 +576,7 @@ pub mod tests {
         let mut r = BufReader::new(r);
         let hello = ask(&mut r, &mut w, json!({"key": keys::b64(&[7u8; 32]), "protocol": 3})).await;
         assert_eq!((hello["ok"].clone(), hello["protocol"].clone(), hello["host"]["name"].clone()), (json!(true), json!(3), json!("Office NAS")));
+        assert_eq!(hello["links"], 3, "says it serves level-3 links (Pluck makes level 2 for hosts that don't)");
         assert_eq!(ask(&mut r, &mut w, json!({"op": "get", "path": "uploads/L1/a.png"})).await["size"], 5);
         let mut body = [0u8; 5];
         r.read_exact(&mut body).await.unwrap();

@@ -3,7 +3,7 @@
 // then go peer to peer over DTLS/SCTP. All peers share one UDP socket per local address.
 //
 // stdin (JSON lines; the first is the settings; it quits when stdin closes):
-//   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","turn"?,"ready"?}],"maxPeers":20,"local":false}
+//   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","expires"?,"turn"?,"ready"?}],"maxPeers":20,"local":false}
 //   {"rooms":[…]}  {"send":{"peer","msg"}}  {"serve":{"peer","fetch","path","offset","length"}}  {"close":{"peer","reason"}}
 //   {"serve":{"peer","fetch","pieces":[{"path","offset","length"},…]}}   (one fetch from several pieces: proxy MP4, §6.1)
 //   {"accept":{"peer","upload","path","size"}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply)
@@ -17,6 +17,7 @@ mod iroh;
 mod keys;
 mod admin;
 mod media;
+mod outage;
 mod proof;
 mod relay;
 mod replica;
@@ -481,18 +482,20 @@ fn kick(rooms: &HashMap<String, signal::Room>, room: &str, peer: &str, why: &str
 /// Replace the set of rooms: new ones register, missing ones close (with their peers).
 fn set_rooms(v: &Value, rooms: &mut HashMap<String, signal::Room>, peers: &mut HashMap<String, rtc::Peer>,
              base: &str, ev: &mpsc::UnboundedSender<Ev>, socks: &rtc::Sockets) {
-    let want: HashMap<String, (String, String, bool, bool)> = v.as_array().into_iter().flatten()
+    let want: HashMap<String, (String, String, Option<String>, bool, bool)> = v.as_array().into_iter().flatten()
         .filter_map(|r| {
             let (room, reg) = (r["room"].as_str()?, r["reg"].as_str()?);
             let Some(join) = r["join"].as_str() else {
                 log(format!("room {room}: no join hash (an older link): not registered"));
                 return None;
             };
-            Some((room.to_owned(), (reg.to_owned(), join.to_owned(), r["turn"].as_bool().unwrap_or(true), r["ready"] == true)))
+            let expires = r["expires"].as_str().map(str::to_owned);
+            Some((room.to_owned(), (reg.to_owned(), join.to_owned(), expires, r["turn"].as_bool().unwrap_or(true), r["ready"] == true)))
         })
         .filter(|(r, _)| signal::valid_room(r))
         .collect();
-    rooms.retain(|r, _| want.contains_key(r));
+    // A room whose link's expiry changed registers again, so the Room's tombstone follows it (§13.24).
+    rooms.retain(|r, x| want.get(r).is_some_and(|w| w.2 == x.expires));
     for (id, p) in peers.iter_mut() {
         if !want.contains_key(&p.room) {
             p.kill = true;
@@ -500,8 +503,8 @@ fn set_rooms(v: &Value, rooms: &mut HashMap<String, signal::Room>, peers: &mut H
         }
     }
     let _ = socks;
-    for (room, (reg, join, turn, ready)) in want {
-        let r = rooms.entry(room.clone()).or_insert_with(|| signal::spawn(base, room, reg, join, turn, ev.clone()));
+    for (room, (reg, join, expires, turn, ready)) in want {
+        let r = rooms.entry(room.clone()).or_insert_with(|| signal::spawn(base, room, reg, join, expires, turn, ev.clone()));
         r.turn.store(turn, std::sync::atomic::Ordering::Relaxed);
         r.ready.store(ready, std::sync::atomic::Ordering::Relaxed);
     }

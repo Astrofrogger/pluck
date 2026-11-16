@@ -83,10 +83,18 @@ enum DeliverKeys {
         return out
     }
 
-    /// linkKey = HKDF-SHA256(code, salt "pluck-link-v3", "key"): the salt names the version.
+    /// PBKDF2 rounds for a level-3 code (§13.24): every guess of an offline brute force costs 300,000 HMACs.
+    static let linkRounds = 300_000
+    nonisolated(unsafe) private static var linkKeys: [String: Data] = [:]
+    private static let linkKeysLock = NSLock()
+
+    /// linkKey = PBKDF2-HMAC-SHA256(code, salt "pluck-link-v3", 300,000 rounds, 32 bytes): the salt names the version.
+    /// About 20 ms each, and links ask for their key often, so each code's is kept for the run.
     static func linkKey(code: String) -> Data {
-        HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(code.utf8)), salt: Data("pluck-link-v3".utf8), info: Data("key".utf8), outputByteCount: 32)
-            .withUnsafeBytes { Data($0) }
+        if let known = linkKeysLock.withLock({ linkKeys[code] }) { return known }
+        let key = pbkdf2(code, salt: Data("pluck-link-v3".utf8), rounds: linkRounds)
+        linkKeysLock.withLock { linkKeys[code] = key }
+        return key
     }
 
     /// The level-3 hello's `mac`: HMAC(authKey, "pluck-link-v3 server\n" ‖ macNonce ‖ fpMac ‖ "\n" ‖ fpBrowser).

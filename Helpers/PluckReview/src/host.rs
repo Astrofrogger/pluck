@@ -114,6 +114,7 @@ pub struct Host {
     pub ident: Ident,
     pub busy: Arc<crate::update::Busy>,
     pub replica: Option<Arc<crate::replica::Shared>>,
+    pub outage: Option<Arc<crate::outage::Outage>>, // a backup: uploads taken during an outage, for the main (§13.25)
     pub back: Option<mpsc::UnboundedSender<(String, Value)>>, // results of background work, into run()
     added: Vec<(String, String)>, // (asset, version) added by a publish, told to viewers once its copy is ready
     superseded: usize, // bytes of comment snapshots appended since the last compaction that replace an earlier one
@@ -381,7 +382,7 @@ impl Host {
             raw: json!({}), roots, jobs: HashMap::new(), job_tx, data: data.to_path_buf(),
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
-            ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, back: None, added: vec![], superseded: 0,
+            ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
         };
         let _ = std::fs::create_dir_all(&h.dir);
         h.sweep_tmp(Duration::ZERO); // nothing is in flight yet: stills, proofs and link-upload partials of the last run go
@@ -746,7 +747,11 @@ impl Host {
             "mode": l["mode"], "expires": l["expires"], "revoked": l["revoked"], "password": l["passwordHash"].is_string(),
             "allowDownload": l["allowDownload"], "viewers": self.peers.values().filter(|p| p.ready && p.room == l["roomID"]).count(),
             "activity": l["id"].as_str().and_then(|id| self.activity.get(id)).copied().unwrap_or(0),
-            "paused": is(l, "paused"), "audience": l["audience"], "recipient": l["recipient"]})).collect();
+            "paused": is(l, "paused"), "audience": l["audience"], "recipient": l["recipient"],
+            // §13.24: `ready` once one of the owner's servers holds the room (the page shows a new link only then);
+            // `taken` when someone else does (the page offers "Make a New Link").
+            "ready": l["roomID"].as_str().and_then(crate::signal::room_state).is_some_and(|s| s.1),
+            "taken": l["roomID"].as_str().and_then(crate::signal::room_state).is_some_and(|s| s.0 == "taken")})).collect();
         json!({"projects": m["projects"], "links": links, "roots": self.roots.0.iter().map(|(id, _)| id).collect::<Vec<_>>()})
     }
 
@@ -781,7 +786,7 @@ impl Host {
                 added += 1;
             }
         }
-        let mut url = Value::Null;
+        let (mut url, mut link_id) = (Value::Null, Value::Null);
         if let Some(l) = op.get("link").filter(|l| l.is_object()) {
             let nl = keys::new_link();
             let pname = Self::arr(&raw, "projects").find(|p| p["id"] == pid.as_str()).map(|p| p["name"].clone()).unwrap_or_default();
@@ -798,11 +803,14 @@ impl Host {
             if let Some(w) = l["watermark"].as_str().map(|w| clean(w, 120)).filter(|w| !w.is_empty()) {
                 new["watermark"] = json!({"text": w, "position": "center", "opacity": 0.25, "size": 0.03, "burned": false});
             }
+            link_id = new["id"].clone();
             raw["links"].as_array_mut().unwrap().push(new);
             url = json!(format!("https://pluck.tools/r/#{}", nl.fragment)); // level 3: the room id isn't in the link
         }
+        self.jobs.retain(|_, j| j["state"] != "failed"); // as `publish`: a new publish tries failed copies again
         match self.save(&raw, "admin") {
-            Ok(()) => json!({"ok": true, "project": pid, "added": added, "skipped": skipped, "url": url}),
+            // The page keeps `url` hidden until admin-state says this link is `ready` (§13.24 H1).
+            Ok(()) => json!({"ok": true, "project": pid, "added": added, "skipped": skipped, "url": url, "link": link_id}),
             Err(e) => json!({"error": e}),
         }
     }
@@ -831,6 +839,26 @@ impl Host {
         }
         match self.save(&raw, "admin") {
             Ok(()) => json!({"ok": true}),
+            Err(e) => json!({"error": e}),
+        }
+    }
+
+    /// "Make a New Link" for a link whose room someone else holds (§13.24 H1): a new code, R and room for the same link
+    /// record. The new address is shown once, as from admin-publish; the old one stops working.
+    fn admin_renew(&mut self, op: &Value) -> Value {
+        let mut raw = self.raw.clone();
+        let Some(link) = raw["links"].as_array_mut().into_iter().flatten().find(|x| x["id"] == op["link"] && x["revoked"].is_null()) else {
+            return json!({"error": "no such link"});
+        };
+        let nl = keys::new_link();
+        for (k, v) in [("roomID", nl.room), ("reg", nl.reg), ("auth", nl.auth), ("join", nl.join)] {
+            link[k] = json!(v);
+        }
+        link["level"] = json!(3);
+        link.as_object_mut().unwrap().remove("sign");
+        let id = link["id"].clone();
+        match self.save(&raw, "admin") {
+            Ok(()) => json!({"ok": true, "link": id, "url": format!("https://pluck.tools/r/#{}", nl.fragment)}),
             Err(e) => json!({"error": e}),
         }
     }
@@ -870,7 +898,7 @@ impl Host {
     /// Also run every 30 s, so links expire on time.
     pub fn check_links(&mut self) {
         let rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
-            .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
+            .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "expires": l["expires"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
         let ended: Vec<(String, &str)> = self.peers.iter()
             .filter_map(|(id, p)| match self.link(&p.room) { Some(l) => self.live(l).err().or_else(|| Self::repassworded(p, l)), None => Some("revoked") }.map(|c| (id.clone(), c)))
             .collect();
@@ -1302,6 +1330,17 @@ impl Host {
                 json!({"ok": true, "appended": n, "seq": self.seq})
             }
             "_replica-plan" => json!({"versions": self.replica_plan()}),
+            "_outage-entry" => {
+                // A backup's upload from an outage, now here (outage.rs): logged once by its id, as if made here.
+                let e = &op["entry"];
+                if !e["id"].is_string() || self.entries.iter().any(|x| x["upload"]["id"] == e["id"]) {
+                    return json!({"ok": true});
+                }
+                if !self.append(json!({"upload": e})) {
+                    return json!({"error": "write"});
+                }
+                json!({"ok": true})
+            }
             "_replica-own" => {
                 // A backup's own entries (not from the main) after `since`, to push to the main.
                 let since = op["since"].as_u64().unwrap_or(0);
@@ -1340,6 +1379,7 @@ impl Host {
             "admin-state" => self.admin_state(),
             "admin-publish" => self.admin_publish(op),
             "admin-unpublish" => self.admin_unpublish(op),
+            "admin-renew" => self.admin_renew(op),
             "admin-comments" => self.admin_comments(op),
             "admin-activity" => {
                 let list: Vec<&Value> = self.entries.iter().rev().filter_map(|e| e.get("activity")).filter(|a| a["link"] == op["link"]).take(500).collect();
@@ -2385,7 +2425,9 @@ impl Host {
     /// told to accept the bytes (before the reply, so it knows the id when the first frame comes).
     fn upload_begin(&mut self, peer: &str, id: &Value, l: &Value, m: &Value) {
         let r = (|| -> Result<(u64, HUp), &'static str> {
-            let up = l["uploads"].as_object().filter(|_| !self.ident.backup).ok_or("scope")?; // uploads are off on a backup (§13.3)
+            // A backup takes them only while its main can take them on afterwards (§13.25; a 4.0.3 main can't: off, §13.3).
+            let backup_ok = self.outage.as_ref().is_some_and(|o| o.accepting());
+            let up = l["uploads"].as_object().filter(|_| !self.ident.backup || backup_ok).ok_or("scope")?;
             let lid = l["id"].as_str().filter(|s| id_ok(s)).ok_or("internal")?.to_owned();
             let uid = id.as_u64().filter(|u| *u <= u32::MAX as u64).ok_or("invalid")?;
             let attachment = match m["for"].as_str() { Some("asset") => false, Some("attachment") => true, _ => return Err("invalid") };
@@ -2466,6 +2508,11 @@ impl Host {
             "for": if u.attachment { "attachment" } else { "asset" }, "by": by, "at": now_iso()});
         if !self.append(json!({"upload": entry.clone()})) {
             return self.err(peer, &id, "internal");
+        }
+        if let Some(o) = self.outage.as_ref().filter(|_| self.ident.backup) {
+            // Waits here for the main (outage.rs pushes it when it's back), under the same id.
+            o.add(json!({"id": fid, "kind": if u.attachment { "attachment" } else { "asset" }, "file": rel, "name": u.name, "size": u.size,
+                "sha256": theirs, "type": u.kind, "link": u.link, "by": by, "at": entry["at"]}));
         }
         self.activity(peer, "uploaded", Value::Null, Value::Null, json!({"name": u.name, "size": u.size}));
         let item = json!({"id": fid, "name": u.name, "size": u.size, "type": u.kind});
@@ -2562,6 +2609,42 @@ mod tests {
     fn ready_peer(h: &mut Host, peer: &str, room: &str) {
         h.report(&json!({"peer": {"peer": peer, "state": "open", "room": room}}));
         h.peers.get_mut(peer).unwrap().ready = true;
+    }
+
+    #[test]
+    fn admin_links_wait_for_a_registration_and_a_taken_room_gets_a_new_link() {
+        let (mut h, _rx) = test_host();
+        assert_eq!(h.publish(&sample(json!([])), &json!({}))["ok"], true);
+        let r = h.sync(&json!({"op": "admin-publish", "project": "P", "files": [], "link": {"title": "T"}}));
+        let id = r["link"].clone();
+        let find = |h: &Host| h.admin_state()["links"].as_array().unwrap().iter().find(|l| l["id"] == id).cloned().unwrap();
+        let room = |h: &Host| h.raw["links"].as_array().unwrap().iter().find(|l| l["id"] == id).unwrap()["roomID"].as_str().unwrap().to_owned();
+        assert_eq!((find(&h)["ready"].clone(), find(&h)["taken"].clone()), (json!(false), json!(false)), "not shown before a server holds the room");
+        crate::signal::state(&room(&h), "active");
+        assert_eq!(find(&h)["ready"], true);
+        // Someone else holds the room: a problem, and "Make a New Link" gives the same record a new code, R and room.
+        let before = room(&h);
+        crate::signal::state(&before, "taken");
+        assert_eq!(find(&h)["taken"], true);
+        let n = h.sync(&json!({"op": "admin-renew", "link": id}));
+        let url = n["url"].as_str().unwrap();
+        assert!(url.starts_with("https://pluck.tools/r/#") && url.len() == 35, "{n}");
+        let l = h.raw["links"].as_array().unwrap().iter().find(|l| l["id"] == id).unwrap().clone();
+        assert!(l["roomID"] != before.as_str() && l["level"] == 3 && l["sign"].is_null() && l["reg"].is_string());
+        assert_eq!(l["roomID"], keys::b64(&keys::derive(&keys::link_key(&url[23..]), "room", 16)));
+        assert_eq!((find(&h)["ready"].clone(), find(&h)["taken"].clone()), (json!(false), json!(false)), "the new room waits again");
+        assert!(h.sync(&json!({"op": "admin-renew", "link": "nope"}))["error"].is_string());
+    }
+
+    #[test]
+    fn an_admin_publish_tries_failed_copies_again() {
+        let (mut h, _rx) = test_host();
+        assert_eq!(h.publish(&sample(json!([])), &json!({}))["ok"], true);
+        h.jobs.insert("V".into(), json!({"state": "failed", "progress": 0.0, "error": "the host's disk is full"}));
+        h.jobs.insert("W".into(), json!({"state": "making", "progress": 0.5}));
+        assert_eq!(h.sync(&json!({"op": "admin-publish", "project": "P", "files": []}))["ok"], true);
+        assert!(!h.jobs.contains_key("V"), "the failed copy is queued again (s4a: disk full, then space back)");
+        assert!(h.jobs.contains_key("W"), "a running one is left alone");
     }
 
     #[tokio::test]

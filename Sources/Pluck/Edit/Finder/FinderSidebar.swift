@@ -42,6 +42,8 @@ struct FinderSidebar: View {
 
     let groups: [Places]
     let selection: String?
+    /// Which browser it's in: its width, dragged, is kept per place.
+    var place = "browse"
     let choose: (Place) -> Void
 
     var body: some View {
@@ -57,6 +59,14 @@ struct FinderSidebar: View {
                             .lineLimit(1)
                         if let dot = group.dot { Circle().fill(dot).frame(width: 6, height: 6) }
                         Spacer(minLength: 0)
+                        // The server's menu (Invite a Teammate…) visible, not only on right-click.
+                        if let menu = group.menu {
+                            Menu { menu } label: {
+                                Image(systemName: "ellipsis.circle").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+                            }
+                            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                            .help(String(localized: "Server: invite a teammate, change folders, pair again"))
+                        }
                     }
                         .contentShape(.rect)
                         .help(group.help ?? "")
@@ -76,10 +86,10 @@ struct FinderSidebar: View {
             .padding(.bottom, 10)
         }
         .scrollIndicators(.never)
-        .frame(width: Self.width)
         .frame(maxHeight: .infinity)
         // A touch darker than the folders beside it.
         .background { ZStack { Design.Studio.panel; Design.Studio.backdrop.opacity(0.55) } }
+        .finderResizable("finderSidebarWidth." + place, width: Self.width, range: 140...320)
     }
 
     private func row(_ place: Place) -> some View {

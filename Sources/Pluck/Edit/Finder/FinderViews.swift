@@ -146,6 +146,72 @@ private struct FinderSplit: View {
     }
 }
 
+// MARK: - Widths dragged
+
+/// Widths the pointer drags, as Finder's sidebar, columns and preview, kept in UserDefaults per place.
+enum FinderWidth {
+    /// The browser a pane is in, for its keys: by where its files come from (another Mac, a NAS), else this Mac's.
+    @MainActor static func place(of pane: FinderPane) -> String { pane.source.map { String(describing: type(of: $0)) } ?? "local" }
+
+    /// A stored width (nil: none yet) as used: `initial`, kept in `range`.
+    static func clamp(_ value: Double?, initial: CGFloat, range: ClosedRange<CGFloat>) -> CGFloat {
+        min(max(value.map { CGFloat($0) } ?? initial, range.lowerBound), range.upperBound)
+    }
+
+    static func stored(_ key: String, initial: CGFloat, range: ClosedRange<CGFloat>, in defaults: UserDefaults = .standard) -> CGFloat {
+        clamp(defaults.object(forKey: key) as? Double, initial: initial, range: range)
+    }
+}
+
+/// The view at its stored width, with a hairline-thin grip at `edge` to drag it (double-click: back to `initial`).
+private struct FinderResizable: ViewModifier {
+    let initial: CGFloat
+    let range: ClosedRange<CGFloat>
+    let edge: HorizontalEdge
+    @AppStorage private var width: Double
+    @State private var start: CGFloat?
+    @State private var cursorPushed = false
+
+    init(key: String, initial: CGFloat, range: ClosedRange<CGFloat>, edge: HorizontalEdge) {
+        self.initial = initial
+        self.range = range
+        self.edge = edge
+        _width = AppStorage(wrappedValue: Double(initial), key)
+    }
+
+    func body(content: Content) -> some View {
+        let shown = FinderWidth.clamp(width, initial: initial, range: range), sign: CGFloat = edge == .trailing ? 1 : -1
+        content
+            .frame(width: shown)
+            .overlay(alignment: edge == .trailing ? .trailing : .leading) {
+                // (Over the divider beside it: the grip straddles the line, as in Finder.)
+                Color.clear.frame(width: 8).contentShape(.rect).offset(x: 4 * sign)
+                    .onHover { inside in
+                        if inside, !cursorPushed { NSCursor.resizeLeftRight.push(); cursorPushed = true }
+                        else if !inside, cursorPushed { NSCursor.pop(); cursorPushed = false }
+                    }
+                    .onDisappear { if cursorPushed { NSCursor.pop(); cursorPushed = false } }
+                    .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+                        .onChanged { drag in
+                            let from = start ?? shown
+                            if start == nil { start = from }
+                            width = Double(FinderWidth.clamp(Double(from + drag.translation.width * sign), initial: initial, range: range))
+                        }
+                        .onEnded { _ in start = nil })
+                    .onTapGesture(count: 2) { width = Double(initial) }
+                    .accessibilityHidden(true)
+            }
+            .zIndex(1)
+    }
+}
+
+extension View {
+    /// Its width dragged at `edge` and kept under `key` (Finder's sidebar, columns, preview).
+    func finderResizable(_ key: String, width: CGFloat, range: ClosedRange<CGFloat>, edge: HorizontalEdge = .trailing) -> some View {
+        modifier(FinderResizable(key: key, initial: width, range: range, edge: edge))
+    }
+}
+
 /// One pane: its bar (back and forward, the folder, how it's shown), the folder, and the path
 /// at the foot.
 struct FinderPaneView: View {
@@ -730,9 +796,17 @@ private struct FinderListView: View {
     @State private var thumbs = FinderThumbnails.shared
     @State private var order = [KeyPathComparator(\FinderRow.name)]
     @State private var cache = FinderRowCache()
+    /// The columns' widths (and order) as dragged, kept per place.
+    @AppStorage private var kept: Data
+    @State private var columns = TableColumnCustomization<FinderRow>()
+
+    init(pane: FinderPane) {
+        self.pane = pane
+        _kept = AppStorage(wrappedValue: Data(), "finderListColumns." + FinderWidth.place(of: pane))
+    }
 
     var body: some View {
-        Table(rows, selection: $pane.selection, sortOrder: $order) {
+        Table(rows, selection: $pane.selection, sortOrder: $order, columnCustomization: $columns) {
             TableColumn("Name", value: \.name) { row in
                 HStack(spacing: 6) {
                     FinderSmallIcon(item: row.item)
@@ -745,33 +819,35 @@ private struct FinderListView: View {
                 }
                 .fileDrag { FinderDrag.urls(row.item.url, in: pane) }
             }
-            .width(min: 160, ideal: 280)
+            .width(min: 160, ideal: 280).customizationID("name")
             TableColumn("Date Modified", value: \.modified) { row in
                 Text(row.item.modified.map { $0.formatted(date: .abbreviated, time: .shortened) } ?? "").foregroundStyle(.secondary)
             }
-            .width(min: 110, ideal: 150)
+            .width(min: 110, ideal: 150).customizationID("modified")
             TableColumn("Size", value: \.size) { row in
                 Text(row.item.size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "—").foregroundStyle(.secondary).monospacedDigit()
             }
-            .width(min: 60, ideal: 80)
+            .width(min: 60, ideal: 80).customizationID("size")
             // (The clip's details as they arrive; the order they sort in is from when the list was made.)
             TableColumn("Length", value: \.length) { row in
                 let live = FinderRow(item: row.item, summary: thumbs.summaries[row.id])
                 Text(live.length > 0 ? Format.duration(live.length) : "").foregroundStyle(.secondary).monospacedDigit()
             }
-            .width(min: 50, ideal: 70)
+            .width(min: 50, ideal: 70).customizationID("length")
             TableColumn("Frame", value: \.pixels) { row in
                 Text(thumbs.summaries[row.id].map { "\($0.width)×\($0.height)" } ?? "").foregroundStyle(.secondary).monospacedDigit()
             }
-            .width(min: 70, ideal: 90)
+            .width(min: 70, ideal: 90).customizationID("frame")
             TableColumn("Rate", value: \.fps) { row in
                 let fps = thumbs.summaries[row.id]?.fps ?? 0
                 Text(fps > 0 ? String(format: fps.rounded() == fps ? "%.0f" : "%.2f", fps) : "").foregroundStyle(.secondary).monospacedDigit()
             }
-            .width(min: 40, ideal: 50)
+            .width(min: 40, ideal: 50).customizationID("rate")
             TableColumn("Kind", value: \.kind) { row in Text(row.kind).foregroundStyle(.secondary) }
-                .width(min: 70, ideal: 110)
+                .width(min: 70, ideal: 110).customizationID("kind")
         }
+        .onAppear { columns = (try? JSONDecoder().decode(TableColumnCustomization<FinderRow>.self, from: kept)) ?? columns }
+        .onChange(of: columns) { kept = (try? JSONEncoder().encode(columns)) ?? kept }
         .contextMenu(forSelectionType: URL.self) { urls in
             if let url = urls.first, let item = pane.shown.first(where: { $0.url == url }) { FinderItemMenu(item: item, pane: pane) }
         } primaryAction: { urls in
@@ -873,8 +949,19 @@ private struct FinderGalleryView: View {
 /// next column; a clip chosen shows its picture at the end.
 private struct FinderColumnsView: View {
     let pane: FinderPane
+    /// One width for every column (dragging one's edge sets them all), kept per place.
+    @AppStorage private var columnWidth: Double
+    private let key: String
+    static let columnWidths: ClosedRange<CGFloat> = 150...520
+
+    init(pane: FinderPane) {
+        self.pane = pane
+        key = "finderColumnWidth." + FinderWidth.place(of: pane)
+        _columnWidth = AppStorage(wrappedValue: 230, key)
+    }
 
     var body: some View {
+        let column = FinderWidth.clamp(columnWidth, initial: 230, range: Self.columnWidths)
         GeometryReader { geo in
         ScrollViewReader { scroller in
             ScrollView(.horizontal) {
@@ -883,14 +970,14 @@ private struct FinderColumnsView: View {
                         let last = index == pane.trail.count - 1
                         FinderColumn(folder: folder, pane: pane, current: last,
                                      chosen: last ? nil : pane.trail[index + 1])
-                            .frame(width: 230)
+                            .finderResizable(key, width: 230, range: Self.columnWidths)
                         Divider()
                     }
                     // (A source's files: its own preview beside the pane.)
                     if pane.source == nil, let chosen = pane.shown.first(where: { pane.selection.contains($0.url) && !$0.isFolder }) {
                         // As Finder: the file's preview in all the room the columns leave (at least a readable width).
                         FinderPreview(item: chosen, pane: pane)
-                            .frame(width: max(440, geo.size.width - CGFloat(pane.trail.count) * 231 - 2), height: geo.size.height)
+                            .frame(width: max(440, geo.size.width - CGFloat(pane.trail.count) * (column + 1) - 2), height: geo.size.height)
                             .id("preview")
                     }
                     Color.clear.frame(width: 1).id("end")

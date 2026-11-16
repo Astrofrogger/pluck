@@ -94,12 +94,39 @@ $("publish").addEventListener("click", async () => {
   if (r.error) { $("publish-msg").textContent = r.error; return; }
   $("publish-msg").textContent = r.added + " added" + (r.skipped.length ? ", " + r.skipped.length + " skipped" : "") + ". Making review copies…";
   picked.clear(); count(); $("new-project").value = ""; $("link-password").value = ""; $("link-watermark").value = "";
-  if (r.url) {
-    $("url").value = r.url; $("url-row").classList.remove("hidden");
-    $("url-note").textContent = "Copy the link now: this host keeps no copy of it.";
-  }
+  if (r.url) newLink(r.link, r.url);
   browse(here); refresh();
 });
+
+// §13.24: a new link is shown only once one of the owner's servers holds its room, so nobody who got the address
+// early can register it first. Until then it stays in this page's memory (the host keeps no copy of it).
+let pending = null, pendingTimer = 0;
+function newLink(id, url) {
+  pending = { id, url };
+  $("url").value = ""; $("url-row").classList.add("hidden");
+  $("url-note").replaceChildren(el("span", "Getting the link ready…"));
+  clearInterval(pendingTimer);
+  pendingTimer = setInterval(checkPending, 2000);
+}
+function checkPending() {
+  const l = pending && (state?.links || []).find((x) => x.id === pending.id);
+  if (!l) return void refresh();
+  if (l.taken) { clearInterval(pendingTimer); $("url-note").replaceChildren(takenProblem(l)); pending = null; return; }
+  if (!l.ready) return void refresh();
+  clearInterval(pendingTimer);
+  $("url").value = pending.url; $("url-row").classList.remove("hidden");
+  $("url-note").textContent = "Copy the link now: this host keeps no copy of it.";
+  pending = null;
+}
+function takenProblem(l) {
+  const box = el("span", "Someone else is holding this link's room. Make a new link. ", "problem");
+  box.append(button("Make a New Link", async () => {
+    const r = await op({ op: "admin-renew", link: l.id });
+    if (r.error) { box.textContent = r.error; return; }
+    newLink(r.link, r.url); refresh();
+  }));
+  return box;
+}
 $("copy").addEventListener("click", () => navigator.clipboard.writeText($("url").value));
 $("comments-close").addEventListener("click", () => $("comments-box").classList.add("hidden"));
 $("activity-close").addEventListener("click", () => $("activity-box").classList.add("hidden"));
@@ -170,6 +197,7 @@ async function refresh() {
       const off = l.revoked != null;
       row.append(el("span", "Link · " + l.title, "name"), el("span", off ? "Turned off" : (l.expires ? "Until " + l.expires.slice(0, 10) : "No expiry"), off ? "faint" : "quiet"),
         el("span", l.viewers + " watching", "quiet"), button("Activity (" + l.activity + ")", () => showActivity(l)));
+      if (!off && l.taken) row.append(takenProblem(l));
       if (!off) row.append(button("Turn off", async () => { await op({ op: "admin-unpublish", link: l.id }); refresh(); }));
       box.append(row);
     }

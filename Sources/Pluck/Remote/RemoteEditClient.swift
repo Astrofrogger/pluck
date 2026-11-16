@@ -26,6 +26,9 @@ extension OfficeRenderClient {
         var size: Int64
         var modified: Date
         var isVideo: Bool
+        /// A clip (a movie, a raw file, a clip folder) and one only pluck-raw reads; nil from a host from before them.
+        var clip: Bool?
+        var raw: Bool?
 
         init?(_ value: [String: Any]) {
             guard let name = value["name"] as? String else { return nil }
@@ -34,6 +37,8 @@ extension OfficeRenderClient {
             size = (value["size"] as? NSNumber)?.int64Value ?? 0
             modified = Date(timeIntervalSince1970: value["modified"] as? Double ?? 0)
             isVideo = value["isVideo"] as? Bool ?? false
+            clip = value["clip"] as? Bool
+            raw = value["raw"] as? Bool
         }
     }
 

@@ -121,10 +121,14 @@ pub fn new_code() -> String {
     out
 }
 
-/// linkKey = HKDF-SHA256(code, salt "pluck-link-v3", "key"): the salt names the version, so it can't meet a level-2 key.
+/// PBKDF2 rounds for a level-3 code (§13.24): each guess costs what 300,000 HMACs do; about 20 ms on a recent Mac.
+pub const LINK_ITERATIONS: u32 = 300_000;
+
+/// linkKey = PBKDF2-HMAC-SHA256(code, salt "pluck-link-v3", LINK_ITERATIONS, 32 bytes): the salt names the version, so
+/// it can't meet a level-2 key. A host derives it only to make a link on its admin page.
 pub fn link_key(code: &str) -> Vec<u8> {
     let mut out = vec![0; 32];
-    hkdf::Hkdf::<Sha256>::new(Some(b"pluck-link-v3"), code.as_bytes()).expand(b"key", &mut out).expect("32 ≤ 8160");
+    pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), b"pluck-link-v3", LINK_ITERATIONS, &mut out);
     out
 }
 
@@ -231,6 +235,7 @@ mod tests {
     fn level3_vector() {
         let v: serde_json::Value = serde_json::from_str(include_str!("../../../docs/superpowers/plans/link-v3-vectors.json")).unwrap();
         let s = |k: &str| v[k].as_str().unwrap().to_owned();
+        assert_eq!(v["iterations"], LINK_ITERATIONS, "PBKDF2 rounds as in the vector");
         let key = link_key(&s("code"));
         assert_eq!(b64(&key), s("linkKey"));
         assert_eq!(b64(&derive(&key, "room", 16)), s("roomId"));

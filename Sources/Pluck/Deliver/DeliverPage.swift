@@ -268,6 +268,7 @@ struct DeliverSidebar: View {
     @State private var sharing: Deliver.Scope?
     @State private var naming = false
     @State private var settingUp = false
+    @State private var inviting: Deliver.Host?
     @State private var branding: UUID?
     @State private var deadline: UUID?
     @State private var pairing = DeliverPairing.shared
@@ -286,6 +287,10 @@ struct DeliverSidebar: View {
             // Browse (§13.16): one row; the places (this Mac, the review servers, the host Mac) are in the browser's own sidebar.
             HStack(spacing: 0) {
                 row(String(localized: "Browse"), symbol: "folder", on: browsing) { if !browsing { nav.deliver = .browse(.local) } }
+                if let main = ReviewPublish.shared.hosts.first(where: { $0.kind == .nas && $0.role != "backup" }) {
+                    Button { inviting = main } label: { Image(systemName: "person.badge.plus").font(.system(size: 12)) }
+                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Invite a Teammate…").padding(.leading, 6)
+                }
                 if hasServer {
                     Button { settingUp = true } label: { Image(systemName: "plus").font(.system(size: 12)) }
                         .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…").padding(.horizontal, 6)
@@ -381,6 +386,7 @@ struct DeliverSidebar: View {
         }
         .sheet(item: Binding(get: { sharing.map(DeliverShareTarget.init) }, set: { sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
         .sheet(isPresented: $settingUp) { DeliverServerChooser() }
+        .sheet(item: $inviting) { DeliverInviteSheet(host: $0) }
         .sheet(item: Binding(get: { branding.map(DeliverProjectID.init) }, set: { branding = $0?.id })) { DeliverProjectBrandingSheet(project: $0.id) }
     }
 
@@ -722,13 +728,16 @@ struct DeliverLinkRow: View {
                     if link.isPaused { StudioChip(text: Text("Paused"), colour: Design.Studio.warn, tinted: true) }
                     if store.key(link.id) == nil, let device = link.madeOn, device != Host.current().localizedName {
                         StudioChip(text: Text("Made on \(device)"))
-                    } else {
-                        Button("Copy") { if let url = store.url(link) { DeliverLinkShare.copy(url) } }.buttonStyle(StudioFlatButtonStyle())
+                    } else if let url = DeliverServer.shared.shareURL(link) {
+                        Button("Copy") { DeliverLinkShare.copy(url) }.buttonStyle(StudioFlatButtonStyle())
                     }
                     menu
                 }
             }
-            if qr, let url = store.url(link), let image = DeliverLinkShare.qr(url) {
+            if link.isLive, store.key(link.id) != nil, DeliverServer.shared.shareURL(link) == nil || DeliverServer.shared.isTaken(link) {
+                DeliverLinkPending(link: link)
+            }
+            if qr, let url = DeliverServer.shared.shareURL(link), let image = DeliverLinkShare.qr(url) {
                 Image(nsImage: image).interpolation(.none).resizable().frame(width: 150, height: 150).padding(8).background(.white, in: .rect(cornerRadius: 8))
             }
         }
@@ -739,7 +748,7 @@ struct DeliverLinkRow: View {
             DeliverDeadlineSheet(title: "Reopen", initial: link.deadline) { DeliverDeadlines.shared.reopen(link.id, deadline: $0) }
         }
         .confirmationDialog("Make a new, shorter link?", isPresented: $renewing) {
-            Button("Make a New Link") { store.renew(link.id) }
+            Button("Make a New Link") { DeliverLink.shared.renew(link.id) }
         } message: { Text("The old link stops working. Send the new one to everyone who should still see this.") }
         .confirmationDialog("Delete this link and its data?", isPresented: $deleting) {
             Button("Delete", role: .destructive) { let id = link.id; Task { await DeliverLink.shared.deleteLink(id) } }
@@ -750,9 +759,9 @@ struct DeliverLinkRow: View {
         Menu {
             Button(link.isPaused ? "Resume" : "Pause") { store.updateLink(link.id) { $0.paused = $0.isPaused ? nil : true } }
             Button("Duplicate") { _ = try? store.duplicate(link.id) }
-            if store.code(link.id) == nil, store.key(link.id) != nil { Button("Make a New Link…") { renewing = true } }
+            if store.code(link.id) == nil, store.key(link.id) != nil, ReviewPublish.shared.linkLevel == 3 { Button("Make a New Link…") { renewing = true } }
             Button(qr ? "Hide QR Code" : "QR Code") { qr.toggle() }
-            if let url = store.url(link) { Button("Email…") { DeliverLinkShare.email(link, url: url) } }
+            if let url = DeliverServer.shared.shareURL(link) { Button("Email…") { DeliverLinkShare.email(link, url: url) } }
             Button("Send Update…") { DeliverLinkRow.sendUpdate(link) }
             Button("Feedback Deadline…") { reopening = true }
             Divider()
@@ -792,7 +801,7 @@ struct DeliverLinkRow: View {
             if !here.isEmpty { lines.append(asset.name); lines += here; lines.append("") }
         }
         if lines.isEmpty { lines = [String(localized: "Nothing new since \(since.formatted(date: .abbreviated, time: .omitted)).")] }
-        if let url = store.url(link) { lines += ["", url] }
+        if let url = server.shareURL(link) { lines += ["", url] }
         return lines.joined(separator: "\n")
     }
 }

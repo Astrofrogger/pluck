@@ -13,8 +13,18 @@ enum RemotePullClient {
     private static var client: OfficeRenderClient { .shared }
 
     /// {share, paths (share paths: files, or folders for everything in them), format} → started.
-    static func makeProxies(share: String, paths: [String], format: OfficeProxies.Format) async throws {
-        _ = try await client.ask(proxiesAction, ["share": share, "paths": paths, "format": format.rawValue], timeout: 60)
+    /// The request's id (nil: a host that didn't say).
+    @discardableResult
+    static func makeProxies(share: String, paths: [String], format: OfficeProxies.Format) async throws -> String? {
+        let answer = try await client.ask(proxiesAction, ["share": share, "paths": paths, "format": format.rawValue], timeout: 60)
+        return (answer["request"] as? [String: Any])?["id"] as? String
+    }
+
+    /// {id} → how a proxy request of this Mac's is going: queued, making (progress 0…1 once the host is on its file), ready, failed.
+    static func proxyRequest(_ id: String) async throws -> (state: String, total: Int, progress: Double?, problem: String?) {
+        let request = try await client.ask("shareProxyStatus", ["id": id], timeout: 30)["request"] as? [String: Any] ?? [:]
+        return (request["state"] as? String ?? "", (request["total"] as? NSNumber)?.intValue ?? 0,
+                (request["progress"] as? NSNumber)?.doubleValue, request["problem"] as? String)
     }
 
     /// {share, path (a folder), format, on}: new files there get proxies by themselves.
@@ -152,13 +162,19 @@ final class RemotePullManager {
 
     /// One file's original (into "Originals" in the share's folder). Asks for its first byte now,
     /// so a Mac without the Originals right hears so straight away.
-    func pullOriginal(share: OfficeRenderClient.RemoteShare, path: String, into root: URL) async throws {
+    /// `clipFolder`: a clip that is a folder (a RED .RDC): every file in it, in a folder of that name.
+    func pullOriginal(share: OfficeRenderClient.RemoteShare, path: String, into root: URL, clipFolder: Bool = false) async throws {
         // (It becomes a file path here: only one inside the folder.)
         guard ProxySync.isSafe(path) else { throw OfficeLink.Failure.garbled }
-        let (_, size) = try await client.fileData(share: share.id, path: path, kind: .original, offset: 0, length: 1)
-        let entry = RemoteManifestEntry(share: share.id, path: path, proxy: path, reel: (path as NSString).lastPathComponent, size: size)
+        let files = clipFolder ? try await client.browse(share: share.id, path: path).filter { !$0.folder }.map { path + "/" + $0.name } : [path]
+        var entries: [RemoteManifestEntry] = []
+        for file in files where ProxySync.isSafe(file) {
+            let (_, size) = try await client.fileData(share: share.id, path: file, kind: .original, offset: 0, length: 1)
+            entries.append(RemoteManifestEntry(share: share.id, path: file, proxy: file, reel: (file as NSString).lastPathComponent, size: size))
+        }
+        guard !entries.isEmpty else { throw OfficeLink.Failure.office(String(localized: "That file isn’t ready on the host Mac (yet).")) }
         add(Job(share: share.id, shareName: share.name, format: .original, paths: [path],
-                destination: root.appendingPathComponent(String(localized: "Originals"), isDirectory: true).path, originals: [entry]))
+                destination: root.appendingPathComponent(String(localized: "Originals"), isDirectory: true).path, originals: entries))
     }
 
     private func add(_ job: Job) {

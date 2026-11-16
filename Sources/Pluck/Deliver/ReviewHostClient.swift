@@ -79,7 +79,7 @@ enum ReviewHostClient {
         }
         guard answer["ok"] as? Bool == true else { throw refused }
         session.protocolLevel = answer["protocol"] as? Int ?? 2
-        ReviewPublish.shared.seen(host.id, version: answer["version"] as? String, protocol: answer["protocol"] as? Int, via: route.via)
+        ReviewPublish.shared.seen(host.id, version: answer["version"] as? String, protocol: answer["protocol"] as? Int, links: answer["links"] as? Int, via: route.via)
         try await work(session)
     }
 
@@ -120,6 +120,7 @@ enum ReviewHostClient {
         host.device = device
         host.version = answer["version"] as? String
         host.protocol = answer["protocol"] as? Int
+        host.links = answer["links"] as? Int
         host.lastSeen = .now
         DeliverKeychain.save(Data(key.utf8), as: "\(id.uuidString)/\(device)", service: DeliverKeychain.hostService)
         publish.add(host)

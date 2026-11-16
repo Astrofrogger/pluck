@@ -128,7 +128,7 @@ struct RemoteFilesPane<Legacy: View>: View {
             EmptyView()
         default:
             HStack(spacing: 0) {
-                FinderSidebar(groups: places, selection: selected) { choose($0.id) }
+                FinderSidebar(groups: places, selection: selected, place: "editAnywhere") { choose($0.id) }
                 Divider()
                 VStack(spacing: 0) {
                     header.padding(.horizontal, 12).frame(height: FinderPaneView.toolbarHeight)
@@ -136,7 +136,9 @@ struct RemoteFilesPane<Legacy: View>: View {
                     browser.frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .frame(height: 460)
+            // The page's height, less the Download / Stream bar under it (at least the old box's).
+            // shortcut: a fixed 190 pt kept for that bar and the page's padding, measure it if the bar grows.
+            .containerRelativeFrame(.vertical) { height, _ in max(460, height - 190) }
             .clipShape(.rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
             .studioBox()
         }

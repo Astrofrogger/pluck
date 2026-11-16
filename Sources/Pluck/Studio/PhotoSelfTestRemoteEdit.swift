@@ -6,6 +6,8 @@ extension PhotoSelfTest {
     /// it sorted without hidden or system files, paths out of the share (`..`, symlinks, absolute)
     /// are refused, file pieces equal the file's bytes, originals need their right.
     static func remoteEditTest() async {
+        remoteClipChecks()
+        finderWidthChecks()
         let fm = FileManager.default
         UserDefaults.standard.set(Int.random(in: 47_900...48_900), forKey: "PluckScreenshotPort")
         let base = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("RemoteEditTest-\(UUID().uuidString)", isDirectory: true)
@@ -100,5 +102,56 @@ extension PhotoSelfTest {
         } catch {
             check("remote: round trip", false, error.localizedDescription)
         }
+    }
+
+    /// A RED clip folder on the host is one clip with its files' size (raw, so played from a proxy the host
+    /// makes), never an empty file; also as a host from before clips sent it; a take's later parts get no proxy of their own.
+    static func remoteClipChecks() {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true).appendingPathComponent("RemoteClipTest-\(UUID().uuidString)", isDirectory: true)
+        let rdc = root.appendingPathComponent("A001_C001.RDC", isDirectory: true)
+        try? fm.createDirectory(at: rdc, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        fm.createFile(atPath: rdc.appendingPathComponent("A001_C001_001.R3D").path, contents: Data(repeating: 1, count: 3000))
+        fm.createFile(atPath: rdc.appendingPathComponent("A001_C001_002.R3D").path, contents: Data(repeating: 2, count: 1000))
+        fm.createFile(atPath: root.appendingPathComponent("B002_C003_001.R3D").path, contents: Data(repeating: 3, count: 500))
+        fm.createFile(atPath: root.appendingPathComponent("B002_C003_002.R3D").path, contents: Data(repeating: 4, count: 500))
+        fm.createFile(atPath: root.appendingPathComponent("clip.mov").path, contents: Data(repeating: 5, count: 100))
+        let listed = (try? RemoteEditHost.list(root, in: root)) ?? []
+        let clip = listed.first { $0["name"] as? String == "A001_C001.RDC" } ?? [:]
+        check("remote clips: an RDC folder is listed as one clip with its size",
+              clip["folder"] as? Bool == false && clip["clip"] as? Bool == true && clip["raw"] as? Bool == true && clip["isVideo"] as? Bool == true
+              && (clip["size"] as? NSNumber)?.int64Value == 4000, "\(clip)")
+        let entry = OfficeRenderClient.RemoteEntry(clip).map(RemoteFinderSource.info)
+        check("remote clips: shown as a raw clip with its size", entry?.info.isClip == true && entry?.info.isFolder == false && entry?.raw == true
+              && entry?.info.size == 4000, "\(String(describing: entry))")
+        // A host from before clips: the RDC (a package there) as an empty file, or as a folder.
+        for older in [["name": "A001_C001.RDC", "folder": false, "size": 0, "isVideo": false],
+                      ["name": "A001_C001.RDC", "folder": true, "size": 0, "isVideo": false]] as [[String: Any]] {
+            let shown = OfficeRenderClient.RemoteEntry(older).map(RemoteFinderSource.info)
+            check("remote clips: an older host's RDC is a raw clip, size unknown (not Zero KB)",
+                  shown?.info.isClip == true && shown?.info.isFolder == false && shown?.raw == true && shown?.info.size == nil, "\(older)")
+        }
+        let movie = listed.first { $0["name"] as? String == "clip.mov" } ?? [:]
+        check("remote clips: a movie is a clip, not raw", movie["clip"] as? Bool == true && movie["raw"] as? Bool == false, "\(movie)")
+        let proxied = RemoteEditHost.clips(in: root, skipping: OfficeInbox.shared.folder).map(\.lastPathComponent).sorted()
+        check("remote clips: proxies of the RDC once and of a take's first part only", proxied == ["A001_C001.RDC", "B002_C003_001.R3D", "clip.mov"],
+              "\(proxied)")
+        check("remote clips: details and picture read from the RDC's first part",
+              RemoteEditHost.clipFile(rdc).lastPathComponent == "A001_C001_001.R3D")
+    }
+
+    /// The dragged widths of the sidebar, columns and preview: kept per place, within their limits, the default before any.
+    static func finderWidthChecks() {
+        guard let defaults = UserDefaults(suiteName: "FinderWidthTest-\(UUID().uuidString)") else { return check("finder widths: test defaults", false) }
+        let key = "finderSidebarWidth.editAnywhere", range: ClosedRange<CGFloat> = 140...320
+        check("finder widths: the default before any drag", FinderWidth.stored(key, initial: 172, range: range, in: defaults) == 172)
+        defaults.set(250.0, forKey: key)
+        check("finder widths: a dragged width is kept", FinderWidth.stored(key, initial: 172, range: range, in: defaults) == 250)
+        check("finder widths: kept per place", FinderWidth.stored("finderSidebarWidth.deliver", initial: 172, range: range, in: defaults) == 172)
+        defaults.set(40.0, forKey: key)
+        check("finder widths: never under the minimum", FinderWidth.stored(key, initial: 172, range: range, in: defaults) == 140)
+        defaults.set(9000.0, forKey: key)
+        check("finder widths: never over the maximum", FinderWidth.stored(key, initial: 172, range: range, in: defaults) == 320)
     }
 }

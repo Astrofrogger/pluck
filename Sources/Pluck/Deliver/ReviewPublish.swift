@@ -49,6 +49,8 @@ extension Deliver {
         var role: String? = nil          // main | backup
         var version: String? = nil
         var `protocol`: Int? = nil
+        /// The highest link level it serves (§13.24); hosts before level 3 (4.0.3) don't say, so nil = level 2.
+        var links: Int? = nil
         var lastSeen: Date? = nil
         /// What the owner calls each root ("nas1" → "Wide-open-2026"): the TrueNAS datasets or Proxmox folders from setup or Change Folders.
         var rootNames: [String: String]? = nil
@@ -168,6 +170,11 @@ final class ReviewPublish {
 
     func host(_ id: UUID) -> Deliver.Host? { hosts.first { $0.id == id } }
 
+    /// §13.24: the level new links get. A paired host from before level 3 (4.0.3) doesn't serve a level-3 link (it has
+    /// no `sign`), which would leave it to this Mac alone; so links stay level 2 until every paired host says it serves 3.
+    var linkLevel: Int { Self.linkLevel(hosts) }
+    nonisolated static func linkLevel(_ hosts: [Deliver.Host]) -> Int { hosts.allSatisfy { ($0.links ?? 2) >= 3 } ? 3 : 2 }
+
     /// A NAS paired from its invitation (§13.2), or one whose details changed.
     func add(_ host: Deliver.Host) {
         hosts.removeAll { $0.id == host.id }
@@ -176,12 +183,13 @@ final class ReviewPublish {
     }
 
     /// What a host said in its auth answer: its version and protocol, and that it answered.
-    func seen(_ id: UUID, version: String?, protocol level: Int?, via: ReviewHostTunnel.Via) {
+    func seen(_ id: UUID, version: String?, protocol level: Int?, links: Int?, via: ReviewHostTunnel.Via) {
         guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
         online[id] = true
-        let changed = hosts[index].version != version || hosts[index].protocol != level
+        let changed = hosts[index].version != version || hosts[index].protocol != level || hosts[index].links != links
         hosts[index].version = version ?? hosts[index].version
         hosts[index].protocol = level ?? hosts[index].protocol
+        hosts[index].links = links // an older version again (a restored backup) says nothing: level 2
         // (Saved when something changed, or once an hour for "last seen".)
         if changed || Date.now.timeIntervalSince(hosts[index].lastSeen ?? .distantPast) > 3600 { hosts[index].lastSeen = .now; save() }
     }

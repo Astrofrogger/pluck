@@ -89,12 +89,53 @@ enum RemoteEditHost {
             let name = url.lastPathComponent
             guard !name.hasPrefix("."), !systemNames.contains(name), let real = realPath(url.path), real.hasPrefix(base + "/"), !OfficeInbox.holds(real),
                   let values = try? URL(fileURLWithPath: real).resourceValues(forKeys: Set(keys)) else { return nil }
-            let isFolder = values.isDirectory == true && values.isPackage != true
-            return (name, isFolder, ["name": name, "folder": isFolder, "size": values.fileSize ?? 0,
+            let directory = values.isDirectory == true, file = URL(fileURLWithPath: real)
+            // A clip folder (a RED .RDC, which Pluck's RED types make a package) is one clip with its files' size.
+            let raw = isRawClip(file, directory: directory)
+            let isFolder = directory && values.isPackage != true && !raw
+            let clip = raw || (!isFolder && Converting.isVideo(url))
+            return (name, isFolder, ["name": name, "folder": isFolder, "size": directory && raw ? folderSize(file) : values.fileSize ?? 0,
                                      "modified": values.contentModificationDate?.timeIntervalSince1970 ?? 0,
-                                     "isVideo": !isFolder && Converting.isVideo(url)])
+                                     // (isVideo for paired Macs from before clip and raw.)
+                                     "isVideo": clip, "clip": clip, "raw": raw])
         }
         return entries.sorted { $0.folder != $1.folder ? $0.folder : $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map(\.entry)
+    }
+
+    // MARK: - Clips
+
+    nonisolated static func isDirectory(_ url: URL) -> Bool { (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+
+    /// A clip only pluck-raw reads: a RED, Blackmagic or Canon raw file, or a clip folder (a RED .RDC, CinemaDNG, an image sequence).
+    nonisolated static func isRawClip(_ url: URL, directory: Bool) -> Bool {
+        directory ? RawFolderScan.isClipFolder(url) : OffloadClips.rawKinds.contains(url.pathExtension.lowercased())
+    }
+
+    /// The files right in a clip folder, added up.
+    nonisolated static func folderSize(_ folder: URL) -> Int64 {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.fileSizeKey], options: [.skipsHiddenFiles])) ?? []
+        return files.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
+    }
+
+    /// The file a clip's details and picture are read from: a RED clip folder's first .R3D, another clip folder's first file.
+    nonisolated static func clipFile(_ url: URL) -> URL {
+        guard isDirectory(url) else { return url }
+        let files = ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? [])
+            .sorted { $0.lastPathComponent.localizedStandardCompare($1.lastPathComponent) == .orderedAscending }
+        return files.first { $0.pathExtension.lowercased() == "r3d" } ?? files.first ?? url
+    }
+
+    /// The clips under a share path that get proxies: movies, and raw clips (a clip folder as one, a RED take's later parts left out).
+    nonisolated static func clips(in item: URL, skipping inbox: URL) -> [URL] {
+        let directory = isDirectory(item)
+        if isRawClip(item, directory: directory) { return [item] }
+        guard directory else { return Converting.isVideo(item) ? [item] : [] }
+        let raw = RawFolderScan.clips(in: item).filter { isRawClip($0, directory: isDirectory($0)) && !OfficeInbox.holds(realPath($0.path) ?? $0.path) }
+        let folders = raw.filter(isDirectory).map { $0.standardizedFileURL.path + "/" }
+        let movies = OfficeArchive.videoFiles(in: [item], skipping: inbox).filter { movie in
+            !isRawClip(movie, directory: false) && !folders.contains { movie.standardizedFileURL.path.hasPrefix($0) }
+        }
+        return movies + raw
     }
 
     // MARK: - Details and pictures
@@ -103,7 +144,8 @@ enum RemoteEditHost {
 
     /// Duration, timecode, fps, size, codec and audio channels: AVFoundation (and pluck-raw) first,
     /// ffprobe for the timecode and what AVFoundation can't read. Kept per path and change date.
-    static func mediaInfo(_ file: URL) async throws -> [String: Any] {
+    static func mediaInfo(_ clip: URL) async throws -> [String: Any] {
+        let file = clipFile(clip)
         let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
         if let cached = infoCache[file.path], cached.modified == modified { return cached.info }
         let details = await OffloadClips.read(file)
@@ -129,7 +171,7 @@ enum RemoteEditHost {
 
     /// A small JPEG (320 points on the long side).
     static func thumb(_ file: URL) async throws -> Data {
-        guard let image = await OffloadClips.thumbnail(file, size: 320) else {
+        guard let image = await OffloadClips.thumbnail(clipFile(file), size: 320) else {
             throw OfficeLink.Failure.office(String(localized: "There’s no picture for that file."))
         }
         let data = NSMutableData()

@@ -103,7 +103,9 @@ final class FinderItem: Identifiable {
     var icon: NSImage {
         // (Not on this Mac, as another Mac's file: by its kind.)
         guard !FileManager.default.fileExists(atPath: url.path) else { return NSWorkspace.shared.icon(forFile: url.path) }
-        return NSWorkspace.shared.icon(for: isFolder ? .folder : UTType(filenameExtension: url.pathExtension) ?? .data)
+        let type = UTType(filenameExtension: url.pathExtension)
+        // (A clip folder such as a RED .RDC, a raw file: a movie's icon.)
+        return NSWorkspace.shared.icon(for: isFolder ? .folder : isClip && type?.conforms(to: .movie) != true ? .movie : type ?? .data)
     }
 
     /// A file's type for sorting and the Kind column (and its name, as Finder shows it).

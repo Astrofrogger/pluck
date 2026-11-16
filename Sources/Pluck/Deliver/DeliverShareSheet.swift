@@ -20,6 +20,7 @@ struct DeliverShareSheet: View {
     @State private var inviting = false
     @State private var editing: UUID?
     @State private var problem: String?
+    @State private var copyWhenReady = false
 
     /// Screenshots: More open.
     @MainActor static var moreOpen = false
@@ -34,8 +35,12 @@ struct DeliverShareSheet: View {
             VStack(alignment: .leading, spacing: 14) {
                 Text("Share").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
                 DeliverNamePrompt()
-                if let made, let url = store.url(made) {
-                    DeliverLinkShare(link: made, url: url)
+                if let made {
+                    if let url = DeliverServer.shared.shareURL(made), !DeliverServer.shared.isTaken(made) {
+                        DeliverLinkShare(link: made, url: url)
+                    } else {
+                        DeliverLinkPending(link: made)
+                    }
                     StudioFootnote(text: "Clients can watch while Pluck is open on this Mac.", symbol: "desktopcomputer")
                     invite(made)
                 } else {
@@ -66,6 +71,10 @@ struct DeliverShareSheet: View {
         .frame(minHeight: 300, idealHeight: 560, maxHeight: 760)
         .background(Design.Studio.panel)
         .onAppear { draft.title = store.name(scope); if Self.moreOpen { more = true; draft.watermark = .init() } }
+        // A new link is copied as soon as it can be shown (§13.24: once a server of the owner's holds its room).
+        .onChange(of: made.flatMap { DeliverServer.shared.shareURL($0) }) { _, url in
+            if copyWhenReady, let url { DeliverLinkShare.copy(url); copyWhenReady = false }
+        }
     }
 
     private var form: some View {
@@ -111,9 +120,11 @@ struct DeliverShareSheet: View {
                     Image(systemName: "person.crop.circle").foregroundStyle(Design.Studio.textQuiet)
                     Text(verbatim: link.recipient ?? link.title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
                     Spacer()
-                    if let url = store.url(link) {
+                    if let url = DeliverServer.shared.shareURL(link) {
                         Button("Copy") { DeliverLinkShare.copy(url) }.buttonStyle(StudioFlatButtonStyle())
                         Button("Email…") { DeliverLinkShare.email(link, url: url) }.buttonStyle(StudioFlatButtonStyle())
+                    } else if store.link(link.id)?.revoked == nil {
+                        ProgressView().controlSize(.small).help("Getting the link ready…")
                     }
                     if store.link(link.id)?.revoked == nil {
                         Button("Turn Off") { store.revoke(link.id) }.buttonStyle(StudioFlatButtonStyle())
@@ -145,10 +156,32 @@ struct DeliverShareSheet: View {
             store.updateLink(link.id) { DeliverLinkOptions.apply(draft, to: &$0) }
             made = store.link(link.id)
             if let made, made.watermark?.burned == true { DeliverCopies.shared.remark(made) }
-            if let made, let url = store.url(made) { DeliverLinkShare.copy(url) }
+            if let made { if let url = DeliverServer.shared.shareURL(made) { DeliverLinkShare.copy(url) } else { copyWhenReady = true } }
         } catch {
             problem = String(localized: "There are as many live links as Pluck keeps. Turn one off first.")
         }
+    }
+}
+
+/// §13.24 H1: a level-3 link whose room no server of the owner's holds yet ("Getting the link ready…": this Mac's
+/// helper keeps registering it), or one someone else registered first (a problem, with "Make a New Link").
+struct DeliverLinkPending: View {
+    let link: Deliver.ShareLink
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if DeliverServer.shared.isTaken(link) {
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Design.Studio.bad)
+                Text("Someone else is holding this link's room. Make a new link.").font(Design.Studio.hint).foregroundStyle(Design.Studio.bad)
+                Spacer()
+                Button("Make a New Link") { DeliverLink.shared.renew(link.id) }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+            } else {
+                ProgressView().controlSize(.small)
+                Text("Getting the link ready…").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Spacer()
+            }
+        }
+        .frame(minHeight: 28)
     }
 }
 

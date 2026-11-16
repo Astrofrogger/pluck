@@ -24,7 +24,7 @@ use crate::{host, keys, log, report, roots::Roots};
 
 const PAGE: &str = include_str!("admin/index.html");
 const SCRIPT: &str = include_str!("admin/admin.js");
-const OPS: &[&str] = &["admin-state", "admin-publish", "admin-unpublish", "admin-comments", "admin-activity", "roots", "browse", "probe", "thumb",
+const OPS: &[&str] = &["admin-state", "admin-publish", "admin-unpublish", "admin-renew", "admin-comments", "admin-activity", "roots", "browse", "probe", "thumb",
     "invite", "devices"];
 
 struct State {

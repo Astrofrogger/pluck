@@ -7,7 +7,7 @@
 // Fastest-host routing: a backup also says `standby`, and a Worker that knows it keeps it registered beside a live
 // main; the Room then sends it the viewers it uploads clearly faster for. Every host tells the Room its measured
 // upload (uplink.rs) and, a backup, whether the room's link is ready here and its copies are the main's own ("info").
-use std::{sync::{Arc, atomic::{AtomicBool, Ordering}}, time::Duration};
+use std::{collections::HashMap, sync::{Arc, LazyLock, Mutex, atomic::{AtomicBool, Ordering}}, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -49,6 +49,8 @@ pub enum Up {
 
 pub struct Room {
     pub tx: mpsc::UnboundedSender<Value>,
+    /// The link's expiry, sent at registration: the Room keeps a tombstone until then (§13.24). A change re-registers.
+    pub expires: Option<String>,
     /// Own TURN credentials only while the room's link is live (a paused or past-deadline link keeps its room).
     pub turn: Arc<AtomicBool>,
     /// A backup: the link's current versions are all here and it needs nothing only the main has (host::backup_ready).
@@ -70,16 +72,40 @@ fn valid_peer(p: &str) -> bool {
     (3..=32).contains(&p.len()) && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
 }
 
-pub fn spawn(base: &str, room: String, reg: String, join: String, turn: bool, ev: mpsc::UnboundedSender<Ev>) -> Room {
+#[allow(clippy::too_many_arguments)]
+pub fn spawn(base: &str, room: String, reg: String, join: String, expires: Option<String>, turn: bool, ev: mpsc::UnboundedSender<Ev>) -> Room {
     let url = format!("{}/{room}", base.trim_end_matches('/'));
     let (tx, rx) = mpsc::unbounded_channel();
     let turn = Arc::new(AtomicBool::new(turn));
     let ready = Arc::new(AtomicBool::new(false));
-    Room { tx, turn: turn.clone(), ready: ready.clone(), task: tokio::spawn(run(url, room, reg, join, turn, ready, ev, rx)) }
+    Room { tx, expires: expires.clone(), turn: turn.clone(), ready: ready.clone(), task: tokio::spawn(run(url, room, reg, join, expires, turn, ready, ev, rx)) }
 }
 
-fn state(room: &str, s: &str) {
+/// Each room's last state, and whether the Room ever said `registered` (or stood us by for another of the owner's
+/// servers) since this process started: a level-3 link is shown only once that's true (§13.24 H1), and "taken" is
+/// the owner's problem to see (the admin page asks via `room_state`).
+static STATES: LazyLock<Mutex<HashMap<String, (String, bool)>>> = LazyLock::new(Default::default);
+
+pub fn room_state(room: &str) -> Option<(String, bool)> {
+    STATES.lock().unwrap().get(room).cloned()
+}
+
+fn note(room: &str, s: &str) {
+    let mut m = STATES.lock().unwrap();
+    let e = m.entry(room.to_owned()).or_insert_with(|| (String::new(), false));
+    e.0 = s.to_owned();
+    e.1 |= s == "active" || s == "standby";
+}
+
+pub(crate) fn state(room: &str, s: &str) {
+    note(room, s);
     report(json!({"room": {"room": room, "state": s}}));
+}
+
+/// `standby` behind another of the owner's servers (its reg matched, so the room is the owner's).
+fn standby(room: &str, by: &str) {
+    note(room, "standby");
+    report(json!({"room": {"room": room, "state": "standby", "by": by}}));
 }
 
 enum End {
@@ -90,16 +116,18 @@ enum End {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn run(url: String, room: String, reg: String, join: String, turn: Arc<AtomicBool>, ready: Arc<AtomicBool>, ev: mpsc::UnboundedSender<Ev>, mut down: mpsc::UnboundedReceiver<Value>) {
+async fn run(url: String, room: String, reg: String, join: String, expires: Option<String>, turn: Arc<AtomicBool>, ready: Arc<AtomicBool>, ev: mpsc::UnboundedSender<Ev>, mut down: mpsc::UnboundedReceiver<Value>) {
     let mut backoff = 1;
     loop {
         let started = std::time::Instant::now();
         match tokio_tungstenite::connect_async(url.as_str()).await {
-            Ok((ws, _)) => match session(ws, &room, &reg, &join, &turn, &ready, &ev, &mut down).await {
+            Ok((ws, _)) => match session(ws, &room, &reg, &join, expires.as_deref(), &turn, &ready, &ev, &mut down).await {
+                // Someone else registered this room first (or holds it since it lapsed): the owner sees it as a problem
+                // with "Make a New Link" (Pluck's link panel, the host's admin page), never a link that looks fine.
                 End::Taken => return state(&room, "taken"),
                 End::Erased => return state(&room, "erased"), // 4005: the owner erased the room (link deleted): stop, never re-register
                 End::Standby(by) => {
-                    report(json!({"room": {"room": room, "state": "standby", "by": by}}));
+                    standby(&room, &by);
                     tokio::time::sleep(standby_delay(prio())).await;
                     continue;
                 }
@@ -116,7 +144,7 @@ async fn run(url: String, room: String, reg: String, join: String, turn: Arc<Ato
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn session<S>(ws: S, room: &str, reg: &str, join: &str, turn: &AtomicBool, ready: &AtomicBool, ev: &mpsc::UnboundedSender<Ev>, down: &mut mpsc::UnboundedReceiver<Value>) -> End
+async fn session<S>(ws: S, room: &str, reg: &str, join: &str, expires: Option<&str>, turn: &AtomicBool, ready: &AtomicBool, ev: &mpsc::UnboundedSender<Ev>, down: &mut mpsc::UnboundedReceiver<Value>) -> End
 where
     S: StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + SinkExt<Message> + Unpin,
 {
@@ -125,7 +153,7 @@ where
     let mut registered = false;
     // What the Room last heard of our speed and readiness; None until it says it takes `info`.
     let mut told: Option<Value> = None;
-    let first = register_msg(reg, join, ready.load(Ordering::Relaxed));
+    let first = register_msg(reg, join, expires, ready.load(Ordering::Relaxed));
     if w.send(Message::text(first.to_string())).await.is_err() {
         return End::Lost { registered };
     }
@@ -167,7 +195,7 @@ where
                         }
                         // Beside a live main: it serves the viewers it's faster for; "standby" as before for the Mac's view.
                         if v["standby"] == true {
-                            report(json!({"room": {"room": room, "state": "standby", "by": "host"}}));
+                            standby(room, "host");
                         } else {
                             state(room, "active");
                         }
@@ -247,8 +275,12 @@ fn info_msg(i: &Value) -> String {
 
 /// `mac-register` (protocol 2: the owner-only reg and the link's join hash) with this helper's rank,
 /// the owner's relay token, whether it hands out its own TURN, and `info`. A backup offers to stand by.
-pub fn register_msg(reg: &str, join: &str, ready: bool) -> Value {
+/// `expires`: the link's expiry, how long the Room keeps its tombstone (§13.24; none = a year).
+pub fn register_msg(reg: &str, join: &str, expires: Option<&str>, ready: bool) -> Value {
     let mut m = json!({"t": "mac-register", "v": 2, "reg": reg, "join": join, "prio": prio()});
+    if let Some(e) = expires {
+        m["expires"] = json!(e);
+    }
     for (k, v) in info(ready).as_object().unwrap() {
         m[k] = v.clone();
     }
@@ -270,6 +302,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn room_states_remember_a_registration() {
+        assert_eq!(room_state("S1"), None);
+        state("S1", "offline");
+        assert_eq!(room_state("S1"), Some(("offline".into(), false)), "not shown yet");
+        state("S1", "active");
+        state("S1", "offline");
+        assert_eq!(room_state("S1"), Some(("offline".into(), true)), "once registered, the link can be shown");
+        standby("S2", "host");
+        assert_eq!(room_state("S2"), Some(("standby".into(), true)), "another of the owner's servers holds it");
+        state("S3", "taken");
+        assert_eq!(room_state("S3"), Some(("taken".into(), false)));
+    }
+
+    #[test]
     fn ids() {
         assert!(valid_room("7E1RkYmx_jTN80i5w8xmOg"));
         assert!(!valid_room("7E1RkYmx_jTN80i5w8xmO"));
@@ -287,8 +333,9 @@ mod tests {
             assert!((16.0..=24.0).contains(&d), "backup {d}");
         }
         assert_eq!(PING, Duration::from_secs(20));
-        let m = register_msg("r", "j", true);
-        assert_eq!((m["prio"].as_str(), m["v"].as_u64(), m["join"].as_str()), (Some("mac"), Some(2), Some("j")));
+        let m = register_msg("r", "j", None, true);
+        assert_eq!((m["prio"].as_str(), m["v"].as_u64(), m["join"].as_str(), m.get("expires")), (Some("mac"), Some(2), Some("j"), None));
+        assert_eq!(register_msg("r", "j", Some("2027-01-01T00:00:00Z"), false)["expires"], "2027-01-01T00:00:00Z");
         assert_eq!((m["ready"].as_bool(), m["standby"].as_bool()), (Some(false), None), "only a backup is ready or stands by");
         assert_eq!((m["up"].clone(), m["same"].clone()), (info(true)["up"].clone(), json!(false)));
     }

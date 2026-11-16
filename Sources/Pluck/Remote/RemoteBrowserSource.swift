@@ -42,13 +42,13 @@ final class RemoteFinderSource: FinderSource {
         do {
             let entries = try await client.browse(share: share.id, path: path)
             problem = nil
+            olderHost = entries.contains { $0.clip == nil }
             return entries.map { entry in
-                let type = UTType(filenameExtension: (entry.name as NSString).pathExtension)
-                let url = self.url(path.isEmpty ? entry.name : path + "/" + entry.name, folder: entry.folder)
-                return (url, FinderInfo(name: entry.name, isFolder: entry.folder, isClip: entry.isVideo,
-                                        isPhoto: !entry.folder && !entry.isVideo && type?.conforms(to: .image) == true,
-                                        size: entry.folder ? nil : entry.size, modified: entry.modified,
-                                        kind: entry.folder ? String(localized: "Folder") : type?.localizedDescription ?? "", tags: []))
+                let (info, raw, clipFolder) = Self.info(entry)
+                let relative = path.isEmpty ? entry.name : path + "/" + entry.name
+                if raw { rawClips.insert(relative) } else { rawClips.remove(relative) }
+                if clipFolder { clipFolders.insert(relative) } else { clipFolders.remove(relative) }
+                return (url(relative, folder: info.isFolder), info)
             }
         } catch {
             problem = error.localizedDescription
@@ -56,8 +56,28 @@ final class RemoteFinderSource: FinderSource {
         }
     }
 
+    /// How the host's entry shows, whether it's a clip only pluck-raw reads (played from a proxy the host makes),
+    /// and whether it's a clip folder. A clip folder (a RED .RDC) is one clip with its files' size, also from a host
+    /// from before clips, which sent it as an empty file (Pluck's RED types make it a package) or a folder.
+    nonisolated static func info(_ entry: OfficeRenderClient.RemoteEntry) -> (info: FinderInfo, raw: Bool, clipFolder: Bool) {
+        let kind = (entry.name as NSString).pathExtension.lowercased(), type = UTType(filenameExtension: kind)
+        let raw = entry.raw ?? (kind == "rdc" || OffloadClips.rawKinds.contains(kind))
+        let clip = entry.clip ?? (entry.isVideo || raw)
+        let folder = entry.folder && !clip, clipFolder = raw && !OffloadClips.rawKinds.contains(kind)
+        return (FinderInfo(name: entry.name, isFolder: folder, isClip: clip, isPhoto: !folder && !clip && type?.conforms(to: .image) == true,
+                           size: folder || (clipFolder && entry.size == 0) ? nil : entry.size, modified: entry.modified,
+                           kind: folder ? String(localized: "Folder") : clipFolder ? String(localized: "Clip") : type?.localizedDescription ?? "",
+                           tags: []), raw, clipFolder)
+    }
+
+    /// Share paths of the raw clips listed (RED, Blackmagic RAW, clip folders), and of the clip folders among them.
+    @ObservationIgnored private(set) var rawClips: Set<String> = []
+    @ObservationIgnored private var clipFolders: Set<String> = []
+    /// The host's last listing came from a Pluck from before clips: it can't make previews of raw ones.
+    private(set) var olderHost = false
+
     func open(_ url: URL) {
-        guard RemoteHooks.player != nil else { return }
+        guard RemoteHooks.player != nil, !(olderHost && rawClips.contains(relative(url))) else { return }
         playing = relative(url)
     }
 
@@ -108,7 +128,7 @@ final class RemoteFinderSource: FinderSource {
     func getOriginal(_ path: String) async {
         guard let destination = RemotePullManager.shared.root(for: share) else { return }
         do {
-            try await RemotePullManager.shared.pullOriginal(share: share, path: path, into: destination)
+            try await RemotePullManager.shared.pullOriginal(share: share, path: path, into: destination, clipFolder: clipFolders.contains(path))
             notice = String(localized: "Fetching the original.")
         } catch {
             notice = Self.refusal(error)
@@ -160,7 +180,7 @@ private struct RemoteFinderMenu: View {
     }
 
     var body: some View {
-        if clip, RemoteHooks.player != nil, let path = paths.first {
+        if clip, RemoteHooks.player != nil, let path = paths.first, !(source.olderHost && source.rawClips.contains(path)) {
             Button("Play") { source.playing = path }
             Divider()
         }
@@ -211,7 +231,7 @@ struct RemoteBrowserView: View {
                 if let item = chosen {
                     Divider()
                     RemotePreview(source: source, item: item, path: source.relative(item.url))
-                        .frame(width: 260)
+                        .finderResizable("finderPreviewWidth.editAnywhere", width: 260, range: 200...560, edge: .leading)
                         .id(item.url)
                 }
             }
@@ -223,7 +243,7 @@ struct RemoteBrowserView: View {
         .sheet(isPresented: Binding(get: { source.playing != nil }, set: { if !$0 { source.playing = nil } })) {
             if let path = source.playing, let player = RemoteHooks.player {
                 VStack(spacing: 0) {
-                    player(source.share.id, path).frame(minWidth: 720, minHeight: 420)
+                    player(source.share.id, path, source.rawClips.contains(path)).frame(minWidth: 720, minHeight: 420)
                     HStack {
                         Text((path as NSString).lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                         Spacer()
@@ -305,8 +325,12 @@ private struct RemotePreview: View {
                 }
             }
             .font(Design.Studio.hint)
+            if olderRaw {
+                Text("Update Pluck on the host Mac to preview raw clips.")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 8) {
-                if item.isClip, RemoteHooks.player != nil {
+                if item.isClip, RemoteHooks.player != nil, !olderRaw {
                     Button("Play", systemImage: "play.fill") { source.playing = path }
                 }
                 Button("Get Original") {
@@ -323,6 +347,9 @@ private struct RemotePreview: View {
         .foregroundStyle(Design.Studio.text)
         .task { if item.isClip { info = try? await OfficeRenderClient.shared.mediaInfo(share: source.share.id, path: path) } }
     }
+
+    /// A raw clip on a host that can't make its preview.
+    private var olderRaw: Bool { source.olderHost && source.rawClips.contains(path) }
 
     private var lines: [(String, String)] {
         var lines: [(String, String)] = []

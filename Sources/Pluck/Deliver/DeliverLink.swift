@@ -37,6 +37,7 @@ final class DeliverLink {
             if case .linksChanged = event { self?.update() }
         }
         update()
+        Task { await eraseOldRooms() } // "Make a New Link" while offline: the old rooms still to erase
         server.store.trimAllActivity() // the retention setting (R8), also for links nobody opens any more
         // §13: the data host's sync, deadlines, watched render folders and host updates.
         DeliverSync.shared.resume()
@@ -52,32 +53,71 @@ final class DeliverLink {
         if let link = store.link(id), let secret = store.secret(id) {
             let local = testSettings?["local"] as? Bool == true
             if ScreenshotMode.scene == nil || local { // test copies never reach pluck.tools
-                _ = await Self.erase(room: link.roomID, reg: DeliverKeys.registerKey(root: secret), signal: testSettings?["signal"] as? String ?? Self.signal)
+                _ = await Self.erase(room: link.roomID, reg: DeliverKeys.registerKey(root: secret), expires: link.expires, signal: testSettings?["signal"] as? String ?? Self.signal)
             }
         }
         store.deleteLink(id)
     }
 
-    /// `{"t":"erase","v":2,"reg"}` to `<signal>/<room>` (no Origin, so the Room takes it for a Mac). True on `erased`.
-    nonisolated static func erase(room: String, reg: String, signal: String) async -> Bool {
+    /// "Make a New Link" (§13.24 L2): the link gets its new key at once, and its old room is erased on pluck.tools with
+    /// the old reg (only a tombstone stays, so whoever has the old address can't take that room). The old reg is kept,
+    /// in the keychain, until the erase is answered, so a Mac that's offline now erases it later.
+    func renew(_ id: UUID) {
+        let store = server.store
+        guard let link = store.link(id), let secret = store.secret(id) else { return }
+        var pending = UserDefaults.standard.stringArray(forKey: Self.eraseKey) ?? []
+        DeliverKeychain.save(Data(DeliverKeys.registerKey(root: secret).utf8), as: "erase/\(link.roomID)")
+        if let expires = link.expires { UserDefaults.standard.set(expires, forKey: Self.eraseKey + link.roomID) }
+        pending.append(link.roomID)
+        UserDefaults.standard.set(pending, forKey: Self.eraseKey)
+        store.renew(id)
+        Task { await eraseOldRooms() }
+    }
+
+    nonisolated static let eraseKey = "reviewRoomsToErase"
+
+    /// The old rooms of renewed links: erased (or found to be someone else's, so nothing of ours is there) are done.
+    func eraseOldRooms() async {
+        if ScreenshotMode.scene != nil, testSettings?["local"] as? Bool != true { return } // test copies never reach pluck.tools
+        let signal = testSettings?["signal"] as? String ?? Self.signal
+        for room in UserDefaults.standard.stringArray(forKey: Self.eraseKey) ?? [] {
+            guard let reg = DeliverKeychain.load("erase/\(room)").map({ String(decoding: $0, as: UTF8.self) }) else { forgetErase(room); continue }
+            if await Self.erase(room: room, reg: reg, expires: UserDefaults.standard.object(forKey: Self.eraseKey + room) as? Date, signal: signal) != nil {
+                forgetErase(room)
+            }
+        }
+    }
+
+    private func forgetErase(_ room: String) {
+        UserDefaults.standard.set((UserDefaults.standard.stringArray(forKey: Self.eraseKey) ?? []).filter { $0 != room }, forKey: Self.eraseKey)
+        UserDefaults.standard.removeObject(forKey: Self.eraseKey + room)
+        DeliverKeychain.delete("erase/\(room)")
+    }
+
+    /// `{"t":"erase","v":2,"reg","expires"?}` to `<signal>/<room>` (no Origin, so the Room takes it for a Mac). True on
+    /// `erased`, false on `taken` (the room isn't ours, so nothing of ours is there), nil when it didn't get through
+    /// (offline, or `rate`). `expires`: how long the Room keeps its tombstone (none: a year).
+    nonisolated static func erase(room: String, reg: String, expires: Date? = nil, signal: String) async -> Bool? {
+        var message: [String: Any] = ["t": "erase", "v": 2, "reg": reg]
+        if let expires { message["expires"] = ISO8601DateFormatter().string(from: expires) }
         guard let url = URL(string: "\(signal)/\(room)"),
-              let body = try? JSONSerialization.data(withJSONObject: ["t": "erase", "v": 2, "reg": reg]) else { return false }
+              let body = try? JSONSerialization.data(withJSONObject: message) else { return nil }
         let task = URLSession.shared.webSocketTask(with: url)
         task.resume()
         defer { task.cancel(with: .normalClosure, reason: nil) }
-        return await withTaskGroup(of: Bool.self) { group in
+        return await withTaskGroup(of: Bool?.self) { group in
             group.addTask {
-                guard (try? await task.send(.string(String(decoding: body, as: UTF8.self)))) != nil else { return false }
+                guard (try? await task.send(.string(String(decoding: body, as: UTF8.self)))) != nil else { return nil }
                 while let message = try? await task.receive() {
                     guard case .string(let text) = message,
                           let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { continue }
                     if json["t"] as? String == "erased" { return true }
-                    if json["t"] as? String == "error" { return false }
+                    if json["t"] as? String == "error" { return json["code"] as? String == "taken" ? false : nil }
                 }
-                return false
+                return nil
             }
-            group.addTask { try? await Task.sleep(for: .seconds(15)); return false }
-            let first = await group.next() ?? false
+            group.addTask { try? await Task.sleep(for: .seconds(15)); return nil }
+            let first = await group.next() ?? nil
             group.cancelAll()
             return first
         }
@@ -87,7 +127,9 @@ final class DeliverLink {
     var rooms: [[String: String]] {
         server.store.links.filter(\.isLive).compactMap { link in
             guard let key = server.store.key(link.id), let secret = server.store.secret(link.id) else { return nil }
-            return ["room": link.roomID, "reg": DeliverKeys.registerKey(root: secret), "join": DeliverKeys.joinHash(key)]
+            var room = ["room": link.roomID, "reg": DeliverKeys.registerKey(root: secret), "join": DeliverKeys.joinHash(key)]
+            if let expires = link.expires { room["expires"] = ISO8601DateFormatter().string(from: expires) } // the Room's tombstone (§13.24)
+            return room
         }
     }
 

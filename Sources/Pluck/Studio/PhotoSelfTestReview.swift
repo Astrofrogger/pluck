@@ -46,13 +46,13 @@ extension PhotoSelfTest {
               && !DeliverKeys.checkHello(pub: pubR, sig: ownSig, macNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser), "\(pubR) \(DeliverKeys.registerKey(root: rootR))")
         // Level 3 (§13.24): the shared vector (docs/superpowers/plans/link-v3-vectors.json).
         let v3Key = DeliverKeys.linkKey(code: "Mt0Rkt98Xy3Q"), v3Auth = DeliverKeys.authKey(v3Key)
-        let v3Hello: [String: Any] = ["t": "hello", "v": 3, "nonce": DeliverKeys.base64url(ones), "mac": "OLP9yCHGLjnyY-Ls4O6rLfaGaAWymfeCc7_MGSZk6vc"]
-        check("review: level 3 vector", DeliverKeys.base64url(v3Key) == "AVEdO3v23i2QlVmJas-6_3Q0Sf1zNij41dy4GjdWbJA"
-              && DeliverKeys.roomID(v3Key) == "II_e9ClT-12wrJ4_WL7Ztw" && DeliverKeys.base64url(v3Auth) == "6Es-XWEmgo03eKcgdkXTygA1KrF10Dfp32DjWacNs04"
-              && DeliverKeys.join(v3Key) == "U5980_neViGuuYt-taxoyKlXw15d2KSCXgrbs44Jaow" && DeliverKeys.joinHash(v3Key) == "A-8fD_-RanBNeugAm-QxEiM4lxTS57FNO84MFlgCQMw"
-              && DeliverKeys.helloMAC(authKey: v3Auth, macNonce: ones, fpMac: fpMac, fpBrowser: fpBrowser) == "OLP9yCHGLjnyY-Ls4O6rLfaGaAWymfeCc7_MGSZk6vc"
-              && DeliverKeys.proof(authKey: v3Auth, role: "browser", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "kQv8Y2PFSOgThYmr1hZaP476blYIMTCfPccvvfsivBI"
-              && DeliverKeys.proof(authKey: v3Auth, role: "mac", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "FpHEd3yPpKAhyDi_8YuLh5_XKUU1yn75MDZwDeLlYx8"
+        let v3Hello: [String: Any] = ["t": "hello", "v": 3, "nonce": DeliverKeys.base64url(ones), "mac": "YXEZs3zCsfPVrwmdI9JtCvAfg_HGrNpNJDUpQwM_PdM"]
+        check("review: level 3 vector", DeliverKeys.base64url(v3Key) == "DbwU1ROJSHL_lN_W9cPWR9FVcz9cTqvMobV9BIzmhWk"
+              && DeliverKeys.roomID(v3Key) == "0uVpe4rN0sW6KOGlgQrXdw" && DeliverKeys.base64url(v3Auth) == "lfzrFcPoCa4w2uvvM46h-uytNgbPX4yVznvh4TbbmhA"
+              && DeliverKeys.join(v3Key) == "CweSuKvrTSJBDSsGbrBWW2N-1G1v_51fdej4DqMNIlk" && DeliverKeys.joinHash(v3Key) == "7bLzpOxYAG0Wj5DpUJMYWR8dkfVgTYUyVcbw34AulWI"
+              && DeliverKeys.helloMAC(authKey: v3Auth, macNonce: ones, fpMac: fpMac, fpBrowser: fpBrowser) == "YXEZs3zCsfPVrwmdI9JtCvAfg_HGrNpNJDUpQwM_PdM"
+              && DeliverKeys.proof(authKey: v3Auth, role: "browser", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "90OCEhhzHRxjFS7OvPruCMf3ePrEWCURdwk409tvyVY"
+              && DeliverKeys.proof(authKey: v3Auth, role: "mac", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "n5Zhx44qM18L4ax1zi-4SU1y3xPjJChdg2LrmAjTe0E"
               && DeliverKeys.browserCheck(v3Hello, level: 3, key: v3Key, pub: "", fpMac: fpMac, fpBrowser: fpBrowser) == ones
               && DeliverKeys.browserCheck(v3Hello, level: 3, key: DeliverKeys.linkKey(code: "Mt0Rkt98Xy3R"), pub: "", fpMac: fpMac, fpBrowser: fpBrowser) == nil
               && DeliverKeys.browserCheck(v3Hello, level: 2, key: v3Key, pub: pubR, fpMac: fpMac, fpBrowser: fpBrowser) == nil
@@ -198,7 +198,9 @@ extension PhotoSelfTest {
         store = reread
         guard let heroNow = store.find(hero.id)?.asset, let v1 = heroNow.versions.first, let current = heroNow.versions.last else { return }
 
-        // Links: creation, the key kept apart, expiry and Turn Off.
+        // Links: creation, the key kept apart, expiry and Turn Off. (§13.24: new links are level 2 while a paired host
+        // hasn't said it serves level 3; the test home's earlier fake hosts never did, and these checks are about current ones.)
+        for host in ReviewPublish.shared.hosts where host.links == nil { ReviewPublish.shared.update(host: host.id) { $0.links = 3 } }
         guard let link = try? store.newLink(scope: .project(project.id), title: "Cuts", password: "test", level: 2),
               let open = try? store.newLink(scope: .asset(hero.id, project: project.id), title: "Hero", latestOnly: true),
               let show = try? store.newLink(scope: .project(project.id), title: "Show", mode: .presentation),
@@ -299,6 +301,26 @@ extension PhotoSelfTest {
             check("review: Make a New Link gives level 3", store.level(renewing.id) == 3 && after?.roomID != before
                   && after?.roomID == DeliverKeys.roomID(store.key(renewing.id) ?? Data()) && store.url(after!)?.hasPrefix("https://pluck.tools/r/#") == true, "")
             store.revoke(renewing.id)
+        }
+        // §13.24 H1: a level-3 link is shown, copied or sent only once one of the owner's servers holds its room; a room
+        // someone else holds is the owner's problem, with "Make a New Link".
+        if let gated = try? store.newLink(scope: .project(project.id), title: "Gate", level: 3) {
+            let before = server.shareURL(gated)
+            server.helper(["room": ["room": gated.roomID, "state": "offline"]])
+            let offline = server.shareURL(gated)
+            server.helper(["room": ["room": gated.roomID, "state": "active"]])
+            let held = server.shareURL(gated)
+            server.helper(["room": ["room": gated.roomID, "state": "offline"]])
+            check("review: a level-3 link waits until its room is held", before == nil && offline == nil && held == store.url(gated) && held != nil
+                  && server.shareURL(gated) != nil && !server.isTaken(gated), "\(String(describing: before)) \(String(describing: held))")
+            server.helper(["room": ["room": gated.roomID, "state": "taken"]])
+            let level2 = try? store.newLink(scope: .project(project.id), title: "Gate 2", level: 2)
+            check("review: a taken room is a problem; level 2 needs no wait", server.isTaken(gated) && level2.map { server.shareURL($0) != nil } == true, "")
+            let old = Deliver.Host(name: "Old NAS", kind: .nas, address: nil), new = { var h = old; h.links = 3; return h }()
+            check("review: links stay level 2 while a paired host can't serve 3", ReviewPublish.linkLevel([]) == 3 && ReviewPublish.linkLevel([new]) == 3
+                  && ReviewPublish.linkLevel([new, old]) == 2, "")
+            store.revoke(gated.id)
+            if let level2 { store.revoke(level2.id) }
         }
         let bad = connect("p_bad", link, badProof: true)
         check("review: bad proof closes", code(bad.welcome) == "auth" && closed("p_bad"), "\(bad.welcome)")
@@ -887,7 +909,7 @@ extension PhotoSelfTest {
             let room = DeliverKeys.base64url(Data((0..<16).map { _ in UInt8.random(in: 0...255) }))
             let reg = DeliverKeys.base64url(DeliverKeys.random(32))
             let erased = await DeliverLink.erase(room: room, reg: reg, signal: signal) // also proves URLSession sends no Origin
-            check("parity: erase a room on the Worker", erased, "")
+            check("parity: erase a room on the Worker", erased == true, "")
         }
 
         // Uploads: off, too large, wrong type, names made safe, the hash checked, the file filed; attachments.
@@ -1030,6 +1052,7 @@ extension PhotoSelfTest {
         let since = Date.now.addingTimeInterval(-60)
         _ = try? store.reply(to: UUID(uuidString: generalID)!, text: "Thanks, will do", author: "Editor")
         _ = try? store.addComment(asset: spot.id, version: spot.current.id, frame: 5, text: "Team note", author: "Editor", isInternal: true)
+        DeliverServer.shared.held(store.link(client.id)!.roomID) // a level-3 address goes out only once its room is held (§13.24)
         let update = DeliverLinkRow.updateText(store.link(client.id)!, since: since, store: store)
         check("parity: update draft", update.contains("Thanks, will do") && !update.contains("Team note") && update.contains("https://pluck.tools/r/"), update)
         let publish = ReviewPublish(store: store)
@@ -1283,11 +1306,11 @@ final class ReviewFakeHost {
 
     func answer(_ request: [String: Any], _ payload: Data?) -> [String: Any]? {
         if request["op"] == nil, request["key"] != nil || request["device"] != nil {
-            return ["ok": true, "version": "0.3.0", "protocol": 3, "host": ["id": UUID().uuidString, "name": "Office NAS", "role": "main"]]
+            return ["ok": true, "version": "0.3.0", "protocol": 3, "links": 3, "host": ["id": UUID().uuidString, "name": "Office NAS", "role": "main"]]
         }
         if let code = request["pair"] as? String {
             paired.append(code)
-            return ["ok": true, "version": "0.3.0", "protocol": 3, "host": ["id": "6F1E7C2A-0000-4000-8000-000000000001", "name": "Office NAS", "role": "main"],
+            return ["ok": true, "version": "0.3.0", "protocol": 3, "links": 3, "host": ["id": "6F1E7C2A-0000-4000-8000-000000000001", "name": "Office NAS", "role": "main"],
                     "device": "D1", "key": DeliverKeys.base64url(Data(repeating: 9, count: 32))]
         }
         switch request["op"] as? String {

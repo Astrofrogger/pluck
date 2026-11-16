@@ -4,8 +4,9 @@ import SwiftUI
 /// Each is set once at launch by the area that provides it (nil until then: callers hide the feature).
 @MainActor
 enum RemoteHooks {
-    /// B4 → B2: a player for a file on the host, streamed by ranges (share id, share-relative path of the original).
-    static var player: ((_ share: String, _ path: String) -> AnyView)?
+    /// B4 → B2: a player for a file on the host, streamed by ranges (share id, share-relative path of the original,
+    /// raw: a clip only pluck-raw reads, played from a proxy the host makes when it has none).
+    static var player: ((_ share: String, _ path: String, _ raw: Bool) -> AnyView)?
     /// B5 → B3: the mounted network folder holding a share's proxies (network-only mode), mounting it if needed.
     static var networkProxyRoot: ((_ share: String) async throws -> URL)?
     /// B2 → B3: the local folder holding a share's pulled proxies (with its RemoteManifest), if pulled.

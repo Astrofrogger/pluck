@@ -85,21 +85,29 @@ impl UploadRoot {
     }
 
     pub fn mkdir(&self, path: &str) -> Value {
-        let r = (|| {
-            let parts = self.parts(path)?;
-            let mut at = self.dir.clone();
-            for c in parts {
-                at = self.inside(&at)?.join(c);
-                match std::fs::create_dir(&at) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(_) => return Err("internal"),
-                }
+        self.folder(path).map(|_| json!({"ok": true})).unwrap_or_else(|c| json!({"error": c}))
+    }
+
+    /// A folder of the root ("<id>" or "<id>/a/b"), made when missing, by its real path (checked as mkdir checks).
+    pub fn folder(&self, path: &str) -> Result<PathBuf, &'static str> {
+        if path == self.id {
+            return self.inside(&self.dir);
+        }
+        let mut at = self.dir.clone();
+        for c in self.parts(path)? {
+            at = self.inside(&at)?.join(c);
+            match std::fs::create_dir(&at) {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(_) => return Err("internal"),
             }
-            self.inside(&at)?;
-            Ok(json!({"ok": true}))
-        })();
-        r.unwrap_or_else(|c| json!({"error": c}))
+        }
+        self.inside(&at)
+    }
+
+    /// Where pushed files wait inside the root (same filesystem as their final place: link() works).
+    pub fn partial_dir(&self) -> PathBuf {
+        self.partial()
     }
 
     /// `move`: a file in the root into another folder of it, its name kept (" 2" when taken: never overwritten).
@@ -191,13 +199,18 @@ impl UploadRoot {
                 std::fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW).mode(0o640).open(&part)
                     .map_err(|_| { self.release(&id); "internal" })?;
             }
-            let _ = std::fs::write(&meta, json!({"path": path, "size": size, "sha256": sha, "device": device, "started": now_iso()}).to_string());
+            let mut m = json!({"path": path, "size": size, "sha256": sha, "device": device, "started": now_iso()});
+            // A backup (§13.25): the folder the editor picked on the main, applied there when the file moves.
+            if let Some(f) = op["folder"].as_str().filter(|f| f.len() <= 1024 && !f.contains('\0')) {
+                m["folder"] = json!(f);
+            }
+            let _ = std::fs::write(&meta, m.to_string());
             Ok(json!({"upload": id, "path": path, "have": have}))
         })();
         r.unwrap_or_else(|c| json!({"error": c}))
     }
 
-    fn meta(&self, id: &str) -> Option<Value> {
+    pub fn meta(&self, id: &str) -> Option<Value> {
         let ok = id.len() > 65 && id.bytes().all(|b| b.is_ascii_hexdigit() || b == b'-');
         let (_, meta) = self.files(id);
         ok.then(|| std::fs::read(meta).ok().and_then(|b| serde_json::from_slice(&b).ok())).flatten()

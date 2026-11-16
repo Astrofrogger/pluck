@@ -247,9 +247,7 @@ final class RemoteProxyJobs {
             var found: [String] = []
             for path in request.paths {
                 guard let item = try? RemoteEditHost.resolve(path, in: root) else { continue }
-                let videos = (try? item.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                    ? OfficeArchive.videoFiles(in: [item], skipping: inbox) : (Converting.isVideo(item) ? [item] : [])
-                for video in videos {
+                for video in RemoteEditHost.clips(in: item, skipping: inbox) {
                     if watch, let date = try? video.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
                        Date.now.timeIntervalSince(date) < 60 { continue }
                     found.append(RemoteEditHost.relative(URL(fileURLWithPath: RemoteEditHost.realPath(video.path) ?? video.path), in: root))
@@ -297,8 +295,7 @@ final class RemoteProxyJobs {
     func manifest(root: URL, share: String, under folder: URL, format: OfficeProxies.Format) async throws -> [RemoteManifestEntry] {
         let inbox = OfficeInbox.shared.folder
         let files = await Task.detached { () -> [String] in
-            let videos = (try? folder.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
-                ? OfficeArchive.videoFiles(in: [folder], skipping: inbox) : [folder]
+            let videos = RemoteEditHost.isDirectory(folder) ? RemoteEditHost.clips(in: folder, skipping: inbox) : [folder]
             return videos.map { RemoteEditHost.relative(URL(fileURLWithPath: RemoteEditHost.realPath($0.path) ?? $0.path), in: root) }.sorted()
         }.value
         var entries: [RemoteManifestEntry] = []

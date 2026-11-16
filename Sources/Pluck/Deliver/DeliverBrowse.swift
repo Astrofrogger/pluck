@@ -227,7 +227,7 @@ struct DeliverBrowseView: View {
                     .frame(maxHeight: .infinity)
                 }
             } else {
-                FinderSidebar(groups: places, selection: selected) { go($0.id) }
+                FinderSidebar(groups: places, selection: selected, place: "deliver") { go($0.id) }
                 Divider()
                 VStack(spacing: 0) {
                     header
@@ -238,7 +238,8 @@ struct DeliverBrowseView: View {
                             .allowsHitTesting(problem == nil)
                         if let item = chosen, nas != nil {
                             Divider()
-                            DeliverNASPreview(host: nas!.host, path: nas!.path(item.url), name: item.name).frame(width: 260).id(item.url)
+                            DeliverNASPreview(host: nas!.host, path: nas!.path(item.url), name: item.name)
+                                .finderResizable("finderPreviewWidth.deliver", width: 260, range: 200...560, edge: .leading).id(item.url)
                         }
                     }
                 }

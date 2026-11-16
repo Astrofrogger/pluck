@@ -31,10 +31,12 @@ struct Inner {
     wrong: u32,
     locked: Option<Instant>,
     updates: HashMap<String, String>, // backup device → an update request to hand on at its next status
+    outage: Vec<Value>, // a backup: the main's Macs that may upload here while it's down (main-macs.json, §13.25)
 }
 
 pub struct Devices {
     path: PathBuf,
+    macs_path: PathBuf,
     inner: Mutex<Inner>,
     /// Commands to the office-mode pluck-iroh child ({"allow"}, {"pair"}, {"paired"}).
     pub iroh: Mutex<Option<mpsc::UnboundedSender<Value>>>,
@@ -65,18 +67,24 @@ impl Devices {
     pub fn load(data: &Path) -> Devices {
         let path = data.join("devices.json");
         let list = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()).unwrap_or_default();
-        Devices { path, inner: Mutex::new(Inner { list, ..Default::default() }), iroh: Mutex::new(None), link: Mutex::new(json!({})) }
+        let macs_path = data.join("main-macs.json");
+        let outage = std::fs::read(&macs_path).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()).unwrap_or_default();
+        Devices { path, macs_path, inner: Mutex::new(Inner { list, outage, ..Default::default() }), iroh: Mutex::new(None), link: Mutex::new(json!({})) }
     }
 
     fn save(&self, i: &Inner) {
+        Self::write(&self.path, &i.list);
+    }
+
+    fn write(path: &Path, list: &[Value]) {
         use std::{io::Write, os::unix::fs::OpenOptionsExt};
-        let tmp = self.path.with_extension("json.part");
+        let tmp = path.with_extension("json.part");
         let _ = std::fs::remove_file(&tmp);
         let r = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&tmp)
-            .and_then(|mut f| f.write_all(Value::from(i.list.clone()).to_string().as_bytes()))
-            .and_then(|_| std::fs::rename(&tmp, &self.path));
+            .and_then(|mut f| f.write_all(Value::from(list.to_vec()).to_string().as_bytes()))
+            .and_then(|_| std::fs::rename(&tmp, path));
         if let Err(e) = r {
-            crate::log(format!("devices.json: {e}"));
+            crate::log(format!("{}: {e}", path.display()));
         }
     }
 
@@ -88,7 +96,8 @@ impl Devices {
 
     /// The node ids pluck-iroh lets in.
     pub fn allow(&self) -> Vec<String> {
-        self.inner.lock().unwrap().list.iter().filter_map(|d| d["node"].as_str().map(str::to_owned)).collect()
+        let i = self.inner.lock().unwrap();
+        i.list.iter().chain(&i.outage).filter_map(|d| d["node"].as_str().map(str::to_owned)).collect()
     }
 
     fn send_allow(&self) {
@@ -171,7 +180,12 @@ impl Devices {
     pub fn check(&self, id: &str, key: &str, stream: Option<&str>) -> Option<String> {
         let mut i = self.inner.lock().unwrap();
         let given = keys::unb64(key).filter(|k| k.len() == 32)?;
-        let d = i.list.iter_mut().find(|d| d["id"] == id)?;
+        let Some(d) = i.list.iter_mut().find(|d| d["id"] == id) else {
+            // A backup: one of its main's Macs, on the node it registered there for this (§13.25), may upload while the main is down.
+            let d = i.outage.iter().find(|d| d["id"] == id)?;
+            let hash_ok = keys::subtle_eq(keys::sha256_b64(&given).as_bytes(), d["keyHash"].as_str()?.as_bytes());
+            return (hash_ok && stream.is_some_and(|s| d["node"].as_str() == Some(s))).then(|| "outage".into());
+        };
         let hash_ok = keys::subtle_eq(keys::sha256_b64(&given).as_bytes(), d["keyHash"].as_str()?.as_bytes());
         let node_ok = stream.is_none_or(|s| d["node"].as_str() == Some(s));
         if !(hash_ok && node_ok) {
@@ -185,7 +199,48 @@ impl Devices {
     }
 
     pub fn exists(&self, id: &str) -> bool {
-        self.inner.lock().unwrap().list.iter().any(|d| d["id"] == id)
+        let i = self.inner.lock().unwrap();
+        i.list.iter().chain(&i.outage).any(|d| d["id"] == id)
+    }
+
+    /// A device's name (also one of the main's Macs, on a backup).
+    pub fn name(&self, id: &str) -> String {
+        let i = self.inner.lock().unwrap();
+        i.list.iter().chain(&i.outage).find(|d| d["id"] == id).and_then(|d| d["name"].as_str()).unwrap_or("").to_owned()
+    }
+
+    /// `outage-node`: the node this Mac uses to reach the backups while the main is down (its own iroh key for them).
+    pub fn set_outage_node(&self, id: &str, node: &str) -> Value {
+        if !valid_node(node) {
+            return json!({"error": "invalid"});
+        }
+        let mut i = self.inner.lock().unwrap();
+        let Some(d) = i.list.iter_mut().find(|d| d["id"] == id && d["role"] == "mac") else { return json!({"error": "notFound"}) };
+        d["outageNode"] = json!(node);
+        self.save(&i);
+        json!({"ok": true})
+    }
+
+    /// `outage-macs` (the main, for its backups): the Macs with an outage node, their key hashes and that node.
+    pub fn outage_macs(&self) -> Value {
+        let i = self.inner.lock().unwrap();
+        json!({"macs": i.list.iter().filter(|d| d["role"] == "mac" && d["outageNode"].as_str().is_some_and(valid_node))
+            .map(|d| json!({"id": d["id"], "name": d["name"], "node": d["outageNode"], "keyHash": d["keyHash"]})).collect::<Vec<_>>()})
+    }
+
+    /// A backup: the main's `outage-macs`, kept (main-macs.json) for while the main is down; a Mac gone there is cut here.
+    pub fn set_outage(&self, macs: &Value) {
+        let list: Vec<Value> = macs.as_array().into_iter().flatten()
+            .filter(|d| d["id"].as_str().is_some_and(|x| !x.is_empty() && x.len() <= 64) && d["node"].as_str().is_some_and(valid_node) && d["keyHash"].is_string())
+            .map(|d| json!({"id": d["id"], "name": d["name"], "node": d["node"], "keyHash": d["keyHash"]})).take(200).collect();
+        let mut i = self.inner.lock().unwrap();
+        if i.outage == list {
+            return;
+        }
+        Self::write(&self.macs_path, &list);
+        i.outage = list;
+        drop(i);
+        self.send_allow();
     }
 
     pub fn list(&self) -> Value {

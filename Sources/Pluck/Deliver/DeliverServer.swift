@@ -64,6 +64,29 @@ final class DeliverServer {
     private(set) var peers: [String: Peer] = [:]
     /// Each room's state from the helper: registered, offline, taken.
     private(set) var rooms: [String: String] = [:]
+    /// §13.24 H1: rooms one of the owner's servers has held (this Mac registered, or was stood by for an always-on host),
+    /// kept across launches. A level-3 link is shown, copied or sent only after that, so nobody who sees the address
+    /// before any server registered can take its room first.
+    private(set) var heldRooms = Set(UserDefaults.standard.stringArray(forKey: DeliverServer.heldKey) ?? [])
+    nonisolated static let heldKey = "reviewHeldRooms"
+
+    /// The address to show, copy, email or put in a QR code: a level-3 link's only once its room is held (else nil:
+    /// "Getting the link ready…"). Level 2 needs no wait: a link holder can't make its signed hello.
+    func shareURL(_ link: Deliver.ShareLink) -> String? {
+        guard store.code(link.id) == nil || heldRooms.contains(link.roomID) else { return nil }
+        return store.url(link)
+    }
+    /// Someone else registered this link's room first (or holds it since it lapsed): the owner needs a new link.
+    func isTaken(_ link: Deliver.ShareLink) -> Bool { rooms[link.roomID] == "taken" && store.key(link.id) != nil }
+
+    /// Tests and the room reports: a room is the owner's.
+    func held(_ room: String) {
+        guard !heldRooms.contains(room) else { return }
+        heldRooms.insert(room)
+        let live = Set(store.links.map(\.roomID)) // only rooms of links still here
+        heldRooms.formIntersection(live.union([room]))
+        UserDefaults.standard.set(Array(heldRooms), forKey: Self.heldKey)
+    }
     @ObservationIgnored private var wrongByLink: [UUID: [Date]] = [:]
     @ObservationIgnored private var lockedUntil: [UUID: Date] = [:]
     /// The server's clock (§13.9 enforces deadlines with it; tests move it).
@@ -87,6 +110,7 @@ final class DeliverServer {
     func helper(_ report: [String: Any]) {
         if let room = report["room"] as? [String: Any], let id = room["room"] as? String {
             rooms[id] = room["state"] as? String
+            if ["active", "registered", "standby"].contains(rooms[id] ?? "") { held(id) }
         }
         if let info = report["peer"] as? [String: Any], let id = info["peer"] as? String {
             if info["state"] as? String == "open" {

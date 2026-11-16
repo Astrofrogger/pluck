@@ -516,6 +516,9 @@ final class OfficeProxies {
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         await Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if RemoteEditHost.isRawClip(source, directory: RemoteEditHost.isDirectory(source)) {
+                return encodeRaw(source, to: target, format: format, progress: progress)
+            }
             let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
             let (duration, timecode, container, reel) = probe(source, ffprobe: ffprobe)
             guard let demuxer = demuxer(container) else { return false }
@@ -561,6 +564,26 @@ final class OfficeProxies {
             }
             return false
         }.value
+    }
+
+    /// A raw clip (RED, Blackmagic RAW, a CinemaDNG folder) through pluck-raw, which ffmpeg can't read: at the
+    /// format's height or less, picture only.
+    /// shortcut: no sound or timecode in it (enough to preview), add both before raw proxies are linked in Resolve.
+    nonisolated static func encodeRaw(_ source: URL, to target: URL, format: Format, progress: @escaping @Sendable (Double) -> Void) -> Bool {
+        guard let raw = try? RawFormats.open(source) else { return false }
+        defer { raw.close() }
+        let info = raw.info
+        guard info.frames > 0, info.height > 0 else { return false }
+        var scale = 1
+        while scale < 16, info.height / scale > format.height { scale *= 2 }
+        do {
+            try RawExport.write(raw, to: target, codec: format == .prores ? .proresProxy : .h264, scale: scale, settings: RawSettings(),
+                                frames: 0...(info.frames - 1), stop: RawExport.Stop(), progress: progress,
+                                bitRate: format == .stream ? 3_000_000 : 8_000_000)
+        } catch {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: target.path)
     }
 
     /// Containers that open other files (playlists, manifests, scripts): a file named .mov can be one.

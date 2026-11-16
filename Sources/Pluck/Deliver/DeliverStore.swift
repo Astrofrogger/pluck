@@ -654,9 +654,9 @@ final class DeliverStore {
 
     @discardableResult
     func newLink(scope: Deliver.Scope, title: String, mode: Deliver.ShareLink.Mode = .review, allowDownload: Bool = false,
-                 latestOnly: Bool = false, expires: Date? = nil, password: String? = nil, level: Int = 3) throws -> Deliver.ShareLink {
+                 latestOnly: Bool = false, expires: Date? = nil, password: String? = nil, level: Int? = nil) throws -> Deliver.ShareLink {
         guard links.filter(\.isLive).count < Self.liveLinkLimit else { throw Deliver.Failure("limit") }
-        let item = Self.item(level: level), key = Self.linkKey(item)!
+        let item = Self.item(level: level ?? ReviewPublish.shared.linkLevel), key = Self.linkKey(item)!
         let title = Deliver.clean(title, limit: Self.nameLimit)
         var link = Deliver.ShareLink(title: title.isEmpty ? String(localized: "Review") : title, scope: scope, roomID: DeliverKeys.roomID(key),
                                      mode: mode, allowDownload: allowDownload, latestOnly: latestOnly, expires: expires)
@@ -674,7 +674,7 @@ final class DeliverStore {
     func duplicate(_ id: UUID, recipient: String? = nil) throws -> Deliver.ShareLink {
         guard let template = link(id) else { throw Deliver.Failure("notFound") }
         guard links.filter(\.isLive).count < Self.liveLinkLimit else { throw Deliver.Failure("limit") }
-        let item = Self.item(level: 3), key = Self.linkKey(item)!
+        let item = Self.item(level: ReviewPublish.shared.linkLevel), key = Self.linkKey(item)!
         var made = template
         made.id = UUID()
         made.roomID = DeliverKeys.roomID(key)
@@ -737,10 +737,11 @@ final class DeliverStore {
         return "https://pluck.tools/r/\(link.roomID)#\(DeliverKeys.base64url(key)).\(DeliverKeys.publicKey(root: secret))"
     }
 
-    /// "Make a New Link" (§13.24): a level-3 code, a new R and room. The old link stops working (its sessions end).
-    func renew(_ id: UUID) {
+    /// "Make a New Link" (§13.24): a new code (level 3, or level 2 while a paired host can't serve 3), R and room. The old
+    /// link stops working (its sessions end). DeliverLink.renew erases the old room on pluck.tools with the old reg.
+    func renew(_ id: UUID, level: Int? = nil) {
         guard let index = links.firstIndex(where: { $0.id == id }), links[index].revoked == nil, key(id) != nil else { return }
-        let old = links[index], item = Self.item(level: 3)
+        let old = links[index], item = Self.item(level: level ?? ReviewPublish.shared.linkLevel)
         DeliverKeychain.save(item, as: id.uuidString)
         links[index].roomID = DeliverKeys.roomID(Self.linkKey(item)!)
         stampLink(index)
@@ -748,7 +749,9 @@ final class DeliverStore {
         tell(.linkOff(old))
     }
 
-    /// Level-1 links (a 32-byte keychain item, no R) can't be served any more: they get a new key, R and room.
+    /// Level-1 links (a 32-byte keychain item, no R) can't be served any more: they get a new key, R and room. Level 2,
+    /// not 3: this runs while the store loads, before the paired hosts are known, and level 2 works with every released
+    /// host. (Level-1 items are pre-release data only: every release since 4.0.0 made level-2 links.)
     private func upgradeLegacyKeys() {
         var changed = false
         for index in links.indices where links[index].revoked == nil {

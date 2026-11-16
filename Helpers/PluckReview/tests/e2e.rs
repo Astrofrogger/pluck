@@ -607,7 +607,8 @@ async fn host_makes_review_copies() {
     let code = url.strip_prefix("https://pluck.tools/r/#").expect("level 3 link");
     assert!(code.len() == 12 && code.bytes().all(|b| b.is_ascii_alphanumeric()), "{url}");
     let hk = |salt: &[u8], ikm: &[u8], info: &[u8], n: usize| { let mut o = vec![0u8; n]; hkdf::Hkdf::<Sha256>::new(Some(salt), ikm).expand(info, &mut o).unwrap(); o };
-    let key = hk(b"pluck-link-v3", code.as_bytes(), b"key", 32);
+    let mut key = vec![0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha256>(code.as_bytes(), b"pluck-link-v3", 300_000, &mut key); // §13.24 linkKey
     let room = B64.encode(hk(b"pluck-review/1", &key, b"room", 16));
     let manifest = std::fs::read_to_string(data.join("bundle/manifest.json")).unwrap();
     assert!(!manifest.contains(code) && !manifest.contains(&B64.encode(&key)), "the host never stores the code or the link key");

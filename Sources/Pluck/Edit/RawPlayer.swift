@@ -1361,14 +1361,16 @@ enum RawExport {
         var isStopped: Bool { lock.withLock { stopped } }
     }
 
+    /// `bitRate`: H.264's (nil: about 12 bits a pixel).
     static func write(_ source: RawSource, to url: URL, codec: Codec, scale: Int, settings: RawSettings, frames: ClosedRange<Int>,
-                      stop: Stop, progress: @escaping @Sendable (Double) -> Void) throws {
+                      stop: Stop, progress: @escaping @Sendable (Double) -> Void, bitRate: Int? = nil) throws {
         // Written under a hidden name beside it and named when it's whole, so a stopped or failed
         // export (or Pluck quitting) never leaves a broken movie under the real name.
         let partial = url.deletingLastPathComponent().appendingPathComponent("." + url.deletingPathExtension().lastPathComponent + ".pluckpart." + url.pathExtension)
         try? FileManager.default.removeItem(at: partial)
         do {
-            guard try writeMovie(source, to: partial, codec: codec, scale: scale, settings: settings, frames: frames, stop: stop, progress: progress) else {
+            guard try writeMovie(source, to: partial, codec: codec, scale: scale, settings: settings, frames: frames, stop: stop, progress: progress,
+                                 bitRate: bitRate) else {
                 try? FileManager.default.removeItem(at: partial)
                 return
             }
@@ -1385,16 +1387,17 @@ enum RawExport {
 
     /// The movie itself: false when it was stopped.
     private static func writeMovie(_ source: RawSource, to url: URL, codec: Codec, scale: Int, settings: RawSettings, frames: ClosedRange<Int>,
-                                   stop: Stop, progress: @escaping @Sendable (Double) -> Void) throws -> Bool {
+                                   stop: Stop, progress: @escaping @Sendable (Double) -> Void, bitRate: Int?) throws -> Bool {
         let info = source.info
         let width = info.width / max(scale, 1) / 2 * 2, height = info.height / max(scale, 1) / 2 * 2
-        let writer = try AVAssetWriter(outputURL: url, fileType: codec == .h264 ? .mp4 : .mov)
+        // (By the name: H.264 goes in a .mov too, as a proxy.)
+        let writer = try AVAssetWriter(outputURL: url, fileType: url.pathExtension.lowercased() == "mov" ? .mov : .mp4)
         var video: [String: Any] = [AVVideoCodecKey: codec.type, AVVideoWidthKey: width, AVVideoHeightKey: height,
                                     AVVideoColorPropertiesKey: [AVVideoColorPrimariesKey: AVVideoColorPrimaries_ITU_R_709_2,
                                                                 AVVideoTransferFunctionKey: AVVideoTransferFunction_ITU_R_709_2,
                                                                 AVVideoYCbCrMatrixKey: AVVideoYCbCrMatrix_ITU_R_709_2]]
         if codec == .h264 {
-            video[AVVideoCompressionPropertiesKey] = [AVVideoAverageBitRateKey: max(width * height * 12, 8_000_000)]
+            video[AVVideoCompressionPropertiesKey] = [AVVideoAverageBitRateKey: bitRate ?? max(width * height * 12, 8_000_000)]
         }
         let input = AVAssetWriterInput(mediaType: .video, outputSettings: video)
         input.expectsMediaDataInRealTime = false

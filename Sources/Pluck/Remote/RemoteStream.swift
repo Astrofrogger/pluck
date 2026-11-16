@@ -176,20 +176,25 @@ final class RemoteStream: NSObject, AVAssetResourceLoaderDelegate, @unchecked Se
 @MainActor
 extension RemoteStream {
     static func install() {
-        RemoteHooks.player = { share, path in AnyView(RemoteStreamPlayer(share: share, path: path)) }
+        RemoteHooks.player = { share, path, raw in AnyView(RemoteStreamPlayer(share: share, path: path, raw: raw)) }
     }
 }
 
 /// Plays a share's file from the host: its proxy, or the original when there's no proxy and this
-/// Mac may fetch originals. Says so when the host is offline or there's nothing to play yet.
+/// Mac may fetch originals. A raw clip (AVFoundation can't read R3D or BRAW) plays from its proxy
+/// only: with none, the host makes a light one first (shareProxyMake), its progress shown. Says so
+/// when the host is offline or there's nothing to play yet.
 struct RemoteStreamPlayer: View {
     let share: String
     let path: String
+    var raw = false
     @State private var state = Loading.waiting
     @State private var attempt = 0
 
     enum Loading {
         case waiting
+        /// The host is making the raw clip's proxy (how far, once it's on it).
+        case making(Double?)
         case playing(AVPlayer, RemoteStream)
         case failed(String)
     }
@@ -200,6 +205,16 @@ struct RemoteStreamPlayer: View {
             switch state {
             case .waiting:
                 ProgressView().controlSize(.small)
+            case .making(let progress):
+                VStack(spacing: 10) {
+                    StudioProgress(share: progress ?? 0).frame(width: 220)
+                    if let progress {
+                        Text("Making a preview on the host Mac… \(progress.formatted(.percent.precision(.fractionLength(0))))")
+                    } else {
+                        Text("Making a preview on the host Mac…")
+                    }
+                }
+                .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             case .playing(let player, _):
                 RemotePlayerSurface(player: player)
             case .failed(let problem):
@@ -219,19 +234,48 @@ struct RemoteStreamPlayer: View {
 
     private func open() async {
         state = .waiting
+        if await play(raw ? [.proxy] : [.proxy, .original]) || Task.isCancelled || !raw { return }
+        do {
+            guard let id = try await RemotePullClient.makeProxies(share: share, paths: [path], format: .light) else {
+                return state = .failed(String(localized: "Update Pluck on the host Mac to preview raw clips."))
+            }
+            while !Task.isCancelled {
+                let request = try await RemotePullClient.proxyRequest(id)
+                switch request.state {
+                case "ready" where request.total == 0:
+                    // (A host from before raw proxies finds no clip in it.)
+                    return state = .failed(String(localized: "Update Pluck on the host Mac to preview raw clips."))
+                case "ready":
+                    if await !play([.proxy]), !Task.isCancelled { state = .failed(String(localized: "This can’t be played from the host Mac.")) }
+                    return
+                case "failed":
+                    return state = .failed(request.problem ?? String(localized: "The host Mac couldn’t make a preview of this clip."))
+                default:
+                    state = .making(request.progress)
+                }
+                try await Task.sleep(for: .seconds(1))
+            }
+        } catch {
+            if !Task.isCancelled { state = .failed(error.localizedDescription) }
+        }
+    }
+
+    /// Plays the first of these the host has; false (and why, shown) when it has none.
+    private func play(_ kinds: [OfficeRenderClient.FileKind]) async -> Bool {
         var problem: String?
-        for kind in [OfficeRenderClient.FileKind.proxy, .original] {
+        for kind in kinds {
             let stream = RemoteStream.file(share: share, path: path, kind: kind)
             do {
                 _ = try await stream.size()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled else { return false }
                 state = .playing(AVPlayer(playerItem: AVPlayerItem(asset: stream.asset())), stream)
-                return
+                return true
             } catch {
                 problem = problem ?? error.localizedDescription  // the proxy's reason says most
             }
         }
-        state = .failed(problem ?? String(localized: "This can’t be played from the host Mac."))
+        if !Task.isCancelled { state = .failed(problem ?? String(localized: "This can’t be played from the host Mac.")) }
+        return false
     }
 }
 
