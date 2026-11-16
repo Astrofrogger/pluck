@@ -45,13 +45,14 @@ struct LibraryView: View {
     @State private var server = LibraryServer.shared
     /// The highlighted item (its path): Space shows it in Quick Look, arrow keys move it.
     @State private var selected: String?
+    /// The item whose name is being typed over (basic never renames, so it stays nil there; the shared key handlers read it).
+    @State private var renaming: String?
     #if STUDIO
     @AppStorage("libraryDetailsShown") private var detailsShown = true
     @AppStorage("librarySidebarShown") private var sidebarShown = true
     /// How the collections are shown (folders keep their own, per pane): icons, list or gallery.
     @AppStorage("libraryViewMode") private var libraryMode: FinderViewMode = .icons
-    /// The item whose name is being typed over, and why a rename or duplicate couldn't be done.
-    @State private var renaming: String?
+    /// Why a rename or duplicate couldn't be done.
     @State private var fileProblem: String?
     @State private var typeSelect = TypeSelect()
     /// Goes up whenever something's opened (a click on a name then doesn't rename it).
