@@ -48,7 +48,9 @@ final class TrueNASClient {
         self.session = session
         self.socket = socket
         do {
-            _ = try await call("core.ping")
+            // Any answer proves the TLS handshake (and its pin) passed; before login TrueNAS answers most methods
+            // with ENOTAUTHENTICATED, which is fine here. Only a transport error means the connection failed.
+            do { _ = try await call("auth.mechanism_choices") } catch is Failure {}
         } catch {
             if pin == nil, let seen = delegate.seen { throw Unconfirmed(fingerprint: seen) }
             throw error

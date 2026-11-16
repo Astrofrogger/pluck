@@ -7,6 +7,7 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.2", items: []),
             Release(version: "4.0.1", items: []),
             Release(version: "4.0.0", items: [
                 Item(symbol: "paperplane", title: String(localized: "Deliver"),
