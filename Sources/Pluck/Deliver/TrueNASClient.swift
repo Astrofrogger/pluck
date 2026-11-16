@@ -140,8 +140,14 @@ final class TrueNASClient {
         return nil
     }
 
+    /// The pools: the top-level datasets. (`pool.query` needs POOL_READ, which the pluck user doesn't have;
+    /// pool.dataset.query needs DATASET_READ, which it does. Checked against api.truenas.com v25.10.)
     func pools() async throws -> [String] {
-        (try await call("pool.query") as? [[String: Any]] ?? []).compactMap { $0["name"] as? String }
+        Self.pools(in: try await datasets())
+    }
+
+    nonisolated static func pools(in datasets: [String]) -> [String] {
+        Array(Set(datasets.filter { !$0.isEmpty && !$0.contains("/") })).sorted()
     }
 
     func datasets() async throws -> [String] {

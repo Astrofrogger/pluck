@@ -1801,6 +1801,8 @@ extension PhotoSelfTest {
         check("round3: TrueNAS roles as {\"$set\": …} are read",
               TrueNASClient.roleList(["$set": allRoles]) == Set(allRoles) && TrueNASClient.roleList(allRoles) == Set(allRoles)
               && TrueNASClient.roleList(["x": 1]) == nil)
+        check("round3: TrueNAS pools come from the top-level datasets (no POOL_READ needed)",
+              TrueNASClient.pools(in: ["tank", "tank/apps", "boot-pool", "tank/media/2026"]) == ["boot-pool", "tank"])
         let old = TrueNASClient.parse("24.10.2").map { ($0.major, $0.minor) >= (25, 4) }
         let template = "services:\n  a:\n    image: \"{{image}}\"\n    env: \"{{name}}\"\n    # begin:uploads\n    up: \"{{uploads}}\"\n    # end:uploads\n"
         let rendered = try? TrueNASClient.render(template, ["image": "ghcr.io/x/y@sha256:" + String(repeating: "0", count: 64), "name": "Say \"hi\""])

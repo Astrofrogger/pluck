@@ -7,6 +7,7 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.3", items: []),
             Release(version: "4.0.2", items: [
                 Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere, simpler"),
                      detail: String(localized: "Macs, Folders, Proxies and Renders, and a Finder sidebar to browse the other Mac.")),
