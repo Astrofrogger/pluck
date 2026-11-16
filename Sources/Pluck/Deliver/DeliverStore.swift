@@ -654,9 +654,9 @@ final class DeliverStore {
 
     @discardableResult
     func newLink(scope: Deliver.Scope, title: String, mode: Deliver.ShareLink.Mode = .review, allowDownload: Bool = false,
-                 latestOnly: Bool = false, expires: Date? = nil, password: String? = nil) throws -> Deliver.ShareLink {
+                 latestOnly: Bool = false, expires: Date? = nil, password: String? = nil, level: Int = 3) throws -> Deliver.ShareLink {
         guard links.filter(\.isLive).count < Self.liveLinkLimit else { throw Deliver.Failure("limit") }
-        let item = DeliverKeys.random(64), key = Data(item.prefix(32)) // key ‖ R (level 2)
+        let item = Self.item(level: level), key = Self.linkKey(item)!
         let title = Deliver.clean(title, limit: Self.nameLimit)
         var link = Deliver.ShareLink(title: title.isEmpty ? String(localized: "Review") : title, scope: scope, roomID: DeliverKeys.roomID(key),
                                      mode: mode, allowDownload: allowDownload, latestOnly: latestOnly, expires: expires)
@@ -674,7 +674,7 @@ final class DeliverStore {
     func duplicate(_ id: UUID, recipient: String? = nil) throws -> Deliver.ShareLink {
         guard let template = link(id) else { throw Deliver.Failure("notFound") }
         guard links.filter(\.isLive).count < Self.liveLinkLimit else { throw Deliver.Failure("limit") }
-        let item = DeliverKeys.random(64), key = Data(item.prefix(32))
+        let item = Self.item(level: 3), key = Self.linkKey(item)!
         var made = template
         made.id = UUID()
         made.roomID = DeliverKeys.roomID(key)
@@ -705,15 +705,47 @@ final class DeliverStore {
     func link(_ id: UUID) -> Deliver.ShareLink? { links.first { $0.id == id } }
     /// Made on another Mac (its key is in that Mac's Keychain): only that Mac can change it on a host.
     func isForeign(_ link: Deliver.ShareLink) -> Bool { key(link.id) == nil && link.madeOn.map { $0 != Host.current().localizedName } == true }
-    /// The link key (what's in the link). The keychain item is key ‖ R; a level-1 item (key only) counts as none.
-    func key(_ link: UUID) -> Data? { DeliverKeychain.load(link.uuidString).flatMap { $0.count == 64 ? Data($0.prefix(32)) : nil } }
-    /// R: the owner-only root of the registration secret and the room signing key (never in the link).
-    func secret(_ link: UUID) -> Data? { DeliverKeychain.load(link.uuidString).flatMap { $0.count == 64 ? Data($0.suffix(32)) : nil } }
+    /// The keychain item: code ‖ R (level 3, §13.24, 12 + 32 bytes) for new links, key ‖ R (level 2, 64) for older ones.
+    private static func item(level: Int) -> Data {
+        level == 2 ? DeliverKeys.random(64) : Data(DeliverKeys.newCode().utf8) + DeliverKeys.random(32)
+    }
+    private static let level3Count = DeliverKeys.codeLength + 32
+    /// The 32-byte link key of an item: level 2's key, or level 3's HKDF of the code. A level-1 item (key only) has none.
+    private static func linkKey(_ item: Data) -> Data? {
+        switch item.count {
+        case 64: Data(item.prefix(32))
+        case level3Count: DeliverKeys.linkKey(code: String(decoding: item.prefix(DeliverKeys.codeLength), as: UTF8.self))
+        default: nil
+        }
+    }
 
-    /// `https://pluck.tools/r/<roomId>#<key>.<pub>`, while the key is kept.
+    /// The link key (what's in, or comes from, the link).
+    func key(_ link: UUID) -> Data? { DeliverKeychain.load(link.uuidString).flatMap(Self.linkKey) }
+    /// R: the owner-only root of the registration secret and the room signing key (never in the link).
+    func secret(_ link: UUID) -> Data? { DeliverKeychain.load(link.uuidString).flatMap { [64, Self.level3Count].contains($0.count) ? Data($0.suffix(32)) : nil } }
+    /// A level-3 link's code (the part after `#`); nil for level 2.
+    func code(_ link: UUID) -> String? {
+        DeliverKeychain.load(link.uuidString).flatMap { $0.count == Self.level3Count ? String(decoding: $0.prefix(DeliverKeys.codeLength), as: UTF8.self) : nil }
+    }
+    /// 3 or 2 while the key is kept.
+    func level(_ link: UUID) -> Int? { code(link) != nil ? 3 : key(link) != nil ? 2 : nil }
+
+    /// `https://pluck.tools/r/#<code>` (level 3) or `https://pluck.tools/r/<roomId>#<key>.<pub>` (level 2), while the key is kept.
     func url(_ link: Deliver.ShareLink) -> String? {
+        if let code = code(link.id) { return "https://pluck.tools/r/#\(code)" }
         guard let key = key(link.id), let secret = secret(link.id) else { return nil }
         return "https://pluck.tools/r/\(link.roomID)#\(DeliverKeys.base64url(key)).\(DeliverKeys.publicKey(root: secret))"
+    }
+
+    /// "Make a New Link" (§13.24): a level-3 code, a new R and room. The old link stops working (its sessions end).
+    func renew(_ id: UUID) {
+        guard let index = links.firstIndex(where: { $0.id == id }), links[index].revoked == nil, key(id) != nil else { return }
+        let old = links[index], item = Self.item(level: 3)
+        DeliverKeychain.save(item, as: id.uuidString)
+        links[index].roomID = DeliverKeys.roomID(Self.linkKey(item)!)
+        stampLink(index)
+        saveLinks()
+        tell(.linkOff(old))
     }
 
     /// Level-1 links (a 32-byte keychain item, no R) can't be served any more: they get a new key, R and room.
@@ -978,31 +1010,18 @@ enum DeliverKeychain {
     nonisolated(unsafe) private static var memory: [String: Data] = [:]
     private static var inMemory: Bool { ScreenshotMode.scene != nil }
 
-    private static func query(_ account: String, _ service: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-    }
-
     static func save(_ data: Data, as account: String, service: String = linkService) {
         if inMemory { memory[service + "/" + account] = data; return }
-        SecItemDelete(query(account, service) as CFDictionary)
-        var item = query(account, service)
-        item[kSecValueData as String] = data
-        item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        SecItemAdd(item as CFDictionary, nil)
+        PluckVault.shared.save(data, as: account, service: service)
     }
 
     static func load(_ account: String, service: String = linkService) -> Data? {
         if inMemory { return memory[service + "/" + account] }
-        var item = query(account, service)
-        item[kSecReturnData as String] = true
-        item[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess else { return nil }
-        return result as? Data
+        return PluckVault.shared.load(account, service: service)
     }
 
     static func delete(_ account: String, service: String = linkService) {
         if inMemory { memory[service + "/" + account] = nil; return }
-        SecItemDelete(query(account, service) as CFDictionary)
+        PluckVault.shared.delete(account, service: service)
     }
 }

@@ -79,11 +79,14 @@ enum DeliverShareForReview {
         return items.map { item in (item, asVersions && !item.folder ? match(item.stem, in: assets) : nil) }
     }
 
-    /// Placing them: by reference on the chosen host where they are, else uploaded to its uploads root, else
-    /// copies made here (pushed to the host as for any version). Edit Anywhere files come over first.
-    static func place(_ items: [DeliverBrowseItem], into project: UUID, asVersions: Bool, host: Deliver.Host?, store: DeliverStore = .shared) async {
-        let uploads = host.flatMap { $0.kind == .nas ? $0 : nil }
-        let root = uploads == nil ? nil : await DeliverUploads.writableRoot(uploads!)
+    /// Placing them: by reference on the chosen host where they are, else (with `upload`) the original uploaded to
+    /// the folder chosen in that server's uploads root and referenced there (the server makes its copies), else copies
+    /// made here (pushed to the host as for any version). Edit Anywhere files come over first.
+    static func place(_ items: [DeliverBrowseItem], into project: UUID, asVersions: Bool, host: Deliver.Host?,
+                      upload: DeliverUploadDestination.Upload? = nil, later: Bool = false, store: DeliverStore = .shared, publish: ReviewPublish = .shared,
+                      queue: DeliverShareQueue = .shared) async {
+        let target = upload.flatMap { publish.host($0.host) }
+        if let upload { DeliverUploadDestination.remember(upload.folder, host: upload.host, project: project) }
         for (item, match) in plan(items, project: project, asVersions: asVersions, store: store) {
             var reference: (path: String, size: Int64)?
             var local: URL?
@@ -91,14 +94,20 @@ enum DeliverShareForReview {
             case .nas(let id, let path):
                 reference = (ReviewPublish.nasPath(host: id, path: path), item.size)
             case .local(let url):
-                if let uploads, let media = ReviewPublish.reference(url.path, on: uploads) {
-                    reference = (ReviewPublish.nasPath(host: uploads.id, path: media), item.size)
-                } else if let uploads, let root, !item.folder {
-                    let folder = root + "/" + DeliverServer.safeName(store.project(project)?.name ?? "Review")
-                    _ = try? await ReviewHostClient.ask(uploads, ["op": "mkdir", "path": folder])
-                    if let sent = try? await DeliverUploads.shared.upload(url, to: folder + "/" + url.lastPathComponent, host: uploads) {
-                        reference = (ReviewPublish.nasPath(host: uploads.id, path: sent), item.size)
-                    } else { local = url }
+                if let nas = target ?? host.flatMap({ $0.kind == .nas ? $0 : nil }), let media = ReviewPublish.reference(url.path, on: nas) {
+                    reference = (ReviewPublish.nasPath(host: nas.id, path: media), item.size)
+                } else if let target, let upload, !item.folder {
+                    // The server away (or `later`: it was away when asked): "Waiting for NAS", sent once it answers.
+                    let wait = DeliverShareQueue.Entry(file: url.path, size: item.size, project: project, asset: match?.id, upload: upload,
+                                                       publishTo: host.flatMap { $0.id == target.id || ReviewPublish.isDataHost($0.id) ? nil : $0.id })
+                    if later { queue.add(wait); continue }
+                    do {
+                        let sent = try await DeliverUploads.shared.upload(url, to: upload.folder + "/" + url.lastPathComponent, host: target)
+                        reference = (ReviewPublish.nasPath(host: target.id, path: sent), item.size)
+                    } catch where DeliverShareQueue.waitable(error) {
+                        queue.add(wait)
+                        continue
+                    } catch { local = url }
                 } else { local = url }
             case .office(let share, let path):
                 local = await pull(share: share, path: path, store: store)
@@ -158,9 +167,18 @@ struct DeliverBrowseView: View {
     @State private var office: RemoteFinderSource?
     @State private var officeProblem: String?
     @State private var sharing: [DeliverBrowseItem]?
+    /// Move to…: files in the uploads folder (media paths) whose new folder is being chosen.
+    @State private var moving: [String]?
     @State private var preview = false
-    /// The main review server's media roots (its top level), for "On the NAS".
-    @State private var mediaRoots: [ReviewHostClient.Entry] = []
+    /// Each review server's roots (its top level) and its uploads root's id, for the sidebar.
+    @State private var serverRoots: [UUID: [ReviewHostClient.Entry]] = [:]
+    @State private var writable: [UUID: String] = [:]
+    /// A server's menu item chosen (Change Folders…, Pair Again…, Remove…).
+    @State private var managing: DeliverHostAction?
+    /// The main servers' backups (not browse roots: a backup has no media of its own), the one shown, the one being removed.
+    @State private var backups: [DeliverBackups.Backup] = []
+    @State private var backupShown: DeliverBackups.Backup?
+    @State private var backupRemoving: DeliverBackups.Backup?
     /// A sidebar place on another Browse page, opened once that page shows (each page is its own view).
     @MainActor static var pending: String?
 
@@ -198,36 +216,47 @@ struct DeliverBrowseView: View {
     private var problem: String? { nas?.problem ?? officeProblem }
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
+        // As in Finder: the sidebar runs the panel's full height; the header sits right of it, above the toolbar.
+        HStack(spacing: 0) {
             if case .office = place, office == nil {
-                StudioEmptyState(symbol: "macmini", title: "The host Mac’s shares", line: officeProblem.map { LocalizedStringKey($0) }, button: "Try Again") {
-                    Task { await loadShares() }
+                VStack(spacing: 0) {
+                    header
+                    StudioEmptyState(symbol: "macmini", title: "The host Mac’s shares", line: officeProblem.map { LocalizedStringKey($0) }, button: "Try Again") {
+                        Task { await loadShares() }
+                    }
+                    .frame(maxHeight: .infinity)
                 }
-                .frame(maxHeight: .infinity)
             } else {
-                HStack(spacing: 0) {
-                    FinderSidebar(groups: places, selection: selected) { go($0.id) }
+                FinderSidebar(groups: places, selection: selected) { go($0.id) }
+                Divider()
+                VStack(spacing: 0) {
+                    header
                     Divider()
-                    FinderPaneView(pane: pane).coordinateSpace(name: "finder")
-                        .opacity(problem == nil ? 1 : 0.5)
-                        .allowsHitTesting(problem == nil)
-                    if let item = chosen, nas != nil {
-                        Divider()
-                        DeliverNASPreview(host: nas!.host, path: nas!.path(item.url), name: item.name).frame(width: 260).id(item.url)
+                    HStack(spacing: 0) {
+                        FinderPaneView(pane: pane).coordinateSpace(name: "finder")
+                            .opacity(problem == nil ? 1 : 0.5)
+                            .allowsHitTesting(problem == nil)
+                        if let item = chosen, nas != nil {
+                            Divider()
+                            DeliverNASPreview(host: nas!.host, path: nas!.path(item.url), name: item.name).frame(width: 260).id(item.url)
+                        }
                     }
                 }
             }
         }
         .onAppear {
             nas?.share = { urls in sharing = items(urls) }
+            nas?.move = { paths in moving = paths }
             if let nas { FinderThumbnails.shared.register(nas) }
             if let pending = Self.pending {
                 Self.pending = nil
                 go(pending)
             }
         }
-        .task { if let main = mainServer { mediaRoots = ((try? await ReviewHostClient.browse(main, path: "")) ?? []).filter(\.folder) } }
+        .task {
+            await loadServers()
+            backups = await DeliverBackups.load()
+        }
         .onDisappear { if let nas { FinderThumbnails.shared.unregister(nas) } }
         .onChange(of: pane.url) { _, url in
             if case .local = place, pane.list == nil, Self.usable(url) { UserDefaults.standard.set(url.path, forKey: Self.lastFolderKey) }
@@ -243,7 +272,33 @@ struct DeliverBrowseView: View {
         .sheet(item: Binding(get: { sharing.map(DeliverShareItems.init) }, set: { sharing = $0?.items })) { list in
             DeliverShareForReviewSheet(items: list.items, nav: nav)
         }
+        .sheet(isPresented: Binding(get: { moving != nil }, set: { if !$0 { moving = nil } })) {
+            if let nas, let files = moving {
+                DeliverUploadPicker(host: nas.host, project: nil, title: String(localized: "Move to…"), action: String(localized: "Move"), done: { folder in
+                    moving = nil
+                    guard let folder else { return }
+                    Task {
+                        for file in files { _ = try? await DeliverUploadDestination.move(file, to: folder, host: nas.host) }
+                        pane.reload()
+                    }
+                }, back: { moving = nil })
+                .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity).background(Design.Studio.panel)
+            }
+        }
         .background { Button("") { share() }.keyboardShortcut("s", modifiers: [.command, .shift]).hidden() }
+        .deliverHostAction($managing) { id in if place == .nas(id) { nav.deliver = .browse(.local) } }
+        .sheet(item: $backupShown) { DeliverBackupDetailsSheet(backup: $0) }
+        .confirmationDialog(Text("Remove \(backupRemoving?.name ?? "")?"), isPresented: Binding(get: { backupRemoving != nil }, set: { if !$0 { backupRemoving = nil } })) {
+            Button("Remove Backup", role: .destructive) {
+                guard let removing = backupRemoving else { return }
+                Task { await DeliverBackups.remove(removing); backups = await DeliverBackups.load() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("\(backupRemoving?.main.name ?? "") stops sending it copies and it can no longer connect. The app on it keeps running.")
+        }
+        // Paired again or changed: the listing tries at once.
+        .onChange(of: managing == nil) { _, closed in if closed, nas != nil { pane.reload() } }
     }
 
     private var chosen: FinderItem? {
@@ -262,7 +317,7 @@ struct DeliverBrowseView: View {
                 .buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(pane.selection.isEmpty || problem != nil)
                 .help("⌘⇧S")
         }
-        .padding(.horizontal, 16).frame(height: 48)
+        .padding(.horizontal, 12).frame(height: FinderPaneView.toolbarHeight)
     }
 
     private func share() {
@@ -296,42 +351,82 @@ struct DeliverBrowseView: View {
 
     // MARK: The sidebar
 
-    /// The review server whose media roots "On the NAS" lists: the main one, else the first.
-    private var mainServer: Deliver.Host? {
-        let servers = ReviewPublish.shared.hosts.filter { $0.kind == .nas }
-        return servers.first { $0.role == "main" } ?? servers.first
+    /// Each server's roots and uploads root (servers set up before names were kept read theirs from TrueNAS once).
+    private func loadServers() async {
+        for host in ReviewPublish.shared.hosts where host.kind == .nas && host.role != "backup" {
+            if TrueNASSetup.isTrueNAS(host) { await TrueNASSetup.readNames(host) }
+            if let entries = try? await ReviewHostClient.browse(host, path: "") { serverRoots[host.id] = entries.filter(\.folder) }
+            if let root = await DeliverUploads.writableRoot(host) {
+                writable[host.id] = root
+                if nas?.host.id == host.id { nas?.uploads = root; pane.reload() }
+            }
+        }
     }
 
     private static var movies: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true) }
 
     private var places: [FinderSidebar.Places] {
-        let publish = ReviewPublish.shared
-        let servers = publish.hosts.filter { $0.kind == .nas }.map { host in
-            FinderSidebar.Place(id: "nas:" + host.id.uuidString, symbol: "server.rack", title: host.name,
-                                detail: host.role == "backup" ? String(localized: "Backup") : host.role == "main" ? String(localized: "Main") : nil,
-                                dimmed: publish.online[host.id] == false)
-        }
-        let roots = mainServer.map { host in
-            mediaRoots.map { FinderSidebar.Place(id: "nasroot:" + host.id.uuidString + "/" + $0.path, symbol: "externaldrive.connected.to.line.below", title: $0.name) }
-        } ?? []
+        var groups = Self.serverGroups(publish: ReviewPublish.shared, roots: serverRoots, writable: writable, backups: backups,
+                                       actions: { host in AnyView(DeliverHostActions(host: host) { managing = $0 }) },
+                                       show: { backupShown = $0 }, remove: { backupRemoving = $0 })
         // Movies, then the folders the user added to the Library's Favourites (not the usual home folders).
         let home = FileManager.default.homeDirectoryForCurrentUser
         let usual = Set((["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map { home.appendingPathComponent($0).path } + [home.path]
                          + [Locations.downloadFolder?.path].compactMap { $0 }).map { URL(fileURLWithPath: $0).standardizedFileURL.path })
         let here = [Self.movies] + Locations.shared.favorites.filter { $0.hasDirectoryPath && !usual.contains($0.standardizedFileURL.path) }
-        var groups: [FinderSidebar.Places] = [
-            .init(title: String(localized: "Review server"), places: servers),
-            .init(title: String(localized: "On the NAS"), places: roots),
-            .init(title: String(localized: "This Mac"), places: here.map {
-                .init(id: "local:" + $0.standardizedFileURL.path, symbol: $0 == Self.movies ? "film" : "folder", title: FileManager.default.displayName(atPath: $0.path))
-            }),
-        ]
+        groups.append(.init(title: String(localized: "This Mac"), places: here.map {
+            .init(id: "local:" + $0.standardizedFileURL.path, symbol: $0 == Self.movies ? "film" : "folder", title: FileManager.default.displayName(atPath: $0.path))
+        }))
         if let mac = OfficeRenderClient.shared.office {
             let rows: [FinderSidebar.Place] = office == nil ? [.init(id: "office", symbol: "macmini", title: mac.name)]
                 : shares.map { .init(id: "share:" + $0.id, symbol: "externaldrive", title: $0.name, dimmed: !$0.online) }
             groups.append(.init(title: mac.name, places: rows))
         }
         return groups
+    }
+
+    /// One group per review server: its name as the heading (a status dot, its menu on a right-click), its roots by the
+    /// names the owner knows them by, the uploads folder, then its backups, quiet. Before its roots are known: the server itself.
+    static func serverGroups(publish: ReviewPublish, roots: [UUID: [ReviewHostClient.Entry]], writable: [UUID: String], backups: [DeliverBackups.Backup],
+                             actions: (Deliver.Host) -> AnyView, show: @escaping (DeliverBackups.Backup) -> Void,
+                             remove: @escaping (DeliverBackups.Backup) -> Void) -> [FinderSidebar.Places] {
+        let mains = publish.hosts.filter { $0.kind == .nas && $0.role != "backup" }
+        // A backup paired here as a server of its own: a quiet row under the first main (its own group without one).
+        let paired = publish.hosts.filter { $0.kind == .nas && $0.role == "backup" }.map { host in
+            FinderSidebar.Place(id: "nas:" + host.id.uuidString, symbol: "externaldrive.badge.timemachine", title: host.name, detail: String(localized: "Backup"),
+                                dimmed: true, help: DeliverPlaces.state(.nas(host.id), publish: publish), menu: actions(host))
+        }
+        if mains.isEmpty { return paired.map { FinderSidebar.Places(title: $0.title, places: [$0], key: $0.id) } }
+        return mains.map { host in
+            let id = host.id.uuidString, up = writable[host.id]
+            let known = roots[host.id] ?? []
+            var rows: [FinderSidebar.Place] = known.filter { $0.name != up }.map {
+                .init(id: "nasroot:\(id)/\($0.path)", symbol: "externaldrive.connected.to.line.below", title: host.rootName($0.name))
+            }
+            if let up, known.contains(where: { $0.name == up }) {
+                rows.append(.init(id: "nasroot:\(id)/\(up)", symbol: "tray.and.arrow.down", title: host.rootNames?[up] != nil ? host.rootName(up) : NASFinderSource.uploadsName))
+            }
+            if rows.isEmpty { rows = [.init(id: "nas:" + id, symbol: "server.rack", title: host.name, dimmed: publish.online[host.id] == false)] }
+            rows += backupPlaces(backups.filter { $0.main.id == host.id }, show: show, remove: remove) + (host.id == mains[0].id ? paired : [])
+            let state = DeliverPlaces.state(.nas(host.id), publish: publish)
+            let dot: Color = switch publish.online[host.id] { case true?: Design.Studio.good; case false?: Design.Studio.warn; case nil: Design.Studio.textFaint }
+            return FinderSidebar.Places(title: host.name, places: rows, dot: dot, help: state, menu: actions(host), key: "server:" + id)
+        }
+    }
+
+    /// A main's backups under it: "Backup", its status in the symbol (offline dimmed) and, with its upload speed, the
+    /// tooltip (the 172 pt sidebar leaves no room for the speed beside a name).
+    static func backupPlaces(_ backups: [DeliverBackups.Backup], show: @escaping (DeliverBackups.Backup) -> Void, remove: @escaping (DeliverBackups.Backup) -> Void) -> [FinderSidebar.Place] {
+        backups.map { backup in
+            FinderSidebar.Place(id: "backup:" + backup.id, symbol: backup.status == .copying ? "arrow.triangle.2.circlepath" : "externaldrive.badge.timemachine",
+                                title: backup.name, detail: String(localized: "Backup"), dimmed: backup.status == .offline,
+                                help: ([DeliverBackups.text(backup.status)] + [backup.uplink.map { String(localized: "\($0) Mbit/s up") }].compactMap { $0 }).joined(separator: " · "),
+                                menu: AnyView(Group {
+                                    Button("Details…") { show(backup) }
+                                    Divider()
+                                    Button("Remove Backup…", role: .destructive) { remove(backup) }
+                                }))
+        }
     }
 
     /// The sidebar place whose root the browser shows.
@@ -357,12 +452,14 @@ struct DeliverBrowseView: View {
         case "nasroot":
             guard let slash = value.firstIndex(of: "/"), let host = UUID(uuidString: String(value[..<slash])) else { return }
             if place == .nas(host), let nas {
-                let url = nas.root.appendingPathComponent(String(value[value.index(after: slash)...]), isDirectory: true)
+                let url = nas.url(String(value[value.index(after: slash)...]))
                 pane.go(to: url, base: url)
             } else { Self.pending = id; nav.deliver = .browse(.nas(host)) }
         case "local":
             let url = URL(fileURLWithPath: value, isDirectory: true)
             if place == .local { pane.go(to: url, base: url) } else { Self.pending = id; nav.deliver = .browse(.local) }
+        case "backup":
+            backupShown = backups.first { $0.id == value }
         case "share":
             if case .office = place, let share = shares.first(where: { $0.id == value }) { open(share) }
         default:
@@ -448,10 +545,39 @@ struct DeliverShareForReviewSheet: View {
     @State private var host: UUID?
     @State private var thenShare = true
     @State private var working = false
+    /// The destination step: where the originals from this Mac go on the NAS.
+    @State private var destination = false
+
+    /// The NAS an original from this Mac would be uploaded to: the server chosen, else the one holding the review data.
+    private var uploadHost: Deliver.Host? {
+        if let chosen = ReviewPublish.shared.choices.first(where: { $0.id == host }) { return chosen.kind == .nas ? chosen : nil }
+        return host == DeliverSync.shared.state.host ? DeliverSync.shared.dataHost : nil
+    }
 
     var body: some View {
+        Group { if destination, let target = uploadHost { picker(target) } else { form } }
+            .onAppear {
+                host = DeliverSync.shared.state.host
+                let first = items.first { $0.folder } ?? items.first
+                name = first.map { $0.folder ? $0.name : URL(fileURLWithPath: $0.name).deletingPathExtension().lastPathComponent } ?? ""
+            }
+    }
+
+    private func picker(_ target: Deliver.Host) -> some View {
+            DeliverUploadPicker(host: target, project: project, done: { folder in
+                Task { await go(upload: folder.map { .init(host: target.id, folder: $0) }) }
+            }, back: { destination = false }, later: { folder in
+                Task { await go(upload: .init(host: target.id, folder: folder), later: true) }
+            })
+            .disabled(working)
+            .padding(Design.Spacing.sheet)
+            .frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
+            .background(Design.Studio.panel)
+    }
+
+    private var form: some View {
         let plan = DeliverShareForReview.plan(items, project: project, asVersions: asVersions)
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Share for Review").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
             StudioField(label: "Project") {
                 Picker(selection: $project) {
@@ -489,25 +615,22 @@ struct DeliverShareForReviewSheet: View {
                 if working { PlumSpinner() }
                 Spacer()
                 Button("Cancel") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
-                Button("Add") { Task { await go() } }.buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(working || items.isEmpty)
+                Button(DeliverUploadDestination.needed(items, host: uploadHost) ? "Next…" : "Add") {
+                    if DeliverUploadDestination.needed(items, host: uploadHost) { destination = true } else { Task { await go() } }
+                }.buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(working || items.isEmpty)
             }
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 460)
         .background(Design.Studio.panel)
-        .onAppear {
-            host = DeliverSync.shared.state.host
-            let first = items.first { $0.folder } ?? items.first
-            name = first.map { $0.folder ? $0.name : URL(fileURLWithPath: $0.name).deletingPathExtension().lastPathComponent } ?? ""
-        }
     }
 
-    private func go() async {
+    private func go(upload: DeliverUploadDestination.Upload? = nil, later: Bool = false) async {
         working = true
         defer { working = false }
         guard let target = project ?? (try? store.newProject(name))?.id else { return }
         let chosen = ReviewPublish.shared.choices.first { $0.id == host }
-        await DeliverShareForReview.place(items, into: target, asVersions: asVersions && project != nil, host: chosen)
+        await DeliverShareForReview.place(items, into: target, asVersions: asVersions && project != nil, host: chosen, upload: upload, later: later)
         nav.deliver = .project(target, folder: nil)
         if thenShare { DeliverShareRequest.shared.scope = .project(target) }
         dismiss()

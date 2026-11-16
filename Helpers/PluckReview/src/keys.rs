@@ -77,6 +77,7 @@ fn pair(seed: &[u8]) -> Option<ring::signature::Ed25519KeyPair> {
 }
 
 /// The room's Ed25519 public key (the `<pub>` in the link) from its seed.
+#[cfg(test)]
 pub fn public(seed: &[u8]) -> Option<Vec<u8>> {
     use ring::signature::KeyPair;
     pair(seed).map(|k| k.public_key().as_ref().to_vec())
@@ -99,24 +100,69 @@ pub fn verify_hello(public: &[u8], sig: &str, mac_nonce: &[u8], fp_mac: &str, fp
     ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public).verify(&hello_msg(mac_nonce, fp_mac, fp_browser), &sig).is_ok()
 }
 
-/// A new link and what a host keeps of it, all base64url.
+/// Protocol 3 (§13.24): the link carries a 12-character base62 code; `linkKey` from it does what level 2's key does.
+pub const CODE_LEN: usize = 12;
+const BASE62: &[u8] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+#[cfg(test)]
+pub fn is_code(s: &str) -> bool {
+    s.len() == CODE_LEN && s.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+/// A fresh code from the CSPRNG: bytes < 248 taken mod 62, so no modulo bias.
+pub fn new_code() -> String {
+    let mut out = String::with_capacity(CODE_LEN);
+    while out.len() < CODE_LEN {
+        let b: u8 = rand::random();
+        if b < 248 {
+            out.push(BASE62[usize::from(b % 62)] as char);
+        }
+    }
+    out
+}
+
+/// linkKey = HKDF-SHA256(code, salt "pluck-link-v3", "key"): the salt names the version, so it can't meet a level-2 key.
+pub fn link_key(code: &str) -> Vec<u8> {
+    let mut out = vec![0; 32];
+    hkdf::Hkdf::<Sha256>::new(Some(b"pluck-link-v3"), code.as_bytes()).expand(b"key", &mut out).expect("32 ≤ 8160");
+    out
+}
+
+fn hello_mac_v3(auth_key: &[u8], mac_nonce: &[u8], fp_mac: &str, fp_browser: &str) -> HmacSha256 {
+    let mut m = HmacSha256::new_from_slice(auth_key).expect("any key length");
+    for part in [b"pluck-link-v3 server\n".as_slice(), mac_nonce, fp_mac.as_bytes(), b"\n", fp_browser.as_bytes()] {
+        m.update(part);
+    }
+    m
+}
+
+/// The level-3 hello's `mac`: the server knows the code-derived authKey (§13.24).
+pub fn hello_v3(auth_key: &[u8], mac_nonce: &[u8], fp_mac: &str, fp_browser: &str) -> String {
+    b64(&hello_mac_v3(auth_key, mac_nonce, fp_mac, fp_browser).finalize().into_bytes())
+}
+
+/// The browser's check of a level-3 hello (tests stand in for the browser).
+#[cfg(test)]
+pub fn check_hello_v3(auth_key: &[u8], given: &str, mac_nonce: &[u8], fp_mac: &str, fp_browser: &str) -> bool {
+    unb64(given).is_some_and(|g| hello_mac_v3(auth_key, mac_nonce, fp_mac, fp_browser).verify_slice(&g).is_ok())
+}
+
+/// A new (level 3) link and what a host keeps of it, all base64url.
 pub struct NewLink {
-    pub fragment: String, // "<key>.<pub>": the link's #-part
+    pub fragment: String, // the code: the link's #-part
     pub room: String,
     pub reg: String,
     pub auth: String,
-    pub sign: String,
     pub join: String, // joinHash
 }
 
 pub fn new_link() -> NewLink {
-    let key: [u8; 32] = rand::random();
+    let code = new_code();
+    let key = link_key(&code);
     let r: [u8; 32] = rand::random();
-    let seed = owner(&r, "sign");
     NewLink {
-        fragment: format!("{}.{}", b64(&key), b64(&public(&seed).expect("32-byte seed"))),
         room: b64(&derive(&key, "room", 16)), reg: b64(&owner(&r, "register")), auth: b64(&derive(&key, "auth", 32)),
-        sign: b64(&seed), join: join_hash(&key),
+        join: join_hash(&key), fragment: code,
     }
 }
 
@@ -178,12 +224,49 @@ mod tests {
         // A link holder knows key (so authKey and join) but not R: a hello it signs with any other key fails.
         let forged = sign_hello(&derive(&key, "auth", 32), &[1u8; 32], &fp_mac, &fp_br).unwrap();
         assert!(!verify_hello(&public, &forged, &[1u8; 32], &fp_mac, &fp_br));
+    }
+
+    /// §13.24, from the shared vector file (the web tests read the same one).
+    #[test]
+    fn level3_vector() {
+        let v: serde_json::Value = serde_json::from_str(include_str!("../../../docs/superpowers/plans/link-v3-vectors.json")).unwrap();
+        let s = |k: &str| v[k].as_str().unwrap().to_owned();
+        let key = link_key(&s("code"));
+        assert_eq!(b64(&key), s("linkKey"));
+        assert_eq!(b64(&derive(&key, "room", 16)), s("roomId"));
+        let auth = derive(&key, "auth", 32);
+        assert_eq!(b64(&auth), s("authKey"));
+        assert_eq!(b64(&derive(&key, "join", 32)), s("join"));
+        assert_eq!(join_hash(&key), s("joinHash"));
+        let (mn, bn) = (unb64(&s("macNonce")).unwrap(), unb64(&s("browserNonce")).unwrap());
+        let (fp_mac, fp_br) = (s("fpMac"), s("fpBrowser"));
+        assert_eq!(hello_v3(&auth, &mn, &fp_mac, &fp_br), s("helloMac"));
+        assert_eq!(proof(&auth, "browser", &mn, &bn, &fp_mac, &fp_br), s("proofBrowser"));
+        assert_eq!(proof(&auth, "mac", &mn, &bn, &fp_mac, &fp_br), s("proofMac"));
+        assert!(check_hello_v3(&auth, &s("helloMac"), &mn, &fp_mac, &fp_br));
+        assert!(!check_hello_v3(&auth, &s("helloMac"), &mn, &fp_br, &fp_mac), "swapped fingerprints fail");
+        // A wrong code gives other keys: its hello and proofs fail.
+        let wrong = derive(&link_key("Mt0Rkt98Xy3R"), "auth", 32);
+        assert!(!check_hello_v3(&wrong, &s("helloMac"), &mn, &fp_mac, &fp_br));
+        assert!(!check_proof(&wrong, &s("proofBrowser"), &mn, &bn, &fp_mac, &fp_br));
+        // Versions can't be confused: the v3 key isn't the code as a v2 key, and a v3 hello isn't a §3 proof.
+        assert_ne!(b64(&derive(s("code").as_bytes(), "room", 16)), s("roomId"));
+        assert_ne!(hello_v3(&auth, &mn, &fp_mac, &fp_br), proof(&auth, "mac", &mn, &[0u8; 32], &fp_mac, &fp_br));
+    }
+
+    #[test]
+    fn new_links_are_level3() {
         let l = new_link();
-        let (k, p) = l.fragment.split_once('.').unwrap();
-        assert_eq!((k.len(), p.len()), (43, 43));
-        assert_eq!(unb64(p).unwrap(), super::public(&unb64(&l.sign).unwrap()).unwrap());
-        assert_eq!(l.room, b64(&derive(&unb64(k).unwrap(), "room", 16)));
-        assert_ne!(l.reg, b64(&derive(&unb64(k).unwrap(), "register", 32)), "reg isn't derivable from the link");
+        assert!(is_code(&l.fragment) && !l.fragment.contains('.'));
+        let key = link_key(&l.fragment);
+        assert_eq!(l.room, b64(&derive(&key, "room", 16)));
+        assert_eq!(l.join, join_hash(&key));
+        assert_ne!(l.reg, b64(&derive(&key, "register", 32)), "reg isn't derivable from the link");
+        assert_ne!(l.reg, b64(&owner(&key, "register")));
+        assert!(!is_code("Mt0Rkt98Xy3") && !is_code("Mt0Rkt98Xy3Q_") && !is_code("Mt0Rkt98Xy-Q"));
+        // All 62 characters show up and none other (a cheap bias check).
+        let all: std::collections::HashSet<char> = (0..400).flat_map(|_| new_code().chars().collect::<Vec<_>>()).collect();
+        assert_eq!(all.len(), 62);
     }
 
     #[test]

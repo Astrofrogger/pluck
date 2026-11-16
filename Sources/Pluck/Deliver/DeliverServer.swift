@@ -99,11 +99,16 @@ final class DeliverServer {
                 peer.fpRemote = info["fpRemote"] as? String ?? ""
                 peer.path = info["path"] as? String ?? "direct"
                 // Level 2: signed with the room key, so the browser knows it's the owner's server before it sends anything.
-                guard let sig = DeliverKeys.helloSignature(root: secret, macNonce: peer.macNonce, fpMac: peer.fpLocal, fpBrowser: peer.fpRemote) else {
-                    return output(["close": ["peer": id, "reason": "unknown"]])
+                // Level 3 (§13.24): a MAC with the code-derived authKey, which pluck.tools doesn't have.
+                let nonce = DeliverKeys.base64url(peer.macNonce)
+                let hello: [String: Any]? = if store.code(link.id) != nil, let key = store.key(link.id) {
+                    ["t": "hello", "v": 3, "nonce": nonce, "mac": DeliverKeys.helloMAC(authKey: DeliverKeys.authKey(key), macNonce: peer.macNonce, fpMac: peer.fpLocal, fpBrowser: peer.fpRemote)]
+                } else {
+                    DeliverKeys.helloSignature(root: secret, macNonce: peer.macNonce, fpMac: peer.fpLocal, fpBrowser: peer.fpRemote).map { ["t": "hello", "v": 2, "nonce": nonce, "sig": $0] }
                 }
+                guard let hello else { return output(["close": ["peer": id, "reason": "unknown"]]) }
                 peers[id] = peer
-                send(peer, ["t": "hello", "v": 2, "nonce": DeliverKeys.base64url(peer.macNonce), "sig": sig])
+                send(peer, hello)
                 RemoteKeepAwake.update()
             } else if info["state"] as? String == "closed" {
                 closed(id)
@@ -218,7 +223,7 @@ final class DeliverServer {
     }
 
     private func auth(_ peer: Peer, _ id: Int, _ message: [String: Any], _ link: Deliver.ShareLink) throws {
-        guard message["v"] as? Int == 2, let key = store.key(link.id),
+        guard let level = store.level(link.id), message["v"] as? Int == level, let key = store.key(link.id),
               let nonce = (message["nonce"] as? String).flatMap(DeliverKeys.data(base64url:)), nonce.count == 32,
               let proof = message["proof"] as? String, let token = (message["token"] as? String).flatMap(DeliverKeys.data(base64url:)), token.count == 32
         else { throw Deliver.Failure("auth") }
@@ -320,7 +325,7 @@ final class DeliverServer {
             presence(link.id)
         case "list": reply(peer, id, try list(message["folder"] as? String, link))
         case "asset":
-            let asset = try asset(message["asset"], link)
+            let asset = try asset(shortAsset(message["asset"], link), link)
             reply(peer, id, ["asset": wire(asset, link), "approvals": approvals(asset, link)])
         case "fetch": try fetch(peer, id, message, link)
         case "comments":
@@ -511,6 +516,14 @@ final class DeliverServer {
     /// On a version the link shows (latestOnly hides older ones, events included).
     private func shown(_ comment: Deliver.Comment, _ link: Deliver.ShareLink) -> Bool {
         !link.latestOnly || store.find(comment.asset)?.asset.current.id == comment.version
+    }
+
+    /// A level-3 deep link's `/a/<8>` (§13.24): the one asset in the link's scope whose id starts with it (else notFound).
+    private func shortAsset(_ value: Any?, _ link: Deliver.ShareLink) throws -> Any? {
+        guard let short = (value as? String)?.lowercased(), short.count == 8 else { return value }
+        let hits = store.content(link.project).assets.filter { $0.id.uuidString.prefix(8).lowercased() == short && inScope($0, link) }
+        guard hits.count == 1 else { throw Deliver.Failure("notFound") }
+        return hits[0].id.uuidString
     }
 
     private func asset(_ value: Any?, _ link: Deliver.ShareLink) throws -> Deliver.Asset {

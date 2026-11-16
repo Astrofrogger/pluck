@@ -69,6 +69,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         RemoteResolve.install()
         // Review projects: copies still to make, the helper while a link is live, reviews hosted for paired Macs.
         DeliverCopies.shared.resume()
+        DeliverShareQueue.shared.resume()
         DeliverLink.shared.start()
         ReviewHosting.shared.update()
         ReviewPublish.shared.pullRegularly()

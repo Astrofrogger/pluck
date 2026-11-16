@@ -29,6 +29,8 @@ struct DeliverAssetView: View {
     @State private var sharing = false
     @State private var publishing = false
     @State private var markers = false
+    /// "Upload to <NAS>…": the server whose uploads folder is being chosen.
+    @State private var uploadingTo: Deliver.Host?
 
     private var found: Deliver.Asset? { store.find(asset)?.asset }
     private var current: Deliver.Version? { found.flatMap { found in found.versions.first { $0.id == version } ?? found.current } }
@@ -84,6 +86,13 @@ struct DeliverAssetView: View {
             .sheet(isPresented: $sharing) { DeliverShareSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $publishing) { DeliverPublishSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $markers) { DeliverResolveMarkersSheet(asset: found, version: current) }
+            .sheet(item: $uploadingTo) { host in
+                DeliverUploadPicker(host: host, project: store.find(asset)?.project, done: { folder in
+                    uploadingTo = nil
+                    if let folder { upload(current, of: found, to: host, folder: folder) }
+                }, back: { uploadingTo = nil })
+                .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity).background(Design.Studio.panel)
+            }
             .onDisappear { playback.player.pause(); other.player.pause() }
         }
     }
@@ -143,7 +152,7 @@ struct DeliverAssetView: View {
                 if found.kind == .video { Button("Send to Resolve Timeline…") { markers = true } }
                 if let approval = latestApproval(found) { Button("Approval Proof…") { saveProof(approval, found) } }
                 ForEach(ReviewPublish.shared.hosts.filter { $0.kind == .nas && $0.role != "backup" }) { host in
-                    Button("Upload to \(host.name)…") { upload(current, of: found, to: host) }
+                    Button("Upload to \(host.name)…") { uploadingTo = host }
                 }
             } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Design.Studio.textQuiet) }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
@@ -169,13 +178,11 @@ struct DeliverAssetView: View {
         try? FileManager.default.copyItem(at: file, to: url)
     }
 
-    /// "Upload to <NAS>…": into its uploads root (a folder for the project), then the version is known by its NAS path.
-    private func upload(_ version: Deliver.Version, of found: Deliver.Asset, to host: Deliver.Host) {
-        Task {
-            guard let root = await DeliverUploads.writableRoot(host) else { return }
-            let project = store.find(found.id).flatMap { store.project($0.project) }?.name ?? "Review"
-            await DeliverUploads.shared.uploadVersion(version, of: found.id, folder: root + "/" + DeliverServer.safeName(project), host: host)
-        }
+    /// "Upload to <NAS>…": into the folder chosen in its uploads root (remembered for the project), then the version is
+    /// known by its NAS path and the NAS makes its copies.
+    private func upload(_ version: Deliver.Version, of found: Deliver.Asset, to host: Deliver.Host, folder: String) {
+        if let project = store.find(found.id)?.project { DeliverUploadDestination.remember(folder, host: host.id, project: project) }
+        Task { await DeliverUploads.shared.uploadVersion(version, of: found.id, folder: folder, host: host) }
     }
 
     /// Off, another version, or another asset in the project; side by side or a wipe.

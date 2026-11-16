@@ -182,10 +182,6 @@ enum OfficeLink {
             ScreenshotMode.scene == nil ? "Pluck Edit Anywhere" : "Pluck Edit Anywhere (test)"
         }
 
-        private static func query(_ account: String) -> [String: Any] {
-            [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
-        }
-
         /// Test copies keep keys in memory only: a rebuilt test app is a new app to the keychain, so
         /// touching the login keychain made macOS ask for the password every time (owner, 2026-11-14).
         nonisolated(unsafe) private static var memory: [String: Data] = [:]
@@ -193,26 +189,17 @@ enum OfficeLink {
 
         static func save(_ data: Data, as account: String) {
             if inMemory { memory[account] = data; return }
-            SecItemDelete(query(account) as CFDictionary)
-            var item = query(account)
-            item[kSecValueData as String] = data
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            SecItemAdd(item as CFDictionary, nil)
+            PluckVault.shared.save(data, as: account, service: service)
         }
 
         static func load(_ account: String) -> Data? {
             if inMemory { return memory[account] }
-            var item = query(account)
-            item[kSecReturnData as String] = true
-            item[kSecMatchLimit as String] = kSecMatchLimitOne
-            var result: AnyObject?
-            guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess else { return nil }
-            return result as? Data
+            return PluckVault.shared.load(account, service: service)
         }
 
         static func delete(_ account: String) {
             if inMemory { memory[account] = nil; return }
-            SecItemDelete(query(account) as CFDictionary)
+            PluckVault.shared.delete(account, service: service)
         }
     }
 }

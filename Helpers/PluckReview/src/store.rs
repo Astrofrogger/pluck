@@ -155,8 +155,9 @@ pub fn stamp(old: &Value, new: &mut Value, by: &str, now: &str, cutoff: &str) {
     new["storeSeq"] = json!(seq);
 }
 
-/// What only the Mac holding a link's key can make (registration, auth, room signing, join hash).
-const LINK_SECRETS: [&str; 4] = ["reg", "auth", "sign", "join"];
+/// What only the Mac holding a link's key can make (registration, auth, room signing, join hash), and the level they
+/// belong to (§13.24: a level-3 record has no `sign`).
+const LINK_SECRETS: [&str; 5] = ["reg", "auth", "sign", "join", "level"];
 
 /// `publish` with `merge:true` (§13.1): each project meta, folder, asset (with all its versions)
 /// and link merged on its own under M; only tombstones delete. Returns the merged manifest (not
@@ -244,14 +245,16 @@ pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value) -> (Value, Vec<
         // A new link without them can't be served, so it isn't taken.
         let has = |v: &Value, k: &str| v[k].as_str().is_some_and(|x| !x.is_empty());
         match &stored {
-            Some(s) => {
+            // All or nothing: a new key set (a level-2 link made level 3) must not keep the old `sign`.
+            Some(s) if !has(&inc, "reg") => {
                 for k in LINK_SECRETS {
-                    if !has(&inc, k) && has(s, k) {
+                    if !s[k].is_null() {
                         inc[k] = s[k].clone();
                     }
                 }
             }
-            None if !["reg", "sign", "join"].iter().all(|k| has(&inc, k)) => {
+            Some(_) => {}
+            None if !has(&inc, "reg") || !has(&inc, "join") || !(has(&inc, "sign") || inc["level"] == 3) => {
                 stale.push(inc["id"].clone());
                 continue;
             }
@@ -388,9 +391,17 @@ mod tests {
         let rekeyed = json!({"id": "L", "roomID": "R", "reg": "r2", "auth": "a2", "sign": "s2", "join": "j2", "rev": 4, "at": "2026-11-16T12:00:00Z", "by": "A"});
         let (out, _) = merge_publish(&out, &json!({"links": [rekeyed]}), &Value::Null);
         assert_eq!((out["links"][0]["reg"].as_str(), out["links"][0]["join"].as_str()), (Some("r2"), Some("j2")));
-        // A new link without them isn't taken.
-        let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"}]}), &Value::Null);
-        assert_eq!((out["links"].as_array().unwrap().len(), stale), (1, vec![json!("N")]));
+        // "Make a New Link" (§13.24): level 3 has no `sign`; the old one must not stay, and a keyless Mac keeps the level.
+        let v3 = json!({"id": "L", "roomID": "R3", "reg": "r3", "auth": "a3", "join": "j3", "level": 3, "rev": 5, "at": "2026-11-16T13:00:00Z", "by": "A"});
+        let (out, _) = merge_publish(&out, &json!({"links": [v3]}), &Value::Null);
+        assert!(out["links"][0]["sign"].is_null() && out["links"][0]["level"] == 3);
+        let bare = json!({"id": "L", "roomID": "R3", "paused": true, "rev": 6, "at": "2026-11-16T14:00:00Z", "by": "B"});
+        let (out, _) = merge_publish(&out, &json!({"links": [bare]}), &Value::Null);
+        assert!(out["links"][0]["sign"].is_null() && out["links"][0]["level"] == 3 && out["links"][0]["reg"] == "r3");
+        // A new link without them isn't taken; a new level-3 one is.
+        let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"},
+            {"id": "N3", "roomID": "R4", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "B"}]}), &Value::Null);
+        assert_eq!((out["links"].as_array().unwrap().len(), stale), (2, vec![json!("N")]));
     }
 
     const T0: &str = "2026-11-16T09:00:00Z";

@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Deliver › "Set Up Server…": a main server or a backup (of a main one), on TrueNAS or Proxmox, each opening its own setup sheet.
 struct DeliverServerChooser: View {
-    enum Choice: String, Identifiable { case truenas, proxmox, other; var id: String { rawValue } }
+    enum Choice: String, Identifiable { case truenas, proxmox, other, join; var id: String { rawValue } }
     enum Role: Hashable { case main, backup }
     @Environment(\.dismiss) private var dismiss
     @State private var open: Choice?
@@ -28,6 +28,7 @@ struct DeliverServerChooser: View {
             .disabled(role == .backup && main == nil)
             HStack {
                 Button("Other NAS…") { open = .other }.buttonStyle(.link).font(Design.Studio.hint)
+                Button("Join a Teammate’s Server…") { open = .join }.buttonStyle(.link).font(Design.Studio.hint)
                 Spacer()
                 Button("Cancel") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
             }
@@ -38,6 +39,7 @@ struct DeliverServerChooser: View {
         .sheet(item: $open, onDismiss: { dismiss() }) { choice in
             switch choice {
             case .other: ReviewNASGuideSheet()
+            case .join: DeliverJoinSheet()
             case .truenas, .proxmox:
                 if role == .backup, let main { DeliverBackupSheet(main: main, kind: choice == .truenas ? .truenas : .proxmox) }
                 else if choice == .truenas { ReviewTrueNASSetupSheet() }

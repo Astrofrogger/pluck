@@ -5,6 +5,27 @@ import Foundation
 /// empty change keeps the redo steps; a film failing on another thread doesn't fail this one.
 extension PhotoSelfTest {
     static func safetyTest() async {
+        // All secrets in ONE keychain item: an old item moves in once and is deleted; save/load/delete; reopened from storage.
+        do {
+            let store = PluckVault.MemoryBackend()
+            store.write(Data("old-key".utf8), service: "tools.pluck.review.host", account: "nas:8790")
+            let vault = PluckVault(backend: store)
+            let moved = vault.load("nas:8790", service: "tools.pluck.review.host")
+            check("vault: an old keychain item moves in, then it's deleted",
+                  moved == Data("old-key".utf8) && store.items["tools.pluck.review.host/nas:8790"] == nil
+                  && store.items["\(PluckVault.service)/\(PluckVault.account)"] != nil)
+            vault.save(Data("a".utf8), as: "link1", service: "tools.pluck.review")
+            vault.save(Data("b".utf8), as: "mac", service: "Pluck Edit Anywhere")
+            vault.delete("link1", service: "tools.pluck.review")
+            let others = store.items.keys.filter { $0 != "\(PluckVault.service)/\(PluckVault.account)" }
+            check("vault: everything sits in one item", others.isEmpty, "\(others)")
+            let reopened = PluckVault(backend: store)
+            store.reads = 0
+            let both = (reopened.load("mac", service: "Pluck Edit Anywhere"), reopened.load("nas:8790", service: "tools.pluck.review.host"))
+            check("vault: reopened from the one item, read once",
+                  both.0 == Data("b".utf8) && both.1 == Data("old-key".utf8) && reopened.load("link1", service: "tools.pluck.review") == nil
+                  && store.reads <= 2, "reads \(store.reads)")
+        }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-safety-\(UUID().uuidString)", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: folder) }

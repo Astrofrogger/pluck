@@ -12,6 +12,25 @@ import Foundation
 // A version whose original is already on the NAS goes by reference ("source": a media path) and the NAS makes
 // its copies. One data folder per host and project: what's published of a project there is one manifest entry.
 
+extension Deliver.Host {
+    /// A root as the owner knows it: its known name, else its id (also when another root has that name, or it is
+    /// another root's id: names stand for ids in Browse's paths).
+    func rootName(_ id: String) -> String {
+        let names = rootNames ?? [:]
+        guard let name = names[id], !name.isEmpty, !name.contains("/"), name != "..", name != "." else { return id }
+        return names.contains { $0.key != id && ($0.value == name || $0.key == name) } ? id : name
+    }
+
+    /// Ids to names from where each root is (a dataset or folder): its last path component.
+    static func names(_ roots: [(id: String, path: String)]) -> [String: String] {
+        var names: [String: String] = [:]
+        for root in roots {
+            if let last = root.path.split(separator: "/").last.map(String.init), !last.isEmpty { names[root.id] = last }
+        }
+        return names
+    }
+}
+
 extension Deliver {
     struct Host: Codable, Identifiable, Hashable {
         var id = UUID()
@@ -31,6 +50,8 @@ extension Deliver {
         var version: String? = nil
         var `protocol`: Int? = nil
         var lastSeen: Date? = nil
+        /// What the owner calls each root ("nas1" → "Wide-open-2026"): the TrueNAS datasets or Proxmox folders from setup or Change Folders.
+        var rootNames: [String: String]? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }
@@ -124,6 +145,19 @@ final class ReviewPublish {
         return host
     }
 
+    /// Pair Again: a NAS already here gets a new key (and, when the line has one, a new pin); its record, mounts and
+    /// publications stay. A bare key keeps the pin.
+    @discardableResult
+    func repair(_ id: UUID, pairing: String) -> Bool {
+        guard let index = hosts.firstIndex(where: { $0.id == id }), let address = hosts[index].address,
+              let paired = ReviewHostClient.pairing(pairing) else { return false }
+        DeliverKeychain.save(Data(paired.key.utf8), as: address, service: DeliverKeychain.hostService)
+        if let pin = paired.pin { hosts[index].pin = pin }
+        online[id] = nil
+        save()
+        return true
+    }
+
     func removeHost(_ id: UUID) {
         let gone = publications.filter { $0.host == id }.map(\.id)
         Task { for publication in gone { await remove(publication) } }
@@ -164,11 +198,22 @@ final class ReviewPublish {
         save()
     }
 
-    /// The certificate the owner confirmed (it matched the NAS's log), kept as the pin.
-    func pinned(_ fingerprint: String, host id: UUID) {
-        guard let index = hosts.firstIndex(where: { $0.id == id }), hosts[index].pin == nil, fingerprint.split(separator: ":").count == 32 else { return }
+    /// The certificate the owner confirmed (it matched the NAS's log), kept as the pin: nil when it's kept, else why
+    /// not (never silently). The host by id, else by its address. `replace`: confirmed for a server Pluck just
+    /// installed, so a pin left from an earlier attempt gives way; otherwise a different pin stays (Pair Again changes it).
+    @discardableResult
+    func pinned(_ fingerprint: String, host id: UUID, address: String? = nil, replace: Bool = false) -> String? {
+        guard let fingerprint = HostSession.normalized(fingerprint) else { return String(localized: "That isn’t a whole certificate fingerprint.") }
+        guard let index = hosts.firstIndex(where: { $0.id == id }) ?? address.flatMap({ address in hosts.firstIndex { $0.kind == .nas && $0.address == address } }) else {
+            return String(localized: "Pluck can’t find this server in its list any more. Install again.")
+        }
+        if let pin = hosts[index].pin, HostSession.normalized(pin) != fingerprint, !replace {
+            return String(localized: "This server already has another certificate pinned. Use Pair Again to change it.")
+        }
         hosts[index].pin = fingerprint
+        online[hosts[index].id] = nil
         save()
+        return nil
     }
 
     // MARK: - Media paths (the one place a local path becomes a NAS path)
@@ -336,8 +381,9 @@ final class ReviewPublish {
             for key in ["title", "mode", "allowDownload", "latestOnly", "expires", "header"] { info[key] = nil }
             wire.merge(info) { a, _ in a }
             if case let (key, secret)? = keys {
-                wire.merge(["reg": DeliverKeys.registerKey(root: secret), "auth": DeliverKeys.base64url(DeliverKeys.authKey(key)),
-                            "sign": DeliverKeys.base64url(DeliverKeys.signSeed(root: secret)), "join": DeliverKeys.joinHash(key)]) { $1 }
+                wire.merge(["reg": DeliverKeys.registerKey(root: secret), "auth": DeliverKeys.base64url(DeliverKeys.authKey(key)), "join": DeliverKeys.joinHash(key)]) { $1 }
+                // Level 3 (§13.24) has no room signing key; the host sends a MAC hello for it.
+                if store.code(link.id) != nil { wire["level"] = 3 } else { wire["sign"] = DeliverKeys.base64url(DeliverKeys.signSeed(root: secret)) }
             }
             wire["created"] = DeliverServer.date(link.created)
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()

@@ -1,3 +1,4 @@
+import SwiftUI
 import AppKit
 import CryptoKit
 import Foundation
@@ -43,6 +44,20 @@ extension PhotoSelfTest {
               && DeliverKeys.checkHello(pub: pubR, sig: ownSig, macNonce: ones, fpMac: fpMac, fpBrowser: fpBrowser)
               && !DeliverKeys.checkHello(pub: pubR, sig: ownSig, macNonce: ones, fpMac: fpBrowser, fpBrowser: fpMac)
               && !DeliverKeys.checkHello(pub: pubR, sig: ownSig, macNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser), "\(pubR) \(DeliverKeys.registerKey(root: rootR))")
+        // Level 3 (§13.24): the shared vector (docs/superpowers/plans/link-v3-vectors.json).
+        let v3Key = DeliverKeys.linkKey(code: "Mt0Rkt98Xy3Q"), v3Auth = DeliverKeys.authKey(v3Key)
+        let v3Hello: [String: Any] = ["t": "hello", "v": 3, "nonce": DeliverKeys.base64url(ones), "mac": "OLP9yCHGLjnyY-Ls4O6rLfaGaAWymfeCc7_MGSZk6vc"]
+        check("review: level 3 vector", DeliverKeys.base64url(v3Key) == "AVEdO3v23i2QlVmJas-6_3Q0Sf1zNij41dy4GjdWbJA"
+              && DeliverKeys.roomID(v3Key) == "II_e9ClT-12wrJ4_WL7Ztw" && DeliverKeys.base64url(v3Auth) == "6Es-XWEmgo03eKcgdkXTygA1KrF10Dfp32DjWacNs04"
+              && DeliverKeys.join(v3Key) == "U5980_neViGuuYt-taxoyKlXw15d2KSCXgrbs44Jaow" && DeliverKeys.joinHash(v3Key) == "A-8fD_-RanBNeugAm-QxEiM4lxTS57FNO84MFlgCQMw"
+              && DeliverKeys.helloMAC(authKey: v3Auth, macNonce: ones, fpMac: fpMac, fpBrowser: fpBrowser) == "OLP9yCHGLjnyY-Ls4O6rLfaGaAWymfeCc7_MGSZk6vc"
+              && DeliverKeys.proof(authKey: v3Auth, role: "browser", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "kQv8Y2PFSOgThYmr1hZaP476blYIMTCfPccvvfsivBI"
+              && DeliverKeys.proof(authKey: v3Auth, role: "mac", macNonce: ones, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser) == "FpHEd3yPpKAhyDi_8YuLh5_XKUU1yn75MDZwDeLlYx8"
+              && DeliverKeys.browserCheck(v3Hello, level: 3, key: v3Key, pub: "", fpMac: fpMac, fpBrowser: fpBrowser) == ones
+              && DeliverKeys.browserCheck(v3Hello, level: 3, key: DeliverKeys.linkKey(code: "Mt0Rkt98Xy3R"), pub: "", fpMac: fpMac, fpBrowser: fpBrowser) == nil
+              && DeliverKeys.browserCheck(v3Hello, level: 2, key: v3Key, pub: pubR, fpMac: fpMac, fpBrowser: fpBrowser) == nil
+              && (0..<50).map { _ in DeliverKeys.newCode() }.allSatisfy { $0.count == 12 && $0.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber) } },
+              DeliverKeys.base64url(v3Key))
         // pull pages: Pluck follows `more` (a host returns ≤ 5000 entries and the seq of the last one).
         let log = (1...12).map { ["seq": $0] }
         let pulled = try? await ReviewPublish.pages(0) { since in
@@ -184,7 +199,7 @@ extension PhotoSelfTest {
         guard let heroNow = store.find(hero.id)?.asset, let v1 = heroNow.versions.first, let current = heroNow.versions.last else { return }
 
         // Links: creation, the key kept apart, expiry and Turn Off.
-        guard let link = try? store.newLink(scope: .project(project.id), title: "Cuts", password: "test"),
+        guard let link = try? store.newLink(scope: .project(project.id), title: "Cuts", password: "test", level: 2),
               let open = try? store.newLink(scope: .asset(hero.id, project: project.id), title: "Hero", latestOnly: true),
               let show = try? store.newLink(scope: .project(project.id), title: "Show", mode: .presentation),
               let folderLink = try? store.newLink(scope: .folder(socials!.id, project: project.id), title: "Socials") else { return check("review: links", false, "") }
@@ -195,6 +210,10 @@ extension PhotoSelfTest {
               && fragment.split(separator: ".").map(\.count) == [43, 43] && fragment.hasSuffix(DeliverKeys.publicKey(root: store.secret(link.id) ?? Data()))
               && link.roomID == DeliverKeys.roomID(store.key(link.id) ?? Data()) && !saved.contains(String(linkURL.split(separator: "#").last ?? "x"))
               && link.passwordHash != nil && !saved.contains("\"test\""), linkURL)
+        let shortURL = store.url(open) ?? "", openCode = store.code(open.id) ?? ""
+        check("review: level 3 link made (new links)", shortURL == "https://pluck.tools/r/#\(openCode)" && shortURL.count == 35 && store.level(open.id) == 3
+              && open.roomID == DeliverKeys.roomID(DeliverKeys.linkKey(code: openCode)) && store.key(open.id) == DeliverKeys.linkKey(code: openCode)
+              && store.secret(open.id)?.count == 32 && !saved.contains(openCode) && store.level(link.id) == 2, shortURL)
 
         // A level-1 link (its keychain item only the 32-byte key) gets a new key, R and room when the store loads.
         if let old = try? store.newLink(scope: .project(project.id), title: "Old level") {
@@ -229,12 +248,12 @@ extension PhotoSelfTest {
         func connect(_ peer: String, _ link: Deliver.ShareLink, password: String? = nil, token: Data = token, badProof: Bool = false) -> (welcome: [String: Any], ready: [String: Any]) {
             out = []
             server.helper(["peer": ["peer": peer, "room": link.roomID, "state": "open", "fpLocal": fpMac, "fpRemote": fpBrowser, "path": "direct"]])
-            guard let hello = sent(peer).first, let macNonce = (hello["nonce"] as? String).flatMap(DeliverKeys.data(base64url:)), let key = store.key(link.id),
-                  hello["v"] as? Int == 2, DeliverKeys.checkHello(pub: pubOf(link), sig: hello["sig"] as? String ?? "", macNonce: macNonce, fpMac: fpMac, fpBrowser: fpBrowser)
-            else { return ([:], [:]) } // the browser sends nothing to a server that can't sign for the room
+            guard let hello = sent(peer).first, let key = store.key(link.id), let level = store.level(link.id),
+                  let macNonce = DeliverKeys.browserCheck(hello, level: level, key: key, pub: pubOf(link), fpMac: fpMac, fpBrowser: fpBrowser)
+            else { return ([:], [:]) } // the browser sends nothing to a server that can't prove the room
             let nonce = DeliverKeys.random(32)
             let proof = DeliverKeys.proof(authKey: DeliverKeys.authKey(badProof ? DeliverKeys.random(32) : key), role: "browser", macNonce: macNonce, browserNonce: nonce, fpMac: fpMac, fpBrowser: fpBrowser)
-            let welcome = ask(peer, ["t": "auth", "v": 2, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(token), "name": "Anna\u{7}"])
+            let welcome = ask(peer, ["t": "auth", "v": level, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(token), "name": "Anna\u{7}"])
             let macProof = DeliverKeys.proof(authKey: DeliverKeys.authKey(key), role: "mac", macNonce: macNonce, browserNonce: nonce, fpMac: fpMac, fpBrowser: fpBrowser)
             guard welcome["proof"] as? String == macProof else { return (welcome, [:]) }
             if let password { return (welcome, ask(peer, ["t": "password", "password": password])) }
@@ -254,6 +273,33 @@ extension PhotoSelfTest {
         let v1Proof = DeliverKeys.proof(authKey: DeliverKeys.authKey(store.key(link.id) ?? Data()), role: "browser", macNonce: realNonce, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser)
         check("review: level-1 auth refused", code(ask("p_sig", ["t": "auth", "v": 1, "nonce": DeliverKeys.base64url(twos), "proof": v1Proof, "token": DeliverKeys.base64url(token)])) == "auth"
               && closed("p_sig"), "")
+        // Level 3 on this server: a MAC hello; a level-2 auth and a wrong code's proof are refused; `/a/<8>` resolves; and
+        // "Make a New Link" turns a level-2 link into a level-3 one with a new room.
+        out = []
+        server.helper(["peer": ["peer": "p_v3", "room": open.roomID, "state": "open", "fpLocal": fpMac, "fpRemote": fpBrowser]])
+        let hello3 = sent("p_v3").first ?? [:], openKey = store.key(open.id) ?? Data()
+        let nonce3 = DeliverKeys.browserCheck(hello3, level: 3, key: openKey, pub: "", fpMac: fpMac, fpBrowser: fpBrowser) ?? Data()
+        let proof3 = DeliverKeys.proof(authKey: DeliverKeys.authKey(openKey), role: "browser", macNonce: nonce3, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser)
+        check("review: level 3 hello, level-2 auth refused", nonce3.count == 32 && hello3["sig"] == nil
+              && code(ask("p_v3", ["t": "auth", "v": 2, "nonce": DeliverKeys.base64url(twos), "proof": proof3, "token": DeliverKeys.base64url(token)])) == "auth", "\(hello3)")
+        out = []
+        server.helper(["peer": ["peer": "p_v3w", "room": open.roomID, "state": "open", "fpLocal": fpMac, "fpRemote": fpBrowser]])
+        let nonceW = (sent("p_v3w").first?["nonce"] as? String).flatMap(DeliverKeys.data(base64url:)) ?? Data()
+        let wrongProof = DeliverKeys.proof(authKey: DeliverKeys.authKey(DeliverKeys.linkKey(code: "Mt0Rkt98Xy3R")), role: "browser", macNonce: nonceW, browserNonce: twos, fpMac: fpMac, fpBrowser: fpBrowser)
+        check("review: level 3 wrong code refused", code(ask("p_v3w", ["t": "auth", "v": 3, "nonce": DeliverKeys.base64url(twos), "proof": wrongProof, "token": DeliverKeys.base64url(token)])) == "auth", "")
+        let solo3 = connect("p_v3ok", open)
+        let short = String(hero.id.uuidString.prefix(8)).lowercased()
+        check("review: level 3 connects; short asset id", solo3.ready["t"] as? String == "ready"
+              && (ask("p_v3ok", ["t": "asset", "asset": short])["asset"] as? [String: Any])?["id"] as? String == hero.id.uuidString
+              && code(ask("p_v3ok", ["t": "asset", "asset": "zzzzzzzz"])) == "notFound", "\(solo3.ready)")
+        if let renewing = try? store.newLink(scope: .project(project.id), title: "Renew", level: 2) {
+            let before = renewing.roomID
+            store.renew(renewing.id)
+            let after = store.link(renewing.id)
+            check("review: Make a New Link gives level 3", store.level(renewing.id) == 3 && after?.roomID != before
+                  && after?.roomID == DeliverKeys.roomID(store.key(renewing.id) ?? Data()) && store.url(after!)?.hasPrefix("https://pluck.tools/r/#") == true, "")
+            store.revoke(renewing.id)
+        }
         let bad = connect("p_bad", link, badProof: true)
         check("review: bad proof closes", code(bad.welcome) == "auth" && closed("p_bad"), "\(bad.welcome)")
         out = []
@@ -428,12 +474,12 @@ extension PhotoSelfTest {
             check("review: manifest format 1", manifest?["format"] as? Int == 1 && projects.first?["id"] as? String == project.id.uuidString
                   && (projects.first?["assets"] as? [[String: Any]])?.count == 2 && (projects.first?["folders"] as? [[String: Any]])?.count == 1
                   && links.contains { $0["roomID"] as? String == live.roomID && $0["reg"] as? String == DeliverKeys.registerKey(root: store.secret(live.id) ?? Data())
-                                      && $0["sign"] as? String == DeliverKeys.base64url(DeliverKeys.signSeed(root: store.secret(live.id) ?? Data())) && $0["join"] as? String == DeliverKeys.joinHash(liveKey)
+                                      && $0["sign"] == nil && $0["level"] as? Int == 3 && $0["join"] as? String == DeliverKeys.joinHash(liveKey) // level 3 (§13.24)
                                       && $0["auth"] as? String == DeliverKeys.base64url(DeliverKeys.authKey(liveKey)) && ($0["root"] as? [String: Any])?["kind"] as? String == "project" }
                   && !links.contains { $0["roomID"] as? String == link.roomID } && versionsThere.contains { $0["frames"] as? Int == 75 && $0["renditions"] as? [String] == ["1080", "540", "360"] }
                   && versionsThere.allSatisfy { ($0["originalName"] as? String)?.isEmpty == false }
                   && fm.fileExists(atPath: dataFolder.appendingPathComponent("bundle/copies/\(v1.id.uuidString)/540/index.json").path)
-                  && !text.contains(clip.path) && !text.contains(DeliverKeys.base64url(liveKey)), "\(projects.count) projects, \(links.count) links")
+                  && !text.contains(clip.path) && !text.contains(DeliverKeys.base64url(liveKey)) && !text.contains(store.code(live.id) ?? "-"), "\(projects.count) projects, \(links.count) links")
             check("review: comments to start from", lines.count == store.comments(hero.id).count && firstLine?["seq"] as? Int == 1 && firstLine?["comment"] != nil, "\(lines.count)")
         } catch {
             check("review: manifest format 1", false, error.localizedDescription)
@@ -699,12 +745,12 @@ extension PhotoSelfTest {
         func connect(_ peer: String, _ link: Deliver.ShareLink, name: String = "Anna", email: String? = nil) -> [String: Any] {
             out = []
             server.helper(["peer": ["peer": peer, "room": link.roomID, "state": "open", "fpLocal": fpMac, "fpRemote": fpBrowser]])
-            guard let hello = sent(peer).first, let macNonce = (hello["nonce"] as? String).flatMap(DeliverKeys.data(base64url:)), let key = store.key(link.id),
-                  DeliverKeys.checkHello(pub: DeliverKeys.publicKey(root: store.secret(link.id) ?? Data()), sig: hello["sig"] as? String ?? "", macNonce: macNonce, fpMac: fpMac, fpBrowser: fpBrowser)
+            guard let hello = sent(peer).first, let key = store.key(link.id), let level = store.level(link.id),
+                  let macNonce = DeliverKeys.browserCheck(hello, level: level, key: key, pub: DeliverKeys.publicKey(root: store.secret(link.id) ?? Data()), fpMac: fpMac, fpBrowser: fpBrowser)
             else { return [:] }
             let nonce = DeliverKeys.random(32)
             let proof = DeliverKeys.proof(authKey: DeliverKeys.authKey(key), role: "browser", macNonce: macNonce, browserNonce: nonce, fpMac: fpMac, fpBrowser: fpBrowser)
-            var auth: [String: Any] = ["t": "auth", "v": 2, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(DeliverKeys.random(32)), "name": name]
+            var auth: [String: Any] = ["t": "auth", "v": level, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(DeliverKeys.random(32)), "name": name]
             if let email { auth["email"] = email }
             _ = ask(peer, auth)
             return sent(peer).first { $0["t"] as? String == "ready" } ?? [:]
@@ -1535,6 +1581,40 @@ extension PhotoSelfTest {
         let badFP = PrivateNetwork.Invitation(link: link(["v": 3, "k": "nas", "o": node, "n": "N", "c": "ABCD-EFGH-JKMN", "e": 2_000_000_000, "fp": "AB:CD", "role": "mac"]))
         check("round3: invitation v3 round trip, expired, wrong kind, bad fp", back == good && expired?.expired == true && wrongKind == nil && badFP == nil, "\(String(describing: back))")
 
+        // Join a Teammate's Server…: a pasted link (spaces, quotes around it) gives what clicking it gives; garbage says it can't be read.
+        let pairing = DeliverPairing.shared, goodLink = good.link?.absoluteString ?? ""
+        func taken(_ text: String) -> (pending: PrivateNetwork.Invitation?, unreadable: Bool, other: Bool) {
+            pairing.pending = nil; pairing.unreadable = false
+            let other = pairing.take(text) != nil
+            defer { pairing.pending = nil; pairing.unreadable = false }
+            return (pairing.pending, pairing.unreadable, other)
+        }
+        let clicked = taken(goodLink), pasted = taken("  \u{201C}\(goodLink)\u{201D} \n"), quoted = taken("'\(goodLink)'"), garbage = taken("hello, join my server")
+        let editAnywhere = taken(PrivateNetwork.Invitation(way: .iroh(node: node, relay: nil, expires: .now.addingTimeInterval(900)), name: "Mac", code: "ABCD-EFGH-JKMN").link?.absoluteString ?? "")
+        check("join: a pasted link (spaces, quotes) is the clicked one; garbage says “Pluck can’t read this invitation”; an Edit Anywhere one goes to its window",
+              clicked.pending == good && pasted.pending == good && quoted.pending == good && !pasted.unreadable && garbage.pending == nil && garbage.unreadable
+              && editAnywhere.other && editAnywhere.pending == nil && DeliverJoinSheet.isReviewInvitation(" \(goodLink) ") && !DeliverJoinSheet.isReviewInvitation("hello"),
+              "\(clicked) \(pasted) \(garbage)")
+
+        // The apps user (568) reading a media folder: mode bits, NFS4 and POSIX ACLs (as filesystem.getacl answers, api.truenas.com v25.10).
+        let ace = { (tag: String, id: Int?, perms: [String: Any], flags: [String: Any]) -> [String: Any] in ["tag": tag, "id": id as Any, "type": "ALLOW", "perms": perms, "flags": flags] }
+        let nfs = { (entries: [[String: Any]]) -> [String: Any] in ["acltype": "NFS4", "uid": 0, "gid": 0, "acl": entries] }
+        let owner = ace("owner@", nil, ["BASIC": "FULL_CONTROL"], ["BASIC": "INHERIT"])
+        let fixed = nfs([owner, ace("USER", 568, ["BASIC": "READ"], ["BASIC": "INHERIT"])])
+        let noInherit = nfs([owner, ace("USER", 568, ["BASIC": "READ"], ["BASIC": "NOINHERIT"])])
+        let advanced = nfs([ace("GROUP", 568, ["READ_DATA": true, "EXECUTE": true], ["DIRECTORY_INHERIT": true, "FILE_INHERIT": true])])
+        let traverse = nfs([ace("everyone@", nil, ["BASIC": "TRAVERSE"], ["BASIC": "INHERIT"])])
+        let posix: [String: Any] = ["acltype": "POSIX1E", "uid": 0, "gid": 0, "acl": [
+            ["tag": "USER_OBJ", "perms": ["READ": true, "WRITE": true, "EXECUTE": true], "default": false],
+            ["tag": "USER", "id": 568, "perms": ["READ": true, "WRITE": false, "EXECUTE": true], "default": false],
+            ["tag": "MASK", "perms": ["READ": false, "WRITE": false, "EXECUTE": true], "default": false]]]
+        check("readable: mode bits; an ACL entry for apps with Read and Inherit; no apps entry, no inherit on a dataset, traverse only or masked are not",
+              TrueNASClient.modeReadable(0o40755, uid: 0, gid: 0) && !TrueNASClient.modeReadable(0o40750, uid: 0, gid: 0) && TrueNASClient.modeReadable(0o40750, uid: 0, gid: 568)
+              && TrueNASClient.aclReadable(fixed, mode: 0o40770, inherit: true) && !TrueNASClient.aclReadable(nfs([owner]), mode: 0o40770, inherit: true)
+              && !TrueNASClient.aclReadable(noInherit, mode: 0, inherit: true) && TrueNASClient.aclReadable(noInherit, mode: 0, inherit: false)
+              && TrueNASClient.aclReadable(advanced, mode: 0, inherit: true) && !TrueNASClient.aclReadable(traverse, mode: 0, inherit: false)
+              && !TrueNASClient.aclReadable(posix, mode: 0, inherit: false), "")
+
         // Pairing pins the fingerprint: a different certificate never sees the code.
         ReviewHostTunnel.tunnelStart = { _ in ("127.0.0.1:5555", String(repeating: "b2", count: 32)) }
         ReviewHostClient.fakeFingerprint = Array(repeating: "CD", count: 32).joined(separator: ":")
@@ -1711,7 +1791,7 @@ extension PhotoSelfTest {
             let macNonce = (said("p_a").first?["nonce"] as? String).flatMap(DeliverKeys.data(base64url:)) ?? Data()
             let nonce = DeliverKeys.random(32)
             let proof = DeliverKeys.proof(authKey: DeliverKeys.authKey(key), role: "browser", macNonce: macNonce, browserNonce: nonce, fpMac: fp, fpBrowser: fp)
-            _ = askProof("p_a", ["t": "auth", "v": 2, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(DeliverKeys.random(32)), "name": "Anna"])
+            _ = askProof("p_a", ["t": "auth", "v": store.level(approving.id) ?? 0, "nonce": DeliverKeys.base64url(nonce), "proof": proof, "token": DeliverKeys.base64url(DeliverKeys.random(32)), "name": "Anna"])
             let version = heroNow.versions[0]
             store.update(version: version.id, of: heroNow.id) { $0.sha256 = String(repeating: "cd", count: 32) }
             let approved = askProof("p_a", ["t": "approve", "asset": heroNow.id.uuidString, "version": version.id.uuidString, "decision": "approve"])
@@ -1888,5 +1968,663 @@ extension PhotoSelfTest {
         let stacked = store.content(project.id).assets.first { $0.name == "Hero 30s_v1" }
         check("round3: a NAS file goes in by reference as the next version", stacked?.versions.count == 2
               && stacked?.current.path == ReviewPublish.nasPath(host: host.id, path: "nas1/Hero 30s_v2.mov"), "\(String(describing: stacked?.versions.map(\.path)))")
+
+        await uploadDestinationTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
+
+        // A backup paired straight with the main (no host record here): a Backup row under the main, not a browse root.
+        let seen = ISO8601DateFormatter().string(from: .now)
+        ReviewHostClient.fake = { request, body in
+            guard request["op"] as? String == "devices" else { return fake.answer(request, body) }
+            return ["devices": [["id": "d-mac", "name": "Edit Mac", "role": "mac", "lastSeen": seen],
+                                ["id": "d-backup", "name": "Proxmox Backup", "role": "backup", "node": String(repeating: "c3", count: 32), "lastSeen": seen,
+                                 "replica": ["uplinkMbps": 940, "quality": "same", "versions": ["ready": 3, "making": 1]]],
+                                ["id": "d-old", "name": "Old Backup", "role": "backup", "lastSeen": "2020-01-01T00:00:00Z"]]]
+        }
+        // (Every main here gets the same answer; the rows under this one.)
+        let backups = await DeliverBackups.load(publish: publish).filter { $0.main.id == host.id }
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        let rows = DeliverBrowseView.backupPlaces(backups, show: { _ in }, remove: { _ in })
+        await browseSidebarTest(publish: publish, host: host, backups: backups)
+        check("backups: a main's backup is a Backup row with its speed and status", rows.count == 2 && rows[0].id == "backup:d-backup" && rows[0].title == "Proxmox Backup"
+              && rows[0].detail == "Backup" && rows[0].help == "Copying · 940 Mbit/s up" && !rows[0].dimmed && rows[0].menu != nil
+              && rows[1].detail == "Backup" && rows[1].dimmed && rows[1].help == "Offline",
+              "\(rows.map { "\($0.id) \($0.detail ?? "-") \($0.help ?? "-")" })")
+
+        await reviewServerRepairTest(publish: publish, host: host, fp: fp, fake: fake)
+    }
+
+    /// The owner's TrueNAS case: an install that lost its socket after app.create left the app with key A while Pluck
+    /// kept none; installing again must reuse A (read with app.config), check the key really works, and Browse says why not.
+    static func reviewServerRepairTest(publish: ReviewPublish, host: Deliver.Host, fp: String, fake: ReviewFakeHost) async {
+        defer { ReviewHostClient.fake = { fake.answer($0, $1) }; TrueNASClient.fake = nil }
+        let keyA = DeliverKeys.base64url(Data(repeating: 0xA1, count: 32))
+        // app.config's result for a custom app: the compose as yaml.safe_load made it (api.truenas.com v25.10 app.config;
+        // middlewared apps/ix_apps/lifecycle.py get_current_app_config), as JSON: an object, numbers where YAML had them.
+        let installed: [String: Any] = [
+            "services": ["pluck-review": [
+                "image": "ghcr.io/x/pluck-review-host@sha256:" + String(repeating: "0", count: 64), "restart": "unless-stopped", "network_mode": "host",
+                "user": "568:568", "read_only": true, "cap_drop": ["ALL"],
+                "environment": ["PLUCK_HOST_KEY": keyA, "PLUCK_HOST_NAME": "Studio NAS", "PLUCK_IROH": "0", "PLUCK_ROLE": "main", "PLUCK_MAIN_LINK": "",
+                                "PLUCK_BACKUP_MAX": "", "PLUCK_UPLOADS": "renders=/uploads/renders"],
+                "command": ["--media", "nas1=/media/nas1", "--media", "nas2=/media/nas2", "--listen", "192.0.2.10:8790", "--admin", "192.0.2.10:8791"],
+                "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/tank/media:/media/nas1:ro", "media2:/media/nas2:ro", "/mnt/tank/renders:/uploads/renders"],
+                "pids_limit": 256, "mem_limit": "4g", "cpus": "3.0",
+            ] as [String: Any]],
+            "volumes": ["media2": ["driver": "local", "driver_opts": ["type": "nfs", "o": "addr=192.0.2.20,ro,nfsvers=4,soft,timeo=150", "device": ":/mnt/pool/footage"]]],
+        ]
+        let parsed = TrueNASClient.installed(installed)
+        check("repair: app.config parses (key, data, media, uploads, second NAS, limits)", parsed?.key == keyA && parsed?.data == "tank/apps/pluck-review"
+              && parsed?.media == ["tank/media"] && parsed?.mediaIDs == ["nas1"] && parsed?.uploads == "tank/renders" && parsed?.secondAddress == "192.0.2.20"
+              && parsed?.secondPath == "/mnt/pool/footage" && parsed?.cpus == 3 && parsed?.memory == 4 && parsed?.iroh == false && parsed?.name == "Studio NAS"
+              && parsed?.mainLink == nil, "\(String(describing: parsed))")
+        // The key in other shapes: a KEY=value list, YAML text; a short or missing key isn't one.
+        let listForm: [String: Any] = ["services": ["pluck-review": ["environment": ["PLUCK_IROH=1", "PLUCK_HOST_KEY=\(keyA)"]]]]
+        let yaml = "services:\n  pluck-review:\n    environment:\n      PLUCK_HOST_KEY: \"\(keyA)\"   # kept\n"
+        check("repair: the host key is read from a list, from YAML text, never a broken one",
+              TrueNASClient.installed(listForm)?.key == keyA && TrueNASClient.installed(listForm)?.iroh == true && TrueNASClient.installed(yaml)?.key == keyA
+              && TrueNASClient.installed(["services": ["pluck-review": ["environment": ["PLUCK_HOST_KEY": "short"]]]]) == nil
+              && TrueNASClient.installed(["services": [String: Any]()]) == nil, "")
+
+        // Installing over the app that's there: app.query finds it, app.config gives key A, app.update carries A.
+        var exists = true, configFails = false, updated: String?
+        let running: [[String: Any]] = [["name": "pluck-review", "state": "RUNNING", "custom_app": true]]
+        let denied: [String: Any] = ["code": 13, "message": "Not authorized", "data": ["reason": "Not authorized"] as [String: Any]]
+        TrueNASClient.fake = { (method: String, params: [Any]) -> [String: Any] in
+            switch method {
+            case "app.query": return ["result": exists ? running as Any : [Any]() as Any]
+            case "app.config":
+                if configFails { return ["error": denied] }
+                if params.first as? String == "pluck-review" { return ["result": installed] }
+                return ["error": ["message": "no such app"] as [String: Any]]
+            case "app.update":
+                updated = (params.last as? [String: Any])?["custom_compose_config_string"] as? String
+                return ["result": 7]
+            default: return ["result": NSNull()]
+            }
+        }
+        let client = TrueNASClient(address: "192.0.2.10", pin: fp)
+        let reused = try? await TrueNASSetup.existingKey(client)
+        let setup = TrueNASSetup()
+        let template = "services:\n  pluck-review:\n    environment:\n      PLUCK_HOST_KEY: \"{{host_key}}\"\n"
+        if let reused, let compose = try? TrueNASClient.render(template, ["host_key": reused]) { try? await client.deploy(compose) }
+        configFails = true
+        var unreadable = ""
+        do { _ = try await TrueNASSetup.existingKey(client) } catch { unreadable = error.localizedDescription }
+        exists = false
+        let fresh = try? await TrueNASSetup.existingKey(client)
+        check("repair: an app already there keeps its key (app.config), app.update sends it, an unreadable one stops the install",
+              reused == keyA && updated?.contains(keyA) == true && unreadable.contains("Nothing was changed") && unreadable.contains("Not authorized")
+              && fresh == nil && setup.values(hostKey: keyA).values["host_key"] == keyA, "\(String(describing: reused)) \(unreadable)")
+
+        // After install, the key is checked on the sync port: a refused key is said as such (not retried), silence is "not answering".
+        ReviewHostClient.fake = { request, _ in
+            if request["op"] == nil, request["key"] != nil { return ["ok": request["key"] as? String == keyA] }
+            return ["ok": true]
+        }
+        let verifyRefused = TrueNASSetup()
+        let fingerprint = await verifyRefused.verify(host, timeout: 0.2, poll: .milliseconds(10))
+        let refusedProblem = verifyRefused.problem ?? ""
+        let source = NASFinderSource(host: host)
+        _ = await source.list(source.root)
+        let browseProblem = source.problem ?? ""
+        ReviewHostClient.fake = { _, _ in nil }
+        let silent = TrueNASSetup()
+        _ = await silent.verify(host, timeout: 0.1, poll: .milliseconds(10))
+        check("repair: verify after install names a refused key; Browse says Pair Again; silence isn't answering",
+              fingerprint == nil && !verifyRefused.verified && refusedProblem.contains(String(localized: "The NAS server rejected Pluck’s key"))
+              && browseProblem == String(localized: "The NAS server doesn’t accept this Mac’s key: Pair Again")
+              && silent.problem == String(localized: "The NAS isn’t answering")
+              && ReviewHostClient.problem(Deliver.Failure("pin")).contains(String(localized: "different certificate")), "\(refusedProblem) | \(browseProblem) | \(silent.problem ?? "-")")
+
+        // Pair Again: the Keychain key (and the pin, from the line) change; the record stays; a broken line changes nothing.
+        ReviewHostClient.fake = { request, _ in
+            if request["op"] == nil, request["key"] != nil { return ["ok": request["key"] as? String == keyA] }
+            return ["ok": true]
+        }
+        let oldKey = ReviewHostClient.key(host)
+        let fp2 = Array(repeating: "CD", count: 32).joined(separator: ":")
+        let broken = await DeliverPairAgainSheet.pairAgain(host.id, pairing: "pluck-host:nope", publish: publish)
+        let keptAfterBroken = ReviewHostClient.key(host) == oldKey
+        let paired = await DeliverPairAgainSheet.pairAgain(host.id, pairing: "pluck-host:\(keyA)@\(fp2)", publish: publish)
+        let after = publish.host(host.id)
+        check("repair: Pair Again updates the Keychain key and pin and checks it", broken != nil && keptAfterBroken && paired == nil
+              && after.flatMap(ReviewHostClient.key) == keyA && after?.pin == fp2 && after?.id == host.id, "\(String(describing: broken)) \(String(describing: paired))")
+        if let oldKey { publish.repair(host.id, pairing: "pluck-host:\(oldKey)@\(fp)") }
+
+        // 4.0.3: "Matches the Log" after Install did nothing and the same fingerprint came back. Install leaves a host with
+        // no pin; its first session is Unconfirmed; confirming pins it (by id, else address; any spelling) and the next
+        // session goes through without asking again. Also when the entry had a pin left from an earlier attempt.
+        await reviewConfirmPinTest(publish: publish, fake: fake)
+
+        // Several media datasets: one media1 block each in the compose (any number of --media), new ids after the highest.
+        let multi = TrueNASSetup()
+        multi.media = [(dataset: "tank/media", id: "nas1"), (dataset: "tank/broll", id: "nas3")]
+        multi.addMedia("tank/footage")
+        multi.secondAddress = "192.0.2.20"; multi.secondPath = "/mnt/pool/x"
+        let blockTemplate = "services:\n  s:\n    command:\n      # begin:media1\n      - \"{{media1_id}}=/media/{{media1_id}}\"\n      # end:media1\n    volumes:\n      # begin:media1\n      - \"{{media1}}:/media/{{media1_id}}:ro\"\n      # end:media1\n      # begin:media2\n      - \"media2:/media/{{media2_id}}:ro\"\n      # end:media2\n"
+        let (values, blocks) = multi.values(hostKey: "k")
+        let multiCompose = try? TrueNASClient.render(TrueNASClient.moreMedia(blockTemplate, count: 2), values.filter { $0.key.hasPrefix("media") }, blocks: blocks)
+        let installedBack = multiCompose.flatMap { _ in TrueNASClient.installed(["services": ["s": ["environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(Data(repeating: 3, count: 32))],
+            "volumes": ["/mnt/tank/media:/media/nas1:ro", "/mnt/tank/broll:/media/nas3:ro", "/mnt/tank/footage:/media/nas4:ro", "media2:/media/nas5:ro"]]]]) }
+        let overlapping = TrueNASSetup()
+        overlapping.addMedia("tank/media"); overlapping.addMedia("tank/media/2025")
+        check("media: several datasets each get a mount and --media, ids never reused, the second NAS after them, overlap warned",
+              multi.media.map(\.id) == ["nas1", "nas3", "nas4"] && multi.secondID == "nas2"
+              && multiCompose?.contains("\"/mnt/tank/broll:/media/nas3:ro\"") == true && multiCompose?.contains("\"nas4=/media/nas4\"") == true
+              && multiCompose?.contains("\"/mnt/tank/media:/media/nas1:ro\"") == true && multiCompose?.contains("{{") == false
+              && installedBack?.mediaIDs == ["nas1", "nas3", "nas4"] && installedBack?.secondID == "nas5"
+              && overlapping.overlap != nil && TrueNASSetup().overlap == nil
+              && TrueNASClient.fingerprint(inLog: ["x", #"{"host":{"listen":"0.0.0.0:8790","fingerprint":"\#(Array(repeating: "ab", count: 32).joined(separator: ":"))"}}"#]) == Array(repeating: "AB", count: 32).joined(separator: ":"),
+              multiCompose ?? "nil")
+    }
+
+    static func reviewConfirmPinTest(publish: ReviewPublish, fake: ReviewFakeHost) async {
+        defer { ReviewHostClient.fake = { fake.answer($0, $1) }; ReviewHostClient.fakeFingerprint = nil }
+        let keyB = DeliverKeys.base64url(Data(repeating: 0xB2, count: 32))
+        let served = Array(repeating: "5E", count: 31).joined(separator: ":") + ":A0", older = Array(repeating: "0F", count: 32).joined(separator: ":")
+        ReviewHostClient.fakeFingerprint = served
+        var hellos = 0
+        ReviewHostClient.fake = { request, _ in
+            if request["op"] == nil, request["key"] != nil { hellos += 1; return ["ok": request["key"] as? String == keyB, "version": "0.3.0", "protocol": 3] }
+            return ["ok": true]
+        }
+        for earlierPin in [false, true] {
+            guard let installed = publish.addNAS(name: "Fresh NAS", address: "fresh.test:8790", pairing: keyB) else { return check("confirm: install's host", false, ""); }
+            let setup = TrueNASSetup()
+            setup.publish = publish
+            setup.done = installed
+            await setup.check()
+            let asked = setup.serverFingerprint
+            // (An earlier attempt left a pin on the entry: the owner's confirmation for this install replaces it.)
+            if earlierPin { publish.update(host: installed.id) { $0.pin = older } }
+            let before = hellos
+            await setup.confirmServer()
+            let pinnedNow = publish.host(installed.id)?.pin
+            await setup.check()
+            check("confirm: Install → Unconfirmed → Matches → the session goes through, never asked again (earlier pin: \(earlierPin))",
+                  asked == served && pinnedNow == served && setup.verified && setup.serverFingerprint == nil && setup.problem == nil && hellos > before,
+                  "\(String(describing: asked)) \(String(describing: pinnedNow)) \(setup.problem ?? "-")")
+            publish.removeHost(installed.id)
+        }
+        // pinned(): any spelling, by address when the id is gone, a different pin refused out loud, garbage refused.
+        guard let other = publish.addNAS(name: "Other NAS", address: "other.test:8790", pairing: keyB) else { return }
+        let spelled = served.lowercased().replacingOccurrences(of: ":", with: "-")
+        let byAddress = publish.pinned(spelled, host: UUID(), address: "other.test:8790")
+        let keptSpelling = publish.host(other.id)?.pin == served
+        let refused = publish.pinned(older, host: other.id)
+        let lost = publish.pinned(served, host: UUID())
+        let garbage = publish.pinned("AB:CD", host: other.id)
+        let stillServed = publish.host(other.id)?.pin == served
+        // The same fingerprint coming back after it was confirmed is said, not asked again.
+        let setup = TrueNASSetup()
+        setup.publish = publish
+        setup.done = other
+        publish.update(host: other.id) { $0.pin = nil }
+        await setup.check()
+        await setup.confirmServer()
+        publish.update(host: other.id) { $0.pin = nil }
+        await setup.check()
+        check("confirm: pins by address and any spelling; another pin, a lost host or a broken fingerprint is said; a repeat isn't asked",
+              byAddress == nil && keptSpelling && refused != nil && stillServed && lost != nil && garbage != nil
+              && setup.serverFingerprint == nil && setup.problem?.contains(String(localized: "The fingerprint was confirmed")) == true,
+              "\(String(describing: byAddress)) kept \(keptSpelling) pin \(stillServed) lost \(lost != nil) garbage \(garbage != nil) fp \(setup.serverFingerprint ?? "-")")
+        publish.removeHost(other.id)
+    }
+}
+
+// MARK: - TrueNAS end to end (the stand-in TrueNAS and the real pluck-review helper; scratchpad truenas-e2e/run.sh)
+
+extension PhotoSelfTest {
+    /// Drives the TrueNAS setup as the sheet does against a stand-in TrueNAS 25.10 (wss JSON-RPC, roles, idle close,
+    /// jobs) that runs the REAL helper from the compose Pluck sends; Browse then lists the helper's media roots.
+    static func trueNASE2ETest() async {
+        let env = ProcessInfo.processInfo.environment
+        guard let port = env["PLUCK_E2E_PORT"].flatMap(Int.init), let root = env["PLUCK_E2E_ROOT"], let apiKey = env["PLUCK_E2E_KEY"] else {
+            return check("e2e: stand-in TrueNAS", false, "PLUCK_E2E_PORT/ROOT/KEY not set")
+        }
+        let publish = ReviewPublish.shared, nas = "127.0.0.1", sync = "127.0.0.1:8790"
+        TrueNASClient.testPort = port
+        TrueNASSetup.testImage = "ghcr.io/example/pluck-review-host@sha256:" + String(repeating: "0", count: 64)
+        let fm = FileManager.default
+        func mnt(_ dataset: String) -> URL { URL(fileURLWithPath: root).appendingPathComponent("mnt/" + dataset, isDirectory: true) }
+        for (dataset, file) in [("tank/media", "Hero_v1.mov"), ("tank/broll", "Drone.mov"), ("tank/footage", "Interview.mov"), ("tank/archive", "Old.mov")] {
+            try? fm.createDirectory(at: mnt(dataset), withIntermediateDirectories: true)
+            fm.createFile(atPath: mnt(dataset).appendingPathComponent(file).path, contents: Data(repeating: 1, count: 1000))
+        }
+        func clean() { for host in publish.hosts where host.address == sync || host.name.hasPrefix("E2E") { publish.removeHost(host.id) } }
+        clean()
+        defer {
+            clean()
+            TrueNASClient.testPort = nil
+            TrueNASSetup.testImage = nil
+            TrueNASKeychain.forget(nas)
+            UserDefaults.standard.removeObject(forKey: "truenasPin." + nas)
+        }
+
+        /// Connect as the sheet does: the API's certificate confirmed on first connect.
+        func connected(_ setup: TrueNASSetup) async -> Bool {
+            await setup.connect()
+            note("e2e connect: fingerprint \(setup.fingerprint != nil) connected \(setup.connected) \(setup.problem ?? "-")")
+            if setup.fingerprint != nil { await setup.confirm() }
+            note("e2e connect after confirm: \(setup.connected) \(setup.problem ?? "-")")
+            return setup.connected
+        }
+        func fresh() -> TrueNASSetup {
+            let setup = TrueNASSetup()
+            setup.address = nas
+            setup.apiKey = apiKey
+            setup.iroh = false
+            setup.name = "E2E NAS"
+            return setup
+        }
+        func roots(_ host: Deliver.Host) async -> (names: [String], problem: String?) {
+            let source = NASFinderSource(host: publish.host(host.id) ?? host)
+            let listed = await source.list(source.root)
+            return (listed.map(\.1.name).sorted(), source.problem)
+        }
+        /// The key the running app really has (app.config), through Pluck's own client.
+        func runningKey() async -> String? {
+            let client = TrueNASClient(address: nas, pin: TrueNASKeychain.pin(nas))
+            defer { client.close() }
+            guard (try? await client.connect()) != nil, (try? await client.login(apiKey)) != nil else { return nil }
+            return (try? await client.config()).flatMap(TrueNASClient.installed)?.key
+        }
+        func standIn(_ method: String, _ params: [Any]) async {
+            let client = TrueNASClient(address: nas, pin: TrueNASKeychain.pin(nas))
+            defer { client.close() }
+            _ = try? await client.connect()
+            _ = try? await client.login(apiKey)
+            _ = try? await client.call(method, params)
+        }
+
+        // (a) A clean install with three media datasets; an overlapping fourth is warned about.
+        let a = fresh()
+        let connectedA = await connected(a)
+        for dataset in ["tank/media", "tank/broll", "tank/footage", "tank/media/2025"] { a.addMedia(dataset) }
+        let overlap = a.overlap
+        // Media access as the app (568) has it: broll's ACL leaves the apps user out, and so does a folder inside footage;
+        // after the owner's fix (apps: Read, Inherit, recursively) Check Again shows them readable.
+        try? fm.createDirectory(at: mnt("tank/footage").appendingPathComponent("Day 1", isDirectory: true), withIntermediateDirectories: true)
+        await standIn("standin.acl", ["/mnt/tank/broll", "locked"])
+        await standIn("standin.acl", ["/mnt/tank/footage/Day 1", "locked"])
+        await a.checkAccess()
+        let accessBefore = a.access
+        await standIn("standin.acl", ["/mnt/tank/broll", "fixed"])
+        await standIn("standin.acl", ["/mnt/tank/footage/Day 1", "fixed"])
+        await a.checkAccess()
+        let accessAfter = a.access
+        check("e2e (a): media access: one readable, one dataset and one subfolder whose ACL leaves out apps; Check Again after the fix",
+              accessBefore == ["tank/media": true, "tank/broll": false, "tank/footage": false, "tank/media/2025": true]
+              && accessAfter == ["tank/media": true, "tank/broll": true, "tank/footage": true, "tank/media/2025": true],
+              "\(accessBefore) \(accessAfter) \(a.problem ?? "-")")
+        a.media.removeAll { $0.dataset == "tank/media/2025" }
+        // The form takes a while: the stand-in closes a socket idle for 20 s, as the owner's NAS did; Install reconnects.
+        try? await Task.sleep(for: .seconds(23))
+        note("e2e (a) installing")
+        await a.install()
+        let installProblem = a.problem
+        note("e2e (a) installed: \(installProblem ?? "-")")
+        await a.check()
+        guard let hostA = a.done.flatMap({ publish.host($0.id) }) else { return check("e2e (a): clean install", false, "\(installProblem ?? "-") \(a.problem ?? "-")") }
+        let listedA = await roots(hostA)
+        check("e2e (a): clean install: connect, 3 media, 23 s idle (socket closed), install, fingerprint from the app's log, Browse lists the helper's roots by their dataset names",
+              connectedA && overlap != nil && installProblem == nil && a.verified && a.serverFingerprint == nil && hostA.pin != nil
+              && listedA.names == ["broll", "footage", "media"] && listedA.problem == nil && a.media.map(\.id) == ["nas1", "nas2", "nas3"],
+              "\(connectedA) \(installProblem ?? "-") \(a.problem ?? "-") \(listedA)")
+        let keyA = ReviewHostClient.key(hostA)
+        let pinA = hostA.pin
+
+        // (c) The app is already there with key A (Pluck forgot it): Install reuses A, never a new key.
+        publish.removeHost(hostA.id)
+        let c = fresh()
+        _ = await connected(c)
+        for dataset in ["tank/media", "tank/broll", "tank/footage"] { c.addMedia(dataset) }
+        await c.install()
+        await c.check()
+        let hostC = c.done.flatMap { publish.host($0.id) }
+        let runningC = await runningKey()
+        check("e2e (c): an app already there with key A: Install reuses A and pairs", c.problem == nil && c.verified && hostC.flatMap(ReviewHostClient.key) == keyA
+              && runningC == keyA && keyA != nil, "\(c.problem ?? "-") same \(hostC.flatMap(ReviewHostClient.key) == keyA) running \(runningC == keyA)")
+
+        // (b) The socket drops while app.create's job runs (the app is made anyway): Install fails, Install again pairs
+        // with the key the running app really has.
+        if let hostC { publish.removeHost(hostC.id) }
+        await standIn("standin.delete", ["pluck-review"])
+        await standIn("standin.scenario", ["drop_next_create"])
+        let b = fresh()
+        _ = await connected(b)
+        for dataset in ["tank/media", "tank/broll", "tank/footage"] { b.addMedia(dataset) }
+        await b.install()
+        let firstFailed = b.problem != nil && b.done == nil
+        try? await Task.sleep(for: .seconds(4)) // the job finishes on the NAS without Pluck
+        await b.install()
+        await b.check()
+        let hostB = b.done.flatMap { publish.host($0.id) }
+        let runningB = await runningKey()
+        var listedB: (names: [String], problem: String?) = ([], "no host")
+        if let hostB { listedB = await roots(hostB) }
+        check("e2e (b): socket closed during app.create: the first Install fails, the second pairs with the running app's key",
+              firstFailed && b.problem == nil && b.verified && runningB != nil && hostB.flatMap(ReviewHostClient.key) == runningB && listedB.problem == nil,
+              "first \(firstFailed) \(b.problem ?? "-") running \(runningB != nil) same \(hostB.flatMap(ReviewHostClient.key) == runningB) \(listedB)")
+        guard let host = hostB else { return }
+
+        // (d) The entry left with an old pin: confirming the fingerprint replaces it (the manual step, no API log).
+        let d = TrueNASSetup()
+        d.done = host
+        publish.update(host: host.id) { $0.pin = nil }
+        await d.check()
+        let asked = d.serverFingerprint
+        publish.update(host: host.id) { $0.pin = Array(repeating: "00", count: 32).joined(separator: ":") }
+        await d.confirmServer()
+        let listedD = await roots(host)
+        check("e2e (d): an entry with an old pin: Matches replaces it and the session goes through",
+              asked != nil && d.verified && d.problem == nil && publish.host(host.id)?.pin == asked.flatMap(HostSession.normalized) && listedD.problem == nil
+              && (pinA == nil || publish.host(host.id)?.pin == pinA), "\(String(describing: asked)) \(d.problem ?? "-") \(listedD)")
+
+        // (e) Change Folders: the API key from the Keychain, the app read back, one dataset out and one in; the helper restarts with them.
+        TrueNASKeychain.save(apiKey, for: nas)
+        let keyBefore = ReviewHostClient.key(host)
+        let e = TrueNASSetup(editing: publish.host(host.id) ?? host)
+        let connectedE = await connected(e)
+        let read = e.media.map(\.dataset)
+        e.media.removeAll { $0.dataset == "tank/broll" }
+        e.addMedia("tank/archive")
+        await e.install()
+        await e.check()
+        let listedE = await roots(host)
+        check("e2e (e): Change Folders reads the app, removes and adds media; the helper restarts with them; key and record stay",
+              connectedE && read == ["tank/media", "tank/broll", "tank/footage"] && e.problem == nil && e.verified
+              && listedE.names == ["archive", "footage", "media"] && ReviewHostClient.key(host) == keyBefore && publish.host(host.id) != nil,
+              "\(connectedE) \(read) \(e.problem ?? "-") \(listedE)")
+
+        // (g) A wrong key: Browse says the server doesn't accept this Mac's key.
+        let goodKey = ReviewHostClient.key(host) ?? ""
+        DeliverKeychain.save(Data(DeliverKeys.base64url(DeliverKeys.random(32)).utf8), as: sync, service: DeliverKeychain.hostService)
+        let listedG = await roots(host)
+        check("e2e (g): a wrong key: Browse says Pair Again", listedG.problem == String(localized: "The NAS server doesn’t accept this Mac’s key: Pair Again"),
+              "\(listedG)")
+
+        // (f) Pair Again: the key read from TrueNAS (app.config), and a full pairing line; both checked against the helper.
+        let readBack = try? await TrueNASSetup.readKey(publish.host(host.id) ?? host)
+        let line = "pluck-host:\(readBack ?? "")@\(publish.host(host.id)?.pin ?? "")"
+        let paired = await DeliverPairAgainSheet.pairAgain(host.id, pairing: line)
+        let listedF = await roots(host)
+        check("e2e (f): Pair Again with the key from TrueNAS and its pairing line", readBack == goodKey && paired == nil && listedF.problem == nil,
+              "\(readBack == goodKey) \(paired ?? "-") \(listedF)")
+
+        await inviteTeammateE2E(publish.host(host.id) ?? host, sync: sync, roots: roots)
+        await uploadsE2E(publish.host(host.id) ?? host, root: root, connected: connected)
+    }
+
+    /// (i) Change Folders sets an uploads folder; a file only on this Mac is shared into a folder made in it
+    /// ("Client/2026"): the original lands there on the real helper, which makes the review copy itself.
+    static func uploadsE2E(_ host: Deliver.Host, root: String, connected: (TrueNASSetup) async -> Bool) async {
+        let publish = ReviewPublish.shared, store = DeliverStore.shared, fm = FileManager.default
+        let i = TrueNASSetup(editing: host)
+        _ = await connected(i)
+        i.uploads = "tank/deliveries"
+        await i.install()
+        await i.check()
+        let named = publish.host(host.id) ?? host
+        let stage = await DeliverUploadDestination.stage(named)
+        let source = NASFinderSource(host: named)
+        source.uploads = "renders"
+        let top = await source.list(source.root).map(\.1.name).sorted()
+        check("e2e (i): Change Folders sets the uploads folder; the server offers it, by its dataset name", i.problem == nil && stage == .pick(root: "renders")
+              && named.rootNames?["renders"] == "deliveries" && top.contains("deliveries"), "\(i.problem ?? "-") \(stage) \(top)")
+        guard stage == .pick(root: "renders"), let manager = AppDelegate.shared?.manager, let ffmpeg = manager.tool("ffmpeg") else { return }
+
+        let dir = fm.temporaryDirectory.appendingPathComponent("pluck-e2e-uploads-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+        let spot = dir.appendingPathComponent("Spot 30s.mov")
+        _ = await DeliveryCheck.output(ffmpeg, ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=640x360:r=25:d=3", "-f", "lavfi", "-i", "sine=f=440:d=3",
+                                                "-c:v", "mpeg4", "-q:v", "4", "-c:a", "aac", "-shortest", spot.path])
+        guard let project = try? store.newProject("E2E uploads") else { return check("e2e (i): project", false, "") }
+        defer { store.deleteProject(project.id) }
+        let size = (try? spot.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+        let item = DeliverBrowseItem(name: spot.lastPathComponent, location: .local(spot), folder: false, size: size)
+        let asks = DeliverUploadDestination.needed([item], host: named)
+        let client = try? await DeliverUploadDestination.makeFolder("Client", in: "renders", host: named)
+        let year = try? await DeliverUploadDestination.makeFolder("2026", in: client ?? "renders", host: named)
+        let link = try? store.newLink(scope: .project(project.id), title: "E2E uploads")
+        await DeliverShareForReview.place([item], into: project.id, asVersions: false, host: named, upload: .init(host: named.id, folder: year ?? ""))
+        let landed = URL(fileURLWithPath: root).appendingPathComponent("mnt/tank/deliveries/Client/2026/Spot 30s.mov")
+        let asset = store.content(project.id).assets.first { $0.name == "Spot 30s" }
+        let same = (try? Data(contentsOf: landed)) == (try? Data(contentsOf: spot))
+        check("e2e (i): a Mac-only file asks where; Client/2026 made; the original lands there on the helper; the version points at it",
+              asks && year == "renders/Client/2026" && same && asset?.current.path == ReviewPublish.nasPath(host: named.id, path: "renders/Client/2026/Spot 30s.mov")
+              && DeliverUploadDestination.remembered(host: named.id, project: project.id) == "renders/Client/2026",
+              "asks \(asks) \(year ?? "-") landed \(same) \(asset?.current.path ?? "-")")
+
+        // The helper makes the review copy from that file (by reference: nothing was pushed from here), and the copy plays.
+        guard let version = asset?.current.id.uuidString else { return }
+        let data = URL(fileURLWithPath: root).appendingPathComponent("mnt/tank/apps/pluck-review", isDirectory: true)
+        var ready: URL?
+        for _ in 0..<60 {
+            ready = (fm.enumerator(at: data, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? [])
+                .first { $0.lastPathComponent == "ready.json" && $0.deletingLastPathComponent().lastPathComponent == version }
+            if ready != nil { break }
+            try? await Task.sleep(for: .seconds(2))
+        }
+        let copies = ready?.deletingLastPathComponent()
+        let pushed = (fm.enumerator(at: data, includingPropertiesForKeys: nil)?.allObjects as? [URL] ?? []).contains { $0.path.contains("/originals/") && $0.lastPathComponent.hasPrefix(version) }
+        let playlist = copies.flatMap { c in ["1080", "540", "360"].map { c.appendingPathComponent("\($0)/index.m3u8") }.first { fm.fileExists(atPath: $0.path) } }
+        var plays = false
+        if let playlist, let ffprobe = manager.tool("ffprobe") {
+            let out = await DeliveryCheck.output(ffprobe, ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-of", "csv=p=0", playlist.path])
+            plays = out.contains("video")
+        }
+        check("e2e (i): the helper makes the review copy from the uploaded original (nothing pushed from the Mac) and it plays",
+              ready != nil && !pushed && plays && link != nil, "ready \(ready?.path ?? "-") pushed \(pushed) playlist \(playlist?.path ?? "-") plays \(plays)")
+    }
+
+    /// (h) Invite a Teammate against the real helper. Mac A (this test, with the host key) makes an invitation; "Mac B" joins
+    /// with the link alone. B is a second identity in this process: A's record and host key are set aside while B acts,
+    /// so B has only what joining gave it (its record and its own device key), as on a teammate's Mac.
+    static func inviteTeammateE2E(_ a: Deliver.Host, sync: String, roots: (Deliver.Host) async -> (names: [String], problem: String?)) async {
+        let publish = ReviewPublish.shared, pairing = DeliverPairing.shared
+        guard let keyA = ReviewHostClient.key(a) else { return check("e2e (h): Mac A has the host key", false, "") }
+        func become(_ who: Deliver.Host?, hostKey: String?) {
+            for h in publish.hosts.filter({ $0.address == sync }) { publish.removeHost(h.id) } // (also drops the host key kept by address)
+            if let who { publish.add(who) }
+            if let hostKey { DeliverKeychain.save(Data(hostKey.utf8), as: sync, service: DeliverKeychain.hostService) }
+            ReviewHostTunnel.forgetRoute(a.id)
+        }
+        func join(_ invitation: PrivateNetwork.Invitation) async -> String? {
+            pairing.problem = nil
+            await pairing.pair(invitation)
+            pairing.askMove = nil
+            return pairing.problem
+        }
+        defer { become(a, hostKey: keyA) }
+
+        // A: one invitation, valid 15 minutes; this stand-in runs no iroh, so it's a LAN link (no node).
+        let answer = try? await ReviewHostClient.ask(a, ["op": "invite", "role": "mac"])
+        let link = answer?["link"] as? String ?? ""
+        guard let invitation = PrivateNetwork.Invitation(link: link), case .reviewHost(let node, let relay, let expires, let pin, let lan, let role) = invitation.way else {
+            return check("e2e (h): A makes an invitation", false, "\(answer ?? [:])")
+        }
+        check("e2e (h): A makes a one-time LAN invitation for 15 minutes", lan == sync && node.isEmpty && role == "mac" && pin == a.pin
+              && abs(expires.timeIntervalSinceNow - 900) < 60 && !invitation.expired, "\(link.prefix(60)) lan \(lan ?? "-") \(expires)")
+
+        // An expired link: refused here, before the code is sent.
+        let old = PrivateNetwork.Invitation(way: .reviewHost(node: node, relay: relay, expires: .now.addingTimeInterval(-60), pin: pin, lan: lan, role: role),
+                                            name: invitation.name, code: invitation.code)
+        become(nil, hostKey: nil)
+        let expired = await join(old)
+        // A server out of reach (nothing listens there), and a link from a newer Pluck.
+        let away = PrivateNetwork.Invitation(way: .reviewHost(node: "", relay: nil, expires: expires, pin: pin, lan: "127.0.0.1:1", role: role),
+                                             name: invitation.name, code: invitation.code)
+        let unreachable = await join(away)
+        let newer = PrivateNetwork.Invitation(link: "pluck://edit-anywhere/join?i=" + Data(#"{"v":4,"k":"nas"}"#.utf8).base64EncodedString()) == nil
+            && DeliverPairing.problem(Deliver.Failure("incompatible"), name: "") == String(localized: "This invitation needs a newer Pluck. Update Pluck, then open the link again.")
+        check("e2e (h): an expired link, a server out of reach and a newer link are each said", expired == String(localized: "This invitation has expired. Ask for a new one.")
+              && unreachable == String(localized: "Pluck can’t reach “\(invitation.name)”. Check that this Mac is online, or try again on the office network.")
+              && newer && publish.hosts.filter { $0.address == sync || $0.address == "127.0.0.1:1" }.isEmpty, "\(expired ?? "-") | \(unreachable ?? "-")")
+
+        // B pastes the link (Join a Teammate's Server…, quotes and spaces around it), joins, and browses the media roots with its own key only.
+        pairing.pending = nil
+        _ = pairing.take("  \"\(link)\" \n")
+        let pasted = pairing.pending
+        let joined = await join(pasted ?? invitation)
+        let b = publish.hosts.first { $0.address == sync }
+        var listedB: (names: [String], problem: String?) = ([], "not joined")
+        if let b { listedB = await roots(b) }
+        check("e2e (h): B pastes the link and joins: Browse › Review server lists it, its own device key, the media roots",
+              pasted == invitation && joined == nil && b?.device != nil && b.flatMap(ReviewHostClient.deviceKey) != nil && b.flatMap(ReviewHostClient.key) == nil && b?.role == "main"
+              && StudioNavigator.shared.deliver == .browse(.nas(b?.id ?? UUID())) && listedB.problem == nil && listedB.names == ["nas1", "nas3", "nas4"],
+              "\(joined ?? "-") device \(b?.device ?? "-") \(listedB)")
+        guard let b else { return }
+
+        // The same link again ("Mac C"): the server refuses it, and that's said.
+        become(nil, hostKey: nil)
+        let reused = await join(invitation)
+        check("e2e (h): a used link is refused, saying so", reused == String(localized: "This invitation was already used. Ask for a new one.")
+              && publish.hosts.filter { $0.address == sync }.isEmpty, reused ?? "-")
+
+        // A sees B among the teammates (name, added, last seen) and removes it.
+        become(a, hostKey: keyA)
+        let listed = (try? await ReviewHostClient.ask(a, ["op": "devices"]))?["devices"] as? [[String: Any]] ?? []
+        let entry = listed.first { $0["id"] as? String == b.device }
+        let removed = (try? await ReviewHostClient.ask(a, ["op": "device-remove", "id": b.device ?? ""]))?["ok"] as? Bool == true
+        let after = (try? await ReviewHostClient.ask(a, ["op": "devices"]))?["devices"] as? [[String: Any]] ?? []
+        check("e2e (h): A lists B (name, added, last seen) and removes it", entry?["name"] as? String == (Host.current().localizedName ?? "Mac")
+              && entry?["added"] is String && entry?["lastSeen"] is String && entry?["role"] as? String == "mac" && removed
+              && !after.contains { $0["id"] as? String == b.device }, "\(listed) removed \(removed)")
+
+        // B again: the server no longer takes its key, and Browse says to ask for a new invitation.
+        become(b, hostKey: nil)
+        let listedGone = await roots(b)
+        check("e2e (h): after removal B is told it was removed", listedGone.problem == String(localized: "This Mac was removed from the review server. Ask its owner for a new invitation."),
+              "\(listedGone)")
+        if let device = b.device { DeliverKeychain.delete("\(b.id.uuidString)/\(device)", service: DeliverKeychain.hostService) }
+    }
+}
+
+extension PhotoSelfTest {
+    /// Share for Review's destination step: the folder remembered per project and server, files already on the NAS
+    /// skip it, no uploads folder offers the fallback, and an upload lands where chosen (the NAS makes the copies).
+    static func uploadDestinationTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL) async {
+        let fm = FileManager.default, other = UUID(), elsewhere = UUID()
+        defer { ReviewHostClient.fake = { fake.answer($0, $1) } }
+        DeliverUploadDestination.remember("renders/Client/2026", host: host.id, project: project)
+        DeliverUploadDestination.remember("renders/Wedding", host: host.id, project: other)
+        let start = await DeliverUploadDestination.start(host, root: "renders", project: project)
+        let startOutside = await DeliverUploadDestination.start(host, root: "uploads", project: project)
+        check("destination: the folder used last is remembered per project and per server, and the picker opens there",
+              DeliverUploadDestination.remembered(host: host.id, project: project) == "renders/Client/2026"
+              && DeliverUploadDestination.remembered(host: host.id, project: other) == "renders/Wedding"
+              && DeliverUploadDestination.remembered(host: elsewhere, project: project) == nil
+              && start == "renders/Client/2026" && startOutside == "uploads"
+              && DeliverUploadDestination.suggested(host, root: "renders", project: other, store: store) == "renders/Wedding"
+              && DeliverUploadDestination.suggested(host, root: "renders", project: elsewhere, store: store) == "renders/Review", "\(start) \(startOutside)")
+
+        let spot = base.appendingPathComponent("Spot 30s.mov")
+        fm.createFile(atPath: spot.path, contents: Data(repeating: 3, count: 3000))
+        let here = DeliverBrowseItem(name: "Spot 30s.mov", location: .local(spot), folder: false, size: 3000)
+        let onNAS = DeliverBrowseItem(name: "Hero 30s_v2.mov", location: .nas(host.id, "nas1/Hero 30s_v2.mov"), folder: false, size: 1)
+        let folder = DeliverBrowseItem(name: "Stills", location: .local(base), folder: true, size: 0)
+        var mounted = host
+        mounted.mounts = [.init(local: base.path, remote: "nas1")]
+        check("destination: files already on the NAS (browsed there, or on its mounted share) skip the step; a file only here asks",
+              DeliverUploadDestination.needed([here], host: host) && DeliverUploadDestination.needed([onNAS, here], host: host)
+              && !DeliverUploadDestination.needed([onNAS], host: host) && !DeliverUploadDestination.needed([here], host: mounted)
+              && !DeliverUploadDestination.needed([folder], host: host) && !DeliverUploadDestination.needed([here], host: nil), "")
+
+        let withRoot = await DeliverUploadDestination.stage(host)
+        ReviewHostClient.fake = { request, body in request["op"] as? String == "roots" ? ["roots": ["nas1"], "writable": [String]()] : fake.answer(request, body) }
+        let without = await DeliverUploadDestination.stage(host)
+        // "Keep It on the Server Only": no upload, the copies made here (today's hidden data folder).
+        await DeliverShareForReview.place([here], into: project, asVersions: false, host: nil, upload: nil, store: store, publish: publish)
+        let kept = store.content(project).assets.first { $0.name == "Spot 30s" }
+        check("destination: without an uploads folder the step offers the fallback, which keeps the original here", withRoot == .pick(root: "renders") && without == .noRoot
+              && kept?.current.path == spot.path, "\(withRoot) \(without) \(kept?.current.path ?? "-")")
+        if let kept { store.remove(asset: kept.id) }
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+
+        // Upload: New Folder (mkdir), then the original to the folder chosen; the version is the NAS path the server gave.
+        var made: [String] = []
+        ReviewHostClient.fake = { request, body in
+            if request["op"] as? String == "mkdir" { made.append(request["path"] as? String ?? "") }
+            if request["op"] as? String == "upload-begin" { made.append("begin " + (request["path"] as? String ?? "")) }
+            return fake.answer(request, body)
+        }
+        fake.uploads = [:]
+        let newFolder = try? await DeliverUploadDestination.makeFolder("2026", in: "renders/Client", host: host)
+        let refused = (try? await DeliverUploadDestination.makeFolder("../x", in: "renders", host: host)) == nil
+        await DeliverShareForReview.place([here], into: project, asVersions: false, host: nil, upload: .init(host: host.id, folder: "renders/Client/2026"), store: store, publish: publish)
+        let sent = store.content(project).assets.first { $0.name == "Spot 30s" }
+        check("destination: New Folder, then Upload sends the original there and the version points at it on the NAS",
+              newFolder == "renders/Client/2026" && refused && made.contains("renders/Client/2026") && made.contains("begin renders/Client/2026/Spot 30s.mov")
+              && fake.uploads["u1"]?.count == 3000 && sent?.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Spring/Hero 30s v4 2.mov")
+              && DeliverUploadDestination.remembered(host: host.id, project: project) == "renders/Client/2026", "\(made) \(sent?.current.path ?? "-")")
+
+        // Move to… (the helper's `move` in the uploads folder): versions pointing at the file follow it.
+        ReviewHostClient.fake = { request, body in
+            request["op"] as? String == "move" ? ["ok": true, "path": (request["to"] as? String ?? "") + "/Hero 30s v4 2.mov"] : fake.answer(request, body)
+        }
+        let moved = try? await DeliverUploadDestination.move("renders/Spring/Hero 30s v4 2.mov", to: "renders/Client/Final", host: host, store: store)
+        check("move: Move to… moves the file inside the uploads folder and re-points its version",
+              moved == "renders/Client/Final/Hero 30s v4 2.mov" && store.find(sent?.id ?? UUID())?.asset.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Client/Final/Hero 30s v4 2.mov"),
+              "\(moved ?? "-")")
+        if let sent { store.remove(asset: sent.id) }
+
+        // "Waiting for NAS": the server away at share time queues it (kept across restarts), sent once it answers; Cancel drops one.
+        let queue = DeliverShareQueue(store: store, publish: publish)
+        ReviewHostClient.fake = { _, _ in nil }
+        await DeliverShareForReview.place([here], into: project, asVersions: false, host: nil, upload: .init(host: host.id, folder: "renders/Client/2026"),
+                                          store: store, publish: publish, queue: queue)
+        let spare = DeliverShareQueue.Entry(file: spot.path, size: 3000, project: project, upload: .init(host: host.id, folder: "renders/Other"))
+        queue.add(spare)
+        let reloaded = DeliverShareQueue(store: store, publish: publish).entries
+        let whileAway = await queue.attempt()
+        let stillWaiting = queue.waiting(project).count
+        queue.cancel(spare.id)
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        fake.uploads = [:]
+        let back = await queue.attempt()
+        let arrived = store.content(project).assets.filter { $0.name == "Spot 30s" }
+        check("waiting: a share while the NAS is away waits (kept across restarts), goes once it answers; Cancel drops one",
+              reloaded.count == 2 && reloaded.first?.upload.folder == "renders/Client/2026" && whileAway == 0 && stillWaiting == 2
+              && back == 1 && queue.entries.isEmpty && arrived.count == 1 && arrived.first?.current.path.hasPrefix("nas:") == true
+              && DeliverShareQueue.waitable(Deliver.Failure("internal")) && !DeliverShareQueue.waitable(Deliver.Failure("space")),
+              "\(reloaded.count) \(whileAway) \(stillWaiting) \(back) \(arrived.map(\.current.path))")
+        for asset in arrived { store.remove(asset: asset.id) }
+    }
+
+    /// Browse's sidebar: one group per server (its name, a status dot, its menu), its roots by their real names, the
+    /// uploads folder, backups at the end; no "Review server" / "On the NAS" groups. And the id → name mapping.
+    static func browseSidebarTest(publish: ReviewPublish, host: Deliver.Host, backups: [DeliverBackups.Backup]) async {
+        let found = TrueNASClient.installed(["services": ["pluck-review": [
+            "environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(Data(repeating: 4, count: 32))],
+            "volumes": ["/mnt/WideOpen-2/Wide-open-2026:/media/nas1:ro", "/mnt/tank/archive:/media/nas3:ro", "/mnt/tank/deliveries:/uploads/renders", "/mnt/tank/apps/pluck:/data"]]]])
+        let names = found.map(TrueNASSetup.names) ?? [:]
+        let setup = TrueNASSetup()
+        setup.media = [("WideOpen-2/Wide-open-2026", "nas1"), ("tank/archive", "nas2")]
+        setup.uploads = "tank/deliveries"
+        var named = host
+        named.rootNames = ["nas1": "Footage", "nas2": "Footage", "nas3": "nas1", "nas4": "Archive"]
+        check("names: ids to names from app.config and the form (last part); unknown, clashing or another's id fall back to the id",
+              names == ["nas1": "Wide-open-2026", "nas3": "archive", "renders": "deliveries"]
+              && setup.rootNames == ["nas1": "Wide-open-2026", "nas2": "archive", "renders": "deliveries"]
+              && Deliver.Host.names([("nas1", "/tank/media"), ("nas2", "")]) == ["nas1": "media"]
+              && named.rootName("nas4") == "Archive" && named.rootName("nas1") == "nas1" && named.rootName("nas3") == "nas3" && named.rootName("nas9") == "nas9"
+              && !setup.uploadsOverlap && { let s = TrueNASSetup(); s.media = [("tank/media", "nas1")]; s.uploads = "tank/media/up"; return s.uploadsOverlap }(), "\(names) \(setup.rootNames)")
+
+        publish.update(host: host.id) { $0.rootNames = ["nas1": "Wide-open-2026"] }
+        let current = publish.host(host.id) ?? host
+        let roots = [host.id: [ReviewHostClient.Entry(name: "nas1", path: "nas1", folder: true), ReviewHostClient.Entry(name: "renders", path: "renders", folder: true)]]
+        let groups = DeliverBrowseView.serverGroups(publish: publish, roots: roots, writable: [host.id: "renders"], backups: backups,
+                                                    actions: { _ in AnyView(EmptyView()) }, show: { _ in }, remove: { _ in })
+        let group = groups.first { $0.key == "server:" + host.id.uuidString }
+        check("sidebar: one group per server, named after it, its roots by real names, Uploads, then its backups",
+              group?.title == current.name && group?.menu != nil && group?.dot != nil
+              && group?.places.first?.title == "Wide-open-2026" && group?.places.first?.id == "nasroot:\(host.id.uuidString)/nas1"
+              && group?.places.dropFirst().first?.title == String(localized: "Uploads")
+              && group?.places.suffix(backups.count).allSatisfy { $0.id.hasPrefix("backup:") } == true
+              && !groups.contains { $0.title == "Review server" || $0.title == "On the NAS" }
+              && !(group?.places.contains { $0.title == "nas1" } ?? true), "\(groups.map { "\($0.title): \($0.places.map(\.title))" })")
+        publish.update(host: host.id) { $0.rootNames = nil }
     }
 }

@@ -232,9 +232,9 @@ enum PrivateNetwork {
             return URL(string: "pluck://edit-anywhere/join?i=" + text)
         }
 
-        /// From a link (clicked or pasted). An expired one still reads, so joining can say so.
+        /// From a link (clicked or pasted, also with spaces, quotes or <> around it). An expired one still reads, so joining can say so.
         init?(link text: String) {
-            guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines)),
+            guard let url = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'“”‘’«»<>`")))),
                   url.scheme == "pluck", url.host == "edit-anywhere",
                   var value = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "i" })?.value
             else { return nil }
@@ -244,7 +244,9 @@ enum PrivateNetwork {
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
             if json["v"] as? Int == 3 {
                 // Only the NAS kind (other v3 kinds aren't Pluck's to read yet).
-                guard json["k"] as? String == "nas", let node = json["o"] as? String, PrivateNetwork.isNodeID(node),
+                // (No node: a server without iroh, reached on the office network only; then the link must carry its LAN address.)
+                let node = json["o"] as? String ?? ""
+                guard json["k"] as? String == "nas", PrivateNetwork.isNodeID(node) || (node.isEmpty && json["lan"] is String),
                       let code = json["c"] as? String, OfficeLink.normalised(code) != nil, let expires = json["e"] as? Double,
                       let pin = (json["fp"] as? String)?.uppercased(), pin.split(separator: ":").count == 32,
                       pin.split(separator: ":").allSatisfy({ $0.count == 2 && $0.allSatisfy(\.isHexDigit) }) else { return nil }

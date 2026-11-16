@@ -161,6 +161,9 @@ upd; rc=$?
 cp "$REL/v3.0.0/host-release.json" "$REL/latest/host-release.json"   # latest is the failed tag
 upd; rc=$?
 [ $rc = 0 ] && [ "$(cur)" = v1.0.0 ] && grep -q 'not retried' "$PFX/out.log" && ok "failed tag is not retried" || bad "failed tag retried" "rc=$rc"
+upd --install v3.0.0; rc=$?
+[ $rc != 0 ] && ! grep -q 'not retried' "$PFX/out.log" && [ "$(result)" = rolledBack ] && [ "$(cur)" = v1.0.0 ] && grep -qx v3.0.0 "$ST/failed" \
+  && ok "--install tries a failed tag again (and it stays marked when it fails again)" || bad "--install of a failed tag" "rc=$rc res=$(result)"
 echo v3.1.0 > "$U/request"
 upd; rc=$?
 [ $rc = 0 ] && [ "$(cur)" = v3.1.0 ] && [ "$(result)" = ok ] && ok "newer tag installs after a rollback" || bad "newer tag installs" "rc=$rc cur=$(cur)"
@@ -246,8 +249,10 @@ case "$cmd" in
   list) echo "VMID Status Lock Name"; for f in "$PS"/ct/*.conf; do [ -f "$f" ] && echo "$(basename "$f" .conf) running  $(sed -n 's/^hostname: //p' "$f")"; done; exit 0;;
   config) cat "$PS/ct/$1.conf";;
   create) id="$1"; shift 2; host=""; rootfs=""
-    while [ $# -gt 0 ]; do case "$1" in --hostname) host="$2";; --rootfs) rootfs="$2";; esac; shift; done
-    printf 'hostname: %s\ndescription: pluck-review\nrootfs: %s:vm-%s-disk-0,size=%sG\n' "$host" "${rootfs%%:*}" "$id" "${rootfs##*:}" > "$PS/ct/$id.conf";;
+    feat=""
+    while [ $# -gt 0 ]; do case "$1" in --hostname) host="$2";; --rootfs) rootfs="$2";; --features) feat="$2";; esac; shift; done
+    printf 'hostname: %s\ndescription: pluck-review\nrootfs: %s:vm-%s-disk-0,size=%sG\nfeatures: %s\n' "$host" "${rootfs%%:*}" "$id" "${rootfs##*:}" "$feat" > "$PS/ct/$id.conf";;
+  reboot) ;;
   status) [ -f "$PS/started" ] && echo "status: running" || echo "status: stopped";;
   start) touch "$PS/started";;
   stop) rm -f "$PS/started";;
@@ -294,7 +299,7 @@ done
 
 : > "$PS/log"
 px --storage local-lvm --size 50 --quality 1080-low --cores 2 --memory 2048 --bridge vmbr0 --name pluck-backup --pair "$LINK"; rc=$?
-want="pct create 100 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst --hostname pluck-backup --unprivileged 1 --features nesting=0 --cores 2 --memory 2048 --swap 512 --rootfs local-lvm:58 --net0 name=eth0,bridge=vmbr0,ip=dhcp --onboot 1 --description pluck-review"
+want="pct create 100 local:vztmpl/debian-12-standard_12.7-1_amd64.tar.zst --hostname pluck-backup --unprivileged 1 --features nesting=1 --cores 2 --memory 2048 --swap 512 --rootfs local-lvm:58 --net0 name=eth0,bridge=vmbr0,ip=dhcp --onboot 1 --description pluck-review"
 [ $rc = 0 ] && grep -qxF "$want" "$PS/log" && ok "first run: pct create has the spec's arguments" || bad "first run create" "rc=$rc $(tail -3 "$PS/out")"
 grep -q 'Paired with Office NAS. Check code: ABCD-EF01' "$PS/out" && ok "prints the pairing line and check code" || bad "check code" "$(tail -2 "$PS/out")"
 env="$PS/root/etc/pluck-review/env"
@@ -310,6 +315,12 @@ grep -q 'SystemMaxUse=20M' "$PS/log" && ok "the journal is capped (a log flood c
 px --storage local-lvm --size 50 --quality 1080-low --cores 2 --memory 2048 --bridge vmbr0 --name pluck-backup --pair "$LINK"; rc=$?
 [ $rc = 0 ] && lacks 'pct create' "$PS/log" && lacks 'pct resize' "$PS/log" && ok "second run reuses the container (no create, no resize)" || bad "second run" "rc=$rc"
 lacks PLUCK_MAIN_LINK "$env" && ok "already paired: --pair is ignored" || bad "paired ignores --pair"
+lacks 'pct set' "$PS/log" && ok "a container with nesting keeps it (no pct set)" || bad "nesting kept" "$(grep 'pct set' "$PS/log")"
+# A container made before 4.0.4 (nesting off): turned on, then the container restarts (226/NAMESPACE otherwise).
+for f in "$PS"/ct/*.conf; do sed -i.bak 's/^features: .*/features: nesting=0/' "$f"; done
+: > "$PS/log"
+px --storage local-lvm --size 50 --quality 1080-low --cores 2 --memory 2048 --bridge vmbr0 --name pluck-backup --pair "$LINK"; rc=$?
+[ $rc = 0 ] && grep -q 'pct set [0-9]* --features nesting=1' "$PS/log" && ok "an old container without nesting gets it" || bad "nesting on" "rc=$rc $(grep 'pct set' "$PS/log")"
 
 : > "$PS/log"
 px --storage local-lvm --size 80 --name pluck-backup; rc=$?

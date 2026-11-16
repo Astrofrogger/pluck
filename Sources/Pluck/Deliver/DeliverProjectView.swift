@@ -46,6 +46,7 @@ struct DeliverProjectView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     if !chosen.isEmpty { selectionBar }
+                    DeliverWaitingRows(project: project)
                     if !folders.isEmpty && search.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 170), spacing: 10)], spacing: 10) {
                             ForEach(folders) { folderTile($0) }

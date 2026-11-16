@@ -232,16 +232,25 @@ struct FinderPaneView: View {
                 .help("Close Pane (⌘W)")
                 .accessibilityLabel("Close Pane")
             }
-            Button { pane.goBack() } label: { Image(systemName: "chevron.left") }
-                .disabled(!pane.canGoBack)
-                .help("Back")
-            Button { pane.goForward() } label: { Image(systemName: "chevron.right") }
-                .disabled(!pane.canGoForward)
-                .help("Forward")
-            // (One pane: the window's title names its folder.)
-            if tiled {
-                Text(pane.title)
-                    .font(.headline)
+            // Back and forward as Finder has them: one box, two halves.
+            HStack(spacing: 0) {
+                Button { pane.goBack() } label: { Image(systemName: "chevron.left") }
+                    .disabled(!pane.canGoBack)
+                    .help("Back (⌘[)")
+                    .accessibilityLabel("Back")
+                Rectangle().fill(Design.Studio.line).frame(width: 1, height: 14)
+                Button { pane.goForward() } label: { Image(systemName: "chevron.right") }
+                    .disabled(!pane.canGoForward)
+                    .help("Forward (⌘])")
+                    .accessibilityLabel("Forward")
+            }
+            .buttonStyle(FinderToolButtonStyle(raised: false))
+            .background(Design.Studio.raised)
+            .clipShape(.rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            if let title = shownTitle {
+                Text(verbatim: title)
+                    .font(Design.Studio.sectionTitle)
+                    .foregroundStyle(Design.Studio.text)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .padding(.leading, 4)
@@ -258,7 +267,7 @@ struct FinderPaneView: View {
                 .help("Showing only \(FinderTags.name(tag)): click to show everything")
             }
             if pane.playing == nil {
-                StudioSegmented(options: FinderViewMode.allCases.map { ($0, $0.title) },
+                StudioSegmented(ground: Design.Studio.raised, options: FinderViewMode.allCases.map { ($0, $0.title) },
                                 selection: $pane.mode, symbols: FinderViewMode.allCases.map(\.symbol))
                     .fixedSize()
                 Menu {
@@ -303,9 +312,10 @@ struct FinderPaneView: View {
                         Button("Close Pane", systemImage: "xmark.square") { workspace.focus(pane); workspace.close() }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                 }
-                .menuStyle(.borderlessButton)
+                .menuStyle(.button)
+                .buttonStyle(FinderToolButtonStyle())
                 .menuIndicator(.hidden)
                 .fixedSize()
                 .help("Sort, new folder, add to the Library, split")
@@ -313,7 +323,17 @@ struct FinderPaneView: View {
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .frame(height: Self.toolbarHeight)
+    }
+
+    /// The bar's height (FinderSidebar centres its first heading on it).
+    static let toolbarHeight: CGFloat = 38
+
+    /// The folder's name, as Finder's window title; none at a server's top folder, which the page
+    /// above already names (Deliver's "Studio NAS"): there, only the folders inside get one.
+    private var shownTitle: String? {
+        if let source = pane.source, source.rootName != nil, pane.url.standardizedFileURL == source.root.standardizedFileURL { return nil }
+        return pane.title
     }
 
     @ViewBuilder private var content: some View {
@@ -1024,6 +1044,37 @@ private struct FinderSmallIcon: View {
         }
         .frame(width: 16, height: 16)
         .modifier(FinderWantsPicture(item: item))
+    }
+}
+
+/// A toolbar button in Pluck Studio's grey: text-coloured (faint when it can't be used), lighter
+/// under the pointer and while pressed; `raised` gives it its own box (else it's half of one).
+private struct FinderToolButtonStyle: ButtonStyle {
+    var raised = true
+
+    func makeBody(configuration: Configuration) -> some View { Look(configuration: configuration, raised: raised) }
+
+    private struct Look: View {
+        let configuration: Configuration
+        let raised: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .font(Design.Studio.body.weight(.medium))
+                .foregroundStyle(enabled ? Design.Studio.text : Design.Studio.textFaint)
+                .frame(width: 28, height: 28)
+                .background {
+                    let shape = RoundedRectangle(cornerRadius: raised ? Design.Studio.controlRadius : 0, style: .continuous)
+                    ZStack {
+                        if raised { shape.fill(Design.Studio.raised) }
+                        shape.fill(Color.white.opacity(!enabled ? 0 : configuration.isPressed ? 0.12 : hovering ? 0.06 : 0))
+                    }
+                }
+                .contentShape(.rect)
+                .onHover { hovering = $0 }
+        }
     }
 }
 

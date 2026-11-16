@@ -40,10 +40,10 @@ struct DeliverHostSheet: View {
     @State private var mainReachable = true
     @State private var uplink: Int?          // this host's measured upload, Mbit/s (nil: not measured)
     @State private var preferFastest = false // the owner's "Prefer fastest even if lighter" (kept on the host)
-    @State private var invite: (link: String, expires: Date)?
     @State private var backup = false
     @State private var problem: String?
     @State private var quiet = "04:00"
+    @State private var action: DeliverHostAction?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -91,19 +91,12 @@ struct DeliverHostSheet: View {
                     }
                 })).studioBox()
             }
-            if let invite {
-                Text("Anyone with this link in the next 15 minutes can browse your NAS media").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
-                HStack {
-                    Text(verbatim: invite.link).font(Design.Studio.hint.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
-                    Button("Copy") { DeliverLinkShare.copy(invite.link) }.settingButton()
-                }
-                Text("Until \(invite.expires.formatted(date: .omitted, time: .shortened))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            }
             if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
             HStack {
-                Button("Pair a Mac…") { Task { await makeInvite() } }.buttonStyle(StudioFlatButtonStyle())
                 Button("Backup Host…") { backup = true }.buttonStyle(StudioFlatButtonStyle())
                 Button("Replace Host Key") { Task { await rotate() } }.buttonStyle(StudioFlatButtonStyle()).disabled(ReviewHostClient.key(host) == nil)
+                Menu { DeliverHostActions(host: host) { action = $0 } } label: { StudioMenuLabel(title: String(localized: "Server")) }
+                    .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
@@ -113,6 +106,7 @@ struct DeliverHostSheet: View {
         .background(Design.Studio.panel)
         .task { quiet = DeliverHostUpdate.quietTime(host.id); await load() }
         .sheet(isPresented: $backup) { DeliverBackupSheet(main: host) }
+        .deliverHostAction($action) { _ in dismiss() }
     }
 
     private func deviceRow(_ device: [String: Any]) -> some View {
@@ -125,6 +119,7 @@ struct DeliverHostSheet: View {
             Text(verbatim: device["name"] as? String ?? "").font(Design.Studio.body)
             if role == "backup", let node = device["node"] as? String { Text(verbatim: DeliverBackup.checkCode(node)).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.textQuiet) }
             if serving { StudioChip(text: Text("Serving now"), colour: Design.Studio.good, tinted: true) }
+            else if role == "backup" { Text(verbatim: DeliverBackups.text(DeliverBackups.status(device))).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
             Spacer()
             if role == "backup", let up = Self.uplink(backups.first { $0["id"] as? String == id }) {
                 Text("\(up) Mbit/s up").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
@@ -164,14 +159,6 @@ struct DeliverHostSheet: View {
         }
     }
 
-    private func makeInvite() async {
-        do {
-            let answer = try await ReviewHostClient.ask(host, ["op": "invite", "role": "mac"])
-            guard let link = answer["link"] as? String else { throw Deliver.Failure("internal") }
-            invite = (link, (answer["expires"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .now.addingTimeInterval(900))
-        } catch { problem = String(localized: "\(host.name) didn’t answer.") }
-    }
-
     private func remove(_ id: String) async {
         _ = try? await ReviewHostClient.ask(host, ["op": "device-remove", "id": id])
         await load()
@@ -194,5 +181,358 @@ struct DeliverHostSheet: View {
         } else {
             _ = try? await ReviewHostClient.ask(host, ["op": "update", "version": release.version])
         }
+    }
+}
+
+// MARK: - A main server's backups
+
+/// A main server's backups as its `devices` lists them, with what each last reported (`replica`): a backup
+/// paired straight with the main (the Proxmox script's `--pair`) has no host record on this Mac.
+@MainActor
+enum DeliverBackups {
+    enum Status { case copying, ready, offline }
+
+    struct Backup: Identifiable {
+        var id: String
+        var name: String
+        var main: Deliver.Host
+        var uplink: Int?
+        var status: Status
+        var lastSeen: Date?
+        var replica: [String: Any]
+    }
+
+    /// Offline when not seen for 10 min (a backup reports every minute, every 5 at worst); copying while copies
+    /// are queued or being made; else ready.
+    static func status(_ device: [String: Any], now: Date = .now) -> Status {
+        guard let seen = (device["lastSeen"] as? String).flatMap({ ISO8601DateFormatter().date(from: $0) }), now.timeIntervalSince(seen) < 600 else { return .offline }
+        let versions = (device["replica"] as? [String: Any])?["versions"] as? [String: Int] ?? [:]
+        return (versions["making"] ?? 0) + (versions["queued"] ?? 0) > 0 ? .copying : .ready
+    }
+
+    static func text(_ status: Status) -> String {
+        switch status {
+        case .copying: String(localized: "Copying")
+        case .ready: String(localized: "Ready")
+        case .offline: String(localized: "Offline")
+        }
+    }
+
+    /// The backups in a main's `devices`, leaving out any this Mac also has a host record for (the same iroh node).
+    static func backups(_ devices: [[String: Any]], of main: Deliver.Host, hosts: [Deliver.Host], now: Date = .now) -> [Backup] {
+        let known = Set(hosts.compactMap(\.node))
+        return devices.filter { $0["role"] as? String == "backup" && !known.contains($0["node"] as? String ?? "") }.compactMap { device in
+            guard let id = device["id"] as? String else { return nil }
+            let replica = device["replica"] as? [String: Any] ?? [:]
+            return Backup(id: id, name: device["name"] as? String ?? "", main: main, uplink: replica["uplinkMbps"] as? Int, status: status(device, now: now),
+                          lastSeen: (device["lastSeen"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }, replica: replica)
+        }
+    }
+
+    /// Each main server's backups (one `devices` call each; a server that doesn't answer lists none).
+    static func load(publish: ReviewPublish = .shared) async -> [Backup] {
+        var all: [Backup] = []
+        for main in publish.hosts where main.kind == .nas && main.role != "backup" {
+            let devices = (try? await ReviewHostClient.ask(main, ["op": "devices"]))?["devices"] as? [[String: Any]] ?? []
+            all += backups(devices, of: main, hosts: publish.hosts)
+        }
+        return all
+    }
+
+    static func remove(_ backup: Backup) async {
+        _ = try? await ReviewHostClient.ask(backup.main, ["op": "device-remove", "id": backup.id])
+    }
+}
+
+/// A backup's details: what its main last heard from it.
+struct DeliverBackupDetailsSheet: View {
+    let backup: DeliverBackups.Backup
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        let replica = backup.replica, versions = replica["versions"] as? [String: Int] ?? [:]
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text(verbatim: backup.name).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                StudioChip(text: Text(verbatim: DeliverBackups.text(backup.status)), colour: backup.status == .offline ? Design.Studio.warn : Design.Studio.textQuiet, tinted: backup.status == .offline)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                SettingRow("Backup of") { value(backup.main.name) }
+                if let up = backup.uplink { SettingRow("Upload") { value(String(localized: "\(up) Mbit/s up")) } }
+                if let quality = replica["quality"] as? String { SettingRow("Copies") { value(DeliverBackup.title(quality)) } }
+                if let usage = replica["usage"] as? Int64, let max = replica["max"] as? Int64, max > 0 {
+                    SettingRow("Space") { value(String(localized: "\(FinderSidebar.size(usage)) of \(FinderSidebar.size(max))")) }
+                }
+                if !versions.isEmpty {
+                    SettingRow("Versions") { value(String(localized: "\(versions["ready"] ?? 0) ready · \((versions["making"] ?? 0) + (versions["queued"] ?? 0)) to copy")) }
+                }
+                if let failed = (replica["failed"] as? [Any])?.count, failed > 0 { SettingRow("Failed") { value("\(failed)") } }
+                if let seen = backup.lastSeen { SettingRow("Last seen") { Text(seen, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) } }
+            }
+            .studioBox()
+            if backup.replica.isEmpty { Text("It hasn’t reported yet.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
+            HStack {
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 420)
+        .background(Design.Studio.panel)
+    }
+
+    private func value(_ text: String) -> some View { Text(verbatim: text).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
+}
+
+// MARK: - Managing a server (Browse's sidebar menu, the Details sheet)
+
+/// What's done to a review server from its menu.
+enum DeliverHostAction: Identifiable {
+    case folders(Deliver.Host), pair(Deliver.Host), remove(Deliver.Host), invite(Deliver.Host)
+    var id: String {
+        switch self {
+        case .invite(let host): "invite" + host.id.uuidString
+        case .folders(let host): "folders" + host.id.uuidString
+        case .pair(let host): "pair" + host.id.uuidString
+        case .remove(let host): "remove" + host.id.uuidString
+        }
+    }
+}
+
+/// The menu's items: Invite a Teammate… (main servers), Change Folders… (TrueNAS only), Pair Again…, Remove….
+struct DeliverHostActions: View {
+    let host: Deliver.Host
+    let choose: (DeliverHostAction) -> Void
+
+    var body: some View {
+        if host.role != "backup" {
+            Button("Invite a Teammate…") { choose(.invite(host)) }
+            Divider()
+        }
+        if TrueNASSetup.isTrueNAS(host) { Button("Change Folders…") { choose(.folders(host)) } }
+        Button("Pair Again…") { choose(.pair(host)) }
+        Divider()
+        Button("Remove…", role: .destructive) { choose(.remove(host)) }
+    }
+}
+
+extension View {
+    /// Shows the sheet or confirmation an action asks for; `removed` runs once a server is gone.
+    func deliverHostAction(_ action: Binding<DeliverHostAction?>, removed: @escaping (UUID) -> Void = { _ in }) -> some View {
+        let removing: Deliver.Host? = if case .remove(let host) = action.wrappedValue { host } else { nil }
+        return sheet(item: Binding(get: { removing == nil ? action.wrappedValue : nil }, set: { action.wrappedValue = $0 })) { chosen in
+            switch chosen {
+            case .folders(let host): ReviewTrueNASSetupSheet(editing: host)
+            case .pair(let host): DeliverPairAgainSheet(host: host)
+            case .invite(let host): DeliverInviteSheet(host: host)
+            case .remove: EmptyView()
+            }
+        }
+        .confirmationDialog(Text("Remove \(removing?.name ?? "")?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { action.wrappedValue = nil } })) {
+            Button("Remove", role: .destructive) {
+                guard let removing else { return }
+                ReviewPublish.shared.removeHost(removing.id)
+                action.wrappedValue = nil
+                removed(removing.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Pluck forgets this server and its key, and takes what’s published there down. The app on the NAS keeps running.")
+        }
+    }
+}
+
+/// Pair Again: a new pairing line (`pluck-host:<key>@<fingerprint>`) for a server already here, or (TrueNAS with
+/// its API key kept) the key read from the installed app. Checked against the server before it says it worked.
+struct DeliverPairAgainSheet: View {
+    let host: Deliver.Host
+    @Environment(\.dismiss) private var dismiss
+    @State private var line = ""
+    @State private var working = false
+    @State private var problem: String?
+    @State private var paired = false
+
+    private var canRead: Bool { TrueNASKeychain.load(TrueNASSetup.nasAddress(host)) != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Pair Again with \(host.name)").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            Text("Paste the pairing line the server printed in its log. It starts with pluck-host: and holds the server’s key and certificate.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            StudioField(label: "Pairing line") { SecureField("pluck-host:…", text: $line).settingField(width: 300) }
+            if canRead {
+                StudioField(label: "TrueNAS") {
+                    Button("Read the Key from TrueNAS") { Task { await readKey() } }.buttonStyle(StudioFlatButtonStyle()).disabled(working)
+                }
+            }
+            if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).fixedSize(horizontal: false, vertical: true) }
+            if paired { Text("Paired again: \(host.name) accepts this Mac’s key.").font(Design.Studio.hint).foregroundStyle(Design.Studio.good) }
+            HStack {
+                if working { PlumSpinner() }
+                Spacer()
+                Button(paired ? "Done" : "Cancel") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
+                Button("Pair") { Task { await apply(line) } }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    .disabled(working || ReviewHostClient.pairing(line) == nil)
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 520)
+        .background(Design.Studio.panel)
+    }
+
+    private func readKey() async {
+        working = true
+        defer { working = false }
+        do { await apply(try await TrueNASSetup.readKey(host)) } catch { problem = error.localizedDescription }
+    }
+
+    /// Saved, then checked with one connection.
+    private func apply(_ pairing: String) async {
+        working = true
+        defer { working = false }
+        problem = await Self.pairAgain(host.id, pairing: pairing)
+        paired = problem == nil
+    }
+
+    /// nil when the server accepted the new key; else what's wrong, in words.
+    static func pairAgain(_ id: UUID, pairing: String, publish: ReviewPublish = .shared) async -> String? {
+        guard publish.repair(id, pairing: pairing), let host = publish.host(id) else { return String(localized: "That pairing line isn’t complete.") }
+        do {
+            try await ReviewHostClient.session(host) { _ in }
+            return nil
+        } catch is ReviewHostClient.Unconfirmed {
+            return String(localized: "Pluck has no confirmed certificate for this server yet: paste its full pairing line, with the fingerprint.")
+        } catch {
+            return ReviewHostClient.problem(error)
+        }
+    }
+}
+
+/// Invite a Teammate: a one-time link for one teammate's Mac (the helper's `invite`, role "mac"), and the Macs
+/// already paired with this server (`devices`), each removable (`device-remove`).
+struct DeliverInviteSheet: View {
+    let host: Deliver.Host
+    @Environment(\.dismiss) private var dismiss
+    @State private var invite: (link: String, expires: Date, anywhere: Bool)?
+    @State private var teammates: [[String: Any]] = []
+    @State private var copied = false
+    @State private var working = false
+    @State private var problem: String?
+    @State private var removing: [String: Any]?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Invite a Teammate").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Text(verbatim: host.name).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            Label("Send it to one teammate. It works once; their Pluck joins this server with its own key.", systemImage: "lock.shield")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            if let invite {
+                HStack(spacing: 8) {
+                    Text(verbatim: invite.link).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
+                        .textSelection(.enabled)
+                        .padding(.horizontal, 8).frame(height: 28).frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius))
+                    Button { DeliverLinkShare.copy(invite.link); copied = true } label: {
+                        Label(copied ? "Copied" : "Copy link", systemImage: copied ? "checkmark" : "doc.on.doc")
+                    }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    if let url = URL(string: invite.link) {
+                        ShareLink(item: url, subject: Text("Pluck review server invitation"),
+                                  message: Text("Click this link on your Mac to join \(host.name) in Pluck:")) {
+                            Label("Share…", systemImage: "square.and.arrow.up")
+                        }.buttonStyle(StudioFlatButtonStyle())
+                    }
+                }
+                TimelineView(.periodic(from: .now, by: 30)) { context in
+                    if invite.expires <= context.date {
+                        Text("This invitation has expired. Make another.").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    } else {
+                        Text("Valid until \(invite.expires.formatted(date: .omitted, time: .shortened)) (\(invite.expires, format: .relative(presentation: .named)))")
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                }
+                if !invite.anywhere {
+                    Text("Works on the office network only: this server isn’t set up to be reached from anywhere.").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                }
+            } else if working {
+                PlumSpinner()
+            }
+            Text("Teammates").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.top, 4)
+            VStack(spacing: 0) {
+                ForEach(Array(teammates.enumerated()), id: \.offset) { _, device in row(device) }
+                if teammates.isEmpty { Text("No teammates yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
+            }
+            .studioBox()
+            if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).fixedSize(horizontal: false, vertical: true) }
+            HStack {
+                Button("Make Another") { Task { await make() } }.buttonStyle(StudioFlatButtonStyle()).disabled(working)
+                Spacer()
+                Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Design.Spacing.sheet)
+        .frame(width: 520)
+        .background(Design.Studio.panel)
+        .task { await make(); await load() }
+        .confirmationDialog(Text("Remove \(removing?["name"] as? String ?? "")?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Remove", role: .destructive) {
+                guard let id = removing?["id"] as? String else { return }
+                removing = nil
+                Task { await remove(id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("That Mac can’t reach this server any more. To join again, it needs a new invitation.")
+        }
+    }
+
+    private func row(_ device: [String: Any]) -> some View {
+        let date = { (key: String) in (device[key] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } }
+        let id = device["id"] as? String ?? ""
+        return HStack(spacing: 8) {
+            Image(systemName: "laptopcomputer").foregroundStyle(Design.Studio.textQuiet)
+            Text(verbatim: device["name"] as? String ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+            if id == host.device { StudioChip(text: Text("This Mac")) }
+            Spacer()
+            if let added = date("added") {
+                Text("Added \(added.formatted(date: .abbreviated, time: .omitted))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if let seen = date("lastSeen") {
+                Text("seen \(seen, format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if id != host.device { Button("Remove…") { removing = device }.settingButton() }
+        }
+        .padding(.horizontal, 12).frame(height: 36)
+    }
+
+    /// A new one-time invitation (the last one stays valid until it's used or runs out).
+    func make() async {
+        working = true
+        defer { working = false }
+        do {
+            let answer = try await ReviewHostClient.ask(host, ["op": "invite", "role": "mac"])
+            guard let link = answer["link"] as? String else { throw Deliver.Failure("internal") }
+            let expires = (answer["expires"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .now.addingTimeInterval(900)
+            var anywhere = false
+            if case .reviewHost(let node, _, _, _, _, _) = PrivateNetwork.Invitation(link: link)?.way { anywhere = !node.isEmpty }
+            invite = (link, expires, anywhere)
+            copied = false
+            problem = nil
+        } catch {
+            problem = (error as? Deliver.Failure)?.code == "limit" ? String(localized: "Too many wrong codes were tried. Invitations are paused for 15 minutes.")
+                : ReviewHostClient.problem(error)
+        }
+    }
+
+    /// The teammates' Macs (backups are managed in the server's details).
+    func load() async {
+        guard let answer = try? await ReviewHostClient.ask(host, ["op": "devices"]) else { return }
+        teammates = (answer["devices"] as? [[String: Any]] ?? []).filter { ($0["role"] as? String ?? "mac") == "mac" }
+    }
+
+    private func remove(_ id: String) async {
+        do { _ = try await ReviewHostClient.ask(host, ["op": "device-remove", "id": id]) } catch { problem = ReviewHostClient.problem(error) }
+        await load()
     }
 }

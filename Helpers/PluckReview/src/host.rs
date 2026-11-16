@@ -292,9 +292,16 @@ fn branding(b: &Value, dir: &Path) -> Option<Value> {
     (o.len() > usize::from(o.contains_key("name"))).then(|| Value::Object(o))
 }
 
-/// A protocol 2 link record: it carries the room's signing seed and the join hash (level 1 links are not served).
-fn level2(l: &Value) -> bool {
-    l["sign"].as_str().and_then(keys::unb64).is_some_and(|s| s.len() == 32) && l["join"].as_str().is_some_and(|j| j.len() == 43)
+/// A servable link record: level 3 (§13.24: `"level":3`, authKey and join hash) or level 2 (the room's signing seed
+/// and the join hash). Level 1 links are not served.
+fn servable(l: &Value) -> bool {
+    let join = l["join"].as_str().is_some_and(|j| j.len() == 43);
+    join && if level3(l) { l["auth"].as_str().and_then(keys::unb64).is_some_and(|a| a.len() == 32) }
+        else { l["sign"].as_str().and_then(keys::unb64).is_some_and(|s| s.len() == 32) }
+}
+
+fn level3(l: &Value) -> bool {
+    l["level"] == 3
 }
 
 fn is(v: &Value, k: &str) -> bool {
@@ -435,7 +442,7 @@ impl Host {
             Err(_) => log("host: no manifest.json yet".into()),
         }
         self.effective();
-        for l in self.links().filter(|l| !level2(l)) {
+        for l in self.links().filter(|l| !servable(l)) {
             log(format!("host: link {} is from an older Pluck (no signing key): not served; publish it again", l["id"]));
         }
         self.queue_copies();
@@ -782,7 +789,7 @@ impl Host {
             let expires = days.map(|d| iso(now_secs() + d * 86_400));
             let pw = l["password"].as_str().filter(|p| !p.is_empty()).map(keys::hash_password);
             let title = clean(l["title"].as_str().unwrap_or(""), 80);
-            let mut new = json!({"id": uuid(), "roomID": nl.room, "reg": nl.reg, "auth": nl.auth, "sign": nl.sign, "join": nl.join,
+            let mut new = json!({"id": uuid(), "roomID": nl.room, "reg": nl.reg, "auth": nl.auth, "level": 3, "join": nl.join,
                 "title": if title.is_empty() { pname.clone() } else { json!(title) },
                 "mode": if l["mode"] == "presentation" { "presentation" } else { "review" },
                 "allowDownload": is(l, "allowDownload"), "latestOnly": is(l, "latestOnly"), "expires": expires, "revoked": null,
@@ -792,7 +799,7 @@ impl Host {
                 new["watermark"] = json!({"text": w, "position": "center", "opacity": 0.25, "size": 0.03, "burned": false});
             }
             raw["links"].as_array_mut().unwrap().push(new);
-            url = json!(format!("https://pluck.tools/r/{}#{}", nl.room, nl.fragment));
+            url = json!(format!("https://pluck.tools/r/#{}", nl.fragment)); // level 3: the room id isn't in the link
         }
         match self.save(&raw, "admin") {
             Ok(()) => json!({"ok": true, "project": pid, "added": added, "skipped": skipped, "url": url}),
@@ -862,7 +869,7 @@ impl Host {
 
     /// Also run every 30 s, so links expire on time.
     pub fn check_links(&mut self) {
-        let rooms: Vec<Value> = self.links().filter(|l| level2(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
+        let rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
             .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
         let ended: Vec<(String, &str)> = self.peers.iter()
             .filter_map(|(id, p)| match self.link(&p.room) { Some(l) => self.live(l).err().or_else(|| Self::repassworded(p, l)), None => Some("revoked") }.map(|c| (id.clone(), c)))
@@ -949,7 +956,7 @@ impl Host {
 
     /// Only level-2 links (with a signing seed and join hash) are served.
     fn link(&self, room: &str) -> Option<&Value> {
-        self.links().find(|l| l["roomID"] == room && level2(l))
+        self.links().find(|l| l["roomID"] == room && servable(l))
     }
 
     fn live(&self, l: &Value) -> Result<(), &'static str> {
@@ -1006,6 +1013,17 @@ impl Host {
             }
         }
         false
+    }
+
+    /// A level-3 deep link's `/a/<8>` (§13.24): the one asset in the link's scope whose id starts with it.
+    fn short_asset(&self, l: &Value, short: &str) -> Option<String> {
+        if !short.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let mut hits = Self::arr(self.project(l)?, "assets").filter_map(|a| a["id"].as_str())
+            .filter(|id| id.get(..8).is_some_and(|p| p.eq_ignore_ascii_case(short)) && self.asset_in_scope(l, id).is_some());
+        let one = hits.next()?;
+        hits.next().is_none().then(|| one.to_owned())
     }
 
     fn asset_in_scope<'a>(&'a self, l: &Value, asset: &str) -> Option<(&'a Value, &'a Value)> {
@@ -1390,9 +1408,16 @@ impl Host {
                 Some("open") => {
                     let nonce: [u8; 32] = rand::random();
                     let (room, fp_mac, fp_browser) = (p["room"].as_str().unwrap_or(""), p["fpLocal"].as_str().unwrap_or(""), p["fpRemote"].as_str().unwrap_or(""));
-                    // Protocol 2: the hello is signed with the room's key, which link holders don't have.
-                    let sig = self.link(room).and_then(|l| keys::unb64(l["sign"].as_str()?)).and_then(|seed| keys::sign_hello(&seed, &nonce, fp_mac, fp_browser));
-                    let Some(sig) = sig else {
+                    // Protocol 2: the hello is signed with the room's key, which link holders don't have. Protocol 3
+                    // (§13.24): a MAC with the code-derived authKey, which pluck.tools doesn't have.
+                    let hello = self.link(room).and_then(|l| if level3(l) {
+                        let auth = keys::unb64(l["auth"].as_str()?)?;
+                        Some(json!({"t": "hello", "v": 3, "nonce": keys::b64(&nonce), "mac": keys::hello_v3(&auth, &nonce, fp_mac, fp_browser)}))
+                    } else {
+                        let sig = keys::sign_hello(&keys::unb64(l["sign"].as_str()?)?, &nonce, fp_mac, fp_browser)?;
+                        Some(json!({"t": "hello", "v": 2, "nonce": keys::b64(&nonce), "sig": sig}))
+                    });
+                    let Some(hello) = hello else {
                         return self.cmd(json!({"close": {"peer": id, "reason": "unknown"}}));
                     };
                     self.peers.insert(id.clone(), HPeer {
@@ -1400,7 +1425,7 @@ impl Host {
                         authed: false, ready: false, token: None, name: String::new(), wrong: 0, viewing: None, writes: VecDeque::new(),
                         email: String::new(), stills: VecDeque::new(), beacons: VecDeque::new(), fetches: HashMap::new(), pw: Value::Null,
                     });
-                    self.send(&id, json!({"t": "hello", "v": 2, "nonce": keys::b64(&nonce), "sig": sig}));
+                    self.send(&id, hello);
                 }
                 Some("closed") => {
                     if let Some(p) = self.drop_peer(&id) {
@@ -1544,7 +1569,7 @@ impl Host {
         let auth_key = link["auth"].as_str().and_then(keys::unb64).unwrap_or_default();
         let p = &self.peers[peer];
         let nonce = m["nonce"].as_str().and_then(keys::unb64).filter(|n| n.len() == 32);
-        let ok = !p.authed && m["v"] == 2 && auth_key.len() == 32 && nonce.as_ref().is_some_and(|n| {
+        let ok = !p.authed && m["v"] == if level3(link) { 3 } else { 2 } && auth_key.len() == 32 && nonce.as_ref().is_some_and(|n| {
             keys::check_proof(&auth_key, m["proof"].as_str().unwrap_or(""), &p.nonce, n, &p.fp_mac, &p.fp_browser)
         });
         if !ok {
@@ -1713,7 +1738,9 @@ impl Host {
     }
 
     fn asset(&self, _peer: &str, l: &Value, m: &Value) -> Result<Value, &'static str> {
-        let (_, a) = self.asset_in_scope(l, m["asset"].as_str().ok_or("invalid")?).ok_or("scope")?;
+        let given = m["asset"].as_str().ok_or("invalid")?;
+        let full = if given.len() == 8 { self.short_asset(l, given).ok_or("notFound")? } else { given.to_owned() };
+        let (_, a) = self.asset_in_scope(l, &full).ok_or("scope")?;
         let dl = is(l, "allowDownload");
         let versions: Vec<Value> = Self::versions(l, a).into_iter().map(|v| {
             let can = dl && !Self::burned(l) && !self.ident.backup && (v["original"].is_string() || v["source"].is_string());
@@ -2575,6 +2602,59 @@ mod tests {
         assert!(hello["v"] == 2 && keys::verify_hello(&public, hello["sig"].as_str().unwrap(), &nonce, "AA", "BB"), "{hello}");
         h.request("p1", &json!({"id": 1, "t": "auth", "v": 1, "nonce": keys::b64(&[2u8; 32]), "proof": "x"}));
         assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "auth", "auth v1 is refused");
+    }
+
+    /// Protocol 3 (§13.24): a level-3 record (no seed) is served with a MAC hello from authKey; auth must be v3; a
+    /// wrong code's proof fails; `/a/<8>` resolves to the one in-scope asset with that prefix.
+    #[tokio::test]
+    async fn level3_hello_auth_and_short_assets() {
+        let v: Value = serde_json::from_str(include_str!("../../../docs/superpowers/plans/link-v3-vectors.json")).unwrap();
+        let auth = keys::unb64(v["authKey"].as_str().unwrap()).unwrap();
+        let (mut h, mut rx) = test_host();
+        let mut l3 = link("L3", "R3", json!({"kind": "project", "id": "P"}));
+        l3.as_object_mut().unwrap().remove("sign");
+        l3["level"] = json!(3);
+        l3["auth"] = v["authKey"].clone();
+        l3["join"] = v["joinHash"].clone();
+        let mut m = sample(json!([l3]));
+        for (id, name) in [("1a2b3c4d-0000-4000-8000-000000000001", "Short"), ("9f9f9f9f-0000-4000-8000-000000000001", "Twin1"),
+                           ("9F9F9F9F-0000-4000-8000-000000000002", "Twin2")] {
+            m["projects"][0]["assets"].as_array_mut().unwrap().push(json!({"id": id, "name": name, "folder": null, "kind": "video",
+                "status": "needsReview", "versions": [{"id": format!("V{name}"), "number": 1, "frames": 10}]}));
+        }
+        h.publish(&m, &json!({}));
+        let rooms = cmds(&mut rx).into_iter().rev().find(|c| c.get("rooms").is_some()).unwrap();
+        assert_eq!(rooms["rooms"][0]["room"], "R3", "a level-3 link is registered");
+        let open = |h: &mut Host, rx: &mut mpsc::UnboundedReceiver<Ev>, peer: &str| {
+            h.report(&json!({"peer": {"peer": peer, "state": "open", "room": "R3", "fpLocal": "AA", "fpRemote": "BB"}}));
+            sent(rx).into_iter().find(|s| s["peer"] == peer).unwrap()["msg"].clone()
+        };
+        let hello = open(&mut h, &mut rx, "p1");
+        let nonce = keys::unb64(hello["nonce"].as_str().unwrap()).unwrap();
+        assert!(hello["v"] == 3 && hello.get("sig").is_none(), "{hello}");
+        assert!(keys::check_hello_v3(&auth, hello["mac"].as_str().unwrap(), &nonce, "AA", "BB"));
+        let bn = [2u8; 32];
+        let good = keys::proof(&auth, "browser", &nonce, &bn, "AA", "BB");
+        h.request("p1", &json!({"id": 1, "t": "auth", "v": 2, "nonce": keys::b64(&bn), "proof": good, "token": keys::b64(&[3u8; 32])}));
+        assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "auth", "a level-2 auth on a level-3 link is refused");
+        let hello = open(&mut h, &mut rx, "p2");
+        let nonce = keys::unb64(hello["nonce"].as_str().unwrap()).unwrap();
+        let wrong = keys::derive(&keys::link_key("Mt0Rkt98Xy3R"), "auth", 32);
+        h.request("p2", &json!({"id": 1, "t": "auth", "v": 3, "nonce": keys::b64(&bn), "proof": keys::proof(&wrong, "browser", &nonce, &bn, "AA", "BB"),
+            "token": keys::b64(&[3u8; 32])}));
+        assert_eq!(answer(&mut rx, "p2", 1)["error"]["code"], "auth", "a wrong code's proof is refused");
+        let hello = open(&mut h, &mut rx, "p3");
+        let nonce = keys::unb64(hello["nonce"].as_str().unwrap()).unwrap();
+        h.request("p3", &json!({"id": 1, "t": "auth", "v": 3, "nonce": keys::b64(&bn), "proof": keys::proof(&auth, "browser", &nonce, &bn, "AA", "BB"),
+            "token": keys::b64(&[3u8; 32])}));
+        let welcome = answer(&mut rx, "p3", 1);
+        assert_eq!(welcome["proof"], json!(keys::proof(&auth, "mac", &nonce, &bn, "AA", "BB")), "{welcome}");
+        h.request("p3", &json!({"id": 2, "t": "asset", "asset": "1A2B3C4D"}));
+        assert_eq!(answer(&mut rx, "p3", 2)["asset"]["id"], "1a2b3c4d-0000-4000-8000-000000000001");
+        h.request("p3", &json!({"id": 3, "t": "asset", "asset": "9f9f9f9f"}));
+        assert_eq!(answer(&mut rx, "p3", 3)["error"]["code"], "notFound", "two assets share the prefix");
+        h.request("p3", &json!({"id": 4, "t": "asset", "asset": "zzzzzzzz"}));
+        assert_eq!(answer(&mut rx, "p3", 4)["error"]["code"], "notFound");
     }
 
     /// #18 owner decision: a ready session ends when the link's password is set or changed.

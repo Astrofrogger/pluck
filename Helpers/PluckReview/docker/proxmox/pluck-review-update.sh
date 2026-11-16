@@ -3,7 +3,8 @@
 # pluck-review-update.service (timer, path trigger) and by pluck-proxmox.sh (--install).
 #
 #   pluck-review-update.sh                 update to the requested version, else the latest release
-#   pluck-review-update.sh --install <tag> install exactly <tag> (first install or re-run)
+#   pluck-review-update.sh --install <tag> install exactly <tag> (first install or re-run), even one
+#                                          that failed before (the timer's runs don't retry those)
 #   pluck-review-update.sh --force         proceed even when the host is still busy after the wait
 #   pluck-review-update.sh --allow-downgrade  accept a version older than the installed one
 #                                          (refused otherwise: no rollback through an old signed tag)
@@ -141,7 +142,8 @@ else
   fi
 fi
 if [ "$TAG" = "$(current_tag)" ]; then log "already on $TAG"; exit 0; fi
-if in_failed "$TAG"; then log "$TAG failed before; not retried"; exit 0; fi
+# Only the timer's runs skip a failed tag: --install is a person asking for exactly that tag (pluck-proxmox.sh step 5).
+if [ -z "$INSTALL" ] && in_failed "$TAG"; then log "$TAG failed before; not retried"; exit 0; fi
 CUR="$(current_tag)"
 if [ -n "$CUR" ] && [ "$DOWNGRADE" = 0 ] && older "$TAG" "$CUR"; then
   finish "skipped: $TAG is older than the installed $CUR" "" 0 0

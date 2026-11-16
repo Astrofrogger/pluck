@@ -124,8 +124,24 @@ final class DeliverPairing {
     var pending: PrivateNetwork.Invitation?
     /// Paired, and not asked yet whether the data moves there.
     var askMove: Deliver.Host?
+    /// A pluck://edit-anywhere link this Pluck can't read (a newer kind of invitation, or a cut-off link).
+    var unreadable = false
     private(set) var working = false
     var problem: String?
+
+    /// Join a Teammate's Server… keeps the "Join?" steps in its own sheet (Deliver's sidebar doesn't open a second one).
+    var inline = false
+    var showing: Bool { pending != nil || askMove != nil || unreadable }
+
+    /// A pluck://edit-anywhere link, clicked or pasted: a review server's waits for "Join “X”?", one Pluck can't read is
+    /// said. Returns an Edit Anywhere invitation (for its own window); nil when Deliver has it.
+    func take(_ link: String) -> PrivateNetwork.Invitation? {
+        guard let invitation = PrivateNetwork.Invitation(link: link) else { unreadable = true; return nil }
+        guard case .reviewHost = invitation.way else { return invitation }
+        problem = nil
+        pending = invitation
+        return nil
+    }
 
     func pair(_ invitation: PrivateNetwork.Invitation) async {
         working = true
@@ -134,9 +150,25 @@ final class DeliverPairing {
             let host = try await ReviewHostClient.pair(invitation)
             pending = nil
             problem = nil
+            StudioNavigator.shared.deliver = .browse(.nas(host.id)) // Browse › Review server, as on the owner's Mac
             if DeliverSync.shared.state.host == nil, host.role != "backup" { askMove = host }
         } catch {
-            problem = (error as? PrivateNetwork.Failure)?.errorDescription ?? String(localized: "Pairing didn’t work. Ask for a new link.")
+            problem = Self.problem(error, name: invitation.name)
+        }
+    }
+
+    /// Why joining didn't work, in words: an expired or used link, a server out of reach, an old Pluck.
+    static func problem(_ error: Error, name: String) -> String {
+        switch error {
+        case PrivateNetwork.Failure.inviteExpired: return String(localized: "This invitation has expired. Ask for a new one.")
+        case PrivateNetwork.Failure.inviteUsed: return String(localized: "This invitation was already used. Ask for a new one.")
+        default: break
+        }
+        switch (error as? Deliver.Failure)?.code {
+        case "unreachable": return String(localized: "Pluck can’t reach “\(name)”. Check that this Mac is online, or try again on the office network.")
+        case "incompatible", "newer": return String(localized: "This invitation needs a newer Pluck. Update Pluck, then open the link again.")
+        case "pin": return String(localized: "“\(name)” shows a different certificate than the invitation. Ask for a new one.")
+        default: return String(localized: "Joining didn’t work. Ask for a new invitation.")
         }
     }
 }
@@ -162,21 +194,81 @@ struct DeliverPairingSheet: View {
                     .buttonStyle(StudioFlatButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
                 }
             } else if let invitation = pairing.pending ?? preview {
-                Text("Pair with \(invitation.name)?").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
-                Text("This Mac can then browse its media and keep review data there, from anywhere.").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                if invitation.expired { Text("This invitation has expired.").font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
+                Text("Join “\(invitation.name)”?").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Text("This Mac will use this review server: browse its media and keep review data there. Pluck sets everything up.")
+                    .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+                if invitation.expired { Text("This invitation has expired. Ask for a new one.").font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
                 if let problem = pairing.problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
                 HStack {
                     if pairing.working { PlumSpinner() }
                     Spacer()
                     Button("Cancel") { pairing.pending = nil; pairing.problem = nil }.buttonStyle(StudioFlatButtonStyle())
-                    Button("Pair") { Task { await pairing.pair(invitation) } }
+                    Button("Join") { Task { await pairing.pair(invitation) } }
                         .buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(invitation.expired || pairing.working)
+                }
+            } else if pairing.unreadable {
+                Text("Pluck can’t read this invitation").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Text(DeliverPairing.problem(Deliver.Failure("newer"), name: "")).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Spacer()
+                    Button("OK") { pairing.unreadable = false }.buttonStyle(StudioFlatButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
                 }
             }
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 420)
         .background(Design.Studio.panel)
+    }
+}
+
+/// Set Up Server › Join a Teammate's Server…: the invitation link pasted (the clipboard's when it holds one), then the
+/// same steps as clicking it (DeliverPairing.take, DeliverPairingSheet).
+struct DeliverJoinSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var pairing = DeliverPairing.shared
+    @State var link = ""
+    /// A review server's invitation was taken: when its steps end, this sheet closes.
+    @State private var taken = false
+
+    var body: some View {
+        Group {
+            if pairing.showing {
+                DeliverPairingSheet()
+            } else {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Join a Teammate’s Server").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                    TextField("Paste the invitation link", text: $link).settingField(width: 372).onSubmit(join)
+                    HStack {
+                        Spacer()
+                        Button("Cancel") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
+                        Button("Join", action: join).buttonStyle(StudioFlatButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
+                            .disabled(link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                }
+                .padding(Design.Spacing.sheet)
+                .frame(width: 420)
+                .background(Design.Studio.panel)
+            }
+        }
+        .onAppear {
+            pairing.inline = true
+            if link.isEmpty, let copied = NSPasteboard.general.string(forType: .string), Self.isReviewInvitation(copied) {
+                link = copied.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        .onDisappear { pairing.inline = false }
+        .onChange(of: pairing.showing) { _, showing in if !showing, taken { dismiss() } }
+    }
+
+    static func isReviewInvitation(_ text: String) -> Bool {
+        guard let invitation = PrivateNetwork.Invitation(link: text), case .reviewHost = invitation.way else { return false }
+        return true
+    }
+
+    private func join() {
+        guard !link.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        if let other = pairing.take(link) { dismiss(); URLScheme.editAnywhere(other); return }
+        taken = pairing.pending != nil
     }
 }

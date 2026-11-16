@@ -69,6 +69,41 @@ enum DeliverKeys {
         return key.isValidSignature(signature, for: helloMessage(macNonce: macNonce, fpMac: fpMac, fpBrowser: fpBrowser))
     }
 
+    // MARK: - Level 3 (§13.24): a 12-character base62 code in the link; linkKey from it does what level 2's key does
+
+    static let codeLength = 12
+    private static let base62 = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+
+    /// From the CSPRNG: bytes < 248 taken mod 62, so no modulo bias (≈ 71 bits).
+    static func newCode() -> String {
+        var out = ""
+        while out.count < codeLength {
+            for byte in random(16) where byte < 248 && out.count < codeLength { out.append(base62[Int(byte % 62)]) }
+        }
+        return out
+    }
+
+    /// linkKey = HKDF-SHA256(code, salt "pluck-link-v3", "key"): the salt names the version.
+    static func linkKey(code: String) -> Data {
+        HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: Data(code.utf8)), salt: Data("pluck-link-v3".utf8), info: Data("key".utf8), outputByteCount: 32)
+            .withUnsafeBytes { Data($0) }
+    }
+
+    /// The level-3 hello's `mac`: HMAC(authKey, "pluck-link-v3 server\n" ‖ macNonce ‖ fpMac ‖ "\n" ‖ fpBrowser).
+    static func helloMAC(authKey: Data, macNonce: Data, fpMac: String, fpBrowser: String) -> String {
+        let message = Data("pluck-link-v3 server\n".utf8) + macNonce + Data(fpMac.utf8) + Data("\n".utf8) + Data(fpBrowser.utf8)
+        return base64url(Data(HMAC<SHA256>.authenticationCode(for: message, using: SymmetricKey(data: authKey))))
+    }
+
+    /// What a browser checks before it sends anything, at the link's level (tests use it as the browser). The macNonce, or nil.
+    static func browserCheck(_ hello: [String: Any], level: Int, key: Data, pub: String, fpMac: String, fpBrowser: String) -> Data? {
+        guard hello["v"] as? Int == level, let nonce = (hello["nonce"] as? String).flatMap(data(base64url:)), nonce.count == 32 else { return nil }
+        let ok = level == 3
+            ? same(Data((hello["mac"] as? String ?? "").utf8), Data(helloMAC(authKey: authKey(key), macNonce: nonce, fpMac: fpMac, fpBrowser: fpBrowser).utf8))
+            : checkHello(pub: pub, sig: hello["sig"] as? String ?? "", macNonce: nonce, fpMac: fpMac, fpBrowser: fpBrowser)
+        return ok ? nonce : nil
+    }
+
     static func sha256(_ data: Data) -> String { base64url(Data(SHA256.hash(data: data))) }
 
     static func proof(authKey: Data, role: String, macNonce: Data, browserNonce: Data, fpMac: String, fpBrowser: String) -> String {

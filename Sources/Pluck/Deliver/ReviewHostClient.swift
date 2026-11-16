@@ -46,8 +46,10 @@ enum ReviewHostClient {
 
     /// One connection: the certificate must match the pin, the key is checked, then `work` asks what it needs.
     static func session(_ host: Deliver.Host, _ work: (HostSession) async throws -> Void) async throws {
+        // The record as it is now (Pair Again may have changed its pin since a caller took its copy).
+        let host = ReviewPublish.shared.host(host.id) ?? host
         let legacy = key(host), device = deviceKey(host)
-        guard legacy != nil || device != nil else { throw Deliver.Failure("internal") }
+        guard legacy != nil || device != nil else { throw Deliver.Failure("auth") }
         var route = try await ReviewHostTunnel.route(host)
         var session = HostSession(address: route.address, pin: host.pin, fake: fake)
         defer { session.close() }
@@ -62,12 +64,20 @@ enum ReviewHostClient {
             session = HostSession(address: route.address, pin: host.pin, fake: fake)
             try await session.open()
         }
-        guard host.pin != nil else { throw Unconfirmed(fingerprint: session.fingerprint ?? "") }
+        guard host.pin != nil else { throw Unconfirmed(fingerprint: (fake == nil ? session.fingerprint : fakeFingerprint) ?? "") }
         // The legacy host key on the LAN; this Mac's device key over iroh, or when it has no host key.
         var hello: [String: Any] = ["protocol": protocolLevel]
         if let device, let id = host.device, route.via != .lan || legacy == nil { hello["device"] = id; hello["key"] = device } else { hello["key"] = legacy! }
-        let answer = try await session.ask(hello)
-        guard answer["ok"] as? Bool == true else { throw Deliver.Failure("auth") }
+        let answer: [String: Any]
+        // A wrong key: the host waits a second and closes without a word (sync.rs `hello`).
+        // (TLS is up by now, so a connection closed or reset here is that, not a NAS that's away.)
+        // A device key refused: this Mac was removed there (a teammate's Mac needs a new invitation, not Pair Again).
+        let refused = Deliver.Failure(hello["device"] != nil ? "removed" : "auth")
+        do { answer = try await session.ask(hello) } catch {
+            if (error as? Deliver.Failure)?.code == "closed" || error is NWError { throw refused }
+            throw error
+        }
+        guard answer["ok"] as? Bool == true else { throw refused }
         session.protocolLevel = answer["protocol"] as? Int ?? 2
         ReviewPublish.shared.seen(host.id, version: answer["version"] as? String, protocol: answer["protocol"] as? Int, via: route.via)
         try await work(session)
@@ -78,14 +88,26 @@ enum ReviewHostClient {
     static func pair(_ invitation: PrivateNetwork.Invitation, publish: ReviewPublish = .shared) async throws -> Deliver.Host {
         guard case .reviewHost(let node, let relay, let expires, let pin, let lan, let role) = invitation.way else { throw Deliver.Failure("invalid") }
         guard expires > .now else { throw PrivateNetwork.Failure.inviteExpired }
-        var host = Deliver.Host(name: invitation.name, kind: .nas, address: lan, pin: pin, node: node, relay: relay, role: role)
-        let mine = try await ReviewHostTunnel.nodeID(host)
-        let route = try await ReviewHostTunnel.route(host)
-        let session = HostSession(address: route.address, pin: pin, fake: fake)
-        defer { session.close() }
-        try await session.open()
-        guard (fake == nil ? session.fingerprint : fakeFingerprint) == pin else { throw Deliver.Failure("auth") }
-        let answer = try await session.ask(["pair": invitation.code, "name": Host.current().localizedName ?? "Mac", "node": mine, "role": "mac", "protocol": protocolLevel])
+        // (No node: a server without iroh, joined on the office network only.)
+        var host = Deliver.Host(name: invitation.name, kind: .nas, address: lan, pin: pin, node: node.isEmpty ? nil : node, relay: relay, role: role)
+        var session: HostSession?
+        defer { session?.close() }
+        var line: [String: Any] = ["pair": invitation.code, "name": Host.current().localizedName ?? "Mac", "role": "mac", "protocol": protocolLevel]
+        do {
+            if host.node != nil { line["node"] = try await ReviewHostTunnel.nodeID(host) }
+            let route = try await ReviewHostTunnel.route(host)
+            session = HostSession(address: route.address, pin: pin, fake: fake)
+            try await session!.open()
+        } catch {
+            throw (error as? Deliver.Failure)?.code == "pin" ? error : Deliver.Failure("unreachable")
+        }
+        guard let session, (fake == nil ? session.fingerprint : fakeFingerprint) == pin else { throw Deliver.Failure("pin") }
+        let answer: [String: Any]
+        // A code the server doesn't know (used, or run out there): it waits a second and closes without a word.
+        do { answer = try await session.ask(line) } catch {
+            if (error as? Deliver.Failure)?.code == "closed" || error is NWError { throw PrivateNetwork.Failure.inviteUsed }
+            throw error
+        }
         guard answer["ok"] as? Bool == true, let device = answer["device"] as? String, let key = answer["key"] as? String,
               let info = answer["host"] as? [String: Any], let id = (info["id"] as? String).flatMap(UUID.init(uuidString:)) else { throw Deliver.Failure("auth") }
         // The id is the answering server's claim: it may only name a host already paired here when it's that host
@@ -102,6 +124,23 @@ enum ReviewHostClient {
         DeliverKeychain.save(Data(key.utf8), as: "\(id.uuidString)/\(device)", service: DeliverKeychain.hostService)
         publish.add(host)
         return host
+    }
+
+    /// What went wrong reaching a host, in words: not answering, this Mac's key refused, or a different certificate.
+    static func problem(_ error: Error) -> String {
+        if error is Unconfirmed { return String(localized: "Its certificate isn’t confirmed yet: Pair Again") }
+        switch (error as? Deliver.Failure)?.code {
+        case "auth": return String(localized: "The NAS server doesn’t accept this Mac’s key: Pair Again")
+        case "removed": return String(localized: "This Mac was removed from the review server. Ask its owner for a new invitation.")
+        case "pin": return String(localized: "The NAS server shows a different certificate than the one Pluck pinned. If you reinstalled it, Pair Again with its new pairing line")
+        case "incompatible": return String(localized: "The NAS server runs a version this Pluck can’t talk to. Update it")
+        case let code? where code.localizedCaseInsensitiveContains("permission denied"):
+            return String(localized: "The NAS server may not read this folder. In TrueNAS: Datasets › the dataset › Permissions › Edit, Add Item (User apps, Read, Flags Inherit), tick “Apply permissions recursively” and “to child datasets”, then Save Access Control List.")
+        case let code? where code.contains(" "):
+            // The server answered with its own reason (a sentence, not one of the short codes above).
+            return String(localized: "The NAS server says: \(code)")
+        default: return String(localized: "The NAS isn’t answering")
+        }
     }
 
     static func ask(_ host: Deliver.Host, _ request: [String: Any]) async throws -> [String: Any] {
@@ -142,8 +181,11 @@ final class HostSession: @unchecked Sendable {
     private var buffer = Data()
     private(set) var fingerprint: String?
 
+    private let pin: String?
+
     init(address: String, pin: String?, fake: (([String: Any], Data?) -> [String: Any]?)?) {
         self.fake = fake
+        self.pin = pin
         guard fake == nil else { connection = nil; return }
         let parts = address.split(separator: ":")
         let port = NWEndpoint.Port(rawValue: UInt16(parts.count > 1 ? String(parts.last!) : "") ?? 8790) ?? 8790
@@ -157,7 +199,7 @@ final class HostSession: @unchecked Sendable {
             guard let leaf = (SecTrustCopyCertificateChain(secTrust) as? [SecCertificate])?.first else { return complete(false) }
             let seen = HostSession.fingerprint(SecCertificateCopyData(leaf) as Data)
             box.value = seen
-            complete(pin == nil || pin == seen)
+            complete(pin == nil || pin.flatMap(HostSession.normalized) == seen)
         }, queue)
         connection = NWConnection(host: NWEndpoint.Host(name), port: port, using: NWParameters(tls: tls))
         self.box = box
@@ -165,11 +207,27 @@ final class HostSession: @unchecked Sendable {
     private var box: FingerprintBox?
     private final class FingerprintBox: @unchecked Sendable { var value: String? }
 
+    /// Any spelling of a SHA-256 fingerprint (any case; colons, dashes, spaces or none) as Pluck keeps it; nil when it isn't 32 bytes.
+    static func normalized(_ text: String) -> String? {
+        let hex = text.uppercased().filter { $0.isHexDigit }
+        guard hex.count == 64, text.allSatisfy({ $0.isHexDigit || ": -\n\t".contains($0) }) else { return nil }
+        return stride(from: 0, to: 64, by: 2).map { i in String(hex.dropFirst(i).prefix(2)) }.joined(separator: ":")
+    }
+
     /// Uppercase hex with colons, as the host prints it.
     static func fingerprint(_ der: Data) -> String { SHA256.hash(data: der).map { String(format: "%02X", $0) }.joined(separator: ":") }
 
     func open() async throws {
         guard let connection else { return }
+        do { try await start(connection) } catch {
+            // The certificate was seen and isn't the pinned one: its own failure, not "not answering".
+            if let pin, let seen = box?.value, HostSession.normalized(pin) != seen { throw Deliver.Failure("pin") }
+            throw error
+        }
+        fingerprint = box?.value
+    }
+
+    private func start(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let once = OnceFlag()
             connection.stateUpdateHandler = { state in
@@ -183,7 +241,6 @@ final class HostSession: @unchecked Sendable {
             connection.start(queue: queue)
             queue.asyncAfter(deadline: .now() + 10) { if once.claim() { continuation.resume(throwing: Deliver.Failure("internal")) } }
         }
-        fingerprint = box?.value
     }
 
     /// A request line (and a put's bytes), then its answer line; `{"error"}` throws.
@@ -323,7 +380,7 @@ final class HostSession: @unchecked Sendable {
             let chunk: Data = try await timed { done in
                 connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 20) { data, _, _, error in
                     if let error { return done(.failure(error)) }
-                    done(data.flatMap { $0.isEmpty ? nil : $0 }.map { .success($0) } ?? .failure(Deliver.Failure("internal")))
+                    done(data.flatMap { $0.isEmpty ? nil : $0 }.map { .success($0) } ?? .failure(Deliver.Failure("closed")))
                 }
             }
             buffer.append(chunk)
@@ -354,27 +411,54 @@ final class NASFinderSource: FinderSource {
         root = URL(fileURLWithPath: "/.pluck-nas", isDirectory: true).appendingPathComponent(host.id.uuidString, isDirectory: true)
     }
 
-    /// The media path a stand-in URL stands for ("" for the top, where the roots are).
+    /// The media path a stand-in URL stands for ("" for the top, where the roots are). Its first part is the root's
+    /// shown name (see `display`), taken back to the id.
     func path(_ url: URL) -> String {
         let path = url.standardizedFileURL.path, base = root.standardizedFileURL.path
-        return path.hasPrefix(base + "/") ? String(path.dropFirst(base.count + 1)) : ""
+        guard path.hasPrefix(base + "/") else { return "" }
+        let parts = path.dropFirst(base.count + 1).split(separator: "/", maxSplits: 1).map(String.init)
+        guard let first = parts.first else { return "" }
+        let id = ((Array(names.keys) + [uploads].compactMap { $0 }).first { display($0) == first && $0 != first }) ?? first
+        return ([id] + parts.dropFirst()).joined(separator: "/")
     }
+
+    /// The stand-in URL of a media path ("nas1/Clients" → …/Wide-open-2026/Clients).
+    func url(_ media: String, folder: Bool = true) -> URL {
+        let parts = media.split(separator: "/", maxSplits: 1).map(String.init)
+        guard let first = parts.first else { return root }
+        return root.appendingPathComponent(([display(first)] + parts.dropFirst()).joined(separator: "/"), isDirectory: folder)
+    }
+
+    /// The names the owner knows the roots by (the record as it is now: Change Folders may have named them since).
+    private var names: [String: String] { current.rootNames ?? [:] }
+    private var current: Deliver.Host { ReviewPublish.shared.host(host.id) ?? host }
+
+    /// The uploads root's id, once known: "Uploads" when the owner hasn't named it.
+    @ObservationIgnored var uploads: String?
+
+    /// A root as the browser shows it (Deliver.Host.rootName).
+    func display(_ id: String) -> String {
+        if id == uploads, names[id] == nil, !names.values.contains(Self.uploadsName) { return Self.uploadsName }
+        return current.rootName(id)
+    }
+    static var uploadsName: String { String(localized: "Uploads") }
 
     func list(_ folder: URL) async -> [(URL, FinderInfo)] {
         do {
             let entries = try await ReviewHostClient.browse(host, path: path(folder))
             problem = nil
+            let top = path(folder).isEmpty
             let listed: [(URL, FinderInfo)] = entries.map { entry in
                 let type = UTType(filenameExtension: (entry.name as NSString).pathExtension)
-                return (root.appendingPathComponent(entry.path, isDirectory: entry.folder),
-                        FinderInfo(name: entry.name, isFolder: entry.folder, isClip: !entry.folder && type?.conforms(to: .movie) == true,
+                return (url(entry.path, folder: entry.folder),
+                        FinderInfo(name: top ? display(entry.name) : entry.name, isFolder: entry.folder, isClip: !entry.folder && type?.conforms(to: .movie) == true,
                                    isPhoto: !entry.folder && type?.conforms(to: .image) == true, size: entry.size, modified: entry.modified,
                                    kind: entry.folder ? String(localized: "Folder") : type?.localizedDescription ?? "", tags: []))
             }
             last[path(folder)] = listed
             return listed
         } catch {
-            problem = String(localized: "The NAS isn’t answering")
+            problem = ReviewHostClient.problem(error)
             return last[path(folder)] ?? []
         }
     }
@@ -388,8 +472,15 @@ final class NASFinderSource: FinderSource {
         return CGImageSourceCreateImageAtIndex(image, 0, nil)
     }
 
+    /// "Move to…" for files in the uploads folder (Deliver › Browse sets it).
+    @ObservationIgnored var move: (([String]) -> Void)?
+
     func menu(_ urls: [URL]) -> AnyView {
-        guard let share, !offline else { return AnyView(EmptyView()) }
-        return AnyView(Button("Share for Review…") { share(urls) })
+        guard !offline else { return AnyView(EmptyView()) }
+        let inUploads = urls.map(path).filter { p in uploads.map { p.hasPrefix($0 + "/") } ?? false }
+        return AnyView(Group {
+            if let share { Button("Share for Review…") { share(urls) } }
+            if let move, !inUploads.isEmpty, inUploads.count == urls.count { Button("Move to…") { move(inUploads) } }
+        })
     }
 }

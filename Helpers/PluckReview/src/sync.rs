@@ -9,7 +9,7 @@
 // one answer per request:
 //   list | put + N bytes | delete | get (+ offset/length: a range) + N bytes | roots/browse/probe/thumb
 //   invite | devices | device-remove | device-node | rotate-key | update                (role mac)
-//   mkdir | upload-begin | upload-part + n bytes | upload-end | upload-cancel             (role mac, uploads root)
+//   mkdir | move {path,to} | upload-begin | upload-part + n bytes | upload-end | upload-cancel  (role mac, uploads root)
 //   pull | append | publish | changes | manifest | status | reload | prepare-update …   → host.rs `sync`
 // A backup may only use manifest, changes, pull, append, get (copies, branding) and status.
 use std::{
@@ -324,7 +324,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 Some(d) => ctx.devices.queue_update(d, op["version"].as_str().unwrap_or("")),
                 None => update::request(&ctx.data, op["version"].as_str().unwrap_or("")),
             },
-            "mkdir" | "upload-begin" | "upload-part" | "upload-end" | "upload-cancel" => {
+            "mkdir" | "move" | "upload-begin" | "upload-part" | "upload-end" | "upload-cancel" => {
                 let Some(u) = ctx.uploads.as_ref().filter(|_| !ctx.ident.backup) else {
                     if name == "upload-part" {
                         anyhow::bail!("no uploads root"); // can't skip the bytes without a valid size
@@ -336,6 +336,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 let device = who.device.clone().unwrap_or_else(|| "host-key".into());
                 match name.as_str() {
                     "mkdir" => u.mkdir(op["path"].as_str().unwrap_or("")),
+                    "move" => u.move_file(op["path"].as_str().unwrap_or(""), op["to"].as_str().unwrap_or("")),
                     "upload-begin" => {
                         let v = u.begin(&op, &device);
                         if let Some(id) = v["upload"].as_str() {
@@ -620,7 +621,7 @@ pub mod tests {
         let mut b = [0u8; 3];
         r.read_exact(&mut b).await.unwrap();
         assert!(ask(&mut r, &mut w, json!({"op": "get", "path": "originals/V.mov"})).await["error"].is_string(), "never originals");
-        for op in ["list", "invite", "devices", "browse", "publish", "mkdir", "rotate-key"] {
+        for op in ["list", "invite", "devices", "browse", "publish", "mkdir", "move", "rotate-key"] {
             assert_eq!(ask(&mut r, &mut w, json!({"op": op})).await["error"], "scope", "{op}");
         }
         drop(task);

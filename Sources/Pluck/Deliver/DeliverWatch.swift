@@ -201,7 +201,7 @@ final class DeliverWatch {
                 made = try? store.addVersion(reference: path, size: item.size, to: asset.id)
             } else if let host = DeliverSync.shared.dataHost, ReviewPublish.reference(path, on: host) == nil,
                       let root = await DeliverUploads.writableRoot(host) {
-                let folder = root + "/" + DeliverServer.safeName(store.project(store.find(asset.id)?.project ?? UUID())?.name ?? "Review")
+                let folder = DeliverUploadDestination.suggested(host, root: root, project: store.find(asset.id)?.project ?? UUID(), store: store)
                 _ = try? await ReviewHostClient.ask(host, ["op": "mkdir", "path": folder])
                 let sent = try? await DeliverUploads.shared.upload(URL(fileURLWithPath: path), to: folder + "/" + URL(fileURLWithPath: path).lastPathComponent, host: host)
                 made = sent.flatMap { try? store.addVersion(reference: ReviewPublish.nasPath(host: host.id, path: $0), size: item.size, to: asset.id) }

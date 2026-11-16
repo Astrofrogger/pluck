@@ -148,11 +148,17 @@ done
 if [ -z "$CTID" ]; then
   CTID="$(pvesh get /cluster/nextid)"
   if [ -n "$IPCIDR" ]; then NET="name=eth0,bridge=$BRIDGE,ip=$IPCIDR,gw=$GATEWAY"; else NET="name=eth0,bridge=$BRIDGE,ip=dhcp"; fi
-  pct create "$CTID" "local:vztmpl/$TPL" --hostname "$NAME" --unprivileged 1 --features nesting=0 \
+  pct create "$CTID" "local:vztmpl/$TPL" --hostname "$NAME" --unprivileged 1 --features nesting=1 \
     --cores "$CORES" --memory "$MEMORY" --swap 512 --rootfs "$STORAGE:$((SIZE + 8))" \
     --net0 "$NET" --onboot 1 --description pluck-review
   NEWCT=1
 else
+  # The service's sandbox (ProtectSystem, PrivateTmp…) needs nesting in an unprivileged container; containers made
+  # by Pluck before 4.0.4 had it off and the service failed with 226/NAMESPACE. Turned on here (takes a restart).
+  if ! pct config "$CTID" | grep -Eq '^features:.*nesting=1'; then
+    pct set "$CTID" --features nesting=1
+    if pct status "$CTID" | grep -q running; then pct reboot "$CTID"; fi
+  fi
   # --size only grows the disk.
   have="$(pct config "$CTID" | sed -n 's/^rootfs:.*size=\([0-9]*\)G.*/\1/p')"
   if [ -n "$have" ] && [ "$((SIZE + 8))" -gt "$have" ]; then

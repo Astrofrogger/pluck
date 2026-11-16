@@ -42,7 +42,13 @@ impl Roots {
         let (id, rel) = media.split_once('/').unwrap_or((media, ""));
         let (_, root) = self.0.iter().find(|(i, _)| i == id)?;
         let p = if rel.is_empty() { root.clone() } else { std::fs::canonicalize(root.join(safe_rel(rel)?)).ok()? };
-        (p.starts_with(root) && if dir { p.is_dir() } else { p.is_file() }).then_some(p)
+        // (Never an upload still on its way: the uploads root's partial folder.)
+        (p.starts_with(root) && !p.starts_with(root.join(crate::upload_root::PARTIAL)) && if dir { p.is_dir() } else { p.is_file() }).then_some(p)
+    }
+
+    /// The uploads root as a source root of its own (its id): browse, probe, thumb and publish by reference work on it.
+    pub fn add_uploads(&mut self, u: &crate::upload_root::UploadRoot) {
+        self.0.push((u.id.clone(), u.dir.clone()));
     }
 
     /// Folders and media files in a folder ("" lists the roots). Hidden files are skipped.

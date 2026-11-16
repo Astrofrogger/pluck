@@ -603,21 +603,19 @@ async fn host_makes_review_copies() {
     assert_eq!(r["added"], 1);
     assert_eq!(r["skipped"][0], "nas1/../etc/passwd");
     let url = r["url"].as_str().unwrap();
-    let (room, frag) = url.trim_start_matches("https://pluck.tools/r/").split_once('#').unwrap();
-    let (key, public) = frag.split_once('.').expect("protocol 2 link: <key>.<pub>");
-    assert_eq!(B64.decode(public).unwrap().len(), 32);
-    let derived = {
-        let mut out = [0u8; 16];
-        hkdf::Hkdf::<Sha256>::new(Some(b"pluck-review/1"), &B64.decode(key).unwrap()).expand(b"room", &mut out).unwrap();
-        B64.encode(out)
-    };
-    assert_eq!(room, derived);
+    // Protocol 3 (§13.24): https://pluck.tools/r/#<12 base62>; roomId comes from the code, never in the link.
+    let code = url.strip_prefix("https://pluck.tools/r/#").expect("level 3 link");
+    assert!(code.len() == 12 && code.bytes().all(|b| b.is_ascii_alphanumeric()), "{url}");
+    let hk = |salt: &[u8], ikm: &[u8], info: &[u8], n: usize| { let mut o = vec![0u8; n]; hkdf::Hkdf::<Sha256>::new(Some(salt), ikm).expand(info, &mut o).unwrap(); o };
+    let key = hk(b"pluck-link-v3", code.as_bytes(), b"key", 32);
+    let room = B64.encode(hk(b"pluck-review/1", &key, b"room", 16));
     let manifest = std::fs::read_to_string(data.join("bundle/manifest.json")).unwrap();
-    assert!(!manifest.contains(key), "the host never stores the link key");
+    assert!(!manifest.contains(code) && !manifest.contains(&B64.encode(&key)), "the host never stores the code or the link key");
     let ml: Value = serde_json::from_str(&manifest).unwrap();
-    let reg_from_key = { let mut o = [0u8; 32]; hkdf::Hkdf::<Sha256>::new(Some(b"pluck-review/1"), &B64.decode(key).unwrap()).expand(b"register", &mut o).unwrap(); B64.encode(o) };
+    assert_eq!(ml["links"][0]["roomID"], room.as_str());
+    let reg_from_key = B64.encode(hk(b"pluck-review/1", &key, b"register", 32));
     assert_ne!(ml["links"][0]["reg"].as_str().unwrap(), reg_from_key, "a link holder can't derive the registration secret");
-    assert!(ml["links"][0]["sign"].is_string() && ml["links"][0]["join"].is_string());
+    assert!(ml["links"][0]["level"] == 3 && ml["links"][0]["sign"].is_null() && ml["links"][0]["join"].is_string());
     let done = tokio::time::timeout(Duration::from_secs(240), h.wait(|v| v["copy"]["state"] == "ready" || v["copy"]["state"] == "failed")).await.unwrap();
     assert_eq!(done["copy"]["state"], "ready", "{done}");
     let vid = done["copy"]["version"].as_str().unwrap();

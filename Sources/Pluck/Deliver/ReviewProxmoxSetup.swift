@@ -264,6 +264,8 @@ struct DeliverProxmoxMainSheet: View {
             problem = String(localized: "That pairing line isn’t complete.")
             return
         }
+        // pluck-proxmox.sh mounts the folders as nas1, nas2… in the order given.
+        ReviewPublish.shared.update(host: host.id) { $0.rootNames = Deliver.Host.names(folders.enumerated().map { (id: "nas\($0.offset + 1)", path: $0.element) }) }
         do {
             let node = try? await ReviewHostTunnel.nodeID(host)
             try await ReviewHostClient.session(host) { session in

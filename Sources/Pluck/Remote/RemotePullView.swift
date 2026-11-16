@@ -34,7 +34,8 @@ struct RemoteFilesPane<Legacy: View>: View {
                 legacy
             } else {
                 VStack(alignment: .leading, spacing: 12) {
-                    header
+                    // (With the browser, the header sits in it, right of its full-height sidebar, as in Finder.)
+                    if !browsing { header }
                     content
                     if host == .current, local == nil, let share, share.online { delivery(share) }
                 }
@@ -49,6 +50,13 @@ struct RemoteFilesPane<Legacy: View>: View {
     }
 
     private var share: OfficeRenderClient.RemoteShare? { shares.first { $0.id == shareID } ?? shares.first }
+
+    private var browsing: Bool {
+        switch host {
+        case .offline, .checking: false
+        default: true
+        }
+    }
 
     private var header: some View {
         HStack(spacing: 8) {
@@ -122,7 +130,11 @@ struct RemoteFilesPane<Legacy: View>: View {
             HStack(spacing: 0) {
                 FinderSidebar(groups: places, selection: selected) { choose($0.id) }
                 Divider()
-                browser.frame(maxWidth: .infinity, maxHeight: .infinity)
+                VStack(spacing: 0) {
+                    header.padding(.horizontal, 12).frame(height: FinderPaneView.toolbarHeight)
+                    Divider()
+                    browser.frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             .frame(height: 460)
             .clipShape(.rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))

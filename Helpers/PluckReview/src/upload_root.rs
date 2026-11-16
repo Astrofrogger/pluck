@@ -102,6 +102,42 @@ impl UploadRoot {
         r.unwrap_or_else(|c| json!({"error": c}))
     }
 
+    /// `move`: a file in the root into another folder of it, its name kept (" 2" when taken: never overwritten).
+    /// Both sides pass the same checks as an upload; the partial folder is neither a source nor a destination.
+    pub fn move_file(&self, from: &str, to: &str) -> Value {
+        let r = (|| {
+            let src = self.parts(from)?;
+            let dst = if to == self.id { vec![] } else { self.parts(to)? };
+            let parent = src[..src.len() - 1].iter().fold(self.dir.clone(), |p, c| p.join(c));
+            let file = self.inside(&parent)?.join(src[src.len() - 1]);
+            let meta = std::fs::symlink_metadata(&file).map_err(|_| "notFound")?;
+            if !meta.is_file() {
+                return Err("invalid"); // (no folders, no links)
+            }
+            let real = self.inside(&dst.iter().fold(self.dir.clone(), |p, c| p.join(c)))?;
+            let name = src[src.len() - 1];
+            let (stem, ext) = match name.rsplit_once('.') { Some((s, e)) if !s.is_empty() => (s, format!(".{e}")), _ => (name, String::new()) };
+            for n in 1..1000 {
+                let candidate = if n == 1 { name.to_owned() } else { format!("{stem} {n}{ext}") };
+                let target = real.join(&candidate);
+                if target == file {
+                    return Ok(json!({"ok": true, "path": from})); // already there
+                }
+                match std::fs::hard_link(&file, &target) {
+                    Ok(()) => {
+                        let _ = std::fs::remove_file(&file);
+                        let shown = if dst.is_empty() { format!("{}/{candidate}", self.id) } else { format!("{}/{}/{candidate}", self.id, dst.join("/")) };
+                        return Ok(json!({"ok": true, "path": shown}));
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(_) => return Err("internal"),
+                }
+            }
+            Err("exists")
+        })();
+        r.unwrap_or_else(|c| json!({"error": c}))
+    }
+
     fn files(&self, id: &str) -> (PathBuf, PathBuf) {
         (self.partial().join(format!("{id}.part")), self.partial().join(format!("{id}.json")))
     }
@@ -312,6 +348,29 @@ mod tests {
         assert!(r.dir.join(PARTIAL).read_dir().unwrap().next().is_none(), "no partials left");
     }
 
+    /// An upload is a source for publish by reference (the Mac's "Share for Review" into Client/2026): the finished
+    /// file resolves under the uploads root's own id; a partial, an escape and the media roots' ids don't.
+    #[tokio::test]
+    async fn uploaded_files_are_reference_sources() {
+        let r = root();
+        let data = b"spot".repeat(50);
+        assert_eq!(r.mkdir("renders/Client/2026"), json!({"ok": true}));
+        let b = r.begin(&json!({"path": "renders/Client/2026/Spot 30s.mov", "size": data.len(), "sha256": hex(&data)}), "D1");
+        let id = b["upload"].as_str().unwrap().to_owned();
+        put(&r, &id, 0, &data[..10]).await;
+        let mut roots = crate::roots::Roots::parse(&[]);
+        roots.add_uploads(&r);
+        assert!(roots.resolve(&format!("renders/{PARTIAL}/{id}.part"), false).is_none(), "an upload on its way isn't a source");
+        put(&r, &id, 10, &data[10..]).await;
+        assert_eq!(r.end(&json!({"upload": id})).await["path"], "renders/Client/2026/Spot 30s.mov");
+        assert_eq!(roots.resolve("renders/Client/2026/Spot 30s.mov", false), Some(r.dir.join("Client/2026/Spot 30s.mov")));
+        assert!(roots.resolve("renders/Client/2026", true).is_some());
+        assert!(roots.resolve("renders/../x.mov", false).is_none() && roots.resolve("nas1/Client/2026/Spot 30s.mov", false).is_none());
+        let listed = roots.browse("renders/Client/2026").unwrap();
+        assert_eq!(listed["entries"][0]["path"], "renders/Client/2026/Spot 30s.mov");
+        assert!(!roots.browse("renders").unwrap().to_string().contains(PARTIAL), "the partial folder isn't listed");
+    }
+
     #[test]
     fn traversal_and_limits() {
         let r = root();
@@ -333,6 +392,30 @@ mod tests {
         assert!(begin(4, "E").get("upload").is_some() && begin(5, "F").get("upload").is_some());
         assert_eq!(begin(6, "G"), json!({"error": "limit"}), "4 in all");
         assert_eq!(begin(MAX_FILE + 1, "H"), json!({"error": "tooLarge"}));
+    }
+
+    #[test]
+    fn move_stays_inside_the_root_and_never_overwrites() {
+        let r = root();
+        let outside = r.dir.parent().unwrap().join(format!("outside-{}", crate::host::uuid()));
+        std::fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, r.dir.join("link")).unwrap();
+        std::fs::create_dir_all(r.dir.join("Delivered while offline/2026-11-16")).unwrap();
+        std::fs::create_dir_all(r.dir.join("Client/2026")).unwrap();
+        std::fs::write(r.dir.join("Delivered while offline/2026-11-16/Spot.mov"), b"a").unwrap();
+        std::fs::write(r.dir.join("Client/2026/Spot.mov"), b"b").unwrap();
+        assert_eq!(r.move_file("renders/Delivered while offline/2026-11-16/Spot.mov", "renders/Client/2026"),
+                   json!({"ok": true, "path": "renders/Client/2026/Spot 2.mov"}), "a name taken gets \" 2\"");
+        assert_eq!(std::fs::read(r.dir.join("Client/2026/Spot.mov")).unwrap(), b"b");
+        assert_eq!(std::fs::read(r.dir.join("Client/2026/Spot 2.mov")).unwrap(), b"a");
+        assert!(!r.dir.join("Delivered while offline/2026-11-16/Spot.mov").exists());
+        assert_eq!(r.move_file("renders/Client/2026/Spot.mov", "renders"), json!({"ok": true, "path": "renders/Spot.mov"}));
+        for (from, to) in [("renders/Spot.mov", "renders/link"), ("renders/Spot.mov", "renders/../x"), ("renders/Spot.mov", "nas1/x"),
+                           ("renders/Spot.mov", "renders/.pluck-partial"), ("renders/../x.mov", "renders/Client"), ("renders/Client", "renders/Client/2026"),
+                           ("renders/link/x.mov", "renders"), ("renders/nothing.mov", "renders/Client")] {
+            assert!(r.move_file(from, to).get("error").is_some(), "{from} → {to}");
+        }
+        assert!(r.dir.join("Spot.mov").exists() && std::fs::read_dir(&outside).unwrap().next().is_none());
     }
 
     #[test]

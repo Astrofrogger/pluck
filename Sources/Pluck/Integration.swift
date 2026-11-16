@@ -41,19 +41,11 @@ final class ServiceProvider: NSObject {
 enum URLScheme {
     @MainActor static func handle(_ url: URL, manager: DownloadManager) {
         #if STUDIO
-        // An Edit Anywhere invitation: Edit Anywhere opens and asks before joining.
+        // An invitation: a review server's (§13.2) in Deliver, which asks first; Edit Anywhere's opens it and asks before joining.
         if url.scheme?.lowercased() == "pluck", url.host == "edit-anywhere" {
-            guard let invitation = PrivateNetwork.Invitation(link: url.absoluteString) else { return }
-            // A NAS review host's (§13.2): Deliver's pairing sheet asks first.
-            if case .reviewHost = invitation.way {
-                DeliverPairing.shared.pending = invitation
-                StudioNavigator.shared.show(.deliver)
-                AppDelegate.showMainWindow()
-                return
-            }
-            OfficeRenderClient.shared.pendingInvitation = invitation
-            UserDefaults.standard.set("home", forKey: "officeRenderSide")
-            if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.showMainWindow() }
+            if let invitation = DeliverPairing.shared.take(url.absoluteString) { editAnywhere(invitation); return }
+            StudioNavigator.shared.show(.deliver)
+            AppDelegate.showMainWindow()
             return
         }
         #endif
@@ -65,6 +57,15 @@ enum URLScheme {
         manager.pendingLink = link
         AppDelegate.showMainWindow()
     }
+
+    #if STUDIO
+    /// An Edit Anywhere invitation (not a review server's): its window asks before joining.
+    @MainActor static func editAnywhere(_ invitation: PrivateNetwork.Invitation) {
+        OfficeRenderClient.shared.pendingInvitation = invitation
+        UserDefaults.standard.set("home", forKey: "officeRenderSide")
+        if let open = AppDelegate.openWindowByID { open("officeRender") } else { AppDelegate.showMainWindow() }
+    }
+    #endif
 }
 
 enum Links {

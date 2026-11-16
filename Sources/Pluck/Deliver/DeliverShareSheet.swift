@@ -371,6 +371,7 @@ struct DeliverPublishSheet: View {
                 }
                 .padding(10).studioBox()
             }
+            DeliverWaitingRows(project: scope.project)
             if let problem = publish.problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
             HStack {
                 if publish.working != nil { PlumSpinner() }

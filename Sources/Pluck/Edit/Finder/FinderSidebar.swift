@@ -11,13 +11,22 @@ struct FinderSidebar: View {
         /// Quiet, on the right (free space, a role).
         var detail: String?
         var dimmed = false
+        /// A tooltip (a status, say).
+        var help: String?
         var menu: AnyView?
     }
 
     struct Places: Identifiable {
-        var id: String { title }
+        var id: String { key ?? title }
         var title: String
         var places: [Place]
+        /// A status dot after the heading (a server: online, offline), with its tooltip.
+        var dot: Color? = nil
+        var help: String? = nil
+        /// A right-click menu on the heading (a server's own menu).
+        var menu: AnyView? = nil
+        /// Its identity when two headings may read the same (two servers named alike).
+        var key: String? = nil
     }
 
     static let width: CGFloat = 172
@@ -38,14 +47,27 @@ struct FinderSidebar: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 1) {
-                ForEach(groups.filter { !$0.places.isEmpty }) { group in
-                    Text(verbatim: group.title)
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Design.Studio.textQuiet)
-                        .lineLimit(1)
+                let shown = groups.filter { !$0.places.isEmpty }
+                ForEach(shown) { group in
+                    let first = group.id == shown.first?.id
+                    HStack(spacing: 5) {
+                        Text(verbatim: group.title)
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(Design.Studio.textQuiet)
+                            .lineLimit(1)
+                        if let dot = group.dot { Circle().fill(dot).frame(width: 6, height: 6) }
+                        Spacer(minLength: 0)
+                    }
+                        .contentShape(.rect)
+                        .help(group.help ?? "")
+                        .contextMenu { if let menu = group.menu { menu } }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityValue(Text(verbatim: group.help ?? ""))
                         .padding(.horizontal, 6)
-                        .padding(.top, 12)
-                        .padding(.bottom, 3)
+                        // The first heading centred on the browser's toolbar beside it, as in Finder.
+                        .padding(.top, first ? 0 : 12)
+                        .padding(.bottom, first ? 0 : 3)
+                        .frame(height: first ? FinderPaneView.toolbarHeight : nil)
                         .accessibilityAddTraits(.isHeader)
                     ForEach(group.places) { row($0) }
                 }
@@ -87,6 +109,7 @@ struct FinderSidebar: View {
         }
         .buttonStyle(.plain)
         .opacity(place.dimmed ? 0.45 : 1)
+        .help(place.help ?? "")
         .contextMenu { if let menu = place.menu { menu } }
         .accessibilityAddTraits(on ? .isSelected : [])
     }

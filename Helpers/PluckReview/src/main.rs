@@ -250,7 +250,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         let ids: Vec<String> = roots.0.iter().map(|(i, _)| i.clone()).collect();
         let uploads = hc["uploads"].as_str().filter(|_| !backup).and_then(|u| upload_root::UploadRoot::parse(u, &ids, busy.clone())).map(Arc::new);
         if let Some(u) = &uploads {
-            roots.0.push((u.id.clone(), u.dir.clone())); // browse, probe, thumb and publish by reference work on it
+            roots.add_uploads(u);
         }
         let roots = Arc::new(roots);
         let (job_tx, job_rx) = mpsc::unbounded_channel();

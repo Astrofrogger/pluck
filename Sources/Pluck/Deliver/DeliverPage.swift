@@ -70,33 +70,127 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
-            case "browsenas":
+            case "browsenas", "uploaddest", "uploaddestnone":
                 // Two stand-in review servers (main and backup) answering browse with two media roots.
                 let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), key = DeliverKeys.base64url(DeliverKeys.random(32))
                 ReviewHostClient.fakeFingerprint = fingerprint
                 ReviewHostClient.fake = { request, _ in
                     if request["key"] != nil { return ["ok": true] }
+                    // And a backup paired straight with the main (no host record here), copying.
+                    if request["op"] as? String == "devices" {
+                        return ["devices": [["id": "b1", "name": "Proxmox", "role": "backup", "lastSeen": ISO8601DateFormatter().string(from: .now),
+                                             "replica": ["uplinkMbps": 940, "quality": "same", "versions": ["ready": 12, "queued": 2]]]]]
+                    }
+                    if request["op"] as? String == "roots" { return ["roots": ["nas1", "nas2", "renders"], "writable": ["renders"]] }
                     guard request["op"] as? String == "browse" else { return ["ok": true] }
                     let path = request["path"] as? String ?? ""
-                    let names = path.isEmpty ? ["Footage", "Deliveries"] : ["Day 1", "Day 2", "Hero_30s_v3.mov"]
+                    let names = path.isEmpty ? ["nas1", "nas2", "renders"] : path.hasPrefix("renders") ? ["Client", "Wedding", "Spring campaign"] : ["Day 1", "Day 2", "Hero_30s_v3.mov"]
                     return ["entries": names.map { ["name": $0, "path": path.isEmpty ? $0 : path + "/" + $0, "dir": !$0.hasSuffix(".mov"), "size": 1_000_000] }]
                 }
                 let publish = ReviewPublish.shared
                 for (name, role) in [("Studio NAS", "main"), ("Backup NAS", "backup")] {
-                    if var host = publish.hosts.first(where: { $0.name == name }) ?? publish.addNAS(name: name, address: name.lowercased().replacingOccurrences(of: " ", with: "-") + ".test:8790",
+                    // (Added each time: the key lives in the test's in-memory keychain only.)
+                    if var host = publish.addNAS(name: name, address: name.lowercased().replacingOccurrences(of: " ", with: "-") + ".test:8790",
                                                                                                      pairing: "pluck-host:\(key)@\(fingerprint)") {
                         host.role = role
+                        if role == "main" { host.rootNames = ["nas1": "Wide-open-2026", "nas2": "Archive 2025"] }
                         publish.add(host)
                     }
                 }
-                if let main = publish.hosts.first(where: { $0.role == "main" }) { nav.deliver = .browse(.nas(main.id)) }
+                guard let main = publish.hosts.first(where: { $0.role == "main" }) else { break }
+                if view == "browsenas" { nav.deliver = .browse(.nas(main.id)); break }
+                // Share for Review's destination step: the uploads folder, opened at the project's last folder (or, "uploaddestnone", none set up).
+                DeliverUploadDestination.remember("renders/Spring campaign", host: main.id, project: project.id)
+                panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: view == "uploaddestnone" ? .noRoot : .loading, done: { _ in }, back: {})
+                    .padding(Design.Spacing.sheet).frame(width: 1060, height: 720).background(Design.Studio.panel))
+                nav.deliver = .inbox
             case "server": panelInPage = AnyView(DeliverServerChooser()); nav.deliver = .inbox
             case "serverbackup": panelInPage = AnyView(DeliverServerChooser(role: .backup)); nav.deliver = .inbox
             case "proxmoxmain": panelInPage = AnyView(DeliverProxmoxMainSheet()); nav.deliver = .inbox
             case "truenas": panelInPage = AnyView(ReviewTrueNASSetupSheet()); nav.deliver = .inbox
+            case "truenasconfirm":
+                // After Install: the server's fingerprint to compare with the app's log.
+                let setup = TrueNASSetup()
+                setup.address = "192.0.2.10"
+                setup.done = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790")
+                setup.serverFingerprint = (0..<32).map { String(format: "%02X", ($0 * 37 + 11) % 256) }.joined(separator: ":")
+                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup))
+                nav.deliver = .inbox
+            case "truenasaccess":
+                // Media checked after Connect (a stand-in TrueNAS): one the server reads, one whose ACL leaves out the apps user, its steps open.
+                let setup = TrueNASSetup()
+                setup.address = "192.0.2.10"
+                setup.apiKey = "1-stand-in"
+                setup.addMedia("WideOpen-2/Wide-Open-2025")
+                setup.addMedia("WideOpen-2/Wide-open-2026")
+                TrueNASClient.fake = { (method: String, params: [Any]) -> [String: Any] in
+                    let path = params.first as? String ?? ""
+                    switch method {
+                    case "auth.login_with_api_key": return ["result": true]
+                    case "system.version": return ["result": "25.10.0"]
+                    case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025"].map { ["id": $0] }]
+                    case "filesystem.stat": return ["result": ["mode": 0o40755, "uid": 0, "gid": 0, "acl": path.hasSuffix("2026")]]
+                    case "filesystem.getacl": return ["result": ["acltype": "NFS4", "uid": 0, "gid": 0, "acl": [
+                        ["tag": "owner@", "type": "ALLOW", "perms": ["BASIC": "FULL_CONTROL"], "flags": ["BASIC": "INHERIT"]]]]]
+                    case "filesystem.listdir": return ["result": [Any]()]
+                    default: return ["result": NSNull()]
+                    }
+                }
+                Task { await setup.connect() }
+                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup, expanded: ["WideOpen-2/Wide-open-2026"]))
+                nav.deliver = .inbox
+            case "join":
+                let invitation = PrivateNetwork.Invitation(way: .reviewHost(node: String(repeating: "a1", count: 32), relay: nil, expires: .now.addingTimeInterval(900),
+                                                                       pin: Array(repeating: "AB", count: 32).joined(separator: ":"), lan: "192.0.2.10:8790", role: "mac"), name: "Studio NAS", code: "ABCD-EFGH-JKMN")
+                panelInPage = AnyView(DeliverJoinSheet(link: invitation.link?.absoluteString ?? ""))
+                nav.deliver = .inbox
+            case "truenasedit", "pairagain":
+                // A server set up through TrueNAS, its API key kept: Change Folders reads the app back from a stand-in TrueNAS.
+                let sample = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790", pin: Array(repeating: "AB", count: 32).joined(separator: ":"), role: "main")
+                TrueNASKeychain.save("1-stand-in", for: "192.0.2.10")
+                let compose: [String: Any] = ["services": ["pluck-review": [
+                    "environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(DeliverKeys.random(32)), "PLUCK_HOST_NAME": "Studio NAS", "PLUCK_IROH": "1"],
+                    "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/WideOpen-2/Wide-open-2026:/media/nas1:ro", "/mnt/WideOpen-2/Wide-Open-2025:/media/nas2:ro",
+                                "/mnt/WideOpen-2/Archive/Clients/Long-running-projects-2019-2024:/media/nas3:ro", "/mnt/tank/renders:/uploads/renders"],
+                    "mem_limit": "3g", "cpus": "2.0"] as [String: Any]]]
+                TrueNASClient.fake = { (method: String, _: [Any]) -> [String: Any] in
+                    switch method {
+                    case "auth.login_with_api_key": return ["result": true]
+                    case "system.version": return ["result": "25.10.0"]
+                    case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "tank/apps/pluck-review", "tank/renders", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025", "WideOpen-2/Archive/Clients/Long-running-projects-2019-2024"].map { ["id": $0] }]
+                    case "app.query": return ["result": [["name": "pluck-review", "state": "RUNNING"]]]
+                    case "app.config": return ["result": compose]
+                    default: return ["result": NSNull()]
+                    }
+                }
+                panelInPage = view == "pairagain" ? AnyView(DeliverPairAgainSheet(host: sample)) : AnyView(ReviewTrueNASSetupSheet(editing: sample))
+                nav.deliver = .inbox
             case "backup", "hostsheet":
                 let sample = Deliver.Host(name: "Office NAS", kind: .nas, address: "192.0.2.10:8790", version: "0.3.0", protocol: 3)
                 panelInPage = view == "backup" ? AnyView(DeliverBackupSheet(main: sample)) : AnyView(DeliverHostSheet(host: sample))
+                nav.deliver = .inbox
+            case "invite":
+                // Invite a Teammate with two teammates paired (a stand-in server answering invite and devices).
+                let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), day: TimeInterval = 86_400
+                let iso = { (ago: TimeInterval) in ISO8601DateFormatter().string(from: .now.addingTimeInterval(-ago)) }
+                let link = PrivateNetwork.Invitation(way: .reviewHost(node: String(repeating: "a1", count: 32), relay: nil, expires: .now.addingTimeInterval(900),
+                                                                     pin: fingerprint, lan: "192.0.2.10:8790", role: "mac"), name: "Studio NAS", code: "ABCD-EFGH-JKMN").link?.absoluteString ?? ""
+                ReviewHostClient.fakeFingerprint = fingerprint
+                ReviewHostClient.fake = { request, _ in
+                    switch request["op"] as? String {
+                    case "invite": return ["link": link, "expires": ISO8601DateFormatter().string(from: .now.addingTimeInterval(900)), "code": "ABCD-EFGH-JKMN"]
+                    case "devices": return ["devices": [
+                        ["id": "d1", "name": "Edit Suite iMac", "role": "mac", "added": iso(12 * day), "lastSeen": iso(600), "via": "lan"],
+                        ["id": "d2", "name": "MacBook Pro (Colour)", "role": "mac", "added": iso(3 * day), "lastSeen": iso(2 * day), "via": "iroh"],
+                        ["id": "b1", "name": "Backup NAS", "role": "backup", "added": iso(20 * day), "lastSeen": iso(60)]]]
+                    default: return ["ok": true]
+                    }
+                }
+                if let host = ReviewPublish.shared.addNAS(name: "Studio NAS", address: "studio-nas.test:8790", pairing: "pluck-host:\(DeliverKeys.base64url(DeliverKeys.random(32)))@\(fingerprint)") {
+                    panelInPage = AnyView(DeliverInviteSheet(host: host))
+                }
                 nav.deliver = .inbox
             case "pairing":
                 let invitation = PrivateNetwork.Invitation(way: .reviewHost(node: String(repeating: "a1", count: 32), relay: nil, expires: .now.addingTimeInterval(900),
@@ -260,7 +354,8 @@ struct DeliverSidebar: View {
             }
         }
         .padding(10)
-        .sheet(isPresented: Binding(get: { pairing.pending != nil || pairing.askMove != nil }, set: { if !$0 { pairing.pending = nil; pairing.askMove = nil } })) {
+        .sheet(isPresented: Binding(get: { pairing.showing && !pairing.inline },
+                                    set: { if !$0 { pairing.pending = nil; pairing.askMove = nil; pairing.unreadable = false } })) {
             DeliverPairingSheet()
         }
         .sheet(item: Binding(get: { request.scope.map(DeliverShareTarget.init) }, set: { request.scope = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
@@ -572,6 +667,7 @@ struct DeliverLinkRow: View {
     @State private var qr = false
     @State private var reopening = false
     @State private var deleting = false
+    @State private var renewing = false
 
     /// The helper's room state: an always-on host serves it (standby here), or this Mac does.
     private var served: String? {
@@ -642,6 +738,9 @@ struct DeliverLinkRow: View {
         .sheet(isPresented: $reopening) {
             DeliverDeadlineSheet(title: "Reopen", initial: link.deadline) { DeliverDeadlines.shared.reopen(link.id, deadline: $0) }
         }
+        .confirmationDialog("Make a new, shorter link?", isPresented: $renewing) {
+            Button("Make a New Link") { store.renew(link.id) }
+        } message: { Text("The old link stops working. Send the new one to everyone who should still see this.") }
         .confirmationDialog("Delete this link and its data?", isPresented: $deleting) {
             Button("Delete", role: .destructive) { let id = link.id; Task { await DeliverLink.shared.deleteLink(id) } }
         } message: { Text("The link stops working. Its activity log and what pluck.tools keeps for it are deleted. Comments stay.") }
@@ -651,6 +750,7 @@ struct DeliverLinkRow: View {
         Menu {
             Button(link.isPaused ? "Resume" : "Pause") { store.updateLink(link.id) { $0.paused = $0.isPaused ? nil : true } }
             Button("Duplicate") { _ = try? store.duplicate(link.id) }
+            if store.code(link.id) == nil, store.key(link.id) != nil { Button("Make a New Link…") { renewing = true } }
             Button(qr ? "Hide QR Code" : "QR Code") { qr.toggle() }
             if let url = store.url(link) { Button("Email…") { DeliverLinkShare.email(link, url: url) } }
             Button("Send Update…") { DeliverLinkRow.sendUpdate(link) }

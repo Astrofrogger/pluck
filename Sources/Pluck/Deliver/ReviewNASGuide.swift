@@ -187,14 +187,19 @@ struct ReviewNASGuideSheet: View {
                         }
                     }
                     StudioField(label: "Pairing line") {
-                        TextField("Only if the NAS made its own key: pluck-host:…", text: $pairing).settingField(width: 300)
+                        TextField("pluck-host:…", text: $pairing).settingField(width: 300)
                     }
+                    Text("Leave this empty when you installed the YAML above as it is: Pluck made its key. If the NAS made its own key (you changed PLUCK_HOST_KEY, or the server was set up another way), its log prints a line starting with pluck-host:. Paste that whole line here.")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true).padding(.leading, 120)
                     if let unconfirmed {
                         StudioField(label: "Fingerprint") {
                             Text(verbatim: unconfirmed.fingerprint).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(Design.Studio.text)
                                 .textSelection(.enabled).frame(width: 300, alignment: .leading)
                             Button("Matches the Log") {
-                                ReviewPublish.shared.pinned(unconfirmed.fingerprint, host: unconfirmed.host)
+                                if let why = ReviewPublish.shared.pinned(unconfirmed.fingerprint, host: unconfirmed.host, address: "\(choices.lanAddress):\(choices.syncPort)") {
+                                    state = why
+                                    return
+                                }
                                 self.unconfirmed = nil
                                 Task { await connect() }
                             }.buttonStyle(StudioFlatButtonStyle(prominent: true))
@@ -225,6 +230,7 @@ struct ReviewNASGuideSheet: View {
         let address = "\(choices.lanAddress):\(choices.syncPort)"
         // (Again after confirming: the same host, now pinned.)
         let known = publish.hosts.first { $0.kind == .nas && $0.address == address && $0.pin != nil }
+        if let known, !pairing.isEmpty { publish.repair(known.id, pairing: pairing) }
         guard let host = known ?? publish.addNAS(name: name, address: address, pairing: pairing.isEmpty ? choices.key : pairing) else {
             state = String(localized: "That pairing line isn’t complete.")
             return
@@ -240,6 +246,8 @@ struct ReviewNASGuideSheet: View {
         } catch let error as ReviewHostClient.Unconfirmed where !error.fingerprint.isEmpty {
             unconfirmed = (host.id, error.fingerprint)
             state = String(localized: "Compare the fingerprint with the NAS’s log.")
+        } catch let failure as Deliver.Failure where failure.code != "internal" {
+            state = ReviewHostClient.problem(failure)
         } catch {
             state = String(localized: "The NAS didn’t answer. Is the app running?")
         }

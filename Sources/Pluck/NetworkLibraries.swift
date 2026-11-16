@@ -241,29 +241,17 @@ private enum Keychain {
     /// Test copies (screenshot mode) keep their own codes, so they never read the real ones.
     private static var service: String { ScreenshotMode.scene == nil ? "Pluck Library" : "Pluck Library (test)" }
 
-    private static func query(_ name: String) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: name]
-    }
-
     /// Test copies keep codes in memory: a rebuilt test app touching the login keychain makes macOS ask for the password.
     nonisolated(unsafe) private static var memory: [String: String] = [:]
 
     static func save(_ code: String, for name: String) {
         if ScreenshotMode.scene != nil { memory[name] = code; return }
-        SecItemDelete(query(name) as CFDictionary)
-        var item = query(name)
-        item[kSecValueData as String] = Data(code.utf8)
-        SecItemAdd(item as CFDictionary, nil)
+        PluckVault.shared.save(Data(code.utf8), as: name, service: service)
     }
 
     static func code(for name: String) -> String? {
         if ScreenshotMode.scene != nil { return memory[name] }
-        var item = query(name)
-        item[kSecReturnData as String] = true
-        item[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: AnyObject?
-        guard SecItemCopyMatching(item as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return String(decoding: data, as: UTF8.self)
+        return PluckVault.shared.load(name, service: service).map { String(decoding: $0, as: UTF8.self) }
     }
 }
 
