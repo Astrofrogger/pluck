@@ -38,6 +38,8 @@ struct DeliverHostSheet: View {
     @State private var devices: [[String: Any]] = []
     @State private var backups: [[String: Any]] = []
     @State private var mainReachable = true
+    @State private var uplink: Int?          // this host's measured upload, Mbit/s (nil: not measured)
+    @State private var preferFastest = false // the owner's "Prefer fastest even if lighter" (kept on the host)
     @State private var invite: (link: String, expires: Date)?
     @State private var backup = false
     @State private var problem: String?
@@ -71,6 +73,24 @@ struct DeliverHostSheet: View {
                 if devices.isEmpty { Text("None yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
             }
             .studioBox()
+            if let served = servedBy {
+                Text(verbatim: served).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if backups.contains(where: { ($0["replica"] as? [String: Any])?["quality"] as? String != "same" }) {
+                SettingSwitch("Prefer fastest even if lighter", isOn: Binding(get: { preferFastest }, set: { on in
+                    preferFastest = on
+                    Task {
+                        // What the host kept; an error or "unknown op" (an older host) turns the switch back.
+                        if let kept = (try? await ReviewHostClient.ask(host, ["op": "prefer-fastest", "on": on]))?["preferFastest"] as? Bool {
+                            preferFastest = kept
+                            problem = nil
+                        } else {
+                            preferFastest = !on
+                            problem = String(localized: "\(host.name) couldn’t change this. Update it, then try again.")
+                        }
+                    }
+                })).studioBox()
+            }
             if let invite {
                 Text("Anyone with this link in the next 15 minutes can browse your NAS media").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
                 HStack {
@@ -106,16 +126,38 @@ struct DeliverHostSheet: View {
             if role == "backup", let node = device["node"] as? String { Text(verbatim: DeliverBackup.checkCode(node)).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.textQuiet) }
             if serving { StudioChip(text: Text("Serving now"), colour: Design.Studio.good, tinted: true) }
             Spacer()
+            if role == "backup", let up = Self.uplink(backups.first { $0["id"] as? String == id }) {
+                Text("\(up) Mbit/s up").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
             if let seen { Text(seen, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
             if id != host.device { Button("Remove") { Task { await remove(id) } }.settingButton() }
         }
         .padding(.horizontal, 12).frame(height: 36)
     }
 
+    private static func uplink(_ backup: [String: Any]?) -> Int? { (backup?["replica"] as? [String: Any])?["uplinkMbps"] as? Int }
+
+    /// Which server clients get, by the Room's rule (rules.ts `pick`): a backup uploading over 1.2 × this host's speed
+    /// whose copies are this host's own quality (or any, with Prefer fastest); else this host. nil until something's measured.
+    private var servedBy: String? {
+        let fast = backups.filter { backup in
+            guard let up = Self.uplink(backup), let main = uplink, Double(up) > Double(main) * 1.2 else { return false }
+            return (backup["replica"] as? [String: Any])?["quality"] as? String == "same" || preferFastest
+        }.max { (Self.uplink($0) ?? 0) < (Self.uplink($1) ?? 0) }
+        if let fast, let up = Self.uplink(fast) {
+            return String(localized: "Clients are served from \(fast["name"] as? String ?? "") (\(up) Mbit/s up)")
+        }
+        guard let uplink else { return nil }
+        return String(localized: "Clients are served from \(host.name) (\(uplink) Mbit/s up)")
+    }
+
     private func load() async {
         do {
             devices = try await ReviewHostClient.ask(host, ["op": "devices"])["devices"] as? [[String: Any]] ?? []
-            backups = (try? await ReviewHostClient.ask(host, ["op": "status"]))?["backups"] as? [[String: Any]] ?? []
+            let status = try? await ReviewHostClient.ask(host, ["op": "status"])
+            backups = status?["backups"] as? [[String: Any]] ?? []
+            uplink = status?["uplinkMbps"] as? Int
+            preferFastest = status?["preferFastest"] as? Bool ?? false
             mainReachable = true
         } catch {
             mainReachable = false

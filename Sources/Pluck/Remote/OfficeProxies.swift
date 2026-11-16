@@ -11,12 +11,17 @@ final class OfficeProxies {
     static let shared = OfficeProxies()
     private static let requestsKey = "officeProxyRequests"
     private static let folderKey = "officeProxyFolder"
-    /// Proxies nobody fetched from for this long are removed.
-    private static let keepFor: TimeInterval = 21 * 86_400
+    private static let keptKey = "officeProxyKept"
+    private static let usedKey = "officeProxyUsed"
+    /// Days proxies in Pluck's own folder stay unused before they go (0: never). Proxies → Delete unused after.
+    static let keepDaysKey = "editAnywhereProxyKeepDays"
+    static var keepDays: Int { UserDefaults.standard.object(forKey: keepDaysKey) as? Int ?? 21 }
 
     enum Format: String, Codable, CaseIterable, Identifiable {
         /// H.265 at up to 1080p: small enough to fetch over the internet.
         case light
+        /// H.265 at up to 720p, about 3 Mbit/s: streamed instead of Light when the link is too slow for that.
+        case stream
         /// ProRes Proxy at up to 1080p: bigger, and the smoothest to edit with.
         case prores
         /// The footage itself, unconverted (to finish at full quality, or grade, elsewhere).
@@ -27,6 +32,7 @@ final class OfficeProxies {
         var label: String {
             switch self {
             case .light: String(localized: "Light (H.265)")
+            case .stream: String(localized: "Streaming (H.265, 720p)")
             case .prores: String(localized: "ProRes Proxy")
             case .original: String(localized: "Originals")
             }
@@ -35,8 +41,38 @@ final class OfficeProxies {
         var detail: String {
             switch self {
             case .light: String(localized: "About 3 GB an hour of footage. Best over the internet.")
+            case .stream: String(localized: "About 1.4 GB an hour, for slow connections. Streaming uses them when Light would stutter.")
             case .prores: String(localized: "About 20 GB an hour, and the smoothest to edit with.")
             case .original: String(localized: "The footage itself, at full quality, unconverted.")
+            }
+        }
+
+        /// The formats made here (in the order the Proxies tab lists them).
+        static let made: [Format] = [.light, .stream, .prores]
+
+        /// About how many bytes a second of footage takes (what encode asks of the encoder; originals vary).
+        var bytesPerSecond: Double {
+            switch self {
+            case .light: (8_000_000 + 192_000) / 8
+            case .stream: (3_000_000 + 128_000) / 8
+            case .prores, .original: 20e9 / 3600
+            }
+        }
+
+        /// The tallest picture it's made at.
+        var height: Int { self == .stream ? 720 : 1080 }
+
+        /// A saved list holding formats goes in two: the streaming ones under `key + "Stream"`. Older builds can't read
+        /// that format, so one in the main list would make them lose the whole list (and save it over as empty).
+        static func save<T: Encodable>(_ items: [T], key: String, format: (T) -> Format) {
+            for (name, stream) in [(key, false), (key + "Stream", true)] {
+                if let data = try? JSONEncoder().encode(items.filter { (format($0) == .stream) == stream }) { UserDefaults.standard.set(data, forKey: name) }
+            }
+        }
+
+        static func load<T: Decodable>(_ key: String) -> [T] {
+            [key, key + "Stream"].flatMap { name in
+                UserDefaults.standard.data(forKey: name).flatMap { try? JSONDecoder().decode([T].self, from: $0) } ?? []
             }
         }
     }
@@ -58,6 +94,12 @@ final class OfficeProxies {
     private(set) var problem: String?
     private(set) var progress = 0.0
     private(set) var queued = 0
+    /// Proxy folders of folders no longer shared (they stay until deleted): path → [share id, folder name, format].
+    @ObservationIgnored private var kept: [String: [String]] = [:]
+    /// When each share's proxies in a format were last fetched or listed ("<id>-<format>"), whoever asked them made.
+    @ObservationIgnored private var lastUsed: [String: Date] = [:]
+    /// The whole folder being made now (Stop drops it).
+    @ObservationIgnored private var making: Request?
 
     @ObservationIgnored weak var manager: DownloadManager?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -71,17 +113,16 @@ final class OfficeProxies {
 
     private init() {
         chosenFolder = UserDefaults.standard.string(forKey: Self.folderKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
-        if let data = UserDefaults.standard.data(forKey: Self.requestsKey),
-           let saved = try? JSONDecoder().decode([Request].self, from: data) {
-            requests = saved
-        }
+        requests = Format.load(Self.requestsKey)
+        kept = UserDefaults.standard.dictionary(forKey: Self.keptKey) as? [String: [String]] ?? [:]
+        lastUsed = UserDefaults.standard.dictionary(forKey: Self.usedKey) as? [String: Date] ?? [:]
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(requests) { UserDefaults.standard.set(data, forKey: Self.requestsKey) }
+        Format.save(requests, key: Self.requestsKey) { $0.format }
     }
 
-    static var root: URL {
+    nonisolated static var root: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Pluck/Edit Anywhere/Proxies", isDirectory: true)
     }
@@ -148,7 +189,11 @@ final class OfficeProxies {
         guard let chosenFolder, let footage = try? folder(id) else {
             return Self.root.appendingPathComponent("\(id)-\(format.rawValue)", isDirectory: true)
         }
-        let suffix = format == .light ? String(localized: "Proxies (H.265)") : String(localized: "Proxies (ProRes)")
+        let suffix = switch format {
+        case .light: String(localized: "Proxies (H.265)")
+        case .stream: String(localized: "Proxies (H.265 720p)")
+        default: String(localized: "Proxies (ProRes)")
+        }
         var name = Folders.sanitize(footage.lastPathComponent) + " – " + suffix
         // Two shared folders with the same name each get their own.
         if OfficeArchive.shared.folders.filter({ $0.lastPathComponent == footage.lastPathComponent }).count > 1 {
@@ -186,12 +231,133 @@ final class OfficeProxies {
         Set(Dictionary(grouping: paths) { ($0 as NSString).deletingPathExtension.lowercased() }.values.filter { $0.count > 1 }.joined())
     }
 
-    /// A share's proxies in this format were fetched or listed: kept from tidying for another three weeks.
+    /// A share's proxies in this format were fetched or listed: kept from tidying for another `keepDays`.
     func used(_ id: String, format: Format) {
-        guard let index = requests.firstIndex(where: { $0.folder == id && $0.format == format }),
-              Date.now.timeIntervalSince(requests[index].lastUsed) > 3600 else { return }
-        requests[index].lastUsed = .now
+        let key = "\(id)-\(format.rawValue)"
+        guard Date.now.timeIntervalSince(lastUsed[key] ?? .distantPast) > 3600 else { return }
+        lastUsed[key] = .now
+        UserDefaults.standard.set(lastUsed, forKey: Self.usedKey)
+        if let index = requests.firstIndex(where: { $0.folder == id && $0.format == format }) {
+            requests[index].lastUsed = .now
+            save()
+        }
+    }
+
+    // MARK: - Made here
+
+    /// One folder's proxies in one format, as Proxies → Made lists them.
+    struct Made: Identifiable, Hashable {
+        var url: URL
+        var name: String
+        var format: Format
+        var share: String
+        var clips: Int
+        var bytes: Int64
+        var lastUsed: Date?
+        var id: String { url.path }
+    }
+
+    /// Keeps a share's proxy folders listed after it stops being shared (call before it goes).
+    func remember(_ folder: URL) {
+        let id = Self.id(folder)
+        for format in Format.made {
+            kept[directory(id, format: format).path] = [id, folder.lastPathComponent, format.rawValue]
+        }
+        UserDefaults.standard.set(kept, forKey: Self.keptKey)
+    }
+
+    /// Snapshot scenes only: shown instead of what's on disk.
+    @ObservationIgnored var sampleMade: [Made]?
+
+    /// The proxies made on this Mac, per folder of footage and format, counted on disk (nil when that takes over
+    /// `timeout`: a chosen folder on a NAS that hangs).
+    func made(timeout: Double = 20) async -> [Made]? {
+        if let sampleMade, ScreenshotMode.scene != nil { return sampleMade }
+        var places = kept.compactMapValues { info in info.count == 3 ? Format(rawValue: info[2]).map { (info[0], info[1], $0) } : nil }
+        for folder in OfficeArchive.shared.folders {
+            let id = Self.id(folder)
+            for format in Format.made { places[directory(id, format: format).path] = (id, folder.lastPathComponent, format) }
+        }
+        // Every folder in Pluck's own ("<id>-<format>"), also from before a folder was chosen.
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: Self.root.path)) ?? [] {
+            guard let dash = name.lastIndex(of: "-"), let format = Format(rawValue: String(name[name.index(after: dash)...])) else { continue }
+            let id = String(name[..<dash]), path = Self.root.appendingPathComponent(name, isDirectory: true).path
+            if places[path] == nil {
+                places[path] = (id, OfficeArchive.shared.folders.first { Self.id($0) == id }?.lastPathComponent
+                                    ?? kept.values.first { $0.first == id && $0.count == 3 }?[1] ?? String(localized: "A removed folder"), format)
+            }
+        }
+        var used = lastUsed
+        for request in requests { used["\(request.folder)-\(request.format.rawValue)"] = max(used["\(request.folder)-\(request.format.rawValue)"] ?? .distantPast, request.lastUsed) }
+        let (frozen, looked) = (used, places)
+        let found = await RemoteShares.withTimeout("officeProxies.made", nil, timeout: timeout) { () -> [Made]? in
+            looked.compactMap { path, info in
+                let url = URL(fileURLWithPath: path, isDirectory: true)
+                var clips = 0, bytes: Int64 = 0, newest: Date?
+                let items = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+                                                           options: [.skipsHiddenFiles])
+                while let file = items?.nextObject() as? URL {
+                    guard file.pathExtension == "mov", !file.lastPathComponent.hasSuffix(".part.mov"),
+                          let values = try? file.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { continue }
+                    clips += 1
+                    bytes += Int64(values.fileSize ?? 0)
+                    if let date = values.contentModificationDate, date > newest ?? .distantPast { newest = date }
+                }
+                guard clips > 0 else { return nil }
+                return Made(url: url, name: info.1, format: info.2, share: info.0, clips: clips, bytes: bytes,
+                            lastUsed: frozen["\(info.0)-\(info.2.rawValue)"] ?? newest)
+            }
+        }
+        guard let found = found ?? nil else { return nil }
+        return found.sorted { ($0.name, $0.format.rawValue) < ($1.name, $1.format.rawValue) }
+    }
+
+    /// Whether a folder is in Pluck's own proxies folder (the owner's chosen one is theirs: never tidied or removed).
+    nonisolated static func isOwn(_ url: URL) -> Bool {
+        url.standardizedFileURL.path.hasPrefix(root.standardizedFileURL.path + "/")
+    }
+
+    /// The watched folders that keep making these proxies (Delete offers to stop them too).
+    func watches(of made: Made) -> [(folder: URL, watch: RemoteShares.Watch)] {
+        OfficeArchive.shared.folders.filter { Self.id($0) == made.share }.flatMap { folder in
+            (RemoteShares.shared.share(folder)?.watch ?? []).filter { $0.format == made.format }.map { (folder, $0) }
+        }
+    }
+
+    /// Deletes one folder's proxies (paired Macs can ask for them again): only the proxies counted, to the Trash (`trash`)
+    /// or gone; the folder itself only when that leaves it empty and it's Pluck's own.
+    /// (Gives back where the trashed files went.)
+    @discardableResult
+    func delete(_ made: Made, trash: Bool = true) async -> [URL] {
+        let url = made.url
+        let trashed = await Task.detached { () -> [URL] in
+            let fm = FileManager.default
+            var trashed: [URL] = []
+            let items = fm.enumerator(at: url, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])
+            while let file = items?.nextObject() as? URL {
+                guard file.pathExtension == "mov", !file.lastPathComponent.hasSuffix(".part.mov") else { continue }
+                if trash {
+                    var went: NSURL?
+                    if (try? fm.trashItem(at: file, resultingItemURL: &went)) != nil, let went { trashed.append(went as URL) }
+                } else {
+                    try? fm.removeItem(at: file)
+                }
+            }
+            guard Self.isOwn(url) else { return trashed }
+            let left = fm.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey])
+            while let file = left?.nextObject() as? URL {
+                if file.lastPathComponent != ".DS_Store", (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true { return trashed }
+            }
+            try? fm.removeItem(at: url)
+            return trashed
+        }.value
+        kept[url.path] = nil
+        UserDefaults.standard.set(kept, forKey: Self.keptKey)
+        lastUsed["\(made.share)-\(made.format.rawValue)"] = nil
+        UserDefaults.standard.set(lastUsed, forKey: Self.usedKey)
+        requests.removeAll { $0.folder == made.share && $0.format == made.format }
         save()
+        return trashed
     }
 
     // MARK: - For paired Macs
@@ -264,8 +430,8 @@ final class OfficeProxies {
     func run() {
         guard task == nil, !requests.isEmpty else { return }
         task = Task {
-            defer { task = nil; working = nil; queued = 0 }
-            tidy()
+            defer { task = nil; working = nil; queued = 0; making = nil }
+            await tidy()
             // Without ffprobe a proxy can't be checked (its container), so none would be made: say so.
             guard let ffmpeg = manager?.tool("ffmpeg"), let ffprobe = manager?.tool("ffprobe") else {
                 problem = String(localized: "ffmpeg isn’t fully installed on the host Mac, so proxies can’t be made.")
@@ -279,7 +445,10 @@ final class OfficeProxies {
                 for request in requests {
                     guard let folder = try? folder(request.folder), let files = try? await files(in: request.folder) else { continue }
                     let missing = files.filter { !FileManager.default.fileExists(atPath: proxy($0, folder: request.folder, format: request.format).path) }
-                    for (number, relative) in missing.enumerated() where !Task.isCancelled {
+                    making = request
+                    // (Dropped by Stop: it ends before its next file.)
+                    for (number, relative) in missing.enumerated() where !Task.isCancelled
+                        && requests.contains(where: { $0.folder == request.folder && $0.format == request.format }) {
                         while OfficeRenderServer.shared.jobs.contains(where: { $0.state == .rendering }), !Task.isCancelled {
                             try? await Task.sleep(for: .seconds(20))
                         }
@@ -299,26 +468,28 @@ final class OfficeProxies {
         }
     }
 
+    /// Pauses (the server stopping); the requests stay and carry on with the next run.
     func stop() {
         task?.cancel()
     }
 
-    /// Proxies nobody asked about for three weeks go, with their request (never while a proxy request or
-    /// watched folder of RemoteProxyJobs still uses them: those share the folder).
-    private func tidy() {
-        let jobs = RemoteProxyJobs.shared.requests
-        let old = requests.filter { request in
-            Date.now.timeIntervalSince(request.lastUsed) > Self.keepFor
-                && !jobs.contains { $0.share == request.folder && $0.format == request.format }
-                && !OfficeArchive.shared.folders.contains { Self.id($0) == request.folder
-                    && RemoteShares.shared.share($0)?.watch.contains { $0.format == request.format } == true }
-        }
-        // Only Pluck's own folder is tidied; a chosen folder is the owner's to keep.
-        for request in old {
-            try? FileManager.default.removeItem(at: Self.root.appendingPathComponent("\(request.folder)-\(request.format.rawValue)"))
-        }
-        requests.removeAll { old.contains($0) }
+    /// Stop in the Proxies tab: the whole folder being made now is dropped (before its next file), so it doesn't start again.
+    func stopMaking() {
+        guard let making else { return }
+        requests.removeAll { $0.folder == making.folder && $0.format == making.format }
         save()
+    }
+
+    /// Every proxy folder in Pluck's own folder (whole folders, selections, watches, streaming stand-ins) that nobody
+    /// fetched or listed for `keepDays` goes; never one still being made or kept up to date, never the owner's chosen folder.
+    func tidy() async {
+        guard Self.keepDays > 0, let made = await made() else { return }
+        let limit = Date.now.addingTimeInterval(-Double(Self.keepDays) * 86_400)
+        let jobs = RemoteProxyJobs.shared.requests
+        for item in made where Self.isOwn(item.url) && (item.lastUsed ?? .distantPast) < limit && watches(of: item).isEmpty
+            && !jobs.contains(where: { $0.share == item.share && $0.format == item.format && ($0.watch || $0.state == .queued || $0.state == .making) }) {
+            await delete(item, trash: false)
+        }
     }
 
     /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.
@@ -339,7 +510,7 @@ final class OfficeProxies {
         return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
     }
 
-    /// One proxy: same frame rate, length and timecode as the original, at up to 1080p, written
+    /// One proxy: same frame rate, length and timecode as the original, at up to 1080p (720p to stream), written
     /// next to its final name (a name of its own) and moved there when it's complete.
     nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
@@ -350,7 +521,7 @@ final class OfficeProxies {
             guard let demuxer = demuxer(container) else { return false }
             var common = ["-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-f", demuxer, "-i", source.path,
                           "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
-                          "-vf", "scale=-2:'min(1080,ih)'"]
+                          "-vf", "scale=-2:'min(\(format.height),ih)'"]
             if let timecode { common += ["-timecode", timecode] }
             // Resolve and editors know a clip by its reel: the original's, else its file name.
             common += ["-metadata:s:v:0", "reel_name=" + (reel ?? source.deletingPathExtension().lastPathComponent)]
@@ -358,6 +529,9 @@ final class OfficeProxies {
             case .light:
                 [["-c:v", "hevc_videotoolbox", "-b:v", "8M", "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"],
                  ["-c:v", "h264_videotoolbox", "-b:v", "10M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k"]]
+            case .stream:
+                [["-c:v", "hevc_videotoolbox", "-b:v", "3M", "-tag:v", "hvc1", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k"],
+                 ["-c:v", "h264_videotoolbox", "-b:v", "4M", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k"]]
             case .original: []
             case .prores:
                 [["-c:v", "prores_videotoolbox", "-profile:v", "proxy", "-c:a", "pcm_s16le"],

@@ -20,7 +20,7 @@ final class OfficeInbox {
     private(set) var receiving: String?
     private(set) var progress = 0.0
     /// The last files that arrived (newest first), for the host to see.
-    private(set) var recent: [(name: String, from: String, at: Date)] = []
+    private(set) var recent: [(name: String, from: String, at: Date, url: URL)] = []
 
     static var defaultFolder: URL {
         FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask)[0].appendingPathComponent("Pluck Inbox", isDirectory: true)
@@ -42,6 +42,12 @@ final class OfficeInbox {
     }
     /// A real path in the inbox (never shared content, whatever folder is shared).
     nonisolated static func holds(_ path: String) -> Bool { (path + "/").hasPrefix(realFolder + "/") }
+
+    /// Snapshot scenes only: these arrived files shown.
+    func showSample(_ sample: [(name: String, from: String, at: Date, url: URL)]) {
+        guard ScreenshotMode.scene != nil else { return }
+        recent = sample
+    }
 
     func choose(_ folder: URL?) throws {
         if let folder {
@@ -172,7 +178,7 @@ final class OfficeInbox {
             try fm.moveItem(at: partial, to: target)
             try? FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: modified)], ofItemAtPath: target.path)
             receiving = nil
-            recent.insert((target.lastPathComponent, sender ?? device, .now), at: 0)
+            recent.insert((target.lastPathComponent, sender ?? device, .now, target), at: 0)
             if recent.count > 20 { recent.removeLast(recent.count - 20) }
         }
         return now

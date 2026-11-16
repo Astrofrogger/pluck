@@ -347,6 +347,8 @@ final class NASFinderSource: FinderSource {
     /// "Share for review…" from the right-click menu (Deliver › Browse sets it).
     @ObservationIgnored var share: (([URL]) -> Void)?
 
+    var rootName: String? { host.name }
+
     init(host: Deliver.Host) {
         self.host = host
         root = URL(fileURLWithPath: "/.pluck-nas", isDirectory: true).appendingPathComponent(host.id.uuidString, isDirectory: true)

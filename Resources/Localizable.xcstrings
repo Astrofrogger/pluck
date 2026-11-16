@@ -1399,7 +1399,9 @@
     "#RRGGBB": {
       "shouldTranslate": false
     },
-    "%": {},
+    "%": {
+      "shouldTranslate": false
+    },
     "%@": {
       "shouldTranslate": false
     },
@@ -2750,6 +2752,64 @@
         }
       }
     },
+    "%@ couldn’t change this. Update it, then try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ konnte das nicht ändern. Aktualisiere den Server und versuche es dann erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ no pudo cambiar esto. Actualízalo y vuelve a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ n’a pas pu modifier ce réglage. Mettez-le à jour, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ non ha potuto modificarlo. Aggiornalo, poi riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ はこれを変更できませんでした。アップデートしてからもう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 이 설정을 변경할 수 없습니다. 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kon dit niet wijzigen. Werk hem bij en probeer het opnieuw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ não conseguiu mudar isso. Atualize-o e tente novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 无法更改此设置。请先更新，然后再试一次。"
+          }
+        }
+      }
+    },
     "%@ couldn’t go to the Trash.": {
       "localizations": {
         "de": {
@@ -3273,6 +3333,7 @@
       }
     },
     "%@ from %@, %@": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -6964,7 +7025,9 @@
         }
       }
     },
-    "%@ → …": {},
+    "%@ → …": {
+      "shouldTranslate": false
+    },
     "%@/s": {
       "localizations": {
         "de": {
@@ -8626,6 +8689,64 @@
         }
       }
     },
+    "%lld Mbit/s up": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s Upload"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s de subida"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s montant"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s in upload"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップロード %lld Mbit/s"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "업로드 %lld Mbit/s"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s upload"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld Mbit/s de upload"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上传 %lld Mbit/s"
+          }
+        }
+      }
+    },
     "%lld added": {
       "localizations": {
         "de": {
@@ -9795,6 +9916,7 @@
       }
     },
     "%lld failed": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -10085,6 +10207,7 @@
       }
     },
     "%lld files searchable.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -11129,6 +11252,9 @@
         }
       }
     },
+    "%lld ms": {
+      "shouldTranslate": false
+    },
     "%lld names are taken or can’t be used.": {
       "localizations": {
         "de": {
@@ -11672,6 +11798,7 @@
       }
     },
     "%lld of %lld files searchable; the host Mac is still looking at the rest.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -11910,6 +12037,7 @@
       }
     },
     "%lld of %lld searchable": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -12633,6 +12761,7 @@
       "shouldTranslate": false
     },
     "%lld ready": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -14199,7 +14328,9 @@
         }
       }
     },
-    "04:00": {},
+    "04:00": {
+      "shouldTranslate": false
+    },
     "0:00": {
       "shouldTranslate": false
     },
@@ -14492,6 +14623,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "1 秒"
+          }
+        }
+      }
+    },
+    "1 week": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 Woche"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 semana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 semaine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 settimana"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1週間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1주"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 week"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 semana"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 周"
           }
         }
       }
@@ -15019,8 +15208,12 @@
         }
       }
     },
-    "192.0.2.10": {},
-    "192.0.2.20": {},
+    "192.0.2.10": {
+      "shouldTranslate": false
+    },
+    "192.0.2.20": {
+      "shouldTranslate": false
+    },
     "1:1 Square": {
       "localizations": {
         "de": {
@@ -15256,7 +15449,9 @@
         }
       }
     },
-    "25, 50": {},
+    "25, 50": {
+      "shouldTranslate": false
+    },
     "3 days": {
       "localizations": {
         "de": {
@@ -15311,6 +15506,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "3 天"
+          }
+        }
+      }
+    },
+    "3 months": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 Monate"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 meses"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 mois"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 mesi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3か月"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3개월"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 maanden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 meses"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 个月"
+          }
+        }
+      }
+    },
+    "3 weeks": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 Wochen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 semanas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 semaines"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 settimane"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3週間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3주"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 weken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 semanas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "3 周"
           }
         }
       }
@@ -15971,7 +16282,9 @@
         }
       }
     },
-    "8790": {},
+    "8790": {
+      "shouldTranslate": false
+    },
     "9:16 Vertical": {
       "localizations": {
         "de": {
@@ -20467,6 +20780,64 @@
         }
       }
     },
+    "A paired Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein gekoppelter Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac vinculado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac jumelé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un Mac abbinato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een gekoppelde Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um Mac pareado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "一台已配对的 Mac"
+          }
+        }
+      }
+    },
     "A photo Pluck hasn’t edited starts from the Lightroom edit in its sidecar (close, not the same: the engines differ)": {
       "localizations": {
         "de": {
@@ -21224,6 +21595,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "真正的 RAW 显影器"
+          }
+        }
+      }
+    },
+    "A removed folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein entfernter Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una carpeta eliminada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dossier retiré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una cartella rimossa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除されたフォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "제거된 폴더"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een verwijderde map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pasta removida"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已移除的文件夹"
           }
         }
       }
@@ -22685,6 +23114,64 @@
         }
       }
     },
+    "A whole folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein ganzer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una carpeta entera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un dossier entier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un’intera cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダ全体"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 전체"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Een hele map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pasta inteira"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "整个文件夹"
+          }
+        }
+      }
+    },
     "AI": {
       "localizations": {
         "de": {
@@ -23556,6 +24043,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "主题（可选）：新大楼…"
+          }
+        }
+      }
+    },
+    "About 1.4 GB an hour, for slow connections. Streaming uses them when Light would stutter.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etwa 1,4 GB pro Stunde, für langsame Verbindungen. Beim Streaming werden sie genutzt, wenn „Leicht“ ruckeln würde."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unos 1,4 GB por hora, para conexiones lentas. El streaming las usa cuando «Ligero» se entrecortaría."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Environ 1,4 Go par heure, pour les connexions lentes. Le streaming les utilise quand « Léger » saccaderait."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Circa 1,4 GB all’ora, per connessioni lente. Lo streaming le usa quando “Leggero” andrebbe a scatti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1時間あたり約1.4 GB、低速な接続向けです。「軽量」だとカクつく場合に、ストリーミングで使われます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "시간당 약 1.4GB, 느린 연결용입니다. ‘가벼움’으로 끊길 때 스트리밍에서 사용합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ongeveer 1,4 GB per uur, voor trage verbindingen. Streaming gebruikt ze als ‘Licht’ zou haperen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca de 1,4 GB por hora, para conexões lentas. O streaming as usa quando “Leve” travaria."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "每小时约 1.4 GB，适用于较慢的连接。当“轻量”会卡顿时，流式播放会使用它们。"
           }
         }
       }
@@ -25888,6 +26433,64 @@
         }
       }
     },
+    "Add a Tailscale access token under Connection first.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge zuerst unter „Verbindung“ ein Tailscale-Zugriffstoken hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero añade un token de acceso de Tailscale en Conexión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez d’abord un jeton d’accès Tailscale dans Connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi prima un token di accesso Tailscale in Connessione."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず「接続」でTailscaleのアクセストークンを追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 ‘연결’에서 Tailscale 액세스 토큰을 추가하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg eerst een Tailscale-toegangstoken toe onder Verbinding."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeiro adicione um token de acesso do Tailscale em Conexão."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在“连接”中添加 Tailscale 访问令牌。"
+          }
+        }
+      }
+    },
     "Add a Title at the Playhead": {
       "localizations": {
         "de": {
@@ -26121,6 +26724,64 @@
         }
       }
     },
+    "Add a folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir una carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter un dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi una cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダを追加"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더 추가"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Map toevoegen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar uma pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加文件夹"
+          }
+        }
+      }
+    },
     "Add a folder and Pluck indexes all its footage and photos.": {
       "extractionState": "stale",
       "localizations": {
@@ -26180,7 +26841,66 @@
         }
       }
     },
+    "Add a folder under Folders first": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge zuerst unter „Ordner“ einen Ordner hinzu"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero añade una carpeta en Carpetas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajoutez d’abord un dossier dans Dossiers"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi prima una cartella in Cartelle"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まず「フォルダ」でフォルダを追加してください"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 ‘폴더’에서 폴더를 추가하세요"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg eerst een map toe onder Mappen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primeiro adicione uma pasta em Pastas"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在“文件夹”中添加文件夹"
+          }
+        }
+      }
+    },
     "Add a folder…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -34494,6 +35214,7 @@
       }
     },
     "Any framing": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -34552,6 +35273,7 @@
       }
     },
     "Any movement": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -36766,6 +37488,7 @@
       }
     },
     "Ask the host Mac to use its own relay (From anywhere) to make it faster.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -36819,6 +37542,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "请让主机 Mac 使用自己的中继（随处），以提高速度。"
+          }
+        }
+      }
+    },
+    "Ask the host Mac to use its own relay to make it faster.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bitte den Host-Mac, ein eigenes Relay zu verwenden, damit es schneller wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pide al Mac anfitrión que use su propio relay para que sea más rápido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demandez au Mac hôte d’utiliser son propre relais pour accélérer la connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi al Mac host di usare un proprio relay per renderla più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト Mac で自分のリレーを使うように依頼すると、高速になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 Mac에서 자체 릴레이를 사용하도록 요청하면 더 빨라집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vraag de host-Mac om een eigen relay te gebruiken om het sneller te maken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peça ao Mac anfitrião para usar o próprio relay para deixar mais rápido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请让主机 Mac 使用自己的中继，以提高速度。"
           }
         }
       }
@@ -55362,7 +56143,66 @@
         }
       }
     },
+    "Choose a folder inside one of the shared folders.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle einen Ordner innerhalb eines der geteilten Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elige una carpeta dentro de una de las carpetas compartidas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choisissez un dossier dans l’un des dossiers partagés."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scegli una cartella all’interno di una delle cartelle condivise."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有フォルダのいずれかの中にあるフォルダを選んでください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 폴더 중 하나 안에 있는 폴더를 선택하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kies een map in een van de gedeelde mappen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escolha uma pasta dentro de uma das pastas compartilhadas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请选择某个共享文件夹内的文件夹。"
+          }
+        }
+      }
+    },
     "Choose a folder inside “%@”.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -60837,6 +61677,70 @@
           "stringUnit": {
             "state": "translated",
             "value": "客户"
+          }
+        }
+      }
+    },
+    "Clients are served from %@ (%lld Mbit/s up)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clients werden von %1$@ bedient (%2$lld Mbit/s Upload)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Clients are served from %1$@ (%2$lld Mbit/s up)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los clientes reciben el servicio desde %1$@ (%2$lld Mbit/s de subida)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les clients sont servis depuis %1$@ (%2$lld Mbit/s montant)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I client sono serviti da %1$@ (%2$lld Mbit/s in upload)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クライアントには %1$@ から配信されます（アップロード %2$lld Mbit/s）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클라이언트는 %1$@에서 제공됩니다(업로드 %2$lld Mbit/s)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clients worden bediend vanaf %1$@ (%2$lld Mbit/s upload)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os clientes são atendidos a partir de %1$@ (%2$lld Mbit/s de upload)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "客户端由 %1$@ 提供服务（上传 %2$lld Mbit/s）"
           }
         }
       }
@@ -66661,6 +67565,7 @@
       }
     },
     "Connect to a host Mac to browse its files": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -66773,6 +67678,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "连接到私有网络"
+          }
+        }
+      }
+    },
+    "Connect to your office Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mit deinem Büro-Mac verbinden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conéctate a tu Mac de la oficina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter à votre Mac du bureau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collegati al Mac dell’ufficio"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフィスの Mac に接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사무실 Mac에 연결"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbind met je kantoor-Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conecte-se ao Mac do escritório"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接到你的办公室 Mac"
           }
         }
       }
@@ -66894,6 +67857,7 @@
       }
     },
     "Connected from anywhere": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -66952,6 +67916,7 @@
       }
     },
     "Connected on the local network (%@)": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -67532,6 +68497,64 @@
         }
       }
     },
+    "Connection": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinding"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接"
+          }
+        }
+      }
+    },
     "Connection problem · retrying (%lld of %lld)…": {
       "localizations": {
         "de": {
@@ -67592,6 +68615,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "连接问题 · 正在重试（第 %1$lld 次，共 %2$lld 次）…"
+          }
+        }
+      }
+    },
+    "Connection: %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexión: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connexion : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connessione: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続：%@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결: %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinding: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conexão: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接：%@"
           }
         }
       }
@@ -76970,6 +78051,71 @@
         }
       }
     },
+    "Delete %lld proxies (%@)? Paired Macs can ask for them again.": {
+      "extractionState": "stale",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Proxys (%2$@) löschen? Gekoppelte Macs können sie erneut anfordern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Delete %1$lld proxies (%2$@)? Paired Macs can ask for them again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar %1$lld proxies (%2$@)? Los Mac vinculados pueden volver a pedirlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer %1$lld proxys (%2$@) ? Les Mac jumelés peuvent les redemander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminare %1$lld proxy (%2$@)? I Mac abbinati possono richiederli di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ %1$lld 件（%2$@）を削除しますか？ペアリング済みの Mac は再度リクエストできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 %1$lld개(%2$@)를 삭제할까요? 페어링된 Mac에서 다시 요청할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld proxy’s (%2$@) verwijderen? Gekoppelde Macs kunnen ze opnieuw opvragen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir %1$lld proxies (%2$@)? Os Macs pareados podem pedi-los de novo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要删除 %1$lld 个代理（%2$@）吗？已配对的 Mac 可以再次请求它们。"
+          }
+        }
+      }
+    },
     "Delete (⌫)": {
       "localizations": {
         "de": {
@@ -77666,6 +78812,122 @@
         }
       }
     },
+    "Delete and Stop Keeping Up to Date": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen und nicht mehr aktuell halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar y dejar de mantener al día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer et ne plus tenir à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina e smetti di aggiornare"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除して自動更新を停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제하고 자동 업데이트 중지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verwijderen en niet meer bijhouden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apagar e parar de manter atualizado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除并停止保持最新"
+          }
+        }
+      }
+    },
+    "Delete these proxies": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Proxys löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar estos proxies"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer ces proxys"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina questi proxy"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらのプロキシを削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 프록시 삭제"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze proxy’s verwijderen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir estes proxies"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除这些代理"
+          }
+        }
+      }
+    },
     "Delete this line": {
       "localizations": {
         "de": {
@@ -77836,6 +79098,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "删除此项目？"
+          }
+        }
+      }
+    },
+    "Delete unused after": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungenutzte löschen nach"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar los no usados tras"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer les inutilisés après"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Elimina quelli inutilizzati dopo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未使用のものを削除するまでの期間"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용하지 않으면 삭제까지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ongebruikte verwijderen na"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Excluir os não usados após"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未使用的删除时间"
           }
         }
       }
@@ -78893,6 +80213,7 @@
       }
     },
     "Describe a shot: “crowd with confetti”, “drone over the stage”": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -81910,6 +83231,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "下载到这里"
+          }
+        }
+      }
+    },
+    "Download Instead": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stattdessen laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descargar en su lugar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Télécharger à la place"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scarica invece"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代わりにダウンロード"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대신 다운로드"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In plaats daarvan downloaden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Baixar em vez disso"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "改为下载"
           }
         }
       }
@@ -91358,6 +92737,7 @@
       }
     },
     "Edit from anywhere": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -98069,6 +99449,64 @@
         }
       }
     },
+    "External drive": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Externes Laufwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unidad externa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disque externe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disco esterno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外付けドライブ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "외장 드라이브"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Externe schijf"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unidade externa"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "外置硬盘"
+          }
+        }
+      }
+    },
     "Extract Audio": {
       "localizations": {
         "de": {
@@ -101728,6 +103166,64 @@
         }
       }
     },
+    "Files from paired Macs arrive in %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateien von gekoppelten Macs landen in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los archivos de los Mac vinculados llegan a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les fichiers des Mac jumelés arrivent dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I file dai Mac abbinati arrivano in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac からのファイルは %@ に届きます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac의 파일은 %@에 도착합니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestanden van gekoppelde Macs komen binnen in %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os arquivos dos Macs pareados chegam em %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自已配对 Mac 的文件会存放在 %@"
+          }
+        }
+      }
+    },
     "Files sent from the page land in your Downloads folder and Library.": {
       "localizations": {
         "de": {
@@ -103655,6 +105151,7 @@
       }
     },
     "Find Shots": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -103772,6 +105269,7 @@
       }
     },
     "Find Shots: paired Macs search this folder by what’s in the picture": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -107727,7 +109225,66 @@
         }
       }
     },
+    "Folders paired Macs can browse. Nothing in them is changed.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordner, die gekoppelte Macs durchsuchen können. Darin wird nichts geändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carpetas que los Mac vinculados pueden explorar. No se modifica nada en ellas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dossiers que les Mac jumelés peuvent parcourir. Rien n’y est modifié."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cartelle che i Mac abbinati possono sfogliare. Nulla al loro interno viene modificato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac が閲覧できるフォルダです。中身は変更されません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac이 둘러볼 수 있는 폴더입니다. 폴더 안의 내용은 변경되지 않습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mappen die gekoppelde Macs kunnen doorbladeren. Er wordt niets in gewijzigd."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pastas que os Macs pareados podem explorar. Nada nelas é alterado."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 可以浏览的文件夹。其中的内容不会被更改。"
+          }
+        }
+      }
+    },
     "Folders with footage that paired Macs can search. Nothing in them is changed.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -109415,6 +110972,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "忘记"
+          }
+        }
+      }
+    },
+    "Forget This Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Mac vergessen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Olvidar este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oublier ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dimentica questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac を削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac 삭제"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze Mac vergeten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esquecer este Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "忘记此 Mac"
           }
         }
       }
@@ -111531,6 +113146,70 @@
         }
       }
     },
+    "From %@, %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Von %1$@, %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "From %1$@, %2$@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %1$@, %2$@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %1$@, %2$@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da %1$@, %2$@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ から、%2$@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@에서, %2$@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Van %1$@, %2$@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De %1$@, %2$@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自 %1$@，%2$@"
+          }
+        }
+      }
+    },
     "From a computer on your network, open this. The browser warns once. The first visit asks for the host key and a new password (10 characters or more).": {
       "localizations": {
         "de": {
@@ -111649,6 +113328,7 @@
       }
     },
     "From anywhere": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -113742,6 +115422,7 @@
       }
     },
     "Get a light 1080p copy of this shot, with a second either side": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -127775,6 +129456,7 @@
       }
     },
     "Join a Mac to render, search and fetch files on it from here.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -128700,6 +130382,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "保留此范围并标记下一个（⌘B）"
+          }
+        }
+      }
+    },
+    "Keep Up to Date": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuell halten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantener actualizado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Garder à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantieni aggiornato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に最新に保つ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신 상태로 유지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actueel houden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Manter atualizado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持最新"
           }
         }
       }
@@ -130214,6 +131954,7 @@
       }
     },
     "Kept in Pluck’s own folder and removed after three weeks without use": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -130267,6 +132008,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "保存在 Pluck 自己的文件夹中，三周未使用后删除"
+          }
+        }
+      }
+    },
+    "Kept up to date": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktuell gehalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenido al día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tenu à jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenuto aggiornato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "常に最新"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "최신 상태 유지됨"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actueel gehouden"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantido atualizado"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保持最新中"
           }
         }
       }
@@ -134464,6 +136263,122 @@
         }
       }
     },
+    "Light copies paired Macs edit with.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leichte Kopien, mit denen gekoppelte Macs schneiden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copias ligeras con las que editan los Mac vinculados."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copies légères avec lesquelles les Mac jumelés montent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copie leggere con cui montano i Mac abbinati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac が編集に使う軽量コピーです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac이 편집에 사용하는 가벼운 사본입니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lichte kopieën waarmee gekoppelde Macs monteren."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cópias leves com que os Macs pareados editam."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 用于剪辑的轻量副本。"
+          }
+        }
+      }
+    },
+    "Light copies paired Macs edit with. %@ in total.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leichte Kopien, mit denen gekoppelte Macs schneiden. Insgesamt %@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copias ligeras con las que editan los Mac vinculados. %@ en total."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copies légères avec lesquelles les Mac jumelés montent. %@ au total."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copie leggere con cui montano i Mac abbinati. %@ in totale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac が編集に使う軽量コピーです。合計 %@。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac이 편집에 사용하는 가벼운 사본입니다. 총 %@."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lichte kopieën waarmee gekoppelde Macs monteren. In totaal %@."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cópias leves com que os Macs pareados editam. %@ no total."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 用于剪辑的轻量副本。共 %@。"
+          }
+        }
+      }
+    },
     "Lighten": {
       "localizations": {
         "de": {
@@ -138025,6 +139940,64 @@
         }
       }
     },
+    "Local SSD": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale SSD"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSD local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSD local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSD locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ローカル SSD"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로컬 SSD"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokale SSD"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SSD local"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "本地 SSD"
+          }
+        }
+      }
+    },
     "Locations": {
       "localizations": {
         "de": {
@@ -140300,6 +142273,7 @@
       }
     },
     "Look again": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -140590,6 +142564,7 @@
       }
     },
     "Look for new footage now (it also happens by itself every few hours)": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -140941,6 +142916,7 @@
       }
     },
     "Looking": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -141290,6 +143266,7 @@
       }
     },
     "Looking at “%@” (%lld more)": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -141871,6 +143848,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在查找时间码场记板…"
+          }
+        }
+      }
+    },
+    "Looking for videos…": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Videos werden gesucht …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando vídeos…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche de vidéos…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ricerca di video…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ビデオを検索中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "동영상을 찾는 중…"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Video’s zoeken…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Procurando vídeos…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在查找视频…"
           }
         }
       }
@@ -144257,7 +146292,66 @@
         }
       }
     },
+    "Macs": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac"
+          }
+        }
+      }
+    },
     "Macs invited the other way need a new invitation after a switch.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -144432,6 +146526,64 @@
         }
       }
     },
+    "Macs you invite can edit here from anywhere.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeladene Macs können von überall hier schneiden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los Mac que invites pueden editar aquí desde cualquier lugar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Mac que vous invitez peuvent monter ici depuis n’importe où."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Mac che inviti possono montare qui da ovunque."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "招待した Mac は、どこからでもここで編集できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초대한 Mac은 어디서나 여기에서 편집할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macs die je uitnodigt kunnen hier vanaf overal monteren."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Macs que você convidar podem editar aqui de qualquer lugar."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "受邀的 Mac 可以从任何地方在此剪辑。"
+          }
+        }
+      }
+    },
     "Made by Pluck": {
       "localizations": {
         "de": {
@@ -144602,6 +146754,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "适用于人声：会去除背景噪音、嗡嗡声和风声，音乐也会被去除。全程在此 Mac 上用本地 AI（Apple 人声分离）完成。Pluck 会在原文件旁保存副本，原文件不变。"
+          }
+        }
+      }
+    },
+    "Made in %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt in %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creados en %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créés dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creati in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ に作成済み"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에 생성됨"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemaakt in %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criados em %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在 %@ 中生成"
           }
         }
       }
@@ -144835,6 +147045,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "由 Pluck %@ 生成。校验和也保存在本报告旁的 MHL 文件中。"
+          }
+        }
+      }
+    },
+    "Made · per folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erstellt · pro Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creados · por carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créés · par dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creati · per cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成済み · フォルダごと"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성됨 · 폴더별"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemaakt · per map"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criados · por pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已生成 · 按文件夹"
           }
         }
       }
@@ -146582,6 +148850,64 @@
         }
       }
     },
+    "Make proxies of a folder": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys eines Ordners erstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear proxies de una carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Créer les proxys d’un dossier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea i proxy di una cartella"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダのプロキシを作成"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "폴더의 프록시 만들기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy’s van een map maken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criar proxies de uma pasta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "为文件夹创建代理"
+          }
+        }
+      }
+    },
     "Make them again from the transcript (your changes are lost)": {
       "extractionState": "stale",
       "localizations": {
@@ -146990,6 +149316,7 @@
       }
     },
     "Making a proxy of “%@” (%lld more)": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -147159,6 +149486,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "正在制作母版"
+          }
+        }
+      }
+    },
+    "Making now · %lld left": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird erstellt · noch %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Creando ahora · quedan %lld"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En cours · %lld restants"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In creazione · ne restano %lld"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "作成中 · 残り %lld"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "생성 중 · %lld개 남음"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezig met maken · nog %lld"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Criando agora · faltam %lld"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在生成 · 剩余 %lld"
           }
         }
       }
@@ -153215,6 +155600,70 @@
         }
       }
     },
+    "Move %lld proxies (%@) to the Trash? Paired Macs can ask for them again.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "Move %1$lld proxies (%2$@) to the Trash? Paired Macs can ask for them again."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld Proxys (%2$@) in den Papierkorb legen? Gekoppelte Macs können sie erneut anfordern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Mover %1$lld proxies (%2$@) a la Papelera? Los Mac vinculados pueden volver a pedirlos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer %1$lld proxys (%2$@) dans la Corbeille ? Les Mac jumelés peuvent les redemander."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spostare %1$lld proxy (%2$@) nel Cestino? I Mac abbinati possono richiederli di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld 個のプロキシ（%2$@）をゴミ箱に入れますか？ペアリング済みの Mac は再度リクエストできます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시 %1$lld개(%2$@)를 휴지통으로 이동하시겠습니까? 페어링된 Mac에서 다시 요청할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$lld proxy’s (%2$@) naar de prullenmand verplaatsen? Gekoppelde Macs kunnen ze opnieuw aanvragen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mover %1$lld proxies (%2$@) para a Lixeira? Macs pareados podem pedi-los novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要将 %1$lld 个代理（%2$@）移到废纸篓吗？已配对的 Mac 可以再次请求它们。"
+          }
+        }
+      }
+    },
     "Move Here": {
       "localizations": {
         "de": {
@@ -154841,6 +157290,12 @@
       }
     },
     "NAS": {
+      "shouldTranslate": false
+    },
+    "NAS (%@)": {
+      "shouldTranslate": false
+    },
+    "NAS (SMB)": {
       "shouldTranslate": false
     },
     "NAS or archive drive": {
@@ -160539,6 +162994,64 @@
         }
       }
     },
+    "No Macs yet. Invite one.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Macs. Lade einen ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay Mac. Invita a uno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun Mac pour l’instant. Invitez-en un."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessun Mac. Invitane uno."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mac はまだありません。招待してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 Mac이 없습니다. 하나를 초대하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen Macs. Nodig er een uit."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum Mac ainda. Convide um."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有 Mac。邀请一台吧。"
+          }
+        }
+      }
+    },
     "No Missing Files": {
       "localizations": {
         "de": {
@@ -161989,6 +164502,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "尚未共享任何文件夹"
+          }
+        }
+      }
+    },
+    "No folders yet. Add one.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Ordner. Füge einen hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay carpetas. Añade una."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun dossier pour l’instant. Ajoutez-en un."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessuna cartella. Aggiungine una."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フォルダはまだありません。追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 폴더가 없습니다. 하나를 추가하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen mappen. Voeg er een toe."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma pasta ainda. Adicione uma."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有文件夹。添加一个吧。"
           }
         }
       }
@@ -163560,6 +166131,64 @@
         }
       }
     },
+    "No proxies yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Proxys."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay proxies."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun proxy pour l’instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessun proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシはまだありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 프록시가 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen proxy’s."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhum proxy ainda."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有代理。"
+          }
+        }
+      }
+    },
     "No range": {
       "localizations": {
         "de": {
@@ -163847,6 +166476,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "还没有可审阅的渲染。"
+          }
+        }
+      }
+    },
+    "No renders yet.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Renderings."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay renders."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucun rendu pour l’instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ancora nessun rendering."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダリングはまだありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 렌더링이 없습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nog geen renders."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nenhuma renderização ainda."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有渲染。"
           }
         }
       }
@@ -165016,6 +167703,7 @@
       }
     },
     "None yet. Invite a Mac, or pair one on the same network with a code.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -167750,6 +170438,7 @@
       }
     },
     "Nothing found": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -172181,7 +174870,66 @@
         }
       }
     },
+    "On the host Mac, add one in Edit Anywhere › Folders.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Füge auf dem Host-Mac einen unter Überall bearbeiten › Ordner hinzu."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac anfitrión, añade una en Editar en cualquier lugar › Carpetas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le Mac hôte, ajoutez-en un dans Monter partout › Dossiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sul Mac host, aggiungine una in Montaggio ovunque › Cartelle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト Mac の どこでも編集 › フォルダで追加してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 Mac의 어디서나 편집 › 폴더에서 추가하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voeg er op de host-Mac een toe in Overal monteren › Mappen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac anfitrião, adicione uma em Editar de qualquer lugar › Pastas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请在主机 Mac 的 随处剪辑 › 文件夹中添加。"
+          }
+        }
+      }
+    },
     "On the host Mac, add one in Edit Anywhere → Share this Mac.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -172240,6 +174988,7 @@
       }
     },
     "On the host Mac: Edit Anywhere › Invite a Mac": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -172410,6 +175159,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在主机 Mac 上：共享此 Mac → 配对 Mac。"
+          }
+        }
+      }
+    },
+    "On the office Mac: Edit Anywhere › Macs › Invite a Mac. Open the link here, or paste it.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf dem Büro-Mac: Überall bearbeiten › Macs › Mac einladen. Öffne den Link hier oder füge ihn ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el Mac de la oficina: Editar en cualquier lugar › Mac › Invitar un Mac. Abre el enlace aquí o pégalo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur le Mac du bureau : Monter partout › Mac › Inviter un Mac. Ouvrez le lien ici ou collez-le."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sul Mac dell’ufficio: Montaggio ovunque › Mac › Invita un Mac. Apri qui il link o incollalo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフィスの Mac で どこでも編集 › Mac › Mac を招待 を選びます。リンクをここで開くか、貼り付けてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사무실 Mac에서 어디서나 편집 › Mac › Mac 초대를 선택하세요. 링크를 여기에서 열거나 붙여 넣으세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Op de kantoor-Mac: Overal monteren › Macs › Mac uitnodigen. Open de link hier of plak hem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Mac do escritório: Editar de qualquer lugar › Macs › Convidar um Mac. Abra o link aqui ou cole-o."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在办公室 Mac 上：随处剪辑 › Mac › 邀请 Mac。在这里打开链接，或粘贴链接。"
           }
         }
       }
@@ -173934,6 +176741,122 @@
         }
       }
     },
+    "Online · direct connection": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · direkte Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea · conexión directa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne · connexion directe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · connessione diretta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンライン · 直接接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인 · 직접 연결"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · directe verbinding"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · conexão direta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线 · 直接连接"
+          }
+        }
+      }
+    },
+    "Online · relay": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · Relay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En línea · relay"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En ligne · relais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オンライン · リレー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "온라인 · 릴레이"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · relay"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Online · relay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在线 · 中继"
+          }
+        }
+      }
+    },
     "Online: YouTube, Instagram, TikTok (−14 LUFS)": {
       "localizations": {
         "de": {
@@ -174285,6 +177208,64 @@
         }
       }
     },
+    "Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only browse the shared folders, fetch proxies or copies of them, list projects, timelines and presets, render into the render folder, cancel, fetch previews, and send files into their own folder in the inbox.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Macs, die per Code oder Einladung von diesem Mac gekoppelt wurden, kommen hinein, und das nur aus dem lokalen oder dem privaten Netzwerk; das offene Internet bekommt nie eine Antwort. Jede Nachricht ist verschlüsselt und signiert. Gekoppelte Macs können nur die geteilten Ordner durchsuchen, Proxys oder Kopien davon holen, Projekte, Timelines und Vorgaben auflisten, in den Render-Ordner rendern, abbrechen, Vorschauen holen und Dateien in ihren eigenen Ordner im Eingang senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo entran los Mac vinculados con un código o una invitación de este Mac, y solo desde la red local o la red privada; nunca responde a internet abierto. Cada mensaje está cifrado y firmado. Los Mac vinculados solo pueden explorar las carpetas compartidas, traer proxies o copias de ellas, listar proyectos, líneas de tiempo y ajustes, renderizar en la carpeta de renders, cancelar, traer vistas previas y enviar archivos a su propia carpeta de la bandeja de entrada."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seuls les Mac jumelés avec un code ou une invitation de ce Mac peuvent entrer, et uniquement depuis le réseau local ou le réseau privé ; il ne répond jamais à l’Internet ouvert. Chaque message est chiffré et signé. Les Mac jumelés peuvent uniquement parcourir les dossiers partagés, récupérer des proxys ou des copies de ceux-ci, lister les projets, les timelines et les préréglages, rendre dans le dossier de rendu, annuler, récupérer des aperçus et envoyer des fichiers dans leur propre dossier de la boîte de réception."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrano solo i Mac abbinati con un codice o un invito da questo Mac, e solo dalla rete locale o dalla rete privata; non risponde mai a internet aperto. Ogni messaggio è cifrato e firmato. I Mac abbinati possono solo sfogliare le cartelle condivise, scaricare proxy o copie di esse, elencare progetti, timeline e preset, eseguire il rendering nella cartella dei rendering, annullare, scaricare anteprime e inviare file nella propria cartella della posta in arrivo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このMacからコードまたは招待でペアリングしたMacだけが接続でき、接続できるのもローカルネットワークまたはプライベートネットワークからだけです。公開インターネットには一切応答しません。すべてのメッセージは暗号化され、署名されます。ペアリング済みのMacにできるのは、共有フォルダの閲覧、そのプロキシやコピーの取得、プロジェクト・タイムライン・プリセットの一覧表示、レンダリングフォルダへのレンダリング、キャンセル、プレビューの取得、受信フォルダ内の自分専用フォルダへのファイル送信だけです。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 보낸 코드나 초대로 페어링된 Mac만 접속할 수 있으며, 로컬 네트워크 또는 프라이빗 네트워크에서만 가능합니다. 공개 인터넷에는 절대 응답하지 않습니다. 모든 메시지는 암호화되고 서명됩니다. 페어링된 Mac은 공유 폴더 둘러보기, 그 프록시나 사본 가져오기, 프로젝트·타임라인·프리셋 목록 보기, 렌더링 폴더로 렌더링, 취소, 미리 보기 가져오기, 받은 편지함의 자기 폴더로 파일 보내기만 할 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen Macs die met een code of uitnodiging van deze Mac zijn gekoppeld komen binnen, en alleen vanaf het lokale netwerk of het privénetwerk; het antwoordt nooit op het open internet. Elk bericht is versleuteld en ondertekend. Gekoppelde Macs kunnen alleen de gedeelde mappen doorbladeren, proxy’s of kopieën ervan ophalen, projecten, timelines en voorinstellingen opsommen, renderen naar de rendermap, annuleren, voorvertoningen ophalen en bestanden naar hun eigen map in de inbox sturen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Só entram os Macs pareados com um código ou convite deste Mac, e apenas pela rede local ou pela rede privada; ele nunca responde à internet aberta. Cada mensagem é criptografada e assinada. Os Macs pareados só podem explorar as pastas compartilhadas, buscar proxies ou cópias delas, listar projetos, linhas do tempo e predefinições, renderizar na pasta de renderização, cancelar, buscar prévias e enviar arquivos para a própria pasta na caixa de entrada."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只有通过此 Mac 的代码或邀请完成配对的 Mac 才能接入，而且仅限本地网络或专用网络；它绝不会响应公共互联网。每条消息都经过加密和签名。已配对的 Mac 只能浏览共享文件夹、获取其代理或副本、列出项目、时间线和预设、渲染到渲染文件夹、取消、获取预览，以及将文件发送到收件箱中属于自己的文件夹。"
+          }
+        }
+      }
+    },
     "Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews and search the footage folders.": {
       "extractionState": "stale",
       "localizations": {
@@ -174404,6 +177385,7 @@
       }
     },
     "Only Macs paired with a code or invitation from this Mac get in, and only from the local network or the private network; it never answers the open internet. Every message is encrypted and signed. Paired Macs can only list projects, timelines and presets, render into the render folder, cancel, fetch previews, search the footage folders, fetch proxies or copies of them, and send files into their own folder in the inbox.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -174923,6 +177905,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "仅文件的一部分"
+          }
+        }
+      }
+    },
+    "Only proxies in Pluck’s own folder; a folder you chose is yours to keep": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Proxys im eigenen Ordner von Pluck; ein von dir gewählter Ordner bleibt dir überlassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo proxies en la carpeta propia de Pluck; una carpeta que elegiste es tuya y se conserva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uniquement les proxys du dossier propre à Pluck ; un dossier que vous avez choisi vous appartient et est conservé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Solo i proxy nella cartella di Pluck; una cartella che hai scelto resta tua"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 専用フォルダ内のプロキシのみ。自分で選んだフォルダはそのまま残ります"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pluck 전용 폴더의 프록시만 해당됩니다. 직접 선택한 폴더는 그대로 유지됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alleen proxy’s in de eigen map van Pluck; een map die je zelf koos blijft van jou"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apenas proxies na pasta do próprio Pluck; uma pasta que você escolheu continua sendo sua"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅限 Pluck 自己文件夹中的代理；你选择的文件夹会保持原样"
           }
         }
       }
@@ -180976,7 +184016,66 @@
         }
       }
     },
+    "Pair a Mac on this network with a code": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einen Mac in diesem Netzwerk per Code koppeln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vincula un Mac de esta red con un código"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jumeler un Mac de ce réseau avec un code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abbina un Mac di questa rete con un codice"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワーク上の Mac をコードでペアリング"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크의 Mac을 코드로 페어링"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Koppel een Mac op dit netwerk met een code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pareie um Mac desta rede com um código"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "通过代码配对此网络上的 Mac"
+          }
+        }
+      }
+    },
     "Pair a Mac on this network…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -181384,6 +184483,7 @@
       }
     },
     "Paired Macs": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -181499,7 +184599,124 @@
         }
       }
     },
+    "Paired Macs can’t browse it any more. Your files stay where they are. Its proxies stay until you delete them under Proxies.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelte Macs können ihn nicht mehr durchsuchen. Deine Dateien bleiben, wo sie sind. Seine Proxys bleiben, bis du sie unter „Proxys“ löschst."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los Mac vinculados ya no podrán explorarla. Tus archivos se quedan donde están. Sus proxies permanecen hasta que los elimines en Proxies."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Mac jumelés ne pourront plus le parcourir. Vos fichiers restent où ils sont. Ses proxys restent jusqu’à ce que vous les supprimiez dans Proxys."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Mac abbinati non potranno più sfogliarla. I tuoi file restano dove sono. I suoi proxy restano finché non li elimini in Proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac はこのフォルダを閲覧できなくなります。ファイルはそのまま残ります。プロキシは「プロキシ」で削除するまで残ります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac은 더 이상 이 폴더를 둘러볼 수 없습니다. 파일은 그대로 남습니다. 프록시는 ‘프록시’에서 삭제할 때까지 남아 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelde Macs kunnen hem niet meer doorbladeren. Je bestanden blijven waar ze zijn. De proxy’s blijven staan tot je ze verwijdert onder Proxy’s."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Macs pareados não poderão mais explorá-la. Seus arquivos continuam onde estão. Os proxies dela ficam até você excluí-los em Proxies."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 将无法再浏览它。你的文件保持原位。其代理会保留，直到你在“代理”中删除它们。"
+          }
+        }
+      }
+    },
+    "Paired Macs edit with this Mac’s footage and render on it. Keep Pluck and DaVinci Resolve open.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelte Macs schneiden mit dem Material dieses Macs und rendern darauf. Lass Pluck und DaVinci Resolve geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los Mac vinculados editan con el material de este Mac y renderizan en él. Mantén Pluck y DaVinci Resolve abiertos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Mac jumelés montent avec les rushes de ce Mac et y font leurs rendus. Gardez Pluck et DaVinci Resolve ouverts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Mac abbinati montano con il girato di questo Mac e fanno il rendering su di esso. Tieni aperti Pluck e DaVinci Resolve."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac は、この Mac の素材で編集し、この Mac でレンダリングします。Pluck と DaVinci Resolve を開いたままにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac은 이 Mac의 영상으로 편집하고 이 Mac에서 렌더링합니다. Pluck과 DaVinci Resolve를 열어 두세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelde Macs monteren met het beeldmateriaal van deze Mac en renderen erop. Houd Pluck en DaVinci Resolve geopend."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Macs pareados editam com o material deste Mac e renderizam nele. Mantenha o Pluck e o DaVinci Resolve abertos."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 使用此 Mac 的素材进行剪辑，并在此 Mac 上渲染。请保持 Pluck 和 DaVinci Resolve 处于打开状态。"
+          }
+        }
+      }
+    },
     "Paired Macs render and search footage on this Mac. Keep Pluck and DaVinci Resolve open.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -181617,6 +184834,7 @@
       }
     },
     "Paired Macs search it by what’s in the picture, fetch the shots they need, or fetch proxies of whole folders.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -181670,6 +184888,122 @@
           "stringUnit": {
             "state": "translated",
             "value": "已配对的 Mac 可按画面内容搜索，获取所需镜头或整个文件夹的代理。"
+          }
+        }
+      }
+    },
+    "Paired Macs see only these folders.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelte Macs sehen nur diese Ordner."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los Mac vinculados solo ven estas carpetas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Mac jumelés ne voient que ces dossiers."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Mac abbinati vedono solo queste cartelle."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac には、これらのフォルダだけが表示されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac은 이 폴더만 볼 수 있습니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelde Macs zien alleen deze mappen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Macs pareados veem apenas estas pastas."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 只能看到这些文件夹。"
+          }
+        }
+      }
+    },
+    "Paired Macs send their edit here; this Mac renders it with the originals.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelte Macs senden ihren Schnitt hierher; dieser Mac rendert ihn mit den Originalen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los Mac vinculados envían aquí su edición; este Mac la renderiza con los originales."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les Mac jumelés envoient leur montage ici ; ce Mac le rend avec les originaux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I Mac abbinati inviano qui il loro montaggio; questo Mac ne fa il rendering con gli originali."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac が編集内容をここに送り、この Mac がオリジナルを使ってレンダリングします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac이 편집본을 여기로 보내면, 이 Mac이 원본으로 렌더링합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gekoppelde Macs sturen hun montage hierheen; deze Mac rendert hem met de originelen."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os Macs pareados enviam a edição para cá; este Mac a renderiza com os originais."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 将其剪辑发送到这里；此 Mac 使用原始素材进行渲染。"
           }
         }
       }
@@ -182955,6 +186289,7 @@
       }
     },
     "Paste Invitation…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -184235,6 +187570,64 @@
         }
       }
     },
+    "Paste invitation": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einladung einfügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pegar invitación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coller l’invitation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Incolla invito"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "招待を貼り付け"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "초대 붙여넣기"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uitnodiging plakken"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Colar convite"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "粘贴邀请"
+          }
+        }
+      }
+    },
     "Paste links and follow progress from the menu bar. Pluck keeps running there when you close the window, and can open at login.": {
       "extractionState": "stale",
       "localizations": {
@@ -184586,6 +187979,7 @@
       }
     },
     "Paste the invitation link you received": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -195900,6 +199294,64 @@
         }
       }
     },
+    "Prefer fastest even if lighter": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schnellste bevorzugen, auch wenn leichter"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferir la más rápida aunque sea más ligera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privilégier la plus rapide, même si plus légère"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferisci la più veloce anche se più leggera"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "軽量になっても最速を優先"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가벼워지더라도 가장 빠른 것 우선"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Snelste voorkeur, ook al is het lichter"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preferir a mais rápida, mesmo que mais leve"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "即使质量较低也优先选择最快的"
+          }
+        }
+      }
+    },
     "Premium": {
       "localizations": {
         "de": {
@@ -197471,6 +200923,7 @@
       }
     },
     "Private and encrypted. Invitations and codes work once.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -198814,7 +202267,6 @@
       }
     },
     "Proxies": {
-      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -198868,6 +202320,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "代理"
+          }
+        }
+      }
+    },
+    "Proxies (H.265 720p)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys (H.265 720p)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies (H.265 720p)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys (H.265 720p)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy (H.265 720p)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プロキシ（H.265 720p）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프록시(H.265 720p)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy’s (H.265 720p)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies (H.265 720p)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理（H.265 720p）"
           }
         }
       }
@@ -199047,7 +202557,66 @@
         }
       }
     },
+    "Proxies are made of the videos in this folder.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys werden aus den Videos in diesem Ordner erstellt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los proxies se crean a partir de los vídeos de esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les proxys sont créés à partir des vidéos de ce dossier."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I proxy vengono creati dai video in questa cartella."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダ内のビデオからプロキシが作成されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더의 동영상으로 프록시가 만들어집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy’s worden gemaakt van de video’s in deze map."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Os proxies são criados a partir dos vídeos desta pasta."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理由此文件夹中的视频生成。"
+          }
+        }
+      }
+    },
     "Proxies in": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -199159,6 +202728,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "用于剪辑的素材文件夹代理，或原始素材。每个文件就绪后即送达。"
+          }
+        }
+      }
+    },
+    "Proxies of a shared folder, or of a folder inside one": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys eines geteilten Ordners oder eines Ordners darin"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies de una carpeta compartida o de una carpeta dentro de ella"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxys d’un dossier partagé ou d’un dossier qu’il contient"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy di una cartella condivisa o di una cartella al suo interno"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共有フォルダ、またはその中のフォルダのプロキシ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "공유 폴더 또는 그 안의 폴더에 대한 프록시"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxy’s van een gedeelde map of van een map erin"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proxies de uma pasta compartilhada ou de uma pasta dentro dela"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "共享文件夹或其内部文件夹的代理"
           }
         }
       }
@@ -208478,6 +212105,64 @@
         }
       }
     },
+    "Remove “%@”?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ entfernen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar “%@”?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Retirer « %@ » ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rimuovere “%@”?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”을(를) 제거할까요?"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘%@’ verwijderen?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remover “%@”?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要移除“%@”吗？"
+          }
+        }
+      }
+    },
     "Remove: it can’t connect any more until it’s paired again": {
       "localizations": {
         "de": {
@@ -210049,6 +213734,7 @@
       }
     },
     "Render on another Mac and search its footage, from home or on the road.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -210741,6 +214427,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "已配对 Mac 的渲染结果会保存到此文件夹（例如共享存储上）。"
+          }
+        }
+      }
+    },
+    "Renders go to %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renderings gehen nach %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los renders van a %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les rendus vont dans %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I rendering vanno in %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レンダリングは %@ に保存されます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "렌더링은 %@에 저장됩니다"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renders gaan naar %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As renderizações vão para %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "渲染会保存到 %@"
           }
         }
       }
@@ -213769,6 +217513,64 @@
         }
       }
     },
+    "Review server": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Review-Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor de revisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serveur de relecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server di revisione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "レビューサーバー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "검토 서버"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reviewserver"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servidor de revisão"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "审阅服务器"
+          }
+        }
+      }
+    },
     "Reviewers set": {
       "localizations": {
         "de": {
@@ -214116,6 +217918,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "在资料库中右键点按某项，扫描二维码，即可直接保存到手机。"
+          }
+        }
+      }
+    },
+    "Rights": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechte"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permisos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Droits"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diritti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "権限"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "권한"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechten"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permissões"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "权限"
           }
         }
       }
@@ -218257,6 +222117,7 @@
       }
     },
     "Saved in": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -219890,6 +223751,7 @@
       }
     },
     "Search %@’s footage": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -221646,6 +225508,7 @@
       }
     },
     "Search the archive": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -222351,6 +226214,7 @@
       }
     },
     "Searching the footage…": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -227369,7 +231233,66 @@
         }
       }
     },
+    "Set up your own relay under Connection to make it faster.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richte unter „Verbindung“ ein eigenes Relay ein, damit es schneller wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura tu propio relay en Conexión para que sea más rápido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurez votre propre relais dans Connexion pour accélérer la connexion."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configura un tuo relay in Connessione per renderla più veloce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「接続」で自分のリレーを設定すると、高速になります。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‘연결’에서 자체 릴레이를 설정하면 더 빨라집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stel onder Verbinding een eigen relay in om het sneller te maken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configure seu próprio relay em Conexão para deixar mais rápido."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在“连接”中设置你自己的中继，以提高速度。"
+          }
+        }
+      }
+    },
     "Set up your own relay under From anywhere to make it faster.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -244939,6 +248862,7 @@
       }
     },
     "Stop Sharing": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -245051,6 +248975,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "停止监视"
+          }
+        }
+      }
+    },
+    "Stop all": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle stoppen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener todo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout arrêter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi tutto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべて停止"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모두 중지"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alles stoppen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar tudo"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部停止"
           }
         }
       }
@@ -245342,6 +249324,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "已停止"
+          }
+        }
+      }
+    },
+    "Stopped on this Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Mac gestoppt"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detenido en este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêté sur ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrotto su questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この Mac で停止中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 Mac에서 중지됨"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gestopt op deze Mac"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parado neste Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已在此 Mac 上停止"
           }
         }
       }
@@ -245748,6 +249788,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "流式传输"
+          }
+        }
+      }
+    },
+    "Streaming (H.265, 720p)": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリーミング（H.265、720p）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트리밍(H.265, 720p)"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Streaming (H.265, 720p)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "流式播放（H.265，720p）"
           }
         }
       }
@@ -248893,6 +252991,64 @@
         }
       }
     },
+    "Switch": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Changer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切り替える"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전환"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overschakelen"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换"
+          }
+        }
+      }
+    },
     "Switch to Pluck Studio?": {
       "localizations": {
         "de": {
@@ -249121,6 +253277,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "切换到 Pluck…"
+          }
+        }
+      }
+    },
+    "Switch to Tailscale?": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu Tailscale wechseln?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar a Tailscale?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Tailscale ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passare a Tailscale?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale に切り替えますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tailscale로 전환할까요?"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Overschakelen naar Tailscale?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mudar para o Tailscale?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要切换到 Tailscale 吗？"
           }
         }
       }
@@ -253264,6 +257478,7 @@
       }
     },
     "That clip isn’t ready on the host Mac.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -254424,6 +258639,7 @@
       }
     },
     "That shot isn’t in the host Mac’s footage any more.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -256932,6 +261148,7 @@
       }
     },
     "The clip couldn’t be saved.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -259660,6 +263877,7 @@
       }
     },
     "The host Mac couldn’t make that clip.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -260007,7 +264225,66 @@
         }
       }
     },
+    "The host Mac doesn’t search footage any more. Update Pluck on this Mac.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Host-Mac durchsucht kein Material mehr. Aktualisiere Pluck auf diesem Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El Mac anfitrión ya no busca en el material. Actualiza Pluck en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le Mac hôte ne recherche plus dans les rushes. Mettez à jour Pluck sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il Mac host non cerca più nel girato. Aggiorna Pluck su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ホスト Mac は素材を検索しなくなりました。この Mac の Pluck をアップデートしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "호스트 Mac이 더 이상 영상을 검색하지 않습니다. 이 Mac의 Pluck을 업데이트하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De host-Mac doorzoekt geen beeldmateriaal meer. Werk Pluck op deze Mac bij."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Mac anfitrião não pesquisa mais o material. Atualize o Pluck neste Mac."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "主机 Mac 不再搜索素材。请更新此 Mac 上的 Pluck。"
+          }
+        }
+      }
+    },
     "The host Mac has no footage folders to search yet. Add them there, under Edit Anywhere.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -263726,6 +268003,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "私有网络没有及时响应。请检查互联网连接。"
+          }
+        }
+      }
+    },
+    "The private network didn’t start. Try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das private Netzwerk wurde nicht gestartet. Versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La red privada no se inició. Inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le réseau privé n’a pas démarré. Réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La rete privata non si è avviata. Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プライベートネットワークを開始できませんでした。もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "프라이빗 네트워크가 시작되지 않았습니다. 다시 시도하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Het privénetwerk is niet gestart. Probeer het opnieuw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A rede privada não iniciou. Tente novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "专用网络未能启动。请重试。"
           }
         }
       }
@@ -268317,6 +272652,64 @@
         }
       }
     },
+    "There’s no invitation link on the clipboard. Copy the whole link, then try again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der Zwischenablage ist kein Einladungslink. Kopiere den ganzen Link und versuche es erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No hay ningún enlace de invitación en el portapapeles. Copia el enlace completo e inténtalo de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il n’y a pas de lien d’invitation dans le presse-papiers. Copiez le lien en entier, puis réessayez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Negli appunti non c’è nessun link di invito. Copia il link completo e riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "クリップボードに招待リンクがありません。リンク全体をコピーして、もう一度お試しください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "클립보드에 초대 링크가 없습니다. 링크 전체를 복사한 다음 다시 시도하세요."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er staat geen uitnodigingslink op het klembord. Kopieer de hele link en probeer het opnieuw."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não há link de convite na área de transferência. Copie o link inteiro e tente novamente."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "剪贴板中没有邀请链接。请复制完整链接后重试。"
+          }
+        }
+      }
+    },
     "There’s no picture for that file.": {
       "localizations": {
         "de": {
@@ -270466,6 +274859,70 @@
         }
       }
     },
+    "This connection gives about %@/s, too slow to stream this smoothly. Download the proxies first: they’re ready in about %@.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Verbindung liefert etwa %1$@/s, zu langsam, um das flüssig zu streamen. Lade zuerst die Proxys: Sie sind in etwa %2$@ fertig."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "new",
+            "value": "This connection gives about %1$@/s, too slow to stream this smoothly. Download the proxies first: they’re ready in about %2$@."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conexión da unos %1$@/s, demasiado lenta para reproducir esto con fluidez. Descarga primero los proxies: estarán listos en unos %2$@."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette connexion offre environ %1$@/s, trop lent pour diffuser cela sans à-coups. Téléchargez d’abord les proxys : ils seront prêts dans environ %2$@."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa connessione offre circa %1$@/s, troppo poco per riprodurlo in streaming senza intoppi. Scarica prima i proxy: saranno pronti in circa %2$@."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この接続の速度は約 %1$@/秒で、スムーズにストリーミングするには遅すぎます。先にプロキシをダウンロードしてください。約 %2$@ で準備できます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 연결은 초당 약 %1$@로, 부드럽게 스트리밍하기엔 너무 느립니다. 먼저 프록시를 다운로드하세요. 약 %2$@ 후에 준비됩니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze verbinding levert ongeveer %1$@/s, te traag om dit soepel te streamen. Download eerst de proxy’s: ze zijn over ongeveer %2$@ klaar."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta conexão fornece cerca de %1$@/s, lenta demais para transmitir isso sem travar. Baixe os proxies primeiro: ficam prontos em cerca de %2$@."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此连接速度约为 %1$@/秒，太慢，无法流畅播放。请先下载代理：约 %2$@ 后即可就绪。"
+          }
+        }
+      }
+    },
     "This ffmpeg can’t burn text into copies.": {
       "localizations": {
         "de": {
@@ -270868,6 +275325,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "此文件是空的。"
+          }
+        }
+      }
+    },
+    "This folder is kept up to date, so new files there get proxies again.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Ordner wird aktuell gehalten, neue Dateien darin bekommen also wieder Proxys."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta carpeta se mantiene al día, así que los archivos nuevos vuelven a recibir proxies."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce dossier est tenu à jour : les nouveaux fichiers y recevront à nouveau des proxys."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa cartella è mantenuta aggiornata, quindi i nuovi file riceveranno di nuovo i proxy."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダは自動更新されるため、新しいファイルには再びプロキシが作成されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더는 자동으로 업데이트되므로 새 파일에 다시 프록시가 만들어집니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deze map wordt bijgehouden, dus nieuwe bestanden krijgen weer proxy’s."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta pasta é mantida atualizada, então novos arquivos recebem proxies de novo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件夹保持最新，因此其中的新文件会再次生成代理。"
           }
         }
       }
@@ -283570,6 +288085,7 @@
       }
     },
     "Unpair This Mac": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -291532,6 +296048,7 @@
       }
     },
     "What they send arrives here, in a folder per Mac.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -293456,7 +297973,66 @@
         }
       }
     },
+    "Where proxies that paired Macs ask for are made on this Mac": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wo die von gekoppelten Macs angeforderten Proxys auf diesem Mac erstellt werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dónde se crean en este Mac los proxies que piden los Mac vinculados"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où sont créés sur ce Mac les proxys demandés par les Mac jumelés"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dove vengono creati su questo Mac i proxy richiesti dai Mac abbinati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペアリング済みの Mac がリクエストしたプロキシをこの Mac で作成する場所"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "페어링된 Mac이 요청한 프록시를 이 Mac에서 만드는 위치"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waar de door gekoppelde Macs gevraagde proxy’s op deze Mac worden gemaakt"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Onde os proxies pedidos pelos Macs pareados são criados neste Mac"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已配对的 Mac 请求的代理在此 Mac 上的生成位置"
+          }
+        }
+      }
+    },
     "Where proxies that paired Macs ask for are made on this Mac, for example next to the project on your storage": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -293515,6 +298091,7 @@
       }
     },
     "Where renders for paired Macs go.": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -298707,6 +303284,64 @@
         }
       }
     },
+    "Your %lld paired Macs need a new invitation afterwards. Macs on this network keep working.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine %lld gekoppelten Macs brauchen danach eine neue Einladung. Macs in diesem Netzwerk funktionieren weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tus %lld Mac vinculados necesitarán una nueva invitación después. Los Mac de esta red siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vos %lld Mac jumelés auront ensuite besoin d’une nouvelle invitation. Les Mac de ce réseau continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I tuoi %lld Mac abbinati avranno poi bisogno di un nuovo invito. I Mac di questa rete continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その後、ペアリング済みの %lld 台の Mac には新しい招待が必要です。このネットワーク上の Mac は引き続き使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이후 페어링된 Mac %lld대에 새 초대가 필요합니다. 이 네트워크의 Mac은 계속 작동합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je %lld gekoppelde Macs hebben daarna een nieuwe uitnodiging nodig. Macs op dit netwerk blijven werken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seus %lld Macs pareados precisarão de um novo convite depois. Os Macs desta rede continuam funcionando."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之后你的 %lld 台已配对的 Mac 需要新的邀请。此网络上的 Mac 仍可继续使用。"
+          }
+        }
+      }
+    },
     "Your Title": {
       "extractionState": "stale",
       "localizations": {
@@ -299230,6 +303865,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "你自己的快捷键"
+          }
+        }
+      }
+    },
+    "Your paired Mac needs a new invitation afterwards. Macs on this network keep working.": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dein gekoppelter Mac braucht danach eine neue Einladung. Macs in diesem Netzwerk funktionieren weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu Mac vinculado necesitará una nueva invitación después. Los Mac de esta red siguen funcionando."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre Mac jumelé aura ensuite besoin d’une nouvelle invitation. Les Mac de ce réseau continuent de fonctionner."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo Mac abbinato avrà poi bisogno di un nuovo invito. I Mac di questa rete continuano a funzionare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その後、ペアリング済みの Mac には新しい招待が必要です。このネットワーク上の Mac は引き続き使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이후 페어링된 Mac에 새 초대가 필요합니다. 이 네트워크의 Mac은 계속 작동합니다."
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Je gekoppelde Mac heeft daarna een nieuwe uitnodiging nodig. Macs op dit netwerk blijven werken."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seu Mac pareado precisará de um novo convite depois. Os Macs desta rede continuam funcionando."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "之后你已配对的 Mac 需要新的邀请。此网络上的 Mac 仍可继续使用。"
           }
         }
       }
@@ -301648,6 +306341,64 @@
         }
       }
     },
+    "^[%lld more](inflect: true) waiting": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld weiteres](inflect: true) wartet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld más](inflect: true) en espera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld autre](inflect: true) en attente"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld altro](inflect: true) in attesa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "さらに %lld 件待機中"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld개 더 대기 중"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nog %lld wachtend"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "^[%lld a mais](inflect: true) aguardando"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 %lld 个在等待"
+          }
+        }
+      }
+    },
     "^[%lld photo](inflect: true)": {
       "localizations": {
         "de": {
@@ -302063,6 +306814,7 @@
       }
     },
     "^[%lld render](inflect: true) in the list": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -302121,6 +306873,7 @@
       }
     },
     "^[%lld render](inflect: true) running": {
+      "extractionState": "stale",
       "localizations": {
         "de": {
           "stringUnit": {
@@ -304859,6 +309612,64 @@
           "stringUnit": {
             "state": "translated",
             "value": "项"
+          }
+        }
+      }
+    },
+    "last used %@": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zuletzt verwendet %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "usado por última vez %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "dernière utilisation %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ultimo utilizzo %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最終使用 %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "마지막 사용 %@"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "laatst gebruikt %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "último uso %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上次使用 %@"
           }
         }
       }
@@ -308766,7 +313577,9 @@
     "© Northwind": {
       "shouldTranslate": false
     },
-    "±": {},
+    "±": {
+      "shouldTranslate": false
+    },
     "·": {
       "shouldTranslate": false
     },
@@ -308828,8 +313641,12 @@
         }
       }
     },
-    "×": {},
-    "–": {},
+    "×": {
+      "shouldTranslate": false
+    },
+    "–": {
+      "shouldTranslate": false
+    },
     "“%@” can only be read, not written to. Choose another download folder in Settings.": {
       "localizations": {
         "de": {
@@ -310466,6 +315283,238 @@
     },
     "⌘⇧S": {
       "shouldTranslate": false
+    },
+    "● Online · direct connection": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · direkte Verbindung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En línea · conexión directa"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En ligne · connexion directe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · connessione diretta"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● オンライン · 直接接続"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 온라인 · 직접 연결"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · directe verbinding"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · conexão direta"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 在线 · 直接连接"
+          }
+        }
+      }
+    },
+    "● Online · from anywhere": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · von überall"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En línea · desde cualquier lugar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En ligne · de partout"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · da ovunque"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● オンライン · どこからでも"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 온라인 · 어디서나"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · vanaf overal"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · de qualquer lugar"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 在线 · 随处"
+          }
+        }
+      }
+    },
+    "● Online · local network": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · lokales Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En línea · red local"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En ligne · réseau local"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · rete locale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● オンライン · ローカルネットワーク"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 온라인 · 로컬 네트워크"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · lokaal netwerk"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · rede local"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 在线 · 本地网络"
+          }
+        }
+      }
+    },
+    "● Online · relay": {
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · Relay"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En línea · relay"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● En ligne · relais"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · relay"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● オンライン · リレー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 온라인 · 릴레이"
+          }
+        },
+        "nl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · relay"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● Online · relay"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "● 在线 · 中继"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

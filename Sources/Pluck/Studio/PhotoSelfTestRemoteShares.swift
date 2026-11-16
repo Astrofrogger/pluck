@@ -5,7 +5,8 @@ extension PhotoSelfTest {
     /// with small clips made by the bundled ffmpeg, a missing share, and a client paired over this
     /// Mac. Offline shares say so (fast), bookmarks find a moved folder, proxies of a subfolder only,
     /// proxies keep length, channels, timecode and reel, the manifest carries each proxy's SHA-256,
-    /// older proxyData originals follow the originals right, and a watched folder gets proxies.
+    /// older proxyData originals follow the originals right, a watched folder gets proxies, old search messages
+    /// are politely refused, and the proxies made are listed per folder and deleted.
     static func remoteSharesTest() async {
         let fm = FileManager.default
         guard let ffmpeg = OfficeRenderServer.shared.manager?.tool("ffmpeg"), let ffprobe = OfficeRenderServer.shared.manager?.tool("ffprobe") else {
@@ -56,7 +57,6 @@ extension PhotoSelfTest {
         let shares = RemoteShares.shared, jobs = RemoteProxyJobs.shared, id = OfficeProxies.id(root)
         archive.add(root)
         archive.add(gone)
-        archive.stop()
 
         // Online, offline, and a look that hangs.
         let online = await shares.state(root), offline = await shares.state(gone)
@@ -70,24 +70,20 @@ extension PhotoSelfTest {
         let moving = base.appendingPathComponent("Moving", isDirectory: true), moved = base.appendingPathComponent("Moved", isDirectory: true)
         try? fm.createDirectory(at: moving, withIntermediateDirectories: true)
         archive.add(moving)
-        archive.stop()
         await shares.sync()
         check("shares: new shares get a bookmark and volume", shares.share(moving)?.bookmark != nil && shares.share(moving)?.volume != nil)
         let movingID = OfficeProxies.id(moving)
         try? fm.moveItem(at: moving, to: moved)
         await shares.sync()
-        archive.stop()
         check("shares: a moved share is found again", archive.folders.contains { $0.path == moved.path } && !archive.folders.contains { $0.path == moving.path }
               && shares.share(moved) != nil, "\(archive.folders.map(\.path)) \(shares.shares.map(\.path)) want \(moved.path)")
         check("shares: a moved share keeps its id", OfficeProxies.id(moved) == movingID && movingID == OfficeProxies.pathID(moving.path),
               "\(OfficeProxies.id(moved)) vs \(movingID)")
         archive.add(moving)
-        archive.stop()
         await shares.sync()
         check("shares: a new folder where a moved one was gets its own id", OfficeProxies.id(moving) != movingID)
         archive.remove(moving)
         archive.remove(moved)
-        archive.stop()
         await shares.sync()
 
         server.start()
@@ -99,7 +95,6 @@ extension PhotoSelfTest {
             shares.removeWatch(.init(path: "Day 2", format: .light), in: root)
             archive.remove(root)
             archive.remove(gone)
-            archive.stop()
             try? fm.removeItem(at: OfficeProxies.shared.proxy("x", folder: id, format: .light).deletingLastPathComponent())
             server.stop()
             RemoteKeepAwake.update()
@@ -187,12 +182,20 @@ extension PhotoSelfTest {
                 if !(await refused({ _ = try await client.ask(action, arguments) })) { older = false; print("not refused: \(action)") }
             }
             check("shares: older proxy actions refused without the proxies right", older)
-            server.setRights(.init(browse: false, proxies: true, originals: false, render: true), for: device.id)
-            let noSearch = await refused({ _ = try await client.ask("archiveSearch", ["query": "x"]) })
-            let noClip = await refused({ _ = try await client.ask("archiveClip", ["id": "x"]) })
-            let noClipData = await refused({ _ = try await client.ask("archiveClipData", ["token": "x"]) })
-            check("shares: shot search and clips refused without the browse right", noSearch && noClip && noClipData)
             server.setRights(.init(), for: device.id)
+            // Find Shots is gone: an older Mac asking to search is told so, and the host keeps answering.
+            var unsupported = true
+            for (action, arguments) in [("archive", [:]), ("archiveSearch", ["query": "x"]), ("archiveClip", ["id": "x"]),
+                                        ("archiveClipData", ["token": "x"])] as [(String, [String: Any])] {
+                do {
+                    _ = try await client.ask(action, arguments)
+                    unsupported = false
+                } catch {
+                    if !error.localizedDescription.contains("search footage") { unsupported = false; print("\(action): \(error.localizedDescription)") }
+                }
+            }
+            check("shares: old archive search messages get a polite not-supported answer", unsupported)
+            check("shares: the shares answer has no search flag", (try await client.ask("shares")["shares"] as? [[String: Any]])?.allSatisfy { $0["search"] == nil } == true)
             let folders = try? await client.ask("proxyFolders"), status = try? await client.ask("proxyStatus", ["folder": id, "format": "light"])
             check("shares: older proxy actions work with the default rights", folders?["folders"] != nil && status?["files"] != nil)
 
@@ -215,6 +218,66 @@ extension PhotoSelfTest {
             let skipped = await OfficeProxies.shared.makeOne(root.appendingPathComponent("Day 2/clip3.mov"), to: proxy3, format: .light,
                                                              ffmpeg: ffmpeg, ffprobe: ffprobe) { _ in }
             check("shares: a proxy already there isn't made again", skipped && (try? fm.attributesOfItem(atPath: proxy3.path)[.modificationDate] as? Date) == before)
+
+            // Proxies made on this Mac: a request asked here isn't a watch; listed per folder, still after the folder
+            // stops being shared, and deleted on request.
+            let asked = jobs.add(.init(share: id, paths: ["Day 1"], format: .light, device: nil, byHost: true))
+            check("shares: a request made on this Mac isn't a watch", !asked.watch && jobs.requests.contains { $0.id == asked.id })
+            jobs.remove(asked.id)
+            check("shares: a share says what it's on", online.kind != nil && !online.network, "\(online)")
+            let madeHere = await OfficeProxies.shared.made() ?? []
+            let light = madeHere.first { $0.share == id && $0.format == .light }
+            check("shares: made proxies are listed per folder", light?.clips == 3 && light?.name == "Share" && (light?.bytes ?? 0) > 0,
+                  "\(madeHere.map { "\($0.name) \($0.format) \($0.clips)" })")
+            if let light {
+                archive.remove(root)
+                let kept = await OfficeProxies.shared.made() ?? []
+                check("shares: proxies of a folder no longer shared stay listed", kept.contains { $0.url == light.url && $0.name == "Share" })
+                // Only the counted proxies go, to the Trash: anything else there stays, and so does the folder then.
+                let other = light.url.appendingPathComponent("notes.txt")
+                fm.createFile(atPath: other.path, contents: Data("keep".utf8))
+                let trashed = await OfficeProxies.shared.delete(light)
+                let gone = await OfficeProxies.shared.made() ?? []
+                check("shares: deleting proxies moves only them to the Trash", !fm.fileExists(atPath: proxy3.path) && fm.fileExists(atPath: other.path)
+                      && trashed.count == 3 && trashed.allSatisfy { fm.fileExists(atPath: $0.path) } && !gone.contains { $0.url == light.url },
+                      "\(trashed.map(\.lastPathComponent))")
+                for file in trashed { try? fm.removeItem(at: file) }
+                try? fm.removeItem(at: other)
+                await OfficeProxies.shared.delete(light, trash: false)
+                check("shares: Pluck's own proxies folder goes once empty", !fm.fileExists(atPath: light.url.path))
+                archive.add(root)
+            }
+
+            // Tidying by last use: any proxy folder in Pluck's own (streaming stand-ins too); one used lately stays.
+            let keepDays = UserDefaults.standard.object(forKey: OfficeProxies.keepDaysKey)
+            UserDefaults.standard.set(7, forKey: OfficeProxies.keepDaysKey)
+            let tag = UUID().uuidString.prefix(6).lowercased()
+            let unused = OfficeProxies.root.appendingPathComponent("old\(tag)-stream"), recent = OfficeProxies.root.appendingPathComponent("new\(tag)-stream")
+            for folder in [unused, recent] {
+                try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
+                fm.createFile(atPath: folder.appendingPathComponent("a.mov").path, contents: Data([1]))
+                try? fm.setAttributes([.modificationDate: Date.now.addingTimeInterval(-30 * 86_400)], ofItemAtPath: folder.appendingPathComponent("a.mov").path)
+            }
+            OfficeProxies.shared.used("new\(tag)", format: .stream)
+            await OfficeProxies.shared.tidy()
+            check("shares: proxies unused for the kept days are tidied, ones used lately stay",
+                  !fm.fileExists(atPath: unused.path) && fm.fileExists(atPath: recent.appendingPathComponent("a.mov").path))
+            try? fm.removeItem(at: recent)
+            UserDefaults.standard.set(keepDays, forKey: OfficeProxies.keepDaysKey)
+
+            // Shares saved for older builds: still with "search", streaming watches apart; and older lists still read.
+            struct OldShare: Decodable { var path: String; var search: Bool; var watch: [OldWatch] }
+            struct OldWatch: Decodable { var path: String; var format: OldFormat }
+            enum OldFormat: String, Decodable { case light, prores, original }
+            let saving = [RemoteShares.Share(path: "/a", id: "x", watch: [.init(path: "", format: .light), .init(path: "B", format: .stream)])]
+            let stored = RemoteShares.encoded(saving)
+            let old = stored.shares.flatMap { try? JSONDecoder().decode([OldShare].self, from: $0) }
+            let back = RemoteShares.decoded(stored.shares, stream: stored.stream)
+            let olderList = RemoteShares.decoded(Data(#"[{"path":"/b","search":false,"watch":[]},{"path":"/c"}]"#.utf8), stream: nil)
+            check("shares: older builds still read the saved shares, and nothing is lost on the way back",
+                  old?.first?.search == true && old?.first?.watch.map(\.path) == [""] && back == saving
+                  && olderList.map(\.path) == ["/b", "/c"] && olderList.allSatisfy { $0.watch.isEmpty },
+                  "\(String(data: stored.shares ?? Data(), encoding: .utf8) ?? "")")
         } catch {
             check("shares: round trip", false, error.localizedDescription)
         }

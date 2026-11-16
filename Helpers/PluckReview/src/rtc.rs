@@ -48,6 +48,10 @@ pub struct Peer {
     fp_local: String,
     fp_remote: String,
     pub serves: Vec<media::Serve>,
+    /// Serves past PER_PEER/TOTAL: the browser was already told the size, so they wait for a slot (media::admit).
+    pub waiting: VecDeque<(u32, Vec<media::Part>)>,
+    /// Fetch ids cancelled before their serve came (ctl and media race): such a serve is dropped.
+    cancelled: VecDeque<u32>,
     ctl_out: VecDeque<String>,
     media_out: VecDeque<String>, // upload acks and cancels, ahead of the frames
     queued: usize,
@@ -103,7 +107,7 @@ impl Peer {
         let peer = Peer {
             id, room, rtc, ctl: None, media: None, open: false, connected: false, kill: false,
             deadline: now, last_rx: now, last_src: None, relays, fp_local, fp_remote,
-            serves: vec![], ctl_out: VecDeque::new(), media_out: VecDeque::new(), queued: 0, max_msg, uploads: vec![],
+            serves: vec![], waiting: VecDeque::new(), cancelled: VecDeque::new(), ctl_out: VecDeque::new(), media_out: VecDeque::new(), queued: 0, max_msg, uploads: vec![],
             rate_start: now, rate_n: 0, tokens: CTL_BURST, tokens_at: now,
             relay: Default::default(),
         };
@@ -270,7 +274,15 @@ impl Peer {
             return;
         }
         let Some(fetch) = v["fetch"].as_u64() else { return };
-        let Some(i) = self.serves.iter().position(|s| s.fetch as u64 == fetch) else { return };
+        let Some(i) = self.serves.iter().position(|s| s.fetch as u64 == fetch) else {
+            if v["t"] == "cancel" {
+                match self.waiting.iter().position(|w| w.0 as u64 == fetch) {
+                    Some(w) => { self.waiting.remove(w); served(&self.id, fetch as u32, 0, "cancelled"); }
+                    None => media::cancel_early(&mut self.cancelled, fetch as u32),
+                }
+            }
+            return;
+        };
         match v["t"].as_str() {
             Some("ack") => self.serves[i].ack(v["bytes"].as_u64().unwrap_or(0)),
             Some("cancel") => {
@@ -283,6 +295,11 @@ impl Peer {
 
     pub fn can_serve(&self) -> bool {
         self.open && !self.kill
+    }
+
+    /// True (once) when the browser cancelled `fetch` before its serve came.
+    pub fn take_cancelled(&mut self, fetch: u32) -> bool {
+        media::take_early(&mut self.cancelled, fetch)
     }
 
     /// Swift (or the host) accepted an upload: its bytes go to `path`, a new file.
@@ -430,6 +447,9 @@ impl Peer {
     pub fn closed(&mut self) {
         for s in self.serves.drain(..) {
             served(&self.id, s.fetch, s.sent, "cancelled");
+        }
+        for (fetch, _) in self.waiting.drain(..) {
+            served(&self.id, fetch, 0, "cancelled");
         }
         for u in self.uploads.drain(..) {
             report(json!({"upload": {"peer": self.id, "upload": u.id, "state": "cancelled", "bytes": u.received}}));

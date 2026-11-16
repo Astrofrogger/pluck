@@ -41,6 +41,12 @@ protocol FinderSource: AnyObject {
     func picture(_ url: URL) async -> CGImage?
     /// What a right-click on these offers.
     func menu(_ urls: [URL]) -> AnyView
+    /// What the path bar calls the root (nil: its folder name; a NAS root's folder name is an id).
+    var rootName: String? { get }
+}
+
+extension FinderSource {
+    var rootName: String? { nil }
 }
 
 /// What a file is, read off the main thread (its name, kind, size, date and Finder tags).

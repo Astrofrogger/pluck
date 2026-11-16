@@ -20,8 +20,10 @@ final class RemoteProxyJobs {
         /// Folders or files, relative to the share ("" = all of it).
         var paths: [String]
         var format: OfficeProxies.Format
-        /// The paired Mac that asked (nil: a watched folder on this Mac).
+        /// The paired Mac that asked (nil: a watched folder on this Mac, or asked here when `byHost`).
         var device: UUID?
+        /// Asked on this Mac (Proxies → Make proxies of a folder). (Optional: requests saved before decode.)
+        var byHost: Bool?
         var asked = Date.now
         var state = State.queued
         var total = 0
@@ -29,7 +31,7 @@ final class RemoteProxyJobs {
         var failed: [String] = []
         var problem: String?
 
-        var watch: Bool { device == nil }
+        var watch: Bool { device == nil && byHost != true }
     }
 
     private(set) var requests: [Request] = []
@@ -51,14 +53,25 @@ final class RemoteProxyJobs {
     }
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.key), let saved = try? JSONDecoder().decode([Request].self, from: data) {
-            // What was under way when Pluck quit starts again.
-            requests = saved.map { var request = $0; if request.state == .making { request.state = .queued }; return request }
+        // What was under way when Pluck quit starts again.
+        requests = OfficeProxies.Format.load(Self.key).map { (request: Request) in
+            var request = request
+            if request.state == .making { request.state = .queued }
+            return request
         }
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(requests) { UserDefaults.standard.set(data, forKey: Self.key) }
+        OfficeProxies.Format.save(requests, key: Self.key) { $0.format }
+    }
+
+    /// Snapshot scenes only: these requests shown (`current` being made at `progress`), nothing stored or run.
+    func showSample(_ sample: [Request], current: UUID?, working: String?, progress: Double) {
+        guard ScreenshotMode.scene != nil else { return }
+        requests = sample
+        self.current = current
+        self.working = working
+        self.progress = progress
     }
 
     // MARK: - Actions for paired Macs
@@ -138,7 +151,7 @@ final class RemoteProxyJobs {
     func add(_ request: Request) -> Request {
         // The same selection asked again joins the one already there.
         if let index = requests.firstIndex(where: { $0.share == request.share && $0.paths == request.paths && $0.format == request.format
-                                                    && $0.device == request.device }) {
+                                                    && $0.device == request.device && $0.byHost == request.byHost }) {
             if requests[index].state != .making { requests[index].state = .queued }
             requests[index].asked = .now
             save()
@@ -160,8 +173,10 @@ final class RemoteProxyJobs {
             .reduce(0) { $0 + ($1.state == .queued && $1.total == 0 ? 1 : max($1.total - $1.done - $1.failed.count, 0)) }
     }
 
+    /// Removes a request; one being made stops before its next file.
+    /// shortcut: the file being encoded finishes first (ffmpeg isn't cancelled), cancel the encode if that's too slow.
     func remove(_ id: UUID) {
-        requests.removeAll { $0.id == id && $0.state != .making }
+        requests.removeAll { $0.id == id }
         save()
     }
 

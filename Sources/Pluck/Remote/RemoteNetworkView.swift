@@ -22,6 +22,8 @@ struct RemoteNetworkHostView: View {
 /// Remote: one share's proxies streamed from the host through Pluck's drive, and linked in Resolve from there.
 struct RemoteNetworkPane: View {
     let share: String
+    /// Switches this share to Download and pulls its proxies (offered when the link is too slow to stream them).
+    var download: (() -> Void)?
     @State private var network = RemoteNetwork.shared
     @State private var problem: String?
     @State private var linking: String?
@@ -42,8 +44,11 @@ struct RemoteNetworkPane: View {
         let state = network.state(share)
         return HStack(spacing: 12) {
             StudioTile(symbol: "network", colour: state.isMounted ? Design.Studio.good : Design.Studio.textQuiet).accessibilityHidden(true)
-            status(state).font(Design.Studio.hint).lineLimit(2)
+            status(state).font(Design.Studio.hint).lineLimit(3).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
+            if let download, network.tooSlow(share) != nil {
+                Button("Download Instead", action: download).buttonStyle(StudioFlatButtonStyle(prominent: true))
+            }
             Menu {
                 Picker("Cache", selection: $cacheGB) {
                     ForEach([5, 10, 20, 50, 100], id: \.self) { Text("\($0) GB").tag($0) }
@@ -87,8 +92,9 @@ struct RemoteNetworkPane: View {
         case .failed(let message): return Text(verbatim: message).foregroundStyle(Design.Studio.warn)
         case .mounted(let mounted):
             guard let speed = mounted.speed else { return Text("Connected · measuring speed…").foregroundStyle(Design.Studio.textQuiet) }
+            if let slow = network.tooSlow(share) { return Text(verbatim: slow).foregroundStyle(Design.Studio.warn) }
             let rate = ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file)
-            switch RemoteNetwork.quality(speed: speed, format: RemoteNetwork.format.rawValue) {
+            switch RemoteNetwork.quality(speed: speed, format: network.streaming(share).rawValue) {
             case .smooth: return Text("Connected · \(rate)/s · smooth").foregroundStyle(Design.Studio.good)
             case .usable: return Text("Connected · \(rate)/s · usable").foregroundStyle(Design.Studio.textQuiet)
             case .slow: return Text("Connected · \(rate)/s · too slow to play smoothly").foregroundStyle(Design.Studio.warn)

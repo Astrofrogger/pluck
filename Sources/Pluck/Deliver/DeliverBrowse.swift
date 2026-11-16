@@ -159,6 +159,10 @@ struct DeliverBrowseView: View {
     @State private var officeProblem: String?
     @State private var sharing: [DeliverBrowseItem]?
     @State private var preview = false
+    /// The main review server's media roots (its top level), for "On the NAS".
+    @State private var mediaRoots: [ReviewHostClient.Entry] = []
+    /// A sidebar place on another Browse page, opened once that page shows (each page is its own view).
+    @MainActor static var pending: String?
 
     init(nav: StudioNavigator, place: Deliver.PlaceID) {
         self.nav = nav
@@ -203,6 +207,8 @@ struct DeliverBrowseView: View {
                 .frame(maxHeight: .infinity)
             } else {
                 HStack(spacing: 0) {
+                    FinderSidebar(groups: places, selection: selected) { go($0.id) }
+                    Divider()
                     FinderPaneView(pane: pane).coordinateSpace(name: "finder")
                         .opacity(problem == nil ? 1 : 0.5)
                         .allowsHitTesting(problem == nil)
@@ -216,7 +222,12 @@ struct DeliverBrowseView: View {
         .onAppear {
             nas?.share = { urls in sharing = items(urls) }
             if let nas { FinderThumbnails.shared.register(nas) }
+            if let pending = Self.pending {
+                Self.pending = nil
+                go(pending)
+            }
         }
+        .task { if let main = mainServer { mediaRoots = ((try? await ReviewHostClient.browse(main, path: "")) ?? []).filter(\.folder) } }
         .onDisappear { if let nas { FinderThumbnails.shared.unregister(nas) } }
         .onChange(of: pane.url) { _, url in
             if case .local = place, pane.list == nil, Self.usable(url) { UserDefaults.standard.set(url.path, forKey: Self.lastFolderKey) }
@@ -245,18 +256,6 @@ struct DeliverBrowseView: View {
             Text(verbatim: name).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text).lineLimit(1)
             if let state = DeliverPlaces.state(place, problem: problem) {
                 StudioChip(text: Text(verbatim: state), colour: problem == nil ? Design.Studio.textQuiet : Design.Studio.warn, tinted: problem != nil)
-            }
-            if case .local = place, Locations.shared.favorites.filter(\.hasDirectoryPath).count > 1 {
-                Menu {
-                    ForEach(Locations.shared.favorites.filter(\.hasDirectoryPath), id: \.self) { url in
-                        Button(FileManager.default.displayName(atPath: url.path)) { pane.go(to: url, base: url) }
-                    }
-                } label: { StudioMenuLabel(title: pane.title) }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-            }
-            if case .office = place, shares.count > 1, let office {
-                Menu {
-                    ForEach(shares) { share in Button(share.name) { open(share) } }
-                } label: { StudioMenuLabel(title: office.share.name) }.menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             }
             Spacer()
             Button("Share for Review…") { share() }
@@ -292,6 +291,82 @@ struct DeliverBrowseView: View {
             if office == nil, let first = shares.first(where: \.online) ?? shares.first { open(first) }
         } catch {
             officeProblem = error.localizedDescription
+        }
+    }
+
+    // MARK: The sidebar
+
+    /// The review server whose media roots "On the NAS" lists: the main one, else the first.
+    private var mainServer: Deliver.Host? {
+        let servers = ReviewPublish.shared.hosts.filter { $0.kind == .nas }
+        return servers.first { $0.role == "main" } ?? servers.first
+    }
+
+    private static var movies: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Movies", isDirectory: true) }
+
+    private var places: [FinderSidebar.Places] {
+        let publish = ReviewPublish.shared
+        let servers = publish.hosts.filter { $0.kind == .nas }.map { host in
+            FinderSidebar.Place(id: "nas:" + host.id.uuidString, symbol: "server.rack", title: host.name,
+                                detail: host.role == "backup" ? String(localized: "Backup") : host.role == "main" ? String(localized: "Main") : nil,
+                                dimmed: publish.online[host.id] == false)
+        }
+        let roots = mainServer.map { host in
+            mediaRoots.map { FinderSidebar.Place(id: "nasroot:" + host.id.uuidString + "/" + $0.path, symbol: "externaldrive.connected.to.line.below", title: $0.name) }
+        } ?? []
+        // Movies, then the folders the user added to the Library's Favourites (not the usual home folders).
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let usual = Set((["Desktop", "Documents", "Downloads", "Movies", "Music", "Pictures"].map { home.appendingPathComponent($0).path } + [home.path]
+                         + [Locations.downloadFolder?.path].compactMap { $0 }).map { URL(fileURLWithPath: $0).standardizedFileURL.path })
+        let here = [Self.movies] + Locations.shared.favorites.filter { $0.hasDirectoryPath && !usual.contains($0.standardizedFileURL.path) }
+        var groups: [FinderSidebar.Places] = [
+            .init(title: String(localized: "Review server"), places: servers),
+            .init(title: String(localized: "On the NAS"), places: roots),
+            .init(title: String(localized: "This Mac"), places: here.map {
+                .init(id: "local:" + $0.standardizedFileURL.path, symbol: $0 == Self.movies ? "film" : "folder", title: FileManager.default.displayName(atPath: $0.path))
+            }),
+        ]
+        if let mac = OfficeRenderClient.shared.office {
+            let rows: [FinderSidebar.Place] = office == nil ? [.init(id: "office", symbol: "macmini", title: mac.name)]
+                : shares.map { .init(id: "share:" + $0.id, symbol: "externaldrive", title: $0.name, dimmed: !$0.online) }
+            groups.append(.init(title: mac.name, places: rows))
+        }
+        return groups
+    }
+
+    /// The sidebar place whose root the browser shows.
+    private var selected: String? {
+        let base = pane.base.standardizedFileURL
+        switch place {
+        case .local: return "local:" + base.path
+        case .nas(let id):
+            guard let nas else { return nil }
+            let path = nas.path(base)
+            return path.isEmpty ? "nas:" + id.uuidString : "nasroot:" + id.uuidString + "/" + path
+        case .office: return office.map { "share:" + $0.share.id } ?? "office"
+        }
+    }
+
+    /// A sidebar place chosen: the browser starts there (another place's page first, if it's elsewhere).
+    private func go(_ id: String) {
+        let kind = id.prefix { $0 != ":" }, value = String(id.dropFirst(kind.count + 1))
+        switch kind {
+        case "nas":
+            guard let host = UUID(uuidString: value) else { return }
+            if place == .nas(host), let nas { pane.go(to: nas.root, base: nas.root) } else { nav.deliver = .browse(.nas(host)) }
+        case "nasroot":
+            guard let slash = value.firstIndex(of: "/"), let host = UUID(uuidString: String(value[..<slash])) else { return }
+            if place == .nas(host), let nas {
+                let url = nas.root.appendingPathComponent(String(value[value.index(after: slash)...]), isDirectory: true)
+                pane.go(to: url, base: url)
+            } else { Self.pending = id; nav.deliver = .browse(.nas(host)) }
+        case "local":
+            let url = URL(fileURLWithPath: value, isDirectory: true)
+            if place == .local { pane.go(to: url, base: url) } else { Self.pending = id; nav.deliver = .browse(.local) }
+        case "share":
+            if case .office = place, let share = shares.first(where: { $0.id == value }) { open(share) }
+        default:
+            if let mac = OfficeRenderClient.shared.office { nav.deliver = .browse(.office(mac.device.uuidString)) }
         }
     }
 

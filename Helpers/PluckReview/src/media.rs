@@ -18,6 +18,35 @@ pub const MAX_BUFFERED: usize = 1 << 20; // per channel (str0m buffered_amount)
 pub const LOW_THRESHOLD: usize = 256 << 10;
 pub const PER_PEER: usize = 4;
 pub const TOTAL: usize = 32;
+pub const WAIT_MAX: usize = 16; // serves a peer may have waiting for a slot (the browser keeps ≤ 4 in flight)
+
+/// A `cancel` for a fetch with no serve yet: its `fetch` reply went by ctl and the serve is still on its way
+/// (ctl and media are separate channels), so remember it (the last 64) and drop that serve when it comes.
+pub fn cancel_early(list: &mut std::collections::VecDeque<u32>, fetch: u32) {
+    if list.len() >= 64 {
+        list.pop_front();
+    }
+    list.push_back(fetch);
+}
+
+/// True, once, when `fetch` was cancelled early.
+pub fn take_early(list: &mut std::collections::VecDeque<u32>, fetch: u32) -> bool {
+    list.iter().position(|&f| f == fetch).and_then(|i| list.remove(i)).is_some()
+}
+
+/// Which peers start a waiting serve now, in order: within PER_PEER each and TOTAL in all, always the
+/// peer with the fewest running next, so one busy peer can't take the slots the others wait for.
+/// `running` and `waiting` are per peer and are updated as serves are taken.
+pub fn admit(running: &mut [usize], waiting: &mut [usize]) -> Vec<usize> {
+    let mut out = vec![];
+    while running.iter().sum::<usize>() < TOTAL {
+        let Some(i) = (0..running.len()).filter(|&i| waiting[i] > 0 && running[i] < PER_PEER).min_by_key(|&i| running[i]) else { break };
+        running[i] += 1;
+        waiting[i] -= 1;
+        out.push(i);
+    }
+    out
+}
 
 pub fn frame(fetch: u32, seq: u32, payload: &[u8]) -> Vec<u8> {
     let mut f = Vec::with_capacity(HEADER + payload.len());
@@ -238,6 +267,31 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn waiting_serves_are_admitted_fairly() {
+        // A peer at its cap with many waiting gets nothing; the others take turns.
+        assert_eq!(admit(&mut [4, 0, 0], &mut [10, 3, 3]), [1, 2, 1, 2, 1, 2]);
+        // The total cap holds, spread evenly over everyone waiting.
+        let (mut run, mut wait) = ([0; 10], [10; 10]);
+        assert_eq!(admit(&mut run, &mut wait).len(), TOTAL);
+        assert!(run.iter().max().unwrap() - run.iter().min().unwrap() <= 1, "{run:?}");
+        assert!(admit(&mut [1, 1], &mut [0, 0]).is_empty(), "nothing waiting");
+    }
+
+    #[test]
+    fn a_cancel_before_its_serve_drops_that_serve_once() {
+        let mut l = std::collections::VecDeque::new();
+        cancel_early(&mut l, 7);
+        assert!(!take_early(&mut l, 8));
+        assert!(take_early(&mut l, 7));
+        assert!(!take_early(&mut l, 7), "only once");
+        for f in 0..100 {
+            cancel_early(&mut l, f);
+        }
+        assert_eq!(l.len(), 64, "bounded");
+        assert!(take_early(&mut l, 99) && !take_early(&mut l, 0));
     }
 
     #[test]

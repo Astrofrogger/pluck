@@ -15,7 +15,8 @@ enum RemoteNetworkHost {
     static func register() {
         OfficeActions.register("driveInfo") { _, device in
             try OfficeActions.require(\.proxies, device)
-            return ["stream": streamAllowed]
+            // (formats: what's made here, so a Mac knows it can ask for the streaming ones.)
+            return ["stream": streamAllowed, "formats": OfficeProxies.Format.made.map(\.rawValue)]
         }
     }
 }
@@ -25,7 +26,8 @@ enum RemoteNetworkHost {
 /// One share's proxies as the drive shows them: the manifest's proxies in their folders, plus the manifest
 /// itself as `.pluck-manifest.json` in the top (so Resolve linking finds it like in a pulled folder).
 final class RemoteShareDrive: RemoteDriveBackend, @unchecked Sendable {
-    typealias Fetch = @Sendable (_ original: String, _ offset: Int64, _ length: Int) async throws -> Data
+    /// (The whole entry: which proxy it is decides which format's file the bytes come from.)
+    typealias Fetch = @Sendable (_ entry: RemoteManifestEntry, _ offset: Int64, _ length: Int) async throws -> Data
 
     struct Tree {
         var nodes: [String: RemoteDriveNode] = [:]
@@ -121,8 +123,14 @@ actor RemoteDriveBlocks {
     let scope: String
     let fetch: RemoteShareDrive.Fetch
     private var flying: [String: Task<Data, Error>] = [:]
-    /// At most this many fetches from the host at once, reads and fetches ahead together (each holds a connection there).
-    static let maxFetches = 4
+    /// At most this many fetches from the host at once, reads and fetches ahead together (each on a connection the
+    /// host keeps open): enough in flight to keep a slow, far link full. (Variables only for the speed test's "before".)
+    nonisolated(unsafe) static var maxFetches = 8
+    /// Blocks fetched ahead of a file read in order.
+    nonisolated(unsafe) static var ahead = 6
+    /// The last measured speed from the host, bytes a second (kept between launches: the next mount picks its proxies by it).
+    static let speedKey = "editAnywhereLinkSpeed"
+    nonisolated static var linkSpeed: Double? { (UserDefaults.standard.object(forKey: speedKey) as? Double).flatMap { $0 > 0 ? $0 : nil } }
     private var running = 0
     private var waiting: [CheckedContinuation<Void, Never>] = []
     private var lastBlock: [String: Int64] = [:]
@@ -149,14 +157,16 @@ actor RemoteDriveBlocks {
         let first = offset / Int64(Self.blockSize), last = (end - 1) / Int64(Self.blockSize)
         // In order (the same or the next block as last time): the next ones come ahead.
         if let previous = lastBlock[entry.path], first == previous || first == previous + 1 {
-            for ahead in (last + 1)...(last + 3) where ahead * Int64(Self.blockSize) < entry.size {
-                if flying.count < 6 { _ = start(entry, ahead, urgent: false) }
+            for ahead in (last + 1)...(last + Int64(Self.ahead)) where ahead * Int64(Self.blockSize) < entry.size {
+                if flying.count < Self.ahead + 2 { _ = start(entry, ahead, urgent: false) }
             }
         }
         lastBlock[entry.path] = last
         var out = Data()
-        for index in first...last {
-            let block = try await start(entry, index).value
+        // All of the read's blocks at once (a big read, like the speed measure's, isn't one block after another).
+        let blocks = (first...last).map { ($0, start(entry, $0)) }
+        for (index, task) in blocks {
+            let block = try await task.value
             let base = index * Int64(Self.blockSize)
             let from = Int(max(offset, base) - base), to = Int(min(end, base + Int64(block.count)) - base)
             guard from < to else { throw RemoteDriveError.io }
@@ -175,7 +185,7 @@ actor RemoteDriveBlocks {
             return Task { data }
         }
         let offset = index * Int64(Self.blockSize), length = Int(min(Int64(Self.blockSize), entry.size - offset))
-        let fetch = fetch, original = entry.path
+        let fetch = fetch
         let task = Task<Data, Error> {
             await self.slot(urgent: urgent)
             defer { self.freeSlot() }
@@ -183,7 +193,7 @@ actor RemoteDriveBlocks {
             while true {
                 do {
                     let started = Date.now
-                    let data = try await fetch(original, offset, length)
+                    let data = try await fetch(entry, offset, length)
                     guard data.count == length else { throw RemoteDriveError.io }
                     self.done(key, file: file, data: data, seconds: Date.now.timeIntervalSince(started))
                     return data
@@ -219,6 +229,7 @@ actor RemoteDriveBlocks {
             // With several fetches at once the host's real rate is about this times how many are going.
             let rate = Double(data.count) / seconds * Double(max(1, running))
             speed = speed.map { $0 * 0.7 + rate * 0.3 } ?? rate
+            UserDefaults.standard.set(speed, forKey: Self.speedKey)
         }
         let fm = FileManager.default
         try? fm.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -253,6 +264,65 @@ actor RemoteDriveBlocks {
     func clearedTotal() { total = nil }
 }
 
+/// One mounted share's lighter proxies: their format once the link proved too slow for the chosen one, and the
+/// manifest entries they stand in with (the fetch picks a piece's format by its entry, so a cached block never mixes the two).
+final class RemoteStreamChoice: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _lighter: OfficeProxies.Format?
+    private var _standIns: Set<RemoteManifestEntry> = []
+    /// Clips read without a lighter proxy, waiting to be asked for one; those the host took; whether a batch is on its way.
+    private var _pending: Set<String> = [], _asked: Set<String> = [], flushing = false
+    /// How often the host refused each clip on its own (three times: never asked again this mount).
+    private var _refusals: [String: Int] = [:]
+    var lighter: OfficeProxies.Format? {
+        get { lock.withLock { _lighter } }
+        set { lock.withLock { _lighter = newValue } }
+    }
+    var standIns: Set<RemoteManifestEntry> {
+        get { lock.withLock { _standIns } }
+        set { lock.withLock { _standIns = newValue } }
+    }
+
+    /// A clip read through the drive with no lighter proxy yet: noted for the host (only clips that are used, never the
+    /// whole share). True when nothing is on its way, so the caller starts a batch.
+    func wants(_ path: String) -> Bool {
+        lock.withLock {
+            guard !_asked.contains(path) else { return false }
+            _pending.insert(path)
+            guard !flushing else { return false }
+            flushing = true
+            return true
+        }
+    }
+
+    /// The next paths to ask for, at most `most` (none: the batch is over).
+    func take(_ most: Int) -> [String] {
+        lock.withLock {
+            let batch = Array(_pending.prefix(most))
+            _pending.subtract(batch)
+            if batch.isEmpty { flushing = false }
+            return batch
+        }
+    }
+
+    /// The host took these (`ok`), or didn't: then they wait again, and the next read starts another try.
+    func asked(_ paths: [String], ok: Bool) {
+        lock.withLock {
+            if ok { _asked.formUnion(paths) } else { _pending.formUnion(paths); flushing = false }
+        }
+    }
+
+    /// Clips the host refused one by one: tried again with a later batch, dropped after the third time.
+    func refused(_ paths: [String]) {
+        lock.withLock {
+            for path in paths {
+                _refusals[path, default: 0] += 1
+                if _refusals[path, default: 0] >= 3 { _asked.insert(path) } else { _pending.insert(path) }
+            }
+        }
+    }
+}
+
 // MARK: - The remote side
 
 /// On a Mac away from the host: one drive per streamed share, mounted (hidden from Finder) under
@@ -277,6 +347,11 @@ final class RemoteNetwork {
 
     /// Whether the host lets this Mac stream (nil: not asked yet or the host didn't answer).
     private(set) var hostAllows: Bool?
+    /// The proxy formats the host makes (a host from before doesn't say: no streaming proxies there).
+    @ObservationIgnored private var hostFormats: Set<String> = []
+    /// Per mounted share: the lighter proxies standing in, and how big its chosen-format proxies are (to download).
+    @ObservationIgnored private var choices: [String: RemoteStreamChoice] = [:]
+    @ObservationIgnored private var chosenBytes: [String: Int64] = [:]
     private(set) var states: [String: State] = [:]
     /// Shares the editor connected (mounted again after a drop, until disconnected).
     @ObservationIgnored private var wanted: Set<String> = []
@@ -323,7 +398,9 @@ final class RemoteNetwork {
     // MARK: Asking the host
 
     func refresh() async {
-        hostAllows = (try? await OfficeRenderClient.shared.ask("driveInfo", timeout: 20)).map { $0["stream"] as? Bool ?? false }
+        let answer = try? await OfficeRenderClient.shared.ask("driveInfo", timeout: 20)
+        hostAllows = answer.map { $0["stream"] as? Bool ?? false }
+        if let answer { hostFormats = Set(answer["formats"] as? [String] ?? []) }
     }
 
     // MARK: Mounting
@@ -368,13 +445,14 @@ final class RemoteNetwork {
             guard allows else { throw Failure.notAllowed }
             let shares = try await OfficeRenderClient.shared.shares()
             guard let share = shares.first(where: { $0.id == id }), share.online else { throw Failure.offline }
-            let format = Self.format
-            let manifest = try await Self.manifest(share: share, office: office, format: format)
+            let format = Self.format, choice = RemoteStreamChoice()
+            let manifest = try await manifest(share: share, office: office, format: format, choice: choice, standingIn: nil)
             guard !manifest.entries.isEmpty else { throw Failure.noProxies }
             try stillWanted()
             await stopDrive(id)
             let drive = RemoteShareDrive(cacheKey: "\(office.device.uuidString)|\(id)|\(format.rawValue)",
-                                         fetch: Self.fetcher(share: id, format: format))
+                                         fetch: Self.fetcher(share: id, format: format, choice: choice))
+            choices[id] = choice
             drive.update(manifest)
             let server = RemoteDriveServer(backend: drive)
             mine = server
@@ -421,6 +499,7 @@ final class RemoteNetwork {
     private func stopDrive(_ id: String) async {
         if case .mounted(let mounted) = state(id) { await RemoteDriveMount.unmount(mounted.root) }
         drives.removeValue(forKey: id)?.server.stop()
+        choices[id] = nil
     }
 
     /// When Pluck quits: every drive unmounted before its server goes with Pluck.
@@ -503,22 +582,123 @@ final class RemoteNetwork {
     private func updateManifest(_ id: String) async throws {
         guard let office = OfficeRenderClient.shared.office, let drive = drives[id]?.drive else { throw Failure.offline }
         guard let share = try await OfficeRenderClient.shared.shares().first(where: { $0.id == id }), share.online else { throw Failure.offline }
-        drive.update(try await Self.manifest(share: share, office: office, format: Self.format))
+        let choice = choices[id] ?? RemoteStreamChoice()
+        drive.update(try await manifest(share: share, office: office, format: Self.format, choice: choice,
+                                        standingIn: Set(choice.standIns.map(\.path))))
     }
 
-    private static func manifest(share: OfficeRenderClient.RemoteShare, office: OfficeRenderClient.Office,
-                                 format: OfficeProxies.Format) async throws -> RemoteManifest {
-        let entries = try await RemotePullClient.manifest(share: share.id, format: format).entries
+    /// The share's proxies in the chosen format. At mount (`standingIn` nil), when the last measured link is too slow for
+    /// Light, the lighter streaming proxies stand in for every one the host has made already (the host is asked for the
+    /// rest only as clips are read, see `askLighter`, for the next mount). A refresh (`standingIn`: the stand-ins' paths) never changes the format of a path.
+    private func manifest(share: OfficeRenderClient.RemoteShare, office: OfficeRenderClient.Office, format: OfficeProxies.Format,
+                          choice: RemoteStreamChoice, standingIn: Set<String>?) async throws -> RemoteManifest {
+        var entries = try await RemotePullClient.manifest(share: share.id, format: format).entries
+        chosenBytes[share.id] = entries.reduce(0) { $0 + $1.size }
+        if standingIn == nil, choice.lighter == nil {
+            let pick = Self.streamFormat(chosen: format, speed: RemoteDriveBlocks.linkSpeed, hostMakes: hostFormats.contains(OfficeProxies.Format.stream.rawValue))
+            if pick != format { choice.lighter = pick }
+        }
+        if let lighter = choice.lighter {
+            // (At a refresh a failed list keeps the drive as it was: stand-ins never fall back to the chosen format mid-edit.)
+            let made = standingIn == nil ? ((try? await RemotePullClient.manifest(share: share.id, format: lighter).entries) ?? [])
+                : try await RemotePullClient.manifest(share: share.id, format: lighter).entries
+            let picked = Self.standIns(chosen: entries, lighter: made, standingIn: standingIn)
+            entries = picked.entries
+            choice.standIns = picked.standIns
+        }
         return RemoteManifest(host: office.device.uuidString, hostName: office.name, share: share.id, shareName: share.name, entries: entries)
     }
 
-    /// Proxy pieces from the host, marked as streaming (the host may have it turned off).
-    private static func fetcher(share: String, format: OfficeProxies.Format) -> RemoteShareDrive.Fetch {
-        { original, offset, length in
-            let answer = try await OfficeRenderClient.shared.ask("fileData", ["share": share, "path": original, "kind": "proxy", "format": format.rawValue,
-                                                                              "offset": offset, "length": length, "stream": true], timeout: 30)
+    /// The drive's entries, and which of them are lighter stand-ins. At mount (`standingIn` nil) every path with a lighter
+    /// proxy made takes it; after, only the paths standing in already do (a file Resolve has open never changes format).
+    nonisolated static func standIns(chosen: [RemoteManifestEntry], lighter: [RemoteManifestEntry],
+                                     standingIn: Set<String>?) -> (entries: [RemoteManifestEntry], standIns: Set<RemoteManifestEntry>) {
+        let byPath = Dictionary(lighter.map { ($0.path, $0) }, uniquingKeysWith: { first, _ in first })
+        let entries = chosen.map { entry in
+            guard standingIn?.contains(entry.path) ?? true, let light = byPath[entry.path] else { return entry }
+            return light
+        }
+        return (entries, Set(entries.filter { byPath[$0.path] == $0 }))
+    }
+
+    /// The format to stream: Light, or the lighter streaming proxies when the measured link gives less than about one and a
+    /// half times what Light plays at (and the host makes those). Any other choice (ProRes) stays: too slow, it says so and
+    /// offers Download Instead.
+    nonisolated static func streamFormat(chosen: OfficeProxies.Format, speed: Double?, hostMakes: Bool) -> OfficeProxies.Format {
+        guard let speed, hostMakes, chosen == .light, chosen.bytesPerSecond * 1.5 > speed else { return chosen }
+        return .stream
+    }
+
+    /// What a mounted share streams now: its stand-ins' format once every proxy has one, else the chosen one.
+    func streaming(_ id: String) -> OfficeProxies.Format {
+        guard let choice = choices[id], let lighter = choice.lighter, let entries = drives[id]?.drive.current.entries.values,
+              !entries.isEmpty, entries.allSatisfy(choice.standIns.contains) else { return Self.format }
+        return lighter
+    }
+
+    /// When the link is too slow for what a mounted share streams: what to tell (nil when it's fine or not measured yet).
+    func tooSlow(_ id: String) -> String? {
+        guard case .mounted(let mounted) = state(id), let speed = mounted.speed else { return nil }
+        return Self.tooSlow(speed: speed, format: streaming(id), downloadBytes: chosenBytes[id] ?? 0)
+    }
+
+    /// "This connection gives about 2 MB/s, too slow …: they're ready in about 10 minutes" (nil when the speed plays the format).
+    nonisolated static func tooSlow(speed: Double, format: OfficeProxies.Format, downloadBytes: Int64) -> String? {
+        guard speed > 0, quality(speed: speed, format: format.rawValue) == .slow else { return nil }
+        let rate = ByteCountFormatter.string(fromByteCount: Int64(speed), countStyle: .file)
+        let time = DateComponentsFormatter()
+        time.unitsStyle = .full
+        time.allowedUnits = [.hour, .minute]
+        time.maximumUnitCount = 1
+        // (Rounded up to whole minutes: never "about 0 minutes".)
+        let wait = time.string(from: max(60, (Double(downloadBytes) / speed / 60).rounded(.up) * 60)) ?? ""
+        return String(localized: "This connection gives about \(rate)/s, too slow to stream this smoothly. Download the proxies first: they’re ready in about \(wait).")
+    }
+
+    /// Proxy pieces from the host, marked as streaming (the host may have it turned off); a stand-in's from the lighter proxies.
+    private static func fetcher(share: String, format: OfficeProxies.Format, choice: RemoteStreamChoice) -> RemoteShareDrive.Fetch {
+        { entry, offset, length in
+            let from = choice.lighter.map { choice.standIns.contains(entry) ? $0 : format } ?? format
+            if from != choice.lighter, choice.lighter != nil, choice.wants(entry.path) {
+                Task { @MainActor in await askLighter(share: share, choice: choice) }
+            }
+            // (Several pieces share a slow link at once: each gets longer than one alone would.)
+            let answer = try await OfficeRenderClient.shared.ask("fileData", ["share": share, "path": entry.path, "kind": "proxy", "format": from.rawValue,
+                                                                              "offset": offset, "length": length, "stream": true], timeout: 60)
             guard let data = answer[OfficeActions.bytesKey] as? Data else { throw RemoteDriveError.io }
             return data
+        }
+    }
+
+    /// Asks the host for lighter proxies of the clips read meanwhile: collected for two seconds, a few hundred a question.
+    /// A batch the host refuses (one bad path refuses it all) is split in halves down to single clips; a host out of
+    /// reach puts the clips back. Either way the next read tries again. (Nothing else is ever asked for by itself.)
+    static func askLighter(share: String, choice: RemoteStreamChoice, wait: Duration = .seconds(2),
+                           make: (@MainActor ([String], OfficeProxies.Format) async throws -> Void)? = nil) async {
+        try? await Task.sleep(for: wait)
+        var refused: [String] = []
+        defer { choice.refused(refused) }
+        /// False when the host couldn't be reached (the clips are back in the list).
+        func send(_ paths: [String], _ format: OfficeProxies.Format) async -> Bool {
+            do {
+                if let make { try await make(paths, format) } else { try await RemotePullClient.makeProxies(share: share, paths: paths, format: format) }
+                choice.asked(paths, ok: true)
+                return true
+            } catch OfficeLink.Failure.office(_) {
+                guard paths.count > 1 else { refused += paths; return true }
+                let half = paths.count / 2
+                guard await send(Array(paths[..<half]), format) else { choice.asked(Array(paths[half...]), ok: false); return false }
+                return await send(Array(paths[half...]), format)
+            } catch {
+                choice.asked(paths, ok: false)
+                return false
+            }
+        }
+        while true {
+            let batch = choice.take(200)
+            guard !batch.isEmpty else { return }
+            guard let lighter = choice.lighter else { return choice.asked(batch, ok: false) }
+            guard await send(batch, lighter) else { return }
         }
     }
 
@@ -536,8 +716,7 @@ final class RemoteNetwork {
 
     /// Whether a read speed plays this proxy format: several streams' worth is smooth, one and a half usable.
     nonisolated static func quality(speed: Double, format: String?) -> Quality {
-        // Light H.265 ≈ 3 GB an hour, ProRes Proxy ≈ 20 GB an hour (OfficeProxies.Format.detail).
-        let rate = (format == "prores" ? 20.0 : 3.0) * 1e9 / 3600
+        let rate = (format.flatMap(OfficeProxies.Format.init(rawValue:)) ?? .light).bytesPerSecond
         return speed >= rate * 4 ? .smooth : speed >= rate * 1.5 ? .usable : .slow
     }
 
@@ -554,6 +733,13 @@ final class RemoteNetwork {
         if case .mounted(var now) = state(id), bytes > 0, seconds > 0 {
             now.speed = Double(bytes) / seconds
             states[id] = .mounted(now)
+            // (Kept for the next mount, which picks stand-ins by it: this one's files stay as they are under Resolve.)
+            UserDefaults.standard.set(now.speed, forKey: RemoteDriveBlocks.speedKey)
+            // Too slow for Light: from now on clips read get a lighter proxy made, for the next mount (no stand-ins now).
+            if let choice = choices[id], choice.lighter == nil, Self.streamFormat(chosen: Self.format, speed: now.speed,
+                                                                                hostMakes: hostFormats.contains(OfficeProxies.Format.stream.rawValue)) != Self.format {
+                choice.lighter = .stream
+            }
         }
     }
 }

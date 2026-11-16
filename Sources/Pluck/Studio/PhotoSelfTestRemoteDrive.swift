@@ -24,9 +24,9 @@ extension PhotoSelfTest {
         let manifest = RemoteManifest(host: "h", hostName: "Host", share: "s1", shareName: "Footage", entries: entries)
         let bytes = Data((0..<9_000_001).map { UInt8(truncatingIfNeeded: $0 &* 31 &+ $0 >> 9) })
         let fetches = FetchCount()
-        let drive = RemoteShareDrive(cacheKey: "test-\(UUID().uuidString)") { original, offset, length in
+        let drive = RemoteShareDrive(cacheKey: "test-\(UUID().uuidString)") { entry, offset, length in
             fetches.add()
-            guard original == "Day 1/A001.MXF" else { throw RemoteDriveError.noEntry }
+            guard entry.path == "Day 1/A001.MXF" else { throw RemoteDriveError.noEntry }
             return bytes.subdata(in: Int(offset)..<Int(offset) + length)
         }
         drive.update(manifest)
@@ -108,7 +108,7 @@ extension PhotoSelfTest {
                 }
             }
         }
-        check("drive: at most four fetches at the host at once", gauge.most <= RemoteDriveBlocks.maxFetches && gauge.most > 0, "\(gauge.most)")
+        check("drive: at most \(RemoteDriveBlocks.maxFetches) fetches at the host at once", gauge.most <= RemoteDriveBlocks.maxFetches && gauge.most > 0, "\(gauge.most)")
         RemoteDriveBlocks.trim(to: 0)
         check("drive: mount points carry the share's id", RemoteNetwork.mountPoint(host: "Host", share: "Footage", id: "aaaa1111")
               != RemoteNetwork.mountPoint(host: "Host", share: "Footage", id: "bbbb2222"))
@@ -149,7 +149,6 @@ extension PhotoSelfTest {
         fm.createFile(atPath: root.appendingPathComponent("Day 1/A001.mp4").path, contents: Data(repeating: 1, count: 100))
         let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared, network = RemoteNetwork.shared
         archive.add(root)
-        archive.stop()
         let id = OfficeProxies.id(root)
         let proxy = OfficeProxies.shared.proxy("Day 1/A001.mp4", folder: id, format: .light)
         try? fm.createDirectory(at: proxy.deletingLastPathComponent(), withIntermediateDirectories: true)

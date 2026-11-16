@@ -115,6 +115,25 @@ final class RemoteFinderSource: FinderSource {
         }
     }
 
+    // MARK: - Favourites (per host Mac)
+
+    /// Folders starred on the host, kept per host Mac: lines of "share id<tab>path".
+    static var favouritesKey: String { "editAnywhereFavourites-" + (OfficeRenderClient.shared.office?.device.uuidString ?? "") }
+
+    static func favourites(_ stored: String) -> [(share: String, path: String)] {
+        stored.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            return parts.count == 2 ? (parts[0], parts[1]) : nil
+        }
+    }
+
+    /// `stored` with that folder added, or taken out if it was there.
+    static func toggled(_ stored: String, share: String, path: String) -> String {
+        var list = favourites(stored)
+        if let index = list.firstIndex(where: { $0.share == share && $0.path == path }) { list.remove(at: index) } else { list.append((share, path)) }
+        return list.map { $0.share + "\t" + $0.path }.joined(separator: "\n")
+    }
+
     /// A refusal said plainly (the host's own words otherwise).
     static func refusal(_ error: Error) -> String {
         if case OfficeLink.Failure.office(let message) = error, message == String(localized: "The host Mac doesn’t allow this Mac to do that.") {
@@ -131,6 +150,14 @@ private struct RemoteFinderMenu: View {
     let clip: Bool
     @AppStorage("editAnywhereProxyFormat") private var format = OfficeProxies.Format.light
     @AppStorage(RemoteProxyMode.key) private var streamed = ""
+    @AppStorage private var favourites: String
+
+    init(source: RemoteFinderSource, paths: [String], clip: Bool) {
+        self.source = source
+        self.paths = paths
+        self.clip = clip
+        _favourites = AppStorage(wrappedValue: "", RemoteFinderSource.favouritesKey)
+    }
 
     var body: some View {
         if clip, RemoteHooks.player != nil, let path = paths.first {
@@ -143,6 +170,13 @@ private struct RemoteFinderMenu: View {
         }
         if paths.count == 1, !clip, let path = paths.first {
             Button("Keep Proxied") { Task { await source.keepProxied(path, format: proxyFormat) } }
+            if !path.isEmpty {
+                let starred = RemoteFinderSource.favourites(favourites).contains { $0.share == source.share.id && $0.path == path }
+                Divider()
+                Button(starred ? "Remove from Favourites" : "Add to Favourites") {
+                    favourites = RemoteFinderSource.toggled(favourites, share: source.share.id, path: path)
+                }
+            }
         }
         if clip, let path = paths.first {
             Divider()
@@ -162,9 +196,11 @@ struct RemoteBrowserView: View {
     @AppStorage("editAnywhereProxyFormat") private var format = OfficeProxies.Format.light
     @AppStorage(RemoteProxyMode.key) private var streamed = ""
 
-    init(source: RemoteFinderSource) {
+    /// `start`: the folder in the share to begin in ("": its top), also where Columns start.
+    init(source: RemoteFinderSource, start: String = "") {
         self.source = source
-        _pane = State(initialValue: FinderPane(url: source.root, base: source.root, source: source))
+        let url = source.url(start, folder: true)
+        _pane = State(initialValue: FinderPane(url: url, base: url, source: source))
     }
 
     var body: some View {
@@ -182,8 +218,6 @@ struct RemoteBrowserView: View {
             Divider()
             actions
         }
-        .clipShape(.rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
-        .studioBox()
         .onAppear { FinderThumbnails.shared.register(source) }
         .onDisappear { FinderThumbnails.shared.unregister(source) }
         .sheet(isPresented: Binding(get: { source.playing != nil }, set: { if !$0 { source.playing = nil } })) {

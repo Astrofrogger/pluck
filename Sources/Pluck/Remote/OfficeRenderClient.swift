@@ -76,6 +76,15 @@ final class OfficeRenderClient {
     @ObservationIgnored private var mine: Set<String> = []
     @ObservationIgnored private var following: Task<Void, Never>?
     @ObservationIgnored private var loaded = false
+    /// Connections the office kept open for the next question, newest last (an office from before closes each
+    /// after one answer). Reusing one skips the connection set-up and TCP's slow start on every file piece.
+    @ObservationIgnored private var idle: [(connection: NWConnection, since: Date)] = []
+    /// (Well inside the office's OfficeRenderServer.keptIdle, so it never closes one just as it's reused.)
+    static let keptIdle: TimeInterval = 15
+    static let keptMost = 12
+    /// (Tests: off asks like a Mac from before, one question per connection.)
+    @ObservationIgnored var keepsConnections = true
+    var keptConnections: Int { idle.count }
 
     private init() {}
 
@@ -87,6 +96,7 @@ final class OfficeRenderClient {
 
     func forget() {
         OfficeLink.Keychain.delete(Self.account)
+        dropKept()
         office = nil
         jobs = []
         // Off the private network too: joining again takes a new invitation.
@@ -186,6 +196,15 @@ final class OfficeRenderClient {
         save(office)
     }
 
+    /// Tests: asks only at this address (a test's own route to the office).
+    func useOnly(_ address: String) {
+        guard var office else { return }
+        office.address = address
+        office.addresses = [address]
+        dropKept()
+        save(office)
+    }
+
     private func save(_ office: Office) {
         if let data = try? JSONEncoder().encode(office) { OfficeLink.Keychain.save(data, as: Self.account) }
         self.office = office
@@ -193,15 +212,30 @@ final class OfficeRenderClient {
 
     // MARK: - Asking
 
+    /// Questions that only read: they may go on a kept connection, and are asked again on a fresh one when it turns out
+    /// dead. Any other (render, cancel, proxies made…) always goes on a fresh connection: asked twice, it could run twice.
+    /// (Slow reads, a share's first manifest or Resolve's projects, stay out too: they'd be asked twice while still working.)
+    nonisolated static let retryable: Set<String> = ["fileData", "proxyData", "thumb", "browse", "mediaInfo", "shares", "status", "jobs",
+                                                     "driveInfo", "proxyStatus", "proxyFolders", "shareProxyStatus", "sendState",
+                                                     "resolveQueue", "resolvePresets", "resolveVersionData", "reviewLinks", "reviewComments"]
+    /// How long a kept connection may take to start its answer: a dead one that still says ready never does.
+    nonisolated static let keptFirstAnswer: TimeInterval = 10
+
     func ask(_ action: String, _ arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> [String: Any] {
         guard let office else { throw OfficeLink.Failure.refused }
         let keys = OfficeLink.keys(office.secret)
-        let nonce = OfficeLink.randomBytes(16)
-        let message: [String: Any] = ["action": action, "args": arguments, "time": Date.now.timeIntervalSince1970,
-                                      "nonce": nonce.base64EncodedString()]
-        let id = OfficeLink.uuidData(office.device)
-        let sealed = try ChaChaPoly.seal(try JSONSerialization.data(withJSONObject: message), using: keys.request, authenticating: id)
-        let frame = OfficeLink.frame(.request, id + sealed.combined)
+        // A connection the office kept open goes first (for a question that may be asked again).
+        if keepsConnections, Self.retryable.contains(action), let connection = takeKept() {
+            let question = try Self.question(action, arguments, office: office, keys: keys, keep: true)
+            do {
+                return try finish(try await Self.roundTrip(connection, question.frame, timeout: timeout, first: Self.keptFirstAnswer),
+                                  nonce: question.nonce, keys: keys, on: connection)
+            } catch Exchange.noAnswer {
+                // Closed meanwhile, or dead: asked again on a new one (a fresh nonce).
+                connection.cancel()
+            }
+        }
+        let question = try Self.question(action, arguments, office: office, keys: keys, keep: keepsConnections)
         // The private network first (it works from anywhere), then the office network's addresses,
         // the one that worked last first.
         var candidates: [String] = []
@@ -218,37 +252,76 @@ final class OfficeRenderClient {
         for address in [office.address] + (office.addresses ?? []) where address != office.network && !candidates.contains(address) {
             candidates.append(address)
         }
-        var reply: (kind: OfficeLink.Kind, payload: Data)?
         for address in candidates {
-            guard let endpoint = Self.endpoint(address) else { continue }
+            guard let endpoint = Self.endpoint(address), let connection = try? await Self.connect(endpoint) else { continue }
             let asked = Date.now
+            let reply: Reply
             do {
-                reply = try await exchange(endpoint, frame, timeout: timeout)
-                if address != office.address, address != tunnel {
-                    var moved = office
-                    moved.address = address
-                    save(moved)
-                }
-                break
-            } catch Exchange.noConnection {
-                continue
+                reply = try await Self.roundTrip(connection, question.frame, timeout: timeout)
             } catch {
+                connection.cancel()
                 // Connected, but the office hung up straight away: it doesn't know this Mac (any
                 // more), or the message was too old. A long silence is a timeout.
                 throw Date.now.timeIntervalSince(asked) < 5 ? OfficeLink.Failure.refused : OfficeLink.Failure.unreachable
             }
+            if address != office.address, address != tunnel {
+                var moved = office
+                moved.address = address
+                save(moved)
+            }
+            return try finish(reply, nonce: question.nonce, keys: keys, on: connection)
         }
+        throw OfficeLink.Failure.unreachable
+    }
+
+    private typealias Reply = (kind: OfficeLink.Kind, payload: Data)
+
+    /// A question sealed with this Mac's key, with the time and a fresh nonce; `keep` asks the office to keep the connection.
+    private static func question(_ action: String, _ arguments: [String: Any], office: Office,
+                                 keys: (request: SymmetricKey, answer: SymmetricKey), keep: Bool) throws -> (frame: Data, nonce: Data) {
+        let nonce = OfficeLink.randomBytes(16)
+        var message: [String: Any] = ["action": action, "args": arguments, "time": Date.now.timeIntervalSince1970,
+                                      "nonce": nonce.base64EncodedString()]
+        if keep { message["keep"] = true }
+        let id = OfficeLink.uuidData(office.device)
+        let sealed = try ChaChaPoly.seal(try JSONSerialization.data(withJSONObject: message), using: keys.request, authenticating: id)
+        return (OfficeLink.frame(.request, id + sealed.combined), nonce)
+    }
+
+    /// Opens the answer; the connection is kept for the next question when the office said it keeps it, else closed.
+    private func finish(_ reply: Reply, nonce: Data, keys: (request: SymmetricKey, answer: SymmetricKey), on connection: NWConnection) throws -> [String: Any] {
         // Only an answer sealed with this Mac's key, to this very question, counts.
-        guard let reply else { throw OfficeLink.Failure.unreachable }
         // A data answer carries raw bytes after its JSON: given back under OfficeActions.bytesKey.
         guard reply.kind == .request || reply.kind == .data, let box = try? ChaChaPoly.SealedBox(combined: reply.payload),
               let plain = try? ChaChaPoly.open(box, using: keys.answer, authenticating: nonce),
               let parts: (json: Data, bytes: Data?) = reply.kind == .data ? OfficeActions.split(plain).map { ($0.json, $0.bytes) } : (plain, nil),
               var answer = try? JSONSerialization.jsonObject(with: parts.json) as? [String: Any],
-              answer["nonce"] as? String == nonce.base64EncodedString() else { throw OfficeLink.Failure.garbled }
+              answer["nonce"] as? String == nonce.base64EncodedString() else {
+            connection.cancel()
+            throw OfficeLink.Failure.garbled
+        }
+        if answer.removeValue(forKey: "keep") as? Bool == true, keepsConnections, idle.count < Self.keptMost {
+            idle.append((connection, .now))
+        } else {
+            connection.cancel()
+        }
         if let error = answer["error"] as? String { throw OfficeLink.Failure.office(error) }
         if let bytes = parts.bytes { answer[OfficeActions.bytesKey] = bytes }
         return answer
+    }
+
+    /// The newest kept connection still fresh (older ones go).
+    private func takeKept() -> NWConnection? {
+        while let last = idle.popLast() {
+            if last.connection.state == .ready, Date.now.timeIntervalSince(last.since) < Self.keptIdle { return last.connection }
+            last.connection.cancel()
+        }
+        return nil
+    }
+
+    private func dropKept() {
+        idle.forEach { $0.connection.cancel() }
+        idle = []
     }
 
     private enum Exchange: Error { case noConnection, noAnswer }
@@ -267,31 +340,48 @@ final class OfficeRenderClient {
         return .hostPort(host: NWEndpoint.Host(host), port: endpointPort)
     }
 
-    private func exchange(_ endpoint: NWEndpoint, _ frame: Data, timeout: TimeInterval) async throws -> (kind: OfficeLink.Kind, payload: Data) {
+    /// One question, one answer, on a connection of its own (pairing).
+    private func exchange(_ endpoint: NWEndpoint, _ frame: Data, timeout: TimeInterval) async throws -> Reply {
+        let connection = try await Self.connect(endpoint)
+        defer { connection.cancel() }
+        return try await Self.roundTrip(connection, frame, timeout: timeout)
+    }
+
+    private static func connect(_ endpoint: NWEndpoint) async throws -> NWConnection {
         let parameters = NWParameters.tcp
         (parameters.defaultProtocolStack.transportProtocol as? NWProtocolTCP.Options)?.connectionTimeout = 6
         let connection = NWConnection(to: endpoint, using: parameters)
-        return try await withCheckedThrowingContinuation { continuation in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let once = OnceFlag()
-            let finish: @Sendable (Result<(kind: OfficeLink.Kind, payload: Data), Error>) -> Void = { result in
-                if once.claim() { connection.cancel(); continuation.resume(with: result) }
+            let fail: @Sendable () -> Void = {
+                if once.claim() { connection.cancel(); continuation.resume(throwing: Exchange.noConnection) }
             }
             connection.stateUpdateHandler = { state in
                 switch state {
-                case .ready:
-                    connection.send(content: frame, completion: .contentProcessed { error in
-                        if error != nil { return finish(.failure(Exchange.noAnswer)) }
-                        FrameReader.read(from: connection, limit: OfficeLink.maxAnswer, timeout: timeout) { reply in
-                            finish(reply.map { .success($0) } ?? .failure(Exchange.noAnswer))
-                        }
-                    })
-                case .failed, .waiting: finish(.failure(Exchange.noConnection))
+                case .ready: if once.claim() { continuation.resume() }
+                case .failed, .waiting: fail()
                 default: break
                 }
             }
             connection.start(queue: .global())
-            DispatchQueue.global().asyncAfter(deadline: .now() + 8) {
-                if connection.state != .ready { finish(.failure(Exchange.noConnection)) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 8) { fail() }
+        }
+        return connection
+    }
+
+    /// Sends one frame and reads one answer frame; the connection stays as it is (the caller keeps or closes it).
+    /// `first`: how long until the answer starts (nil: the whole `timeout`).
+    private static func roundTrip(_ connection: NWConnection, _ frame: Data, timeout: TimeInterval, first: TimeInterval? = nil) async throws -> Reply {
+        try await withCheckedThrowingContinuation { continuation in
+            let once = OnceFlag()
+            let finish: @Sendable (Result<Reply, Error>) -> Void = { result in
+                if once.claim() { continuation.resume(with: result) }
+            }
+            connection.send(content: frame, completion: .contentProcessed { error in
+                if error != nil { finish(.failure(Exchange.noAnswer)) }
+            })
+            FrameReader.read(from: connection, limit: OfficeLink.maxAnswer, timeout: timeout, first: first) { reply in
+                finish(reply.map { .success($0) } ?? .failure(Exchange.noAnswer))
             }
         }
     }
@@ -318,72 +408,6 @@ final class OfficeRenderClient {
             jobs.insert(job, at: 0)
         }
         follow()
-    }
-
-    // MARK: - The office archive
-
-    struct ArchiveHit: Identifiable, Hashable {
-        var id: String
-        var place: String
-        var start: Double
-        var end: Double
-        var description: String
-        var framing: String
-        var movement: String
-        var thumbnail: Data?
-    }
-
-    /// How far the office Mac is with looking at its footage.
-    func archiveStatus() async throws -> (folders: Int, files: Int, indexed: Int, working: Bool) {
-        let status = (try await ask("archive"))["archive"] as? [String: Any] ?? [:]
-        return (status["folders"] as? Int ?? 0, status["files"] as? Int ?? 0, status["indexed"] as? Int ?? 0, status["working"] as? Bool ?? false)
-    }
-
-    func searchArchive(_ query: String, movement: VisualIndex.Movement?, framing: VisualIndex.Framing?) async throws -> [ArchiveHit] {
-        var arguments: [String: Any] = ["query": query]
-        if let movement { arguments["movement"] = movement.rawValue }
-        if let framing { arguments["framing"] = framing.rawValue }
-        let answer = try await ask("archiveSearch", arguments, timeout: 60)
-        return (answer["hits"] as? [[String: Any]] ?? []).compactMap { item in
-            guard let id = item["id"] as? String else { return nil }
-            return ArchiveHit(id: id, place: item["place"] as? String ?? "", start: item["start"] as? Double ?? 0,
-                              end: item["end"] as? Double ?? 0, description: item["description"] as? String ?? "",
-                              framing: item["framing"] as? String ?? "", movement: item["movement"] as? String ?? "",
-                              thumbnail: (item["thumb"] as? String).flatMap { Data(base64Encoded: $0) })
-        }
-    }
-
-    /// Has the office Mac make a light copy of the shot (with handles) and fetches it into the
-    /// Downloads folder; `progress` gets 0…1 (making it counts as the first tenth).
-    func fetchClip(_ hit: ArchiveHit, progress: @escaping (Double) -> Void) async throws -> URL {
-        progress(0.02)
-        let made = try await ask("archiveClip", ["id": hit.id], timeout: 600)
-        guard let token = made["token"] as? String else { throw OfficeLink.Failure.garbled }
-        let name = Folders.sanitize(made["name"] as? String ?? "Clip")
-        let folder = UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads"
-        let target = Converting.outputURL(folder: folder, name: name, fileExtension: "mp4")
-        let partial = target.appendingPathExtension("part")
-        FileManager.default.createFile(atPath: partial.path, contents: nil)
-        guard let handle = FileHandle(forWritingAtPath: partial.path) else { throw OfficeLink.Failure.office(String(localized: "The clip couldn’t be saved.")) }
-        var offset = 0
-        do {
-            while true {
-                let answer = try await ask("archiveClipData", ["token": token, "offset": offset])
-                guard let chunk = (answer["data"] as? String).flatMap({ Data(base64Encoded: $0) }) else { throw OfficeLink.Failure.garbled }
-                let size = (answer["size"] as? NSNumber)?.intValue ?? 0
-                try handle.write(contentsOf: chunk)
-                offset += chunk.count
-                progress(0.1 + 0.9 * (size > 0 ? Double(offset) / Double(size) : 1))
-                if chunk.isEmpty || offset >= size { break }
-            }
-            try handle.close()
-            try FileManager.default.moveItem(at: partial, to: target)
-            return target
-        } catch {
-            try? handle.close()
-            try? FileManager.default.removeItem(at: partial)
-            throw error
-        }
     }
 
     func cancel(_ job: Job) async throws {

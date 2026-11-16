@@ -144,8 +144,10 @@ upd --install v2.2.0; rc=$?
 
 new_env; unset PLUCK_TEST_PUBKEY_FILE
 upd --install v1.0.0; rc=$?
-[ $rc != 0 ] && [ -z "$(cur)" ] && grep -q 'sign-host-release.sh --init' "$PFX/out.log" && [ ! -d "$O/releases/v1.0.0" ] \
-  && ok "placeholder key refuses to install" || bad "placeholder key" "rc=$rc"
+# The built-in key: the placeholder ("run sign-host-release.sh --init") or the owner's real key, which a test
+# release (signed with the test key) doesn't match. Either way nothing is installed.
+[ $rc != 0 ] && [ -z "$(cur)" ] && [ ! -d "$O/releases/v1.0.0" ] \
+  && ok "built-in key refuses a release it didn't sign" || bad "built-in key" "rc=$rc"
 export PLUCK_TEST_PUBKEY_FILE="$S/good.pub"
 
 echo "== updater: rollback"

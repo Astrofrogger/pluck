@@ -395,7 +395,6 @@ def scriptapp(name): return Resolve()
         let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared
         let projectsBefore = Set(RemoteCheckout.shared.projects.map(\.id))
         archive.add(root)
-        archive.stop()
         server.start()
         for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
         defer {

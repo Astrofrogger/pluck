@@ -1,8 +1,9 @@
 import AppKit
 import SwiftUI
 
-/// Edit Anywhere's Files on the remote Mac: the host's shares in the Library's Finder views, the
-/// host's state (offline, share offline, rendering), and per share how its proxies come here:
+/// Edit Anywhere's Files on the remote Mac: the host's shares in the Library's Finder views, with a
+/// Finder sidebar inside the browser (the host's shares, This Mac's proxies and renders, favourites),
+/// the host's state (offline, share offline, rendering), and per share how its proxies come here:
 /// downloaded (the pulls) or streamed (the network connection), this Mac's choice. A host from before remote
 /// editing (no `status`) gets the older proxies pane, `legacy`.
 struct RemoteFilesPane<Legacy: View>: View {
@@ -12,10 +13,20 @@ struct RemoteFilesPane<Legacy: View>: View {
     @State private var busy = false
     @State private var sources: [String: RemoteFinderSource] = [:]
     @AppStorage("editAnywhereBrowseShare") private var shareID = ""
+    /// A favourite's folder in the share ("": its top).
+    @State private var folder = ""
+    /// This Mac's Proxies or Renders, when one of those is shown.
+    @State private var local: FinderPane?
     @State private var pulls = RemotePullManager.shared
     @State private var mode = RemoteProxyMode.download
+    @AppStorage private var favourites: String
 
     enum HostState: Equatable { case checking, current, older, offline(String) }
+
+    init(@ViewBuilder legacy: () -> Legacy) {
+        self.legacy = legacy()
+        _favourites = AppStorage(wrappedValue: "", RemoteFinderSource.favouritesKey)
+    }
 
     var body: some View {
         Group {
@@ -25,7 +36,7 @@ struct RemoteFilesPane<Legacy: View>: View {
                 VStack(alignment: .leading, spacing: 12) {
                     header
                     content
-                    if host == .current, let share, share.online { delivery(share) }
+                    if host == .current, local == nil, let share, share.online { delivery(share) }
                 }
             }
         }
@@ -49,22 +60,15 @@ struct RemoteFilesPane<Legacy: View>: View {
             }
             if busy { StudioChip(text: Text("Rendering"), symbol: "film").help("The host Mac is rendering: browsing and pulls are slower meanwhile") }
             Spacer(minLength: 8)
-            if let share {
+            if let local {
+                if let free = try? local.base.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]).volumeAvailableCapacityForImportantUsage {
+                    Text("\(ByteCountFormatter.string(fromByteCount: free, countStyle: .file)) free").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+            } else if let share {
                 if !share.online { StudioChip(text: Text("Share offline"), symbol: "externaldrive.badge.xmark", colour: Design.Studio.warn, tinted: true) }
                 else if share.totalBytes > 0 {
                     Text("\(ByteCountFormatter.string(fromByteCount: share.freeBytes, countStyle: .file)) free")
                         .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                }
-                if shares.count > 1 {
-                    Menu {
-                        Picker("Share", selection: Binding(get: { share.id }, set: { shareID = $0 })) {
-                            ForEach(shares) { Text(verbatim: $0.name).tag($0.id) }
-                        }
-                        .pickerStyle(.inline)
-                    } label: {
-                        Label(share.name, systemImage: "externaldrive").font(Design.Studio.body)
-                    }
-                    .menuStyle(.button).buttonStyle(.plain).fixedSize()
                 }
             }
         }
@@ -92,7 +96,14 @@ struct RemoteFilesPane<Legacy: View>: View {
             }
             switch mode {
             case .download: RemotePullsList(share: share.id)
-            case .stream: RemoteNetworkPane(share: share.id)
+            case .stream:
+                RemoteNetworkPane(share: share.id) {
+                    // Too slow to stream: this share's proxies come here instead (the folder asked for the first time).
+                    guard let root = pulls.root(for: share) else { return }
+                    mode = .download
+                    RemoteProxyMode.set(.download, for: share.id)
+                    pulls.pull(share: share, paths: [""], format: RemoteNetwork.format, into: root)
+                }
             }
         }
         .onChange(of: share.id, initial: true) { mode = RemoteProxyMode.of(share.id) }
@@ -108,20 +119,85 @@ struct RemoteFilesPane<Legacy: View>: View {
         case .checking:
             EmptyView()
         default:
-            if let share {
-                if share.online {
-                    RemoteBrowserView(source: source(for: share)).id(share.id).frame(height: 460)
-                } else {
-                    StudioEmptyState(symbol: "externaldrive.badge.xmark", title: "This share is offline",
-                                     line: "Its drive or NAS isn’t reachable from the host Mac right now.")
-                        .frame(height: 220)
-                        .studioBox()
-                }
-            } else {
-                StudioEmptyState(symbol: "folder", title: "No folders shared yet", line: "On the host Mac, add one in Edit Anywhere → Share this Mac.")
-                    .frame(height: 220)
-                    .studioBox()
+            HStack(spacing: 0) {
+                FinderSidebar(groups: places, selection: selected) { choose($0.id) }
+                Divider()
+                browser.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .frame(height: 460)
+            .clipShape(.rect(cornerRadius: Design.Studio.panelRadius, style: .continuous))
+            .studioBox()
+        }
+    }
+
+    @ViewBuilder private var browser: some View {
+        if let local {
+            FinderPaneView(pane: local).coordinateSpace(name: "finder").id(local.id)
+        } else if let share {
+            if share.online {
+                RemoteBrowserView(source: source(for: share), start: folder).id(share.id + "/" + folder)
+            } else {
+                StudioEmptyState(symbol: "externaldrive.badge.xmark", title: "This share is offline",
+                                 line: "Its drive or NAS isn’t reachable from the host Mac right now.")
+            }
+        } else {
+            StudioEmptyState(symbol: "folder", title: "No folders shared yet", line: "On the host Mac, add one in Edit Anywhere › Folders.")
+        }
+    }
+
+    // MARK: The sidebar
+
+    /// This Mac's proxies: where this share's pulls go, else the proxy folder.
+    private var proxiesHere: URL {
+        if let share, let path = pulls.roots[share.id] { return URL(fileURLWithPath: path, isDirectory: true) }
+        return URL(fileURLWithPath: UserDefaults.standard.string(forKey: "editAnywhereProxyFolder") ?? ProxySync.defaultDestination.path, isDirectory: true)
+    }
+
+    /// Where renders from the host land here (their previews).
+    private var rendersHere: URL {
+        URL(fileURLWithPath: UserDefaults.standard.string(forKey: Prefs.downloadPath) ?? NSHomeDirectory() + "/Downloads", isDirectory: true)
+    }
+
+    private var places: [FinderSidebar.Places] {
+        let hostName = OfficeRenderClient.shared.office?.name ?? String(localized: "The host Mac")
+        let hosted = shares.map { share in
+            FinderSidebar.Place(id: "share:" + share.id, symbol: share.online ? "externaldrive" : "externaldrive.badge.xmark", title: share.name,
+                                detail: share.online && share.totalBytes > 0 ? FinderSidebar.size(share.freeBytes) : nil,
+                                dimmed: !share.online)
+        }
+        var here: [FinderSidebar.Place] = []
+        if FileManager.default.fileExists(atPath: proxiesHere.path) {
+            here.append(.init(id: "local:" + proxiesHere.path, symbol: "film.stack", title: String(localized: "Proxies")))
+        }
+        here.append(.init(id: "local:" + rendersHere.path, symbol: "play.rectangle", title: String(localized: "Renders")))
+        let starred = RemoteFinderSource.favourites(favourites).compactMap { entry -> FinderSidebar.Place? in
+            guard let share = shares.first(where: { $0.id == entry.share }) else { return nil }
+            return .init(id: "fav:" + entry.share + "/" + entry.path, symbol: "folder", title: (entry.path as NSString).lastPathComponent, dimmed: !share.online,
+                         menu: AnyView(Button("Remove from Favourites") { favourites = RemoteFinderSource.toggled(favourites, share: entry.share, path: entry.path) }))
+        }
+        return [.init(title: hostName, places: hosted), .init(title: String(localized: "This Mac"), places: here),
+                .init(title: String(localized: "Favourites"), places: starred)]
+    }
+
+    private var selected: String? {
+        if let local { return "local:" + local.base.path }
+        guard let share else { return nil }
+        return folder.isEmpty ? "share:" + share.id : "fav:" + share.id + "/" + folder
+    }
+
+    private func choose(_ id: String) {
+        if id.hasPrefix("local:") {
+            let url = URL(fileURLWithPath: String(id.dropFirst(6)), isDirectory: true)
+            local = FinderPane(url: url, base: url)
+        } else if id.hasPrefix("share:") {
+            local = nil
+            shareID = String(id.dropFirst(6))
+            folder = ""
+        } else if id.hasPrefix("fav:") {
+            let rest = id.dropFirst(4), slash = rest.firstIndex(of: "/") ?? rest.endIndex
+            local = nil
+            shareID = String(rest[..<slash])
+            folder = slash < rest.endIndex ? String(rest[rest.index(after: slash)...]) : ""
         }
     }
 

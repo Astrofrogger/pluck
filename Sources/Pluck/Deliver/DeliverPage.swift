@@ -70,6 +70,26 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
+            case "browsenas":
+                // Two stand-in review servers (main and backup) answering browse with two media roots.
+                let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), key = DeliverKeys.base64url(DeliverKeys.random(32))
+                ReviewHostClient.fakeFingerprint = fingerprint
+                ReviewHostClient.fake = { request, _ in
+                    if request["key"] != nil { return ["ok": true] }
+                    guard request["op"] as? String == "browse" else { return ["ok": true] }
+                    let path = request["path"] as? String ?? ""
+                    let names = path.isEmpty ? ["Footage", "Deliveries"] : ["Day 1", "Day 2", "Hero_30s_v3.mov"]
+                    return ["entries": names.map { ["name": $0, "path": path.isEmpty ? $0 : path + "/" + $0, "dir": !$0.hasSuffix(".mov"), "size": 1_000_000] }]
+                }
+                let publish = ReviewPublish.shared
+                for (name, role) in [("Studio NAS", "main"), ("Backup NAS", "backup")] {
+                    if var host = publish.hosts.first(where: { $0.name == name }) ?? publish.addNAS(name: name, address: name.lowercased().replacingOccurrences(of: " ", with: "-") + ".test:8790",
+                                                                                                     pairing: "pluck-host:\(key)@\(fingerprint)") {
+                        host.role = role
+                        publish.add(host)
+                    }
+                }
+                if let main = publish.hosts.first(where: { $0.role == "main" }) { nav.deliver = .browse(.nas(main.id)) }
             case "server": panelInPage = AnyView(DeliverServerChooser()); nav.deliver = .inbox
             case "serverbackup": panelInPage = AnyView(DeliverServerChooser(role: .backup)); nav.deliver = .inbox
             case "proxmoxmain": panelInPage = AnyView(DeliverProxmoxMainSheet()); nav.deliver = .inbox
@@ -160,18 +180,22 @@ struct DeliverSidebar: View {
     @State private var sync = DeliverSync.shared
     @State private var request = DeliverShareRequest.shared
 
+    private var browsing: Bool {
+        switch nav.deliver {
+        case .browse, .nas: true
+        default: false
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Browse (§13.16): this Mac, each NAS host and the Edit Anywhere host Mac.
-            header("Browse") {
+            // Browse (§13.16): one row; the places (this Mac, the review servers, the host Mac) are in the browser's own sidebar.
+            HStack(spacing: 0) {
+                row(String(localized: "Browse"), symbol: "folder", on: browsing) { if !browsing { nav.deliver = .browse(.local) } }
                 if hasServer {
                     Button { settingUp = true } label: { Image(systemName: "plus").font(.system(size: 12)) }
-                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…")
+                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…").padding(.horizontal, 6)
                 }
-            }
-            ForEach(DeliverPlaces.all()) { place in
-                let state = DeliverPlaces.state(place.id)
-                row(place.name, symbol: place.symbol, on: nav.deliver == .browse(place.id), detail: state) { nav.deliver = .browse(place.id) }
             }
             header("Projects") {
                 Button { naming = true; name = "" } label: { Image(systemName: "plus").font(.system(size: 12)) }

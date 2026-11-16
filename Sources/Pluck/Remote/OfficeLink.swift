@@ -14,6 +14,9 @@ import Security
 /// - Every message after that is encrypted and signed with that Mac's own 256-bit key
 ///   (ChaCha20-Poly1305), carries the time and a random nonce, and is refused if it's old,
 ///   from the future or seen before. Answers are bound to the question they answer.
+/// - A connection carries one question and its answer, unless the question asks to "keep" it and the
+///   answer says it's kept: then the next question goes on it too (each still sealed and checked on its
+///   own). Either side from before simply doesn't, and every question gets a connection of its own.
 /// - The office Mac can do six things for a paired Mac (list projects, timelines and presets,
 ///   start a render, report, cancel, send a small preview). No files, no shell, no settings.
 /// - Paired Macs are listed on the office Mac and can be removed there at any time.
@@ -216,29 +219,40 @@ enum OfficeLink {
 
 /// Reads one frame from a connection (or gives up), shared by both ends.
 enum FrameReader {
-    static func read(from connection: NWConnection, limit: Int, timeout: TimeInterval = 30,
+    /// `first`: how long the frame may take to start (a big answer may then take the rest of `timeout` to arrive).
+    static func read(from connection: NWConnection, limit: Int, timeout: TimeInterval = 30, first: TimeInterval? = nil,
                      done: @escaping @Sendable ((kind: OfficeLink.Kind, payload: Data)?) -> Void) {
-        let once = OnceFlag()
+        let once = OnceFlag(), started = OnceFlag()
         let finish: @Sendable ((kind: OfficeLink.Kind, payload: Data)?) -> Void = { result in
             if once.claim() { done(result) }
         }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { finish(nil) }
+        if let first, first < timeout {
+            DispatchQueue.global().asyncAfter(deadline: .now() + first) { if started.claim() { finish(nil) } }
+        }
         connection.receive(minimumIncompleteLength: 9, maximumLength: 9) { head, _, _, error in
+            _ = started.claim()
             guard error == nil, let head, head.count == 9, head.prefix(4) == OfficeLink.magic,
                   let kind = OfficeLink.Kind(rawValue: head[head.startIndex + 4]) else { return finish(nil) }
             let length = head.suffix(4).reduce(0) { $0 << 8 | Int($1) }
             guard length > 0, length <= limit else { return finish(nil) }
-            collect(connection, remaining: length, into: Data()) { payload in
+            let buffer = Buffer()
+            buffer.data.reserveCapacity(length)
+            collect(connection, remaining: length, into: buffer) { payload in
                 finish(payload.map { (kind, $0) })
             }
         }
     }
 
-    private static func collect(_ connection: NWConnection, remaining: Int, into buffer: Data, done: @escaping @Sendable (Data?) -> Void) {
+    /// (Grows in place: a big piece arriving in many small reads isn't copied again for each.)
+    private final class Buffer: @unchecked Sendable { var data = Data() }
+
+    /// Reads exactly `remaining` bytes, never past the frame: the next frame on a kept connection stays for the next read.
+    private static func collect(_ connection: NWConnection, remaining: Int, into buffer: Buffer, done: @escaping @Sendable (Data?) -> Void) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: min(remaining, 1 << 20)) { data, _, complete, error in
             guard error == nil, let data, !data.isEmpty else { return done(nil) }
-            let buffer = buffer + data
-            if data.count >= remaining { return done(buffer) }
+            buffer.data.append(data)
+            if data.count >= remaining { return done(buffer.data) }
             if complete { return done(nil) }
             collect(connection, remaining: remaining - data.count, into: buffer, done: done)
         }

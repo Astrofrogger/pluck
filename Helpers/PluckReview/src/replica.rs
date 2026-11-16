@@ -149,6 +149,16 @@ impl Shared {
         self.quality != "same"
     }
 
+    /// Start the next sync round now (a comment made here goes up to the main within seconds).
+    pub fn nudge(&self) {
+        self.wake.notify_one();
+    }
+
+    #[cfg(test)]
+    pub async fn nudged(&self) -> bool {
+        tokio::time::timeout(Duration::from_millis(50), self.wake.notified()).await.is_ok()
+    }
+
     pub fn making(&self) -> usize {
         let st = self.st.lock().unwrap();
         st.v["versions"].as_object().into_iter().flatten().filter(|(_, x)| x["state"] == "making").count()
@@ -177,7 +187,7 @@ impl Shared {
             }
         }
         json!({"usage": self.usage(), "max": self.max, "quality": self.quality, "versions": counts, "failed": failed,
-            "mainReachable": st.last_ok.is_some_and(|t| t.elapsed() < reachable())})
+            "mainReachable": st.last_ok.is_some_and(|t| t.elapsed() < reachable()), "uplinkMbps": crate::uplink::mbps()})
     }
 
     /// Any fetch of a version counts as a view.

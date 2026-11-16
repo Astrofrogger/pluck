@@ -20,7 +20,6 @@ extension PhotoSelfTest {
 
         let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared
         archive.add(root)
-        archive.stop()
         server.start()
         for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
         var jobs: [UUID] = []

@@ -1,21 +1,15 @@
-import AppKit
 import SwiftUI
 
-/// The host's shares in Edit Anywhere → Share this Mac → Footage: each folder online or offline with
-/// its free space, Find Shots on or off, the folders kept proxied, and the proxies being made.
+/// The host's shares in Edit Anywhere → Share this Mac → Folders: each folder with what it's on and its
+/// free space (or offline), and a Remove that asks first. Proxies and watches are under Proxies.
 struct RemoteSharesList: View {
     @State private var archive = OfficeArchive.shared
     @State private var shares = RemoteShares.shared
-    @State private var jobs = RemoteProxyJobs.shared
-    @State private var problem: String?
+    @State private var removing: URL?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             ForEach(archive.folders, id: \.self) { folder in row(folder) }
-            ForEach(jobs.requests.filter { !$0.watch && $0.state != .ready }.suffix(6)) { request in requestRow(request) }
-            if let problem {
-                Label(problem, systemImage: "exclamationmark.triangle").font(Design.Studio.body).foregroundStyle(Design.Studio.bad)
-            }
         }
         .task(id: archive.folders) {
             while !Task.isCancelled {
@@ -24,156 +18,62 @@ struct RemoteSharesList: View {
                 try? await Task.sleep(for: .seconds(10))
             }
         }
+        .alert(Text("Remove “\(removing?.lastPathComponent ?? "")”?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
+            Button("Cancel", role: .cancel) { removing = nil }
+            Button("Remove", role: .destructive) {
+                if let removing { archive.remove(removing) }
+                removing = nil
+            }
+        } message: {
+            Text("Paired Macs can’t browse it any more. Your files stay where they are. Its proxies stay until you delete them under Proxies.")
+        }
     }
-
-    // MARK: Rows
 
     private func row(_ folder: URL) -> some View {
         let state = shares.states[folder.path], share = shares.share(folder)
         let online = state?.online ?? true
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                StudioTile(symbol: online ? "externaldrive.connected.to.line.below" : "externaldrive.badge.xmark",
-                           colour: online ? Design.Studio.textQuiet : Design.Studio.warn, size: 32)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(folder.lastPathComponent).font(Design.Studio.body).lineLimit(1)
-                    Group {
-                        if let state, !state.online {
-                            Text("Offline").foregroundStyle(Design.Studio.warn)
-                        } else if let state, state.total > 0 {
-                            Text("\(ByteCountFormatter.string(fromByteCount: state.free, countStyle: .file)) free")
-                        } else {
-                            Text(verbatim: folder.deletingLastPathComponent().path)
-                        }
-                    }
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
-                }
-                .help(share?.volume.map { "\($0) – \(folder.path)" } ?? folder.path)
-                Spacer(minLength: 0)
-                Image(systemName: "sparkle.magnifyingglass").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
-                    .accessibilityHidden(true)
-                Toggle("Find Shots", isOn: Binding(get: { shares.searchable(folder) }, set: { shares.setSearch($0, for: folder) }))
-                    .toggleStyle(StudioSwitchStyle())
-                    .help("Find Shots: paired Macs search this folder by what’s in the picture")
-                Menu {
-                    Menu("Keep Proxied") {
-                        ForEach([OfficeProxies.Format.light, .prores]) { format in
-                            Button(format.label + "…") { addWatch(in: folder, format: format) }
-                        }
-                    }
-                    Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([folder]) }
-                    Divider()
-                    Button("Stop Sharing", role: .destructive) { archive.remove(folder) }
-                } label: {
-                    Image(systemName: "ellipsis").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
-                        .frame(width: 28, height: 28).contentShape(.rect)
-                }
-                .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
-                .accessibilityLabel("More")
-            }
-            ForEach(share?.watch ?? [], id: \.self) { watch in watchRow(watch, in: folder) }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .studioBox()
-    }
-
-    /// A folder kept proxied: its name, format, and how far its proxies are.
-    private func watchRow(_ watch: RemoteShares.Watch, in folder: URL) -> some View {
-        let request = jobs.requests.first { $0.watch && $0.share == OfficeProxies.id(folder) && $0.paths == [watch.path] && $0.format == watch.format }
-        return HStack(spacing: 8) {
-            Image(systemName: "arrow.triangle.2.circlepath").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet).frame(width: 32)
+        return HStack(spacing: 12) {
+            StudioTile(symbol: online ? (state?.network == true ? "externaldrive.connected.to.line.below" : "internaldrive")
+                       : "externaldrive.badge.xmark",
+                       colour: online ? Design.Studio.textQuiet : Design.Studio.warn, size: 32)
                 .accessibilityHidden(true)
-            Text(verbatim: watch.path.isEmpty ? folder.lastPathComponent : watch.path).font(Design.Studio.hint).lineLimit(1).truncationMode(.middle)
-            StudioChip(text: Text(verbatim: watch.format == .light ? "H.265" : "ProRes"))
-            Spacer(minLength: 0)
-            if let request { progress(request).frame(maxWidth: 160) }
-            Button { shares.removeWatch(watch, in: folder) } label: {
-                Image(systemName: "xmark").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet).frame(width: 20, height: 20).contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Stop keeping it proxied")
-            .help("Stop keeping it proxied")
-        }
-        .help("New files here get proxies by themselves")
-    }
-
-    /// Proxies a paired Mac asked for.
-    private func requestRow(_ request: RemoteProxyJobs.Request) -> some View {
-        HStack(spacing: 12) {
-            StudioTile(symbol: "laptopcomputer", colour: Design.Studio.textQuiet, size: 32).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: request.paths.map { $0.isEmpty ? "/" : ($0 as NSString).lastPathComponent }.joined(separator: ", "))
-                    .font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
-                progress(request)
-            }
-            if request.state == .failed {
-                Button { jobs.remove(request.id) } label: {
-                    Image(systemName: "xmark").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet).frame(width: 28, height: 28).contentShape(.rect)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(folder.lastPathComponent).font(Design.Studio.body).lineLimit(1)
+                Group {
+                    if let state, !state.online {
+                        Text("Offline").foregroundStyle(Design.Studio.warn)
+                    } else if let state, state.total > 0 {
+                        Text(verbatim: [state.kind, String(localized: "\(ByteCountFormatter.string(fromByteCount: state.free, countStyle: .file)) free")]
+                            .compactMap { $0 }.joined(separator: " · "))
+                    } else {
+                        Text(verbatim: folder.deletingLastPathComponent().path)
+                    }
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Remove")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
             }
+            .help(share?.volume.map { "\($0) – \(folder.path)" } ?? folder.path)
+            Spacer(minLength: 0)
+            Button("Remove") { removing = folder }
+                .buttonStyle(StudioFlatButtonStyle())
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .studioBox()
-    }
-
-    @ViewBuilder
-    private func progress(_ request: RemoteProxyJobs.Request) -> some View {
-        switch request.state {
-        case .queued:
-            StudioChip(text: Text("Waiting"))
-        case .making:
-            let share = request.total > 0 ? (Double(request.done) + jobs.progress) / Double(request.total) : 0
-            VStack(alignment: .leading, spacing: 3) {
-                StudioProgress(share: share)
-                Text("\(request.done) of \(request.total)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            }
-        case .ready:
-            StudioChip(text: Text("\(request.done) ready"), symbol: "checkmark", colour: Design.Studio.good, tinted: true)
-        case .failed:
-            StudioChip(text: Text(request.failed.isEmpty ? "Failed" : "\(request.failed.count) failed"), symbol: "exclamationmark.triangle",
-                       colour: Design.Studio.bad, tinted: true)
-                .help(request.problem ?? request.failed.joined(separator: "\n"))
-        }
-    }
-
-    // MARK: Actions
-
-    private func addWatch(in folder: URL, format: OfficeProxies.Format) {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.directoryURL = folder
-        panel.prompt = String(localized: "Keep Proxied")
-        panel.message = String(localized: "New files in this folder get proxies by themselves.")
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        let base = RemoteEditHost.realPath(folder.path) ?? folder.path, chosen = RemoteEditHost.realPath(url.path) ?? url.path
-        guard chosen == base || chosen.hasPrefix(base + "/") else {
-            problem = String(localized: "Choose a folder inside “\(folder.lastPathComponent)”.")
-            return
-        }
-        problem = nil
-        shares.addWatch(String(chosen.dropFirst(base.count + 1)), format: format, in: folder)
     }
 }
 
-/// What a paired Mac may do on this Mac (Paired Macs): browse, fetch proxies, fetch originals, render, full trust.
+/// What a paired Mac may do on this Mac (Macs → Rights): browse, fetch proxies, fetch originals, render, full trust.
 struct RemoteRightsMenu: View {
     let device: OfficeRenderServer.Device
 
-    private static let rights: [(WritableKeyPath<OfficeRenderServer.Device.Rights, Bool>, LocalizedStringKey, String)] = [
-        (\.browse, "Browse Footage", "folder"), (\.proxies, "Fetch Proxies", "square.stack.3d.down.right"),
-        (\.originals, "Fetch Originals", "film"), (\.render, "Render", "play.rectangle"),
+    private static let rights: [(WritableKeyPath<OfficeRenderServer.Device.Rights, Bool>, LocalizedStringKey)] = [
+        (\.browse, "Browse Footage"), (\.proxies, "Fetch Proxies"), (\.originals, "Fetch Originals"), (\.render, "Render"),
     ]
 
     var body: some View {
         Menu {
             ForEach(Self.rights.indices, id: \.self) { index in
-                let (key, title, _) = Self.rights[index]
+                let (key, title) = Self.rights[index]
                 Toggle(title, isOn: Binding(get: { device.allowed[keyPath: key] }, set: { value in
                     var rights = device.allowed
                     rights[keyPath: key] = value
@@ -188,16 +88,16 @@ struct RemoteRightsMenu: View {
             }))
             .help("Renders anything this Mac sends, without checking which files it uses. Only for your own Macs.")
         } label: {
-            HStack(spacing: 6) {
-                ForEach(Self.rights.indices, id: \.self) { index in
-                    let (key, _, symbol) = Self.rights[index]
-                    Image(systemName: symbol).font(.system(size: 11))
-                        .foregroundStyle(device.allowed[keyPath: key] ? Design.Studio.text : Design.Studio.textFaint)
-                }
-                if device.allowed.fullTrust { Image(systemName: "checkmark.shield").font(.system(size: 11)).foregroundStyle(Design.Studio.text) }
+            HStack(spacing: 5) {
+                if device.allowed.fullTrust { Image(systemName: "checkmark.shield").font(.system(size: 11)) }
+                Text("Rights")
                 Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
             }
+            .font(Design.Studio.body)
+            .foregroundStyle(Design.Studio.text)
+            .padding(.horizontal, 12)
             .frame(height: 28)
+            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
             .contentShape(.rect)
         }
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

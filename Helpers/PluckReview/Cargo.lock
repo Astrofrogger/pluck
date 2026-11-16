@@ -1064,6 +1064,7 @@ dependencies = [
  "rcgen",
  "ring",
  "rustls",
+ "rustls-native-certs",
  "serde_json",
  "sha1",
  "sha2 0.10.9",

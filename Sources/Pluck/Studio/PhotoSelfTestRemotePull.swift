@@ -39,7 +39,6 @@ extension PhotoSelfTest {
 
         let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared, pulls = RemotePullManager.shared
         archive.add(root)
-        archive.stop()
         server.start()
         for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
         // (After the server registers everyone's actions: registerAll runs only while there are none.)
@@ -76,6 +75,11 @@ extension PhotoSelfTest {
         for _ in 0..<200 where pane.loading { try? await Task.sleep(for: .milliseconds(20)) }
         check("pull: the Finder pane lists the share, folders first", pane.shown.map(\.name) == ["Day 1", "notes.txt"], "\(pane.shown.map(\.name)) \(source.problem ?? "")")
         check("pull: stand-in paths map back to the share", source.relative(pane.shown[0].url) == "Day 1" && source.relative(source.root).isEmpty)
+        // Favourites in the browser's sidebar: kept per host Mac, added and taken out again.
+        let starred = RemoteFinderSource.toggled(RemoteFinderSource.toggled("", share: share.id, path: "Day 1"), share: share.id, path: "Day 1/Cam A")
+        check("pull: favourites keep the share and folder", RemoteFinderSource.favourites(starred).map { "\($0.share)|\($0.path)" } == ["\(share.id)|Day 1", "\(share.id)|Day 1/Cam A"], starred)
+        check("pull: a favourite is taken out again", RemoteFinderSource.favourites(RemoteFinderSource.toggled(starred, share: share.id, path: "Day 1")).map(\.path) == ["Day 1/Cam A"])
+        check("pull: favourites are per host Mac", RemoteFinderSource.favouritesKey.hasSuffix(client.office?.device.uuidString ?? "-"))
         if let day = pane.shown.first {
             pane.open(day)
             for _ in 0..<200 where pane.loading || pane.shown.first?.name != "A001.mov" { try? await Task.sleep(for: .milliseconds(20)) }

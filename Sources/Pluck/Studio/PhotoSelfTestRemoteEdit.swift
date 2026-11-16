@@ -28,7 +28,6 @@ extension PhotoSelfTest {
 
         let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared
         archive.add(root)
-        archive.stop()
         server.start()
         for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
         defer {
@@ -93,7 +92,7 @@ extension PhotoSelfTest {
 
             let status = try await client.status()
             check("remote: status says not busy, with the share", !status.busy && status.shares.contains { $0.id == id } && !status.office.isEmpty)
-            check("remote: the existing actions still answer", (try await client.ask("archive"))["archive"] != nil)
+            check("remote: the existing actions still answer", (try await client.ask("jobs"))["jobs"] != nil)
 
             server.setRights(.init(browse: false, proxies: true, originals: false, render: true), for: device.id)
             check("remote: browsing refused without the right", await refused({ _ = try await client.browse(share: id, path: "") }))

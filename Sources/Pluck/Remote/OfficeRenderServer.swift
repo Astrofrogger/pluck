@@ -108,6 +108,13 @@ final class OfficeRenderServer {
     /// Connections still sending their request (a slow sender holds one), and ones being answered.
     @ObservationIgnored private var open = 0
     @ObservationIgnored private var answering = 0
+    /// Connections kept open for a Mac's next question (it asked with "keep"), waiting for it. Each question on one is
+    /// still sealed, timed and checked on its own; they all close when sharing stops.
+    @ObservationIgnored private var kept: [ObjectIdentifier: NWConnection] = [:]
+    static let keptMost = 64
+    static let keptIdle: TimeInterval = 60
+    /// (Tests: off answers like a host from before, one question per connection.)
+    @ObservationIgnored var keepsConnections = true
     @ObservationIgnored private var watching: Task<Void, Never>?
     @ObservationIgnored private var loaded = false
 
@@ -169,20 +176,19 @@ final class OfficeRenderServer {
         self.listener = listener
         watch()
         startNetwork()
-        OfficeArchive.shared.manager = manager
-        OfficeArchive.shared.tidyClips()
+        OfficeArchive.removeOldClips()
         OfficeProxies.shared.manager = manager
         if ScreenshotMode.scene == nil {
-            OfficeArchive.shared.scan()
             OfficeProxies.shared.run()
         }
     }
 
     func stop() {
-        OfficeArchive.shared.stop()
         OfficeProxies.shared.stop()
         listener?.cancel()
         listener = nil
+        kept.values.forEach { $0.cancel() }
+        kept = [:]
         isRunning = false
         pairing = nil
         Tunnel.office.stop()
@@ -203,6 +209,19 @@ final class OfficeRenderServer {
         case .cancelled: isRunning = false
         default: break
         }
+    }
+
+    /// Snapshot scenes only: how sample Macs are connected (by device id).
+    @ObservationIgnored private(set) var sampleLinks: [UUID: Tunnel.Link] = [:]
+
+    /// Snapshot scenes only: these Macs and renders shown, nothing stored.
+    func showSample(devices: [Device], lastSeen: [UUID: Date], links: [UUID: Tunnel.Link], jobs: [Job]) {
+        guard ScreenshotMode.scene != nil else { return }
+        loaded = true
+        self.devices = devices
+        self.lastSeen = lastSeen
+        sampleLinks = links
+        self.jobs = jobs
     }
 
     func setRenderFolder(_ url: URL) {
@@ -420,20 +439,27 @@ final class OfficeRenderServer {
         connection.cancel()
     }
 
-    private func read(_ connection: NWConnection, client: String, iroh: String?) {
-        connection.start(queue: queue)
-        FrameReader.read(from: connection, limit: OfficeLink.maxRequest, timeout: 90) { [weak self] frame in
+    /// `again`: the next question on a connection kept open after an answer (not counted as a new one).
+    private func read(_ connection: NWConnection, client: String, iroh: String?, again: Bool = false) {
+        if !again { connection.start(queue: queue) }
+        FrameReader.read(from: connection, limit: OfficeLink.maxRequest, timeout: again ? Self.keptIdle : 90) { [weak self] frame in
             Task { @MainActor in
                 guard let self else { connection.cancel(); return }
-                // The request is read: its slot is free for the next one while this one is answered.
-                self.open = max(self.open - 1, 0)
-                self.openBy[client] = self.openBy[client].map { $0 > 1 ? $0 - 1 : nil } ?? nil
+                if again {
+                    // Closed by sharing stopping meanwhile: nothing more on it.
+                    guard self.kept.removeValue(forKey: ObjectIdentifier(connection)) != nil else { return connection.cancel() }
+                } else {
+                    // The request is read: its slot is free for the next one while this one is answered.
+                    self.open = max(self.open - 1, 0)
+                    self.openBy[client] = self.openBy[client].map { $0 > 1 ? $0 - 1 : nil } ?? nil
+                }
                 self.answering += 1
-                guard let frame else { return self.drop(connection, strike: client) }
+                // A kept connection that goes quiet just closes (no strike: the Mac on it proved who it is).
+                guard let frame else { return again ? self.close(connection) : self.drop(connection, strike: client) }
                 switch frame.kind {
-                case .pair: self.pair(frame.payload, client: client, iroh: iroh, on: connection)
-                case .request: self.request(frame.payload, client: client, on: connection)
-                case .data: self.drop(connection, strike: client)
+                case .pair where !again: self.pair(frame.payload, client: client, iroh: iroh, on: connection)
+                case .request: self.request(frame.payload, client: client, iroh: iroh, on: connection)
+                case .pair, .data: self.drop(connection, strike: client)
                 }
             }
         }
@@ -455,9 +481,15 @@ final class OfficeRenderServer {
         connection.cancel()
     }
 
-    private func send(_ data: Data, on connection: NWConnection) {
+    /// `keep`: the connection stays open for the asker's next question (read straight away: answers go out in order).
+    private func send(_ data: Data, on connection: NWConnection, keep: (client: String, iroh: String?)? = nil) {
         answering = max(answering - 1, 0)
-        connection.send(content: data, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+        guard let keep, listener != nil else {
+            return connection.send(content: data, isComplete: true, completion: .contentProcessed { _ in connection.cancel() })
+        }
+        kept[ObjectIdentifier(connection)] = connection
+        connection.send(content: data, completion: .contentProcessed { error in if error != nil { connection.cancel() } })
+        read(connection, client: keep.client, iroh: keep.iroh, again: true)
     }
 
     /// `iroh`: the node id of the Mac it came from over iroh (the helper says), if it did.
@@ -520,7 +552,7 @@ final class OfficeRenderServer {
         send(OfficeLink.frame(.pair, officeKey.publicKey.rawRepresentation + sealed.combined), on: connection)
     }
 
-    private func request(_ payload: Data, client: String, on connection: NWConnection) {
+    private func request(_ payload: Data, client: String, iroh: String?, on connection: NWConnection) {
         guard payload.count > 16, let id = OfficeLink.uuid(payload.prefix(16)),
               let device = devices.first(where: { $0.id == id }) else { return drop(connection, strike: client) }
         let keys = OfficeLink.keys(device.secret)
@@ -538,6 +570,8 @@ final class OfficeRenderServer {
         lastSeen[device.id] = .now
         saveLastSeen()
         let arguments = message["args"] as? [String: Any] ?? [:]
+        // Asked to keep the connection (a Mac from before never does): the answer says it's kept.
+        let keep = message["keep"] as? Bool == true && keepsConnections
         Task {
             var answer: [String: Any]
             do {
@@ -546,13 +580,15 @@ final class OfficeRenderServer {
                 answer = ["error": error.localizedDescription]
             }
             answer["nonce"] = nonce.base64EncodedString()
+            let keeping = keep && kept.count < Self.keptMost && listener != nil
+            if keeping { answer["keep"] = true }
             let bytes = answer.removeValue(forKey: OfficeActions.bytesKey) as? Data
             guard let body = try? JSONSerialization.data(withJSONObject: answer) else { return close(connection) }
             // (Sealing a file piece is off the main thread.)
             guard let frame = await Task.detached(operation: { OfficeActions.seal(body, bytes: bytes, key: keys.answer, nonce: nonce) }).value else {
                 return close(connection)
             }
-            send(frame, on: connection)
+            send(frame, on: connection, keep: keeping ? (client, iroh) : nil)
         }
     }
 
@@ -622,13 +658,8 @@ final class OfficeRenderServer {
             return ["jobs": jobs.filter { $0.deviceID == device.id }.suffix(30).reversed().map(\.summary)]
         case "cancel":
             let id = try text(arguments["id"])
-            guard let index = jobs.firstIndex(where: { $0.id.uuidString == id && $0.deviceID == device.id }) else { throw OfficeLink.Failure.office(String(localized: "That render isn’t on the host Mac any more.")) }
-            if jobs[index].state == .rendering {
-                _ = try? await OfficeResolve.run(["action": "stop", "name": jobs[index].project, "job": jobs[index].resolveJob])
-                jobs[index].state = .cancelled
-                jobs[index].problem = String(localized: "Cancelled from \(device.name)")
-                saveJobs()
-            }
+            guard let job = jobs.first(where: { $0.id.uuidString == id && $0.deviceID == device.id }) else { throw OfficeLink.Failure.office(String(localized: "That render isn’t on the host Mac any more.")) }
+            await cancel(job.id, by: device.name)
             return ["cancelled": true]
         case "preview":
             let id = try text(arguments["id"])
@@ -641,25 +672,9 @@ final class OfficeRenderServer {
             try handle.seek(toOffset: UInt64(offset))
             let chunk = try handle.read(upToCount: OfficeLink.previewChunk) ?? Data()
             return ["data": chunk.base64EncodedString(), "size": job.previewSize ?? 0]
-        case "archive":
-            return ["archive": OfficeArchive.shared.status]
-        case "archiveSearch":
-            try OfficeActions.require(\.browse, device)
-            let query = (arguments["query"] as? String ?? "").prefix(200)
-            let movement = (arguments["movement"] as? String).map { String($0.prefix(20)) }
-            let framing = (arguments["framing"] as? String).map { String($0.prefix(20)) }
-            // New footage becomes searchable by itself (a fresh look every few hours).
-            OfficeArchive.shared.scanIfDue()
-            return ["hits": OfficeArchive.shared.search(String(query), movement: movement, framing: framing)]
-        case "archiveClip":
-            // (A light copy of a shot, like a thumbnail: browsing, so Find Shots works with the default rights.)
-            try OfficeActions.require(\.browse, device)
-            let clip = try await OfficeArchive.shared.clip(try text(arguments["id"], 40))
-            return ["token": clip.token, "size": clip.size, "name": clip.name]
-        case "archiveClipData":
-            try OfficeActions.require(\.browse, device)
-            let piece = try OfficeArchive.shared.clipData(try text(arguments["token"], 40), offset: arguments["offset"] as? Int ?? 0)
-            return ["data": piece.data.base64EncodedString(), "size": piece.size]
+        case "archive", "archiveSearch", "archiveClip", "archiveClipData":
+            // Edit Anywhere no longer looks at or searches footage: an older Mac asking is told so.
+            throw OfficeLink.Failure.office(String(localized: "The host Mac doesn’t search footage any more. Update Pluck on this Mac."))
         case "sendState":
             let have = try OfficeInbox.shared.have(try text(arguments["path"], 1000), size: try number(arguments["size"]),
                                                    modified: arguments["modified"] as? Double ?? 0,
@@ -733,6 +748,16 @@ final class OfficeRenderServer {
     private func saveJobs() {
         try? FileManager.default.createDirectory(at: Self.support, withIntermediateDirectories: true)
         if let data = try? JSONEncoder().encode(Array(jobs.suffix(50))) { try? data.write(to: Self.jobsFile, options: .atomic) }
+    }
+
+    /// Stops a render (from this Mac when `name` is nil, else from that paired Mac).
+    func cancel(_ id: UUID, by name: String? = nil) async {
+        guard let job = jobs.first(where: { $0.id == id }), job.state == .rendering else { return }
+        _ = try? await OfficeResolve.run(["action": "stop", "name": job.project, "job": job.resolveJob])
+        guard let index = jobs.firstIndex(where: { $0.id == id }) else { return }
+        jobs[index].state = .cancelled
+        jobs[index].problem = name.map { String(localized: "Cancelled from \($0)") } ?? String(localized: "Stopped on this Mac")
+        saveJobs()
     }
 
     func clearFinished() {

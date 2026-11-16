@@ -1044,7 +1044,7 @@ private struct FinderPathBar: View {
                             HStack(spacing: 3) {
                                 Image(nsImage: pane.source == nil ? NSWorkspace.shared.icon(forFile: url.path) : NSWorkspace.shared.icon(for: .folder))
                                     .resizable().frame(width: 13, height: 13)
-                                Text(FileManager.default.displayName(atPath: url.path)).lineLimit(1)
+                                Text(name(url)).lineLimit(1)
                             }
                         }
                         .buttonStyle(.plain)
@@ -1059,6 +1059,11 @@ private struct FinderPathBar: View {
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
+    }
+
+    private func name(_ url: URL) -> String {
+        if let source = pane.source, let rootName = source.rootName, url.standardizedFileURL == source.root.standardizedFileURL { return rootName }
+        return FileManager.default.displayName(atPath: url.path)
     }
 
     private var status: String {

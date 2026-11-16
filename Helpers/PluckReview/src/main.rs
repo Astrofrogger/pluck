@@ -3,7 +3,7 @@
 // then go peer to peer over DTLS/SCTP. All peers share one UDP socket per local address.
 //
 // stdin (JSON lines; the first is the settings; it quits when stdin closes):
-//   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","turn"?}],"maxPeers":20,"local":false}
+//   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","turn"?,"ready"?}],"maxPeers":20,"local":false}
 //   {"rooms":[…]}  {"send":{"peer","msg"}}  {"serve":{"peer","fetch","path","offset","length"}}  {"close":{"peer","reason"}}
 //   {"serve":{"peer","fetch","pieces":[{"path","offset","length"},…]}}   (one fetch from several pieces: proxy MP4, §6.1)
 //   {"accept":{"peer","upload","path","size"}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply)
@@ -27,6 +27,7 @@ mod store;
 mod stun;
 mod sync;
 mod update;
+mod uplink;
 mod upload_root;
 
 use std::{
@@ -262,12 +263,15 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         (h.ident, h.busy, h.back) = (me.clone(), busy.clone(), Some(prog_tx));
         let replica = backup.then(|| replica::Shared::load(&data, replica::parse_size(hc["maxStorage"].as_str().unwrap_or("50G")).unwrap_or(50 << 30),
             hc["quality"].as_str().filter(|q| *q == "same" || copies::quality(q).is_some()).unwrap_or("1080-low")));
+        signal::SAME.store(replica.as_ref().is_some_and(|r| !r.lighter()), std::sync::atomic::Ordering::Relaxed);
         h.replica = replica.clone();
         h.reload();
         tokio::spawn(host::run(h, tap_rx, sync_rx, prog_rx));
         let (acceptor, fp) = sync::tls(&data)?;
         let (key, new_key) = sync::host_key(&data)?;
         let devices = Arc::new(devices::Devices::load(&data));
+        let paired = devices.clone();
+        tokio::spawn(uplink::run(local, move || backup || paired.has_backup())); // the upload speed the Room routes viewers by
         *devices.link.lock().unwrap() = json!({"n": me.name, "fp": fp});
         if let Some(l) = hc["listen"].as_str() {
             devices.link.lock().unwrap()["lan"] = json!(l);
@@ -422,6 +426,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         }
         let now = Instant::now();
         let counting = relay::config().token.is_some(); // usage goes only to rooms registered with the owner's token
+        start_waiting(&mut peers, &ev_tx, &socks);
         for p in peers.values_mut() {
             p.tick(now, &socks);
             p.pump(&socks);
@@ -476,14 +481,14 @@ fn kick(rooms: &HashMap<String, signal::Room>, room: &str, peer: &str, why: &str
 /// Replace the set of rooms: new ones register, missing ones close (with their peers).
 fn set_rooms(v: &Value, rooms: &mut HashMap<String, signal::Room>, peers: &mut HashMap<String, rtc::Peer>,
              base: &str, ev: &mpsc::UnboundedSender<Ev>, socks: &rtc::Sockets) {
-    let want: HashMap<String, (String, String, bool)> = v.as_array().into_iter().flatten()
+    let want: HashMap<String, (String, String, bool, bool)> = v.as_array().into_iter().flatten()
         .filter_map(|r| {
             let (room, reg) = (r["room"].as_str()?, r["reg"].as_str()?);
             let Some(join) = r["join"].as_str() else {
                 log(format!("room {room}: no join hash (an older link): not registered"));
                 return None;
             };
-            Some((room.to_owned(), (reg.to_owned(), join.to_owned(), r["turn"].as_bool().unwrap_or(true))))
+            Some((room.to_owned(), (reg.to_owned(), join.to_owned(), r["turn"].as_bool().unwrap_or(true), r["ready"] == true)))
         })
         .filter(|(r, _)| signal::valid_room(r))
         .collect();
@@ -495,9 +500,10 @@ fn set_rooms(v: &Value, rooms: &mut HashMap<String, signal::Room>, peers: &mut H
         }
     }
     let _ = socks;
-    for (room, (reg, join, turn)) in want {
-        rooms.entry(room.clone()).or_insert_with(|| signal::spawn(base, room, reg, join, turn, ev.clone()))
-            .turn.store(turn, std::sync::atomic::Ordering::Relaxed);
+    for (room, (reg, join, turn, ready)) in want {
+        let r = rooms.entry(room.clone()).or_insert_with(|| signal::spawn(base, room, reg, join, turn, ev.clone()));
+        r.turn.store(turn, std::sync::atomic::Ordering::Relaxed);
+        r.ready.store(ready, std::sync::atomic::Ordering::Relaxed);
     }
 }
 
@@ -547,15 +553,34 @@ fn serve(s: &Value, peers: &mut HashMap<String, rtc::Peer>, ev: &mpsc::Unbounded
     let Some(parts) = parts.filter(|p| !p.is_empty() && p.len() <= 4096) else {
         return rtc::served(&peer, fetch, 0, "error");
     };
-    let length: u64 = parts.iter().map(|p| p.2).sum();
-    let total: usize = peers.values().map(|p| p.serves.len()).sum();
     let Some(p) = peers.get_mut(&peer) else { return rtc::served(&peer, fetch, 0, "error") };
-    if !p.can_serve() || p.serves.len() >= media::PER_PEER || total >= media::TOTAL || p.serves.iter().any(|x| x.fetch == fetch) {
+    if p.take_cancelled(fetch) {
+        return rtc::served(&peer, fetch, 0, "cancelled");
+    }
+    // Past the caps it waits rather than fails: the browser already has the size and would wait for bytes forever.
+    if !p.can_serve() || p.waiting.len() >= media::WAIT_MAX || p.serves.iter().any(|x| x.fetch == fetch) || p.waiting.iter().any(|w| w.0 == fetch) {
         return rtc::served(&peer, fetch, 0, "error");
     }
-    let reader = (length > 0).then(|| media::spawn_reader(parts, peer.clone(), fetch, ev.clone()));
-    p.serves.push(media::Serve::new(fetch, length, reader));
-    p.pump(socks);
+    p.waiting.push_back((fetch, parts));
+    start_waiting(peers, ev, socks);
+}
+
+/// Starts waiting serves as slots free up, fairly across peers (media::admit). Run after every turn.
+fn start_waiting(peers: &mut HashMap<String, rtc::Peer>, ev: &mpsc::UnboundedSender<Ev>, socks: &rtc::Sockets) {
+    if peers.values().all(|p| p.waiting.is_empty()) {
+        return;
+    }
+    let ids: Vec<String> = peers.keys().cloned().collect();
+    let mut running: Vec<usize> = ids.iter().map(|i| peers[i].serves.len()).collect();
+    let mut waiting: Vec<usize> = ids.iter().map(|i| if peers[i].can_serve() { peers[i].waiting.len() } else { 0 }).collect();
+    for i in media::admit(&mut running, &mut waiting) {
+        let p = peers.get_mut(&ids[i]).unwrap();
+        let (fetch, parts) = p.waiting.pop_front().unwrap();
+        let length: u64 = parts.iter().map(|p| p.2).sum();
+        let reader = (length > 0).then(|| media::spawn_reader(parts, p.id.clone(), fetch, ev.clone()));
+        p.serves.push(media::Serve::new(fetch, length, reader));
+        p.pump(socks);
+    }
 }
 
 async fn stun_loop(sock: Arc<UdpSocket>, base: SocketAddr, servers: Vec<String>, pending: stun::Pending, ev: mpsc::UnboundedSender<Ev>) {

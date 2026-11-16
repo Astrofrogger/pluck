@@ -152,6 +152,8 @@ struct StudioEmptyState: View {
     var line: LocalizedStringKey?
     /// Pink while something is dragged over it.
     var targeted = false
+    /// The button as the page's main action (plum).
+    var prominent = false
     var button: LocalizedStringKey?
     var action: (() -> Void)?
 
@@ -165,7 +167,7 @@ struct StudioEmptyState: View {
                     .multilineTextAlignment(.center).frame(maxWidth: 420)
             }
             if let button, let action {
-                Button(button, action: action).buttonStyle(StudioFlatButtonStyle()).padding(.top, 6)
+                Button(button, action: action).buttonStyle(StudioFlatButtonStyle(prominent: prominent)).padding(.top, 6)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

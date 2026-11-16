@@ -241,13 +241,10 @@ async fn backup_pairs_syncs_and_pushes_its_own_comments() {
         tokio::time::sleep(Duration::from_millis(300)).await;
     }
     assert_eq!(std::fs::read_to_string(backup_dir.join("main-protocol")).unwrap().trim(), "3");
-    // A comment made on the backup reaches the main (the backup's next round: restart it to skip the 60 s wait).
+    // A comment made on the backup (a viewer it serves, the main online) starts a round at once: on the main in
+    // seconds, not at the next 60 s round.
     ctl(&backup_dir, json!({"op": "append", "entries": [{"comment": {"id": "B1", "asset": "A1", "version": "V1", "text": "from the backup", "rev": 1, "replies": []}}]})).await;
-    drop(backup);
-    let mut backup = Proc::start(bin, &["--host", backup_dir.to_str().unwrap(), "--signal", &sig, "--local", "--backup", "--iroh-bin", iroh.to_str().unwrap(),
-        "--max-storage", "1G", "--quality", "540-low"], &[], None);
-    backup.wait(|v| v["ready"].is_object()).await;
-    let until = tokio::time::Instant::now() + T;
+    let until = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
         let pulled = ctl(&main_dir, json!({"op": "pull", "since": 0})).await;
         let n = pulled["entries"].as_array().map_or(0, |e| e.iter().filter(|e| e["comment"]["id"] == "B1").count());
@@ -303,5 +300,8 @@ async fn backup_stands_by_while_the_main_holds_the_room() {
     assert_eq!(h.wait(|v| v.get("relay").is_some()).await["relay"]["state"], "off");
     let (first, second) = (regs.recv().await.unwrap(), regs.recv().await.unwrap());
     assert_eq!((first["prio"].clone(), second["prio"].clone(), first["relay"].clone()), (json!("backup"), json!("backup"), json!("tok")));
+    // It offers to stand by beside the main (a Worker that predates that refuses it with `taken`, as here), and says
+    // what it has: no speed measured (--local), its copies lighter than the main's.
+    assert_eq!((first["standby"].clone(), first["up"].clone(), first["same"].clone(), first["fastest"].clone()), (json!(true), Value::Null, json!(false), json!(false)));
     let _ = std::fs::remove_dir_all(data);
 }

@@ -225,6 +225,11 @@ impl Devices {
         json!({"ok": true})
     }
 
+    /// Whether a backup is paired (the main's upload is only compared with one there).
+    pub fn has_backup(&self) -> bool {
+        self.inner.lock().unwrap().list.iter().any(|d| d["role"] == "backup")
+    }
+
     /// For `status`: the backups, with what each last reported of itself.
     pub fn backups(&self) -> Value {
         json!(self.inner.lock().unwrap().list.iter().filter(|d| d["role"] == "backup")

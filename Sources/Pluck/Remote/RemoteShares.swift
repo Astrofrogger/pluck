@@ -3,13 +3,15 @@ import os
 
 /// The host's shares (OfficeArchive.folders) as the owner picked them: a bookmark each, so a NAS that
 /// comes back under another mount name ("/Volumes/Footage-1") is found again; online state and free
-/// space read with a timeout (a hung NAS must never hang an answer); search on/off and watched
-/// folders ("keep proxied") per share.
+/// space read with a timeout (a hung NAS must never hang an answer); watched folders ("keep proxied")
+/// per share.
 @MainActor
 @Observable
 final class RemoteShares {
     static let shared = RemoteShares()
     nonisolated private static let key = "remoteShares"
+    /// The streaming-format watches, by share path: kept out of `key`, whose list older builds can't read with them in.
+    nonisolated private static let streamKey = "remoteSharesStreamWatches"
 
     /// A folder inside a share that keeps getting proxies for new files.
     struct Watch: Codable, Hashable {
@@ -24,6 +26,7 @@ final class RemoteShares {
         var bookmark: Data?
         /// The volume it sits on, for people ("Footage NAS").
         var volume: String?
+        /// Not used any more; still saved (always on) so older builds, which need the key, can read the list.
         var search = true
         var watch: [Watch] = []
     }
@@ -32,6 +35,9 @@ final class RemoteShares {
         var online: Bool
         var free: Int64
         var total: Int64
+        /// What it's on, for people: "Local SSD", "NAS (SMB)" (nil while offline).
+        var kind: String? = nil
+        var network = false
     }
 
     private(set) var shares: [Share] = [] {
@@ -41,6 +47,8 @@ final class RemoteShares {
     nonisolated static let ids = OSAllocatedUnfairLock(initialState: idMap(saved()))
     /// The last read state of each share's folder (by path), for the window.
     private(set) var states: [String: State] = [:]
+    /// Snapshot scenes only: states given instead of read (by path).
+    @ObservationIgnored private var sampleStates: [String: State]?
 
     private init() {
         // Shares saved before ids were kept keep the id their path gave them.
@@ -49,7 +57,24 @@ final class RemoteShares {
     }
 
     nonisolated private static func saved() -> [Share] {
-        UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode([Share].self, from: $0) } ?? []
+        decoded(UserDefaults.standard.data(forKey: key), stream: UserDefaults.standard.data(forKey: streamKey))
+    }
+
+    nonisolated static func decoded(_ data: Data?, stream: Data?) -> [Share] {
+        let watches = stream.flatMap { try? JSONDecoder().decode([String: [Watch]].self, from: $0) } ?? [:]
+        return (data.flatMap { try? JSONDecoder().decode([Share].self, from: $0) } ?? []).map { share in
+            var share = share
+            share.watch += (watches[share.path] ?? []).filter { !share.watch.contains($0) }
+            return share
+        }
+    }
+
+    /// The shares as saved: their streaming watches apart (see `streamKey`).
+    nonisolated static func encoded(_ shares: [Share]) -> (shares: Data?, stream: Data?) {
+        let plain = shares.map { share in var share = share; share.watch.removeAll { $0.format == .stream }; return share }
+        let stream = Dictionary(shares.map { ($0.path, $0.watch.filter { $0.format == .stream }) }.filter { !$0.1.isEmpty },
+                                uniquingKeysWith: { first, _ in first })
+        return (try? JSONEncoder().encode(plain), try? JSONEncoder().encode(stream))
     }
 
     nonisolated private static func idMap(_ shares: [Share]) -> [String: String] {
@@ -57,19 +82,12 @@ final class RemoteShares {
     }
 
     private func save() {
-        if let data = try? JSONEncoder().encode(shares) { UserDefaults.standard.set(data, forKey: Self.key) }
+        let saved = Self.encoded(shares)
+        if let data = saved.shares { UserDefaults.standard.set(data, forKey: Self.key) }
+        if let data = saved.stream { UserDefaults.standard.set(data, forKey: Self.streamKey) }
     }
 
     func share(_ folder: URL) -> Share? { shares.first { $0.path == folder.path } }
-
-    func searchable(_ folder: URL) -> Bool { share(folder)?.search ?? true }
-
-    func setSearch(_ on: Bool, for folder: URL) {
-        update(folder) { $0.search = on }
-        // A fresh look over the folders with search on (it drops the others' shots).
-        OfficeArchive.shared.stop()
-        OfficeArchive.shared.scan()
-    }
 
     func addWatch(_ path: String, format: OfficeProxies.Format, in folder: URL) {
         update(folder) { share in
@@ -93,6 +111,14 @@ final class RemoteShares {
         guard let index = shares.firstIndex(where: { $0.path == folder.path }) else { return }
         change(&shares[index])
         save()
+    }
+
+    /// Snapshot scenes only: these shares and states shown, nothing stored.
+    func showSample(_ sample: [Share], states: [String: State]) {
+        guard ScreenshotMode.scene != nil else { return }
+        shares = sample
+        sampleStates = states
+        self.states = states
     }
 
     // MARK: - Bookmarks
@@ -142,6 +168,7 @@ final class RemoteShares {
     /// Online, free and total space of a folder, given up on after `timeout` seconds (a NAS that
     /// doesn't answer is offline). One look per folder at a time, so a hung mount can't pile them up.
     func state(_ folder: URL, timeout: Double = 2) async -> State {
+        if let sample = sampleStates { return sample[folder.path] ?? State(online: false, free: 0, total: 0) }
         let offline = State(online: false, free: 0, total: 0)
         var state: State?
         var waited = 0.0
@@ -152,10 +179,16 @@ final class RemoteShares {
             guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue else {
                 return State(online: false, free: 0, total: 0)
             }
-            let values = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey, .volumeTotalCapacityKey])
-            // (Network volumes don't always answer "important usage".)
-            let free = values?.volumeAvailableCapacityForImportantUsage ?? values?.volumeAvailableCapacity.map(Int64.init) ?? 0
-            return State(online: true, free: free, total: Int64(values?.volumeTotalCapacity ?? 0))
+            let values = try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey, .volumeTotalCapacityKey,
+                                                              .volumeIsLocalKey, .volumeIsInternalKey, .volumeTypeNameKey])
+            // Network volumes (SMB) answer "important usage" with 0 rather than nil: take the larger of the two.
+            let free = max(values?.volumeAvailableCapacityForImportantUsage ?? 0, Int64(values?.volumeAvailableCapacity ?? 0))
+            // (smbfs → SMB, afpfs → AFP, nfs stays NFS.)
+            let type = (values?.volumeTypeName ?? "").uppercased(), protocolName = type == "NFS" ? type : type.replacingOccurrences(of: "FS", with: "")
+            let kind = values?.volumeIsLocal == false ? (protocolName.isEmpty ? String(localized: "NAS") : String(localized: "NAS (\(protocolName))"))
+                : values?.volumeIsInternal == true ? String(localized: "Local SSD") : String(localized: "External drive")
+            return State(online: true, free: free, total: Int64(values?.volumeTotalCapacity ?? 0), kind: kind,
+                         network: values?.volumeIsLocal == false)
             }
             if state == nil {
                 guard waited < timeout else { state = offline; break }
@@ -178,7 +211,7 @@ final class RemoteShares {
         return folders.map { folder in
             let state = found[folder.path] ?? State(online: false, free: 0, total: 0)
             var item: [String: Any] = ["id": OfficeProxies.id(folder), "name": folder.lastPathComponent, "online": state.online,
-                                       "freeBytes": state.free, "totalBytes": state.total, "search": searchable(folder)]
+                                       "freeBytes": state.free, "totalBytes": state.total]
             if let volume = share(folder)?.volume { item["volume"] = volume }
             return item
         }
@@ -204,5 +237,17 @@ final class RemoteShares {
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { finish(fallback) }
         }
+    }
+}
+
+extension RemoteShares.Share {
+    /// (Every key but the path may be missing: lists saved by other builds still read.)
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        path = try values.decode(String.self, forKey: .path)
+        id = try values.decodeIfPresent(String.self, forKey: .id)
+        bookmark = try values.decodeIfPresent(Data.self, forKey: .bookmark)
+        volume = try values.decodeIfPresent(String.self, forKey: .volume)
+        watch = try values.decodeIfPresent([RemoteShares.Watch].self, forKey: .watch) ?? []
     }
 }

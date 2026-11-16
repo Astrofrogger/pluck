@@ -160,6 +160,7 @@ has no `ip` (`host.rs:2088`).
 | music.apple.com | Apple Music links (`AppleMusic.swift`, page read for metadata) | the link |
 | pluck.tools | Review signaling (`wss://pluck.tools/signal/<room>`, helper), room erase (`DeliverLink.erase`) | IP, room id, reg key proof; see 3.1 |
 | stun.cloudflare.com | STUN (helper and browsers) | IP |
+| speed.cloudflare.com | Review host upload test (`Helpers/PluckReview/src/uplink.rs`): 3 × 4 MB random bytes at start and every ~6 h; `PLUCK_UPLINK_TEST=off` disables | IP, random bytes; no UA, no cookies |
 | ghcr.io | NAS host container images (pulled by the NAS; pinned digests from the release, `DeliverHostUpdate.swift:146`) | the NAS's IP |
 | login.tailscale.com | opened in the browser only (`OfficeRenderView.swift`) | - |
 | buymeacoffee.com | a link only | - |

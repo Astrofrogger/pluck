@@ -294,48 +294,33 @@ enum ScreenshotMode {
     }
 
     #if STUDIO
-    @MainActor
-    private static func archiveSelfTest(defaults: UserDefaults) async {
-        guard let folder = defaults.string(forKey: "PluckScreenshotFile"), let logPath = defaults.string(forKey: "PluckScreenshotLog") else { return }
-        var lines: [String] = []
-        func note(_ text: String) {
-            lines.append(text)
-            try? lines.joined(separator: "\n").write(toFile: logPath, atomically: true, encoding: .utf8)
-        }
-        let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared, archive = OfficeArchive.shared
-        server.setEnabled(true)
-        archive.add(URL(fileURLWithPath: folder, isDirectory: true))
-        let start = Date.now
-        while Date.now.timeIntervalSince(start) < 900 {
-            try? await Task.sleep(for: .seconds(1))
-            if archive.working == nil, archive.fileCount > 0, archive.indexes.count == archive.fileCount { break }
-        }
-        note("indexed \(archive.indexes.count) of \(archive.fileCount) in \(Int(Date.now.timeIntervalSince(start))) s")
-        server.startPairing()
-        guard let code = server.pairing?.code else { return note("no pairing code") }
-        do {
-            try await client.pair(.address("127.0.0.1"), code: code)
-            note("paired")
-            let status = try await client.archiveStatus()
-            note("status: \(status)")
-            let hits = try await client.searchArchive("text", movement: nil, framing: nil)
-            note("search: \(hits.count) hits")
-            for hit in hits.prefix(5) { note("  \(hit.place) \(hit.start)-\(hit.end) thumb=\(hit.thumbnail?.count ?? 0)B: \(hit.description)") }
-            if let first = hits.first {
-                let url = try await client.fetchClip(first) { _ in }
-                let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0
-                note("clip: \(url.lastPathComponent) \(size) bytes")
-                try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            }
-        } catch {
-            note("error: \(error.localizedDescription)")
-        }
-        // Back as it was: unpaired, nothing shared.
+    /// The "anywherebrowse" scene: this Mac shares the folders and pairs with itself, then shows Browse.
+    @MainActor private static func anywhereBrowse(defaults: UserDefaults) async {
+        let server = OfficeRenderServer.shared, client = OfficeRenderClient.shared
+        let folders = (defaults.string(forKey: "PluckScreenshotFiles") ?? "").split(separator: "|").map { URL(fileURLWithPath: String($0), isDirectory: true) }
+        // Only these shared (a test home keeps other tests' shares).
+        for folder in OfficeArchive.shared.folders where !folders.contains(folder) { OfficeArchive.shared.remove(folder) }
+        for folder in folders { _ = OfficeArchive.shared.add(folder) }
+        if let first = folders.first { UserDefaults.standard.set(OfficeProxies.id(first), forKey: "editAnywhereBrowseShare") }
+        server.start()
+        for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
+        OfficeActions.registerAll()
+        // A fresh pairing each time (keys from an earlier run aren't kept on both sides).
         client.forget()
         for device in server.devices { server.remove(device) }
-        archive.remove(URL(fileURLWithPath: folder, isDirectory: true))
-        server.setEnabled(false)
-        note("done")
+        server.startPairing()
+        if let code = server.pairing?.code { try? await client.pair(.address("127.0.0.1"), code: code) }
+        if let item = defaults.string(forKey: "PluckScreenshotItem"), let first = folders.first {
+            let key = RemoteFinderSource.favouritesKey
+            let stored = UserDefaults.standard.string(forKey: key) ?? ""
+            if !RemoteFinderSource.favourites(stored).contains(where: { $0.path == item }) {
+                UserDefaults.standard.set(RemoteFinderSource.toggled(stored, share: OfficeProxies.id(first), path: item), forKey: key)
+            }
+        }
+        UserDefaults.standard.set("home", forKey: "officeRenderSide")
+        UserDefaults.standard.set("proxies", forKey: "editAnywherePane")
+        UserDefaults.standard.set("columns", forKey: "finderViewMode")
+        StudioNavigator.shared.open(windowID: "officeRender")
     }
 
     /// Proxies end to end in one Pluck (a test copy, on its own port and keys): shares
@@ -353,7 +338,6 @@ enum ScreenshotMode {
         let footage = URL(fileURLWithPath: folder, isDirectory: true)
         server.setEnabled(true)
         OfficeArchive.shared.add(footage)
-        OfficeArchive.shared.stop()
         // -PluckScreenshotProxyFolder <folder>: proxies made there on the host (one inside the
         // footage is refused first).
         if let chosen = defaults.string(forKey: "PluckScreenshotProxyFolder") {
@@ -476,7 +460,6 @@ enum ScreenshotMode {
             }
             // The other way: the footage's originals.
             OfficeArchive.shared.add(source)
-            OfficeArchive.shared.stop()
             let sync = ProxySync.shared
             try await sync.loadFolders()
             if let shared = sync.folders.first {
@@ -566,11 +549,26 @@ enum ScreenshotMode {
                 ResolveLogger.shared.start()
             case "office":
                 StudioNavigator.shared.open(windowID: "officeRender")
-            case "archivetest":
-                // Edit Anywhere's archive, end to end in one Pluck: -PluckScreenshotFile <footage
-                // folder> is indexed, a pairing over this Mac's own network, a search and a clip
-                // fetched; what happens goes to -PluckScreenshotLog <file>.
-                Task { @MainActor in await archiveSelfTest(defaults: defaults) }
+            case "officemacs", "officefolders", "officeproxies", "officerenders":
+                // Edit Anywhere › Share this Mac on that section, with sample Macs, folders, proxies and renders
+                // (in memory only: nothing is stored; -PluckScreenshotEmpty YES: none). Launch with
+                // -officeRenderEnabled NO so no server starts; it's then turned on here, in the argument domain only.
+                var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+                arguments[OfficeRenderServer.enabledKey] = true
+                arguments[OfficeRenderServer.folderKey] = "/Volumes/Work SSD/Renders"
+                arguments["officeRenderSide"] = "office"
+                arguments["editAnywhereSharePane"] = String(scene.dropFirst("office".count))
+                UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
+                if defaults.bool(forKey: "PluckScreenshotEmpty") { OfficeArchive.shared.showSample([]) } else { OfficeSample.load() }
+                StudioNavigator.shared.open(windowID: "officeRender")
+            case "anywherehome":
+                // Edit Anywhere › Use another Mac, not paired (a clean test home).
+                UserDefaults.standard.set("home", forKey: "officeRenderSide")
+                StudioNavigator.shared.open(windowID: "officeRender")
+            case "anywherebrowse":
+                // Edit Anywhere › Browse against this Mac itself: -PluckScreenshotFiles <a|b> shared, paired over
+                // 127.0.0.1; -PluckScreenshotItem <folder in the first> starred as a favourite.
+                Task { @MainActor in await anywhereBrowse(defaults: defaults) }
             case "playertest":
                 // The Raw Player's checks (scopes), -PluckScreenshotLog <file>.
                 Task { @MainActor in await PlayerSelfTest.run(defaults: defaults) }

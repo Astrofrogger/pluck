@@ -439,6 +439,7 @@ impl Host {
             log(format!("host: link {} is from an older Pluck (no signing key): not served; publish it again", l["id"]));
         }
         self.queue_copies();
+        self.load_serving();
         self.check_links();
     }
 
@@ -862,7 +863,7 @@ impl Host {
     /// Also run every 30 s, so links expire on time.
     pub fn check_links(&mut self) {
         let rooms: Vec<Value> = self.links().filter(|l| level2(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
-            .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "turn": self.live(l).is_ok()})).collect();
+            .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
         let ended: Vec<(String, &str)> = self.peers.iter()
             .filter_map(|(id, p)| match self.link(&p.room) { Some(l) => self.live(l).err().or_else(|| Self::repassworded(p, l)), None => Some("revoked") }.map(|c| (id.clone(), c)))
             .collect();
@@ -892,6 +893,26 @@ impl Host {
             tokio::time::sleep(Duration::from_millis(1500)).await;
             let _ = out.send(Ev::Cmd(rooms));
         });
+    }
+
+    /// Fastest-host routing: may this backup take the link's viewers while the main is online? Only when the
+    /// current version of every asset in scope is copied here, and the link needs nothing only the main has:
+    /// uploads (off on a backup, §13.3) and original downloads stay with the main.
+    fn backup_ready(&self, l: &Value) -> bool {
+        if !self.ident.backup || l["uploads"].is_object() || is(l, "allowDownload") {
+            return false;
+        }
+        let Some(p) = self.project(l) else { return false };
+        let mut scope = Self::arr(p, "assets").filter(|a| a["id"].as_str().is_some_and(|id| self.asset_in_scope(l, id).is_some())).peekable();
+        // (Nothing in scope, a removed asset say: nothing copied to serve, so the main keeps it.)
+        scope.peek().is_some() && scope.all(|a| Self::arr(a, "versions").last().is_some_and(|v| v["ready"] == true))
+    }
+
+    /// The owner's "Prefer fastest even if lighter" (a main's own setting, kept in serving.json).
+    fn load_serving(&self) {
+        let on = std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some_and(|v| v["preferFastest"] == true);
+        crate::signal::FASTEST.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// A peer gone (closed, or ended by check_links): its fetches end (temp files go, a backup's
@@ -1200,6 +1221,10 @@ impl Host {
             self.seq -= 1;
             return false;
         }
+        // A backup's own comment, approval or field (not an activity line): to the main now, not at the next round.
+        if let (Some(r), true) = (&self.replica, e.get("main").is_none() && e.get("activity").is_none()) {
+            r.nudge();
+        }
         self.apply(&e);
         self.entries.push(e);
         if self.superseded > SUPERSEDED_MAX {
@@ -1306,10 +1331,19 @@ impl Host {
                 let mut s = json!({"seq": self.seq, "storeSeq": self.raw["storeSeq"], "viewers": self.peers.values().filter(|p| p.ready).count(),
                     "copies": self.jobs, "role": if self.ident.backup { "backup" } else { "main" }});
                 crate::update::status_fields(&mut s, &self.data);
+                s["uplinkMbps"] = json!(crate::uplink::mbps());
+                s["preferFastest"] = json!(crate::signal::FASTEST.load(std::sync::atomic::Ordering::Relaxed));
                 if let Some(r) = &self.replica {
                     s["replica"] = r.summary();
                 }
                 s
+            }
+            "prefer-fastest" if !self.ident.backup => {
+                let on = op["on"] == true;
+                match std::fs::write(self.data.join("serving.json"), json!({"preferFastest": on}).to_string()) {
+                    Ok(()) => { self.load_serving(); json!({"ok": true, "preferFastest": on}) }
+                    Err(e) => json!({"error": format!("can't write serving.json: {e}")}),
+                }
             }
             _ => json!({"error": "unknown op"}),
         }
@@ -3220,6 +3254,64 @@ mod tests {
         assert!(h.comments.is_empty());
         assert_eq!(n(&mut h, c(2, json!([]))), 0, "a tombstone beats every comment with rev ≤ its own");
         assert_eq!(n(&mut h, c(3, json!([]))), 1);
+    }
+
+    /// Fastest-host routing: a backup tells the Room a link is ready once the current version of every asset in
+    /// scope is copied, and never for a link with uploads or downloads (those stay with the main); a main never is.
+    #[tokio::test]
+    async fn a_backup_is_ready_for_a_link_once_its_current_versions_are_here() {
+        let (mut h, mut rx) = test_host();
+        h.ident.backup = true;
+        let mut up = link("L2", "R2", json!({"kind": "asset", "id": "A"}));
+        up["uploads"] = json!({});
+        let mut dl = link("L3", "R3", json!({"kind": "asset", "id": "A"}));
+        dl["allowDownload"] = json!(true);
+        let all = link("L4", "R4", json!({"kind": "project", "id": "P"}));
+        let gone = link("L5", "R5", json!({"kind": "asset", "id": "GONE"}));
+        h.publish(&sample(json!([link("L1", "R1", json!({"kind": "asset", "id": "A"})), up, dl, all, gone])), &json!({}));
+        let ready = |rx: &mut mpsc::UnboundedReceiver<Ev>| -> Vec<bool> {
+            let r = cmds(rx).into_iter().rev().find(|c| c.get("rooms").is_some()).unwrap();
+            ["R1", "R2", "R3", "R4", "R5"].iter().map(|id| r["rooms"].as_array().unwrap().iter().find(|x| x["room"] == *id).unwrap()["ready"] == true).collect()
+        };
+        assert_eq!(ready(&mut rx), [false; 5], "nothing copied yet: the main serves");
+        std::fs::create_dir_all(h.dir.join("copies/V")).unwrap();
+        std::fs::write(h.dir.join("copies/V/ready.json"), json!({"renditions": [], "probe": {}}).to_string()).unwrap();
+        h.reload();
+        assert_eq!(ready(&mut rx), [true, false, false, false, false], "V is here: only the plain link to A (B's W isn't; nothing is in R5's scope)");
+        h.ident.backup = false;
+        h.reload();
+        assert_eq!(ready(&mut rx), [false; 5], "a main is never a standby");
+    }
+
+    /// A comment, approval or field made on a backup (its viewers while the main is online, or in an outage)
+    /// starts a sync round at once; entries from the main and activity lines don't.
+    #[tokio::test]
+    async fn a_backup_sends_its_own_comments_to_the_main_at_once() {
+        let (mut h, _rx) = test_host();
+        h.ident.backup = true;
+        let r = crate::replica::Shared::load(&h.data, 1 << 30, "same");
+        h.replica = Some(r.clone());
+        let c = |id: &str| json!({"comment": {"id": id, "asset": "A", "version": "V", "text": "x", "rev": 1, "replies": []}});
+        let mut from_main = c("M1");
+        from_main["seq"] = json!(3);
+        h.sync(&json!({"op": "_replica-entries", "entries": [from_main]}));
+        h.sync(&json!({"op": "append", "entries": [{"activity": {"id": "X1", "link": "L1", "at": now_iso(), "kind": "opened"}}]}));
+        assert!(!r.nudged().await, "the main's entries and activity wait for the round");
+        h.sync(&json!({"op": "append", "entries": [c("B1")]}));
+        assert!(r.nudged().await, "own comment: a round now");
+        assert_eq!(h.sync(&json!({"op": "_replica-own", "since": 0}))["entries"].as_array().unwrap().len(), 2, "B1 and the activity go up");
+    }
+
+    #[test]
+    fn prefer_fastest_is_the_mains_setting() {
+        let (mut h, _rx) = test_host();
+        assert_eq!(h.sync(&json!({"op": "prefer-fastest", "on": true})), json!({"ok": true, "preferFastest": true}));
+        let f: Value = serde_json::from_slice(&std::fs::read(h.data.join("serving.json")).unwrap()).unwrap();
+        assert_eq!(f, json!({"preferFastest": true}));
+        assert!(h.sync(&json!({"op": "status"})).get("uplinkMbps").is_some());
+        h.sync(&json!({"op": "prefer-fastest", "on": false}));
+        h.ident.backup = true;
+        assert_eq!(h.sync(&json!({"op": "prefer-fastest", "on": true}))["error"], "unknown op", "not on a backup");
     }
 
     #[test]
