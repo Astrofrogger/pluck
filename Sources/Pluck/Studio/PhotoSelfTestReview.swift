@@ -1796,6 +1796,11 @@ extension PhotoSelfTest {
         let rolled = await nas.update(to: "new", previous: "old", poll: .milliseconds(1)) { true }
         failNew = false
         let updated = await nas.update(to: "new", previous: "old", poll: .milliseconds(1)) { true }
+        // auth.me's roles as TrueNAS sends them: a Python set in its JSON ({"$set": [...]}), or a plain list.
+        let allRoles = TrueNASClient.roles
+        check("round3: TrueNAS roles as {\"$set\": …} are read",
+              TrueNASClient.roleList(["$set": allRoles]) == Set(allRoles) && TrueNASClient.roleList(allRoles) == Set(allRoles)
+              && TrueNASClient.roleList(["x": 1]) == nil)
         let old = TrueNASClient.parse("24.10.2").map { ($0.major, $0.minor) >= (25, 4) }
         let template = "services:\n  a:\n    image: \"{{image}}\"\n    env: \"{{name}}\"\n    # begin:uploads\n    up: \"{{uploads}}\"\n    # end:uploads\n"
         let rendered = try? TrueNASClient.render(template, ["image": "ghcr.io/x/y@sha256:" + String(repeating: "0", count: 64), "name": "Say \"hi\""])

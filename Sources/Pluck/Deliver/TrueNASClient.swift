@@ -125,9 +125,19 @@ final class TrueNASClient {
     /// The roles the API key's user lacks (empty: fine).
     func missingRoles() async throws -> [String] {
         let me = try await call("auth.me") as? [String: Any] ?? [:]
-        let have = Set((me["privilege"] as? [String: Any])?["roles"] as? [String] ?? me["roles"] as? [String] ?? [])
+        guard let have = Self.roleList((me["privilege"] as? [String: Any])?["roles"]) ?? Self.roleList(me["roles"]) else {
+            // Not readable on this TrueNAS: don't block; a missing right fails the next step with TrueNAS's own message.
+            return []
+        }
         if have.contains("FULL_ADMIN") { return [] }
         return Self.roles.filter { !have.contains($0) }
+    }
+
+    /// TrueNAS sends a role set as a plain list, or (Python sets in its JSON) as {"$set": [...]}.
+    nonisolated static func roleList(_ value: Any?) -> Set<String>? {
+        if let list = value as? [String] { return Set(list) }
+        if let wrapped = (value as? [String: Any])?["$set"] as? [String] { return Set(wrapped) }
+        return nil
     }
 
     func pools() async throws -> [String] {
