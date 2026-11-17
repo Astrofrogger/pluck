@@ -2800,6 +2800,42 @@ extension PhotoSelfTest {
               && DeliverShareQueue.waitable(Deliver.Failure("internal")) && !DeliverShareQueue.waitable(Deliver.Failure("space")),
               "\(reloaded.count) \(whileAway) \(stillWaiting) \(back) \(arrived.map(\.current.path))")
         for asset in arrived { store.remove(asset: asset.id) }
+
+        // Publish/Share offers to upload the originals: only for footage that is just here, with a NAS (with an uploads folder);
+        // "Not now" is remembered per project; Upload hands each original to the normal upload path.
+        guard let local = try? store.add([spot], to: project, folder: nil).first else { return }
+        let scope = Deliver.Scope.asset(local.id, project: project)
+        let mac = Deliver.Host(name: "Studio Mac", kind: .mac, address: UUID().uuidString)
+        DeliverUploadDestination.forgetDeclined(project)
+        let offered = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        let forMac = await DeliverUploadDestination.offer(scope, host: mac, store: store, publish: publish)
+        let onMount = await DeliverUploadDestination.offer(scope, host: mounted, store: store, publish: publish)
+        let shared = await DeliverUploadDestination.offer(scope, host: nil, store: store, publish: publish)
+        ReviewHostClient.fake = { request, body in request["op"] as? String == "roots" ? ["roots": ["nas1"], "writable": [String]()] : fake.answer(request, body) }
+        let noRoot = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        DeliverUploadDestination.decline(project)
+        let declined = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        let otherProject = DeliverUploadDestination.declined(UUID())
+        DeliverUploadDestination.forgetDeclined(project)
+        check("originals: offered for a file only here when a NAS with an uploads folder is paired; not for a Mac host, a file already on the NAS, or no uploads folder; Share finds the paired NAS",
+              offered?.items.count == 1 && offered?.root == "renders" && offered?.host.id == host.id && forMac == nil && onMount == nil && noRoot == nil
+              && shared?.host.kind == .nas, "\(String(describing: offered?.items.count)) \(String(describing: shared?.host.name))")
+        check("originals: Not now is remembered for that project only and the question stays away", declined == nil && !otherProject
+              && !DeliverUploadDestination.declined(project), "")
+
+        var began: [String] = []
+        ReviewHostClient.fake = { request, body in
+            if request["op"] as? String == "upload-begin" { began.append(request["path"] as? String ?? "") }
+            return fake.answer(request, body)
+        }
+        fake.uploads = [:]
+        if let offered { await DeliverUploadDestination.upload(offered, store: store, publish: publish) }
+        let now = store.find(local.id)?.asset.current.path ?? "-"
+        check("originals: Upload sends the original through the normal upload path and the version points at the NAS",
+              began == ["renders/Client/2026/Spot 30s.mov"]  /* the folder used last for the project */ && now.hasPrefix("nas:") && fake.uploads.values.first?.count == 3000, "\(began) \(now)")
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+        store.remove(asset: local.id)
     }
 
     /// Browse's sidebar: one group per server (its name, a status dot, its menu), its roots by their real names, the

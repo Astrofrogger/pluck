@@ -447,3 +447,66 @@ struct DeliverWaitingRows: View {
         }
     }
 }
+
+/// Publish or Share with footage only on this Mac and a NAS paired: one question, "Upload the originals to <NAS>?".
+/// Upload goes through the normal upload path (DeliverUploads) in the background; "Not now" is remembered per project.
+extension DeliverUploadDestination {
+    struct Offer {
+        var host: Deliver.Host
+        var scope: Deliver.Scope
+        var root: String
+        var items: [(asset: UUID, version: Deliver.Version)]
+    }
+
+    private static func declinedKey(_ project: UUID) -> String { "deliverOriginalsDeclined." + project.uuidString }
+    static func declined(_ project: UUID) -> Bool { UserDefaults.standard.bool(forKey: declinedKey(project)) }
+    static func decline(_ project: UUID) { UserDefaults.standard.set(true, forKey: declinedKey(project)) }
+    static func forgetDeclined(_ project: UUID) { UserDefaults.standard.removeObject(forKey: declinedKey(project)) }
+
+    /// The offer for `scope`, or nil: `host` (Publish) must be a NAS; without one (Share) it is the NAS the project is published
+    /// on, else the first paired one. Nil too when everything is on the NAS already, "Not now" was said, or it has no uploads folder.
+    static func offer(_ scope: Deliver.Scope, host: Deliver.Host?, store: DeliverStore = .shared, publish: ReviewPublish = .shared) async -> Offer? {
+        let project = scope.project
+        guard !declined(project) else { return nil }
+        let nas = host ?? publish.publications.lazy.filter { $0.scope.project == project }.compactMap { publish.host($0.host) }.first { $0.kind == .nas }
+            ?? publish.hosts.first { $0.kind == .nas }
+        guard let nas, nas.kind == .nas else { return nil }
+        var items: [(asset: UUID, version: Deliver.Version)] = []
+        for asset in publish.assets(scope) {
+            for version in asset.versions {
+                if let file = store.original(version), ReviewPublish.reference(file.path, on: nas) == nil { items.append((asset.id, version)) }
+            }
+        }
+        guard !items.isEmpty, let root = await DeliverUploads.writableRoot(nas) else { return nil }
+        return Offer(host: nas, scope: scope, root: root, items: items)
+    }
+
+    /// Sends each original to the project's folder on the NAS; where the project is published there, it is published again
+    /// afterwards so the NAS makes its review copies from the originals.
+    static func upload(_ offer: Offer, store: DeliverStore = .shared, publish: ReviewPublish = .shared) async {
+        let project = offer.scope.project
+        let folder = suggested(offer.host, root: offer.root, project: project, store: store)
+        remember(folder, host: offer.host.id, project: project)
+        for item in offer.items { await DeliverUploads.shared.uploadVersion(item.version, of: item.asset, folder: folder, host: offer.host, store: store) }
+        if let again = publish.publications.first(where: { $0.host == offer.host.id && $0.scope.project == project }) {
+            await publish.publish(again.scope, to: offer.host)
+        }
+    }
+}
+
+/// The question as a dialog on Publish and Share.
+private struct DeliverOriginalsOffer: ViewModifier {
+    @Binding var offer: DeliverUploadDestination.Offer?
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(Text("Upload the originals to \(offer?.host.name ?? "")?"), isPresented: Binding(get: { offer != nil }, set: { if !$0 { offer = nil } }),
+                                   titleVisibility: .visible, presenting: offer) { offer in
+            Button("Upload") { Task { await DeliverUploadDestination.upload(offer) } }
+            Button("Not now", role: .cancel) { DeliverUploadDestination.decline(offer.scope.project) }
+        }
+    }
+}
+
+extension View {
+    func originalsOffer(_ offer: Binding<DeliverUploadDestination.Offer?>) -> some View { modifier(DeliverOriginalsOffer(offer: offer)) }
+}

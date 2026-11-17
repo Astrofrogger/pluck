@@ -295,7 +295,7 @@ final class ReviewPublish {
         return (referenced, sent)
     }
 
-    private func assets(_ scope: Deliver.Scope) -> [Deliver.Asset] {
+    func assets(_ scope: Deliver.Scope) -> [Deliver.Asset] {
         switch scope {
         case .project(let p): store.content(p).assets
         case .asset(let a, _): store.find(a).map { [$0.asset] } ?? []
