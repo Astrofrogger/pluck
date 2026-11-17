@@ -1,7 +1,10 @@
 // The `media` channel: one Serve per fetch Swift asked for. Bytes go out as binary frames
 // (u32 fetch BE, u32 seq BE, ≤ 65,528 payload bytes), at most 8 MiB beyond the browser's last ack,
 // read from the file in 1 MiB blocks only when the previous block has gone out.
-use std::io::SeekFrom;
+use std::{
+    io::SeekFrom,
+    time::{Duration, Instant},
+};
 
 use tokio::{
     io::{AsyncReadExt, AsyncSeekExt},
@@ -14,7 +17,8 @@ pub const HEADER: usize = 8;
 pub const CHUNK: usize = 65_536 - HEADER;
 pub const WINDOW: u64 = 8 << 20;
 pub const BLOCK: u64 = 1 << 20;
-pub const MAX_BUFFERED: usize = 1 << 20; // per channel (str0m buffered_amount)
+pub const MAX_BUFFERED: usize = 1 << 20; // per channel (str0m buffered_amount), on a fast link
+pub const MIN_BUFFERED: usize = 64 << 10; // on a slow one: what is queued can't be recalled by a cancel
 pub const LOW_THRESHOLD: usize = 256 << 10;
 pub const PER_PEER: usize = 4;
 pub const TOTAL: usize = 32;
@@ -46,6 +50,44 @@ pub fn admit(running: &mut [usize], waiting: &mut [usize]) -> Vec<usize> {
         out.push(i);
     }
     out
+}
+
+/// How fast the media channel drains (bytes the browser acknowledged a second), and so how much may be queued in
+/// it: about half a second's worth, between MIN_BUFFERED and MAX_BUFFERED. A cancel or a seek waits for whatever
+/// is queued, so a fixed 1 MiB cost a 25 KB/s link 40 s (the player's first segment, a step down, a seek); half a
+/// second still covers the round trip on fast links, so they keep their speed.
+pub struct Drain {
+    at: Option<Instant>,
+    from: u64,
+    busy: bool,
+    pub rate: f64,
+}
+
+impl Drain {
+    pub fn new() -> Self {
+        Drain { at: None, from: 0, busy: false, rate: 0.0 }
+    }
+
+    /// `written` = bytes written to the channel so far, `buffered` = still in it. Sampled every 200 ms; only an
+    /// interval that starts with a queue at least half the cap and ends with one counts (a channel that ran dry
+    /// says nothing about the link).
+    pub fn sample(&mut self, now: Instant, written: u64, buffered: usize) {
+        if self.at.is_some_and(|at| now.duration_since(at) < Duration::from_millis(200)) {
+            return;
+        }
+        let drained = written.saturating_sub(buffered as u64);
+        if let (Some(at), true) = (self.at, self.busy && buffered > 0) {
+            let r = drained.saturating_sub(self.from) as f64 / now.duration_since(at).as_secs_f64();
+            self.rate = if self.rate == 0.0 { r } else { 0.6 * self.rate + 0.4 * r };
+        }
+        self.from = drained;
+        self.busy = buffered >= self.cap() / 2;
+        self.at = Some(now);
+    }
+
+    pub fn cap(&self) -> usize {
+        ((self.rate * 0.5) as usize).clamp(MIN_BUFFERED, MAX_BUFFERED)
+    }
 }
 
 pub fn frame(fetch: u32, seq: u32, payload: &[u8]) -> Vec<u8> {
@@ -286,6 +328,33 @@ mod tests {
             }
         }
         out
+    }
+
+    #[test]
+    fn the_queue_follows_the_link() {
+        let t = Instant::now();
+        let ms = |n| t + Duration::from_millis(n);
+        let mut d = Drain::new();
+        assert_eq!(d.cap(), MIN_BUFFERED, "unknown link: the small queue");
+        // 25 KB/s (S2b's lossy 1.5 Mbit/s): the queue stays at the floor, about 2.6 s of data.
+        d.sample(ms(0), 64 << 10, 64 << 10);
+        d.sample(ms(1000), (64 << 10) + 25_000, 64 << 10);
+        assert!((d.rate - 25_000.0).abs() < 1.0, "{}", d.rate);
+        assert_eq!(d.cap(), MIN_BUFFERED);
+        // 40 MB/s (a LAN): the full queue after a few samples.
+        let (mut w, mut at) = ((64 << 10) + 25_000u64, 1000);
+        for _ in 0..12 {
+            let cap = d.cap();
+            at += 200;
+            w += 8_000_000;
+            d.sample(ms(at), w, cap);
+        }
+        assert_eq!(d.cap(), MAX_BUFFERED);
+        // A channel that runs dry (nothing queued) leaves the estimate alone.
+        let r = d.rate;
+        d.sample(ms(at + 5000), w, 0);
+        d.sample(ms(at + 10000), w, 0);
+        assert_eq!(d.rate, r);
     }
 
     #[test]
