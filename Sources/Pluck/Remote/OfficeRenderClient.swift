@@ -106,6 +106,8 @@ final class OfficeRenderClient {
     private(set) var active: UUID?
     /// The office Mac the Render pane's projects came from: its renders go there too.
     @ObservationIgnored var renderHost: UUID?
+    /// The office Mac that answered the last question asked of the group (a render's job is on that one).
+    @ObservationIgnored private var answered: UUID?
     /// Which office Macs have each share (local folders are on one only; the NAS on all that mount it).
     @ObservationIgnored private(set) var shareOwners: [String: Set<UUID>] = [:]
     @ObservationIgnored private var memberClients: [UUID: OfficeRenderClient] = [:]
@@ -480,7 +482,7 @@ final class OfficeRenderClient {
     func render(_ project: Project, timeline: String, preset: String) async throws {
         let answer = try await ask("render", ["folder": project.folder, "name": project.name, "timeline": timeline, "preset": preset], timeout: 180)
         if var job = (answer["job"] as? [String: Any]).flatMap(Job.init) {
-            if members.count > 1 { job.host = renderHost ?? active ?? primary }
+            if members.count > 1 { job.host = answered ?? renderHost ?? active ?? primary }
             mine.insert(job.id)
             jobs.insert(job, at: 0)
         }
@@ -669,9 +671,11 @@ extension OfficeRenderClient {
     /// may be asked twice, also when it stopped answering).
     func askGroup(_ action: String, _ arguments: [String: Any], timeout: TimeInterval) async throws -> [String: Any] {
         var last: Error = OfficeLink.Failure.unreachable
+        answered = nil
         for id in route(action, arguments) {
             do {
                 let answer = try await client(id).askHere(action, arguments, timeout: timeout)
+                answered = id
                 memberStates[id, default: MemberState(online: true)].online = true
                 if !Self.pinned(action), memberStates[active ?? primary ?? id]?.online == false { active = id }
                 return answer

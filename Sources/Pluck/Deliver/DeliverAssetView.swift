@@ -368,18 +368,25 @@ final class DeliverPlayback {
                     found.ranges.measured = { [weak self] path, bytes, start, end in
                         Task { @MainActor in self?.measured(path, bytes, start, end) }
                     }
-                    found.ranges.failed = { [weak self] in
-                        Task { @MainActor in self?.problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.") }
+                    found.ranges.failed = { [weak self, ranges = found.ranges] in
+                        Task { @MainActor in
+                            // (a stale version's failover never shows its error over the one open now)
+                            guard let self, self.copy?.ranges === ranges else { return }
+                            self.problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
+                        }
                     }
                     self.rendition = found.start
                     steps = [found.start]
-                    item = await streamItem(found)
+                    item = await streamItem(found, token: token)
+                    guard loading == token else { return }
                     ticker = Task { [weak self] in
                         while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(250)); self?.tick() }
                     }
                 case .missing:
+                    guard loading == token else { return }
                     problem = String(localized: "The review copy isn’t on this Mac or on a server it can reach.")
                 case .offline:
+                    guard loading == token else { return }
                     problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
                 }
             }
@@ -423,8 +430,10 @@ final class DeliverPlayback {
     /// The streamed copy as HLS (a fragmented MP4 through a resource loader made AVFoundation hop through every
     /// fragment, the whole file, before it played): AVPlayer asks for one segment at a time; the rendition chosen here
     /// caps its own choice (preferredPeakBitRate).
-    private func streamItem(_ copy: HostCopy) async -> AVPlayerItem? {
+    private func streamItem(_ copy: HostCopy, token: UUID) async -> AVPlayerItem? {
         guard let server = await HostCopyServer.start(copy) else { return nil }
+        // Another version was opened meanwhile: this server (and the copy's session) go now instead of leaking.
+        guard loading == token else { server.stop(); copy.ranges.close(); return nil }
         server.requested = { [weak self] rendition in Task { @MainActor in self?.arriving = rendition } }
         self.server = server
         return item(server, copy.start)

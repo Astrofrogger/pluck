@@ -240,7 +240,7 @@ struct RemoteStreamPlayer: View {
                 return state = .failed(String(localized: "Update Pluck on the host Mac to preview raw clips."))
             }
             while !Task.isCancelled {
-                let request = try await RemotePullClient.proxyRequest(id)
+                let request = try await RemotePullClient.proxyRequest(id, share: share)
                 switch request.state {
                 case "ready" where request.total == 0:
                     // (A host from before raw proxies finds no clip in it.)

@@ -7,6 +7,20 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.4", items: [
+                Item(symbol: "person.badge.plus", title: String(localized: "Invite your team"),
+                     detail: String(localized: "Send a teammate a link; they join and sign in with a passkey.")),
+                Item(symbol: "building.2", title: String(localized: "Office group"),
+                     detail: String(localized: "Several office Macs for Edit Anywhere, with the proxies on your NAS.")),
+                Item(symbol: "play.rectangle", title: String(localized: "Play from the NAS"),
+                     detail: String(localized: "Deliver streams straight from your NAS, like the browser, without downloading.")),
+                Item(symbol: "arrow.up.doc", title: String(localized: "Uploads during an outage"),
+                     detail: String(localized: "Your backup NAS takes client uploads and hands them to the main one later.")),
+                Item(symbol: "film", title: String(localized: "RED clips in Edit Anywhere"),
+                     detail: String(localized: "Browse and preview RED clips, in panels you can resize.")),
+                Item(symbol: "link", title: String(localized: "Shorter, safer review links"),
+                     detail: String(localized: "Short links that are harder to guess and can't be reused once deleted.")),
+            ]),
             Release(version: "4.0.3", items: []),
             Release(version: "4.0.2", items: [
                 Item(symbol: "globe.europe.africa", title: String(localized: "Edit Anywhere, simpler"),

@@ -179,7 +179,8 @@ final class ReviewPublish {
     /// §13.24: the level new links get. A paired host from before level 3 (4.0.3) doesn't serve a level-3 link (it has
     /// no `sign`), which would leave it to this Mac alone; so links stay level 2 until every paired host says it serves 3.
     var linkLevel: Int { Self.linkLevel(hosts) }
-    nonisolated static func linkLevel(_ hosts: [Deliver.Host]) -> Int { hosts.allSatisfy { ($0.links ?? 2) >= 3 } ? 3 : 2 }
+    /// (Only NAS hosts count: an office Mac never says links:3, and its links are this Mac's code anyway.)
+    nonisolated static func linkLevel(_ hosts: [Deliver.Host]) -> Int { hosts.filter { $0.kind == .nas }.allSatisfy { ($0.links ?? 2) >= 3 } ? 3 : 2 }
 
     /// A NAS paired from its invitation (§13.2), or one whose details changed.
     func add(_ host: Deliver.Host) {

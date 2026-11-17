@@ -384,14 +384,36 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                     "upload-part" => u.part(&op, r).await?,
                     "upload-end" if ctx.ident.backup => {
                         let meta = u.meta(op["upload"].as_str().unwrap_or("")).unwrap_or_default();
-                        let mut v = u.end(&op).await;
-                        if let (Some(o), Some(path)) = (&ctx.outage, v["path"].as_str()) {
+                        // Recorded BEFORE end() links the file into place: a restart in between leaves an item whose file
+                        // isn't there (push drops it), never a placed file no item pushes to the main (L3).
+                        let item = |rel: &str| json!({"id": "", "kind": "editor", "file": format!("{}/{rel}", crate::outage::EDITOR_DIR),
+                            "name": rel.rsplit('/').next().unwrap_or(rel), "size": meta["size"], "sha256": meta["sha256"], "by": ctx.devices.name(&device),
+                            "device": device, "folder": meta["folder"], "at": host::now_iso()});
+                        let planned = ctx.outage.as_ref().zip(meta["path"].as_str()).map(|(o, rel)| {
                             let id = host::uuid();
-                            let rel = path.strip_prefix(&format!("{}/", u.id)).unwrap_or("");
-                            o.add(json!({"id": id, "kind": "editor", "file": format!("{}/{rel}", crate::outage::EDITOR_DIR),
-                                "name": rel.rsplit('/').next().unwrap_or(rel), "size": v["size"], "sha256": meta["sha256"], "by": ctx.devices.name(&device),
-                                "device": device, "folder": meta["folder"], "at": host::now_iso()}));
-                            v["outage"] = json!(id);
+                            let mut x = item(rel);
+                            x["id"] = json!(id);
+                            x["placing"] = json!(host::now_secs()); // push leaves it alone while end() is still at it
+                            o.add(x);
+                            (o, id)
+                        });
+                        let mut v = u.end(&op).await;
+                        if let Some((o, id)) = planned {
+                            match v["path"].as_str() {
+                                Some(path) => {
+                                    // (another name when the planned one was taken: "Spot 2.mov")
+                                    let rel = path.strip_prefix(&format!("{}/", u.id)).unwrap_or("").to_owned();
+                                    let x = item(&rel);
+                                    o.update(&id, |i| {
+                                        i["file"] = x["file"].clone();
+                                        i["name"] = x["name"].clone();
+                                        i["size"] = v["size"].clone();
+                                        if let Some(i) = i.as_object_mut() { i.remove("placing"); }
+                                    });
+                                    v["outage"] = json!(id);
+                                }
+                                None => o.remove(&id),
+                            }
                         }
                         v
                     }

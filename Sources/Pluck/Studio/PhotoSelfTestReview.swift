@@ -319,7 +319,8 @@ extension PhotoSelfTest {
             check("review: a taken room is a problem; level 2 needs no wait", server.isTaken(gated) && level2.map { server.shareURL($0) != nil } == true, "")
             let old = Deliver.Host(name: "Old NAS", kind: .nas, address: nil), new = { var h = old; h.links = 3; return h }()
             check("review: links stay level 2 while a paired host can't serve 3", ReviewPublish.linkLevel([]) == 3 && ReviewPublish.linkLevel([new]) == 3
-                  && ReviewPublish.linkLevel([new, old]) == 2, "")
+                  && ReviewPublish.linkLevel([new, old]) == 2
+                  && ReviewPublish.linkLevel([new, Deliver.Host(name: "Office Mac", kind: .mac, address: nil)]) == 3, "")
             store.revoke(gated.id)
             if let level2 { store.revoke(level2.id) }
         }

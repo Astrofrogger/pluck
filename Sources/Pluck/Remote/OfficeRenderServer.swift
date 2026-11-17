@@ -252,6 +252,14 @@ final class OfficeRenderServer {
 
     func cancelPairing() { pairing = nil }
 
+    /// (Self-test only) an open Tailscale-style invitation code, without the private network.
+    func testInvitation() -> String {
+        let code = OfficeLink.newPairingCode()
+        invitations[code] = Date.now.addingTimeInterval(60)
+        pairingTriesLeft = max(pairingTriesLeft, OfficeLink.pairingTries)
+        return code
+    }
+
     /// Pairing codes that work right now.
     private var activeCodes: [String] {
         invitations = invitations.filter { $0.value > .now }
@@ -574,6 +582,9 @@ final class OfficeRenderServer {
         // Another office Mac joining this one's group ("Add another office Mac"): it gets the group's key and state, sealed
         // like any pairing answer, and joins as a member instead of a paired Mac.
         if hello["role"] as? String == "peer" {
+            // Only this Mac's own on-screen code over the office network: a home Mac's invitation code (Tailscale or iroh)
+            // must never hand out the group's key and every paired Mac's secret.
+            guard code == self.pairing?.code, iroh == nil, !client.hasPrefix("ts:") else { return drop(connection, strike: client) }
             guard let joining = (hello["member"] as? String).flatMap(OfficeGroup.decode(OfficeGroup.Member.self)),
                   let shared = OfficeGroup.shared.admit(joining),
                   let state = OfficeGroup.encode(shared) else { return drop(connection, strike: nil) }
@@ -585,6 +596,7 @@ final class OfficeRenderServer {
             }
             if self.pairing?.code == code { self.pairing = nil }
             invitations[code] = nil
+            irohInvitations[code] = nil
             justPaired = name
             return send(OfficeLink.frame(.pair, officeKey.publicKey.rawRepresentation + sealed.combined), on: connection)
         }

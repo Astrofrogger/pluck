@@ -539,12 +539,14 @@ impl Host {
                 let off = m["offset"].as_u64().unwrap_or(0).min(len);
                 let want = m["length"].as_u64().unwrap_or(len - off).min(len - off);
                 // A preview: at most PREVIEW_BYTES of a file per session in all, so ranges in a row are no download (fix M4).
-                let served = self.peers[peer].acct.served.get(&path).copied().unwrap_or(0);
+                // (keyed by the file itself: another spelling of the same path doesn't get a fresh budget)
+                let key = file.to_string_lossy().into_owned();
+                let served = self.peers[peer].acct.served.get(&key).copied().unwrap_or(0);
                 if person["footageDownload"] != true && served + want > PREVIEW_BYTES + PREVIEW_SLACK {
                     return self.err(peer, id, "scope"); // downloading needs its own right
                 }
                 let p = self.peers.get_mut(peer).unwrap();
-                *p.acct.served.entry(path.clone()).or_default() += want;
+                *p.acct.served.entry(key).or_default() += want;
                 p.fetches.insert(fetch, Default::default());
                 let kind = match crate::roots::kind_of(&path) { Some("video") => "video/mp4", Some("audio") => "audio/mp4", Some("image") => "image/jpeg", _ => "application/octet-stream" };
                 let name = path.rsplit('/').next().unwrap_or("").to_owned();
@@ -608,6 +610,10 @@ impl Host {
             "_accounts-apply" => {
                 // A backup's pull (replica.rs): the main's file as it is; nothing there yet leaves ours alone.
                 if op["accounts"]["format"] != 1 {
+                    return Some(json!({"ok": true}));
+                }
+                // The same as ours (every pull while nothing changed): no rewrite, and team pages don't redraw.
+                if op["accounts"] == self.accounts.v {
                     return Some(json!({"ok": true}));
                 }
                 if !self.accounts.replace(op["accounts"].clone()) {
@@ -933,6 +939,9 @@ mod tests {
         }
         let (_, r) = sign_in(&mut b, &mut brx, "b1", &k, ("AA", "BB"));
         assert_eq!(r["me"]["account"], ready["me"]["account"], "signed in on the backup");
+        let _ = msgs(&mut brx);
+        assert_eq!(b.sync(&json!({"op": "_accounts-apply", "accounts": file}))["ok"], true);
+        assert!(!msgs(&mut brx).iter().any(|m| m.to_string().contains("account-changed")), "the same file again changes nothing");
         let (bb, _, _) = open_team(&mut b, &mut brx, "b2", ("AA", "BB"));
         assert_eq!(bb.ask(&mut b, &mut brx, 2, json!({"t": "account-begin", "purpose": "create", "invite": accounts::new_code()}))["error"]["code"], "main");
     }

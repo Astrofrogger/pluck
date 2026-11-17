@@ -2576,7 +2576,8 @@ impl Host {
         let item = json!({"id": fid, "name": u.name, "size": u.size, "type": u.kind});
         // Asset uploads wait in the quarantine until the editor's Pluck takes them in (pull → upload entries).
         let mut r = if u.attachment { json!({"re": id, "attachment": item}) } else { json!({"re": id, "uploaded": item}) };
-        if self.ident.backup && !u.attachment {
+        // (not while the main still answers, e.g. this backup serving because its upload is faster: it goes up within a round)
+        if self.ident.backup && !u.attachment && !self.replica.as_ref().is_some_and(|r| r.main_reachable()) {
             r["later"] = json!(true); // a backup in an outage: the page says the editor gets it once the office is back (§13.25)
         }
         self.send(peer, r);

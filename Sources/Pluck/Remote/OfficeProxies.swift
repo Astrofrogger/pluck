@@ -130,9 +130,10 @@ final class OfficeProxies {
     /// A shared folder's id for paired Macs (never its path).
     /// A shared folder's id: the one RemoteShares keeps for it (so it stays when the folder moves or a
     /// NAS remounts under another name), else made from its path as before.
-    /// In an office group (OfficeGroup) the same NAS folder has one id on all its office Macs.
+    /// It never changes when an office group (OfficeGroup) forms or breaks up (saved jobs, watches, proxy paths and home
+    /// Macs' manifests use it); the other office Macs accept it for the same NAS folder through isShare.
     nonisolated static func id(_ folder: URL) -> String {
-        OfficeGroup.canonical(ownID(folder))
+        ownID(folder)
     }
 
     nonisolated static func ownID(_ folder: URL) -> String {

@@ -116,7 +116,7 @@ impl Outage {
 
     /// `local-time` from Pluck: its current UTC offset (at most ±14 h).
     pub fn set_offset(&self, secs: i64) -> Value {
-        if secs.abs() > 14 * 3600 {
+        if !(-14 * 3600..=14 * 3600).contains(&secs) { // (no abs(): i64::MIN would overflow)
             return json!({"error": "invalid"});
         }
         if self.offset.swap(secs, Ordering::Relaxed) != secs {
@@ -146,7 +146,7 @@ impl Outage {
         self.items.lock().unwrap().iter().find(|x| x["id"] == id).cloned()
     }
 
-    fn update(&self, id: &str, f: impl FnOnce(&mut Value)) {
+    pub(crate) fn update(&self, id: &str, f: impl FnOnce(&mut Value)) {
         let mut i = self.items.lock().unwrap();
         if let Some(x) = i.iter_mut().find(|x| x["id"] == id) {
             f(x);
@@ -154,7 +154,7 @@ impl Outage {
         }
     }
 
-    fn remove(&self, id: &str) {
+    pub(crate) fn remove(&self, id: &str) {
         let mut i = self.items.lock().unwrap();
         i.retain(|x| x["id"] != id);
         self.save(&i);
@@ -217,7 +217,12 @@ impl Outage {
         if let Some(x) = self.get(id) {
             match x["state"].as_str() {
                 Some("delivered") => return Self::done_answer(&x), // pushed before: nothing twice
-                Some("placing") => return self.finish(id, uploads, to_host).await.map(|x| Self::done_answer(&x)).unwrap_or_else(|c| json!({"error": c})),
+                Some("placing") => match self.finish(id, uploads, to_host).await {
+                    Ok(x) => return Self::done_answer(&x),
+                    // Its partial was swept before it was placed: received again from the start.
+                    Err("lost") => self.update(id, |x| x["state"] = json!("receiving")),
+                    Err(c) => return json!({"error": c}),
+                },
                 _ => {}
             }
         }
@@ -404,6 +409,10 @@ impl Outage {
             let file = item["file"].as_str().and_then(host::safe_rel).map(|p| self.data.join(p));
             if item.get("pushed").is_none() {
                 let Some(file) = file.as_ref().filter(|f| f.is_file()) else {
+                    // Still being checked and linked into place (sync.rs upload-end): next round. One left from a restart goes.
+                    if item["placing"].as_i64().is_some_and(|t| host::now_secs() - t < 6 * 3600) {
+                        continue;
+                    }
                     log(format!("backup: an upload that arrived during the outage is gone here ({id})"));
                     self.remove(&id);
                     continue;
@@ -560,6 +569,15 @@ mod tests {
         send(&o, "B1", 0, b"abc").await;
         assert_eq!(o.receive("outage-end", &json!({"upload": "B1"}), &mut &b""[..], Some(&root), &to_host).await.unwrap(), json!({"error": "checksum"}));
         assert_eq!(o.receive("outage-begin", &json!({"item": bad}), &mut &b""[..], Some(&root), &to_host).await.unwrap()["have"], 0);
+        // A 'placing' item whose partial was swept (and never linked) is received again, not lost.
+        let lost = json!({"id": "P1", "kind": "asset", "name": "p.mov", "size": 3, "sha256": hex(b"abc"), "link": "L1", "at": now_iso()});
+        o.receive("outage-begin", &json!({"item": lost}), &mut &b""[..], Some(&root), &to_host).await.unwrap();
+        send(&o, "P1", 0, b"abc").await;
+        std::fs::remove_file(o.get("P1").unwrap()["part"].as_str().unwrap()).unwrap();
+        o.update("P1", |x| x["state"] = json!("placing"));
+        assert_eq!(o.receive("outage-begin", &json!({"item": lost}), &mut &b""[..], Some(&root), &to_host).await.unwrap(), json!({"upload": "P1", "have": 0}));
+        send(&o, "P1", 0, b"abc").await;
+        assert_eq!(o.receive("outage-end", &json!({"upload": "P1"}), &mut &b""[..], Some(&root), &to_host).await.unwrap()["ok"], true);
         // Without an uploads root (and for attachments always): the quarantine.
         let plain = Outage::load(&tmp("main2"), false, None);
         let att = json!({"id": "A1", "kind": "attachment", "name": "ref.png", "size": 3, "sha256": keys::sha256_b64(b"png"), "type": "image/png", "link": "L1", "at": now_iso()});
@@ -590,6 +608,7 @@ mod tests {
         assert_eq!(o.local_day(Some("2026-11-16T23:30:00Z")), "2026-11-17", "Brussels: already the 17th");
         assert_eq!(Outage::load(&data, false, None).local_day(Some("2026-11-17T00:30:00+01:00")), "2026-11-17");
         assert!(o.set_offset(-15 * 3600)["error"].is_string());
+        assert!(o.set_offset(i64::MIN)["error"].is_string() && o.set_offset(i64::MAX)["error"].is_string());
         o.set_offset(-5 * 3600);
         assert_eq!(o.local_day(Some("2026-11-17T03:00:00Z")), "2026-11-16");
     }

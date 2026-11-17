@@ -76,8 +76,10 @@ final class OfficeGroup {
     private struct Saved: Codable {
         var me: UUID
         var shared: Shared?
-        /// The key before the last removal: to hand the new one to Macs that haven't got it yet.
+        /// The key before the last removal: to hand the new one to Macs that haven't got it yet (4.0.4 first builds).
         var previous: Key?
+        /// The keys before the last few removals, newest first.
+        var previousKeys: [Key]?
         var adoptedFolder: Date?
     }
 
@@ -88,7 +90,8 @@ final class OfficeGroup {
     private(set) var seen: [UUID: Date] = [:]
     /// Why the NAS proxy folder the group uses isn't used here (not mounted).
     private(set) var problem: String?
-    @ObservationIgnored private var previous: Key?
+    /// The keys before the last few removals, newest first (a Mac that missed two removals is still reached).
+    @ObservationIgnored private var previous: [Key] = []
     @ObservationIgnored private var adoptedFolder: Date?
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var clients: [UUID: OfficeRenderClient] = [:]
@@ -103,13 +106,13 @@ final class OfficeGroup {
         let saved = OfficeLink.Keychain.load(Self.account).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) }
         me = saved?.me ?? UUID()
         state = saved?.shared
-        previous = saved?.previous
+        previous = saved?.previousKeys ?? (saved?.previous.map { [$0] } ?? [])
         adoptedFolder = saved?.adoptedFolder
         updateAliases()
     }
 
     private func save() {
-        let saved = Saved(me: me, shared: state, previous: previous, adoptedFolder: adoptedFolder)
+        let saved = Saved(me: me, shared: state, previous: previous.first, previousKeys: previous, adoptedFolder: adoptedFolder)
         if let data = try? JSONEncoder().encode(saved) { OfficeLink.Keychain.save(data, as: Self.account) }
     }
 
@@ -207,6 +210,8 @@ final class OfficeGroup {
     /// Joins the group of an office Mac on this network with the code it shows (Macs → Add another office Mac).
     func join(_ target: OfficeRenderClient.Target, code: String) async throws {
         let asking = OfficeRenderClient(account: nil)
+        // A fresh id, as after leave(): a Mac removed earlier and added again isn't taken out again by the old removal.
+        me = UUID()
         let mine = Member(id: me, name: Host.current().localizedName ?? "Mac", addresses: testAddresses ?? OfficeRenderServer.addresses(),
                           shares: ownShares(), updated: .now)
         guard let encoded = Self.encode(mine) else { throw OfficeLink.Failure.garbled }
@@ -216,7 +221,7 @@ final class OfficeGroup {
         }
         // (This Mac's own paired Macs join the group's.)
         state = Self.merge(theirs, Shared(key: theirs.key, members: [mine], devices: OfficeRenderServer.shared.pairedMacs))
-        previous = nil
+        previous = []
         apply()
         start()
         await syncAll()
@@ -227,7 +232,7 @@ final class OfficeGroup {
         guard var shared = local(), member.id != me else { return }
         shared.removed.append(member.id)
         shared.members.removeAll { $0.id == member.id }
-        previous = shared.key
+        previous = Array(([shared.key] + previous).prefix(3))
         shared.key = Key(device: UUID(), secret: OfficeLink.randomBytes(32), version: shared.key.version + 1)
         state = shared
         apply()
@@ -243,7 +248,7 @@ final class OfficeGroup {
         await syncAll(leaving: true)
         stop()
         state = nil
-        previous = nil
+        previous = []
         adoptedFolder = nil
         clients = [:]
         apply()
@@ -291,7 +296,7 @@ final class OfficeGroup {
         guard let mine = local(), let encoded = Self.encode(mine) else { return }
         if !leaving { state = mine }
         for member in mine.members where member.id != me {
-            for key in [mine.key] + (previous.map { [$0] } ?? []) {
+            for key in [mine.key] + previous {
                 guard let answer = try? await client(member, key: key).ask("groupSync", ["state": encoded], timeout: 20) else { continue }
                 seen[member.id] = .now
                 if !leaving, let theirs = (answer["state"] as? String).flatMap(Self.decode(Shared.self)) { receive(theirs) }
@@ -309,7 +314,7 @@ final class OfficeGroup {
         if merged.removed.contains(me) {
             stop()
             state = nil
-            previous = nil
+            previous = []
             apply()
             save()
             return

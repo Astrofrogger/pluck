@@ -307,7 +307,7 @@ final class DeliverSync {
     }
 
     private func pull(_ session: HostSession, host: Deliver.Host, live: () -> Bool = { true }) async throws {
-        let first = state.lastSync == nil // (never synced with this host: its whole log is history)
+        let first = state.logSeq == 0 // (never pulled from this host: its whole log is history; once() sets lastSync before this)
         let answer = try await ReviewPublish.pages(state.logSeq) { try await session.ask(["op": "pull", "since": $0]) }
         guard live() else { return }
         let entries = answer["entries"] as? [[String: Any]] ?? []
@@ -501,6 +501,7 @@ final class DeliverSync {
         loop?.cancel()
         poll?.cancel()
         soon?.cancel()
+        refreshing = nil   // an old host's refresh still running can't write its seqs into the next host's state
         store.journal = nil
         state = State()
         saveState()

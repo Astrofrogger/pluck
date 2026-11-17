@@ -209,6 +209,12 @@ extension PhotoSelfTest {
         let single = try? await home.ask("officeGroup")
         check("group wire: a single office Mac has no group", (single?["members"] as? String).flatMap(OfficeGroup.decode([OfficeGroup.Reach].self))?.isEmpty == true)
 
+        // A home Mac's invitation code can't be used to join as an office Mac (it would get the group key).
+        let invited = server.testInvitation()
+        let sneaky = try? await OfficeRenderClient(account: nil).pair(.address("127.0.0.1"), code: invited,
+                                                                     member: OfficeGroup.encode(member("Office X")) ?? "")
+        check("group wire: an invitation code can't join the group", sneaky == nil && !group.isGrouped)
+
         // Another office Mac joins with a code: it gets the group's key and state.
         let other = member("Office B")
         server.startPairing()

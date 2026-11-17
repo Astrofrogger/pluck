@@ -313,7 +313,7 @@ final class DeliverShareQueue {
 
     func add(_ entry: Entry) {
         var entry = entry
-        if let at = backupChosen[entry.upload.host], Date.now.timeIntervalSince(at) < 60 { entry.viaBackup = true }
+        if let at = backupChosen.removeValue(forKey: entry.upload.host), Date.now.timeIntervalSince(at) < 60 { entry.viaBackup = true }
         entries.append(entry)
         save()
         resume()

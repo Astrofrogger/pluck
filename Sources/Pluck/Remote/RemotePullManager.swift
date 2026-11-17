@@ -21,8 +21,9 @@ enum RemotePullClient {
     }
 
     /// {id} → how a proxy request of this Mac's is going: queued, making (progress 0…1 once the host is on its file), ready, failed.
-    static func proxyRequest(_ id: String) async throws -> (state: String, total: Int, progress: Double?, problem: String?) {
-        let request = try await client.ask("shareProxyStatus", ["id": id], timeout: 30)["request"] as? [String: Any] ?? [:]
+    /// `share`: the request's share, so in an office group the question reaches the office Mac that has the request.
+    static func proxyRequest(_ id: String, share: String) async throws -> (state: String, total: Int, progress: Double?, problem: String?) {
+        let request = try await client.ask("shareProxyStatus", ["id": id, "share": share], timeout: 30)["request"] as? [String: Any] ?? [:]
         return (request["state"] as? String ?? "", (request["total"] as? NSNumber)?.intValue ?? 0,
                 (request["progress"] as? NSNumber)?.doubleValue, request["problem"] as? String)
     }

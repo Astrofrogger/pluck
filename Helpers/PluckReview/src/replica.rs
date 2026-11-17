@@ -150,6 +150,11 @@ impl Shared {
         dir_size(&self.copies())
     }
 
+    /// Whether the main answered a round lately (three missed rounds: not).
+    pub fn main_reachable(&self) -> bool {
+        self.st.lock().unwrap().last_ok.is_some_and(|t| t.elapsed() < reachable())
+    }
+
     pub fn lighter(&self) -> bool {
         self.quality != "same"
     }
@@ -415,6 +420,11 @@ pub async fn run(shared: Arc<Shared>, to_host: mpsc::Sender<host::Sync>, setup: 
                 let _ = std::fs::write(shared.data.join("main-protocol"), format!("{}\n", c.hello["protocol"].as_u64().unwrap_or(0)));
                 if let Some(o) = shared.outage.get() {
                     o.set_main(c.hello["outage"] == 1); // a 4.0.3 main can't take them on: no uploads here then
+                    let queued = o.items().len();
+                    if c.hello["outage"] != 1 && queued > 0 {
+                        // (they stay here, nothing is lost; the main takes them once it's updated again)
+                        if let Some(m) = quiet.note(format!("backup: {queued} outage uploads wait, but the main no longer takes them (older host?)")) { log(m); }
+                    }
                 }
                 if let Some(n) = c.hello["host"]["name"].as_str().filter(|n| *n != main["name"]) {
                     main["name"] = json!(n);
