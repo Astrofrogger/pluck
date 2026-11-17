@@ -9,7 +9,7 @@ struct DeliverPage: View {
     var body: some View {
         HStack(spacing: Design.Studio.panelGap) {
             DeliverSidebar(nav: nav)
-                .frame(width: 220)
+                .frame(width: 244)
                 .frame(maxHeight: .infinity)
                 .studioPanel()
             main
@@ -66,6 +66,18 @@ struct DeliverPage: View {
             case "project": nav.deliver = .project(project.id, folder: nil)
             case "asset": if let asset { nav.deliver = .asset(asset.id, version: nil, comment: store.comments(asset.id).first?.id) }
             case "share": sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
+            case "inbox":
+                // A few comments and an approval from the last days (once).
+                if store.inbox.isEmpty, asset != nil {
+                    let assets = store.content(project.id).assets
+                    for (n, item) in [("Client", "comment", "Logo comes in too early, can it wait for the beat?", 0.1), ("Producer", "reply", "Agreed, two bars later works.", 3.0),
+                                      ("Client", "approval", "approved", 26.0), ("Editor", "comment", "Swapped the last shot for the wider one.", 50.0)].enumerated() {
+                        let target = assets[n % assets.count]
+                        store.addInbox(.init(project: project.id, asset: target.id, version: target.current.id, kind: item.1, summary: item.2, author: item.0,
+                                             created: .now.addingTimeInterval(-item.3 * 3600), read: n > 1))
+                    }
+                }
+                nav.deliver = .inbox
             case "links": nav.deliver = .links(project.id, link: nil)
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
@@ -235,7 +247,7 @@ struct DeliverPage: View {
             if store.find(id) != nil { DeliverAssetView(nav: nav, asset: id, version: version, comment: comment).id(id) } else { DeliverProjects(nav: nav) }
         case .links(let project, let link):
             if store.project(project) != nil { DeliverLinksView(nav: nav, project: project, opened: link).id(project) } else { DeliverProjects(nav: nav) }
-        case .inbox: DeliverInbox(nav: nav)
+        case .inbox: DeliverProjects(nav: nav).overlay(alignment: .leading) { DeliverInbox(nav: nav) }
         case .people: DeliverPeopleView()
         case .deliveryCheck: DeliveryCheckView().padding(Design.Studio.panelInset)
         case .archiveProject: DeliverProjects(nav: nav)
@@ -247,6 +259,86 @@ struct DeliverPage: View {
 }
 
 // MARK: - Sidebar
+
+/// A project's actions (rename, share, branding, deadline, delete, a new one), asked from any row, switcher or card;
+/// the sidebar, always on the page, shows their sheets.
+@MainActor @Observable final class DeliverProjectActions {
+    static let shared = DeliverProjectActions()
+    var renaming: UUID?
+    var deleting: UUID?
+    var sharing: Deliver.Scope?
+    var branding: UUID?
+    var deadline: UUID?
+    var naming = false
+    var name = ""
+
+    func newProject() { name = ""; naming = true }
+}
+
+/// A project's menu: the same in the sidebar, the recent row and on its card.
+struct DeliverProjectMenu: View {
+    let project: Deliver.Project
+    @State private var actions = DeliverProjectActions.shared
+
+    var body: some View {
+        Button("Rename…") { actions.renaming = project.id; actions.name = project.name }
+        Button("Share Project…") { actions.sharing = .project(project.id) }
+        Button("Branding…") { actions.branding = project.id }
+        Button("Feedback Deadline…") { actions.deadline = project.id }
+        Button("Watch Render Folder…") { DeliverSidebar.watch(project.id) }
+        Divider()
+        Button("Delete Project…", role: .destructive) { actions.deleting = project.id }
+    }
+}
+
+/// A quiet "⋯" opening a menu, on cards and rows.
+struct DeliverMoreMenu<Content: View>: View {
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        Menu(content: content) {
+            Image(systemName: "ellipsis").font(.system(size: 12, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+                .frame(width: 24, height: 20).contentShape(.rect)
+        }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+        .accessibilityLabel("More")
+    }
+}
+
+/// A project's picture: its cover's poster, else a soft plum-to-violet wash of its own (the same every time).
+struct DeliverProjectCover: View {
+    let project: Deliver.Project
+    @State private var store = DeliverStore.shared
+
+    var body: some View {
+        let assets = store.content(project.id).assets
+        let cover = assets.first { $0.id == project.cover } ?? assets.first
+        Color.clear
+            .overlay {
+                if let file = DeliverPoster.file(cover), let image = NSImage(contentsOf: file) {
+                    Image(nsImage: image).resizable().scaledToFill()
+                } else {
+                    Self.wash(project.id)
+                }
+            }
+            .clipped()
+    }
+
+    static func wash(_ id: UUID) -> some View {
+        let seed = Int(id.uuid.0)
+        let (from, to) = seed % 2 == 0 ? (Design.Brand.pink, Design.Brand.violet) : (Design.Brand.violet, Design.Brand.pink)
+        let left = seed / 2 % 2 == 0
+        return GeometryReader { geometry in
+            let side = max(geometry.size.width, geometry.size.height)
+            ZStack {
+                LinearGradient(colors: [from, to], startPoint: left ? .topLeading : .topTrailing, endPoint: left ? .bottomTrailing : .bottomLeading)
+                // A soft lighter glow from one top corner.
+                RadialGradient(colors: [from.opacity(0.75), from.opacity(0)], center: left ? .topTrailing : .topLeading, startRadius: 0, endRadius: side * 0.95)
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        }
+    }
+}
 
 struct DeliverSidebar: View {
     /// The links the sidebar lists under a project: none unless that project is open (no global list of links).
@@ -264,18 +356,15 @@ struct DeliverSidebar: View {
     @Bindable var nav: StudioNavigator
     @State private var store = DeliverStore.shared
     @State private var server = DeliverServer.shared
-    @State private var renaming: UUID?
-    @State private var name = ""
-    @State private var deleting: UUID?
-    @State private var sharing: Deliver.Scope?
-    @State private var naming = false
+    @State private var actions = DeliverProjectActions.shared
     @State private var settingUp = false
     @State private var inviting: Deliver.Host?
-    @State private var branding: UUID?
-    @State private var deadline: UUID?
     @State private var pairing = DeliverPairing.shared
     @State private var sync = DeliverSync.shared
     @State private var request = DeliverShareRequest.shared
+    /// Tree rows folded or unfolded by hand: the project's root folds, folders unfold.
+    @State private var toggled: Set<UUID> = []
+    @State private var hovered: UUID?
 
     private var browsing: Bool {
         switch nav.deliver {
@@ -284,78 +373,14 @@ struct DeliverSidebar: View {
         }
     }
 
+    private var openProject: Deliver.Project? { nav.deliver.project.flatMap { store.project($0) } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            // Browse (§13.16): one row; the places (this Mac, the review servers, the host Mac) are in the browser's own sidebar.
-            HStack(spacing: 0) {
-                row(String(localized: "Browse"), symbol: "folder", on: browsing) { if !browsing { nav.deliver = .browse(.local) } }
-                if let main = ReviewPublish.shared.hosts.first(where: { $0.kind == .nas && $0.role != "backup" }) {
-                    Button { inviting = main } label: { Image(systemName: "person.badge.plus").font(.system(size: 12)) }
-                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Invite a Teammate…").padding(.leading, 6)
-                }
-                if hasServer {
-                    Button { settingUp = true } label: { Image(systemName: "plus").font(.system(size: 12)) }
-                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…").padding(.horizontal, 6)
-                }
-            }
-            header("Projects") {
-                Button { naming = true; name = "" } label: { Image(systemName: "plus").font(.system(size: 12)) }
-                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("New Project")
-            }
-            List {
-                ForEach(store.projects.filter { $0.hidden != true }) { project in
-                    let unread = store.inbox.contains { $0.project == project.id && !$0.read }
-                    let open = nav.deliver.project == project.id
-                    row(project.name, symbol: "folder", on: open && !nav.deliver.isLinks, dot: unread) {
-                        nav.deliver = .project(project.id, folder: nil)
-                    }
-                    .contextMenu {
-                        Button("Rename…") { renaming = project.id; name = project.name }
-                        Button("Share Project…") { sharing = .project(project.id) }
-                        Button("Branding…") { branding = project.id }
-                        Button("Feedback Deadline…") { deadline = project.id }
-                        Button("Watch Render Folder…") { watch(project.id) }
-                        Divider()
-                        Button("Delete Project…", role: .destructive) { deleting = project.id }
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    // The open project's links, under it (a link shows in the project it was made from).
-                    if open {
-                        ForEach(Self.links(of: project.id, store: store, selection: nav.deliver)) { link in
-                            row(Self.shortTitle(link.title, project: project.name), symbol: "link", on: nav.deliver == .links(project.id, link: link.id), count: server.viewers(link: link.id), eye: true) {
-                                nav.deliver = .links(project.id, link: link.id)
-                            }
-                            .padding(.leading, 16)
-                            .moveDisabled(true)
-                            .listRowInsets(EdgeInsets())
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                        }
-                    }
-                }
-                .onMove { store.moveProjects(from: $0, to: $1) }
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .frame(maxHeight: .infinity)
-            row(String(localized: "Inbox"), symbol: "tray", on: nav.deliver == .inbox, count: store.unread) { nav.deliver = .inbox }
-            // People (accounts plan §5): the main server's team, once there is a main.
-            if DeliverPeople.main() != nil {
-                row(DeliverPeople.title, symbol: "person.2", on: nav.deliver == .people, dot: DeliverPeople.shared.pending > 0) { nav.deliver = .people }
-            }
-            if !hasServer {
-                row(String(localized: "Set Up Server…"), symbol: "externaldrive.badge.plus", on: false) { settingUp = true }
-            }
-            Divider().overlay(Design.Studio.line).padding(.vertical, 8)
-            row(String(localized: PluckTool.deliveryCheck.name), symbol: PluckTool.deliveryCheck.symbol, on: nav.deliver == .deliveryCheck) {
-                nav.deliver = .deliveryCheck
-            }
-            // Archive Project shows once that tool exists (hidden, not greyed, until then).
-            if let archive = deliverArchiveTool() {
-                row(String(localized: archive.name), symbol: archive.symbol, on: nav.deliver == .archiveProject) { nav.open(archive) }
-            }
+            switcher
+            if let project = openProject { tree(project) } else { projectList }
+            places
+            if let project = openProject { shareLinks(project) }
             if let footer = sync.footer {
                 Text(verbatim: footer).font(Design.Studio.hint).foregroundStyle(sync.problem == nil ? Design.Studio.textQuiet : Design.Studio.warn)
                     .lineLimit(1).truncationMode(.tail).padding(.horizontal, 8).padding(.top, 6)
@@ -370,47 +395,253 @@ struct DeliverSidebar: View {
             DeliverPairingSheet()
         }
         .sheet(item: Binding(get: { request.scope.map(DeliverShareTarget.init) }, set: { request.scope = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
-        .sheet(item: Binding(get: { deadline.map(DeliverProjectID.init) }, set: { deadline = $0?.id })) { item in
+        .sheet(item: Binding(get: { actions.deadline.map(DeliverProjectID.init) }, set: { actions.deadline = $0?.id })) { item in
             DeliverDeadlineSheet(title: "Feedback Deadline", initial: store.project(item.id)?.deadline) { store.setDeadline($0, project: item.id) }
         }
-        .alert("New Project", isPresented: $naming) {
-            TextField("Name", text: $name)
-            Button("Create") { if let made = try? store.newProject(name) { nav.deliver = .project(made.id, folder: nil) } }
+        .alert("New Project", isPresented: $actions.naming) {
+            TextField("Name", text: $actions.name)
+            Button("Create") { if let made = try? store.newProject(actions.name) { nav.deliver = .project(made.id, folder: nil) } }
             Button("Cancel", role: .cancel) {}
         }
-        .alert("Rename Project", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
-            TextField("Name", text: $name)
-            Button("Rename") { if let renaming { store.rename(project: renaming, to: name) } }
+        .alert("Rename Project", isPresented: Binding(get: { actions.renaming != nil }, set: { if !$0 { actions.renaming = nil } })) {
+            TextField("Name", text: $actions.name)
+            Button("Rename") { if let renaming = actions.renaming { store.rename(project: renaming, to: actions.name) } }
             Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Delete this project?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+        .confirmationDialog("Delete this project?", isPresented: Binding(get: { actions.deleting != nil }, set: { if !$0 { actions.deleting = nil } })) {
             Button("Delete Project", role: .destructive) {
-                if let deleting { store.deleteProject(deleting); if nav.deliver.project == deleting { nav.deliver = .projects } }
+                if let deleting = actions.deleting { store.deleteProject(deleting); if nav.deliver.project == deleting { nav.deliver = .projects } }
             }
         } message: {
             Text("Its review copies, comments and links go. The original files stay where they are.")
         }
-        .sheet(item: Binding(get: { sharing.map(DeliverShareTarget.init) }, set: { sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
+        .sheet(item: Binding(get: { actions.sharing.map(DeliverShareTarget.init) }, set: { actions.sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
         .sheet(isPresented: $settingUp) { DeliverServerChooser() }
         .sheet(item: $inviting) { DeliverInviteSheet(host: $0) }
-        .sheet(item: Binding(get: { branding.map(DeliverProjectID.init) }, set: { branding = $0?.id })) { DeliverProjectBrandingSheet(project: $0.id) }
+        .sheet(item: Binding(get: { actions.branding.map(DeliverProjectID.init) }, set: { actions.branding = $0?.id })) { DeliverProjectBrandingSheet(project: $0.id) }
     }
 
     private var hasServer: Bool { ReviewPublish.shared.hosts.contains { $0.kind == .nas } }
 
-    private func header<Trailing: View>(_ title: LocalizedStringKey, @ViewBuilder trailing: () -> Trailing) -> some View {
-        HStack {
-            Text(title).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            Spacer()
-            trailing()
+    // MARK: Project switcher
+
+    /// The open project (or all of them) with a menu to go to another, as the top of the column.
+    private var switcher: some View {
+        let shown = store.projects.filter { $0.hidden != true }
+        let current = openProject
+        return Menu {
+            Button("All Projects") { nav.deliver = .projects }
+            Divider()
+            ForEach(shown) { project in
+                Button { nav.deliver = .project(project.id, folder: nil) } label: { Text(verbatim: project.name) }
+            }
+            Divider()
+            Button("New Project…") { actions.newProject() }
+        } label: {
+            HStack(spacing: 10) {
+                Group {
+                    if let current { DeliverProjectCover(project: current) } else { StudioMark() }
+                }
+                .frame(width: 32, height: 32)
+                .clipShape(.rect(cornerRadius: 7, style: .continuous))
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: current?.name ?? String(localized: "All Projects")).font(Design.Studio.body.weight(.medium)).foregroundStyle(Design.Studio.text).lineLimit(1)
+                    Group {
+                        if let current { Text("\(store.content(current.id).assets.count) assets") } else { Text("\(shown.count) projects") }
+                    }
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "chevron.up.chevron.down").font(.system(size: 10, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .padding(6)
+            .contentShape(.rect)
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .padding(.bottom, 8)
+    }
+
+    // MARK: Projects (no project open)
+
+    private var projectList: some View {
+        List {
+            ForEach(store.projects.filter { $0.hidden != true }) { project in
+                let unread = store.inbox.contains { $0.project == project.id && !$0.read }
+                row(project.name, symbol: "folder", on: false, dot: unread) { nav.deliver = .project(project.id, folder: nil) }
+                    .contextMenu { DeliverProjectMenu(project: project) }
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+            }
+            .onMove { store.moveProjects(from: $0, to: $1) }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .frame(maxHeight: .infinity)
+    }
+
+    // MARK: Folder tree (a project open)
+
+    private func tree(_ project: Deliver.Project) -> some View {
+        let folders = store.content(project.id).folders
+        let current: UUID? = if case .project(_, let folder) = nav.deliver { folder } else { nil }
+        // The folder shown is always unfolded down to.
+        let path = Set(store.folderPath(current, in: project.id).map(\.id))
+        let rootOpen = !toggled.contains(project.id)
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 1) {
+                treeRow(id: project.id, title: String(localized: "Assets"), symbol: "photo.on.rectangle", depth: 0, children: folders.contains { $0.parent == nil },
+                        open: rootOpen, on: nav.deliver == .project(project.id, folder: nil)) { nav.deliver = .project(project.id, folder: nil) }
+                if rootOpen {
+                    ForEach(visible(folders, parent: nil, depth: 1, path: path), id: \.folder.id) { item in
+                        let folder = item.folder
+                        treeRow(id: folder.id, title: folder.name, symbol: "folder", depth: item.depth, children: folders.contains { $0.parent == folder.id },
+                                open: open(folder.id, path: path), on: current == folder.id) { nav.deliver = .project(project.id, folder: folder.id) }
+                            .dropDestination(for: String.self) { ids, _ in
+                                for id in ids.compactMap(UUID.init(uuidString:)) where store.find(id)?.project == project.id { store.move(asset: id, to: folder.id) }
+                                return true
+                            }
+                            .contextMenu { Button("Share Folder…") { actions.sharing = .folder(folder.id, project: project.id) } }
+                    }
+                }
+            }
+        }
+        .frame(maxHeight: .infinity)
+    }
+
+    private func open(_ folder: UUID, path: Set<UUID>) -> Bool { toggled.contains(folder) != path.contains(folder) }
+
+    /// The folders under `parent`, by name, each followed by its own when unfolded.
+    private func visible(_ folders: [Deliver.Folder], parent: UUID?, depth: Int, path: Set<UUID>) -> [(folder: Deliver.Folder, depth: Int)] {
+        folders.filter { $0.parent == parent }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .flatMap { folder in [(folder, depth)] + (open(folder.id, path: path) ? visible(folders, parent: folder.id, depth: depth + 1, path: path) : []) }
+    }
+
+    /// A tree row: its fold chevron, symbol and name; a "⋯" while hovered.
+    private func treeRow(id: UUID, title: String, symbol: String, depth: Int, children: Bool, open: Bool, on: Bool, action: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Button { if toggled.contains(id) { toggled.remove(id) } else { toggled.insert(id) } } label: {
+                Image(systemName: open ? "chevron.down" : "chevron.right").font(.system(size: 9, weight: .semibold))
+                    .frame(width: 12, height: 20).contentShape(.rect)
+            }
+            .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet)
+            .opacity(children ? 1 : 0).disabled(!children)
+            Image(systemName: symbol).font(.system(size: 12)).frame(width: 16).foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet)
+            Text(verbatim: title).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+            Spacer(minLength: 4)
+            if depth > 0, hovered == id || on, let project = openProject {
+                DeliverMoreMenu { Button("Share Folder…") { actions.sharing = .folder(id, project: project.id) } }
+            }
+        }
+        .padding(.leading, CGFloat(depth) * 14 + 2)
+        .padding(.trailing, 4)
+        .frame(height: 28)
+        .background(on ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+        .contentShape(.rect)
+        .onTapGesture(perform: action)
+        .onHover { inside in if inside { hovered = id } else if hovered == id { hovered = nil } }
+    }
+
+    // MARK: Places (browse, inbox, people, tools)
+
+    @ViewBuilder private var places: some View {
+        // Browse (§13.16): one row; the places (this Mac, the review servers, the host Mac) are in the browser's own sidebar.
+        HStack(spacing: 0) {
+            row(String(localized: "Browse"), symbol: "externaldrive.connected.to.line.below", on: browsing) { if !browsing { nav.deliver = .browse(.local) } }
+            if let main = ReviewPublish.shared.hosts.first(where: { $0.kind == .nas && $0.role != "backup" }) {
+                Button { inviting = main } label: { Image(systemName: "person.badge.plus").font(.system(size: 12)) }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Invite a Teammate…").padding(.leading, 6)
+            }
+            if hasServer {
+                Button { settingUp = true } label: { Image(systemName: "plus").font(.system(size: 12)) }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Set Up Server…").padding(.horizontal, 6)
+            }
+        }
+        row(String(localized: "Inbox"), symbol: "tray", on: nav.deliver == .inbox, count: store.unread) { nav.deliver = nav.deliver == .inbox ? .projects : .inbox }
+        // People (accounts plan §5): the main server's team, once there is a main.
+        if DeliverPeople.main() != nil {
+            row(DeliverPeople.title, symbol: "person.2", on: nav.deliver == .people, dot: DeliverPeople.shared.pending > 0) { nav.deliver = .people }
+        }
+        if !hasServer {
+            row(String(localized: "Set Up Server…"), symbol: "externaldrive.badge.plus", on: false) { settingUp = true }
+        }
+        row(String(localized: PluckTool.deliveryCheck.name), symbol: PluckTool.deliveryCheck.symbol, on: nav.deliver == .deliveryCheck) {
+            nav.deliver = .deliveryCheck
+        }
+        // Archive Project shows once that tool exists (hidden, not greyed, until then).
+        if let archive = deliverArchiveTool() {
+            row(String(localized: archive.name), symbol: archive.symbol, on: nav.deliver == .archiveProject) { nav.open(archive) }
+        }
+    }
+
+    // MARK: Share links (a project open)
+
+    private func shareLinks(_ project: Deliver.Project) -> some View {
+        let links = Self.links(of: project.id, store: store, selection: nav.deliver)
+        let all = store.links.filter { $0.project == project.id }.count
+        return VStack(alignment: .leading, spacing: 2) {
+            Rectangle().fill(Design.Studio.line).frame(height: 1).padding(.vertical, 8)
+            HStack {
+                Text("Share Links").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Spacer()
+                Button { actions.sharing = .project(project.id) } label: { Image(systemName: "plus").font(.system(size: 12)) }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Share Project…")
+            }
+            .padding(.horizontal, 8).padding(.bottom, 4)
+            ScrollView {
+                VStack(spacing: 2) {
+                    linkRow(Text("All Share Links (\(all))"), thumb: AnyView(linkTile("list.bullet")), on: nav.deliver == .links(project.id, link: nil)) {
+                        nav.deliver = .links(project.id, link: nil)
+                    }
+                    ForEach(links) { link in
+                        linkRow(Text(verbatim: Self.shortTitle(link.title, project: project.name)), thumb: thumb(link.scope), on: nav.deliver == .links(project.id, link: link.id),
+                                count: server.viewers(link: link.id)) {
+                            nav.deliver = .links(project.id, link: link.id)
+                        }
+                    }
+                }
+            }
+            .frame(maxHeight: 280)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// What a link shares, small: the asset's poster, or a folder.
+    private func thumb(_ scope: Deliver.Scope) -> AnyView {
+        switch scope {
+        case .asset(let id, _): AnyView(DeliverPoster(asset: store.find(id)?.asset))
+        case .assets(let ids, _): AnyView(DeliverPoster(asset: ids.first.flatMap { store.find($0)?.asset }))
+        case .project, .folder: AnyView(linkTile("folder.fill"))
+        }
+    }
+
+    private func linkTile(_ symbol: String) -> some View {
+        Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(Design.Studio.raised)
+    }
+
+    private func linkRow(_ title: Text, thumb: AnyView, on: Bool, count: Int = 0, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                thumb.frame(width: 48, height: 28).clipShape(.rect(cornerRadius: 4, style: .continuous))
+                title.font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                Spacer(minLength: 4)
+                if count > 0 {
+                    HStack(spacing: 3) { Image(systemName: "eye").font(.system(size: 9)); Text(verbatim: "\(count)") }
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
+            .padding(.horizontal, 6)
+            .frame(height: 38)
+            .background(on ? Design.Studio.raised : .clear, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 
     /// A folder whose new renders are offered as new versions (§13.4).
-    private func watch(_ project: UUID) {
+    static func watch(_ project: UUID) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -471,38 +702,55 @@ struct DeliverShareTarget: Identifiable {
     var id: String { "\(scope)" }
 }
 
-// MARK: - Projects grid
+// MARK: - Projects
 
+/// All projects: the title row (People, New Project, more), the recent ones as a row of wide cards, then every project as
+/// a big card (its cover or a soft wash, the name on it) or a list row.
 struct DeliverProjects: View {
     @Bindable var nav: StudioNavigator
     @State private var store = DeliverStore.shared
+    @State private var actions = DeliverProjectActions.shared
     @State private var settingUp = false
-    @State private var naming = false
-    @State private var name = ""
+    @AppStorage("deliverProjectsList") private var list = false
+    /// "custom" (the sidebar's order), "name" or "recent".
+    @AppStorage("deliverProjectsSort") private var sort = "custom"
+
+    private var shown: [Deliver.Project] { store.projects.filter { $0.hidden != true } }
+
+    private var projects: [Deliver.Project] {
+        switch sort {
+        case "name": shown.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case "recent": shown.sorted { updated($0) > updated($1) }
+        default: shown
+        }
+    }
+
+    /// Its last change: made, renamed, an asset added, a comment.
+    private func updated(_ project: Deliver.Project) -> Date {
+        ([project.created, project.at, store.lastComment[project.id]].compactMap { $0 } + store.content(project.id).assets.map(\.created)).max() ?? project.created
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                Text("Projects").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 12)], spacing: 12) {
-                    ForEach(store.projects.filter { $0.hidden != true }) { project in
-                        Button { nav.deliver = .project(project.id, folder: nil) } label: { card(project) }.buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 0) {
+                header.padding(.bottom, 22)
+                if shown.count > 1 {
+                    Text("Recent").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).padding(.bottom, 10)
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                        ForEach(shown.sorted { updated($0) > updated($1) }.prefix(4)) { pill($0) }
                     }
-                    Button { naming = true; name = "" } label: {
-                        // (Laid out as a project card, so it lines up with them.)
-                        VStack(alignment: .leading, spacing: 8) {
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .strokeBorder(Design.Studio.line, style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                .aspectRatio(16 / 9, contentMode: .fit)
-                                .overlay { Image(systemName: "plus").font(.system(size: 18)) }
-                            Text("New Project").font(Design.Studio.body)
-                            Text(verbatim: " ").font(Design.Studio.hint)
-                        }
-                        .foregroundStyle(Design.Studio.textQuiet)
-                        .padding(10)
-                        .contentShape(.rect)
+                    Rectangle().fill(Design.Studio.line).frame(height: 1).padding(.vertical, 20)
+                }
+                filterBar.padding(.bottom, 16)
+                if shown.isEmpty {
+                    StudioEmptyState(symbol: "folder.badge.plus", title: "No projects yet", prominent: true, button: "New Project") { actions.newProject() }
+                        .frame(minHeight: 280)
+                } else if list {
+                    VStack(spacing: 4) { ForEach(projects) { listRow($0) } }
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 190, maximum: 250), spacing: 14)], alignment: .leading, spacing: 14) {
+                        ForEach(projects) { card($0) }
                     }
-                    .buttonStyle(.plain)
                 }
                 if !ReviewPublish.shared.hosts.contains(where: { $0.kind == .nas }) {
                     HStack(spacing: 12) {
@@ -512,39 +760,147 @@ struct DeliverProjects: View {
                             Text("Links stay up when this Mac sleeps.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                         }
                         Spacer()
-                        Button("Set Up Server…") { settingUp = true }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+                        Button("Set Up Server…") { settingUp = true }.buttonStyle(StudioFlatButtonStyle())
                     }
                     .padding(14)
-                    .studioBox()
+                    .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+                    .padding(.top, 24)
                 }
             }
             .padding(24)
         }
         .sheet(isPresented: $settingUp) { DeliverServerChooser() }
-        .alert("New Project", isPresented: $naming) {
-            TextField("Name", text: $name)
-            Button("Create") { if let made = try? store.newProject(name) { nav.deliver = .project(made.id, folder: nil) } }
-            Button("Cancel", role: .cancel) {}
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("Projects").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
+            Spacer()
+            if DeliverPeople.main() != nil {
+                Button { nav.deliver = .people } label: { Image(systemName: "person.2.fill").font(.system(size: 11)) }
+                    .buttonStyle(StudioFlatButtonStyle()).help(Text(verbatim: DeliverPeople.title))
+            }
+            Button { actions.newProject() } label: { Label("New Project", systemImage: "plus") }
+                .buttonStyle(StudioFlatButtonStyle(prominent: true))
+            DeliverMoreMenu {
+                Button("Browse") { nav.deliver = .browse(.local) }
+                Button("Set Up Server…") { settingUp = true }
+                Button(String(localized: PluckTool.deliveryCheck.name)) { nav.deliver = .deliveryCheck }
+            }
         }
     }
 
+    private var filterBar: some View {
+        HStack(spacing: 16) {
+            StudioSegmented(options: [(false, "Grid"), (true, "List")], selection: $list, symbols: ["square.grid.2x2", "list.bullet"])
+            Menu {
+                Picker(selection: $sort) {
+                    Text("Custom").tag("custom")
+                    Text("Name").tag("name")
+                    Text("Recent").tag("recent")
+                } label: { EmptyView() }.pickerStyle(.inline)
+            } label: {
+                DeliverToolLabel(symbol: "line.3.horizontal.decrease", title: "Sorted by",
+                                 value: sort == "name" ? String(localized: "Name") : sort == "recent" ? String(localized: "Recent") : String(localized: "Custom"))
+            }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            Spacer()
+        }
+    }
+
+    private func pill(_ project: Deliver.Project) -> some View {
+        Button { nav.deliver = .project(project.id, folder: nil) } label: {
+            HStack(spacing: 12) {
+                DeliverProjectCover(project: project).frame(width: 44, height: 44).clipShape(.rect(cornerRadius: 6, style: .continuous))
+                Text(verbatim: project.name).font(Design.Studio.body.weight(.medium)).foregroundStyle(Design.Studio.text).lineLimit(1)
+                Spacer(minLength: 34)
+            }
+            .padding(8)
+            .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) { DeliverMoreMenu { DeliverProjectMenu(project: project) }.padding(.trailing, 10) }
+        .contextMenu { DeliverProjectMenu(project: project) }
+    }
+
     private func card(_ project: Deliver.Project) -> some View {
-        let assets = store.content(project.id).assets
-        let cover = assets.first { $0.id == project.cover } ?? assets.first
-        return VStack(alignment: .leading, spacing: 8) {
-            DeliverPoster(asset: cover)
-                .aspectRatio(16 / 9, contentMode: .fit)
-                .clipShape(.rect(cornerRadius: 8, style: .continuous))
-            Text(verbatim: project.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
-            HStack {
-                Text("\(assets.count) assets")
+        let unread = store.inbox.contains { $0.project == project.id && !$0.read }
+        return VStack(alignment: .leading, spacing: 0) {
+            Button { nav.deliver = .project(project.id, folder: nil) } label: {
+                DeliverProjectCover(project: project)
+                    .aspectRatio(1, contentMode: .fit)
+                    .overlay(alignment: .bottomLeading) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(verbatim: project.name).font(Design.Studio.sectionTitle).foregroundStyle(.white).lineLimit(1)
+                            Text("\(store.content(project.id).assets.count) assets").font(Design.Studio.hint).foregroundStyle(.white.opacity(0.7))
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(LinearGradient(colors: [.clear, .black.opacity(0.5)], startPoint: .top, endPoint: .bottom))
+                    }
+                    .clipShape(.rect(cornerRadius: 7, style: .continuous))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .overlay(alignment: .topTrailing) {
+                // The project's comments and approvals, in the inbox.
+                Button { nav.deliver = .inbox } label: {
+                    Image(systemName: unread ? "bell.badge.fill" : "bell").font(.system(size: 10))
+                        .foregroundStyle(unread ? Design.Brand.pink : .white)
+                        .frame(width: 22, height: 22).background(.black.opacity(0.35), in: .rect(cornerRadius: 6, style: .continuous))
+                }
+                .buttonStyle(.plain).padding(8).help("Inbox")
+            }
+            HStack(spacing: 4) {
+                Text("Updated \(updated(project), format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                Spacer(minLength: 4)
+                DeliverMoreMenu { DeliverProjectMenu(project: project) }
+            }
+            .padding(.leading, 8).padding(.trailing, 2)
+            .frame(height: 30)
+        }
+        .padding(4)
+        .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+        .contextMenu { DeliverProjectMenu(project: project) }
+    }
+
+    private func listRow(_ project: Deliver.Project) -> some View {
+        Button { nav.deliver = .project(project.id, folder: nil) } label: {
+            HStack(spacing: 12) {
+                DeliverProjectCover(project: project).frame(width: 56, height: 32).clipShape(.rect(cornerRadius: 4, style: .continuous))
+                Text(verbatim: project.name).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
                 Spacer()
-                if let last = store.lastComment[project.id] { Text(last, format: .relative(presentation: .named)) }
+                Text("\(store.content(project.id).assets.count) assets").frame(width: 80, alignment: .leading)
+                Text("Updated \(updated(project), format: .relative(presentation: .named))").frame(width: 150, alignment: .leading)
+                Spacer().frame(width: 24)
             }
             .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            .padding(.horizontal, 8)
+            .frame(height: 44)
+            .background(Design.Studio.raised, in: .rect(cornerRadius: 8, style: .continuous))
+            .contentShape(.rect)
         }
-        .padding(10)
-        .studioBox()
+        .buttonStyle(.plain)
+        .overlay(alignment: .trailing) { DeliverMoreMenu { DeliverProjectMenu(project: project) }.padding(.trailing, 8) }
+        .contextMenu { DeliverProjectMenu(project: project) }
+    }
+}
+
+/// A header tool as on the boards: its symbol, its name, then the value in grey ("Sorted by  Name").
+struct DeliverToolLabel: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    var value: String?
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
+            Text(title).foregroundStyle(Design.Studio.text)
+            if let value { Text(verbatim: value).foregroundStyle(Design.Studio.textQuiet) }
+        }
+        .font(Design.Studio.body)
+        .frame(height: 28)
         .contentShape(.rect)
     }
 }
@@ -553,17 +909,22 @@ struct DeliverProjects: View {
 struct DeliverPoster: View {
     let asset: Deliver.Asset?
     var body: some View {
-        let folder = asset.map { DeliverStore.shared.copies($0.current.id) }
-        let file = asset?.kind == .image ? folder?.appendingPathComponent("image.jpg") : folder?.appendingPathComponent("poster.jpg")
         ZStack {
             Design.Studio.raised
-            if let file, let image = NSImage(contentsOf: file) {
+            if let file = Self.file(asset), let image = NSImage(contentsOf: file) {
                 Image(nsImage: image).resizable().scaledToFill()
             } else {
                 Image(systemName: asset.map { DeliverPoster.symbol($0.kind) } ?? "film").font(.system(size: 22)).foregroundStyle(Design.Studio.textFaint)
             }
         }
         .clipped()
+    }
+
+    /// The poster's file (the picture itself for an image), if there's an asset.
+    @MainActor static func file(_ asset: Deliver.Asset?) -> URL? {
+        guard let asset else { return nil }
+        let folder = DeliverStore.shared.copies(asset.current.id)
+        return folder.appendingPathComponent(asset.kind == .image ? "image.jpg" : "poster.jpg")
     }
 
     static func symbol(_ kind: Deliver.Kind) -> String {
@@ -635,7 +996,7 @@ struct DeliverActivityFeed: View {
             }
         }
         .padding(.vertical, 6)
-        .studioBox()
+        .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
     }
 
     static func symbol(_ kind: String) -> String {
@@ -748,7 +1109,8 @@ struct DeliverLinkRow: View {
             }
         }
         .padding(12)
-        .studioBox(outline: expanded ? Design.Studio.line : nil)
+        .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+        .overlay { if expanded { RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Design.Studio.textFaint, lineWidth: 1) } }
         .contentShape(.rect)
         .sheet(isPresented: $reopening) {
             DeliverDeadlineSheet(title: "Reopen", initial: link.deadline) { DeliverDeadlines.shared.reopen(link.id, deadline: $0) }
@@ -812,45 +1174,98 @@ struct DeliverLinkRow: View {
     }
 }
 
+/// The inbox, as a panel over the projects: All or Unread, Mark All as Read, then by day who commented, replied or
+/// approved what, with the asset's poster. (Uploads that came in during an outage first.)
 struct DeliverInbox: View {
     @Bindable var nav: StudioNavigator
     @State private var store = DeliverStore.shared
+    @State private var unreadOnly = false
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Inbox").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text).padding(.bottom, 12)
-                DeliverOutageInbox(nav: nav)
-                if store.inbox.isEmpty { Text("Nothing new").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet) }
-                ForEach(store.inbox) { item in
-                    Button {
-                        store.markRead(item.id)
-                        nav.showReview(asset: item.asset, version: item.version, comment: item.kind == "approval" ? nil : item.id)
-                    } label: {
-                        HStack(spacing: 10) {
-                            Circle().fill(item.read ? Color.clear : Design.Brand.pink).frame(width: 6, height: 6)
-                            Image(systemName: item.kind == "approval" ? "checkmark.seal" : item.kind == "reply" ? "arrowshape.turn.up.left" : "text.bubble")
-                                .font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet).frame(width: 16)
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack(spacing: 6) {
-                                    Text(verbatim: item.author).foregroundStyle(Design.Studio.text)
-                                    Text(verbatim: store.find(item.asset)?.asset.name ?? "").foregroundStyle(Design.Studio.textQuiet)
-                                }
-                                .font(Design.Studio.body)
-                                Text(verbatim: item.kind == "approval" ? (item.summary == "approved" ? String(localized: "Approved") : String(localized: "Needs changes")) : item.summary)
-                                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
-                            }
-                            Spacer()
-                            Text(item.created, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
-                        }
-                        .padding(10)
-                        .studioBox()
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.plain)
-                }
+        let items = store.inbox.filter { !unreadOnly || !$0.read }.sorted { $0.created > $1.created }
+        let days = Dictionary(grouping: items) { Calendar.current.startOfDay(for: $0.created) }.sorted { $0.key > $1.key }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Inbox").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Spacer()
+                Button { nav.deliver = .projects } label: { Image(systemName: "xmark").font(.system(size: 11, weight: .semibold)).frame(width: 22, height: 22).contentShape(.rect) }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Close").keyboardShortcut(.cancelAction)
             }
-            .padding(24)
+            .padding(.horizontal, 16).frame(height: 48)
+            HStack(spacing: 16) {
+                tab("All", on: !unreadOnly) { unreadOnly = false }
+                tab("Unread", on: unreadOnly) { unreadOnly = true }
+                Spacer()
+                Button("Mark All as Read") { for item in store.inbox where !item.read { store.markRead(item.id) } }
+                    .buttonStyle(.plain).font(Design.Studio.body).foregroundStyle(store.unread > 0 ? Design.Studio.text : Design.Studio.textFaint)
+                    .disabled(store.unread == 0)
+            }
+            .padding(.horizontal, 16).frame(height: 32)
+            Rectangle().fill(Design.Studio.line).frame(height: 1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    DeliverOutageInbox(nav: nav).padding(.horizontal, 16).padding(.top, 12)
+                    if items.isEmpty { Text("Nothing new").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).padding(16) }
+                    ForEach(days, id: \.key) { day in
+                        Text(verbatim: Self.day(day.key)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                            .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 2)
+                        ForEach(day.value) { row($0) }
+                    }
+                }
+                .padding(.bottom, 12)
+            }
         }
+        .frame(width: 400)
+        .frame(maxHeight: .infinity)
+        .background(Design.Studio.raised)
+        .overlay(alignment: .trailing) { Rectangle().fill(Design.Studio.line).frame(width: 1) }
+        .shadow(color: .black.opacity(0.45), radius: 20, x: 8)
+    }
+
+    static func day(_ date: Date) -> String {
+        if Calendar.current.isDateInToday(date) { return String(localized: "Today") }
+        if Calendar.current.isDateInYesterday(date) { return String(localized: "Yesterday") }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    /// "Client commented on Hero_30s", "Producer approved Hero_30s"…
+    @MainActor static func headline(_ item: Deliver.InboxItem, file: String) -> String {
+        switch item.kind {
+        case "approval": item.summary == "approved" ? String(localized: "\(item.author) approved \(file)") : String(localized: "\(item.author) asked for changes on \(file)")
+        case "reply": String(localized: "\(item.author) replied on \(file)")
+        default: String(localized: "\(item.author) commented on \(file)")
+        }
+    }
+
+    private func tab(_ title: LocalizedStringKey, on: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Text(title).font(Design.Studio.body).foregroundStyle(on ? Design.Studio.text : Design.Studio.textQuiet) }.buttonStyle(.plain)
+    }
+
+    private func row(_ item: Deliver.InboxItem) -> some View {
+        let asset = store.find(item.asset)?.asset
+        return Button {
+            store.markRead(item.id)
+            nav.showReview(asset: item.asset, version: item.version, comment: item.kind == "approval" ? nil : item.id)
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                Text(verbatim: String(item.author.prefix(1)).uppercased()).font(.system(size: 10, weight: .semibold)).foregroundStyle(.white)
+                    .frame(width: 24, height: 24).background(Design.Brand.deep, in: .circle)
+                    .overlay(alignment: .topLeading) { if !item.read { Circle().fill(Design.Brand.pink).frame(width: 7, height: 7).offset(x: -3, y: -3) } }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(verbatim: Self.headline(item, file: asset?.name ?? "")).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if item.kind != "approval", !item.summary.isEmpty {
+                        Text(verbatim: item.summary).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
+                    }
+                    Text(verbatim: "\(store.project(item.project)?.name ?? "") • \(item.created.formatted(date: .omitted, time: .shortened))")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+                }
+                Spacer(minLength: 8)
+                DeliverPoster(asset: asset).frame(width: 60, height: 34).clipShape(.rect(cornerRadius: 4, style: .continuous))
+            }
+            .padding(.horizontal, 16).padding(.vertical, 9)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
     }
 }

@@ -422,9 +422,12 @@ struct DeliverInviteSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Invite a Teammate").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
-                Text(verbatim: host.name).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            HStack(spacing: 10) {
+                StudioTile(symbol: "externaldrive.fill", colour: Design.Studio.textQuiet, size: 28)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Invite a Teammate").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                    Text(verbatim: host.name).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
             }
             Label("Send it to one teammate. It works once; their Pluck joins this server with its own key.", systemImage: "lock.shield")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
@@ -458,18 +461,28 @@ struct DeliverInviteSheet: View {
             } else if working {
                 PlumSpinner()
             }
-            Text("Teammates").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.top, 4)
-            VStack(spacing: 0) {
-                ForEach(Array(teammates.enumerated()), id: \.offset) { _, device in row(device) }
-                if teammates.isEmpty { Text("No teammates yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
-            }
-            .studioBox()
             if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).fixedSize(horizontal: false, vertical: true) }
             HStack {
                 Button("Make Another") { Task { await make() } }.buttonStyle(StudioFlatButtonStyle()).disabled(working)
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle(prominent: true)).keyboardShortcut(.defaultAction)
             }
+            // Who is in already, in its own box under the sheet (as the boards' member footer).
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("Teammates").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                    Text(verbatim: "\(teammates.count)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    Spacer()
+                    if DeliverPeople.main() != nil {
+                        Button(DeliverPeople.title) { StudioNavigator.shared.deliver = .people; dismiss() }.buttonStyle(.plain).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                    }
+                }
+                .padding(.horizontal, 12).frame(height: 40)
+                ForEach(Array(teammates.enumerated()), id: \.offset) { _, device in row(device) }
+                if teammates.isEmpty { Text("No teammates yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 12).padding(.bottom, 10) }
+            }
+            .background(Design.Studio.raised, in: .rect(cornerRadius: 10, style: .continuous))
+            .padding(.top, 8)
         }
         .padding(Design.Spacing.sheet)
         .frame(width: 520)
