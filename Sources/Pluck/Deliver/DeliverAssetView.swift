@@ -1,4 +1,5 @@
 import AVKit
+import Network
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -295,8 +296,8 @@ private extension Int { var asDouble: Double { Double(self) } }
 
 /// An AVPlayer on the original (it's on this Mac), or on the review copy stitched from init + segments when
 /// AVFoundation can't open the original (raw, some MXF), or that copy streamed from a NAS server (a teammate's Mac):
-/// ranges over one kept session, the rendition chosen and changed as the web player does (player.ts). The frame shown,
-/// by the probe's frame rate.
+/// segment by segment over one kept session, as HLS on this Mac's loopback, the rendition chosen and changed as the web
+/// player does (player.ts). The frame shown, by the probe's frame rate.
 @MainActor
 @Observable
 final class DeliverPlayback {
@@ -308,13 +309,15 @@ final class DeliverPlayback {
     private(set) var fpsDen = 1
     /// Why nothing plays (no copy anywhere, the server away): said over the picture instead of an endless wait.
     private(set) var problem: String?
-    /// Streaming from a server: the rendition playing ("1080", "540", …).
+    /// Streaming from a server: the rendition chosen ("1080", "540", …), and the one whose segments came last.
     private(set) var rendition: String?
+    private(set) var arriving: String?
     /// Compare: the second player follows this one's playhead.
     @ObservationIgnored weak var follower: DeliverPlayback?
     @ObservationIgnored private var stream: RemoteStream?
     @ObservationIgnored private var observer: Any?
     @ObservationIgnored private(set) var copy: HostCopy?
+    @ObservationIgnored private var server: HostCopyServer?
     /// Each rendition taken, in order (tests).
     @ObservationIgnored private(set) var steps: [String] = []
     @ObservationIgnored private var got: [(Double, Double, Double)] = []   // [start, end, media seconds] per fetch (player.ts `got`)
@@ -362,15 +365,15 @@ final class DeliverPlayback {
                 case .copy(let found):
                     guard loading == token else { return found.ranges.close() }
                     copy = found
-                    found.ranges.measured = { [weak self] bytes, start, end, generation in
-                        Task { @MainActor in self?.measured(bytes, start, end, generation) }
+                    found.ranges.measured = { [weak self] path, bytes, start, end in
+                        Task { @MainActor in self?.measured(path, bytes, start, end) }
                     }
                     found.ranges.failed = { [weak self] in
                         Task { @MainActor in self?.problem = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.") }
                     }
                     self.rendition = found.start
                     steps = [found.start]
-                    item = streamItem(found.start)
+                    item = await streamItem(found)
                     ticker = Task { [weak self] in
                         while !Task.isCancelled { try? await Task.sleep(for: .milliseconds(250)); self?.tick() }
                     }
@@ -391,7 +394,10 @@ final class DeliverPlayback {
         ticker = nil
         copy?.ranges.close()
         copy = nil
+        server?.stop()
+        server = nil
         stream = nil
+        arriving = nil
         problem = nil
         rendition = nil
         steps = []
@@ -414,36 +420,66 @@ final class DeliverPlayback {
         })
     }
 
-    /// One rendition of the streamed copy, its pieces asked of the server as AVFoundation reads them.
-    private func streamItem(_ rendition: String) -> AVPlayerItem? {
-        guard let copy, let index = copy.indexes[rendition] else { return nil }
-        let ranges = copy.ranges, base = copy.base + rendition + "/"
-        let generation = ranges.next()
-        let remote = Self.stitched(index) { file, offset, length in try await ranges.read(base + file, offset, length, generation: generation) }
-        stream = remote
-        return AVPlayerItem(asset: remote.asset())
+    /// The streamed copy as HLS (a fragmented MP4 through a resource loader made AVFoundation hop through every
+    /// fragment, the whole file, before it played): AVPlayer asks for one segment at a time; the rendition chosen here
+    /// caps its own choice (preferredPeakBitRate).
+    private func streamItem(_ copy: HostCopy) async -> AVPlayerItem? {
+        guard let server = await HostCopyServer.start(copy) else { return nil }
+        server.requested = { [weak self] rendition in Task { @MainActor in self?.arriving = rendition } }
+        self.server = server
+        return item(server, copy.start)
+    }
+
+    private func item(_ server: HostCopyServer, _ first: String) -> AVPlayerItem {
+        let item = AVPlayerItem(url: server.url(first: first))
+        item.preferredPeakBitRate = cap(first)
+        item.preferredForwardBufferDuration = 30 // (player.ts AHEAD: what's further on comes later, maybe sharper)
+        return item
+    }
+
+    /// AVPlayer stays below the rendition chosen though the link carries it (its own estimate lags, and it only goes up
+    /// by itself): a new item at the playhead with that rendition listed first, which AVPlayer starts on.
+    private func catchUp() {
+        guard let copy, let server, let rendition, let arriving, let have = copy.renditions.firstIndex(of: arriving),
+              let want = copy.renditions.firstIndex(of: rendition), want < have, ProcessInfo.processInfo.systemUptime - switched > 6,
+              let rate = copy.rates[rendition], rate > 0 else { return }
+        let bps = Self.linkRate(Array(sizes.suffix(3)))
+        guard bps >= 2 * rate || (sizes.count >= 3 && bps >= 1.5 * rate) else { return }
+        switched = ProcessInfo.processInfo.systemUptime
+        steps.append(rendition)
+        let at = player.currentTime(), going = player.rate != 0
+        replace(with: item(server, rendition))
+        player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .zero)
+        if going { player.play() }
+    }
+
+    /// The cap for a rendition: none for the highest, else just over its peak.
+    private func cap(_ rendition: String) -> Double {
+        guard let copy, rendition != copy.renditions.first, let index = copy.indexes[rendition] else { return 0 }
+        return Double(HostCopyServer.peak(index) + 1)
     }
 
     // MARK: - Auto quality (player.ts: startRendition, autoStep, the step down on a stall)
 
-    /// A fetch done: the link's speed, remembered for the next start; then autoStep.
-    private func measured(_ bytes: Int, _ start: Double, _ end: Double, _ generation: Int) {
-        guard let copy, let rendition, generation == copy.ranges.generation, bytes >= 128 << 10, end > start else { return }
-        let rate = copy.rates[rendition] ?? 0
+    /// A segment in: the link's speed, remembered for the next start; then autoStep.
+    private func measured(_ path: String, _ bytes: Int, _ start: Double, _ end: Double) {
+        // (The init piece and other small reads are mostly the round trip: not counted.)
+        guard let copy, let rendition, path.hasPrefix(copy.base), !path.hasSuffix(".json"), bytes >= 32 << 10, end > start else { return }
+        let rate = copy.rates[String(path.dropFirst(copy.base.count).prefix { $0 != "/" })] ?? 0
         got = Array((got + [(start, end, rate > 0 ? Double(bytes) / rate : 0)]).suffix(8))
         sizes = Array((sizes + [(start, end, Double(bytes))]).suffix(8))
         let bps = Self.linkRate(Array(sizes.suffix(3)))
         Self.saveSeen(copy.serving ?? copy.host, bps)
         speeds = Array((speeds + [Self.linkRate(Array(got.suffix(3)))]).suffix(3))
         let to = Self.autoStep(copy.renditions, rendition, speeds, bps, copy.rates, lan: copy.lan)
-        if to != rendition { take(to) }
+        if to != rendition { take(to) } else { catchUp() }
     }
 
     /// player.ts tick: a first visit started at the top; a first fetch slower than real time steps down before it's in
     /// (not on the office network). (Small fetches, as the init piece, are mostly the round trip: not counted.)
     private func tick() {
-        guard let copy, let rendition, got.isEmpty, !copy.lan, let busy = copy.ranges.busy, busy.generation == copy.ranges.generation,
-              busy.length >= 128 << 10, let rate = copy.rates[rendition], rate > 0, let i = copy.renditions.firstIndex(of: rendition),
+        guard let copy, let rendition, got.isEmpty, !copy.lan, let busy = copy.ranges.busy, busy.path.hasPrefix(copy.base + rendition + "/"),
+              busy.length >= 32 << 10, let rate = copy.rates[rendition], rate > 0, let i = copy.renditions.firstIndex(of: rendition),
               i < copy.renditions.count - 1 else { return }
         if Self.firstTooSlow(ProcessInfo.processInfo.systemUptime - busy.since, Double(busy.length) / rate) { take(copy.renditions[i + 1]) }
     }
@@ -460,17 +496,13 @@ final class DeliverPlayback {
         take(low)
     }
 
-    /// Another rendition from where the playhead is (still playing if it was).
+    /// Another rendition: AVPlayer moves to it from the next segment (no new item, no seek).
     private func take(_ to: String) {
-        guard let item = streamItem(to) else { return }
-        let at = player.currentTime(), going = player.rate != 0
         rendition = to
         steps.append(to)
         speeds = []
         switched = ProcessInfo.processInfo.systemUptime
-        replace(with: item)
-        player.seek(to: at, toleranceBefore: .zero, toleranceAfter: .zero)
-        if going { player.play() }
+        player.currentItem?.preferredPeakBitRate = cap(to)
     }
 
     /// Highest first by number; names that aren't numbers go last, in name order.
@@ -656,30 +688,26 @@ final class DeliverPlayback {
     /// too slow over a VPN). A dropped session is opened again once; then the next server. Nothing is kept on disk
     /// (each range passes through a temporary file, as `get` writes one).
     final class HostRanges: @unchecked Sendable {
-        private struct Job { var path: String; var offset: Int64; var length: Int; var generation: Int; var done: CheckedContinuation<Data, Error> }
+        private struct Job { var path: String; var offset: Int64; var length: Int; var done: CheckedContinuation<Data, Error> }
         private let feed: AsyncStream<Job>.Continuation
         private let lock = NSLock()
-        private var _generation = 0, _failure: Error?, _serving: UUID?, _via: ReviewHostTunnel.Via?, _fetched = 0
-        private var _busy: (since: Double, length: Int, generation: Int)?
+        private var _failure: Error?, _serving: UUID?, _via: ReviewHostTunnel.Via?, _fetched = 0
+        private var _busy: (since: Double, length: Int, path: String)?
         private var drop: (() -> Void)?
-        /// Each fetch: bytes, start and end (system uptime), the generation it was asked in.
-        var measured: (@Sendable (Int, Double, Double, Int) -> Void)?
+        /// Each fetch: its path, bytes, start and end (system uptime).
+        var measured: (@Sendable (String, Int, Double, Double) -> Void)?
         /// Every server failed.
         var failed: (@Sendable () -> Void)?
         /// Tests: the link's speed (bytes/s) and a round trip added to each range.
         nonisolated(unsafe) static var testRate: Double?
         nonisolated(unsafe) static var testDelay: Double = 0
 
-        var generation: Int { lock.withLock { _generation } }
         var failure: Error? { lock.withLock { _failure } }
         var serving: UUID? { lock.withLock { _serving } }
         var via: ReviewHostTunnel.Via? { lock.withLock { _via } }
-        /// The range being fetched: since when, its length, the generation it was asked in.
-        var busy: (since: Double, length: Int, generation: Int)? { lock.withLock { _busy } }
+        /// The range being fetched: since when, its length and path.
+        var busy: (since: Double, length: Int, path: String)? { lock.withLock { _busy } }
         var fetched: Int { lock.withLock { _fetched } }
-
-        /// A new reader (another rendition): ranges still queued for the old one are dropped.
-        func next() -> Int { lock.withLock { _generation += 1; return _generation } }
 
         @MainActor
         init(hosts: [Deliver.Host]) {
@@ -697,9 +725,6 @@ final class DeliverPlayback {
                             while true {
                                 if pending == nil { pending = await iterator.next() }
                                 guard let job = pending else { return }
-                                guard job.generation >= (self?.generation ?? 0) || job.generation == 0 else {
-                                    pending = nil; job.done.resume(throwing: CancellationError()); continue
-                                }
                                 do {
                                     let data = try await Self.fetch(job, session: session, owner: self)
                                     pending = nil; served = true; retried = false
@@ -735,10 +760,10 @@ final class DeliverPlayback {
         /// Tests: the connection breaks, as when a server goes away mid-play.
         func dropConnection() { lock.withLock { drop }?() }
 
-        func read(_ path: String, _ offset: Int64, _ length: Int, generation: Int = 0) async throws -> Data {
+        func read(_ path: String, _ offset: Int64, _ length: Int) async throws -> Data {
             if let failure { throw failure }
             return try await withCheckedThrowingContinuation { done in
-                if case .terminated = feed.yield(Job(path: path, offset: offset, length: length, generation: generation, done: done)) {
+                if case .terminated = feed.yield(Job(path: path, offset: offset, length: length, done: done)) {
                     done.resume(throwing: failure ?? CancellationError())
                 }
             }
@@ -748,7 +773,7 @@ final class DeliverPlayback {
             let file = FileManager.default.temporaryDirectory.appendingPathComponent("pluck-range-\(UUID().uuidString)")
             defer { try? FileManager.default.removeItem(at: file) }
             let start = ProcessInfo.processInfo.systemUptime
-            owner?.lock.withLock { owner?._busy = (start, job.length, job.generation) }
+            owner?.lock.withLock { owner?._busy = (start, job.length, job.path) }
             if testDelay > 0 { try? await Task.sleep(for: .seconds(testDelay)) }
             try await session.get(job.path, to: file, offset: job.offset, length: Int64(job.length), expected: Int64(job.length))
             let data = try Data(contentsOf: file)
@@ -758,8 +783,152 @@ final class DeliverPlayback {
             }
             let end = ProcessInfo.processInfo.systemUptime
             owner?.lock.withLock { owner?._busy = nil; owner?._fetched += data.count }
-            owner?.measured?(data.count, start, end, job.generation)
+            owner?.measured?(job.path, data.count, start, end)
             return data
+        }
+    }
+
+    /// The streamed copy as HLS on 127.0.0.1 for AVPlayer, under a random path: a master playlist (the start rendition
+    /// first), a media playlist per rendition (byte ranges of its file, the init as EXT-X-MAP, made here from its index)
+    /// and those byte ranges, each asked of the server over the copy's HostRanges. One request per connection.
+    final class HostCopyServer: @unchecked Sendable {
+        private let listener: NWListener
+        private let queue = DispatchQueue(label: "be.wideopen.pluck.copy-server")
+        private let token = UUID().uuidString
+        private let playlists: [String: Data]
+        private let variants: [(String, String)] // rendition, its STREAM-INF line
+        private let sizes: [String: Int64]
+        private let ranges: HostRanges
+        private let base: String
+        private var port: UInt16 = 0
+        /// The master playlist with `first` listed first (AVPlayer starts on the first).
+        func url(first: String) -> URL { URL(string: "http://127.0.0.1:\(port)/\(token)/master.m3u8?first=\(first)&n=\(UUID().uuidString.prefix(8))")! }
+        /// Each segment asked for: its rendition.
+        var requested: (@Sendable (String) -> Void)?
+
+        private init(_ copy: HostCopy, listener: NWListener) {
+            self.listener = listener
+            ranges = copy.ranges
+            base = copy.base
+            var playlists: [String: Data] = [:], sizes: [String: Int64] = [:]
+            var variants: [(String, String)] = []
+            for r in copy.renditions {
+                guard let index = copy.indexes[r] else { continue }
+                var info = "#EXT-X-STREAM-INF:BANDWIDTH=\(Self.peak(index)),AVERAGE-BANDWIDTH=\(Int((copy.rates[r] ?? 0) * 8)),CODECS=\"\(index.codecs)\""
+                if index.width > 0, index.height > 0, r != "a" { info += ",RESOLUTION=\(index.width)x\(index.height)" }
+                variants.append((r, info))
+                playlists["\(r)/index.m3u8"] = Data(Self.media(index).utf8)
+                for (file, size) in Self.files(index) { sizes["\(r)/\(file)"] = size }
+            }
+            self.variants = variants
+            self.playlists = playlists
+            self.sizes = sizes
+        }
+
+        /// Listening on a free loopback port, or nil.
+        @MainActor
+        static func start(_ copy: HostCopy) async -> HostCopyServer? {
+            let parameters = NWParameters.tcp
+            parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: .any)
+            guard let listener = try? NWListener(using: parameters) else { return nil }
+            let server = HostCopyServer(copy, listener: listener)
+            listener.newConnectionHandler = { [weak server] connection in
+                guard let server else { return connection.cancel() }
+                connection.start(queue: server.queue)
+                server.receive(connection, Data())
+            }
+            let port: UInt16? = await withCheckedContinuation { done in
+                let once = OnceFlag()
+                listener.stateUpdateHandler = { state in
+                    switch state {
+                    case .ready: if once.claim() { done.resume(returning: listener.port?.rawValue) }
+                    case .failed, .cancelled: if once.claim() { done.resume(returning: nil) }
+                    default: break
+                    }
+                }
+                listener.start(queue: server.queue)
+            }
+            guard let port else { listener.cancel(); return nil }
+            server.port = port
+            return server
+        }
+
+        func stop() { listener.cancel() }
+
+        /// A media playlist: every segment as a byte range of its file, the init piece as the map.
+        static func media(_ index: Deliver.CopyIndex) -> String {
+            var lines = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-TARGETDURATION:\(Int((index.segments.map(\.d).max() ?? 2).rounded(.up)))",
+                         "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-PLAYLIST-TYPE:VOD", "#EXT-X-INDEPENDENT-SEGMENTS",
+                         "#EXT-X-MAP:URI=\"\(index.`init`.file)\",BYTERANGE=\"\(index.`init`.length)@\(index.`init`.offset)\""]
+            for segment in index.segments {
+                lines += [String(format: "#EXTINF:%.6f,", segment.d), "#EXT-X-BYTERANGE:\(segment.length)@\(segment.offset)", segment.file]
+            }
+            return (lines + ["#EXT-X-ENDLIST"]).joined(separator: "\n") + "\n"
+        }
+
+        /// The highest bits per second of any segment (HLS BANDWIDTH).
+        static func peak(_ index: Deliver.CopyIndex) -> Int {
+            Int(index.segments.map { Double($0.length) * 8 / max($0.d, 0.001) }.max() ?? 0)
+        }
+
+        /// Each file's size: its last piece's end.
+        static func files(_ index: Deliver.CopyIndex) -> [String: Int64] {
+            var sizes: [String: Int64] = [:]
+            for (file, end) in [(index.`init`.file, index.`init`.offset + index.`init`.length)] + index.segments.map({ ($0.file, $0.offset + $0.length) }) {
+                sizes[file] = max(sizes[file] ?? 0, end)
+            }
+            return sizes
+        }
+
+        private func receive(_ connection: NWConnection, _ head: Data) {
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 16 << 10) { [weak self] data, _, done, error in
+                guard let self, error == nil else { return connection.cancel() }
+                let head = head + (data ?? Data())
+                if let end = head.range(of: Data("\r\n\r\n".utf8)) { return self.answer(String(decoding: head[..<end.lowerBound], as: UTF8.self), connection) }
+                if done || head.count > 64 << 10 { return connection.cancel() }
+                self.receive(connection, head)
+            }
+        }
+
+        private func answer(_ head: String, _ connection: NWConnection) {
+            let lines = head.components(separatedBy: "\r\n"), request = lines.first?.split(separator: " ") ?? []
+            let prefix = "/\(token)/"
+            guard request.count >= 2, request[0] == "GET", request[1].hasPrefix(prefix) else { return send(connection, 404, [:], Data()) }
+            let name = String(request[1].dropFirst(prefix.count).prefix { $0 != "?" })
+            if name == "master.m3u8" {
+                let first = request[1].split(separator: "?").dropFirst().first?.split(separator: "&").first { $0.hasPrefix("first=") }.map { String($0.dropFirst(6)) }
+                let ordered = variants.filter { $0.0 == first } + variants.filter { $0.0 != first }
+                let master = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-INDEPENDENT-SEGMENTS"] + ordered.flatMap { [$0.1, "\($0.0)/index.m3u8"] }
+                return send(connection, 200, ["Content-Type": "application/vnd.apple.mpegurl"], Data((master.joined(separator: "\n") + "\n").utf8))
+            }
+            if let playlist = playlists[name] { return send(connection, 200, ["Content-Type": "application/vnd.apple.mpegurl"], playlist) }
+            guard let size = sizes[name] else { return send(connection, 404, [:], Data()) }
+            var start: Int64 = 0, end = size - 1, status = 200
+            let range = lines.first { $0.lowercased().hasPrefix("range:") }.map { String($0.dropFirst(6)).trimmingCharacters(in: .whitespaces) }
+            if let range, range.hasPrefix("bytes=") {
+                let bounds = range.dropFirst(6).split(separator: ",").first?.split(separator: "-", omittingEmptySubsequences: false) ?? []
+                if bounds.count == 2, let first = Int64(bounds[0]) { start = first; if let last = Int64(bounds[1]) { end = min(last, size - 1) } }
+                guard start <= end else { return send(connection, 416, ["Content-Range": "bytes */\(size)"], Data()) }
+                status = 206
+            }
+            if let rendition = name.split(separator: "/").first { requested?(String(rendition)) }
+            let path = base + name, ranges = ranges
+            Task {
+                do {
+                    let data = try await ranges.read(path, start, Int(end - start + 1))
+                    self.send(connection, status, ["Content-Type": "video/mp4", "Accept-Ranges": "bytes", "Content-Range": "bytes \(start)-\(start + Int64(data.count) - 1)/\(size)"], data)
+                } catch {
+                    self.send(connection, 503, [:], Data())
+                }
+            }
+        }
+
+        private func send(_ connection: NWConnection, _ status: Int, _ headers: [String: String], _ body: Data) {
+            let reason = [200: "OK", 206: "Partial Content", 404: "Not Found", 416: "Range Not Satisfiable", 503: "Service Unavailable"][status] ?? "OK"
+            var lines = ["HTTP/1.1 \(status) \(reason)", "Content-Length: \(body.count)", "Connection: close"]
+            for (key, value) in headers { lines.append("\(key): \(value)") }
+            connection.send(content: Data((lines.joined(separator: "\r\n") + "\r\n\r\n").utf8) + body, isComplete: true,
+                            completion: .contentProcessed { _ in connection.cancel() })
         }
     }
 

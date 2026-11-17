@@ -138,6 +138,10 @@ final class OfficeRenderClient {
         members = []
         primary = nil
         active = nil
+        if account != nil {
+            UserDefaults.standard.removeObject(forKey: "editAnywhereOfficePrimary")
+            UserDefaults.standard.removeObject(forKey: "editAnywhereGroupNodes")
+        }
         memberStates = [:]
         memberClients.values.forEach { $0.dropKept(); $0.irohTunnel.stop() }
         memberClients = [:]

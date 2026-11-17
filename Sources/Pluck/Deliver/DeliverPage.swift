@@ -104,6 +104,7 @@ struct DeliverPage: View {
                 panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: view == "uploaddestnone" ? .noRoot : .loading, done: { _ in }, back: {})
                     .padding(Design.Spacing.sheet).frame(width: 1060, height: 720).background(Design.Studio.panel))
                 nav.deliver = .inbox
+            case "people": DeliverPeople.snapshot(); nav.deliver = .people
             case "server": panelInPage = AnyView(DeliverServerChooser()); nav.deliver = .inbox
             case "serverbackup": panelInPage = AnyView(DeliverServerChooser(role: .backup)); nav.deliver = .inbox
             case "proxmoxmain": panelInPage = AnyView(DeliverProxmoxMainSheet()); nav.deliver = .inbox
@@ -235,6 +236,7 @@ struct DeliverPage: View {
         case .links(let project, let link):
             if store.project(project) != nil { DeliverLinksView(nav: nav, project: project, opened: link).id(project) } else { DeliverProjects(nav: nav) }
         case .inbox: DeliverInbox(nav: nav)
+        case .people: DeliverPeopleView()
         case .deliveryCheck: DeliveryCheckView().padding(Design.Studio.panelInset)
         case .archiveProject: DeliverProjects(nav: nav)
         case .nas(let id):
@@ -339,6 +341,10 @@ struct DeliverSidebar: View {
             .scrollContentBackground(.hidden)
             .frame(maxHeight: .infinity)
             row(String(localized: "Inbox"), symbol: "tray", on: nav.deliver == .inbox, count: store.unread) { nav.deliver = .inbox }
+            // People (accounts plan §5): the main server's team, once there is a main.
+            if DeliverPeople.main() != nil {
+                row(DeliverPeople.title, symbol: "person.2", on: nav.deliver == .people, dot: DeliverPeople.shared.pending > 0) { nav.deliver = .people }
+            }
             if !hasServer {
                 row(String(localized: "Set Up Server…"), symbol: "externaldrive.badge.plus", on: false) { settingUp = true }
             }

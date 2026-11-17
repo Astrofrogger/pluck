@@ -56,6 +56,10 @@ extension Deliver {
         var rootNames: [String: String]? = nil
         /// A main's backup as this Mac reaches it while the main is down (§13.25), when both take outage uploads.
         var outage: OutageRoute? = nil
+        /// What its hello said of §13.25 (`"outage": 1`, 4.0.4): it takes a backup's pushes and serves clients' uploads by reference.
+        var outageLevel: Int? = nil
+        /// What its hello said of accounts (`"accounts": 1`, 4.0.4): People can be managed on it (accounts plan §1.8).
+        var accounts: Int? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }
@@ -683,6 +687,7 @@ final class ReviewPublish {
                         if !outgoing.isEmpty { _ = try await session.ask(["op": "append", "entries": outgoing]) }
                         pulled = try await Self.pages(since) { try await session.ask(["op": "pull", "since": $0]) }
                         status = try await session.ask(["op": "status"])
+                        _ = try? await session.ask(["op": "local-time", "offset": TimeZone.current.secondsFromGMT()]) // the delivery folder's day
                     }
                     await DeliverOutage.note(status: status, host: host)
                     answer = pulled
@@ -712,7 +717,7 @@ final class ReviewPublish {
         let uploads = entries.compactMap { $0["upload"] as? [String: Any] }
         guard !uploads.isEmpty else { return }
         try? await ReviewHostClient.session(host) { session in
-            for upload in uploads {
+            for upload in uploads where upload["for"] as? String != "attachment" { // (a comment's attachment stays with its comment)
                 // A client's file from an outage, now in the server's uploads folder (§13.25): added where it is, by reference.
                 if upload["root"] as? Bool == true, let path = upload["path"] as? String, !path.hasPrefix("uploads/"), !path.split(separator: "/").contains(".."),
                    let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ self.store.link($0) }), link.project == project {
@@ -742,6 +747,27 @@ final class ReviewPublish {
                 }
                 _ = try? await session.ask(["op": "delete", "path": path])
             }
+        }
+    }
+
+    /// A data host's clients' uploads (§13.25; it holds the review data, so nothing comes to this Mac): each becomes an asset
+    /// with the upload's own id (every Mac of the team makes the same one) whose original stays on the NAS, which makes its
+    /// copies: a file in its quarantine as ".uploads/<link>/<file>", one from an outage where the server put it.
+    func referenceUploads(_ entries: [[String: Any]], host: Deliver.Host) {
+        for entry in entries {
+            guard let upload = entry["upload"] as? [String: Any], upload["for"] as? String == "asset",
+                  let id = (upload["id"] as? String).flatMap(UUID.init(uuidString:)), let raw = upload["path"] as? String,
+                  !raw.split(separator: "/").contains(".."), raw.hasPrefix("uploads/") || upload["root"] as? Bool == true,
+                  let link = (upload["link"] as? String).flatMap(UUID.init(uuidString:)).flatMap({ store.link($0) }) else { continue }
+            let name = DeliverServer.safeName(upload["name"] as? String ?? "")
+            let media = raw.hasPrefix("uploads/") ? "." + raw : raw
+            let folders = store.content(link.project).folders
+            var folder: UUID? = link.uploads?.folder.flatMap { id in folders.contains { $0.id == id } ? id : nil }
+            if folder == nil, case .folder(let id, _) = link.scope { folder = id }
+            guard !name.isEmpty, let made = store.addUpload(id: id, name: name, path: Self.nasPath(host: host.id, path: media),
+                                                            size: (upload["size"] as? NSNumber)?.int64Value ?? 0, to: link.project, folder: folder) else { continue }
+            store.addInbox(.init(id: made.current.id, project: link.project, asset: made.id, version: made.current.id, kind: "upload", summary: name,
+                                 author: upload["by"] as? String ?? link.recipient ?? link.title))
         }
     }
 

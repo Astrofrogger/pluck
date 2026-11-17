@@ -80,6 +80,12 @@ enum ReviewHostClient {
         guard answer["ok"] as? Bool == true else { throw refused }
         session.protocolLevel = answer["protocol"] as? Int ?? 2
         ReviewPublish.shared.seen(host.id, version: answer["version"] as? String, protocol: answer["protocol"] as? Int, links: answer["links"] as? Int, via: route.via)
+        if ReviewPublish.shared.host(host.id).map({ $0.outageLevel != answer["outage"] as? Int }) == true {
+            ReviewPublish.shared.update(host: host.id) { $0.outageLevel = answer["outage"] as? Int }
+        }
+        if ReviewPublish.shared.host(host.id).map({ $0.accounts != answer["accounts"] as? Int }) == true {
+            ReviewPublish.shared.update(host: host.id) { $0.accounts = answer["accounts"] as? Int }
+        }
         try await work(session)
     }
 
@@ -304,7 +310,8 @@ final class HostSession: @unchecked Sendable {
         if let limit, size > limit { return false }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         guard let free = (try? folder.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage else { return false }
-        return free - size >= 10_000_000_000
+        // A small read (a streamed range, an index) only needs to fit; whole files keep 10 GB to spare.
+        return free - size >= (limit.map { $0 <= 64 << 20 } == true ? 0 : 10_000_000_000)
     }
 
     /// A host file (`uploads/<link>/<file>`, pB's sync `get`): `{"ok":true,"size":N}` then N raw bytes, written to `url`.

@@ -192,6 +192,8 @@ final class DeliverSync {
                 self.readOnly = compatibility == .readOnly
                 if !self.readOnly { try await self.flush(session, host: host) }
                 status = (try? await session.ask(["op": "status"])) ?? [:]
+                // People (accounts plan §5): new requests notify even while People isn't open.
+                if ReviewPublish.shared.host(host.id)?.accounts == 1, let people = try? await session.ask(["op": "people"]) { DeliverPeople.shared.heard(people) }
             }
             await DeliverOutage.note(status: status, host: host)
             state.lastSync = .now
@@ -305,6 +307,7 @@ final class DeliverSync {
     }
 
     private func pull(_ session: HostSession, host: Deliver.Host, live: () -> Bool = { true }) async throws {
+        let first = state.lastSync == nil // (never synced with this host: its whole log is history)
         let answer = try await ReviewPublish.pages(state.logSeq) { try await session.ask(["op": "pull", "since": $0]) }
         guard live() else { return }
         let entries = answer["entries"] as? [[String: Any]] ?? []
@@ -312,7 +315,11 @@ final class DeliverSync {
             store.applying = true
             for project in store.projects { publish.merge(entries, project: project.id) }
             store.applying = false
+            // Clients' uploads become assets on the NAS (§13.25), as they arrive: a Mac reading the log from the start doesn't
+            // bring back what was removed since. Only a host that serves them (4.0.4); not while `applying` (they go to the host).
+            if !first, publish.host(host.id)?.outageLevel == 1 { publish.referenceUploads(entries, host: host) }
         }
+        _ = try? await session.ask(["op": "local-time", "offset": TimeZone.current.secondsFromGMT()]) // the delivery folder's day (§13.25)
         if let seq = answer["seq"] as? Int { state.logSeq = seq }
     }
 

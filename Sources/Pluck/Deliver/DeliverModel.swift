@@ -276,7 +276,7 @@ enum Deliver {
         case asset(UUID, version: UUID?, comment: UUID?)
         /// A project's shared links (they show only in their project), with one opened.
         case links(UUID, link: UUID?)
-        case inbox, deliveryCheck, archiveProject
+        case inbox, deliveryCheck, archiveProject, people
         case nas(UUID)
         case browse(PlaceID)
     }

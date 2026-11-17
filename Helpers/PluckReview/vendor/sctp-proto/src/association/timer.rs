@@ -47,7 +47,7 @@ impl Default for TimerTable {
             retrans: [0; TIMER_COUNT],
             max_retrans: [None; TIMER_COUNT],
             no_error_count: [false; TIMER_COUNT],
-            rto_max: 60000, // Default RTO_MAX
+            rto_max: RTO_MAX, // PLUCK PATCH: was 60000
         }
     }
 }

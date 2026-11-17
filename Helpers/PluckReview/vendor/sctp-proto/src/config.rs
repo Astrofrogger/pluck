@@ -17,7 +17,9 @@ pub(crate) const DEFAULT_MAX_MESSAGE_SIZE: u32 = 65536;
 // Default RTO values in milliseconds (RFC 4960)
 pub(crate) const RTO_INITIAL: u64 = 3000;
 pub(crate) const RTO_MIN: u64 = 1000;
-pub(crate) const RTO_MAX: u64 = 60000;
+// PLUCK PATCH: RFC 4960's 60 s RTO.max lets one RTT spike (a busy browser's late SACKs) set a
+// 20+ s RTO, and a lost chunk then stalls the whole association that long. 3 s, as browsers cap it.
+pub(crate) const RTO_MAX: u64 = 3000;
 
 // Default max retransmit value (RFC 4960 Section 15)
 const DEFAULT_MAX_INIT_RETRANS: usize = 8;
@@ -57,7 +59,7 @@ pub struct TransportConfig {
     rto_min_ms: u64,
 
     /// Maximum retransmission timeout in milliseconds.
-    /// Default: 60000
+    /// Default: 3000 (Pluck patch; upstream 60000)
     rto_max_ms: u64,
 
     /// SCTP source port when this endpoint initiates the association.

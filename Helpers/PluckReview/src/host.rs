@@ -22,6 +22,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::{Ev, copies, keys, log, report, roots::{Roots, kind_of}};
 
+#[path = "host_accounts.rs"]
+mod accounts_ops;
+
 pub const PALETTE: [&str; 8] = ["#E0605E", "#E0A15E", "#F2D14B", "#7CC294", "#6FA8DC", "#A98BD8", "#EDEBE6", "#111111"];
 pub const EMOJI: [&str; 12] = ["👍", "👎", "❤️", "😂", "😮", "🎉", "🔥", "👀", "✅", "❌", "🙏", "💯"];
 const STATUSES: [&str; 4] = ["needsReview", "inProgress", "needsChanges", "approved"];
@@ -45,6 +48,7 @@ pub struct Sync {
     pub reply: oneshot::Sender<Value>,
 }
 
+#[derive(Default)]
 struct HPeer {
     room: String,
     nonce: [u8; 32],
@@ -62,6 +66,7 @@ struct HPeer {
     beacons: VecDeque<Instant>,
     fetches: HashMap<u64, Fetched>, // binary fetches in flight that need something when served
     pw: Value, // the link's passwordHash when this peer became ready: a change ends the session
+    acct: accounts_ops::Acct, // signed in with a passkey (accounts plan)
 }
 
 /// What to do when a fetch has been served: log a download, delete a temporary still.
@@ -118,6 +123,10 @@ pub struct Host {
     pub back: Option<mpsc::UnboundedSender<(String, Value)>>, // results of background work, into run()
     added: Vec<(String, String)>, // (asset, version) added by a publish, told to viewers once its copy is ready
     superseded: usize, // bytes of comment snapshots appended since the last compaction that replace an earlier one
+    pub accounts: crate::accounts::Accounts, // the team, its people and passkeys (accounts.json)
+    acct_begins: VecDeque<Instant>,           // account-begin on this host, a minute
+    pub upload_root: Option<Arc<crate::upload_root::UploadRoot>>, // a main's uploads root: team uploads go there (§4.4)
+    root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
 }
 
 /// Who this host is: shown to Pluck, written into tombstones and proofs.
@@ -383,6 +392,7 @@ impl Host {
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
+            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(),
         };
         let _ = std::fs::create_dir_all(&h.dir);
         h.sweep_tmp(Duration::ZERO); // nothing is in flight yet: stills, proofs and link-upload partials of the last run go
@@ -681,8 +691,8 @@ impl Host {
         self.added = later;
         for (aid, vid) in now {
             for (id, p) in &self.peers {
-                let Some(l) = self.link(&p.room).filter(|l| p.ready && !is(l, "latestOnly")) else { continue };
-                let Some((_, a)) = self.asset_in_scope(l, &aid) else { continue };
+                let Some(l) = self.peer_link(p).filter(|l| p.ready && !is(l, "latestOnly")) else { continue };
+                let Some((_, a)) = self.asset_in_scope(&l, &aid) else { continue };
                 let Some(v) = Self::arr(a, "versions").find(|v| v["id"] == vid.as_str()) else { continue };
                 self.send(id, json!({"t": "asset-changed", "asset": aid}));
                 self.send(id, json!({"t": "version-added", "asset": aid, "version": vid, "number": v["number"], "name": a["name"]}));
@@ -864,12 +874,15 @@ impl Host {
     }
 
     fn admin_comments(&self, op: &Value) -> Value {
-        let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == op["asset"]).map(|c| Self::wire_comment(c, None)).collect();
+        let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == op["asset"]).map(|c| Self::wire_comment(c, [None, None])).collect();
         json!({"comments": list})
     }
 
     /// A copy job moved on: report it, and when it's ready tell clients to re-fetch the asset.
     pub fn copy_progress(&mut self, version: String, state: Value) {
+        if let Some(k) = version.strip_prefix("acct:") {
+            return self.acct_back(k, state); // a team upload's hash or a footage thumbnail, done in the background
+        }
         if let Some(ap) = version.strip_prefix("proof:") {
             self.proof_hashes.insert(ap.to_owned(), state);
             return;
@@ -886,7 +899,7 @@ impl Host {
                 .find(|a| Self::arr(a, "versions").any(|v| v["id"] == vid)).map(|a| a["id"].clone());
             let Some(a) = asset.as_ref().and_then(Value::as_str) else { return };
             for (id, p) in &self.peers {
-                if p.ready && self.link(&p.room).is_some_and(|l| self.asset_in_scope(l, a).is_some()) {
+                if p.ready && self.peer_link(p).is_some_and(|l| self.asset_in_scope(&l, a).is_some()) {
                     self.send(id, json!({"t": "asset-changed", "asset": a}));
                 }
             }
@@ -897,10 +910,15 @@ impl Host {
 
     /// Also run every 30 s, so links expire on time.
     pub fn check_links(&mut self) {
-        let rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
+        let mut rooms: Vec<Value> = self.links().filter(|l| servable(l) && matches!(self.live(l), Ok(()) | Err("paused") | Err("deadline")))
             .map(|l| json!({"room": l["roomID"], "reg": l["reg"], "join": l["join"], "expires": l["expires"], "turn": self.live(l).is_ok(), "ready": self.backup_ready(l)})).collect();
+        rooms.extend(self.team_room_reg());
         let ended: Vec<(String, &str)> = self.peers.iter()
-            .filter_map(|(id, p)| match self.link(&p.room) { Some(l) => self.live(l).err().or_else(|| Self::repassworded(p, l)), None => Some("revoked") }.map(|c| (id.clone(), c)))
+            .filter_map(|(id, p)| match self.link(&p.room) {
+                Some(l) => self.live(l).err().or_else(|| Self::repassworded(p, l)).or_else(|| self.acct_gone(p)),
+                None if self.is_team(&p.room) => self.acct_gone(p),
+                None => Some("revoked"),
+            }.map(|c| (id.clone(), c)))
             .collect();
         // A deadline the owner changed while peers are connected (§13.9).
         let now: HashMap<String, Option<String>> = self.links().filter_map(|l| Some((l["id"].as_str()?.to_owned(), self.deadline(l)))).collect();
@@ -962,6 +980,9 @@ impl Host {
         }
         // A finished writer no longer deletes its partial file, so the host does (#14).
         self.uploads.retain(|(peer, _), u| peer != id || { let _ = std::fs::remove_file(&u.part); false });
+        // A team upload keeps its partial for the resume (§4.4); only this session's hold on it ends.
+        let ru = self.upload_root.clone();
+        self.root_ups.retain(|(peer, _), u| peer != id || { if let Some(r) = &ru { r.release(&u.id) } false });
         Some(p)
     }
 
@@ -1082,8 +1103,10 @@ impl Host {
         a["id"].as_str().and_then(|id| self.status.get(id)).map_or_else(|| a["status"].clone(), |s| json!(s))
     }
 
-    fn wire_comment(c: &Value, token: Option<&str>) -> Value {
-        let mine = |x: &Value| json!(token.is_some() && x["authorToken"].as_str() == token);
+    /// `toks`: the browser's per-link token and, signed in, the account's: either one makes it `mine` (§1.7).
+    fn wire_comment(c: &Value, toks: [Option<&str>; 2]) -> Value {
+        let is_mine = |w: Option<&str>| w.is_some() && toks.contains(&w);
+        let mine = |x: &Value| json!(is_mine(x["authorToken"].as_str()));
         let mut w = c.clone();
         if let Some(o) = w.as_object_mut() {
             o.insert("mine".into(), mine(c));
@@ -1094,7 +1117,7 @@ impl Host {
             if let Some(r) = o.get("reactions").and_then(Value::as_object) {
                 let list: Vec<Value> = EMOJI.iter().filter_map(|e| {
                     let who = r.get(*e)?.as_array().filter(|w| !w.is_empty())?;
-                    Some(json!({"emoji": e, "count": who.len(), "mine": token.is_some() && who.iter().any(|w| w.as_str() == token)}))
+                    Some(json!({"emoji": e, "count": who.len(), "mine": who.iter().any(|w| is_mine(w.as_str()))}))
                 }).collect();
                 o.insert("reactions".into(), json!(list));
             }
@@ -1237,7 +1260,7 @@ impl Host {
     /// Log what a browser did (the owner's activity feed). Never the IP: the host only sees NAT/TURN addresses.
     fn activity(&mut self, peer: &str, kind: &str, asset: Value, version: Value, detail: Value) {
         let Some(p) = self.peers.get(peer) else { return };
-        let Some(link) = self.link(&p.room).map(|l| l["id"].clone()) else { return };
+        let Some(link) = self.link(&p.room).map(|l| l["id"].clone()).or_else(|| self.is_team(&p.room).then(|| json!("team"))) else { return };
         let mut a = json!({"id": uuid(), "link": link, "at": now_iso(), "peer": peer, "name": p.name, "kind": kind,
             "asset": asset, "version": version, "detail": detail});
         if !p.email.is_empty() {
@@ -1281,6 +1304,9 @@ impl Host {
 
     /// The sync API (stdin `{"host":{…}}` and the sync endpoint): pull, append, reload.
     pub fn sync(&mut self, op: &Value) -> Value {
+        if let Some(r) = self.account_sync(op) {
+            return r;
+        }
         match op["op"].as_str().unwrap_or("") {
             "pull" => {
                 let since = op["since"].as_u64().unwrap_or(0);
@@ -1418,14 +1444,14 @@ impl Host {
         let hidden = is(before.unwrap_or(x), "internal") || is(x, "internal");
         let version = if x["version"].is_null() { before.map_or(Value::Null, |c| c["version"].clone()) } else { x["version"].clone() };
         for (id, p) in &self.peers {
-            let Some(pl) = self.link(&p.room) else { continue };
-            if !p.ready || !self.sees(pl, &asset, &version) || (hidden && !team(pl)) {
+            let Some(pl) = self.peer_link(p) else { continue };
+            if !p.ready || !self.sees(&pl, &asset, &version) || (hidden && !team(&pl)) {
                 continue;
             }
             let ev = if kind == "deleted" {
                 json!({"t": "comment", "op": "delete", "comment": x})
             } else {
-                json!({"t": "comment", "op": if before.is_some() { "edit" } else { "add" }, "comment": Self::wire_comment(x, p.token.as_deref())})
+                json!({"t": "comment", "op": if before.is_some() { "edit" } else { "add" }, "comment": Self::wire_comment(x, Self::toks(p))})
             };
             self.send(id, ev);
         }
@@ -1450,13 +1476,13 @@ impl Host {
                     let (room, fp_mac, fp_browser) = (p["room"].as_str().unwrap_or(""), p["fpLocal"].as_str().unwrap_or(""), p["fpRemote"].as_str().unwrap_or(""));
                     // Protocol 2: the hello is signed with the room's key, which link holders don't have. Protocol 3
                     // (§13.24): a MAC with the code-derived authKey, which pluck.tools doesn't have.
-                    let hello = self.link(room).and_then(|l| if level3(l) {
+                    let hello = if self.is_team(room) { self.team_hello(&nonce, fp_mac, fp_browser) } else { self.link(room).and_then(|l| if level3(l) {
                         let auth = keys::unb64(l["auth"].as_str()?)?;
                         Some(json!({"t": "hello", "v": 3, "nonce": keys::b64(&nonce), "mac": keys::hello_v3(&auth, &nonce, fp_mac, fp_browser)}))
                     } else {
                         let sig = keys::sign_hello(&keys::unb64(l["sign"].as_str()?)?, &nonce, fp_mac, fp_browser)?;
                         Some(json!({"t": "hello", "v": 2, "nonce": keys::b64(&nonce), "sig": sig}))
-                    });
+                    }) };
                     let Some(hello) = hello else {
                         return self.cmd(json!({"close": {"peer": id, "reason": "unknown"}}));
                     };
@@ -1464,6 +1490,7 @@ impl Host {
                         room: room.into(), nonce, fp_mac: fp_mac.into(), fp_browser: fp_browser.into(),
                         authed: false, ready: false, token: None, name: String::new(), wrong: 0, viewing: None, writes: VecDeque::new(),
                         email: String::new(), stills: VecDeque::new(), beacons: VecDeque::new(), fetches: HashMap::new(), pw: Value::Null,
+                        ..Default::default()
                     });
                     self.send(&id, hello);
                 }
@@ -1488,6 +1515,9 @@ impl Host {
             }
         } else if let Some(u) = v.get("upload") {
             let key = (u["peer"].as_str().unwrap_or("").to_owned(), u["upload"].as_u64().unwrap_or(u64::MAX));
+            if self.root_ups.contains_key(&key) {
+                return self.root_written(&key, u);
+            }
             let Some(up) = self.uploads.get_mut(&key) else { return };
             if u["state"] == "done" && u["bytes"].as_u64() == Some(up.size) {
                 up.sha = u["sha256"].as_str().map(str::to_owned);
@@ -1512,6 +1542,9 @@ impl Host {
         let id = m["id"].clone();
         let t = m["t"].as_str().unwrap_or("");
         let room = self.peers[peer].room.clone();
+        if self.is_team(&room) {
+            return self.team_request(peer, &id, t, m);
+        }
         let Some(link) = self.link(&room).cloned() else { return self.err(peer, &id, "revoked") };
         if let Err(code) = self.live(&link).and_then(|()| Self::repassworded(&self.peers[peer], &link).map_or(Ok(()), Err)) {
             let mut e = json!({"re": id, "error": {"code": code}});
@@ -1528,6 +1561,9 @@ impl Host {
             _ if !self.peers[peer].ready => return self.err(peer, &id, "auth"),
             _ => {}
         }
+        if self.account_op(peer, &id, t, m).is_some() {
+            return;
+        }
         // Personal and "require a name" links: nothing but naming yourself until there's a name.
         if is(&link, "requireName") && self.peers[peer].name.is_empty() && t != "identify" && t != "name" {
             return self.err(peer, &id, "auth");
@@ -1537,14 +1573,20 @@ impl Host {
         if writes.contains(&t) && link["mode"] == "presentation" {
             return self.err(peer, &id, "readonly");
         }
+        self.dispatch(peer, &id, t, &link, m)
+    }
+
+    /// A link's ops (and the team room's, with a link built for the project).
+    fn dispatch(&mut self, peer: &str, id: &Value, t: &str, link: &Value, m: &Value) {
+        let (id, room) = (id.clone(), self.peers[peer].room.clone());
         let r = match t {
-            "list" => self.list(&link, m),
-            "asset" => self.asset(peer, &link, m),
-            "fetch" => return self.fetch(peer, &id, &link, m),
-            "comments" => self.comments(peer, &link, m),
-            "comment-add" | "reply-add" | "comment-edit" | "comment-delete" | "comment-complete" | "approve" | "react" => self.write(peer, t, &link, m),
-            "field-set" => self.field_set(peer, &link, m),
-            "upload-begin" => return self.upload_begin(peer, &id, &link, m),
+            "list" => self.list(link, m),
+            "asset" => self.asset(peer, link, m),
+            "fetch" => return self.fetch(peer, &id, link, m),
+            "comments" => self.comments(peer, link, m),
+            "comment-add" | "reply-add" | "comment-edit" | "comment-delete" | "comment-complete" | "approve" | "react" => self.write(peer, t, link, m),
+            "field-set" => self.field_set(peer, link, m),
+            "upload-begin" => return self.upload_begin(peer, &id, link, m),
             "upload-end" => return self.upload_end(peer, &id, m),
             "cancel" => {
                 let key = (peer.to_owned(), m["upload"].as_u64().unwrap_or(u64::MAX));
@@ -1557,17 +1599,18 @@ impl Host {
             }
             "name" | "identify" => {
                 let p = self.peers.get_mut(peer).unwrap();
-                if link["recipient"].as_str().is_none_or(|r| r.trim().is_empty()) {
+                // A signed-in peer keeps the account's name; a personal link keeps its recipient's.
+                if p.acct.person.is_none() && link["recipient"].as_str().is_none_or(|r| r.trim().is_empty()) {
                     p.name = clean(m["name"].as_str().unwrap_or(""), 40); // a personal link keeps its recipient's name
                 }
-                if let Some(e) = m["email"].as_str() {
+                if let Some(e) = m["email"].as_str().filter(|_| p.acct.person.is_none()) {
                     p.email = clean(e, 120);
                 }
                 self.presence(&room);
                 Ok(if t == "identify" { json!({"ok": true}) } else { json!({}) })
             }
             "viewing" => {
-                let a = m["asset"].as_str().filter(|a| self.asset_in_scope(&link, a).is_some()).map(str::to_owned);
+                let a = m["asset"].as_str().filter(|a| self.asset_in_scope(link, a).is_some()).map(str::to_owned);
                 let changed = self.peers[peer].viewing != a;
                 self.peers.get_mut(peer).unwrap().viewing = a.clone();
                 self.presence(&room);
@@ -1576,7 +1619,7 @@ impl Host {
                 }
                 Ok(json!({}))
             }
-            "played" => self.played(peer, &link, m),
+            "played" => self.played(peer, link, m),
             _ => Err("invalid"),
         };
         match r {
@@ -1626,8 +1669,16 @@ impl Host {
             None => clean(m["name"].as_str().unwrap_or(""), 40),
         };
         p.email = clean(m["email"].as_str().unwrap_or(""), 120);
-        self.send(peer, json!({"re": id, "t": "welcome", "proof": proof, "needPassword": need}));
-        if !need {
+        let team_room = self.is_team(&self.peers[peer].room);
+        let mut w = json!({"re": id, "t": "welcome", "proof": proof, "needPassword": need});
+        if self.accounts.on() {
+            w["team"] = self.accounts.team(); // a 4.0.4 host with accounts: the page offers sign-in (§2.2)
+        }
+        if team_room {
+            w["needAccount"] = json!(true); // the team room: a passkey, never `ready` before it (§2.1)
+        }
+        self.send(peer, w);
+        if !need && !team_room {
             self.ready(peer, &Value::Null, link); // no password: `ready` follows as an event
         }
     }
@@ -2019,9 +2070,9 @@ impl Host {
     fn comments(&self, peer: &str, l: &Value, m: &Value) -> Result<Value, &'static str> {
         let (_, a) = self.asset_in_scope(l, m["asset"].as_str().ok_or("invalid")?).ok_or("scope")?;
         Self::versions(l, a).iter().find(|v| v["id"] == m["version"]).ok_or("scope")?;
-        let tok = self.peers[peer].token.as_deref();
+        let toks = Self::toks(&self.peers[peer]);
         let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == a["id"] && c["version"] == m["version"] && Self::visible(l, c))
-            .map(|c| Self::wire_comment(c, tok)).collect();
+            .map(|c| Self::wire_comment(c, toks)).collect();
         Ok(json!({"comments": list}))
     }
 
@@ -2046,7 +2097,9 @@ impl Host {
     /// Comment and approval writes: validated, appended to comments.jsonl, then pushed to every ready
     /// client whose link holds the asset.
     fn write(&mut self, peer: &str, t: &str, l: &Value, m: &Value) -> Result<Value, &'static str> {
-        let (tok, name) = { let p = &self.peers[peer]; (p.token.clone(), p.name.clone()) };
+        // Signed in: what they write carries the account token, and what either token wrote is theirs (§1.7).
+        let (tok, browser, name) = { let p = &self.peers[peer]; (p.acct.token.clone().or(p.token.clone()), p.token.clone(), p.name.clone()) };
+        let toks = [tok.as_deref(), browser.as_deref()];
         // Comments, replies (drawings too) and approvals carry a name: the page asks for one on `needName`.
         if name.is_empty() && matches!(t, "comment-add" | "reply-add" | "approve") {
             return Err("needName");
@@ -2064,7 +2117,7 @@ impl Host {
             Self::versions(l, a).iter().find(|v| v["id"] == c["version"]).ok_or("scope")?;
             Ok(c.clone())
         };
-        let own = |x: &Value| tok.is_some() && x["authorToken"].as_str() == tok.as_deref();
+        let own = |x: &Value| x["authorToken"].as_str().is_some_and(|a| toks.contains(&Some(a)));
         // Every write (add, edit, complete, delete, approve, react): 30 a minute per peer.
         if !rate(&mut self.peers.get_mut(peer).unwrap().writes, Duration::from_secs(60), 30) {
             return Err("limit");
@@ -2073,8 +2126,8 @@ impl Host {
             "comment-add" => {
                 // The same browser sending again after its answer was lost (same cid): the stored comment, kept once.
                 let cid = m["cid"].as_str().filter(|c| (8..=64).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
-                if let Some(c) = cid.and_then(|cid| self.comments.iter().find(|c| tok.is_some() && c["cid"] == cid && c["authorToken"].as_str() == tok.as_deref())) {
-                    return Ok(json!({"comment": Self::wire_comment(c, tok.as_deref())}));
+                if let Some(c) = cid.and_then(|cid| self.comments.iter().find(|c| c["cid"] == cid && own(c))) {
+                    return Ok(json!({"comment": Self::wire_comment(c, toks)}));
                 }
                 let (_, a) = self.asset_in_scope(l, m["asset"].as_str().ok_or("invalid")?).ok_or("scope")?;
                 let v = *Self::versions(l, a).iter().find(|v| v["id"] == m["version"]).ok_or("scope")?;
@@ -2190,7 +2243,7 @@ impl Host {
                 }
                 let list = c["reactions"].as_object_mut().unwrap().entry(e).or_insert(json!([]));
                 let l2 = list.as_array_mut().ok_or("internal")?;
-                l2.retain(|w| *w != who);
+                l2.retain(|w| *w != who && !w.as_str().is_some_and(|w| toks.contains(&Some(w)))); // either token: one reaction
                 if m["on"].as_bool().ok_or("invalid")? {
                     l2.push(who);
                 }
@@ -2237,15 +2290,15 @@ impl Host {
         let version = ["comment", "deleted", "approval"].iter().find_map(|k| entry.get(*k)).map_or(Value::Null, |x| x["version"].clone());
         // Tell everyone whose link holds the asset (each sees its own "mine"); internal ones go to team links only.
         for (id, p) in &self.peers {
-            let Some(pl) = self.link(&p.room) else { continue };
-            let seen = if op == "status" { self.asset_in_scope(pl, &asset).is_some() } else { self.sees(pl, &asset, &version) };
-            if !p.ready || !seen || (hidden && !team(pl)) {
+            let Some(pl) = self.peer_link(p) else { continue };
+            let seen = if op == "status" { self.asset_in_scope(&pl, &asset).is_some() } else { self.sees(&pl, &asset, &version) };
+            if !p.ready || !seen || (hidden && !team(&pl)) {
                 continue;
             }
             let ev = match op {
                 "status" => json!({"t": "status", "asset": asset, "status": self.status.get(&asset), "by": author, "approval": entry["approval"]["id"]}),
                 "delete" => json!({"t": "comment", "op": "delete", "comment": entry["deleted"]}),
-                _ => json!({"t": "comment", "op": op, "comment": Self::wire_comment(&entry["comment"], p.token.as_deref())}),
+                _ => json!({"t": "comment", "op": op, "comment": Self::wire_comment(&entry["comment"], Self::toks(p))}),
             };
             if id != peer {
                 self.send(id, ev);
@@ -2258,7 +2311,7 @@ impl Host {
                     "asset": a})
             }
             "delete" => json!({"deleted": entry["deleted"]["id"]}),
-            _ => json!({"comment": Self::wire_comment(&entry["comment"], tok.as_deref())}),
+            _ => json!({"comment": Self::wire_comment(&entry["comment"], toks)}),
         })
     }
 
@@ -2304,8 +2357,8 @@ impl Host {
         }
         let aid = a["id"].as_str().unwrap_or("").to_owned();
         for (id, p) in &self.peers {
-            let Some(pl) = self.link(&p.room) else { continue };
-            if id == peer || !p.ready || self.asset_in_scope(pl, &aid).is_none() {
+            let Some(pl) = self.peer_link(p) else { continue };
+            if id == peer || !p.ready || self.asset_in_scope(&pl, &aid).is_none() {
                 continue;
             }
             if field == "status" {
@@ -2315,7 +2368,7 @@ impl Host {
                 }
                 self.send(id, ev);
             }
-            if field == "status" || team(pl) || Self::arr(pl, "fields").any(|f| f == field) {
+            if field == "status" || team(&pl) || Self::arr(&pl, "fields").any(|f| f == field) {
                 self.send(id, json!({"t": "field", "asset": aid, "field": field, "value": value, "by": author}));
             }
         }

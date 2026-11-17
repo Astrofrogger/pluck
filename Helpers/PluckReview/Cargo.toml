@@ -41,6 +41,8 @@ lto = "fat"
 codegen-units = 1
 panic = "abort"
 
-# sctp-proto (str0m's SCTP) with RTO.max capped: see vendor/sctp-proto/PLUCK-PATCH.md.
+# str0m's SCTP (sctp-proto 0.10.8, MIT OR Apache-2.0, licence files kept) with RTO.max 3 s instead of
+# 60 s: one slow SACK could set a 20+ s RTO and stall a viewer's ctl that long (int5 s6). The only
+# change is marked PLUCK PATCH in vendor/sctp-proto/src/config.rs; str0m 0.25 doesn't expose it.
 [patch.crates-io]
 sctp-proto = { path = "vendor/sctp-proto" }

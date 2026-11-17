@@ -467,6 +467,14 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
         let r = host_op(to_host, json!({"op": "_replica-entries", "entries": entries})).await?;
         anyhow::ensure!(r.get("error").is_none(), "keeping the main's entries: {r}"); // retried next round, mainSeq unchanged
     }
+    // 2b. the main's accounts.json, for sign-in while it's offline (accounts plan §1.4). A failed pull keeps our copy.
+    if c.hello["accounts"] == 1 {
+        let a = c.ask(&json!({"op": "_accounts"})).await?;
+        if a["format"] == 1 {
+            let r = host_op(to_host, json!({"op": "_accounts-apply", "accounts": a})).await?;
+            anyhow::ensure!(r.get("error").is_none(), "keeping the main's accounts: {r}");
+        }
+    }
     // 3. our own entries (comments made on this backup) up to the main.
     loop {
         let own = host_op(to_host, json!({"op": "_replica-own", "since": pushed})).await?;

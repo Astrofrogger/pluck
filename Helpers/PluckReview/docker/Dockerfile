@@ -8,6 +8,7 @@ FROM rust:1.99.0-bookworm AS build-review
 WORKDIR /src
 COPY PluckReview/Cargo.toml PluckReview/Cargo.lock ./
 COPY PluckReview/src ./src
+COPY PluckReview/vendor ./vendor
 # The release tag becomes the reported version (empty: Cargo.toml's).
 ARG PLUCK_REVIEW_VERSION=
 ENV PLUCK_REVIEW_VERSION=${PLUCK_REVIEW_VERSION}

@@ -16,6 +16,10 @@ pub const VIDEO: &[&str] = &["mov", "mp4", "m4v", "mxf", "mkv", "avi", "mts", "m
 pub const AUDIO: &[&str] = &["wav", "mp3", "aac", "m4a", "aif", "aiff", "flac", "ogg", "opus", "caf"];
 pub const IMAGE: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff", "heic", "webp", "bmp"];
 pub const DOCUMENT: &[&str] = &["pdf"];
+/// Clients' uploads waiting in the data folder (<data>/uploads/<link>/<id>.<ext>) as a source of their own: ".uploads/<link>/<file>".
+/// A data host's Pluck adds them by reference (they stay on the NAS, its copies are made here). Never listed or browsed,
+/// and no id can clash (ids have no dots).
+pub const QUARANTINE: &str = ".uploads";
 
 pub fn kind_of(p: &str) -> Option<&'static str> {
     let ext = Path::new(p).extension()?.to_str()?.to_ascii_lowercase();
@@ -40,6 +44,9 @@ impl Roots {
     /// "<root>/<rel>" → the real path, if it stays inside that root. `dir` allows folders.
     pub fn resolve(&self, media: &str, dir: bool) -> Option<PathBuf> {
         let (id, rel) = media.split_once('/').unwrap_or((media, ""));
+        if id == QUARANTINE && (dir || rel.split('/').count() != 2 || rel.split('/').any(|c| c.starts_with('.'))) {
+            return None; // one finished file of one link: never the partial folder, never a folder
+        }
         let (_, root) = self.0.iter().find(|(i, _)| i == id)?;
         let p = if rel.is_empty() { root.clone() } else { std::fs::canonicalize(root.join(safe_rel(rel)?)).ok()? };
         // (Never an upload still on its way: the uploads root's partial folder.)
@@ -51,10 +58,19 @@ impl Roots {
         self.0.push((u.id.clone(), u.dir.clone()));
     }
 
+    /// The data folder's client uploads as the source root QUARANTINE (a main only).
+    pub fn add_quarantine(&mut self, data: &Path) {
+        let dir = data.join("uploads");
+        let _ = std::fs::create_dir_all(&dir);
+        if let Ok(d) = std::fs::canonicalize(dir) {
+            self.0.push((QUARANTINE.into(), d));
+        }
+    }
+
     /// Folders and media files in a folder ("" lists the roots). Hidden files are skipped.
     pub fn browse(&self, media: &str) -> Result<Value> {
         if media.is_empty() {
-            return Ok(json!({"entries": self.0.iter().map(|(id, _)| json!({"name": id, "path": id, "dir": true})).collect::<Vec<_>>()}));
+            return Ok(json!({"entries": self.0.iter().filter(|(id, _)| id != QUARANTINE).map(|(id, _)| json!({"name": id, "path": id, "dir": true})).collect::<Vec<_>>()}));
         }
         let dir = self.resolve(media.trim_end_matches('/'), true).context("not a folder on this host")?;
         let base = media.trim_end_matches('/');
@@ -107,7 +123,7 @@ impl Roots {
     pub async fn op(&self, op: &Value) -> Option<Value> {
         let path = op["path"].as_str().unwrap_or("");
         let r = match op["op"].as_str()? {
-            "roots" => Ok(json!({"roots": self.0.iter().map(|(id, _)| id).collect::<Vec<_>>()})),
+            "roots" => Ok(json!({"roots": self.0.iter().map(|(id, _)| id).filter(|id| *id != QUARANTINE).collect::<Vec<_>>()})),
             "browse" => self.browse(path),
             "probe" => self.probe(path).await,
             "thumb" => self.thumb(path).await,
@@ -124,6 +140,25 @@ pub fn tool(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Clients' uploads resolve as ".uploads/<link>/<file>" sources (one finished file), never listed, browsed or partial.
+    #[test]
+    fn the_quarantine_is_a_hidden_source() {
+        let d = std::env::temp_dir().join(format!("pluck-roots-q-{}", crate::host::uuid()));
+        std::fs::create_dir_all(d.join("uploads/L1")).unwrap();
+        std::fs::create_dir_all(d.join("uploads/.partial")).unwrap();
+        std::fs::write(d.join("uploads/L1/U1.mov"), b"x").unwrap();
+        std::fs::write(d.join("uploads/.partial/p.part"), b"x").unwrap();
+        std::fs::write(d.join("host-key"), b"k").unwrap();
+        let mut r = Roots(vec![]);
+        r.add_quarantine(&d);
+        assert!(r.resolve(".uploads/L1/U1.mov", false).is_some());
+        for bad in [".uploads/.partial/p.part", ".uploads/L1", ".uploads/../host-key", ".uploads/L1/../../host-key", ".uploads/U1.mov"] {
+            assert!(r.resolve(bad, false).is_none() && r.resolve(bad, true).is_none(), "{bad}");
+        }
+        assert!(r.browse("").unwrap()["entries"].as_array().unwrap().is_empty() && r.browse(".uploads/L1").is_err());
+        let _ = std::fs::remove_dir_all(d);
+    }
 
     #[test]
     fn stays_inside() {

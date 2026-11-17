@@ -77,7 +77,6 @@ fn pair(seed: &[u8]) -> Option<ring::signature::Ed25519KeyPair> {
 }
 
 /// The room's Ed25519 public key (the `<pub>` in the link) from its seed.
-#[cfg(test)]
 pub fn public(seed: &[u8]) -> Option<Vec<u8>> {
     use ring::signature::KeyPair;
     pair(seed).map(|k| k.public_key().as_ref().to_vec())

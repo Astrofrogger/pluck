@@ -318,11 +318,12 @@ impl Peer {
     }
 
     /// Swift (or the host) accepted an upload: its bytes go to `path`, a new file.
-    pub fn accept(&mut self, id: u32, path: &str, size: u64, ev: &tokio::sync::mpsc::UnboundedSender<crate::Ev>) -> bool {
+    /// `at`: resume an existing partial at that offset (media::spawn_writer_at).
+    pub fn accept(&mut self, id: u32, path: &str, size: u64, at: Option<u64>, ev: &tokio::sync::mpsc::UnboundedSender<crate::Ev>) -> bool {
         if !self.can_serve() || self.uploads.len() >= media::UP_PER_PEER || self.uploads.iter().any(|u| u.id == id) {
             return false;
         }
-        let tx = media::spawn_writer(path.to_owned(), size, self.id.clone(), id, ev.clone());
+        let tx = media::spawn_writer_at(path.to_owned(), size, at, self.id.clone(), id, ev.clone());
         self.uploads.push(media::Upload::new(id, size, Some(tx)));
         true
     }

@@ -6,10 +6,12 @@
 //   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","expires"?,"turn"?,"ready"?}],"maxPeers":20,"local":false}
 //   {"rooms":[…]}  {"send":{"peer","msg"}}  {"serve":{"peer","fetch","path","offset","length"}}  {"close":{"peer","reason"}}
 //   {"serve":{"peer","fetch","pieces":[{"path","offset","length"},…]}}   (one fetch from several pieces: proxy MP4, §6.1)
-//   {"accept":{"peer","upload","path","size"}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply)
+//   {"accept":{"peer","upload","path","size","offset"?}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply;
+//   offset: resume an existing partial there)
 // stdout: {"ready"} {"room"} {"peer"} {"msg"} {"served"} {"upload"} {"log"} {"error"} — see the Pluck Review spec, §5.
 // The helper never reads app messages beyond "a JSON object ≤ 64 KiB", and only opens paths
 // Swift sends in `serve`.
+mod accounts;
 mod copies;
 mod devices;
 mod host;
@@ -113,7 +115,8 @@ async fn main() {
                         "name": arg("--name").or_else(|| env("PLUCK_HOST_NAME")), "backup": backup,
                         "mainLink": arg("--main-link").or_else(|| env("PLUCK_MAIN_LINK")),
                         "maxStorage": arg("--max-storage").or_else(|| env("PLUCK_BACKUP_MAX")).unwrap_or("50G".into()),
-                        "quality": arg("--quality").or_else(|| env("PLUCK_BACKUP_QUALITY")).unwrap_or("1080-low".into())}})
+                        "quality": arg("--quality").or_else(|| env("PLUCK_BACKUP_QUALITY")).unwrap_or("1080-low".into()),
+                        "webauthnOrigin": arg("--webauthn-origin")}})
     } else {
         match lines.next_line().await {
             Ok(Some(l)) => serde_json::from_str(&l).unwrap_or(Value::Null),
@@ -146,13 +149,19 @@ fn ident(data: &std::path::Path, name: Option<&str>, backup: bool) -> host::Iden
 
 /// Every usable local address: non-loopback IPv4 and IPv6 (no link-local), plus loopback for tests.
 fn local_ips(local: bool) -> Vec<IpAddr> {
-    let mut ips: Vec<IpAddr> = if_addrs::get_if_addrs().unwrap_or_default().into_iter().map(|i| i.ip())
+    // Container/VM bridges (a NAS with host networking has many) are never a client's way in; skipped, and private
+    // IPv4 first, so the LAN address isn't cut off by the limit of 8 (a browser on the LAN then plays directly).
+    const BRIDGES: [&str; 7] = ["docker", "br-", "veth", "virbr", "cni", "flannel", "vnet"];
+    let mut ips: Vec<IpAddr> = if_addrs::get_if_addrs().unwrap_or_default().into_iter()
+        .filter(|i| !BRIDGES.iter().any(|b| i.name.starts_with(b)))
+        .map(|i| i.ip())
         .filter(|ip| !ip.is_loopback() && !ip.is_multicast() && !ip.is_unspecified())
         .filter(|ip| match ip {
             IpAddr::V4(v) => !v.is_link_local(),
             IpAddr::V6(v) => !v.is_unicast_link_local(),
         })
         .collect();
+    ips.sort_by_key(|ip| !matches!(ip, IpAddr::V4(v) if v.is_private())); // (stable: interface order otherwise)
     ips.dedup();
     ips.truncate(8);
     if local {
@@ -253,6 +262,9 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         if let Some(u) = &uploads {
             roots.add_uploads(u);
         }
+        if !backup {
+            roots.add_quarantine(&data); // clients' uploads as sources: a data host's Pluck adds them by reference
+        }
         // A backup's own uploads root, for the main's Macs while the main is down (§13.25): never browsed, never a source.
         let uploads = if backup {
             let d = data.join(outage::EDITOR_DIR);
@@ -269,7 +281,14 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
             tokio::spawn(copies::worker(job_rx, prog_tx.clone()));
         }
         let mut h = host::Host::new(&data, roots.clone(), ev_tx.clone(), copies_on.then_some(job_tx));
+        h.upload_root = uploads.clone().filter(|_| !backup); // a main's only (a backup's is for its main's Macs, §13.25)
         (h.ident, h.busy, h.back) = (me.clone(), busy.clone(), Some(prog_tx));
+        // Tests only (accounts plan §1.1): a localhost passkey origin, honoured only with a loopback signaling URL.
+        if let Some(o) = hc["webauthnOrigin"].as_str() {
+            if !h.accounts.set_origin(o, &signal_base) {
+                log(format!("host: --webauthn-origin {o} ignored (only http://localhost with a local signaling URL)"));
+            }
+        }
         let replica = backup.then(|| replica::Shared::load(&data, replica::parse_size(hc["maxStorage"].as_str().unwrap_or("50G")).unwrap_or(50 << 30),
             hc["quality"].as_str().filter(|q| *q == "same" || copies::quality(q).is_some()).unwrap_or("1080-low")));
         signal::SAME.store(replica.as_ref().is_some_and(|r| !r.lighter()), std::sync::atomic::Ordering::Relaxed);
@@ -560,7 +579,7 @@ fn command(v: Value, rooms: &mut HashMap<String, signal::Room>, peers: &mut Hash
     } else if let Some(a) = v.get("accept") {
         let (peer, id) = (a["peer"].as_str().unwrap_or(""), a["upload"].as_u64().and_then(|u| u32::try_from(u).ok()));
         let ok = match (peers.get_mut(peer), id, a["path"].as_str(), a["size"].as_u64()) {
-            (Some(p), Some(id), Some(path), Some(size)) => p.accept(id, path, size, ev),
+            (Some(p), Some(id), Some(path), Some(size)) => p.accept(id, path, size, a["offset"].as_u64(), ev),
             _ => false,
         };
         if !ok {

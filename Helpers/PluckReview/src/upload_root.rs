@@ -204,6 +204,10 @@ impl UploadRoot {
             if let Some(f) = op["folder"].as_str().filter(|f| f.len() <= 1024 && !f.contains('\0')) {
                 m["folder"] = json!(f);
             }
+            // A browser's upload (accounts plan §4.4): `sha256` is only its resume key; the hash comes with `end`.
+            if op["hashAtEnd"] == true {
+                m["hashAtEnd"] = json!(true);
+            }
             let _ = std::fs::write(&meta, m.to_string());
             Ok(json!({"upload": id, "path": path, "have": have}))
         })();
@@ -248,7 +252,8 @@ impl UploadRoot {
         }
         let p2 = part.clone();
         let sha = tokio::task::spawn_blocking(move || crate::host::sha256_file(&p2)).await.ok().and_then(Result::ok);
-        if sha.as_deref() != meta["sha256"].as_str() {
+        let want = if meta["hashAtEnd"] == true { op["sha256"].as_str().map(str::to_ascii_lowercase) } else { meta["sha256"].as_str().map(str::to_owned) };
+        if sha.is_none() || sha != want {
             let _ = (std::fs::remove_file(&part), std::fs::remove_file(&mfile));
             self.release(&id);
             return json!({"error": "checksum"});

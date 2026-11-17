@@ -4,6 +4,7 @@
 !PluckReview/Cargo.toml
 !PluckReview/Cargo.lock
 !PluckReview/src
+!PluckReview/vendor
 !PluckIroh/Cargo.toml
 !PluckIroh/Cargo.lock
 !PluckIroh/src

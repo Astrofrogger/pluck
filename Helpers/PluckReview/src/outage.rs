@@ -42,6 +42,9 @@ pub struct Outage {
     main_ok: AtomicBool,
     /// A backup: its main's Macs (outage-macs), for its office-mode pluck-iroh and the sync hello.
     pub devices: Option<Arc<crate::devices::Devices>>,
+    /// The owner's UTC offset in seconds, as Pluck last said (`local-time`; a NAS container's own zone is usually UTC):
+    /// the delivery folder is named after the local day. Kept in <data>/local-offset.
+    offset: std::sync::atomic::AtomicI64,
 }
 
 /// A SHA-256 as lowercase hex, from hex (Pluck's) or base64url (a browser's).
@@ -50,6 +53,17 @@ pub fn hex_sha(s: &str) -> Option<String> {
         return Some(s.to_ascii_lowercase());
     }
     keys::unb64(s).filter(|b| b.len() == 32).map(|b| b.iter().map(|x| format!("{x:02x}")).collect())
+}
+
+/// Seconds since 1970 of a normalised "YYYY-MM-DDTHH:MM:SSZ".
+fn day_secs(s: &str) -> Option<i64> {
+    let n = |r: std::ops::Range<usize>| -> Option<i64> { s.get(r)?.parse().ok() };
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (y2, m2) = if m <= 2 { (y - 1, m + 9) } else { (y, m - 3) };
+    let era = y2.div_euclid(400);
+    let yoe = y2 - era * 400;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + (153 * m2 + 2) / 5 + d - 1;
+    Some((era * 146_097 + doe - 719_468) * 86_400 + n(11..13)? * 3600 + n(14..16)? * 60 + n(17..19)?)
 }
 
 fn id_ok(s: &str) -> bool {
@@ -73,7 +87,8 @@ impl Outage {
         let path = data.join(if backup { "outage.json" } else { "delivered.json" });
         let items = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()).unwrap_or_default();
         let main_ok = backup && std::fs::read_to_string(data.join("main-outage")).is_ok_and(|s| s.trim() == "1");
-        Arc::new(Outage { data: data.into(), path, items: Mutex::new(items), main_ok: AtomicBool::new(main_ok), devices })
+        let offset = std::fs::read_to_string(data.join("local-offset")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+        Arc::new(Outage { data: data.into(), path, items: Mutex::new(items), main_ok: AtomicBool::new(main_ok), devices, offset: offset.into() })
     }
 
     fn save(&self, items: &[Value]) {
@@ -97,6 +112,23 @@ impl Outage {
             let p = self.data.join("main-outage");
             let _ = if ok { std::fs::write(p, "1\n") } else { std::fs::remove_file(p) };
         }
+    }
+
+    /// `local-time` from Pluck: its current UTC offset (at most ±14 h).
+    pub fn set_offset(&self, secs: i64) -> Value {
+        if secs.abs() > 14 * 3600 {
+            return json!({"error": "invalid"});
+        }
+        if self.offset.swap(secs, Ordering::Relaxed) != secs {
+            let _ = std::fs::write(self.data.join("local-offset"), format!("{secs}\n"));
+        }
+        json!({"ok": true})
+    }
+
+    /// "YYYY-MM-DD" of an ISO time in the owner's zone.
+    fn local_day(&self, at: Option<&str>) -> String {
+        let secs = at.and_then(host::norm_iso).and_then(|s| day_secs(&s)).unwrap_or_else(host::now_secs);
+        host::iso(secs + self.offset.load(Ordering::Relaxed))[..10].to_owned()
     }
 
     pub fn add(&self, item: Value) {
@@ -296,7 +328,7 @@ impl Outage {
                 rel
             }
             Some(u) => {
-                let date = x["at"].as_str().and_then(host::norm_iso).unwrap_or_else(now_iso)[..10].to_owned();
+                let date = self.local_day(x["at"].as_str());
                 let picked = x["folder"].as_str().filter(|_| kind == "editor").and_then(|f| u.folder(f).ok().map(|d| (f.to_owned(), d)));
                 let (folder, dir) = match picked {
                     Some(p) => p,
@@ -546,6 +578,20 @@ mod tests {
             assert!(plain.receive("outage-begin", &json!({"item": bad}), &mut &b""[..], None, &to_host).await.unwrap()["error"].is_string(), "{bad}");
         }
         let _ = (std::fs::remove_dir_all(&data), std::fs::remove_dir_all(&rootdir));
+    }
+
+    /// The delivery folder is the owner's local day (Pluck's offset), not UTC's; kept across restarts.
+    #[test]
+    fn the_folder_is_the_local_day() {
+        let data = tmp("tz");
+        let o = Outage::load(&data, false, None);
+        assert_eq!(o.local_day(Some("2026-11-16T23:30:00Z")), "2026-11-16", "no offset yet: UTC");
+        assert_eq!(o.set_offset(3600)["ok"], true);
+        assert_eq!(o.local_day(Some("2026-11-16T23:30:00Z")), "2026-11-17", "Brussels: already the 17th");
+        assert_eq!(Outage::load(&data, false, None).local_day(Some("2026-11-17T00:30:00+01:00")), "2026-11-17");
+        assert!(o.set_offset(-15 * 3600)["error"].is_string());
+        o.set_offset(-5 * 3600);
+        assert_eq!(o.local_day(Some("2026-11-17T03:00:00Z")), "2026-11-16");
     }
 
     #[test]

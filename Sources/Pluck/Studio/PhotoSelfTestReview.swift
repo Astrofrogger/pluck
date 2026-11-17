@@ -568,7 +568,7 @@ extension PhotoSelfTest {
         ops = []
         _ = try? store.addComment(asset: hero.id, version: current.id, frame: 7, text: "Owner note after publishing", author: "Editor")
         await publish.pull()
-        check("review: pull from a NAS", ops == ["append", "pull", "status"] && store.comments(hero.id).contains { $0.text == "Pulled" }
+        check("review: pull from a NAS", ops == ["append", "pull", "status", "local-time"] && store.comments(hero.id).contains { $0.text == "Pulled" }
               && (appended.last?["comment"] as? [String: Any])?["text"] as? String == "Owner note after publishing"
               && publication.flatMap { publish.hostState[$0.id]?.making } == 0.5 && publish.publications(asset: hero.id).count == 1, "\(ops)")
         // An invitation whose server claims a paired host's id (another certificate and node) can't take its place.
@@ -2683,6 +2683,27 @@ extension PhotoSelfTest {
                   added.count == 1 && added.first?.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Delivered while offline/2026-11-17/Interview A.mov"),
                   "\(added.map(\.current.path))")
             for asset in added { store.remove(asset: asset.id) }
+
+            // A data host (the review data on the NAS): clients' uploads, normal or from an outage, become assets that stay
+            // on the NAS (by reference, under the upload's id, so every Mac makes the same one); attachments don't.
+            let normal = UUID(), late = UUID(), att = UUID()
+            let entries: [[String: Any]] = [
+                ["upload": ["id": normal.uuidString, "link": link.id.uuidString, "name": "Take 3.mov", "size": 12, "for": "asset", "by": "Anna",
+                            "path": "uploads/\(link.id.uuidString)/\(normal.uuidString).mov"]],
+                ["upload": ["id": late.uuidString, "link": link.id.uuidString, "name": "Take 4.mov", "size": 13, "for": "asset", "root": true, "outage": true,
+                            "path": "renders/Delivered while offline/2026-11-17/Take 4.mov"]],
+                ["upload": ["id": att.uuidString, "link": link.id.uuidString, "name": "ref.png", "size": 3, "for": "attachment", "path": "uploads/\(link.id.uuidString)/\(att.uuidString).png"]]]
+            publish.referenceUploads(entries, host: main)
+            publish.referenceUploads(entries, host: main)
+            let take3 = store.find(normal)?.asset, take4 = store.find(late)?.asset
+            let inbox = store.inbox.filter { $0.asset == normal || $0.asset == late }
+            check("outage: on a data host clients' uploads become assets that stay on the NAS (quarantine or delivery folder), once, with an Inbox entry; attachments don't",
+                  take3?.current.path == ReviewPublish.nasPath(host: host.id, path: ".uploads/\(link.id.uuidString)/\(normal.uuidString).mov") && take3?.name == "Take 3"
+                  && take4?.current.path == ReviewPublish.nasPath(host: host.id, path: "renders/Delivered while offline/2026-11-17/Take 4.mov")
+                  && store.find(att) == nil && inbox.count == 2 && inbox.contains { $0.author == "Anna" }
+                  && store.content(project).assets.filter { $0.name.hasPrefix("Take ") }.count == 2,
+                  "\(take3?.current.path ?? "-") \(take4?.current.path ?? "-") \(inbox.count)")
+            for id in [normal, late] { store.remove(asset: id) }
             store.revoke(link.id)
         }
         if let landed { store.remove(asset: landed.id) }
@@ -2844,12 +2865,12 @@ extension PhotoSelfTest {
             become(a, hostKey: keyA)
         }
 
-        // A: a 30 s 1080p clip with grain (several MB a rendition) to the NAS's uploads folder; the helper makes its copies.
+        // A: a 60 s 1080p clip with grain (several MB a rendition) to the NAS's uploads folder; the helper makes its copies.
         let dir = fm.temporaryDirectory.appendingPathComponent("pluck-e2e-stream-\(UUID().uuidString.prefix(6))", isDirectory: true)
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: dir) }
-        let clip = dir.appendingPathComponent("Stream 30s.mov")
-        _ = await DeliveryCheck.output(ffmpeg, ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25:d=30", "-f", "lavfi", "-i", "sine=f=440:d=30",
+        let clip = dir.appendingPathComponent("Stream 60s.mov")
+        _ = await DeliveryCheck.output(ffmpeg, ["-nostdin", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=s=1920x1080:r=25:d=60", "-f", "lavfi", "-i", "sine=f=440:d=60",
                                                 "-vf", "noise=alls=12:allf=t", "-c:v", "mpeg4", "-q:v", "3", "-c:a", "aac", "-shortest", clip.path])
         guard let project = try? store.newProject("E2E stream") else { return check("e2e (j): project", false, "") }
         defer { store.deleteProject(project.id) }
@@ -2859,7 +2880,7 @@ extension PhotoSelfTest {
         let size = (try? clip.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
         await DeliverShareForReview.place([DeliverBrowseItem(name: clip.lastPathComponent, location: .local(clip), folder: false, size: size)],
                                           into: project.id, asVersions: false, host: named, upload: .init(host: named.id, folder: folder))
-        guard let asset = store.content(project.id).assets.first(where: { $0.name == "Stream 30s" }) else { return check("e2e (j): uploaded", false, folder) }
+        guard let asset = store.content(project.id).assets.first(where: { $0.name == "Stream 60s" }) else { return check("e2e (j): uploaded", false, folder) }
         let version = asset.current
         let data = URL(fileURLWithPath: root).appendingPathComponent("mnt/tank/apps/pluck-review", isDirectory: true)
         var ready: URL?
@@ -2903,8 +2924,8 @@ extension PhotoSelfTest {
         let total1080 = p.copy.map { c in c.indexes["1080"].map { i in i.segments.reduce(i.`init`.length) { $0 + $1.length } } ?? 0 } ?? 0
         check("e2e (j): B plays the NAS's copy: ready, then the time runs after play()", readied && advanced && p.problem == nil,
               "ready \(readied) in \(String(format: "%.1f", startup)) s, at \(p.player.currentTime().seconds) \(p.problem ?? "-") \(p.player.currentItem?.error.map { "\($0)" } ?? "")")
-        check("e2e (j): on the office network: the LAN route, 1080 from the start and no step", p.copy?.lan == true && p.copy?.ranges.via == .lan && p.steps == ["1080"],
-              "lan \(p.copy?.lan ?? false) via \(String(describing: p.copy?.ranges.via)) steps \(p.steps)")
+        check("e2e (j): on the office network: the LAN route, 1080 from the start and no step", p.copy?.lan == true && p.copy?.ranges.via == .lan && p.steps == ["1080"]
+              && p.arriving == "1080", "lan \(p.copy?.lan ?? false) via \(String(describing: p.copy?.ranges.via)) steps \(p.steps) arriving \(p.arriving ?? "-")")
         check("e2e (j): a copy of several MB, nothing kept on disk (no cache, no copy, scratch files gone)",
               total1080 > 8_000_000 && !fm.fileExists(atPath: caches.path) && DeliverCopies.index(store.copies(version.id).appendingPathComponent("1080")) == nil && temp() == 0,
               "\(total1080) bytes, cache \(fm.fileExists(atPath: caches.path)) temp \(temp())")
@@ -2916,11 +2937,11 @@ extension PhotoSelfTest {
         let q = DeliverPlayback()
         q.load(asset, version)
         _ = await waitFor(30) { q.player.currentItem?.status == .readyToPlay }
-        let middle = CMTimeMakeWithSeconds(15, preferredTimescale: 600)
+        let middle = CMTimeMakeWithSeconds(30, preferredTimescale: 600)
         let seekAt = Date.now
         await q.player.seek(to: middle, toleranceBefore: .zero, toleranceAfter: .zero)
         q.player.play()
-        let fromMiddle = await waitFor(10) { q.player.currentTime().seconds > 15.5 }
+        let fromMiddle = await waitFor(10) { q.player.currentTime().seconds > 30.5 }
         let seekTook = Date.now.timeIntervalSince(seekAt), fetched = q.copy?.ranges.fetched ?? 0
         check("e2e (j): a seek to the middle plays within seconds, without fetching what's before it",
               fromMiddle && seekTook < 5 && fetched > 0 && Double(fetched) < 0.75 * Double(total1080), "\(String(format: "%.1f", seekTook)) s, fetched \(fetched) of \(total1080)")
@@ -2934,12 +2955,13 @@ extension PhotoSelfTest {
         t.load(asset, version)
         _ = await waitFor(30) { t.player.currentItem?.status == .readyToPlay }
         t.player.play()
-        let down = await waitFor(60) { t.steps.count > 1 && t.rendition != "1080" }
+        var seen: [String] = []
+        let down = await waitFor(60) { if let r = t.arriving, seen.last != r { seen.append(r) }; return t.arriving != nil && t.arriving != "1080" }
         DeliverPlayback.HostRanges.testRate = nil
-        let up = await waitFor(30) { t.rendition == "1080" && t.steps.count > 2 }
+        let up = await waitFor(45) { if let r = t.arriving, seen.last != r { seen.append(r) }; return t.arriving == "1080" && t.rendition == "1080" }
         let moving = await waitFor(10) { t.player.timeControlStatus == .playing }
         check("e2e (j): a throttled link steps down from 1080, a fast one steps back up, and it plays on", down && up && moving,
-              "steps \(t.steps) at \(t.player.currentTime().seconds)")
+              "segments \(seen) steps \(t.steps) at \(t.player.currentTime().seconds)")
         t.player.pause()
         t.stop()
         DeliverPlayback.HostRanges.testDelay = 0
@@ -2956,9 +2978,12 @@ extension PhotoSelfTest {
         _ = await waitFor(10) { f.player.currentTime().seconds > 1 }
         let servedFirst = f.copy?.serving == first.id
         DeliverKeychain.delete("\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
-        await f.player.seek(to: CMTimeMakeWithSeconds(20, preferredTimescale: 600)) // (past what's buffered: new ranges are needed)
         f.copy?.ranges.dropConnection()
-        let carried = await waitFor(20) { f.player.currentTime().seconds > 22 }
+        // The next range asked (AVPlayer's, or this one) goes to the next server.
+        var next: Data?
+        if let c = f.copy { next = try? await c.ranges.read(c.base + "1080/index.json", 0, 1 << 20) }
+        await f.player.seek(to: CMTimeMakeWithSeconds(20, preferredTimescale: 600))
+        let carried = await waitFor(20) { f.player.currentTime().seconds > 22 } && next != nil
         check("e2e (j): a server dropping mid-play fails over to the next and playback goes on", servedFirst && carried && f.copy?.serving == b.id && f.problem == nil,
               "first \(servedFirst) serving \(f.copy?.serving == b.id) at \(f.player.currentTime().seconds) \(f.problem ?? "-")")
         // …and when none is left, it says so.
@@ -2969,8 +2994,8 @@ extension PhotoSelfTest {
         _ = await waitFor(30) { g.player.currentItem?.status == .readyToPlay }
         g.player.play()
         DeliverKeychain.delete("\(first.id.uuidString)/\(device)", service: DeliverKeychain.hostService)
-        await g.player.seek(to: CMTimeMakeWithSeconds(25, preferredTimescale: 600))
         g.copy?.ranges.dropConnection()
+        if let c = g.copy { _ = try? await c.ranges.read(c.base + "1080/index.json", 0, 1 << 20) }
         let offlineText = String(localized: "The server stopped answering, so this version can’t play. Check the connection, then open it again.")
         let saidGone = await waitFor(30) { g.problem == offlineText }
         check("e2e (j): the server gone mid-play: the player says so", saidGone, g.problem ?? "-")

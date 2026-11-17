@@ -125,6 +125,9 @@ user's device. **Local** = stays on the user's device.
 | `pluck-review-links` | up to 30 opened links with key, title, time; **none older than 90 days; never a password or personal link**; "Forget all" (R4) | localStorage | Nowhere (local list) |
 | `pluck-review-branding:<room>` | editor's branding | sessionStorage | - |
 | language + view prefs (grid, viewer, comments, overlays, compare) | settings | localStorage | - |
+| `pluck-teams` (4.0.4) | per team: the plain team link (never with an invite/device code), team name, account name, credential id (hint for `allowCredentials`); at most 20; "Forget all" | localStorage | the credential id to the browser's passkey provider as `allowCredentials`; nothing else |
+| `pluck-requests` (4.0.4) | open account-request secrets, removed once used or declined; "Forget all" | localStorage | Editor's NAS in `account-status` / `account-begin` (stored there only as sha256) |
+| resume key (4.0.4) | 32 random bytes from the host after sign-in | **page memory only**, never stored; the host forgets it after 12 h, on removal or reset | never sent again: reconnects send an HMAC of the session |
 
 No cookies, no analytics, no third-party scripts or fonts (CSP `default-src 'self'`). The key stays in the
 fragment; `Referrer-Policy: no-referrer`. ePrivacy art. 5(3): all of this is "strictly necessary" for a feature
@@ -137,6 +140,18 @@ Client name, email, comments, drawings, approvals with proof (`DeliverProof.swif
 forever, default 90**, 20,000 entries per link, `DeliverActivity.swift`; NAS hosts get the same days in the manifest
 `activityDays`, `host.rs` `compact`, R8). "Delete Link and Its Data…" deletes a link's log (R11), watermarks with name/email. Never on the owner's server. Spec test asserts the host log
 has no `ip` (`host.rs:2088`).
+
+**Accounts (4.0.4, plan 2026-11-17-accounts-passkeys.md §1.9).** `<data>/accounts.json` on the main NAS (0600,
+tmp + rename; `Helpers/PluckReview/src/accounts.rs`), pulled whole by the backup (`_accounts`, `replica.rs`): team id
+and name, the team room's level-2 record, per person name, optional email, role, footage rights, added/by/last seen,
+per passkey the credential id, SPKI public key, a label (browser and OS family from the page), added, last used and
+sign count; invites as sha256 of the code with person, kind, by, made, expiry, used/usedBy; requests with name,
+email, link id, time, state and the sha256 of the browser's secret. Activity gains `signedIn`, `footage` (path,
+range) and team `uploaded` lines with the account name, under the same retention. Removing a person deletes the
+record, its passkeys and open invites (`person_remove`). pluck.tools: nothing new (the team room is one more room).
+"What it keeps" on privacy.astro: unchanged, checked 2026-11-17 against `deploy/worker` (no Worker change).
+The user's passkey provider (iCloud Keychain, Google Password Manager, Bitwarden/Vaultwarden) keeps the private key,
+`pluck.tools` and "Name · Company" under its own policy.
 
 ### 3.4 Edit Anywhere (Remote/**, Helpers/PluckIroh, Helpers/PluckTunnel)
 

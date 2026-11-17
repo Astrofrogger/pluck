@@ -1098,3 +1098,404 @@ async fn uploads_during_an_outage_move_to_the_main() {
 fn waiting_on(backup: &Path) -> usize {
     std::fs::read(backup.join("outage.json")).ok().and_then(|b| serde_json::from_slice::<Vec<Value>>(&b).ok()).map_or(usize::MAX, |v| v.len())
 }
+
+// ---- accounts with passkeys: the built site in headless Chrome, a virtual authenticator over CDP (plan 2026-11-17 §9) ----
+
+const SITE_PORT: u16 = 8851; // the page and its signaling; a passkey's origin is http://localhost:8851
+const CDP_PORT: u16 = 8852;
+const LINK_KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"; // §3 vector: ROOM, AUTH and PUB come from it
+const ANDROID: &str = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Mobile Safari/537.36";
+/// Test-only, injected by CDP (not in the site): the page's data channels, so a test can drop the connection.
+const HOOK: &str = "window.__chs=[];window.__haves=[];const o=RTCPeerConnection.prototype.createDataChannel;RTCPeerConnection.prototype.createDataChannel=function(...a){const c=o.apply(this,a);window.__chs.push(c);c.addEventListener('message',(e)=>{if(typeof e.data==='string'&&e.data.includes('\"have\"'))try{window.__haves.push(JSON.parse(e.data).have)}catch{}});return c};";
+
+/// The built site's files and the signaling stand-in (one stub per room, as the Room DO) on one localhost port.
+async fn site_and_signaling(site: std::path::PathBuf) {
+    let l = TcpListener::bind(("127.0.0.1", SITE_PORT)).await.unwrap();
+    let rooms: Arc<Mutex<HashMap<String, Stub>>> = Arc::default();
+    tokio::spawn(async move {
+        loop {
+            let Ok((tcp, _)) = l.accept().await else { continue };
+            let (rooms, site) = (rooms.clone(), site.clone());
+            tokio::spawn(async move {
+                let mut head = [0u8; 4096];
+                let k = tcp.peek(&mut head).await.unwrap_or(0);
+                if String::from_utf8_lossy(&head[..k]).to_ascii_lowercase().contains("upgrade: websocket") { room_socket(tcp, rooms).await } else { serve_file(tcp, &site).await }
+            });
+        }
+    });
+}
+
+async fn serve_file(mut s: tokio::net::TcpStream, site: &Path) {
+    use tokio::io::AsyncReadExt;
+    let mut buf = vec![0u8; 16384];
+    let mut n = 0;
+    while !String::from_utf8_lossy(&buf[..n]).contains("\r\n\r\n") && n < buf.len() {
+        match s.read(&mut buf[n..]).await { Ok(0) | Err(_) => return, Ok(k) => n += k }
+    }
+    let line = String::from_utf8_lossy(&buf[..n]).lines().next().unwrap_or("").to_owned();
+    let path = line.split(' ').nth(1).unwrap_or("/").split('?').next().unwrap_or("/").to_owned();
+    let mut file = site.join(path.trim_start_matches('/'));
+    if path.starts_with("/r/") || path == "/r" { file = site.join("r/index.html") } else if file.is_dir() { file = file.join("index.html") }
+    let (status, body) = match std::fs::read(&file) { Ok(b) if !path.contains("..") => ("200 OK", b), _ => ("404 Not Found", vec![]) };
+    let ty = match file.extension().and_then(|e| e.to_str()).unwrap_or("") {
+        "js" | "mjs" => "text/javascript", "css" => "text/css", "svg" => "image/svg+xml", "png" => "image/png", "json" | "webmanifest" => "application/json", _ => "text/html",
+    };
+    let _ = s.write_all(format!("HTTP/1.1 {status}\r\nContent-Type: {ty}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len()).as_bytes()).await;
+    let _ = s.write_all(&body).await;
+}
+
+async fn room_socket(tcp: tokio::net::TcpStream, rooms: Arc<Mutex<HashMap<String, Stub>>>) {
+    let mut path = String::new();
+    let cb = |req: &Request, res: Response| { path = req.uri().path().to_owned(); Ok(res) };
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async(tcp, cb).await else { return };
+    let room = path.trim_start_matches("/signal/").to_owned();
+    let (mut w, mut r) = ws.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<String>();
+    tokio::spawn(async move { while let Some(m) = rx.recv().await { if w.send(Message::text(m)).await.is_err() { break } } });
+    let mut me: Option<String> = None;
+    while let Some(Ok(m)) = r.next().await {
+        let Message::Text(t) = m else { continue };
+        let Ok(mut v) = serde_json::from_str::<Value>(&t) else { continue };
+        let mut all = rooms.lock().unwrap();
+        let total = all.values().map(|s| s.n).sum::<u32>();
+        let s = all.entry(room.clone()).or_default();
+        match (v["t"].as_str().unwrap_or(""), me.as_deref()) {
+            ("mac-register", _) => {
+                s.mac = Some(tx.clone());
+                me = Some("mac".into());
+                let _ = tx.send(json!({"t": "registered", "peers": []}).to_string());
+                for b in s.browsers.values() { let _ = b.send(json!({"t": "mac-here", "ice": []}).to_string()); }
+            }
+            ("browser-join", _) => {
+                s.n += 1;
+                let id = format!("p_web{}", total + 1);
+                s.browsers.insert(id.clone(), tx.clone());
+                let _ = tx.send(json!({"t": "joined", "peer": id, "mac": s.mac.is_some(), "ice": []}).to_string());
+                me = Some(id);
+            }
+            ("ping", _) => { let _ = tx.send(r#"{"t":"pong"}"#.into()); }
+            (_, Some("mac")) => {
+                let peer = v["peer"].as_str().unwrap_or("").to_owned();
+                v.as_object_mut().unwrap().remove("peer");
+                if v["t"] == "kick" { s.browsers.remove(&peer); } else if let Some(b) = s.browsers.get(&peer) { let _ = b.send(v.to_string()); }
+            }
+            (_, Some(peer)) => {
+                v["peer"] = json!(peer);
+                if let Some(m) = &s.mac { let _ = m.send(v.to_string()); }
+            }
+            _ => {}
+        }
+    }
+    if me.as_deref() == Some("mac") {
+        if let Some(s) = rooms.lock().unwrap().get_mut(&room) { s.mac = None }
+    }
+}
+
+/// Chrome DevTools over its browser socket, one flat session per page.
+struct Cdp {
+    w: futures_util::stream::SplitSink<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>, Message>,
+    r: futures_util::stream::SplitStream<tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>>,
+    id: u64,
+    events: VecDeque<Value>,
+    authn: HashMap<String, String>, // page session → its virtual authenticator
+}
+
+impl Cdp {
+    async fn open() -> Cdp {
+        use tokio::io::AsyncReadExt;
+        let deadline = Instant::now() + T;
+        let url = loop {
+            if let Ok(mut s) = tokio::net::TcpStream::connect(("127.0.0.1", CDP_PORT)).await {
+                let _ = s.write_all(b"GET /json/version HTTP/1.1\r\nHost: 127.0.0.1:8852\r\nConnection: close\r\n\r\n").await;
+                let mut out = vec![];
+                let _ = tokio::time::timeout(Duration::from_secs(5), s.read_to_end(&mut out)).await;
+                let t = String::from_utf8_lossy(&out);
+                if let Some(v) = t.split("\r\n\r\n").nth(1).and_then(|b| serde_json::from_str::<Value>(b).ok()) {
+                    break v["webSocketDebuggerUrl"].as_str().unwrap().to_owned();
+                }
+            }
+            assert!(Instant::now() < deadline, "Chrome didn't open its DevTools port");
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        };
+        let (ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+        let (w, r) = ws.split();
+        Cdp { w, r, id: 0, events: VecDeque::new(), authn: HashMap::new() }
+    }
+
+    async fn call(&mut self, session: Option<&str>, method: &str, params: Value) -> Value {
+        self.id += 1;
+        let id = self.id;
+        let mut m = json!({"id": id, "method": method, "params": params});
+        if let Some(s) = session { m["sessionId"] = json!(s) }
+        self.w.send(Message::text(m.to_string())).await.unwrap();
+        loop {
+            let v = next_json(&mut self.r).await;
+            if v["id"] == id {
+                assert!(v.get("error").is_none(), "{method}: {v}");
+                return v["result"].clone();
+            }
+            if v.get("method").is_some() {
+                self.events.push_back(v);
+                if self.events.len() > 2000 { self.events.pop_front(); }
+            }
+        }
+    }
+
+    async fn event(&mut self, method: &str) -> Value {
+        if let Some(i) = self.events.iter().position(|e| e["method"] == method) { return self.events.remove(i).unwrap() }
+        loop {
+            let v = next_json(&mut self.r).await;
+            if v["method"] == method { return v }
+        }
+    }
+
+    /// A page in `context` (None: the default profile), with its own virtual authenticator (§9: ctap2, internal, resident
+    /// keys, user verification as given, presence answered by itself).
+    async fn page(&mut self, context: Option<&str>, uv: bool, android: bool) -> String {
+        let mut p = json!({"url": "about:blank"});
+        if let Some(c) = context { p["browserContextId"] = json!(c) }
+        let target = self.call(None, "Target.createTarget", p).await["targetId"].clone();
+        let s = self.call(None, "Target.attachToTarget", json!({"targetId": target, "flatten": true})).await["sessionId"].as_str().unwrap().to_owned();
+        let s = s.as_str();
+        self.call(Some(s), "Page.enable", json!({})).await;
+        self.call(Some(s), "Page.addScriptToEvaluateOnNewDocument", json!({"source": HOOK})).await;
+        self.call(Some(s), "WebAuthn.enable", json!({"enableUI": false})).await;
+        let a = self.call(Some(s), "WebAuthn.addVirtualAuthenticator", json!({"options": {"protocol": "ctap2", "transport": "internal", "hasResidentKey": true,
+            "hasUserVerification": true, "isUserVerified": uv, "automaticPresenceSimulation": true}})).await;
+        self.authn.insert(s.to_owned(), a["authenticatorId"].as_str().unwrap().to_owned());
+        if android {
+            self.call(Some(s), "Emulation.setUserAgentOverride", json!({"userAgent": ANDROID, "platform": "Linux armv8l"})).await;
+            self.call(Some(s), "Emulation.setDeviceMetricsOverride", json!({"width": 390, "height": 844, "deviceScaleFactor": 3, "mobile": true})).await;
+        }
+        s.to_owned()
+    }
+
+    async fn context(&mut self) -> String {
+        self.call(None, "Target.createBrowserContext", json!({})).await["browserContextId"].as_str().unwrap().to_owned()
+    }
+
+    async fn go(&mut self, s: &str, url: &str) {
+        self.call(Some(s), "Page.navigate", json!({"url": url})).await;
+    }
+
+    async fn eval(&mut self, s: &str, js: &str) -> Value {
+        let r = self.call(Some(s), "Runtime.evaluate", json!({"expression": js, "returnByValue": true, "awaitPromise": true, "userGesture": true})).await;
+        r["result"]["value"].clone()
+    }
+
+    /// Wait until `js` is truthy (30 s), else fail with what the page shows.
+    async fn until(&mut self, s: &str, js: &str, what: &str) {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            let v = self.eval(s, &format!("(()=>{{try{{return !!({js})}}catch(e){{return false}}}})()")).await;
+            if v == true { return }
+            if Instant::now() > deadline {
+                let body = self.eval(s, "document.body.innerText").await;
+                panic!("{what}: timed out; the page shows: {body}");
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
+    }
+
+    async fn sees(&mut self, s: &str, text: &str) {
+        self.until(s, &format!("document.body.innerText.includes({})", json!(text)), text).await
+    }
+
+    /// Click the last visible, enabled button whose text is `label` (dialogs come last in the body).
+    async fn click(&mut self, s: &str, label: &str) {
+        let js = format!("(()=>{{const b=[...document.querySelectorAll('button')].filter(b=>!b.disabled&&b.getClientRects().length&&b.textContent.trim()==={}).pop();if(!b)return false;b.click();return true}})()", json!(label));
+        self.until(s, &js, &format!("button {label}")).await;
+    }
+
+    async fn credentials(&mut self, s: &str) -> usize {
+        let id = self.authn[s].clone();
+        let a = self.call(Some(s), "WebAuthn.getCredentials", json!({"authenticatorId": id})).await;
+        a["credentials"].as_array().map_or(0, |c| c.len())
+    }
+}
+
+/// Asks the helper's host (Pluck's stdin sync path) and returns its answer.
+async fn host_op(h: &mut Helper, op: Value) -> Value {
+    h.line(json!({"host": op})).await;
+    h.wait(|v| v.get("host").is_some()).await["host"].clone()
+}
+
+/// W-1…W-4 and the hand-off cases of plan 2026-11-17 §9 step 5, against the built site (PLUCK_REVIEW_SITE: the
+/// astro build's out dir) in a windowless Chrome (PLUCK_REVIEW_BROWSER):
+/// `cargo test --release --test e2e -- --ignored real_browser_passkeys --nocapture`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore]
+async fn real_browser_passkeys() {
+    let (Ok(browser), Ok(site)) = (std::env::var("PLUCK_REVIEW_BROWSER"), std::env::var("PLUCK_REVIEW_SITE")) else {
+        return eprintln!("PLUCK_REVIEW_BROWSER or PLUCK_REVIEW_SITE not set: skipped");
+    };
+    assert!(Path::new(&site).join("r/index.html").exists(), "PLUCK_REVIEW_SITE must be an astro build output");
+    str0m::crypto::from_feature_flags().install_process_default();
+    site_and_signaling(site.into()).await;
+    let base = tmp("passkeys");
+    let (data, renders, media) = (base.join("data"), base.join("renders"), base.join("media"));
+    std::fs::create_dir_all(&renders).unwrap();
+    random_file(&media.join("Day 1/A001.mp4"), 300_000);
+    let b = data.join("bundle");
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(b.join("manifest.json"), json!({"format": 1,
+        "links": [{"id": "L1", "roomID": ROOM, "reg": REG, "auth": AUTH, "sign": SEED, "join": JOIN, "title": "Cuts", "mode": "review", "expires": null, "revoked": null,
+                   "project": "P1", "root": {"kind": "project", "id": "P1", "name": "Spring"}}],
+        "projects": [{"id": "P1", "name": "Spring", "folders": [], "assets": [{"id": "A1", "name": "Hero", "kind": "image", "folder": null,
+            "versions": [{"id": "V1", "number": 1, "frames": 1, "renditions": []}]}]}]}).to_string()).unwrap();
+    let origin = format!("http://localhost:{SITE_PORT}");
+    let mut h = Helper::start(json!({"signal": format!("ws://127.0.0.1:{SITE_PORT}/signal"), "stun": [], "local": true,
+        "host": {"dir": data.to_string_lossy(), "webauthnOrigin": origin, "uploads": format!("renders={}", renders.display()),
+                 "media": [format!("media={}", media.display())]}})).await;
+    h.wait(|v| v["room"]["state"] == "active").await;
+    assert_eq!(host_op(&mut h, json!({"op": "team-set", "name": "Northwind Films"})).await["ok"], true);
+    h.wait(|v| v["room"]["state"] == "active" && v["room"]["room"] != ROOM).await; // the team room is held
+    let invite = |name: &str, role: &str| json!({"op": "person-invite", "name": name, "role": role, "footage": true});
+    let inv = host_op(&mut h, invite("Editor One", "editor")).await;
+    let link = inv["link"].as_str().unwrap().to_owned();
+    assert!(link.starts_with(&format!("{origin}/r/#")) && link.contains("/i/"), "{link}");
+    let team = link.split("/i/").next().unwrap().to_owned();
+
+    let profile = tmp("passkeys-chrome");
+    let mut chrome = Command::new(&browser).args(["--headless=new", "--no-first-run", "--disable-gpu", "--disable-extensions", "--mute-audio",
+        "--disable-features=WebRtcHideLocalIpsWithMdns", &format!("--remote-debugging-port={CDP_PORT}")])
+        .arg(format!("--user-data-dir={}", profile.display())).arg("about:blank").stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true).spawn().unwrap();
+    let mut c = Cdp::open().await;
+    let ok = |s: &str| eprintln!("passkeys: {s} ok");
+
+    // W-1: invite → create passkey → projects; the code leaves the address; reload → sign in with the same passkey (the hint).
+    let a = c.page(None, true, false).await;
+    c.go(&a, &link).await;
+    c.sees(&a, "Create your passkey").await;
+    c.click(&a, "Create passkey").await;
+    c.sees(&a, "Spring").await;
+    assert_eq!(c.eval(&a, "location.hash.includes('/i/')").await, false, "the invite code is stripped");
+    assert_eq!(c.eval(&a, "JSON.parse(localStorage.getItem('pluck-teams')).length").await, 1);
+    assert_eq!(c.eval(&a, "JSON.parse(localStorage.getItem('pluck-teams'))[0].link").await, json!(team), "the plain team link is kept");
+    // A project is the review-link grid with `project` on each op; footage browses read-only; another device gets a /d/ link.
+    c.eval(&a, "document.querySelector('.rv-folder').click()").await;
+    c.sees(&a, "Hero").await;
+    assert_eq!(c.eval(&a, "location.hash.includes('/p/P1')").await, true);
+    c.eval(&a, "history.back()").await;
+    c.click(&a, "Footage").await;
+    c.eval(&a, "(async()=>{for(const n of ['media','Day 1']){for(let i=0;i<50&&![...document.querySelectorAll('.rv-folder')].some(b=>b.textContent===n);i++)await new Promise(r=>setTimeout(r,100));[...document.querySelectorAll('.rv-folder')].find(b=>b.textContent===n).click()}})()").await;
+    c.sees(&a, "A001.mp4").await;
+    c.click(&a, "Open on another device").await;
+    c.until(&a, "document.querySelector('dialog[open] .rv-qr') && document.querySelector('dialog[open] input').value.includes('/d/')", "a device link and its QR").await;
+    c.click(&a, "Close").await;
+    c.go(&a, "about:blank").await;
+    c.go(&a, &team).await;
+    c.sees(&a, "Sign in to Northwind Films").await;
+    c.click(&a, "Sign in with a passkey").await;
+    c.sees(&a, "Spring").await;
+    assert_eq!(c.credentials(&a).await, 1, "signed in with the passkey made at the invite");
+    ok("W-1");
+
+    // W-2: a passkey the page made itself is refused, and nothing of the team shows.
+    let ctx = c.context().await;
+    let w2 = c.page(Some(&ctx), true, false).await;
+    c.go(&w2, &team).await;
+    c.sees(&w2, "Sign in to Northwind Films").await;
+    let made = c.eval(&w2, "navigator.credentials.create({publicKey:{rp:{id:location.hostname,name:'x'},user:{id:new Uint8Array(16).fill(9),name:'Someone · Elsewhere',displayName:'Someone'},challenge:new Uint8Array(32),pubKeyCredParams:[{type:'public-key',alg:-7}],authenticatorSelection:{residentKey:'required',userVerification:'required'}}}).then(()=>true,(e)=>String(e))").await;
+    assert_eq!(made, true, "{made}");
+    c.click(&w2, "Sign in with a passkey").await;
+    c.sees(&w2, "That passkey isn't for Northwind Films").await;
+    assert_eq!(c.eval(&w2, "document.body.innerText.includes('Spring')").await, false, "no data");
+    ok("W-2");
+
+    // W-3: the used invite again in a new profile → "already used"; an invite past its expiry → "expired".
+    let ctx = c.context().await;
+    let w3 = c.page(Some(&ctx), true, false).await;
+    c.go(&w3, &link).await;
+    c.sees(&w3, "Invite already used").await;
+    let old = host_op(&mut h, invite("Late One", "client")).await;
+    let mut file = host_op(&mut h, json!({"op": "_accounts"})).await;
+    for i in file["invites"].as_array_mut().unwrap() {
+        if i["person"] == old["person"] { i["expires"] = json!("2000-01-01T00:00:00Z") } // test only: its expiry passed
+    }
+    assert_eq!(host_op(&mut h, json!({"op": "_accounts-apply", "accounts": file})).await["ok"], true);
+    let ctx = c.context().await;
+    let w3b = c.page(Some(&ctx), true, false).await;
+    c.go(&w3b, old["link"].as_str().unwrap()).await;
+    c.sees(&w3b, "Invite expired").await;
+    ok("W-3");
+
+    // User verification is required: an authenticator that can't verify makes no passkey.
+    let uv = host_op(&mut h, invite("No Verify", "editor")).await;
+    let ctx = c.context().await;
+    let nu = c.page(Some(&ctx), false, false).await;
+    c.go(&nu, uv["link"].as_str().unwrap()).await;
+    c.sees(&nu, "Create your passkey").await;
+    c.click(&nu, "Create passkey").await;
+    c.sees(&nu, "No passkey was used").await;
+    assert_eq!(c.credentials(&nu).await, 0);
+    assert_eq!(c.eval(&nu, "document.body.innerText.includes('Spring')").await, false);
+    ok("UV required");
+
+    // Mobile (Android UA): upload into the uploads root, the connection dropped at about half, the page resumes with its
+    // in-memory key (no prompt) and finishes; the file on disk is the file.
+    let up = host_op(&mut h, invite("Phone One", "editor")).await;
+    let ctx = c.context().await;
+    let m = c.page(Some(&ctx), true, true).await;
+    c.go(&m, up["link"].as_str().unwrap()).await;
+    c.click(&m, "Create passkey").await;
+    c.sees(&m, "Spring").await;
+    let clip = base.join("phone/Clip.mp4");
+    let body = random_file(&clip, 64 << 20);
+    c.call(Some(&m), "Page.setInterceptFileChooserDialog", json!({"enabled": true})).await;
+    c.eval(&m, "window.__drop=setInterval(()=>{const p=document.querySelector('.rv-upload progress');if(p&&p.value>=.4){clearInterval(window.__drop);window.__dropped=true;window.__chs.filter(c=>c.label==='ctl'&&c.readyState==='open').forEach(c=>c.close())}},2)").await;
+    c.click(&m, "Upload").await;
+    c.click(&m, "Choose files").await;
+    let fc = c.event("Page.fileChooserOpened").await;
+    c.call(Some(&m), "DOM.setFileInputFiles", json!({"files": [clip.to_string_lossy()], "backendNodeId": fc["params"]["backendNodeId"]})).await;
+    c.until(&m, "window.__dropped", "the connection dropped mid-upload").await;
+    c.sees(&m, "Uploaded").await;
+    assert_eq!(c.eval(&m, "document.body.innerText.includes('Create your passkey')||document.body.innerText.includes('Sign in to')").await, false, "no prompt on resume");
+    let haves = c.eval(&m, "window.__haves").await;
+    assert!(haves[0] == 0 && haves[1].as_u64().is_some_and(|n| n > 0 && n < body.len() as u64), "begun at 0, resumed from what the host had: {haves}");
+    assert!(std::fs::read(renders.join("Clip.mp4")).unwrap() == body, "the file on disk is the file");
+    let ups = host_op(&mut h, json!({"op": "pull", "since": 0})).await;
+    assert!(ups["entries"].as_array().unwrap().iter().any(|e| e["upload"]["for"] == "root" && e["upload"]["by"] == "Phone One"));
+    ok("mobile upload resume");
+
+    // W-4: on a review link, "Make an account…" → waiting (no "Create passkey"); accepted in Pluck → the event → create
+    // → signed in, and a new comment carries the account name.
+    let ctx = c.context().await;
+    let r = c.page(Some(&ctx), true, false).await;
+    c.go(&r, &format!("{origin}/r/{ROOM}#{LINK_KEY}.{PUB}")).await;
+    c.click(&r, "Sign in").await;
+    c.click(&r, "Make an account…").await;
+    c.eval(&r, "(()=>{const i=document.querySelector('dialog[open] input[type=text]');i.value='Dana';return true})()").await;
+    c.click(&r, "Ask for an account").await;
+    c.sees(&r, "Waiting for approval").await;
+    c.click(&r, "Close").await;
+    c.until(&r, "JSON.parse(localStorage.getItem('pluck-requests')).length === 1", "the request secret is kept").await;
+    assert_eq!(c.eval(&r, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Create passkey')").await, false, "no passkey while pending");
+    let people = host_op(&mut h, json!({"op": "people"})).await;
+    let req = people["requests"].as_array().unwrap().iter().find(|q| q["name"] == "Dana").unwrap()["id"].clone();
+    assert_eq!(host_op(&mut h, json!({"op": "request-accept", "id": req})).await["ok"], true);
+    c.sees(&r, "Your account was approved").await;
+    c.click(&r, "Create passkey").await;
+    c.click(&r, "Create passkey").await;
+    c.sees(&r, "Signed in as Dana").await;
+    assert_eq!(c.eval(&r, "JSON.parse(localStorage.getItem('pluck-requests')||'[]').length").await, 0, "the request is used");
+    c.eval(&r, &format!("location.hash='#{LINK_KEY}.{PUB}/a/A1'")).await;
+    c.until(&r, "document.querySelector('.rv-compose-text')", "the composer").await;
+    c.eval(&r, "(()=>{const t=document.querySelector('.rv-compose-text');t.value='Signed in comment';t.dispatchEvent(new Event('input'));t.form.requestSubmit();return true})()").await;
+    c.sees(&r, "Signed in comment").await;
+    let pulled = host_op(&mut h, json!({"op": "pull", "since": 0})).await;
+    assert!(pulled["entries"].as_array().unwrap().iter().any(|e| e["comment"]["text"] == "Signed in comment" && e["comment"]["author"] == "Dana"), "the account name on the comment");
+    ok("W-4");
+
+    // Removed during a session: the removed screen at once.
+    let people = host_op(&mut h, json!({"op": "people"})).await;
+    let ed = people["people"].as_array().unwrap().iter().find(|p| p["name"] == "Editor One").unwrap()["id"].clone();
+    assert_eq!(host_op(&mut h, json!({"op": "person-remove", "id": ed})).await["ok"], true);
+    c.sees(&a, "Your access was removed").await;
+    assert_eq!(c.eval(&a, "document.body.innerText.includes('Spring')").await, false);
+    ok("removed");
+
+    let _ = chrome.kill().await;
+    let _ = std::fs::remove_dir_all(base);
+    let _ = std::fs::remove_dir_all(profile);
+}

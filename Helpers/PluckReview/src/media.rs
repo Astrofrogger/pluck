@@ -216,12 +216,29 @@ impl Upload {
 /// It reports Ev::Wrote after each piece, then once more with the SHA-256 (base64url) when all
 /// `size` bytes are on disk. If the upload ends early (cancelled, failed, peer gone), the partial
 /// file is deleted.
+#[cfg(test)]
 pub fn spawn_writer(path: String, size: u64, peer: String, upload: u32, ev: mpsc::UnboundedSender<Ev>) -> mpsc::UnboundedSender<Vec<u8>> {
+    spawn_writer_at(path, size, None, peer, upload, ev)
+}
+
+/// `at`: a resumable upload (an uploads-root partial, accounts plan §4.4): the existing file (never made, never followed
+/// if a link) is cut to `at` bytes and `size` more go after them. It is kept when the upload ends early, for the resume;
+/// the hash reported covers only the new bytes (the host hashes the whole file at the end).
+pub fn spawn_writer_at(path: String, size: u64, at: Option<u64>, peer: String, upload: u32, ev: mpsc::UnboundedSender<Ev>) -> mpsc::UnboundedSender<Vec<u8>> {
     use sha2::Digest;
-    use tokio::io::AsyncWriteExt;
+    use tokio::io::{AsyncSeekExt, AsyncWriteExt};
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
     tokio::spawn(async move {
-        let mut f = match tokio::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).await {
+        let opened = match at {
+            None => tokio::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).await,
+            Some(off) => async {
+                let mut f = tokio::fs::OpenOptions::new().write(true).custom_flags(libc::O_NOFOLLOW).open(&path).await?;
+                f.set_len(off).await?;
+                f.seek(std::io::SeekFrom::Start(off)).await?;
+                Ok(f)
+            }.await,
+        };
+        let mut f = match opened {
             Ok(f) => f,
             Err(e) => return { let _ = ev.send(Ev::Wrote { peer, upload, res: Err(e) }); }, // not ours: never removed
         };
@@ -241,7 +258,9 @@ pub fn spawn_writer(path: String, size: u64, peer: String, upload: u32, ev: mpsc
         let res = match r {
             Ok((total, sha)) => Ok((total, Some(sha))),
             Err(e) => {
-                let _ = tokio::fs::remove_file(&path).await;
+                if at.is_none() {
+                    let _ = tokio::fs::remove_file(&path).await;
+                }
                 Err(e)
             }
         };
@@ -406,6 +425,34 @@ mod tests {
             seq += 1;
         }
         assert_eq!(big.frame(seq, &vec![0; CHUNK]), Err("beyond the credit"));
+    }
+
+    /// Accounts plan §4.4: a resumed partial is cut to `at`, written after it, and kept when the upload stops early.
+    #[tokio::test]
+    async fn a_resumed_writer_appends_and_keeps_its_partial() {
+        let dir = std::env::temp_dir().join(format!("pluck-review-resume-{}", crate::host::uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("r.part");
+        std::fs::write(&path, b"abcXX").unwrap(); // 3 good bytes, then a torn write
+        let (ev, mut rx) = mpsc::unbounded_channel();
+        let w = spawn_writer_at(path.to_string_lossy().into(), 3, Some(3), "p".into(), 1, ev.clone());
+        w.send(b"def".to_vec()).unwrap();
+        while let Some(Ev::Wrote { res, .. }) = rx.recv().await {
+            if let Ok((3, Some(_))) = res { break }
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), b"abcdef");
+        let w = spawn_writer_at(path.to_string_lossy().into(), 4, Some(6), "p".into(), 2, ev.clone());
+        w.send(b"gh".to_vec()).unwrap();
+        drop(w); // the peer went
+        while let Some(Ev::Wrote { res, .. }) = rx.recv().await {
+            if res.is_err() { break }
+        }
+        assert_eq!(std::fs::read(&path).unwrap(), b"abcdefgh", "kept for the next resume");
+        std::os::unix::fs::symlink(&path, dir.join("link.part")).unwrap();
+        let _w = spawn_writer_at(dir.join("link.part").to_string_lossy().into(), 1, Some(0), "p".into(), 3, ev.clone());
+        let Some(Ev::Wrote { res: Err(_), .. }) = rx.recv().await else { panic!("never through a link") };
+        assert!(spawn_writer_at(dir.join("none.part").to_string_lossy().into(), 1, Some(0), "p".into(), 4, ev).is_closed() || !dir.join("none.part").exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

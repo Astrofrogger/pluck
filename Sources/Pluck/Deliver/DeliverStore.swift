@@ -334,6 +334,19 @@ final class DeliverStore {
         return made
     }
 
+    /// A client's upload on a data host (§13.25), by reference, under the upload's own id: added once, by whichever Mac.
+    @discardableResult
+    func addUpload(id: UUID, name: String, path: String, size: Int64, to project: UUID, folder: UUID?) -> Deliver.Asset? {
+        guard find(id) == nil, self.project(project) != nil, content(project).assets.count < Self.assetLimit else { return nil }
+        var version = Deliver.Version(number: 1, path: path, size: size)
+        version.id = UUID(uuid: { var u = id.uuid; u.0 ^= 0xFF; return u }()) // the same on every Mac too
+        let file = URL(fileURLWithPath: name)
+        let asset = Deliver.Asset(id: id, name: Deliver.clean(file.deletingPathExtension().lastPathComponent, limit: Self.nameLimit), folder: folder,
+                                  kind: Self.kind(file), versions: [version])
+        edit(project) { $0.assets.append(asset) }
+        return asset
+    }
+
     /// A file dropped on an asset's card: the stack's next version.
     @discardableResult
     func addVersion(_ url: URL, to asset: UUID) throws -> Deliver.Version {

@@ -10,7 +10,7 @@
 //   list | put + N bytes | delete | get (+ offset/length: a range) + N bytes | roots/browse/probe/thumb
 //   invite | devices | device-remove | device-node | rotate-key | update                (role mac)
 //   mkdir | move {path,to} | upload-begin | upload-part + n bytes | upload-end | upload-cancel  (role mac, uploads root)
-//   outage-node | outage-list | outage-done                                              (role mac, §13.25)
+//   outage-node | outage-list | outage-done | local-time {offset}                         (role mac, §13.25)
 //   pull | append | publish | changes | manifest | status | reload | prepare-update …   → host.rs `sync`
 // A backup may only use manifest, changes, pull, append, get (copies, branding), status and the outage push
 // (outage-macs, outage-begin, outage-part + n bytes, outage-end). On a backup, one of the main's Macs (role
@@ -34,7 +34,7 @@ use crate::{devices::Devices, host, keys, log, report, roots::Roots, store::PROT
 
 const MAX_LINE: usize = 1 << 20;
 pub const MAX_PUT: u64 = 256 << 30;
-const BACKUP_OPS: &[&str] = &["manifest", "changes", "pull", "append", "get", "status", "outage-macs", "outage-begin", "outage-part", "outage-end"];
+const BACKUP_OPS: &[&str] = &["_accounts", "manifest", "changes", "pull", "append", "get", "status", "outage-macs", "outage-begin", "outage-part", "outage-end"];
 const OUTAGE_OPS: &[&str] = &["upload-begin", "upload-part", "upload-end", "upload-cancel"];
 const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "outage-end"];
 
@@ -183,8 +183,8 @@ async fn line<R: AsyncBufReadExt + Unpin>(r: &mut R) -> Result<Option<Value>> {
 async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devices::Who, Value)> {
     let ok = |device: Option<String>, role: &str, key: Option<String>| {
         // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
-        // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say.
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1,
+        // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4).
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);
@@ -268,7 +268,8 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
             "backup" => BACKUP_OPS.contains(&name.as_str()),
             _ => OUTAGE_OPS.contains(&name.as_str()),
         };
-        if name.starts_with('_') || !allowed {
+        // `_accounts`: a backup's copy of the main's accounts.json (accounts plan §1.4); every other `_` op stays internal.
+        if (name.starts_with('_') && !(name == "_accounts" && who.role == "backup")) || !allowed {
             if name == "put" || name == "upload-part" || name == "outage-part" {
                 anyhow::bail!("{name} not allowed"); // its bytes can't be skipped safely
             }
@@ -342,7 +343,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 None => json!({"error": "invalid"}),
             },
             "outage-macs" => ctx.devices.outage_macs(),
-            "outage-list" | "outage-done" | "outage-begin" | "outage-part" | "outage-end" => {
+            "outage-list" | "outage-done" | "local-time" | "outage-begin" | "outage-part" | "outage-end" => {
                 let Some(o) = ctx.outage.as_ref().filter(|_| !ctx.ident.backup) else {
                     if name == "outage-part" {
                         anyhow::bail!("not a main"); // can't skip the bytes
@@ -354,6 +355,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 match name.as_str() {
                     "outage-list" => o.list(),
                     "outage-done" => o.done(op["id"].as_str().unwrap_or(""), op["path"].as_str()),
+                    "local-time" => o.set_offset(op["offset"].as_i64().unwrap_or(i64::MAX)),
                     _ => o.receive(&name, &op, r, ctx.uploads.as_deref(), &ctx.to_host).await?,
                 }
             }
@@ -589,6 +591,8 @@ pub mod tests {
             assert!(ask(&mut r, &mut w, json!({"op": "get", "path": bad})).await["error"].is_string(), "{bad}");
         }
         assert!(ask(&mut r, &mut w, json!({"op": "_replica-own"})).await["error"].is_string(), "internal ops stay internal");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "_accounts"})).await["error"], "scope", "only a backup gets the accounts file");
+        assert_eq!(hello["accounts"], 1, "says it has People (4.0.4)");
         assert_eq!(ask(&mut r, &mut w, json!({"op": "delete", "path": "uploads/L1/a.png"})).await["ok"], true);
         assert!(!data.join("uploads/L1/a.png").exists());
         drop(task);
