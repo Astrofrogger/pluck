@@ -57,6 +57,9 @@ pub struct Peer {
     queued: usize,
     max_msg: usize,
     pub uploads: Vec<media::Upload>,
+    /// Bytes written to the media channel so far, and how fast it drains (the cap on what is queued in it).
+    media_written: u64,
+    drain: media::Drain,
     rate_start: Instant,
     rate_n: u32,
     tokens: f64, // ctl requests: a bucket of CTL_BURST, refilled at CTL_RATE a second
@@ -95,7 +98,7 @@ impl Peer {
         let max_msg = max_message_size(sdp);
         let fp_remote = fingerprint(sdp).ok_or_else(|| anyhow::anyhow!("offer has no sha-256 fingerprint"))?;
         let offer = SdpOffer::from_sdp_string(sdp)?;
-        // The media channel keeps ≤ 1 MiB buffered, so 2 MiB leaves ≥ 1 MiB for ctl messages.
+        // The media channel keeps ≤ 1 MiB buffered (media::Drain), so 2 MiB leaves ≥ 1 MiB for ctl messages.
         let mut rtc = Rtc::builder().set_sctp_max_buffered_amount(2 * media::MAX_BUFFERED).build(now);
         for c in locals {
             rtc.add_local_candidate(c.clone());
@@ -108,6 +111,7 @@ impl Peer {
             id, room, rtc, ctl: None, media: None, open: false, connected: false, kill: false,
             deadline: now, last_rx: now, last_src: None, relays, fp_local, fp_remote,
             serves: vec![], waiting: VecDeque::new(), cancelled: VecDeque::new(), ctl_out: VecDeque::new(), media_out: VecDeque::new(), queued: 0, max_msg, uploads: vec![],
+            media_written: 0, drain: media::Drain::new(),
             rate_start: now, rate_n: 0, tokens: CTL_BURST, tokens_at: now,
             relay: Default::default(),
         };
@@ -365,7 +369,7 @@ impl Peer {
     }
 
     /// Write whatever fits: queued ctl first, then one frame per serve in turn (so a slow fetch
-    /// doesn't hold up the others), while the media channel holds < 1 MiB. Then ask for blocks.
+    /// doesn't hold up the others), while the media channel holds less than its cap (media::Drain). Then ask for blocks.
     pub fn pump(&mut self, socks: &Sockets) {
         if self.kill {
             return;
@@ -409,11 +413,14 @@ impl Peer {
             for i in 0..self.serves.len() {
                 let Some(f) = self.serves[i].next_frame() else { continue };
                 let Some(mut ch) = self.rtc.channel(mid) else { break 'rounds };
-                if ch.buffered_amount() >= media::MAX_BUFFERED {
+                let buffered = ch.buffered_amount();
+                self.drain.sample(Instant::now(), self.media_written, buffered);
+                if buffered >= self.drain.cap() {
                     break 'rounds;
                 }
                 match ch.write(true, &f) {
                     Ok(true) => {
+                        self.media_written += f.len() as u64;
                         self.serves[i].wrote(f.len());
                         self.drain(socks);
                         moved = true;
