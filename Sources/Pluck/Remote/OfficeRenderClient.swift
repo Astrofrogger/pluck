@@ -28,6 +28,22 @@ final class OfficeRenderClient {
         var name: String
         var device: UUID
         var secret: Data
+        /// The office Mac's own public key (OfficeGroup.link), and this Mac's private one: questions sealed for that
+        /// office Mac alone, so another office Mac that knows `secret` (one removed from the group) can't pose as this one.
+        var officeKey: Data?
+        var identity: Data?
+        /// The office has this Mac's key: the pairing secret alone no longer gets in there.
+        var registered: Bool?
+
+        /// The secret this Mac and the office Mac work out from their keys (nil: not known yet, `secret` it is).
+        var linked: Data? {
+            guard let identity, let officeKey, let mine = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: identity) else { return nil }
+            return OfficeGroup.link(mine, officeKey)
+        }
+
+        var publicIdentity: String? {
+            identity.flatMap { try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: $0) }?.publicKey.rawRepresentation.base64EncodedString()
+        }
     }
 
     /// One office Mac of the group (OfficeGroup) as this Mac sees it: how it's doing, from its last answer.
@@ -111,6 +127,13 @@ final class OfficeRenderClient {
     /// Which office Macs have each share (local folders are on one only; the NAS on all that mount it).
     @ObservationIgnored private(set) var shareOwners: [String: Set<UUID>] = [:]
     @ObservationIgnored private var memberClients: [UUID: OfficeRenderClient] = [:]
+    /// Office Macs removed from the group (as the ones left say): never asked again.
+    private(set) var revoked: Set<UUID> = []
+    /// The group was looked at since Pluck started (before the first question to it).
+    @ObservationIgnored private var refreshed = false
+
+    /// Questions go to the group's office Macs: there are several, or the paired one was removed and another is left.
+    var grouped: Bool { members.count > 1 || members.contains { $0.id != primary } }
 
     init(account: String?) {
         self.account = account
@@ -129,6 +152,7 @@ final class OfficeRenderClient {
         guard let account else { return }
         office = OfficeLink.Keychain.load(account).flatMap { try? JSONDecoder().decode(Office.self, from: $0) }
         members = OfficeLink.Keychain.load(account + "-members").flatMap { try? JSONDecoder().decode([OfficeGroup.Reach].self, from: $0) } ?? []
+        revoked = OfficeLink.Keychain.load(account + "-revoked").flatMap { try? JSONDecoder().decode(Set<UUID>.self, from: $0) } ?? []
         primary = UserDefaults.standard.string(forKey: "editAnywhereOfficePrimary").flatMap(UUID.init(uuidString:))
     }
 
@@ -136,8 +160,11 @@ final class OfficeRenderClient {
         if let account {
             OfficeLink.Keychain.delete(account)
             OfficeLink.Keychain.delete(account + "-members")
+            OfficeLink.Keychain.delete(account + "-revoked")
         }
         members = []
+        revoked = []
+        refreshed = false
         primary = nil
         active = nil
         if account != nil {
@@ -246,8 +273,11 @@ final class OfficeRenderClient {
             if !addresses.contains(typed) { addresses.append(typed) }
         }
         guard let first = network ?? addresses.first ?? (iroh != nil ? "" : nil) else { throw OfficeLink.Failure.garbled }
+        // (A key of this Mac's own, for the office Mac's: the first question registers it.)
         let office = Office(address: first, addresses: addresses, network: network, iroh: iroh?.office, irohRelay: iroh?.relay,
-                            name: answer["office"] as? String ?? "Mac", device: device, secret: secret)
+                            name: answer["office"] as? String ?? "Mac", device: device, secret: secret,
+                            officeKey: (answer["key"] as? String).flatMap { Data(base64Encoded: $0) },
+                            identity: Curve25519.KeyAgreement.PrivateKey().rawRepresentation)
         save(office)
         return answer
     }
@@ -281,19 +311,45 @@ final class OfficeRenderClient {
     struct NoRoute: Error {}
 
     func ask(_ action: String, _ arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> [String: Any] {
-        guard members.count > 1, account != nil else {
+        // A group: who was removed is heard before anything is asked of it.
+        if account != nil, !refreshed, !members.isEmpty { await refreshGroup() }
+        guard grouped, account != nil else {
+            if let primary, revoked.contains(primary) { throw OfficeLink.Failure.refused }
             do { return try await askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw OfficeLink.Failure.unreachable }
         }
         return try await askGroup(action, arguments, timeout: timeout)
     }
 
-    /// Asks this office Mac only (throws NoRoute when none of its addresses answered).
+    /// Asks this office Mac only (throws NoRoute when none of its addresses answered): sealed for it alone once it
+    /// has this Mac's key, else with the pairing secret (sending the key along).
     func askHere(_ action: String, _ arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> [String: Any] {
         guard let office else { throw OfficeLink.Failure.refused }
-        let keys = OfficeLink.keys(office.secret)
+        guard let linked = office.linked, let identity = office.publicIdentity else {
+            return try await askHere(action, arguments, timeout: timeout, secret: office.secret, identity: nil)
+        }
+        // The other way when turned away: an office Mac of the group that hasn't heard of the key yet, or one from before.
+        let ways: [(Data, String?)] = office.registered == true ? [(linked, nil), (office.secret, identity)] : [(office.secret, identity), (linked, nil)]
+        for (index, way) in ways.enumerated() {
+            do {
+                let answer = try await askHere(action, arguments, timeout: timeout, secret: way.0, identity: way.1)
+                if office.registered != true, way.1 == nil || answer["identity"] as? Bool == true, var known = self.office {
+                    known.registered = true
+                    if account != nil { save(known) } else { self.office = known }
+                }
+                return answer
+            } catch OfficeLink.Failure.refused where index == 0 {
+                continue
+            }
+        }
+        throw OfficeLink.Failure.refused
+    }
+
+    private func askHere(_ action: String, _ arguments: [String: Any], timeout: TimeInterval, secret: Data, identity: String?) async throws -> [String: Any] {
+        guard let office else { throw OfficeLink.Failure.refused }
+        let keys = OfficeLink.keys(secret)
         // A connection the office kept open goes first (for a question that may be asked again).
         if keepsConnections, Self.retryable.contains(action), let connection = takeKept() {
-            let question = try Self.question(action, arguments, office: office, keys: keys, keep: true)
+            let question = try Self.question(action, arguments, office: office, keys: keys, keep: true, identity: identity)
             do {
                 return try finish(try await Self.roundTrip(connection, question.frame, timeout: timeout, first: Self.keptFirstAnswer),
                                   nonce: question.nonce, keys: keys, on: connection)
@@ -302,7 +358,7 @@ final class OfficeRenderClient {
                 connection.cancel()
             }
         }
-        let question = try Self.question(action, arguments, office: office, keys: keys, keep: keepsConnections)
+        let question = try Self.question(action, arguments, office: office, keys: keys, keep: keepsConnections, identity: identity)
         // The private network first (it works from anywhere), then the office network's addresses,
         // the one that worked last first.
         var candidates: [String] = []
@@ -319,7 +375,7 @@ final class OfficeRenderClient {
                 tunnel = irohTunnel.listen
                 if let tunnel { candidates.append(tunnel) }
             }
-        } catch where account == nil || members.count > 1 {
+        } catch where account == nil || grouped {
             // A group's other office Macs: their link not up is no way there (their office network may still be).
         }
         for address in [office.address] + (office.addresses ?? []) where address != office.network && !candidates.contains(address) {
@@ -351,11 +407,12 @@ final class OfficeRenderClient {
 
     /// A question sealed with this Mac's key, with the time and a fresh nonce; `keep` asks the office to keep the connection.
     private static func question(_ action: String, _ arguments: [String: Any], office: Office,
-                                 keys: (request: SymmetricKey, answer: SymmetricKey), keep: Bool) throws -> (frame: Data, nonce: Data) {
+                                 keys: (request: SymmetricKey, answer: SymmetricKey), keep: Bool, identity: String?) throws -> (frame: Data, nonce: Data) {
         let nonce = OfficeLink.randomBytes(16)
         var message: [String: Any] = ["action": action, "args": arguments, "time": Date.now.timeIntervalSince1970,
                                       "nonce": nonce.base64EncodedString()]
         if keep { message["keep"] = true }
+        if let identity { message["identity"] = identity }
         let id = OfficeLink.uuidData(office.device)
         let sealed = try ChaChaPoly.seal(try JSONSerialization.data(withJSONObject: message), using: keys.request, authenticating: id)
         return (OfficeLink.frame(.request, id + sealed.combined), nonce)
@@ -463,7 +520,7 @@ final class OfficeRenderClient {
 
     func projects() async throws -> [Project] {
         // Several office Macs: the projects (and so the render) of the least busy one online.
-        if members.count > 1 {
+        if grouped {
             await pickOffice()
             renderHost = active ?? primary
         }
@@ -482,7 +539,7 @@ final class OfficeRenderClient {
     func render(_ project: Project, timeline: String, preset: String) async throws {
         let answer = try await ask("render", ["folder": project.folder, "name": project.name, "timeline": timeline, "preset": preset], timeout: 180)
         if var job = (answer["job"] as? [String: Any]).flatMap(Job.init) {
-            if members.count > 1 { job.host = answered ?? renderHost ?? active ?? primary }
+            if grouped { job.host = answered ?? renderHost ?? active ?? primary }
             mine.insert(job.id)
             jobs.insert(job, at: 0)
         }
@@ -496,7 +553,7 @@ final class OfficeRenderClient {
 
     func refresh() async throws {
         var fresh: [Job]
-        if members.count > 1 {
+        if grouped {
             // Each office Mac's renders, together (newest first).
             fresh = []
             for member in members {
@@ -637,13 +694,14 @@ extension OfficeRenderClient {
         }()
         client.use(Office(address: reach.addresses.first ?? "", addresses: reach.addresses,
                           iroh: office.iroh != nil ? reach.iroh : nil, irohRelay: reach.relay,
-                          name: reach.name, device: office.device, secret: office.secret))
+                          name: reach.name, device: office.device, secret: office.secret,
+                          officeKey: reach.key, identity: office.identity, registered: office.registered))
         return client
     }
 
     /// Asks the office Mac a render (or other thing) is on (nil: wherever).
     func ask(on host: UUID?, _ action: String, _ arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> [String: Any] {
-        guard let host, members.count > 1 else { return try await ask(action, arguments, timeout: timeout) }
+        guard let host, grouped else { return try await ask(action, arguments, timeout: timeout) }
         do { return try await client(host).askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw OfficeLink.Failure.unreachable }
     }
 
@@ -653,6 +711,7 @@ extension OfficeRenderClient {
         self.primary = primary
         self.active = active
         memberStates = [:]
+        refreshed = true
     }
 
     /// Which office Macs to try, in turn.
@@ -692,19 +751,50 @@ extension OfficeRenderClient {
     /// Learns the office's Macs from any it reaches (an office from before, or a single Mac, says none), lets this Mac's
     /// link to each in (groupNode), then picks the one to use.
     func refreshGroup() async {
-        guard let office, account != nil else { return }
-        var answer: [String: Any]?
-        for id in [primary].compactMap({ $0 }) + members.map(\.id) where answer == nil {
-            answer = try? await client(id).askHere("officeGroup", timeout: 15)
+        guard var office, account != nil else { return }
+        refreshed = true
+        if office.identity == nil {
+            office.identity = Curve25519.KeyAgreement.PrivateKey().rawRepresentation
+            save(office)
         }
-        if answer == nil, members.isEmpty { answer = try? await askHere("officeGroup", timeout: 15) }
-        guard let answer else { return }
-        let found = (answer["members"] as? String).flatMap(OfficeGroup.decode([OfficeGroup.Reach].self)) ?? []
-        let me = (answer["me"] as? String).flatMap(UUID.init(uuidString:))
+        // Every office Mac known, at once: one away while an office Mac was removed hears it from any that's left.
+        let ids = Array(Set([primary].compactMap { $0 } + members.map(\.id))).filter { !revoked.contains($0) }
+        var answers = await withTaskGroup(of: [String: Any]?.self) { group in
+            for id in ids {
+                let link = client(id)
+                group.addTask { @MainActor in try? await link.askHere("officeGroup", timeout: 15) }
+            }
+            var found: [[String: Any]] = []
+            for await answer in group { if let answer { found.append(answer) } }
+            return found
+        }
+        if answers.isEmpty, members.isEmpty, primary == nil, let answer = try? await askHere("officeGroup", timeout: 15) { answers = [answer] }
+        func who(_ answer: [String: Any]) -> UUID? { (answer["me"] as? String).flatMap(UUID.init(uuidString:)) }
+        let claims = Dictionary(answers.compactMap { answer in
+            who(answer).map { ($0, Set((answer["removed"] as? String).flatMap(OfficeGroup.decode([UUID].self)) ?? [])) }
+        }, uniquingKeysWith: { $0.union($1) })
+        let out = OfficeGroup.revoked(claims)
+        if !out.isSubset(of: revoked) {
+            revoked.formUnion(out)
+            if let account, let data = try? JSONEncoder().encode(revoked) { OfficeLink.Keychain.save(data, as: account + "-revoked") }
+        }
+        // The paired office Mac's own view first (as before), else any trusted one's.
+        let trusted = answers.filter { who($0).map { !revoked.contains($0) } ?? true }
+        guard let answer = trusted.first(where: { who($0) == primary && primary != nil }) ?? trusted.first else { return }
+        let found = ((answer["members"] as? String).flatMap(OfficeGroup.decode([OfficeGroup.Reach].self)) ?? []).filter { !revoked.contains($0.id) }
+        let me = who(answer)
         if members.isEmpty || primary == nil, let me { primary = me }
         if let primary { UserDefaults.standard.set(primary.uuidString, forKey: "editAnywhereOfficePrimary") }
+        // The paired office Mac's key, from itself (what another says of it only when none is known).
+        let primaryKey = trusted.first { who($0) == primary }.flatMap { ($0["key"] as? String).flatMap { Data(base64Encoded: $0) } }
+            ?? (office.officeKey == nil ? found.first { $0.id == primary }?.key : nil)
+        if let primaryKey, primaryKey != office.officeKey, var known = self.office {
+            known.officeKey = primaryKey
+            save(known)
+        }
+        let primaryGone = primary.map(revoked.contains) == true
         if found != members {
-            members = found.count > 1 ? found : []
+            members = found.count > 1 || (primaryGone && !found.isEmpty) ? found : []
             if let account, let data = try? JSONEncoder().encode(members) { OfficeLink.Keychain.save(data, as: account + "-members") }
             memberClients = memberClients.filter { id, client in
                 if members.contains(where: { $0.id == id }) { return true }
@@ -712,7 +802,7 @@ extension OfficeRenderClient {
                 return false
             }
         }
-        guard members.count > 1 else { return }
+        guard grouped else { return }
         if office.iroh != nil {
             let registered = Set(UserDefaults.standard.stringArray(forKey: "editAnywhereGroupNodes") ?? [])
             for member in members where member.id != primary && member.iroh != nil {
@@ -729,7 +819,7 @@ extension OfficeRenderClient {
 
     /// Asks every office Mac how it's doing (at once), and uses the least busy one online.
     func pickOffice() async {
-        guard members.count > 1 else { return }
+        guard grouped else { return }
         let asked = await withTaskGroup(of: (UUID, [String: Any]?).self) { group in
             for member in members {
                 let link = client(member.id)
