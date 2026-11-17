@@ -17,6 +17,8 @@ extension Deliver {
         var requests: [AccountRequest]?
         /// Passkey credential ids locked after failed sign-ins (15 min).
         var locked: [String]?
+        /// 1: the main approves editors' invites (`invite-approve`); an older main doesn't say.
+        var approvals: Int?
 
         init() {}
         /// Field by field: one the host changed the shape of (as `locked` was a Bool) leaves only that field empty.
@@ -28,6 +30,7 @@ extension Deliver {
             invites = try? c.decode([PersonInvite].self, forKey: .invites)
             requests = try? c.decode([AccountRequest].self, forKey: .requests)
             locked = try? c.decode([String].self, forKey: .locked)
+            approvals = try? c.decode(Int.self, forKey: .approvals)
         }
     }
 
@@ -43,8 +46,13 @@ extension Deliver {
     }
 
     struct Passkey: Codable, Hashable, Identifiable { var id: String; var label: String?; var added: String?; var lastUsed: String? }
-    struct PersonInvite: Codable, Hashable, Identifiable { var id: String; var person: String?; var kind: String?; var expires: String? }
-    struct AccountRequest: Codable, Hashable, Identifiable { var id: String; var name: String?; var email: String?; var link: String?; var at: String? }
+    /// `by`: who made it ("mac", or a person id); `approval` "pending": an editor's, waiting for an admin; `waiting`: when
+    /// the invitee opened it.
+    struct PersonInvite: Codable, Hashable, Identifiable {
+        var id: String; var person: String?; var kind: String?; var expires: String?; var by: String?; var approval: String?; var waiting: String?
+    }
+    /// `invitedBy` (only here, never from the host): an editor's invite waiting for approval, notified like a request.
+    struct AccountRequest: Codable, Hashable, Identifiable { var id: String; var name: String?; var email: String?; var link: String?; var at: String?; var invitedBy: String? }
     /// A Mac or backup paired with the server (`devices`, §13.2).
     struct PairedDevice: Codable, Hashable, Identifiable { var id: String; var name: String?; var role: String?; var lastSeen: String? }
 }
@@ -57,6 +65,8 @@ final class DeliverPeople {
     private(set) var people = Deliver.People()
     private(set) var devices: [Deliver.PairedDevice] = []
     var problem: String?
+    /// The main has no team, and one can be put back (the backup's copy, else this Mac's): its name.
+    private(set) var restorable: String?
 
     /// Requests already notified (kept, so a restart doesn't notify them again).
     private static let seenKey = "reviewPeopleSeenRequests"
@@ -93,6 +103,11 @@ final class DeliverPeople {
 
     var pending: Int { people.requests?.count ?? 0 }
 
+    /// Editors' invites waiting for an admin (this Mac, or an owner on the team page).
+    var awaiting: [Deliver.PersonInvite] { (people.invites ?? []).filter { $0.approval == "pending" } }
+
+    func name(_ person: String?) -> String? { people.people?.first { $0.id == person }?.name }
+
     /// `people` and `devices` in one session (the hello also records whether the main has accounts).
     func load() async {
         guard let main = Self.main() else { return }
@@ -107,6 +122,7 @@ final class DeliverPeople {
             heard(answer)
             devices = Self.decode([Deliver.PairedDevice].self, listed) ?? devices
             problem = nil
+            await keepTeam(main)
         } catch {
             problem = Self.problem(error)
         }
@@ -117,7 +133,7 @@ final class DeliverPeople {
         guard let decoded = Self.decode(Deliver.People.self, answer) else { return }
         people = decoded
         let seen = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
-        let requests = decoded.requests ?? []
+        let requests = (decoded.requests ?? []) + awaiting.map { .init(id: $0.id, name: name($0.person), invitedBy: name($0.by) ?? "") }
         announce(requests.filter { !seen.contains($0.id) })
         UserDefaults.standard.set(requests.map(\.id), forKey: Self.seenKey)
     }
@@ -147,7 +163,10 @@ final class DeliverPeople {
         noticeTask = nil
         guard !queued.isEmpty else { return }
         let content = UNMutableNotificationContent()
-        if queued.count == 1 {
+        if queued.count == 1, let by = queued[0].invitedBy {
+            content.title = String(localized: "\(queued[0].name ?? "") is waiting for your approval")
+            content.body = by.isEmpty ? "" : String(localized: "invited by \(by)")
+        } else if queued.count == 1 {
             content.title = String(localized: "\(queued[0].name ?? "") asks for an account")
             content.body = queued[0].email ?? ""
         } else {
@@ -179,6 +198,54 @@ final class DeliverPeople {
         }
     }
 
+    // MARK: The team's identity (id, name, key): kept on this Mac, put back on a wiped main
+
+    /// One entry in the vault (DeliverKeychain → PluckVault): `{format, team, settings}` of the last team the main had.
+    static let teamService = "tools.pluck.review.team", teamAccount = "team"
+
+    static func savedTeam() -> [String: Any]? {
+        DeliverKeychain.load(teamAccount, service: teamService).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+    }
+
+    /// The main has a team: keep a copy when it's new or changed (its link changes with its key). It has none: find
+    /// what can restore it, preferring the backup's copy (everyone and their passkeys) to this Mac's (the team only).
+    /// The team link last exported this run (tests clear it).
+    @ObservationIgnored var exported: String?
+
+    private func keepTeam(_ main: Deliver.Host) async {
+        let saved = Self.savedTeam()
+        if let link = people.team?.link {
+            restorable = nil
+            guard (saved?["team"] as? [String: Any])?["link"] as? String != link, exported != link else { return }
+            exported = link // asked once per team link and run, even if the main can't answer
+            guard let file = try? await ReviewHostClient.ask(main, ["op": "team-export"]), let team = file["team"] as? [String: Any] else { return }
+            var copy: [String: Any] = ["format": 1, "team": team.merging(["link": link]) { $1 }]
+            copy["settings"] = file["settings"]
+            if let data = try? JSONSerialization.data(withJSONObject: copy) { DeliverKeychain.save(data, as: Self.teamAccount, service: Self.teamService) }
+        } else {
+            let file = await restoreFile()
+            restorable = (file?["team"] as? [String: Any])?["name"] as? String
+        }
+    }
+
+    private func restoreFile() async -> [String: Any]? {
+        for backup in ReviewPublish.shared.hosts where backup.kind == .nas && backup.role == "backup" {
+            if let file = try? await ReviewHostClient.ask(backup, ["op": "team-export"]), file["format"] as? Int == 1 { return file }
+        }
+        return Self.savedTeam()
+    }
+
+    /// Put the team back on a main that has none (the main refuses when it has one: its own data comes first).
+    @discardableResult
+    func restoreTeam() async -> Bool {
+        guard let file = await restoreFile() else { return false }
+        return await run(["op": "team-restore", "accounts": file])?["ok"] as? Bool == true
+    }
+
+    /// Start a new team: a new key for the same team; the old key signs the move, so browsers that know the team
+    /// follow. Everyone is invited again (their passkeys were for the old key).
+    func startNewTeam() async { await run(["op": "team-reset"]) }
+
     /// A one-time link for a person, shown once (an invite, or Reset sign-in).
     struct OneTimeLink: Identifiable, Hashable {
         var link: String
@@ -193,7 +260,9 @@ final class DeliverPeople {
 
     /// The team first if there's none yet (named after the branding), then the person and their invite.
     func invite(name: String, role: String, footage: Bool) async -> OneTimeLink? {
-        if people.team?.id == nil {
+        if people.team?.id == nil, restorable != nil, await restoreTeam() {
+            // the same team back (a wiped main): no new one
+        } else if people.team?.id == nil {
             let brand = DeliverStore.shared.branding?.name.trimmingCharacters(in: .whitespaces) ?? ""
             guard await run(brand.isEmpty ? ["op": "team-set"] : ["op": "team-set", "name": brand]) != nil else { return nil }
         }
@@ -205,6 +274,7 @@ final class DeliverPeople {
     func remove(_ person: String) async { await run(["op": "person-remove", "id": person]) }
     func removePasskey(_ id: String, of person: String) async { await run(["op": "passkey-remove", "person": person, "id": id]) }
     func cancelInvite(_ id: String) async { await run(["op": "invite-cancel", "id": id]) }
+    func approveInvite(_ id: String) async { await run(["op": "invite-approve", "id": id]) }
     func answer(_ request: String, accept: Bool) async { await run(["op": accept ? "request-accept" : "request-decline", "id": request]) }
     func setTeam(name: String? = nil, editorsInvite: Bool? = nil) async {
         var op: [String: Any] = ["op": "team-set"]
@@ -265,6 +335,7 @@ struct DeliverPeopleView: View {
     @State private var resetting: Deliver.Person?
     @State private var teamName = ""
     @State private var copied = false
+    @State private var resettingTeam = false
 
     var body: some View {
         ScrollView {
@@ -307,10 +378,19 @@ struct DeliverPeopleView: View {
             Button("Reset Sign-in") { if let id = resetting?.id { Task { shown = await model.reset(id) } } }
             Button("Cancel", role: .cancel) {}
         } message: { Text("Their passkeys go, and you get a new invite link for them.") }
+        .confirmationDialog(Text("Start a new team?"), isPresented: $resettingTeam) {
+            Button("Start a New Team", role: .destructive) { Task { await model.startNewTeam() } }
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("The team gets a new key and link. Everyone is signed out and needs a new invite.") }
     }
 
     @ViewBuilder private var content: some View {
         if let problem = model.problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
+        if model.people.team?.id == nil, let name = model.restorable {
+            SettingNote(text: Text("This server has no team. Restore “\(name)” so its links and passkeys keep working."), symbol: "arrow.counterclockwise.circle.fill") {
+                Button("Restore Team") { Task { await model.restoreTeam() } }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
+            }.studioBox()
+        }
         if DeliverPeople.oldBackup(publish) { SettingNote(text: Text("Update the backup server so people can sign in while the main is offline.")).studioBox() }
 
         let requests = model.people.requests ?? []
@@ -319,7 +399,13 @@ struct DeliverPeopleView: View {
             VStack(spacing: 0) { ForEach(requests) { requestRow($0) } }.studioBox()
         }
 
-        Color.clear.frame(height: requests.isEmpty ? 0 : 14)
+        let awaiting = model.awaiting
+        if !awaiting.isEmpty {
+            header("Waiting for approval")
+            VStack(spacing: 0) { ForEach(awaiting) { approvalRow($0) } }.studioBox()
+        }
+
+        Color.clear.frame(height: requests.isEmpty && awaiting.isEmpty ? 0 : 14)
         VStack(spacing: 0) {
             ForEach(model.people.people ?? []) { person in personRows(person) }
             if (model.people.people ?? []).isEmpty { Text("No one yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
@@ -333,8 +419,13 @@ struct DeliverPeopleView: View {
                     TextField("Team name", text: $teamName).settingField(width: 220)
                         .onSubmit { Task { await model.setTeam(name: teamName) } }
                 }
-                SettingSwitch("Editors can invite people", isOn: Binding(get: { model.people.settings?.editorsInvite == true },
+                SettingSwitch("Editors can invite people",
+                              help: model.people.approvals == 1 ? String(localized: "Each person an editor invites joins only once you approve them.") : nil,
+                              isOn: Binding(get: { model.people.settings?.editorsInvite == true },
                                                                          set: { on in Task { await model.setTeam(editorsInvite: on) } }))
+                SettingRow("New team key") {
+                    Button("Start a New Team…") { resettingTeam = true }.settingButton()
+                }
             }
             .studioBox()
         }
@@ -372,6 +463,21 @@ struct DeliverPeopleView: View {
             Spacer()
             Button("Decline") { Task { await model.answer(request.id, accept: false) } }.settingButton()
             Button("Accept") { Task { await model.answer(request.id, accept: true) } }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
+        }
+        .padding(.horizontal, 12).frame(height: 40)
+    }
+
+    private func approvalRow(_ invite: Deliver.PersonInvite) -> some View {
+        let person = model.people.people?.first { $0.id == invite.person }
+        return HStack(spacing: 8) {
+            Image(systemName: "person.crop.circle.badge.clock").foregroundStyle(Design.Studio.textQuiet).frame(width: 16)
+            Text(verbatim: person?.name ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+            StudioChip(text: Text(verbatim: DeliverPeople.roleName(person?.role)))
+            if let by = model.name(invite.by) { Text("invited by \(by)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1) }
+            if invite.waiting != nil { StudioChip(text: Text("Opened the link"), colour: Design.Studio.warn, tinted: true) }
+            Spacer()
+            Button("Revoke") { Task { await model.cancelInvite(invite.id) } }.settingButton()
+            Button("Approve") { Task { await model.approveInvite(invite.id) } }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
         }
         .padding(.horizontal, 12).frame(height: 40)
     }

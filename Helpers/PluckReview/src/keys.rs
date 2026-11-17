@@ -92,6 +92,11 @@ pub fn sign_hello(seed: &[u8], mac_nonce: &[u8], fp_mac: &str, fp_browser: &str)
     Some(b64(pair(seed)?.sign(&hello_msg(mac_nonce, fp_mac, fp_browser)).as_ref()))
 }
 
+/// A plain Ed25519 signature with a room seed (a team reset's move notice).
+pub fn sign(seed: &[u8], msg: &[u8]) -> Option<String> {
+    Some(b64(pair(seed)?.sign(msg).as_ref()))
+}
+
 /// The browser's check of `hello` (tests stand in for the browser).
 #[cfg(test)]
 pub fn verify_hello(public: &[u8], sig: &str, mac_nonce: &[u8], fp_mac: &str, fp_browser: &str) -> bool {
