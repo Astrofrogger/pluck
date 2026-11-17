@@ -309,10 +309,16 @@ impl Accounts {
             "lastSeen": null, "passkeys": []}));
         let code = new_code();
         self.add_invite(&id, "invite", hash(&code), by, now + INVITE_SECS, now);
+        // An editor's invite waits for an admin (owner in Pluck or on the web) before anyone can join with it. `by` is
+        // the editor's person id, taken by the host from their passkey session, never from the request.
+        let approval = (by != "mac" && self.role(by) != Some("owner")).then_some("pending");
+        if let Some(a) = approval {
+            arr_mut(&mut self.v, "invites").last_mut().unwrap()["approval"] = json!(a);
+        }
         if !self.save() {
             return json!({"error": "write"});
         }
-        json!({"person": id, "link": self.link_with(&format!("/i/{code}")), "expires": iso(now + INVITE_SECS)})
+        json!({"person": id, "link": self.link_with(&format!("/i/{code}")), "expires": iso(now + INVITE_SECS), "approval": approval})
     }
 
     /// `device-code`: 15 minutes, once, for the same person. One open at a time (a new one replaces it), 5 an hour.
@@ -371,6 +377,12 @@ impl Accounts {
         if i["kind"] == "invite" && i["by"] != "mac" && !self.may_invite(i["by"].as_str().unwrap_or("")) {
             return Err("revoked");
         }
+        if i["approval"] == "pending" {
+            // The invitee opened it: admins see "waiting". "waiting" the first time (the host tells the admins), then "pending".
+            let id = i["id"].clone();
+            let first = arr_mut(&mut self.v, "invites").iter_mut().find(|x| x["id"] == id && x["waiting"].is_null()).map(|x| x["waiting"] = json!(iso(now))).is_some();
+            return Err(if first && self.save() { "waiting" } else { "pending" });
+        }
         Ok((i["id"].as_str().unwrap_or("").to_owned(), person))
     }
 
@@ -389,6 +401,9 @@ impl Accounts {
         }
         if i["kind"] == "invite" && i["by"] != "mac" && !self.may_invite(i["by"].as_str().unwrap_or("")) {
             return Err("revoked");
+        }
+        if i["approval"] == "pending" {
+            return Err("pending");
         }
         Ok(person)
     }
@@ -571,13 +586,13 @@ impl Accounts {
         }).collect();
         let now = iso(now);
         let invites: Vec<Value> = arr(&self.v, "invites").filter(|i| i["used"].is_null() && i["expires"].as_str().is_some_and(|e| e > now.as_str()))
-            .map(|i| json!({"id": i["id"], "person": i["person"], "kind": i["kind"], "by": i["by"], "expires": i["expires"]})).collect();
+            .map(|i| json!({"id": i["id"], "person": i["person"], "kind": i["kind"], "by": i["by"], "expires": i["expires"], "approval": i["approval"], "waiting": i["waiting"]})).collect();
         let used: Vec<Value> = arr(&self.v, "invites").filter(|i| !i["used"].is_null())
             .map(|i| json!({"id": i["id"], "person": i["person"], "kind": i["kind"], "used": i["used"], "usedBy": i["usedBy"]})).collect();
         let requests: Vec<Value> = arr(&self.v, "requests").filter(|r| r["state"] == "pending")
             .map(|r| json!({"id": r["id"], "name": r["name"], "email": r["email"], "link": r["link"], "at": r["at"]})).collect();
         json!({"team": {"id": self.v["team"]["id"], "name": self.v["team"]["name"], "link": self.team_link()}, "settings": self.v["settings"],
-            "people": people, "invites": invites, "used": used, "requests": requests})
+            "people": people, "invites": invites, "used": used, "requests": requests, "approvals": 1})
     }
 
     pub fn person_update(&mut self, id: &str, op: &Value) -> Value {
@@ -648,10 +663,49 @@ impl Accounts {
     pub fn invite_cancel(&mut self, id: &str) -> Value {
         let list = arr_mut(&mut self.v, "invites");
         let n = list.len();
+        let gone = list.iter().find(|i| i["id"] == id).cloned();
         list.retain(|i| i["id"] != id);
         if list.len() == n {
             return json!({"error": "notFound"});
         }
+        // A revoked editor invite that was never approved: the person it named never joined, so they go too.
+        if let Some(i) = gone.filter(|i| i["approval"] == "pending") {
+            let p = i["person"].clone();
+            if self.person(p.as_str().unwrap_or("")).is_some_and(|x| arr(x, "passkeys").next().is_none()) {
+                arr_mut(&mut self.v, "people").retain(|x| x["id"] != p);
+                arr_mut(&mut self.v, "invites").retain(|x| x["person"] != p);
+            }
+        }
+        if self.save() { json!({"ok": true}) } else { json!({"error": "write"}) }
+    }
+
+    /// Editor invites waiting for an admin, still open (the web's admin list; Pluck reads them in `people`).
+    pub fn pending_invites(&self, now: i64) -> Vec<Value> {
+        let now = iso(now);
+        arr(&self.v, "invites").filter(|i| i["approval"] == "pending" && i["used"].is_null() && i["expires"].as_str().is_some_and(|e| e > now.as_str()))
+            .map(|i| {
+                let p = self.person(i["person"].as_str().unwrap_or("")).cloned().unwrap_or_default();
+                let by = self.person(i["by"].as_str().unwrap_or("")).map_or(Value::Null, |b| b["name"].clone());
+                json!({"id": i["id"], "person": i["person"], "name": p["name"], "role": p["role"], "by": i["by"], "byName": by,
+                    "made": i["made"], "waiting": i["waiting"], "expires": i["expires"]})
+            }).collect()
+    }
+
+    /// An admin approves an editor's invite: `approver` is "mac" (Pluck) or an owner's person id, never the one who made
+    /// it. The invitee then has the full 7 days from now to make the passkey.
+    pub fn invite_approve(&mut self, id: &str, approver: &str, now: i64) -> Value {
+        let n = iso(now);
+        let Some(i) = arr(&self.v, "invites").find(|i| i["id"] == id && i["approval"] == "pending" && i["used"].is_null()).cloned() else {
+            return json!({"error": "notFound"});
+        };
+        if i["expires"].as_str().is_none_or(|e| e <= n.as_str()) {
+            return json!({"error": "expired"});
+        }
+        if i["by"] == approver || (approver != "mac" && self.role(approver) != Some("owner")) {
+            return json!({"error": "scope"});
+        }
+        let x = arr_mut(&mut self.v, "invites").iter_mut().find(|x| x["id"] == id).unwrap();
+        (x["approval"], x["approvedBy"], x["approved"], x["expires"]) = (json!("approved"), json!(approver), json!(n), json!(iso(now + INVITE_SECS)));
         if self.save() { json!({"ok": true}) } else { json!({"error": "write"}) }
     }
 }
@@ -674,6 +728,57 @@ pub mod tests {
         let d = std::env::temp_dir().join(format!("pluck-acct-{}", uuid()));
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// Editors invite, an admin approves: an editor's invite is pending (signed by the editor's id) until Pluck or an
+    /// owner approves it; the invitee waits; no one approves their own; a revoked one can't be used and its person goes.
+    #[test]
+    fn editor_invites_wait_for_an_admin() {
+        let (mut a, _d) = team();
+        let (ed, _) = enrol(&mut a, "editor", NOW);
+        let (ed2, _) = enrol(&mut a, "editor", NOW);
+        let (owner, _) = enrol(&mut a, "owner", NOW);
+        a.team_set(None, Some(true));
+        assert!(a.invite("Mac's", "client", false, None, "mac", NOW)["approval"].is_null(), "Pluck's invites work at once");
+        assert!(a.invite("Owner's", "client", false, None, &owner, NOW)["approval"].is_null(), "an owner's too");
+        let inv = a.invite("Dana", "editor", false, None, &ed, NOW);
+        assert_eq!(inv["approval"], "pending");
+        let code = code_of(&inv["link"]);
+        let waiting = a.pending_invites(NOW);
+        assert_eq!(waiting.len(), 1);
+        let iid = waiting[0]["id"].as_str().unwrap().to_owned();
+        assert_eq!((waiting[0]["by"].as_str(), waiting[0]["name"].as_str(), waiting[0]["waiting"].is_null()), (Some(ed.as_str()), Some("Dana"), true));
+        // The invitee opens it: waiting (the host tells the admins once), then pending; no passkey can be made.
+        assert_eq!(a.begin_create(Create::Invite(&code), NOW).unwrap_err(), "waiting");
+        assert_eq!(a.begin_create(Create::Invite(&code), NOW + 5).unwrap_err(), "pending");
+        assert!(!a.pending_invites(NOW)[0]["waiting"].is_null());
+        assert_eq!(a.finish_create(&iid, &Key::new().create(&[1u8; 32]), &[1u8; 32], "x", NOW).unwrap_err(), "pending", "nor by skipping begin");
+        assert_eq!(a.role(inv["person"].as_str().unwrap()), None, "not a member");
+        // No one approves their own, an editor approves nothing, an owner or Pluck does.
+        assert_eq!(a.invite_approve(&iid, &ed, NOW)["error"], "scope", "their own");
+        assert_eq!(a.invite_approve(&iid, &ed2, NOW)["error"], "scope", "another editor");
+        assert_eq!(a.invite_approve(&iid, &owner, NOW + 3600)["ok"], true);
+        assert_eq!(a.invite_approve(&iid, &owner, NOW)["error"], "notFound", "once");
+        assert!(a.pending_invites(NOW).is_empty());
+        let i = a.v["invites"].as_array().unwrap().iter().find(|i| i["id"] == iid.as_str()).unwrap().clone();
+        assert_eq!((i["approvedBy"].as_str(), i["expires"].as_str()), (Some(owner.as_str()), Some(iso(NOW + 3600 + INVITE_SECS).as_str())), "7 days from the approval");
+        let (got, person) = a.begin_create(Create::Invite(&code), NOW + 3600).unwrap();
+        let ch = [3u8; 32];
+        assert_eq!(a.finish_create(&got, &Key::new().create(&ch), &ch, "Safari on iPhone", NOW + 3600).unwrap().0, person);
+        assert_eq!(a.role(&person), Some("editor"), "a member once approved");
+        // Revoked while pending: refused, and the person it named goes. Expired: can't be approved.
+        let inv = a.invite("Eve", "client", false, None, &ed, NOW);
+        let iid = a.pending_invites(NOW)[0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(a.invite_cancel(&iid)["ok"], true);
+        assert_eq!(a.begin_create(Create::Invite(&code_of(&inv["link"])), NOW).unwrap_err(), "auth");
+        assert!(a.person(inv["person"].as_str().unwrap()).is_none());
+        a.invite("Late", "client", false, None, &ed, NOW);
+        let iid = a.pending_invites(NOW)[0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(a.invite_approve(&iid, "mac", NOW + INVITE_SECS)["error"], "expired");
+        // The view Pluck reads says approvals exist and which invites wait.
+        let v = a.view(NOW);
+        assert_eq!(v["approvals"], 1);
+        assert!(v["invites"].as_array().unwrap().iter().any(|i| i["id"] == iid.as_str() && i["approval"] == "pending" && i["by"] == ed.as_str()));
     }
 
     /// A passkey in a test: a P-256 key made with ring, signing as an authenticator would.
@@ -1054,7 +1159,9 @@ pub mod tests {
         a.team_set(None, Some(true));
         let inv = a.invite("Client", "client", false, None, &ed, NOW);
         let code = code_of(&inv["link"]);
-        let (iid, _) = a.begin_create(Create::Invite(&code), NOW).unwrap();
+        let iid = a.pending_invites(NOW)[0]["id"].as_str().unwrap().to_owned();
+        assert_eq!(a.invite_approve(&iid, "mac", NOW)["ok"], true);
+        assert_eq!(a.begin_create(Create::Invite(&code), NOW).unwrap().0, iid);
         a.team_set(None, Some(false)); // "Editors can invite people" switched off
         assert_eq!(a.begin_create(Create::Invite(&code), NOW).unwrap_err(), "revoked");
         assert_eq!(a.finish_create(&iid, &Key::new().create(&[1u8; 32]), &[1u8; 32], "x", NOW).unwrap_err(), "revoked");

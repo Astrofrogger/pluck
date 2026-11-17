@@ -2,8 +2,8 @@ import Foundation
 
 extension PhotoSelfTest {
     /// People in Deliver (accounts plan §9 step 6, -PluckScreenshotOnly reviewpeople): the account token vector, People
-    /// only on a main that says `accounts: 1`, the owner seeing every account and device, the ops removing sends, and
-    /// an invite link that is only ever in the sheet. A stand-in main answers in this process.
+    /// only on a main that says `accounts: 1`, the owner seeing every account and device, the ops removing sends, an
+    /// invite link that is only ever in the sheet, and editors' invites waiting for approval. A stand-in main answers in this process.
     static func reviewPeopleTest() async {
         // docs/superpowers/plans/accounts-vectors.json: teamId, personId → accountToken.
         let token = DeliverKeys.sha256(Data("pluck-account/1 token VVVVVVVVVVVVVVVVVVVVVQ/8A4C1E2B-0000-4000-8000-000000000001".utf8))
@@ -13,6 +13,8 @@ extension PhotoSelfTest {
             var accounts: Int?
             var team: Any = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
             var ops: [[String: Any]] = []
+            var invites: [[String: Any]] = []
+            var more: [[String: Any]] = []
             var requests: [[String: Any]] = [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "L1", "at": ISO8601DateFormatter().string(from: .now)]]
         }
         let main = Main(), fingerprint = Array(repeating: "CD", count: 32).joined(separator: ":")
@@ -29,9 +31,9 @@ extension PhotoSelfTest {
                                     "passkeys": [["id": "c1", "label": "Safari on Mac", "added": iso, "lastUsed": iso, "count": 0],
                                                  ["id": "c2", "label": "Chrome on Android", "added": iso, "lastUsed": iso, "count": 0]]],
                                    ["id": "p2", "userId": "u2", "name": "Sam Lee", "role": "client", "footage": false, "added": iso, "by": "mac",
-                                    "passkeys": [["id": "c3", "label": "Safari on iPhone", "added": iso, "lastUsed": NSNull(), "count": 0]]]],
-                        "invites": [["id": "i1", "person": "p2", "kind": "device", "by": "p2", "expires": iso]],
-                        "used": [], "requests": main.requests, "locked": ["c3"]]
+                                    "passkeys": [["id": "c3", "label": "Safari on iPhone", "added": iso, "lastUsed": NSNull(), "count": 0]]]] + main.more,
+                        "invites": [["id": "i1", "person": "p2", "kind": "device", "by": "p2", "expires": iso]] + main.invites,
+                        "used": [], "requests": main.requests, "locked": ["c3"], "approvals": 1]
             case "request-accept", "request-decline": main.requests = []; return ["ok": true] // accepted ones are deleted, declined ones aren't listed
             case "devices": return ["devices": [["id": "d1", "name": "Edit Mac", "role": "mac", "lastSeen": iso], ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso]]]
             case "team-set": main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]; return ["ok": true, "link": "https://pluck.tools/r/#k.p"]
@@ -110,5 +112,24 @@ extension PhotoSelfTest {
         check("review: invite sheet shows the link once", link?.link.hasSuffix("/i/ABCDEFGHJKMNPQRS") == true && link?.expires != nil
               && writes == ["team-set", "person-invite"] && invite?["name"] as? String == "Jo Park" && invite?["role"] as? String == "editor"
               && invite?["footage"] as? Bool == false && !kept.contains("/i/"), "\(writes) \(String(describing: link))")
+
+        // Editors invite, an admin approves: an editor's invite waits in its own list (who invited, opened or not), Approve
+        // and Revoke send their ops, and it notifies once as waiting for approval.
+        let pending = "i-\(UUID().uuidString)"
+        main.more = [["id": "p3", "userId": "u3", "name": "Jo Park", "role": "editor", "footage": false, "added": iso, "by": "p1", "passkeys": []]]
+        main.invites = [["id": pending, "person": "p3", "kind": "invite", "by": "p1", "expires": iso, "approval": "pending", "waiting": iso]]
+        let notices = model.posted.count
+        await model.load()
+        model.flushNotice(Date.now.addingTimeInterval(20_000))
+        let waiting = model.awaiting
+        main.ops = []
+        await model.approveInvite(pending)
+        await model.cancelInvite(pending)
+        let answered = main.ops.compactMap { op in (op["op"] as? String).flatMap { ["invite-approve", "invite-cancel"].contains($0) ? "\($0) \(op["id"] ?? "")" : nil } }
+        check("review: editors' invites wait for approval; Approve and Revoke send their ops", waiting.map(\.id) == [pending] && model.name(waiting.first?.by) == "Anna Berg"
+              && waiting.first?.waiting != nil && model.people.approvals == 1 && answered == ["invite-approve \(pending)", "invite-cancel \(pending)"],
+              "\(waiting.map(\.id)) \(answered)")
+        let posted = Array(model.posted.suffix(model.posted.count - notices))
+        check("review: an editor's invite notifies as waiting for approval", posted == [String(localized: "\("Jo Park") is waiting for your approval")], "\(posted)")
     }
 }

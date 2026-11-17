@@ -17,6 +17,8 @@ extension Deliver {
         var requests: [AccountRequest]?
         /// Passkey credential ids locked after failed sign-ins (15 min).
         var locked: [String]?
+        /// 1: the main approves editors' invites (`invite-approve`); an older main doesn't say.
+        var approvals: Int?
 
         init() {}
         /// Field by field: one the host changed the shape of (as `locked` was a Bool) leaves only that field empty.
@@ -28,6 +30,7 @@ extension Deliver {
             invites = try? c.decode([PersonInvite].self, forKey: .invites)
             requests = try? c.decode([AccountRequest].self, forKey: .requests)
             locked = try? c.decode([String].self, forKey: .locked)
+            approvals = try? c.decode(Int.self, forKey: .approvals)
         }
     }
 
@@ -43,8 +46,13 @@ extension Deliver {
     }
 
     struct Passkey: Codable, Hashable, Identifiable { var id: String; var label: String?; var added: String?; var lastUsed: String? }
-    struct PersonInvite: Codable, Hashable, Identifiable { var id: String; var person: String?; var kind: String?; var expires: String? }
-    struct AccountRequest: Codable, Hashable, Identifiable { var id: String; var name: String?; var email: String?; var link: String?; var at: String? }
+    /// `by`: who made it ("mac", or a person id); `approval` "pending": an editor's, waiting for an admin; `waiting`: when
+    /// the invitee opened it.
+    struct PersonInvite: Codable, Hashable, Identifiable {
+        var id: String; var person: String?; var kind: String?; var expires: String?; var by: String?; var approval: String?; var waiting: String?
+    }
+    /// `invitedBy` (only here, never from the host): an editor's invite waiting for approval, notified like a request.
+    struct AccountRequest: Codable, Hashable, Identifiable { var id: String; var name: String?; var email: String?; var link: String?; var at: String?; var invitedBy: String? }
     /// A Mac or backup paired with the server (`devices`, §13.2).
     struct PairedDevice: Codable, Hashable, Identifiable { var id: String; var name: String?; var role: String?; var lastSeen: String? }
 }
@@ -93,6 +101,11 @@ final class DeliverPeople {
 
     var pending: Int { people.requests?.count ?? 0 }
 
+    /// Editors' invites waiting for an admin (this Mac, or an owner on the team page).
+    var awaiting: [Deliver.PersonInvite] { (people.invites ?? []).filter { $0.approval == "pending" } }
+
+    func name(_ person: String?) -> String? { people.people?.first { $0.id == person }?.name }
+
     /// `people` and `devices` in one session (the hello also records whether the main has accounts).
     func load() async {
         guard let main = Self.main() else { return }
@@ -117,7 +130,7 @@ final class DeliverPeople {
         guard let decoded = Self.decode(Deliver.People.self, answer) else { return }
         people = decoded
         let seen = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
-        let requests = decoded.requests ?? []
+        let requests = (decoded.requests ?? []) + awaiting.map { .init(id: $0.id, name: name($0.person), invitedBy: name($0.by) ?? "") }
         announce(requests.filter { !seen.contains($0.id) })
         UserDefaults.standard.set(requests.map(\.id), forKey: Self.seenKey)
     }
@@ -147,7 +160,10 @@ final class DeliverPeople {
         noticeTask = nil
         guard !queued.isEmpty else { return }
         let content = UNMutableNotificationContent()
-        if queued.count == 1 {
+        if queued.count == 1, let by = queued[0].invitedBy {
+            content.title = String(localized: "\(queued[0].name ?? "") is waiting for your approval")
+            content.body = by.isEmpty ? "" : String(localized: "invited by \(by)")
+        } else if queued.count == 1 {
             content.title = String(localized: "\(queued[0].name ?? "") asks for an account")
             content.body = queued[0].email ?? ""
         } else {
@@ -205,6 +221,7 @@ final class DeliverPeople {
     func remove(_ person: String) async { await run(["op": "person-remove", "id": person]) }
     func removePasskey(_ id: String, of person: String) async { await run(["op": "passkey-remove", "person": person, "id": id]) }
     func cancelInvite(_ id: String) async { await run(["op": "invite-cancel", "id": id]) }
+    func approveInvite(_ id: String) async { await run(["op": "invite-approve", "id": id]) }
     func answer(_ request: String, accept: Bool) async { await run(["op": accept ? "request-accept" : "request-decline", "id": request]) }
     func setTeam(name: String? = nil, editorsInvite: Bool? = nil) async {
         var op: [String: Any] = ["op": "team-set"]
@@ -319,7 +336,13 @@ struct DeliverPeopleView: View {
             VStack(spacing: 0) { ForEach(requests) { requestRow($0) } }.studioBox()
         }
 
-        Color.clear.frame(height: requests.isEmpty ? 0 : 14)
+        let awaiting = model.awaiting
+        if !awaiting.isEmpty {
+            header("Waiting for approval")
+            VStack(spacing: 0) { ForEach(awaiting) { approvalRow($0) } }.studioBox()
+        }
+
+        Color.clear.frame(height: requests.isEmpty && awaiting.isEmpty ? 0 : 14)
         VStack(spacing: 0) {
             ForEach(model.people.people ?? []) { person in personRows(person) }
             if (model.people.people ?? []).isEmpty { Text("No one yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
@@ -333,7 +356,9 @@ struct DeliverPeopleView: View {
                     TextField("Team name", text: $teamName).settingField(width: 220)
                         .onSubmit { Task { await model.setTeam(name: teamName) } }
                 }
-                SettingSwitch("Editors can invite people", isOn: Binding(get: { model.people.settings?.editorsInvite == true },
+                SettingSwitch("Editors can invite people",
+                              help: model.people.approvals == 1 ? String(localized: "Each person an editor invites joins only once you approve them.") : nil,
+                              isOn: Binding(get: { model.people.settings?.editorsInvite == true },
                                                                          set: { on in Task { await model.setTeam(editorsInvite: on) } }))
             }
             .studioBox()
@@ -372,6 +397,21 @@ struct DeliverPeopleView: View {
             Spacer()
             Button("Decline") { Task { await model.answer(request.id, accept: false) } }.settingButton()
             Button("Accept") { Task { await model.answer(request.id, accept: true) } }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
+        }
+        .padding(.horizontal, 12).frame(height: 40)
+    }
+
+    private func approvalRow(_ invite: Deliver.PersonInvite) -> some View {
+        let person = model.people.people?.first { $0.id == invite.person }
+        return HStack(spacing: 8) {
+            Image(systemName: "person.crop.circle.badge.clock").foregroundStyle(Design.Studio.textQuiet).frame(width: 16)
+            Text(verbatim: person?.name ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+            StudioChip(text: Text(verbatim: DeliverPeople.roleName(person?.role)))
+            if let by = model.name(invite.by) { Text("invited by \(by)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1) }
+            if invite.waiting != nil { StudioChip(text: Text("Opened the link"), colour: Design.Studio.warn, tinted: true) }
+            Spacer()
+            Button("Revoke") { Task { await model.cancelInvite(invite.id) } }.settingButton()
+            Button("Approve") { Task { await model.approveInvite(invite.id) } }.buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
         }
         .padding(.horizontal, 12).frame(height: 40)
     }

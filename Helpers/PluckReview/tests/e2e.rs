@@ -1504,6 +1504,56 @@ async fn real_browser_passkeys() {
     assert!(pulled["entries"].as_array().unwrap().iter().any(|e| e["comment"]["text"] == "Signed in comment" && e["comment"]["author"] == "Dana"), "the account name on the comment");
     ok("W-4");
 
+    // Editors invite, an admin approves: with "Editors can invite people" on, the editor's page gets Invite (client or
+    // editor only); the link is pending; the invitee waits ("Waiting for an admin"); the editor sees no waiting list; an
+    // owner approves on the web team page; the invitee's page goes on by itself to the passkey and joins.
+    assert_eq!(host_op(&mut h, json!({"op": "team-set", "editorsInvite": true})).await["ok"], true);
+    let mut editor_invite = async |c: &mut Cdp, who: &str| -> String {
+        c.click(&a, "Invite").await;
+        c.eval(&a, &format!("(()=>{{const i=document.querySelector('dialog[open] input[type=text]');i.value={};return true}})()", json!(who))).await;
+        assert_eq!(c.eval(&a, "[...document.querySelectorAll('dialog[open] select option')].map(o=>o.value).join()").await, "client,editor", "never an owner");
+        c.click(&a, "Make invite link").await;
+        c.sees(&a, "An admin approves them before they can join").await;
+        let l = c.eval(&a, "document.querySelector('dialog[open] input[readonly]').value").await.as_str().unwrap().to_owned();
+        c.click(&a, "Close").await;
+        l
+    };
+    let pat = editor_invite(&mut c, "Pat").await;
+    let ctx = c.context().await;
+    let p = c.page(Some(&ctx), true, false).await;
+    c.go(&p, &pat).await;
+    c.sees(&p, "Waiting for an admin").await;
+    assert_eq!(c.eval(&p, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Create passkey')").await, false, "no passkey while pending");
+    assert_eq!(c.eval(&a, "document.body.innerText.includes('Waiting for approval')").await, false, "editors don't approve, not even their own");
+    let boss = host_op(&mut h, invite("Boss One", "owner")).await;
+    let ctx = c.context().await;
+    let o = c.page(Some(&ctx), true, false).await;
+    c.go(&o, boss["link"].as_str().unwrap()).await;
+    c.click(&o, "Create passkey").await;
+    c.sees(&o, "Waiting for approval: 1").await;
+    c.click(&o, "Review").await;
+    c.sees(&o, "invited by Editor One").await;
+    c.sees(&o, "opened the link").await;
+    c.click(&o, "Approve").await;
+    c.sees(&p, "Create your passkey").await;
+    c.click(&p, "Create passkey").await;
+    c.sees(&p, "You're set").await; // a client: their review links
+    let people = host_op(&mut h, json!({"op": "people"})).await;
+    let pp = people["people"].as_array().unwrap().iter().find(|x| x["name"] == "Pat").unwrap().clone();
+    assert_eq!((pp["role"].as_str(), pp["passkeys"].as_array().map(|k| k.len())), (Some("client"), Some(1)), "a member once approved");
+    ok("editor invite approved by an owner");
+    // Revoked while pending: the owner's Revoke, then the link is refused.
+    let quinn = editor_invite(&mut c, "Quinn").await;
+    c.sees(&o, "Waiting for approval: 1").await;
+    c.click(&o, "Review").await;
+    c.click(&o, "Revoke").await;
+    let ctx = c.context().await;
+    let q = c.page(Some(&ctx), true, false).await;
+    c.go(&q, &quinn).await;
+    c.sees(&q, "This invite isn't valid").await;
+    assert!(host_op(&mut h, json!({"op": "people"})).await["people"].as_array().unwrap().iter().all(|x| x["name"] != "Quinn"), "the person it named goes too");
+    ok("revoked editor invite");
+
     // Removed during a session: the removed screen at once.
     let people = host_op(&mut h, json!({"op": "people"})).await;
     let ed = people["people"].as_array().unwrap().iter().find(|p| p["name"] == "Editor One").unwrap()["id"].clone();

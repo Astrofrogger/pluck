@@ -131,6 +131,27 @@ impl Host {
         }
     }
 
+    fn is_owner(&self, peer: &str) -> bool {
+        self.peers[peer].acct.person.as_deref().and_then(|id| self.accounts.role(id)) == Some("owner")
+    }
+
+    /// What `ready` and `me` say about inviting. `invite`: invites that work at once (owners); a page from before
+    /// approvals only knows this one, so there an editor has no Invite button (today's owner-only behaviour).
+    /// `inviteApproval`: an editor's invites wait for an admin. `approvals`: an owner sees and answers those.
+    fn invite_rights(&self, peer: &str) -> Value {
+        let owner = self.is_owner(peer);
+        json!({"invite": owner, "inviteApproval": !owner && self.can_invite(peer), "approvals": owner.then_some(1)})
+    }
+
+    /// Owners' team pages read the waiting list again (an editor invited someone, or the invitee opened the link).
+    pub(super) fn invites_changed(&mut self) {
+        let owners: Vec<String> = self.peers.iter().filter(|(_, p)| p.ready && self.is_team(&p.room)
+            && p.acct.person.as_deref().and_then(|id| self.accounts.role(id)) == Some("owner")).map(|(id, _)| id.clone()).collect();
+        for id in owners {
+            self.send(&id, json!({"t": "invites-changed"}));
+        }
+    }
+
     /// Signed in (create, get or resume): the account's name and token on this peer, a fresh resume key, and on the
     /// team room `ready`; on a review link `me` (the link's rights don't change).
     /// `resumed`: the old resume key's expiry (a resume never extends it); None for a passkey just used.
@@ -154,9 +175,10 @@ impl Host {
         if team_room {
             p.ready = true;
             let me = self.me(peer);
-            self.send(peer, json!({"re": id, "t": "ready", "team": true, "me": me, "resume": resume, "uploads": self.upload_root.is_some(),
-                "uploadsRoot": self.upload_root.as_ref().map(|u| u.id.clone()),
-                "invite": self.can_invite(peer), "now": super::now_iso()}));
+            let mut r = json!({"re": id, "t": "ready", "team": true, "me": me, "resume": resume, "uploads": self.upload_root.is_some(),
+                "uploadsRoot": self.upload_root.as_ref().map(|u| u.id.clone()), "now": super::now_iso()});
+            r.as_object_mut().unwrap().extend(self.invite_rights(peer).as_object().unwrap().clone());
+            self.send(peer, r);
             self.activity(peer, "signedIn", Value::Null, Value::Null, Value::Null);
         } else {
             self.send(peer, json!({"re": id, "ok": true}));
@@ -223,6 +245,10 @@ impl Host {
                                 Some(invite)
                             }
                             Err(c @ ("auth" | "locked")) => return Some(self.acct_fail(peer, id, c)),
+                            Err("waiting") => {
+                                self.invites_changed();
+                                return Some(self.err(peer, id, "pending"));
+                            }
                             Err(c) => return Some(self.err(peer, id, c)),
                         }
                     }
@@ -308,7 +334,11 @@ impl Host {
         };
         let now = now_secs();
         let r = match t {
-            "me" => Ok(json!({"me": self.me(peer), "invite": self.can_invite(peer)})),
+            "me" => {
+                let mut v = self.invite_rights(peer);
+                v["me"] = self.me(peer);
+                Ok(v)
+            }
             "device-code" if self.ident.backup => Err("main"),
             // Only right after a passkey was used on this peer, never on a resume key alone (fix M1).
             "device-code" if self.peers[peer].acct.fresh.is_none_or(|t| now - t > FRESH_SECS) => Err("fresh"),
@@ -331,7 +361,8 @@ impl Host {
             }
             "invite" if self.ident.backup => Err("main"),
             "invite" => {
-                // Owners, and editors while "Editors can invite people" is on; never an owner invite from the web.
+                // Owners, and editors while "Editors can invite people" is on (each of theirs waits for an admin); never
+                // an owner invite from the web.
                 let want = m["role"].as_str().unwrap_or("");
                 if !self.can_invite(peer) || !(want == "client" || want == "editor") {
                     Err("scope")
@@ -341,8 +372,30 @@ impl Host {
                     match r["error"].as_str() {
                         Some("limit") => Err("limit"),
                         Some(_) => Err("invalid"),
-                        None => Ok(json!({"link": r["link"], "expires": r["expires"]})),
+                        None => {
+                            if !r["approval"].is_null() {
+                                self.invites_changed();
+                            }
+                            Ok(json!({"link": r["link"], "expires": r["expires"], "approval": r["approval"]}))
+                        }
                     }
+                }
+            }
+            // Editor invites waiting for an admin: owners list, approve (never their own) and revoke them.
+            "invites" | "invite-approve" | "invite-revoke" if role != "owner" => Err("scope"),
+            "invite-approve" | "invite-revoke" if self.ident.backup => Err("main"),
+            "invites" => Ok(json!({"invites": self.accounts.pending_invites(now)})),
+            "invite-approve" | "invite-revoke" => {
+                let iid = m["invite"].as_str().unwrap_or("");
+                if !self.accounts.pending_invites(now).iter().any(|i| i["id"] == iid) {
+                    Err("notFound")
+                } else {
+                    let me = self.peers[peer].acct.person.clone().unwrap_or_default();
+                    let r = if t == "invite-approve" { self.accounts.invite_approve(iid, &me, now) } else { self.accounts.invite_cancel(iid) };
+                    if r["error"].is_null() {
+                        self.invites_changed();
+                    }
+                    Ok(r)
                 }
             }
             "approve" => Err("scope"), // a client's sign-off, never an editor's (owner decision 4)
@@ -570,8 +623,8 @@ impl Host {
     pub(super) fn account_sync(&mut self, op: &Value) -> Option<Value> {
         let name = op["op"].as_str().unwrap_or("");
         let now = now_secs();
-        const WRITES: [&str; 9] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
-            "request-accept", "request-decline"];
+        const WRITES: [&str; 10] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
+            "request-accept", "request-decline", "invite-approve"];
         if WRITES.contains(&name) && self.ident.backup {
             return Some(json!({"error": {"code": "main"}}));
         }
@@ -594,6 +647,7 @@ impl Host {
             "person-remove" => self.accounts.person_remove(&s("id")),
             "passkey-remove" => self.accounts.passkey_remove(&s("person"), &s("id")),
             "invite-cancel" => self.accounts.invite_cancel(&s("id")),
+            "invite-approve" => self.accounts.invite_approve(&s("id"), "mac", now),
             "request-accept" | "request-decline" => {
                 let hash = self.accounts.request_hash(&s("id"));
                 let r = if name == "request-accept" { self.accounts.request_accept(&s("id"), now) } else { self.accounts.request_decline(&s("id"), now) };
@@ -625,7 +679,7 @@ impl Host {
             _ => return None,
         };
         if name != "people" && r.get("error").is_none() {
-            self.people_changed();
+            self.people_changed(); // owners' pages re-read `me` and with it the waiting list
         }
         Some(r)
     }
@@ -832,6 +886,80 @@ mod tests {
 
     /// Fix H1/M1/M3: removing one passkey ends that device's session only; a device code needs a passkey just used;
     /// team-room clients hear no presence and no live project events.
+    /// Editors invite, an admin approves (enforced here, the trust boundary): editor invite → pending → the invitee
+    /// waits and the owners hear it → an owner approves on the web → the invitee joins. An editor can't approve (not even
+    /// their own) or invite an owner; a revoked invite can't be redeemed; a page from before approvals gets no editor
+    /// Invite button; Pluck approves over sync, and a backup refuses.
+    #[tokio::test]
+    async fn editor_invites_wait_for_an_admin() {
+        let (mut h, mut rx) = host();
+        h.sync(&json!({"op": "team-set", "name": "Northwind Films", "editorsInvite": true}));
+        let (ed, _, ready) = enrol(&mut h, &mut rx, "e1", "editor");
+        assert_eq!((ready["invite"].clone(), ready["inviteApproval"].clone(), ready["approvals"].clone()), (json!(false), json!(true), Value::Null),
+            "an old page (only `invite`) shows editors no Invite button");
+        let (own, _, ready) = enrol(&mut h, &mut rx, "o1", "owner");
+        assert_eq!((ready["invite"].clone(), ready["approvals"].clone()), (json!(true), json!(1)));
+        assert_eq!(ed.ask(&mut h, &mut rx, 10, json!({"t": "invite", "name": "Boss", "role": "owner"}))["error"]["code"], "scope", "no higher than editor");
+        msgs(&mut rx);
+        h.request("e1", &json!({"id": 11, "t": "invite", "name": "Dana", "role": "editor"}));
+        let all = msgs(&mut rx);
+        let inv = to(&all, "e1").into_iter().find(|m| m["re"] == 11).unwrap();
+        assert_eq!(inv["approval"], "pending", "{inv}");
+        assert!(to(&all, "o1").iter().any(|m| m["t"] == "invites-changed"), "the owner hears the editor's invite");
+        let code = inv["link"].as_str().unwrap().rsplit('/').next().unwrap().to_owned();
+        // The invitee opens it: pending ("Waiting for an admin"), and the owner's page hears it.
+        let (nb, _, _) = open_team(&mut h, &mut rx, "n1", ("AA", "BB"));
+        h.request("n1", &json!({"id": 2, "t": "account-begin", "purpose": "create", "invite": code}));
+        let all = msgs(&mut rx);
+        assert!(to(&all, "n1").iter().any(|m| m["re"] == 2 && m["error"]["code"] == "pending"));
+        assert!(to(&all, "o1").iter().any(|m| m["t"] == "invites-changed"), "and that the invitee is waiting");
+        for i in 3..9 {
+            h.request("n1", &json!({"id": i, "t": "account-begin", "purpose": "create", "invite": code}));
+        }
+        let all = msgs(&mut rx);
+        assert!(to(&all, "n1").iter().any(|m| m["re"] == 8 && m["error"]["code"] == "pending"), "still pending, and not a wrong code (no close)");
+        assert!(!to(&all, "o1").iter().any(|m| m["t"] == "invites-changed"), "told once");
+        assert!(h.peers.contains_key("n1"));
+        // Editors don't see or answer the list; the owner does.
+        for (i, t) in ["invites", "invite-approve", "invite-revoke"].iter().enumerate() {
+            assert_eq!(ed.ask(&mut h, &mut rx, 20 + i as u64, json!({"t": t, "invite": "x"}))["error"]["code"], "scope", "{t}");
+        }
+        let list = own.ask(&mut h, &mut rx, 5, json!({"t": "invites"}))["invites"].clone();
+        assert_eq!((list[0]["name"].clone(), list[0]["byName"].clone(), list[0]["role"].clone()), (json!("Dana"), json!("editor one"), json!("editor")));
+        assert!(!list[0]["waiting"].is_null(), "opened by the invitee");
+        let iid = list[0]["id"].clone();
+        // The editor promoted to owner still can't approve the invite they made.
+        let eid = h.accounts.v["invites"].as_array().unwrap().iter().find(|i| i["id"] == iid).unwrap()["by"].as_str().unwrap().to_owned();
+        assert_eq!(h.accounts.invite_approve(iid.as_str().unwrap(), &eid, now_secs())["error"], "scope");
+        assert_eq!(own.ask(&mut h, &mut rx, 6, json!({"t": "invite-approve", "invite": iid}))["ok"], true);
+        let b = nb.ask(&mut h, &mut rx, 40, json!({"t": "account-begin", "purpose": "create", "invite": code}));
+        let k = Key::new();
+        let joined = nb.ask(&mut h, &mut rx, 41, json!({"t": "account-create", "nonce": b["nonce"], "cred": k.create(&nb.challenge("create", &b["nonce"])), "label": "Chrome on Mac"}));
+        assert_eq!((joined["t"].clone(), joined["me"]["role"].clone(), joined["me"]["name"].clone()), (json!("ready"), json!("editor"), json!("Dana")));
+        // Revoked while pending: it can't be redeemed.
+        let inv = ed.ask(&mut h, &mut rx, 12, json!({"t": "invite", "name": "Eve", "role": "client"}));
+        let code = inv["link"].as_str().unwrap().rsplit('/').next().unwrap().to_owned();
+        let iid = own.ask(&mut h, &mut rx, 7, json!({"t": "invites"}))["invites"][0]["id"].clone();
+        assert_eq!(own.ask(&mut h, &mut rx, 8, json!({"t": "invite-revoke", "invite": iid}))["ok"], true);
+        let (rb, _, _) = open_team(&mut h, &mut rx, "n2", ("AA", "BB"));
+        assert_eq!(rb.ask(&mut h, &mut rx, 2, json!({"t": "account-begin", "purpose": "create", "invite": code}))["error"]["code"], "auth");
+        assert_eq!(own.ask(&mut h, &mut rx, 9, json!({"t": "invite-approve", "invite": iid}))["error"]["code"], "notFound");
+        // Pluck: the view lists pending ones; invite-approve over sync; a backup refuses it.
+        ed.ask(&mut h, &mut rx, 13, json!({"t": "invite", "name": "Fay", "role": "client"}));
+        let v = h.sync(&json!({"op": "people"}));
+        assert_eq!(v["approvals"], 1);
+        let iid = v["invites"].as_array().unwrap().iter().find(|i| i["approval"] == "pending").unwrap()["id"].clone();
+        h.ident.backup = true;
+        assert_eq!(h.sync(&json!({"op": "invite-approve", "id": iid}))["error"]["code"], "main");
+        assert_eq!(own.ask(&mut h, &mut rx, 10, json!({"t": "invite-approve", "invite": iid}))["error"]["code"], "main");
+        h.ident.backup = false;
+        assert_eq!(h.sync(&json!({"op": "invite-approve", "id": iid}))["ok"], true);
+        // The switch off: an editor invites no more (and their open ones stop working, fix M2).
+        h.sync(&json!({"op": "team-set", "editorsInvite": false}));
+        assert_eq!(ed.ask(&mut h, &mut rx, 14, json!({"t": "invite", "name": "Gil", "role": "client"}))["error"]["code"], "scope");
+        assert_eq!(ed.ask(&mut h, &mut rx, 15, json!({"t": "me"}))["inviteApproval"], false);
+    }
+
     #[tokio::test]
     async fn one_removed_passkey_ends_its_own_session_and_device_codes_need_a_fresh_passkey() {
         let (mut h, mut rx) = host();

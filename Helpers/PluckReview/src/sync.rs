@@ -183,8 +183,8 @@ async fn line<R: AsyncBufReadExt + Unpin>(r: &mut R) -> Result<Option<Value>> {
 async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devices::Who, Value)> {
     let ok = |device: Option<String>, role: &str, key: Option<String>| {
         // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
-        // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4).
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1,
+        // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4). approvals: editor invites wait for an admin (invite-approve).
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);
@@ -615,6 +615,7 @@ pub mod tests {
         assert!(ask(&mut r, &mut w, json!({"op": "_replica-own"})).await["error"].is_string(), "internal ops stay internal");
         assert_eq!(ask(&mut r, &mut w, json!({"op": "_accounts"})).await["error"], "scope", "only a backup gets the accounts file");
         assert_eq!(hello["accounts"], 1, "says it has People (4.0.4)");
+        assert_eq!(hello["approvals"], 1, "and approves editors' invites; `accounts` stays 1 so Pluck 4.0.4 test builds keep People");
         assert_eq!(ask(&mut r, &mut w, json!({"op": "delete", "path": "uploads/L1/a.png"})).await["ok"], true);
         assert!(!data.join("uploads/L1/a.png").exists());
         drop(task);
