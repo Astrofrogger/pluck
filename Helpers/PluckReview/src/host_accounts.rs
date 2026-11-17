@@ -388,8 +388,9 @@ impl Host {
             "person-role" | "device-role" => {
                 let me = self.peers[peer].name.clone();
                 let r = if t == "person-role" {
+                    // Team roles only: making a teammate a client is removing them from the team (Pluck, explicitly).
                     let want = m["role"].as_str().unwrap_or("");
-                    if accounts::ROLES.contains(&want) { self.person_role(m["person"].as_str().unwrap_or(""), &json!({"role": want}), &me) } else { json!({"error": "invalid"}) }
+                    if want == "owner" || want == "editor" { self.person_role(m["person"].as_str().unwrap_or(""), &json!({"role": want}), &me) } else { json!({"error": "invalid"}) }
                 } else {
                     self.device_op("device-role", m["device"].as_str().unwrap_or(""), m["access"].as_str().unwrap_or(""), &me)
                 };
@@ -681,9 +682,10 @@ impl Host {
         r
     }
 
-    /// The team page's People (roles): everyone with their role and the paired Macs; owners change them there.
+    /// The team page's People (roles): the team (admins and editors, people and Macs); owners change roles there.
+    /// Clients are not on the team: never listed here (Pluck shows them apart).
     fn team_people(&self) -> Value {
-        let people: Vec<Value> = self.accounts.view(0)["people"].as_array().into_iter().flatten()
+        let people: Vec<Value> = self.accounts.view(0)["people"].as_array().into_iter().flatten().filter(|p| p["role"] != "client")
             .map(|p| json!({"id": p["id"], "name": p["name"], "role": p["role"], "lastSeen": p["lastSeen"], "joined": p["passkeys"].as_array().is_some_and(|k| !k.is_empty())}))
             .collect();
         let macs: Vec<Value> = self.devices.as_ref().map(|d| d.list()["devices"].clone()).unwrap_or(json!([])).as_array().into_iter().flatten()
@@ -1318,10 +1320,15 @@ mod tests {
         assert_eq!(h.sync(&json!({"op": "person-update", "id": owner, "name": "Renamed"}))["ok"], true, "other changes still work");
         // The team page: everyone reads People and Macs, only owners change them.
         let (eb, _, eready) = enrol(&mut h, &mut rx, "e1", "editor");
+        let (cb, _, cready) = enrol(&mut h, &mut rx, "c1", "client");
+        assert_eq!(cb.ask(&mut h, &mut rx, 9, json!({"t": "people"}))["error"]["code"], "scope", "clients never see the team");
+        let client = cready["me"]["account"].clone();
         let ed = eready["me"]["account"].as_str().unwrap().to_owned();
         let p = eb.ask(&mut h, &mut rx, 10, json!({"t": "people"}));
         assert_eq!((p["macs"].as_array().unwrap().len(), p["macs"][0]["access"].clone()), (2, json!("editor")), "{p}");
         assert!(p["people"].as_array().unwrap().iter().any(|x| x["id"] == owner && x["role"] == "owner" && x["joined"] == true));
+        assert!(!p["people"].as_array().unwrap().iter().any(|x| x["id"] == client), "clients aren't on the team");
+        assert_eq!(ob.ask(&mut h, &mut rx, 17, json!({"t": "person-role", "person": ed, "role": "client"}))["error"]["code"], "invalid", "no client role for a teammate");
         assert_eq!(eb.ask(&mut h, &mut rx, 11, json!({"t": "person-role", "person": ed, "role": "owner"}))["error"]["code"], "scope");
         assert_eq!(eb.ask(&mut h, &mut rx, 12, json!({"t": "device-role", "device": mac, "access": "admin"}))["error"]["code"], "scope");
         assert_eq!(ob.ask(&mut h, &mut rx, 13, json!({"t": "person-role", "person": owner, "role": "editor"}))["error"]["code"], "lastAdmin");

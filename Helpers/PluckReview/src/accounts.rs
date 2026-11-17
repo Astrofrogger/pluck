@@ -610,7 +610,7 @@ impl Accounts {
         let Some(r) = arr(&self.v, "requests").find(|r| r["id"] == id && r["state"] == "pending").cloned() else { return json!({"error": "notFound"}) };
         let pid = uuid();
         arr_mut(&mut self.v, "people").push(json!({"id": pid, "userId": keys::b64(&rand::random::<[u8; 16]>()), "name": r["name"], "email": r["email"],
-            "role": "client", "footage": false, "added": iso(now), "by": "mac", "lastSeen": null, "passkeys": []}));
+            "role": "client", "footage": false, "added": iso(now), "by": "mac", "lastSeen": null, "passkeys": [], "link": r["link"]}));
         self.add_invite(&pid, "request", r["hash"].as_str().unwrap_or("").to_owned(), "mac", now + INVITE_SECS, now);
         // The request itself goes (fix L3): its name and email are on the person now, its hash on the invite.
         arr_mut(&mut self.v, "requests").retain(|r| r["id"] != id);
