@@ -26,6 +26,8 @@ struct DeliverProjectView: View {
     /// ⌘-clicked cards, for Set Status, Move and Share.
     @State private var chosen: Set<UUID> = []
     @State private var info: UUID?
+    /// Footage just added, on its way to the NAS: where it goes there (the folder picker).
+    @State private var toNAS: DeliverUploadDestination.Offer?
 
     private var content: Deliver.ProjectContent { store.content(project) }
     private var folders: [Deliver.Folder] { content.folders.filter { $0.parent == folder }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
@@ -49,6 +51,7 @@ struct DeliverProjectView: View {
                 VStack(alignment: .leading, spacing: 14) {
                     countRow
                     DeliverWaitingRows(project: project)
+                    DeliverNASStatusRow(scope: .project(project))
                     if !folders.isEmpty && search.isEmpty {
                         LazyVGrid(columns: [GridItem(.adaptive(minimum: 170, maximum: 230), spacing: 10)], alignment: .leading, spacing: 10) {
                             ForEach(folders) { folderTile($0) }
@@ -91,16 +94,31 @@ struct DeliverProjectView: View {
         .alert(Text(verbatim: stacking.map { String(localized: "Add as version \(($0.asset.versions.map(\.number).max() ?? 0) + 1) of \($0.asset.name)?") } ?? ""),
                isPresented: Binding(get: { stacking != nil }, set: { if !$0 { stacking = nil } })) {
             Button("Add Version") {
-                if let stacking { stackAsked = true; try? store.addVersion(stacking.url, to: stacking.asset.id) }
+                if let stacking { stackAsked = true; addVersion(stacking.url, to: stacking.asset) }
             }
             Button("Cancel", role: .cancel) {}
         }
         .sheet(item: Binding(get: { info.map(DeliverProjectID.init) }, set: { info = $0?.id })) { DeliverFieldsSheet(asset: $0.id) }
         .alert(Text(verbatim: problem ?? ""), isPresented: Binding(get: { problem != nil }, set: { if !$0 { problem = nil } })) { Button("OK") {} }
+        .originalsPicker($toNAS)
     }
 
     private func add(_ urls: [URL]) {
-        do { try store.add(urls, to: project, folder: folder) } catch { problem = String(localized: "This project is full.") }
+        do {
+            let added = try DeliverUploadDestination.add(urls, to: project, folder: folder)
+            askNAS(.assets(added.map(\.id), project: project), only: Set(added.flatMap { $0.versions.map(\.id) }))
+        } catch { problem = String(localized: "This project is full.") }
+    }
+
+    private func addVersion(_ url: URL, to asset: Deliver.Asset) {
+        guard let made = try? DeliverUploadDestination.addVersion(url, to: asset.id) else { return }
+        askNAS(.asset(asset.id, project: project), only: [made.id])
+    }
+
+    /// With a NAS: new footage goes there, into the folder picked (the project's last one first), not only this Mac.
+    private func askNAS(_ scope: Deliver.Scope, only: Set<UUID>) {
+        guard DeliverUploadDestination.newFootageOnNAS, !only.isEmpty else { return }
+        toNAS = DeliverUploadDestination.offer(scope, host: nil, only: only, asking: false)
     }
 
     /// Two rows: where this is (Projects / project / folder…) with People, Publish and Share; then the view's tools
@@ -304,7 +322,7 @@ struct DeliverProjectView: View {
 
     private func stack(_ urls: [URL], on asset: Deliver.Asset) -> Bool {
         guard let url = urls.first(where: { $0.isFileURL && !$0.hasDirectoryPath }) else { return false }
-        if stackAsked { try? store.addVersion(url, to: asset.id) } else { stacking = (url, asset) }
+        if stackAsked { addVersion(url, to: asset) } else { stacking = (url, asset) }
         return true
     }
 }
@@ -376,6 +394,9 @@ struct DeliverAssetCard<Actions: View>: View {
                 HStack(spacing: 6) {
                     if hovering || chosen { Button(action: choose) { DeliverCheckbox(on: chosen) }.buttonStyle(.plain) }
                     copyState
+                    if DeliverUploadDestination.mainNAS(project: nil) != nil, !DeliverUploadDestination.onNAS(asset.current) {
+                        StudioChip(text: Text("Only on this Mac"), symbol: "laptopcomputer", colour: Design.Studio.warn, tinted: true)
+                    }
                 }
                 .padding(8)
             }

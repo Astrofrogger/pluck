@@ -199,6 +199,7 @@ final class DeliverSync {
             state.lastSync = .now
             problem = waiting >= 10_000 ? problem : nil
             saveState()
+            DeliverNASAlert.shared.syncOK()
             return true
         } catch {
             said(error)
@@ -218,6 +219,8 @@ final class DeliverSync {
         } catch {
             problem = nil   // offline: the footer says so
         }
+        // Not just the footer: the alert, once until a round goes through (offline only when something waits to go up).
+        if !manual, let host = dataHost { DeliverNASAlert.shared.syncFailed(problem, waiting: waiting, host: host.name) }
     }
 
     /// New changes and comments from the host in a session of their own, so they never wait behind a long push (or a
@@ -517,13 +520,15 @@ final class DeliverSync {
 
     // MARK: - The sidebar footer
 
-    var footer: String? {
+    var footer: String? { footer(onlyHere: 0, uploading: 0) }
+
+    /// Never "Synced" alone while originals are still only here or on their way: that would say the video is on the NAS.
+    func footer(onlyHere: Int, uploading: Int) -> String? {
         guard let host = dataHost else { return nil }
         if let problem { return String(localized: "Can’t sync: \(problem)") }
-        if let last = state.lastSync, Date.now.timeIntervalSince(last) < 300, waiting == 0 {
-            return String(localized: "Synced with \(host.name) · \(last.formatted(.relative(presentation: .named)))")
-        }
         if waiting > 0 || state.lastSync == nil { return String(localized: "Offline · \(waiting) changes waiting") }
+        if uploading > 0 { return String(localized: "Synced · \(uploading) uploading") }
+        if onlyHere > 0 { return String(localized: "Synced · \(onlyHere) only on this Mac") }
         return String(localized: "Synced with \(host.name) · \(state.lastSync!.formatted(.relative(presentation: .named)))")
     }
 }

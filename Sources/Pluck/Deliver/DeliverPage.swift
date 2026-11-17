@@ -82,7 +82,7 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
-            case "browsenas", "uploaddest", "uploaddestnone":
+            case "browsenas", "uploaddest", "uploaddestnone", "publishnas":
                 // Two stand-in review servers (main and backup) answering browse with two media roots.
                 let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), key = DeliverKeys.base64url(DeliverKeys.random(32))
                 ReviewHostClient.fakeFingerprint = fingerprint
@@ -105,12 +105,21 @@ struct DeliverPage: View {
                     if var host = publish.addNAS(name: name, address: name.lowercased().replacingOccurrences(of: " ", with: "-") + ".test:8790",
                                                                                                      pairing: "pluck-host:\(key)@\(fingerprint)") {
                         host.role = role
-                        if role == "main" { host.rootNames = ["nas1": "Wide-open-2026", "nas2": "Archive 2025"] }
+                        if role == "main" { host.rootNames = ["nas1": "Projects-2026", "nas2": "Archive 2025"] }
                         publish.add(host)
                     }
                 }
                 guard let main = publish.hosts.first(where: { $0.role == "main" }) else { break }
                 if view == "browsenas" { nav.deliver = .browse(.nas(main.id)); break }
+                // Publish with the main as the data host (stand-in sync): NAS first, the footage still only here.
+                if view == "publishnas" {
+                    DeliverSync.shared.manual = true
+                    if store.content(project.id).assets.isEmpty { _ = try? store.add(files, to: project.id, folder: nil) }
+                    Task { try? await DeliverSync.shared.migrate(to: main) }
+                    panelInPage = AnyView(DeliverPublishSheet(scope: .project(project.id)))
+                    nav.deliver = .inbox
+                    break
+                }
                 // Share for Review's destination step: the uploads folder, opened at the project's last folder (or, "uploaddestnone", none set up).
                 DeliverUploadDestination.remember("renders/Spring campaign", host: main.id, project: project.id)
                 panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: view == "uploaddestnone" ? .noRoot : .loading, done: { _ in }, back: {})
@@ -134,15 +143,15 @@ struct DeliverPage: View {
                 let setup = TrueNASSetup()
                 setup.address = "192.0.2.10"
                 setup.apiKey = "1-stand-in"
-                setup.addMedia("WideOpen-2/Wide-Open-2025")
-                setup.addMedia("WideOpen-2/Wide-open-2026")
+                setup.addMedia("media/Projects-2025")
+                setup.addMedia("media/Projects-2026")
                 TrueNASClient.fake = { (method: String, params: [Any]) -> [String: Any] in
                     let path = params.first as? String ?? ""
                     switch method {
                     case "auth.login_with_api_key": return ["result": true]
                     case "system.version": return ["result": "25.10.0"]
                     case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
-                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025"].map { ["id": $0] }]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "media", "media/Projects-2026", "media/Projects-2025"].map { ["id": $0] }]
                     case "filesystem.stat": return ["result": ["mode": 0o40755, "uid": 0, "gid": 0, "acl": path.hasSuffix("2026")]]
                     case "filesystem.getacl": return ["result": ["acltype": "NFS4", "uid": 0, "gid": 0, "acl": [
                         ["tag": "owner@", "type": "ALLOW", "perms": ["BASIC": "FULL_CONTROL"], "flags": ["BASIC": "INHERIT"]]]]]
@@ -151,7 +160,7 @@ struct DeliverPage: View {
                     }
                 }
                 Task { await setup.connect() }
-                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup, expanded: ["WideOpen-2/Wide-open-2026"]))
+                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup, expanded: ["media/Projects-2026"]))
                 nav.deliver = .inbox
             case "join":
                 let invitation = PrivateNetwork.Invitation(way: .reviewHost(node: String(repeating: "a1", count: 32), relay: nil, expires: .now.addingTimeInterval(900),
@@ -164,15 +173,15 @@ struct DeliverPage: View {
                 TrueNASKeychain.save("1-stand-in", for: "192.0.2.10")
                 let compose: [String: Any] = ["services": ["pluck-review": [
                     "environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(DeliverKeys.random(32)), "PLUCK_HOST_NAME": "Studio NAS", "PLUCK_IROH": "1"],
-                    "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/WideOpen-2/Wide-open-2026:/media/nas1:ro", "/mnt/WideOpen-2/Wide-Open-2025:/media/nas2:ro",
-                                "/mnt/WideOpen-2/Archive/Clients/Long-running-projects-2019-2024:/media/nas3:ro", "/mnt/tank/renders:/uploads/renders"],
+                    "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/media/Projects-2026:/media/nas1:ro", "/mnt/media/Projects-2025:/media/nas2:ro",
+                                "/mnt/media/Archive/Clients/Long-running-projects-2019-2024:/media/nas3:ro", "/mnt/tank/renders:/uploads/renders"],
                     "mem_limit": "3g", "cpus": "2.0"] as [String: Any]]]
                 TrueNASClient.fake = { (method: String, _: [Any]) -> [String: Any] in
                     switch method {
                     case "auth.login_with_api_key": return ["result": true]
                     case "system.version": return ["result": "25.10.0"]
                     case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
-                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "tank/apps/pluck-review", "tank/renders", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025", "WideOpen-2/Archive/Clients/Long-running-projects-2019-2024"].map { ["id": $0] }]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "tank/apps/pluck-review", "tank/renders", "media", "media/Projects-2026", "media/Projects-2025", "media/Archive/Clients/Long-running-projects-2019-2024"].map { ["id": $0] }]
                     case "app.query": return ["result": [["name": "pluck-review", "state": "RUNNING"]]]
                     case "app.config": return ["result": compose]
                     default: return ["result": NSNull()]
@@ -381,8 +390,9 @@ struct DeliverSidebar: View {
             if let project = openProject { tree(project) } else { projectList }
             places
             if let project = openProject { shareLinks(project) }
-            if let footer = sync.footer {
-                Text(verbatim: footer).font(Design.Studio.hint).foregroundStyle(sync.problem == nil ? Design.Studio.textQuiet : Design.Studio.warn)
+            let onlyHere = openProject.map { DeliverUploadDestination.onlyHere(.project($0.id)).count } ?? 0
+            if let footer = sync.footer(onlyHere: onlyHere, uploading: DeliverUploads.shared.active.count) {
+                Text(verbatim: footer).font(Design.Studio.hint).foregroundStyle(sync.problem == nil && onlyHere == 0 ? Design.Studio.textQuiet : Design.Studio.warn)
                     .lineLimit(1).truncationMode(.tail).padding(.horizontal, 8).padding(.top, 6)
             }
             if let notice = DeliverRelay.shared.notice {
