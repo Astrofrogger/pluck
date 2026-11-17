@@ -16,8 +16,42 @@ enum DeliverUploadDestination {
         guard let host, host.kind == .nas else { return false }
         return items.contains { item in
             guard case .local(let url) = item.location, !item.folder else { return false }
-            return ReviewPublish.reference(url.path, on: host) == nil
+            return ReviewPublish.reference(url.path, on: host) == nil && nasReference(url.path) == nil
         }
+    }
+
+    /// A file already on a NAS (its mount or share here) as that NAS's path ("nas:<host>:<media path>"): the main first,
+    /// the backup last. Such a file is referenced in place, never uploaded again or asked about.
+    static func nasReference(_ path: String, hosts: [Deliver.Host]? = nil) -> String? {
+        let all = (hosts ?? ReviewPublish.shared.hosts).filter { $0.kind == .nas }
+        let ordered = all.filter { ReviewPublish.isDataHost($0.id) } + all.filter { !ReviewPublish.isDataHost($0.id) && $0.role != "backup" } + all.filter { $0.role == "backup" }
+        for host in ordered { if let media = ReviewPublish.reference(path, on: host) { return ReviewPublish.nasPath(host: host.id, path: media) } }
+        return nil
+    }
+
+    /// Footage dropped or chosen for a project: files already on a NAS go in by reference (the NAS makes their copies),
+    /// the rest as files here (the caller then offers those to the NAS). Returns the assets made here, from local files.
+    @discardableResult
+    static func add(_ urls: [URL], to project: UUID, folder: UUID?, store: DeliverStore = .shared, hosts: [Deliver.Host]? = nil) throws -> [Deliver.Asset] {
+        var local: [URL] = []
+        for url in urls {
+            let isFolder = (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+            guard !isFolder, let reference = nasReference(url.path, hosts: hosts) else { local.append(url); continue }
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            for made in store.addReferences([(name: url.deletingPathExtension().lastPathComponent, kind: DeliverStore.kind(url), path: reference, size: size)], to: project) {
+                if folder != nil { store.move(asset: made.id, to: folder) }
+            }
+        }
+        return local.isEmpty ? [] : try store.add(local, to: project, folder: folder)
+    }
+
+    /// A new version from a file: by reference when it's on a NAS (nil: nothing to offer), else the file here.
+    static func addVersion(_ url: URL, to asset: UUID, store: DeliverStore = .shared, hosts: [Deliver.Host]? = nil) throws -> Deliver.Version? {
+        if let reference = nasReference(url.path, hosts: hosts) {
+            _ = try store.addVersion(reference: reference, size: (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0, to: asset)
+            return nil
+        }
+        return try store.addVersion(url, to: asset)
     }
 
     private static func key(host: UUID, project: UUID) -> String { "deliverUploadFolder.\(host.uuidString).\(project.uuidString)" }

@@ -52,7 +52,7 @@ extension Deliver {
         /// The highest link level it serves (§13.24); hosts before level 3 (4.0.3) don't say, so nil = level 2.
         var links: Int? = nil
         var lastSeen: Date? = nil
-        /// What the owner calls each root ("nas1" → "Wide-open-2026"): the TrueNAS datasets or Proxmox folders from setup or Change Folders.
+        /// What the owner calls each root ("nas1" → "Projects-2026"): the TrueNAS datasets or Proxmox folders from setup or Change Folders.
         var rootNames: [String: String]? = nil
         /// A main's backup as this Mac reaches it while the main is down (§13.25), when both take outage uploads.
         var outage: OutageRoute? = nil
@@ -248,7 +248,23 @@ final class ReviewPublish {
             guard !remote.isEmpty, !rest.split(separator: "/").contains(".."), !remote.split(separator: "/").contains("..") else { return nil }
             return remote + "/" + rest
         }
-        return nil
+        return shareReference(path, on: host)
+    }
+
+    /// A file on a share of the NAS mounted here (/Volumes/<anything>), matched by the share as the server names it, not by
+    /// the volume's name: the share is one of the host's roots (by its name, or by id on that same server). The backup's
+    /// shares carry the main's root names, so they count too.
+    nonisolated static func shareReference(_ path: String, on host: Deliver.Host) -> String? {
+        let parts = path.split(separator: "/").map(String.init)
+        guard parts.count >= 3, parts[0] == "Volumes", !parts.contains(".."), let share = shareVolumes.share("/Volumes/" + parts[1]) else { return nil }
+        let names = host.rootNames ?? [:]
+        let address = (host.address ?? "").split(separator: ":").first.map { $0.lowercased() } ?? ""
+        let server = share.server.lowercased()
+        let sameServer = !address.isEmpty && (server == address || server.hasPrefix(address + ".") || address.hasPrefix(server + "."))
+        let root = names.first { $0.value.caseInsensitiveCompare(share.name) == .orderedSame }?.key
+            ?? (sameServer && (names.isEmpty || names[share.name] != nil) ? share.name : nil)
+        guard let root, !root.isEmpty, !root.contains("/") else { return nil }
+        return root + "/" + parts.dropFirst(2).joined(separator: "/")
     }
 
     /// The reverse of `reference`: where a NAS media path is mounted on this Mac, when it is.
@@ -1046,3 +1062,24 @@ final class HostHelper {
         for continuation in pending { continuation.resume(throwing: CancellationError()) }
     }
 }
+
+/// The server and share each /Volumes mount comes from (its remount URL), looked up once a minute per volume.
+final class ShareVolumes: @unchecked Sendable {
+    struct Share: Equatable { var server: String; var name: String }
+    private let lock = NSLock()
+    private var known: [String: (share: Share?, at: Date)] = [:]
+    /// Tests: volumes as if mounted (no real share needed).
+    var fake: [String: Share]?
+
+    func share(_ volume: String) -> Share? {
+        lock.lock(); defer { lock.unlock() }
+        if let fake { return fake[volume] }
+        if let hit = known[volume], Date.now.timeIntervalSince(hit.at) < 60 { return hit.share }
+        let remote = try? URL(fileURLWithPath: volume).resourceValues(forKeys: [.volumeURLForRemountingKey]).volumeURLForRemounting
+        let share = remote.flatMap { url in url.host.flatMap { host in url.pathComponents.dropFirst().first.map { Share(server: host, name: $0.removingPercentEncoding ?? $0) } } }
+        known[volume] = (share, .now)
+        return share
+    }
+}
+
+let shareVolumes = ShareVolumes()

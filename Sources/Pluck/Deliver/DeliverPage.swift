@@ -105,7 +105,7 @@ struct DeliverPage: View {
                     if var host = publish.addNAS(name: name, address: name.lowercased().replacingOccurrences(of: " ", with: "-") + ".test:8790",
                                                                                                      pairing: "pluck-host:\(key)@\(fingerprint)") {
                         host.role = role
-                        if role == "main" { host.rootNames = ["nas1": "Wide-open-2026", "nas2": "Archive 2025"] }
+                        if role == "main" { host.rootNames = ["nas1": "Projects-2026", "nas2": "Archive 2025"] }
                         publish.add(host)
                     }
                 }
@@ -143,15 +143,15 @@ struct DeliverPage: View {
                 let setup = TrueNASSetup()
                 setup.address = "192.0.2.10"
                 setup.apiKey = "1-stand-in"
-                setup.addMedia("WideOpen-2/Wide-Open-2025")
-                setup.addMedia("WideOpen-2/Wide-open-2026")
+                setup.addMedia("media/Projects-2025")
+                setup.addMedia("media/Projects-2026")
                 TrueNASClient.fake = { (method: String, params: [Any]) -> [String: Any] in
                     let path = params.first as? String ?? ""
                     switch method {
                     case "auth.login_with_api_key": return ["result": true]
                     case "system.version": return ["result": "25.10.0"]
                     case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
-                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025"].map { ["id": $0] }]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "media", "media/Projects-2026", "media/Projects-2025"].map { ["id": $0] }]
                     case "filesystem.stat": return ["result": ["mode": 0o40755, "uid": 0, "gid": 0, "acl": path.hasSuffix("2026")]]
                     case "filesystem.getacl": return ["result": ["acltype": "NFS4", "uid": 0, "gid": 0, "acl": [
                         ["tag": "owner@", "type": "ALLOW", "perms": ["BASIC": "FULL_CONTROL"], "flags": ["BASIC": "INHERIT"]]]]]
@@ -160,7 +160,7 @@ struct DeliverPage: View {
                     }
                 }
                 Task { await setup.connect() }
-                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup, expanded: ["WideOpen-2/Wide-open-2026"]))
+                panelInPage = AnyView(ReviewTrueNASSetupSheet(setup: setup, expanded: ["media/Projects-2026"]))
                 nav.deliver = .inbox
             case "join":
                 let invitation = PrivateNetwork.Invitation(way: .reviewHost(node: String(repeating: "a1", count: 32), relay: nil, expires: .now.addingTimeInterval(900),
@@ -173,15 +173,15 @@ struct DeliverPage: View {
                 TrueNASKeychain.save("1-stand-in", for: "192.0.2.10")
                 let compose: [String: Any] = ["services": ["pluck-review": [
                     "environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(DeliverKeys.random(32)), "PLUCK_HOST_NAME": "Studio NAS", "PLUCK_IROH": "1"],
-                    "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/WideOpen-2/Wide-open-2026:/media/nas1:ro", "/mnt/WideOpen-2/Wide-Open-2025:/media/nas2:ro",
-                                "/mnt/WideOpen-2/Archive/Clients/Long-running-projects-2019-2024:/media/nas3:ro", "/mnt/tank/renders:/uploads/renders"],
+                    "volumes": ["/mnt/tank/apps/pluck-review:/data", "/mnt/media/Projects-2026:/media/nas1:ro", "/mnt/media/Projects-2025:/media/nas2:ro",
+                                "/mnt/media/Archive/Clients/Long-running-projects-2019-2024:/media/nas3:ro", "/mnt/tank/renders:/uploads/renders"],
                     "mem_limit": "3g", "cpus": "2.0"] as [String: Any]]]
                 TrueNASClient.fake = { (method: String, _: [Any]) -> [String: Any] in
                     switch method {
                     case "auth.login_with_api_key": return ["result": true]
                     case "system.version": return ["result": "25.10.0"]
                     case "auth.me": return ["result": ["privilege": ["roles": ["$set": TrueNASClient.roles]]]]
-                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "tank/apps/pluck-review", "tank/renders", "WideOpen-2", "WideOpen-2/Wide-open-2026", "WideOpen-2/Wide-Open-2025", "WideOpen-2/Archive/Clients/Long-running-projects-2019-2024"].map { ["id": $0] }]
+                    case "pool.dataset.query": return ["result": ["tank", "tank/apps", "tank/apps/pluck-review", "tank/renders", "media", "media/Projects-2026", "media/Projects-2025", "media/Archive/Clients/Long-running-projects-2019-2024"].map { ["id": $0] }]
                     case "app.query": return ["result": [["name": "pluck-review", "state": "RUNNING"]]]
                     case "app.config": return ["result": compose]
                     default: return ["result": NSNull()]

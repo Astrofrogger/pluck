@@ -105,13 +105,13 @@ struct DeliverProjectView: View {
 
     private func add(_ urls: [URL]) {
         do {
-            let added = try store.add(urls, to: project, folder: folder)
+            let added = try DeliverUploadDestination.add(urls, to: project, folder: folder)
             askNAS(.assets(added.map(\.id), project: project), only: Set(added.flatMap { $0.versions.map(\.id) }))
         } catch { problem = String(localized: "This project is full.") }
     }
 
     private func addVersion(_ url: URL, to asset: Deliver.Asset) {
-        guard let made = try? store.addVersion(url, to: asset.id) else { return }
+        guard let made = try? DeliverUploadDestination.addVersion(url, to: asset.id) else { return }
         askNAS(.asset(asset.id, project: project), only: [made.id])
     }
 

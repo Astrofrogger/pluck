@@ -430,7 +430,7 @@ final class NASFinderSource: FinderSource {
         return ([id] + parts.dropFirst()).joined(separator: "/")
     }
 
-    /// The stand-in URL of a media path ("nas1/Clients" → …/Wide-open-2026/Clients).
+    /// The stand-in URL of a media path ("nas1/Clients" → …/Projects-2026/Clients).
     func url(_ media: String, folder: Bool = true) -> URL {
         let parts = media.split(separator: "/", maxSplits: 1).map(String.init)
         guard let first = parts.first else { return root }

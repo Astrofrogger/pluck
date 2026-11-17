@@ -2046,6 +2046,7 @@ extension PhotoSelfTest {
               && stacked?.current.path == ReviewPublish.nasPath(host: host.id, path: "nas1/Hero 30s_v2.mov"), "\(String(describing: stacked?.versions.map(\.path)))")
 
         await uploadDestinationTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
+        nasMountTest(store: store, project: project.id, base: base)
         await outageTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
 
         // A backup paired straight with the main (no host record here): a Backup row under the main, not a browse root.
@@ -2868,6 +2869,47 @@ extension PhotoSelfTest {
         store.remove(asset: local.id)
     }
 
+    /// Footage already on a NAS (its share mounted here, under any volume name): referenced in place, no folder picker;
+    /// footage from this Mac goes through the picker; a mixed drop only asks about the local files.
+    static func nasMountTest(store: DeliverStore, project: UUID, base: URL) {
+        var main = Deliver.Host(name: "Main", kind: .nas, address: "main-nas.test:8790")
+        main.role = "main"; main.rootNames = ["nas1": "Projects-2026"]
+        var backup = Deliver.Host(name: "Backup", kind: .nas, address: "backup-nas.test:8790")
+        backup.role = "backup"; backup.rootNames = ["nas1": "Projects-2026"]
+        let bare = Deliver.Host(name: "Bare", kind: .nas, address: "bare-nas.test:8790")
+        shareVolumes.fake = ["/Volumes/Projects-2026": .init(server: "main-nas.test", name: "Projects-2026"),
+                             "/Volumes/Renamed": .init(server: "MAIN-NAS.test", name: "Projects-2026"),
+                             "/Volumes/Projects-2026-1": .init(server: "backup-nas.test", name: "Projects-2026"),
+                             "/Volumes/media": .init(server: "bare-nas.test", name: "nas2"),
+                             "/Volumes/Elsewhere": .init(server: "other.test", name: "Stuff")]
+        defer { shareVolumes.fake = nil }
+        let hosts = [backup, main, bare]
+        typealias U = DeliverUploadDestination
+        let local = base.appendingPathComponent("Local cut.mov")
+        try? Data(repeating: 7, count: 2000).write(to: local)
+        check("nasux: a file on a NAS share is that NAS's file, whatever the volume is called; the main before the backup",
+              U.nasReference("/Volumes/Projects-2026/Day 1/A.mov", hosts: hosts) == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/A.mov")
+              && U.nasReference("/Volumes/Renamed/Day 1/A.mov", hosts: hosts) == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/A.mov")
+              && U.nasReference("/Volumes/Projects-2026-1/Day 1/A.mov", hosts: hosts) == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/A.mov")
+              && U.nasReference("/Volumes/Projects-2026-1/Day 1/A.mov", hosts: [backup]) == ReviewPublish.nasPath(host: backup.id, path: "nas1/Day 1/A.mov")
+              && U.nasReference("/Volumes/media/x.mov", hosts: hosts) == ReviewPublish.nasPath(host: bare.id, path: "nas2/x.mov")
+              && U.nasReference("/Volumes/Elsewhere/x.mov", hosts: hosts) == nil && U.nasReference(local.path, hosts: hosts) == nil
+              && U.nasReference("/Volumes/Renamed/../etc/x.mov", hosts: hosts) == nil, "")
+        let onShare = URL(fileURLWithPath: "/Volumes/Renamed/Day 1/Hero.mov")
+        let madeHere = (try? U.add([onShare], to: project, folder: nil, store: store, hosts: hosts)) ?? [Deliver.Asset(name: "x", kind: .video, versions: [])]
+        let hero = store.content(project).assets.first { $0.name == "Hero" }
+        let item = { (url: URL) in DeliverBrowseItem(name: url.lastPathComponent, location: .local(url), folder: false, size: 1) }
+        check("nasux: dropped from the NAS share: referenced in place, nothing to upload or ask (no picker)",
+              madeHere.isEmpty && hero?.current.path == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/Hero.mov")
+              && hero.map { U.onNAS($0.current, store: store) } == true && !U.needed([item(onShare)], host: main), "\(madeHere.map(\.name)) \(String(describing: hero?.current.path))")
+        let mixed = (try? U.add([URL(fileURLWithPath: "/Volumes/Projects-2026/Day 2/Wide.mov"), local], to: project, folder: nil, store: store, hosts: hosts)) ?? []
+        let wide = store.content(project).assets.first { $0.name == "Wide" }
+        check("nasux: from this Mac: the picker; a mixed drop asks only about the local file",
+              U.needed([item(local)], host: main) && U.needed([item(onShare), item(local)], host: main)
+              && mixed.map(\.name) == ["Local cut"] && wide?.current.path.hasPrefix("nas:") == true, "\(mixed.map(\.name))")
+        for asset in store.content(project).assets where ["Hero", "Wide", "Local cut"].contains(asset.name) { store.remove(asset: asset.id) }
+    }
+
     /// NAS first (wip-nasux): the state rule, the alert's once-per-burst, and the Publish sheet's hosts.
     static func nasFirstTest(publish: ReviewPublish, host: Deliver.Host) {
         typealias U = DeliverUploadDestination
@@ -2910,21 +2952,21 @@ extension PhotoSelfTest {
     static func browseSidebarTest(publish: ReviewPublish, host: Deliver.Host, backups: [DeliverBackups.Backup]) async {
         let found = TrueNASClient.installed(["services": ["pluck-review": [
             "environment": ["PLUCK_HOST_KEY": DeliverKeys.base64url(Data(repeating: 4, count: 32))],
-            "volumes": ["/mnt/WideOpen-2/Wide-open-2026:/media/nas1:ro", "/mnt/tank/archive:/media/nas3:ro", "/mnt/tank/deliveries:/uploads/renders", "/mnt/tank/apps/pluck:/data"]]]])
+            "volumes": ["/mnt/media/Projects-2026:/media/nas1:ro", "/mnt/tank/archive:/media/nas3:ro", "/mnt/tank/deliveries:/uploads/renders", "/mnt/tank/apps/pluck:/data"]]]])
         let names = found.map(TrueNASSetup.names) ?? [:]
         let setup = TrueNASSetup()
-        setup.media = [("WideOpen-2/Wide-open-2026", "nas1"), ("tank/archive", "nas2")]
+        setup.media = [("media/Projects-2026", "nas1"), ("tank/archive", "nas2")]
         setup.uploads = "tank/deliveries"
         var named = host
         named.rootNames = ["nas1": "Footage", "nas2": "Footage", "nas3": "nas1", "nas4": "Archive"]
         check("names: ids to names from app.config and the form (last part); unknown, clashing or another's id fall back to the id",
-              names == ["nas1": "Wide-open-2026", "nas3": "archive", "renders": "deliveries"]
-              && setup.rootNames == ["nas1": "Wide-open-2026", "nas2": "archive", "renders": "deliveries"]
+              names == ["nas1": "Projects-2026", "nas3": "archive", "renders": "deliveries"]
+              && setup.rootNames == ["nas1": "Projects-2026", "nas2": "archive", "renders": "deliveries"]
               && Deliver.Host.names([("nas1", "/tank/media"), ("nas2", "")]) == ["nas1": "media"]
               && named.rootName("nas4") == "Archive" && named.rootName("nas1") == "nas1" && named.rootName("nas3") == "nas3" && named.rootName("nas9") == "nas9"
               && !setup.uploadsOverlap && { let s = TrueNASSetup(); s.media = [("tank/media", "nas1")]; s.uploads = "tank/media/up"; return s.uploadsOverlap }(), "\(names) \(setup.rootNames)")
 
-        publish.update(host: host.id) { $0.rootNames = ["nas1": "Wide-open-2026"] }
+        publish.update(host: host.id) { $0.rootNames = ["nas1": "Projects-2026"] }
         let current = publish.host(host.id) ?? host
         let roots = [host.id: [ReviewHostClient.Entry(name: "nas1", path: "nas1", folder: true), ReviewHostClient.Entry(name: "renders", path: "renders", folder: true)]]
         let groups = DeliverBrowseView.serverGroups(publish: publish, roots: roots, writable: [host.id: "renders"], backups: backups,
@@ -2932,7 +2974,7 @@ extension PhotoSelfTest {
         let group = groups.first { $0.key == "server:" + host.id.uuidString }
         check("sidebar: one group per server, named after it, its roots by real names, Uploads, then its backups",
               group?.title == current.name && group?.menu != nil && group?.dot != nil
-              && group?.places.first?.title == "Wide-open-2026" && group?.places.first?.id == "nasroot:\(host.id.uuidString)/nas1"
+              && group?.places.first?.title == "Projects-2026" && group?.places.first?.id == "nasroot:\(host.id.uuidString)/nas1"
               && group?.places.dropFirst().first?.title == String(localized: "Uploads")
               && group?.places.suffix(backups.count).allSatisfy { $0.id.hasPrefix("backup:") } == true
               && !groups.contains { $0.title == "Review server" || $0.title == "On the NAS" }

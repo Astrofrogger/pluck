@@ -96,6 +96,8 @@ enum DeliverShareForReview {
             case .local(let url):
                 if let nas = target ?? host.flatMap({ $0.kind == .nas ? $0 : nil }), let media = ReviewPublish.reference(url.path, on: nas) {
                     reference = (ReviewPublish.nasPath(host: nas.id, path: media), item.size)
+                } else if !item.folder, let onNAS = DeliverUploadDestination.nasReference(url.path) {
+                    reference = (onNAS, item.size)   // already on a NAS (its share mounted here): in place, not again
                 } else if let target, let upload, !item.folder {
                     // The server away (or `later`: it was away when asked): "Waiting for NAS", sent once it answers.
                     let wait = DeliverShareQueue.Entry(file: url.path, size: item.size, project: project, asset: match?.id, upload: upload,
