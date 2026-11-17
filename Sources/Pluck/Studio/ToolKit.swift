@@ -203,11 +203,13 @@ struct PlumSpinner: View {
     var body: some View {
         ZStack {
             Circle().stroke(Design.Studio.line, lineWidth: 2)
+            // The endless animation on the turn only: started with withAnimation in onAppear it also caught every
+            // frame change in that update, so a sheet still settling (Invite a Teammate) kept sliding each second.
             Circle().trim(from: 0, to: 0.25).stroke(Design.Brand.pink, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(turning ? 360 : 0))
+                .animation(.linear(duration: 1).repeatForever(autoreverses: false)) { $0.rotationEffect(.degrees(turning ? 360 : 0)) }
         }
         .frame(width: 11, height: 11)
-        .onAppear { withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) { turning = true } }
+        .onAppear { turning = true }
         .accessibilityLabel(Text("Working"))
     }
 }
