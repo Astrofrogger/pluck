@@ -113,8 +113,6 @@ impl TimerTable {
     }
 
     /// Clear peer error accounting without changing the recovery deadline.
-    pub fn retrans_tmp(&self, timer: Timer) -> usize { self.retrans[timer as usize] } // TRACE-TMP
-
     pub fn reset_retrans(&mut self, timer: Timer) {
         self.retrans[timer as usize] = 0;
     }

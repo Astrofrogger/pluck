@@ -2508,7 +2508,6 @@ impl Association {
     }
 
     fn handle_sack(&mut self, d: &ChunkSelectiveAck, now: Instant) -> Result<Vec<Packet>> {
-        if d.advertised_receiver_window_credit < 128 * 1024 || self.timers.retrans_tmp(Timer::T3RTX) > 0 { self.tr_tmp("SACK", self.timers.retrans_tmp(Timer::T3RTX), d.advertised_receiver_window_credit); } // TRACE-TMP
         trace!(
             "[{}] {}, SACK: cumTSN={} a_rwnd={}",
             self.side,
@@ -4301,15 +4300,6 @@ impl Association {
         self.awake_write_loop();
     }
 
-    // TRACE-TMP
-    fn tr_tmp(&self, what: &str, n: usize, arwnd: u32) {
-        if std::env::var_os("PLUCK_SCTP_TRACE").is_none() { return; }
-        let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
-        std::eprintln!("SCTPTR {ms} tag={:08x} {what} n={n} arwnd={arwnd} rto={} cwnd={} ssthresh={} rwnd={} inflight={} pending={}",
-            self.my_verification_tag, self.rto_mgr.get_rto(), self.cwnd, self.ssthresh, self.rwnd,
-            self.outbound_queue.inflight_bytes(), self.outbound_queue.pending_bytes());
-    }
-
     fn on_retransmission_timeout(&mut self, timer_id: Timer, n_rtos: usize) {
         match timer_id {
             Timer::T1Init => {
@@ -4402,7 +4392,6 @@ impl Association {
 
                 self.outbound_queue.mark_all_to_retransmit();
                 self.awake_write_loop();
-                self.tr_tmp("T3", n_rtos, 0); // TRACE-TMP
             }
 
             Timer::Reconfig => {
