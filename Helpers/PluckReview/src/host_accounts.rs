@@ -33,7 +33,15 @@ fn hex_sha(s: &str) -> Option<String> {
     keys::unb64(s).filter(|b| b.len() == 32).map(|b| b.iter().map(|x| format!("{x:02x}")).collect())
 }
 
-const PREVIEW_BYTES: u64 = 8 << 20; // a footage fetch without the download right: a range of at most this
+const PREVIEW_BYTES: u64 = 8 << 20; // without the download right: at most this of one file per session (fix M4)
+const PREVIEW_SLACK: u64 = 1 << 20;  // ranges asked again after a stall
+const FRESH_SECS: i64 = 120; // a device code needs a passkey used this recently on this peer (fix M1)
+const MKDIRS_PER_MINUTE: usize = 30;
+
+/// Role order: a session whose role goes down is closed (fix M3), so it signs in again with what it may do now.
+fn rank(r: Option<&str>) -> u8 {
+    match r { Some("owner") => 3, Some("editor") => 2, Some("client") => 1, _ => 0 }
+}
 
 /// What a signed-in peer is, on top of a link peer.
 #[derive(Default)]
@@ -45,6 +53,11 @@ pub struct Acct {
     begins: VecDeque<Instant>,
     pub project: Option<String>, // team room: the project last asked about, for live events
     pub request: Option<String>, // the account request this peer made (its event)
+    pub cred: Option<String>,    // the passkey it signed in with: removing it ends this session (fix H1)
+    role: Option<String>,        // the role it signed in with
+    fresh: Option<i64>,          // when a passkey (not a resume key) was last used on this peer
+    served: std::collections::HashMap<String, u64>, // footage path → bytes served this session (fix M4)
+    mkdirs: VecDeque<Instant>,
 }
 
 impl Host {
@@ -76,18 +89,26 @@ impl Host {
     pub(super) fn peer_link(&self, p: &HPeer) -> Option<Value> {
         match self.link(&p.room) {
             Some(l) => Some(l.clone()),
-            None if p.ready && self.is_team(&p.room) => self.team_link(p.acct.project.as_deref()?),
+            // Only editors and owners hear a team project's live events (fix M3).
+            None if p.ready && self.is_team(&p.room) && rank(p.acct.person.as_deref().and_then(|x| self.accounts.role(x))) >= 2 =>
+                self.team_link(p.acct.project.as_deref()?),
             None => None,
         }
     }
 
-    /// A signed-in session whose person was removed (or lost every passkey) ends.
+    /// A signed-in session ends when its person was removed, the passkey it used was removed, or its role went down.
     pub(super) fn acct_gone(&self, p: &HPeer) -> Option<&'static str> {
-        let gone = match &p.acct.person {
-            Some(id) => self.accounts.role(id).is_none(),
-            None => p.ready && self.is_team(&p.room),
+        let gone = match (&p.acct.person, &p.acct.cred) {
+            (Some(id), Some(c)) => !self.accounts.has_cred(id, c) || rank(self.accounts.role(id)) < rank(p.acct.role.as_deref()),
+            (Some(_), None) => true,
+            (None, _) => p.ready && self.is_team(&p.room),
         };
         gone.then_some("revoked")
+    }
+
+    /// Presence goes to (and lists) team-room peers only when they're editors or owners (fix M3).
+    pub(super) fn presence_ok(&self, p: &HPeer) -> bool {
+        !self.is_team(&p.room) || rank(p.acct.person.as_deref().and_then(|x| self.accounts.role(x))) >= 2
     }
 
     /// The tokens whose comments are this peer's: the browser's per-link one and the account's.
@@ -112,14 +133,19 @@ impl Host {
 
     /// Signed in (create, get or resume): the account's name and token on this peer, a fresh resume key, and on the
     /// team room `ready`; on a review link `me` (the link's rights don't change).
-    fn signed_in(&mut self, peer: &str, id: &Value, person: &str) {
+    /// `resumed`: the old resume key's expiry (a resume never extends it); None for a passkey just used.
+    fn signed_in(&mut self, peer: &str, id: &Value, person: &str, cred: &str, resumed: Option<i64>) {
         let now = now_secs();
         let Some(rec) = self.accounts.person(person).cloned() else { return self.err(peer, id, "revoked") };
         let team = self.accounts.v["team"]["id"].as_str().unwrap_or("").to_owned();
-        let resume = self.accounts.new_resume(person, now);
+        let resume = self.accounts.new_resume(person, cred, resumed, now);
         let room = self.peers[peer].room.clone();
         let team_room = self.is_team(&room);
+        let role = self.accounts.role(person).map(str::to_owned);
         let p = self.peers.get_mut(peer).unwrap();
+        p.acct.cred = Some(cred.to_owned());
+        p.acct.role = role;
+        p.acct.fresh = resumed.is_none().then_some(now);
         p.acct.person = Some(person.to_owned());
         p.acct.token = Some(accounts::account_token(&team, person));
         p.acct.fails = 0;
@@ -159,7 +185,9 @@ impl Host {
         let now = now_secs();
         let backup = self.ident.backup;
         let p = &self.peers[peer];
-        if !p.authed || (p.acct.person.is_some() && t != "account-request" && t != "account-status") {
+        // Signed in: only a fresh passkey `get` again (for device-code, fix M1) and a client's request ops.
+        let again = t == "account-get" || (t == "account-begin" && m["purpose"] == "get");
+        if !p.authed || (p.acct.person.is_some() && !again && t != "account-request" && t != "account-status") {
             return Some(self.err(peer, id, "auth"));
         }
         let team_room = self.is_team(&p.room);
@@ -177,7 +205,6 @@ impl Host {
                 let nonce: [u8; 32] = rand::random();
                 let mut r = json!({"re": id, "nonce": keys::b64(&nonce), "rp": self.accounts.rp_id});
                 let invite = match m["purpose"].as_str() {
-                    Some("get") if self.accounts.locked(now) => return Some(self.err(peer, id, "locked")),
                     Some("get") => None,
                     Some("create") if backup => return Some(self.err(peer, id, "main")),
                     Some("create") => {
@@ -222,14 +249,14 @@ impl Host {
                     None => self.accounts.finish_get(&m["cred"], &challenge, !backup, now),
                 };
                 match r {
-                    Ok(person) => self.signed_in(peer, id, &person),
+                    Ok((person, cred)) => self.signed_in(peer, id, &person, &cred, None),
                     Err(c) => self.acct_fail(peer, id, c),
                 }
             }
             "account-resume" => {
                 let p = &self.peers[peer];
                 match self.accounts.check_resume(m["proof"].as_str().unwrap_or(""), &p.nonce, &p.fp_mac, &p.fp_browser, now) {
-                    Some(person) => self.signed_in(peer, id, &person),
+                    Some((person, cred, exp)) => self.signed_in(peer, id, &person, &cred, Some(exp)),
                     None => self.acct_fail(peer, id, "auth"),
                 }
             }
@@ -283,6 +310,8 @@ impl Host {
         let r = match t {
             "me" => Ok(json!({"me": self.me(peer), "invite": self.can_invite(peer)})),
             "device-code" if self.ident.backup => Err("main"),
+            // Only right after a passkey was used on this peer, never on a resume key alone (fix M1).
+            "device-code" if self.peers[peer].acct.fresh.is_none_or(|t| now - t > FRESH_SECS) => Err("fresh"),
             "device-code" => {
                 let person = self.peers[peer].acct.person.clone().unwrap_or_default();
                 Ok(self.accounts.device_code(&person, now))
@@ -353,6 +382,7 @@ impl Host {
                 let p = m["path"].as_str().unwrap_or(&u.id);
                 if !inside(p) { Err("invalid") } else { self.roots.browse(p).map_err(|_| "invalid") }
             }
+            "mkdir" if !rate(&mut self.peers.get_mut(peer).unwrap().acct.mkdirs, Duration::from_secs(60), MKDIRS_PER_MINUTE) => Err("limit"),
             "mkdir" => {
                 let p = m["path"].as_str().unwrap_or("");
                 let r = if inside(p) { u.mkdir(p) } else { json!({"error": "invalid"}) };
@@ -368,9 +398,9 @@ impl Host {
                 }
                 // The same file (person, place, size, mtime) gets the same id: a new session resumes it. Its hash comes at the end.
                 let full = format!("{folder}/{name}");
-                let key = keys::sha256_b64(format!("{person} {full} {size} {}", m["mtime"]).as_bytes());
+                let key = keys::sha256_b64(format!("{person}\0{full}\0{size}\0{}", m["mtime"]).as_bytes());
                 let key: String = keys::unb64(&key).unwrap_or_default().iter().map(|b| format!("{b:02x}")).collect();
-                let r = u.begin(&json!({"path": full, "size": size, "sha256": key, "hashAtEnd": true}), &format!("acct:{person}"));
+                let r = u.begin(&json!({"path": full, "size": size, "sha256": key, "hashAtEnd": true, "exclusive": true}), &format!("acct:{person}"));
                 if let Some(e) = r["error"].as_str() {
                     return self.err(peer, id, if e == "scope" { "invalid" } else { e }); // (out of the root through a link)
                 }
@@ -501,13 +531,21 @@ impl Host {
             }
             _ => {
                 let Some(fetch) = id.as_u64().filter(|f| *f <= u32::MAX as u64) else { return self.err(peer, id, "invalid") };
+                if self.peers[peer].fetches.contains_key(&fetch) {
+                    return self.err(peer, id, "invalid"); // an id still in flight (as fetch() does, fix L6)
+                }
                 let Some(file) = self.roots.resolve(&path, false) else { return self.err(peer, id, "invalid") };
                 let len = std::fs::metadata(&file).map_or(0, |x| x.len());
                 let off = m["offset"].as_u64().unwrap_or(0).min(len);
                 let want = m["length"].as_u64().unwrap_or(len - off).min(len - off);
-                if want > PREVIEW_BYTES && person["footageDownload"] != true {
-                    return self.err(peer, id, "scope"); // a preview streams in ranges; downloading needs its own right
+                // A preview: at most PREVIEW_BYTES of a file per session in all, so ranges in a row are no download (fix M4).
+                let served = self.peers[peer].acct.served.get(&path).copied().unwrap_or(0);
+                if person["footageDownload"] != true && served + want > PREVIEW_BYTES + PREVIEW_SLACK {
+                    return self.err(peer, id, "scope"); // downloading needs its own right
                 }
+                let p = self.peers.get_mut(peer).unwrap();
+                *p.acct.served.entry(path.clone()).or_default() += want;
+                p.fetches.insert(fetch, Default::default());
                 let kind = match crate::roots::kind_of(&path) { Some("video") => "video/mp4", Some("audio") => "audio/mp4", Some("image") => "image/jpeg", _ => "application/octet-stream" };
                 let name = path.rsplit('/').next().unwrap_or("").to_owned();
                 self.send(peer, json!({"re": id, "fetch": fetch, "size": want, "type": kind, "name": name}));
@@ -519,7 +557,7 @@ impl Host {
 
     /// After a People change: sessions of removed people end (bye revoked); the others re-read `me`.
     fn people_changed(&mut self) {
-        self.check_links();
+        self.check_links(); // ends removed people, removed passkeys and lowered roles (acct_gone)
         let signed: Vec<String> = self.peers.iter().filter(|(_, p)| p.acct.person.is_some()).map(|(id, _)| id.clone()).collect();
         for id in signed {
             self.send(&id, json!({"t": "account-changed"}));
@@ -539,7 +577,7 @@ impl Host {
         let r = match name {
             "people" => {
                 let mut v = if self.accounts.on() { self.accounts.view(now) } else { json!({"team": null, "people": [], "invites": [], "requests": []}) };
-                (v["frozen"], v["locked"]) = (json!(self.accounts.frozen(now)), json!(self.accounts.locked(now)));
+                v["locked"] = json!(self.accounts.locked(now)); // passkeys locked after failed sign-ins
                 v
             }
             "team-set" => self.accounts.team_set(op["name"].as_str(), op["editorsInvite"].as_bool()),
@@ -556,7 +594,7 @@ impl Host {
             "invite-cancel" => self.accounts.invite_cancel(&s("id")),
             "request-accept" | "request-decline" => {
                 let hash = self.accounts.request_hash(&s("id"));
-                let r = if name == "request-accept" { self.accounts.request_accept(&s("id"), now) } else { self.accounts.request_decline(&s("id")) };
+                let r = if name == "request-accept" { self.accounts.request_accept(&s("id"), now) } else { self.accounts.request_decline(&s("id"), now) };
                 // The browser that asked, if it's still here, checks again at once.
                 for (pid, p) in &self.peers {
                     if hash.is_some() && p.acct.request == hash {
@@ -594,7 +632,7 @@ mod tests {
     use serde_json::{Value, json};
     use tokio::sync::mpsc;
 
-    use super::super::{Host, uuid};
+    use super::super::{Host, now_secs, uuid};
     use crate::{Ev, accounts::{self, tests::Key}, keys, roots::Roots};
 
     const SEED: &str = "R85Juszx1tmPSUJlpjYA3DtFmqHJDUUU0Z1HyoU0Mb4";
@@ -774,13 +812,68 @@ mod tests {
         let inv = ed.ask(&mut h, &mut rx, 22, json!({"t": "invite", "name": "New client", "role": "client"}));
         assert!(inv["link"].as_str().unwrap().contains("/i/"), "{inv}");
         assert_eq!(h.accounts.view(0)["invites"].as_array().unwrap().iter().filter(|i| i["by"] == ready["me"]["account"]).count(), 1);
-        // Role change: account-changed, and the next request goes by the new role.
+        // A role going up: account-changed, the session stays. Going down: the session ends (fix M3), and signed in
+        // again it goes by the new role.
         let eid = ready["me"]["account"].as_str().unwrap().to_owned();
         msgs(&mut rx);
-        assert_eq!(h.sync(&json!({"op": "person-update", "id": eid, "role": "client"}))["ok"], true);
+        assert_eq!(h.sync(&json!({"op": "person-update", "id": eid, "role": "owner"}))["ok"], true);
         assert!(to(&msgs(&mut rx), "e1").iter().any(|m| m["t"] == "account-changed"));
-        assert_eq!(ed.ask(&mut h, &mut rx, 23, json!({"t": "projects"}))["error"]["code"], "scope");
-        assert_eq!(ed.ask(&mut h, &mut rx, 24, json!({"t": "me"}))["me"]["role"], "client");
+        assert_eq!(ed.ask(&mut h, &mut rx, 23, json!({"t": "me"}))["me"]["role"], "owner");
+        assert_eq!(h.sync(&json!({"op": "person-update", "id": eid, "role": "client"}))["ok"], true);
+        assert!(to(&msgs(&mut rx), "e1").iter().any(|m| m["t"] == "bye" && m["code"] == "revoked"));
+        assert!(!h.peers.contains_key("e1"), "a lowered role closes the session");
+    }
+
+    /// Fix H1/M1/M3: removing one passkey ends that device's session only; a device code needs a passkey just used;
+    /// team-room clients hear no presence and no live project events.
+    #[tokio::test]
+    async fn one_removed_passkey_ends_its_own_session_and_device_codes_need_a_fresh_passkey() {
+        let (mut h, mut rx) = host();
+        h.sync(&json!({"op": "team-set", "name": "Northwind Films"}));
+        let (b1, k1, ready) = enrol(&mut h, &mut rx, "t1", "editor");
+        let pid = ready["me"]["account"].as_str().unwrap().to_owned();
+        let d = b1.ask(&mut h, &mut rx, 4, json!({"t": "device-code"}));
+        let code = d["link"].as_str().unwrap().rsplit('/').next().unwrap().to_owned();
+        let (b2, _, _) = open_team(&mut h, &mut rx, "t2", ("CC", "DD"));
+        let b = b2.ask(&mut h, &mut rx, 2, json!({"t": "account-begin", "purpose": "create", "device": code}));
+        let k2 = Key::new();
+        assert_eq!(b2.ask(&mut h, &mut rx, 3, json!({"t": "account-create", "nonce": b["nonce"], "cred": k2.create(&b2.challenge("create", &b["nonce"])), "label": "Phone"}))["t"], "ready");
+        // Resume on a third session from t1's key: a resume never makes device codes.
+        let resume = keys::unb64(ready["resume"].as_str().unwrap()).unwrap();
+        let (b3, _, _) = open_team(&mut h, &mut rx, "t3", ("EE", "FF"));
+        use hmac::Mac;
+        let mut m = hmac::Hmac::<sha2::Sha256>::new_from_slice(&resume).unwrap();
+        for p in [b"pluck-account/1 resume\n".as_slice(), &b3.mac_nonce, b"EE", b"\n", b"FF"] {
+            m.update(p);
+        }
+        assert_eq!(b3.ask(&mut h, &mut rx, 2, json!({"t": "account-resume", "proof": keys::b64(&m.finalize().into_bytes())}))["t"], "ready");
+        assert_eq!(b3.ask(&mut h, &mut rx, 3, json!({"t": "device-code"}))["error"]["code"], "fresh");
+        h.peers.get_mut("t1").unwrap().acct.fresh = Some(now_secs() - 121);
+        assert_eq!(b1.ask(&mut h, &mut rx, 5, json!({"t": "device-code"}))["error"]["code"], "fresh", "two minutes at most");
+        let b = b1.ask(&mut h, &mut rx, 6, json!({"t": "account-begin", "purpose": "get"}));
+        assert_eq!(b1.ask(&mut h, &mut rx, 7, json!({"t": "account-get", "nonce": b["nonce"], "cred": k1.get(&b1.challenge("get", &b["nonce"]), &Value::Null)}))["t"], "ready");
+        assert!(b1.ask(&mut h, &mut rx, 8, json!({"t": "device-code"}))["link"].is_string(), "the passkey again: fresh");
+        assert_eq!(b1.ask(&mut h, &mut rx, 9, json!({"t": "account-begin", "purpose": "create", "invite": accounts::new_code()}))["error"]["code"], "auth",
+            "signed in: no create");
+        // Remove the first passkey: t1 and t3 (its resume) end, t2 (the phone's passkey) stays.
+        msgs(&mut rx);
+        assert_eq!(h.sync(&json!({"op": "passkey-remove", "person": pid, "id": keys::b64(&k1.id)}))["ok"], true);
+        let all = msgs(&mut rx);
+        for p in ["t1", "t3"] {
+            assert!(to(&all, p).iter().any(|m| m["t"] == "bye" && m["code"] == "revoked"), "{p}");
+            assert!(!h.peers.contains_key(p));
+        }
+        assert!(h.peers.contains_key("t2"));
+        assert_eq!(b2.ask(&mut h, &mut rx, 4, json!({"t": "projects"}))["projects"].as_array().unwrap().len(), 2);
+        // A client in the team room: no presence, no live comments.
+        let (_, _, cr) = enrol(&mut h, &mut rx, "c1", "client");
+        assert_eq!(cr["me"]["role"], "client");
+        b2.ask(&mut h, &mut rx, 5, json!({"t": "viewing", "project": "P", "asset": "A"}));
+        h.peers.get_mut("c1").unwrap().acct.project = Some("P".into());
+        h.request("t2", &json!({"id": 6, "t": "comment-add", "project": "P", "asset": "A", "version": "V", "frame": 2, "text": "Internal"}));
+        let all = msgs(&mut rx);
+        assert!(to(&all, "c1").iter().all(|m| m["t"] != "presence" && m["t"] != "comment"), "{:?}", to(&all, "c1"));
+        assert!(to(&all, "t2").iter().filter(|m| m["t"] == "presence").all(|m| m["viewers"].as_array().unwrap().iter().all(|v| v["peer"] != "c1")));
     }
 
     #[tokio::test]
@@ -1066,6 +1159,23 @@ mod upload_tests {
         }
         assert_eq!(t.ask("e2", 50, json!({"t": "mkdir", "path": "media/x"}))["error"]["code"], "invalid");
         assert!(t.ask("e2", 51, json!({"t": "root-list", "path": "renders/Phone"}))["entries"].as_array().unwrap().len() >= 2);
+        // Fix L5: the same upload going on another session is refused (never two writers on one partial) ...
+        let b = json!({"t": "root-upload-begin", "path": "renders", "name": "Twice.mov", "size": 10, "mtime": 5});
+        assert_eq!(t.ask("e2", 60, b.clone())["have"], 0);
+        assert_eq!(t.ask("e2", 61, b)["error"]["code"], "limit");
+        // ... and browsers' uploads have slots of their own: four Mac uploads don't block them.
+        let u = t.h.upload_root.clone().unwrap();
+        for i in 0..2 {
+            for d in ["mac1", "mac2"] {
+                let r = u.begin(&json!({"path": format!("renders/{d}-{i}.mov"), "size": 1, "sha256": "a".repeat(64)}), d);
+                assert!(r["upload"].is_string(), "{r}");
+            }
+        }
+        assert_eq!(u.begin(&json!({"path": "renders/mac3.mov", "size": 1, "sha256": "b".repeat(64)}), "mac3")["error"], "limit");
+        assert_eq!(t.ask("e2", 62, json!({"t": "root-upload-begin", "path": "renders", "name": "Own.mov", "size": 10, "mtime": 6}))["have"], 0);
+        // mkdir is rate-limited (fix L7).
+        let limited = (0..40).map(|i| t.ask("e2", 100 + i, json!({"t": "mkdir", "path": format!("renders/d{i}")}))).filter(|r| r["error"]["code"] == "limit").count();
+        assert!(limited >= 9, "{limited}");
     }
 
     #[tokio::test]
@@ -1088,11 +1198,17 @@ mod upload_tests {
         let serve = all.iter().find(|c| c.get("serve").is_some()).unwrap()["serve"].clone();
         assert_eq!((serve["pieces"][0]["offset"].clone(), serve["pieces"][0]["length"].clone()), (json!(100), json!(50)));
         assert!(t.h.entries.iter().any(|e| e["activity"]["kind"] == "footage" && e["activity"]["name"] == "Ed"), "logged with the account name");
-        std::fs::write(t.media.join("Day 1/Big.mov"), vec![0u8; (8 << 20) + 1]).unwrap();
+        std::fs::write(t.media.join("Day 1/Big.mov"), vec![0u8; 20 << 20]).unwrap();
         assert_eq!(t.ask("e1", 31, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov"}))["error"]["code"], "scope", "a whole file needs the download right");
+        // Fix M4: ranges in a row add up per file and session; past the preview budget they're refused too.
+        assert_eq!(t.ask("e1", 40, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov", "offset": 0, "length": 8 << 20}))["size"], 8 << 20);
+        assert_eq!(t.ask("e1", 40, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov", "offset": 0, "length": 10}))["error"]["code"], "invalid",
+            "a fetch id still in flight (fix L6)");
+        t.h.report(&json!({"served": {"peer": "e1", "fetch": 40, "result": "done"}}));
+        assert_eq!(t.ask("e1", 41, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov", "offset": 8 << 20, "length": 8 << 20}))["error"]["code"], "scope");
         let me = t.ask("e1", 32, json!({"t": "me"}))["me"]["account"].clone();
         t.h.sync(&json!({"op": "person-update", "id": me, "footageDownload": true}));
-        assert_eq!(t.ask("e1", 33, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov"}))["size"], (8 << 20) + 1);
+        assert_eq!(t.ask("e1", 33, json!({"t": "fetch", "what": "footage", "path": "media/Day 1/Big.mov"}))["size"], 20 << 20);
         t.h.sync(&json!({"op": "person-update", "id": me, "footage": false}));
         assert_eq!(t.ask("e1", 34, json!({"t": "footage-roots"}))["error"]["code"], "scope", "switched off: the next request knows");
         // A backup never has an uploads root (main.rs gives it none): team uploads there are `scope`.

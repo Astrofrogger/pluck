@@ -145,8 +145,10 @@ has no `ip` (`host.rs:2088`).
 tmp + rename; `Helpers/PluckReview/src/accounts.rs`), pulled whole by the backup (`_accounts`, `replica.rs`): team id
 and name, the team room's level-2 record, per person name, optional email, role, footage rights, added/by/last seen,
 per passkey the credential id, SPKI public key, a label (browser and OS family from the page), added, last used and
-sign count; invites as sha256 of the code with person, kind, by, made, expiry, used/usedBy; requests with name,
-email, link id, time, state and the sha256 of the browser's secret. Activity gains `signedIn`, `footage` (path,
+sign count; invites as sha256 of the code with person, kind, by, made, expiry, used/usedBy; pending requests with name,
+email, link id, time and the sha256 of the browser's secret. An accepted request is deleted (its name and email move to
+the person); a declined one keeps only id, hash and time for 30 days; pending ones go after 30 days (`request_decline`,
+`request_accept`, `request` in accounts.rs; review fix L3). Activity gains `signedIn`, `footage` (path,
 range) and team `uploaded` lines with the account name, under the same retention. Removing a person deletes the
 record, its passkeys and open invites (`person_remove`). pluck.tools: nothing new (the team room is one more room).
 "What it keeps" on privacy.astro: unchanged, checked 2026-11-17 against `deploy/worker` (no Worker change).

@@ -13,6 +13,7 @@ extension PhotoSelfTest {
             var accounts: Int?
             var team: Any = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
             var ops: [[String: Any]] = []
+            var requests: [[String: Any]] = [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "L1", "at": ISO8601DateFormatter().string(from: .now)]]
         }
         let main = Main(), fingerprint = Array(repeating: "CD", count: 32).joined(separator: ":")
         let iso = ISO8601DateFormatter().string(from: .now)
@@ -30,8 +31,8 @@ extension PhotoSelfTest {
                                    ["id": "p2", "userId": "u2", "name": "Sam Lee", "role": "client", "footage": false, "added": iso, "by": "mac",
                                     "passkeys": [["id": "c3", "label": "Safari on iPhone", "added": iso, "lastUsed": NSNull(), "count": 0]]]],
                         "invites": [["id": "i1", "person": "p2", "kind": "device", "by": "p2", "expires": iso]],
-                        "used": [], "requests": [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "L1", "at": iso]],
-                        "frozen": false, "locked": true]
+                        "used": [], "requests": main.requests, "locked": ["c3"]]
+            case "request-accept", "request-decline": main.requests = []; return ["ok": true] // accepted ones are deleted, declined ones aren't listed
             case "devices": return ["devices": [["id": "d1", "name": "Edit Mac", "role": "mac", "lastSeen": iso], ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso]]]
             case "team-set": main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]; return ["ok": true, "link": "https://pluck.tools/r/#k.p"]
             case "person-invite": return ["person": "p9", "link": "https://pluck.tools/r/#k.p/i/ABCDEFGHJKMNPQRS", "expires": iso]
@@ -63,7 +64,7 @@ extension PhotoSelfTest {
         let people = model.people.people ?? []
         check("review: S-1 the owner sees every account and device", people.map(\.id) == ["p1", "p2"] && people.flatMap { $0.passkeys ?? [] }.map(\.id) == ["c1", "c2", "c3"]
               && model.people.invites?.map(\.id) == ["i1"] && model.people.requests?.first?.email == "alex@example.com" && model.pending == 1
-              && model.devices.map(\.id) == ["d1", "b1"] && model.people.locked == true && model.people.team?.name == "Northwind Films"
+              && model.devices.map(\.id) == ["d1", "b1"] && model.people.locked == ["c3"] && model.people.team?.name == "Northwind Films"
               && people.first?.footage == true && DeliverPeople.roleName(people.first?.role) == DeliverPeople.roleName("editor"),
               "\(people.map(\.id)) \(model.devices.map(\.id))")
 
@@ -72,10 +73,31 @@ extension PhotoSelfTest {
         await model.remove("p2")
         await model.removePasskey("c1", of: "p1")
         await model.answer("r1", accept: true)
+        await model.update("p1", ["footageDownload": true])
+        _ = await model.reset("p1")
         let sent = main.ops.filter { !["people", "devices"].contains($0["op"] as? String ?? "") }.map { op in
             ["op", "id", "person"].compactMap { op[$0] as? String }.joined(separator: " ")
         }
-        check("review: S-2 remove sends the right op", sent == ["person-remove p2", "passkey-remove c1 p1", "request-accept r1"], "\(sent)")
+        let reloads = main.ops.compactMap { $0["op"] as? String }.split { $0 != "people" && $0 != "devices" }.count
+        let footage = main.ops.first { $0["op"] as? String == "person-update" }
+        check("review: S-2 remove sends the right op", sent == ["person-remove p2", "passkey-remove c1 p1", "request-accept r1", "person-update p1", "person-reset p1"]
+              && footage?["footageDownload"] as? Bool == true && footage?.count == 3, "\(sent) \(String(describing: footage))")
+        // M2/L3: the list is read again after each change (remove and reset delete more on the host); an accepted request goes.
+        check("review: People reloads after every change; an accepted request leaves the list", reloads == 5 && model.pending == 0
+              && main.ops.last?["op"] as? String == "devices", "\(main.ops.compactMap { $0["op"] as? String })")
+        // The old `locked: true` (a Bool) or any odd field can't empty the whole answer.
+        let odd = DeliverPeople.decode(Deliver.People.self, ["locked": true, "people": [["id": "p1", "name": "Anna Berg"]], "frozen": false, "requests": "x"])
+        check("review: people decodes with a changed field", odd?.people?.first?.name == "Anna Berg" && odd?.locked == nil && odd?.requests == nil, "\(String(describing: odd))")
+        // L7: request notifications at most once a minute, several in one.
+        let t = Date.now.addingTimeInterval(10_000), before = model.posted.count
+        model.announce([.init(id: "q1", name: "Lee Wong")], now: t)
+        model.announce([.init(id: "q2", name: "Kai Moss")], now: t.addingTimeInterval(10))
+        model.announce([.init(id: "q3", name: "Ana Diaz")], now: t.addingTimeInterval(20))
+        let within = model.posted.count - before
+        model.flushNotice(t.addingTimeInterval(61))
+        let posts = Array(model.posted.suffix(model.posted.count - before))
+        check("review: request notifications at most one a minute", within == 1 && posts.count == 2 && posts[0].contains("Lee Wong")
+              && posts[1] == String(localized: "\(2) new account requests"), "\(posts)")
 
         // Invite with no team yet: the team first, then the person; the link comes back once and the model never keeps it.
         main.team = NSNull()

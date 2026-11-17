@@ -15,8 +15,20 @@ extension Deliver {
         var people: [Person]?
         var invites: [PersonInvite]?
         var requests: [AccountRequest]?
-        var frozen: Bool?
-        var locked: Bool?
+        /// Passkey credential ids locked after failed sign-ins (15 min).
+        var locked: [String]?
+
+        init() {}
+        /// Field by field: one the host changed the shape of (as `locked` was a Bool) leaves only that field empty.
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            team = try? c.decode(Team.self, forKey: .team)
+            settings = try? c.decode(Settings.self, forKey: .settings)
+            people = try? c.decode([Person].self, forKey: .people)
+            invites = try? c.decode([PersonInvite].self, forKey: .invites)
+            requests = try? c.decode([AccountRequest].self, forKey: .requests)
+            locked = try? c.decode([String].self, forKey: .locked)
+        }
     }
 
     struct Person: Codable, Hashable, Identifiable {
@@ -106,16 +118,46 @@ final class DeliverPeople {
         people = decoded
         let seen = Set(UserDefaults.standard.stringArray(forKey: Self.seenKey) ?? [])
         let requests = decoded.requests ?? []
-        for request in requests where !seen.contains(request.id) { Self.notify(request) }
+        announce(requests.filter { !seen.contains($0.id) })
         UserDefaults.standard.set(requests.map(\.id), forKey: Self.seenKey)
     }
 
-    private static func notify(_ request: Deliver.AccountRequest) {
-        guard ScreenshotMode.scene == nil else { return }
+    // New requests notify at most once a minute; several in that minute become one "N new account requests".
+    @ObservationIgnored private var queued: [Deliver.AccountRequest] = []
+    @ObservationIgnored private var lastNotice = Date.distantPast
+    @ObservationIgnored private var noticeTask: Task<Void, Never>?
+    /// Tests: the titles posted (or that would be, in screenshot mode).
+    @ObservationIgnored var posted: [String] = []
+
+    func announce(_ new: [Deliver.AccountRequest], now: Date = .now) {
+        queued += new
+        guard !queued.isEmpty else { return }
+        let wait = 60 - now.timeIntervalSince(lastNotice)
+        if wait <= 0 { return flushNotice(now) }
+        guard noticeTask == nil else { return }
+        noticeTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled else { return }
+            self?.flushNotice(.now)
+        }
+    }
+
+    func flushNotice(_ now: Date) {
+        noticeTask?.cancel()
+        noticeTask = nil
+        guard !queued.isEmpty else { return }
         let content = UNMutableNotificationContent()
-        content.title = String(localized: "\(request.name ?? "") asks for an account")
-        content.body = request.email ?? ""
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-request-" + request.id, content: content, trigger: nil))
+        if queued.count == 1 {
+            content.title = String(localized: "\(queued[0].name ?? "") asks for an account")
+            content.body = queued[0].email ?? ""
+        } else {
+            content.title = String(localized: "\(queued.count) new account requests")
+        }
+        queued = []
+        lastNotice = now
+        posted.append(content.title)
+        guard ScreenshotMode.scene == nil else { return }
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-requests", content: content, trigger: nil))
     }
 
     static func problem(_ error: Error) -> String {
@@ -197,7 +239,7 @@ final class DeliverPeople {
                                               ["id": "p2", "name": "Sam Lee", "role": "client", "passkeys": [["id": "c3", "label": "Safari on iPhone", "added": iso(day), "lastUsed": iso(day)]]],
                                               ["id": "p3", "name": "Jo Park", "role": "editor", "passkeys": []]],
                                    "invites": [["id": "i1", "person": "p3", "kind": "invite", "expires": ISO8601DateFormatter().string(from: .now.addingTimeInterval(6 * day))]],
-                                   "requests": [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "", "at": iso(1800)]], "frozen": false, "locked": false]
+                                   "requests": [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "", "at": iso(1800)]], "locked": ["c2"]]
             case "devices": return ["devices": [["id": "d1", "name": "Edit Suite iMac", "role": "mac", "lastSeen": iso(600)],
                                                 ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso(60)]]]
             default: return ["ok": true]
@@ -269,8 +311,6 @@ struct DeliverPeopleView: View {
 
     @ViewBuilder private var content: some View {
         if let problem = model.problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
-        if model.people.frozen == true { SettingNote(text: Text("Invites are paused for 15 minutes: too many wrong codes.")).studioBox() }
-        if model.people.locked == true { SettingNote(text: Text("Sign-in is locked for 15 minutes: too many failed attempts.")).studioBox() }
         if DeliverPeople.oldBackup(publish) { SettingNote(text: Text("Update the backup server so people can sign in while the main is offline.")).studioBox() }
 
         let requests = model.people.requests ?? []
@@ -374,6 +414,7 @@ struct DeliverPeopleView: View {
                 if let used = DeliverPeople.date(key.lastUsed) {
                     Text("used \(used, format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
                 }
+                if model.people.locked?.contains(key.id) == true { StudioChip(text: Text("Sign-in locked"), symbol: "lock", colour: Design.Studio.warn, tinted: true) }
                 Spacer()
                 Button { Task { await model.removePasskey(key.id, of: person.id) } } label: {
                     Image(systemName: "xmark").font(.system(size: 10)).foregroundStyle(Design.Studio.textQuiet).frame(width: 24, height: 24).contentShape(.rect)

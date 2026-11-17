@@ -11733,6 +11733,64 @@
         }
       }
     },
+    "%lld new account requests" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld neue Kontoanfragen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld nuevas solicitudes de cuenta"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld nouvelles demandes de compte"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld nuove richieste di account"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 件の新しいアカウント申請"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 계정 요청 %lld개"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld nieuwe accountaanvragen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld novos pedidos de conta"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld 个新的账户申请"
+          }
+        }
+      }
+    },
     "%lld new clips · %lld already there" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -129878,64 +129936,6 @@
         }
       }
     },
-    "Invites are paused for 15 minutes: too many wrong codes." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Einladungen sind 15 Minuten pausiert: zu viele falsche Codes."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Las invitaciones están en pausa 15 minutos: demasiados códigos incorrectos."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Les invitations sont suspendues 15 minutes : trop de codes erronés."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gli inviti sono sospesi per 15 minuti: troppi codici errati."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "招待は15分間停止中です：誤ったコードが多すぎます。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "초대가 15분 동안 일시 중지되었습니다: 잘못된 코드가 너무 많습니다."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Uitnodigingen staan 15 minuten stil: te veel verkeerde codes."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Os convites estão pausados por 15 minutos: códigos errados demais."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "邀请已暂停 15 分钟：错误代码过多。"
-          }
-        }
-      }
-    },
     "Invite…" : {
       "localizations" : {
         "de" : {
@@ -246076,60 +246076,60 @@
         }
       }
     },
-    "Sign-in is locked for 15 minutes: too many failed attempts." : {
+    "Sign-in locked" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Die Anmeldung ist 15 Minuten gesperrt: zu viele Fehlversuche."
+            "value" : "Anmeldung gesperrt"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "El inicio de sesión está bloqueado 15 minutos: demasiados intentos fallidos."
+            "value" : "Inicio de sesión bloqueado"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "La connexion est bloquée 15 minutes : trop de tentatives échouées."
+            "value" : "Connexion bloquée"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "L’accesso è bloccato per 15 minuti: troppi tentativi falliti."
+            "value" : "Accesso bloccato"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サインインは15分間ロックされています：失敗が多すぎます。"
+            "value" : "サインインはロック中"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "로그인이 15분 동안 잠겼습니다: 실패한 시도가 너무 많습니다."
+            "value" : "로그인 잠김"
           }
         },
         "nl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Inloggen is 15 minuten geblokkeerd: te veel mislukte pogingen."
+            "value" : "Inloggen geblokkeerd"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "O login está bloqueado por 15 minutos: tentativas falhas demais."
+            "value" : "Login bloqueado"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "登录已锁定 15 分钟：失败次数过多。"
+            "value" : "登录已锁定"
           }
         }
       }

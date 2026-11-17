@@ -1367,11 +1367,14 @@ async fn real_browser_passkeys() {
     let a = c.page(None, true, false).await;
     c.go(&a, &link).await;
     c.sees(&a, "Create your passkey").await;
+    assert_eq!(c.eval(&a, "location.hash.includes('/i/')").await, false, "the invite code left the address before anything was used (L7)");
     c.click(&a, "Create passkey").await;
     c.sees(&a, "Spring").await;
     assert_eq!(c.eval(&a, "location.hash.includes('/i/')").await, false, "the invite code is stripped");
     assert_eq!(c.eval(&a, "JSON.parse(localStorage.getItem('pluck-teams')).length").await, 1);
     assert_eq!(c.eval(&a, "JSON.parse(localStorage.getItem('pluck-teams'))[0].link").await, json!(team), "the plain team link is kept");
+    let host_team = host_op(&mut h, json!({"op": "people"})).await["team"]["id"].clone();
+    assert_ne!(c.eval(&a, "JSON.parse(localStorage.getItem('pluck-teams'))[0].id").await, host_team, "keyed by the verified team room, not the host's id");
     // A project is the review-link grid with `project` on each op; footage browses read-only; another device gets a /d/ link.
     c.eval(&a, "document.querySelector('.rv-folder').click()").await;
     c.sees(&a, "Hero").await;
@@ -1457,6 +1460,20 @@ async fn real_browser_passkeys() {
     let ups = host_op(&mut h, json!({"op": "pull", "since": 0})).await;
     assert!(ups["entries"].as_array().unwrap().iter().any(|e| e["upload"]["for"] == "root" && e["upload"]["by"] == "Phone One"));
     ok("mobile upload resume");
+    // A device code needs a passkey on this session, not just the resume key (M1): the page asks for it, then shows the link.
+    c.click(&m, "Open on another device").await;
+    c.sees(&m, "Confirm it's you with your passkey first.").await;
+    c.click(&m, "Sign in with a passkey").await;
+    c.until(&m, "document.querySelector('dialog[open] .rv-qr') && document.querySelector('dialog[open] input').value.includes('/d/')", "a device link after the passkey").await;
+    c.click(&m, "Close").await;
+    ok("device code needs a fresh passkey");
+    // A lower role ends the session (M3): the page connects again and offers sign-in; signed in, a client is "set".
+    let phone = host_op(&mut h, json!({"op": "people"})).await["people"].as_array().unwrap().iter().find(|p| p["name"] == "Phone One").unwrap()["id"].clone();
+    assert_eq!(host_op(&mut h, json!({"op": "person-update", "id": phone, "role": "client"})).await["ok"], true);
+    c.sees(&m, "Sign in to Northwind Films").await;
+    c.click(&m, "Sign in with a passkey").await;
+    c.sees(&m, "You're set").await;
+    ok("role down: sign in again");
 
     // W-4: on a review link, "Make an account…" → waiting (no "Create passkey"); accepted in Pluck → the event → create
     // → signed in, and a new comment carries the account name.
@@ -1491,6 +1508,8 @@ async fn real_browser_passkeys() {
     let people = host_op(&mut h, json!({"op": "people"})).await;
     let ed = people["people"].as_array().unwrap().iter().find(|p| p["name"] == "Editor One").unwrap()["id"].clone();
     assert_eq!(host_op(&mut h, json!({"op": "person-remove", "id": ed})).await["ok"], true);
+    c.sees(&a, "Sign in to Northwind Films").await; // M3: first the sign-in again; the refused passkey then says why
+    c.click(&a, "Sign in with a passkey").await;
     c.sees(&a, "Your access was removed").await;
     assert_eq!(c.eval(&a, "document.body.innerText.includes('Spring')").await, false);
     ok("removed");

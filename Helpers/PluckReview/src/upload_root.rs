@@ -21,7 +21,7 @@ pub const MAX_FILE: u64 = 200 << 30;
 pub const MAX_PART: u64 = 64 << 20;
 const MAX_DEPTH: usize = 8;
 const PER_DEVICE: usize = 2;
-const IN_ALL: usize = 4;
+const IN_ALL: usize = 4; // Macs and backups; accounts' uploads from browsers ("acct:…") have 4 of their own (review fix L5)
 const KEEP_PARTIAL: Duration = Duration::from_secs(7 * 86_400);
 
 pub struct UploadRoot {
@@ -169,8 +169,13 @@ impl UploadRoot {
             let id = format!("{sha}-{size}-{to}");
             {
                 let mut a = self.active.lock().unwrap();
+                if a.contains_key(&id) && op["exclusive"] == true {
+                    return Err("limit"); // a browser's upload already going on another session: never two writers on one partial
+                }
                 if !a.contains_key(&id) {
-                    if a.values().filter(|d| *d == device).count() >= PER_DEVICE || a.len() >= IN_ALL {
+                    let acct = |d: &String| d.starts_with("acct:");
+                    let same_kind = a.values().filter(|d| acct(d) == device.starts_with("acct:")).count();
+                    if a.values().filter(|d| *d == device).count() >= PER_DEVICE || same_kind >= IN_ALL {
                         return Err("limit");
                     }
                 }

@@ -1746,10 +1746,11 @@ impl Host {
     }
 
     fn presence(&self, room: &str) {
-        let viewers: Vec<Value> = self.peers.iter().filter(|(_, p)| p.ready && p.room == room)
+        // (Team-room clients are neither told nor listed: accounts review fix M3.)
+        let viewers: Vec<Value> = self.peers.iter().filter(|(_, p)| p.ready && p.room == room && self.presence_ok(p))
             .map(|(id, p)| json!({"peer": id, "name": p.name, "asset": p.viewing})).collect();
         for (id, p) in &self.peers {
-            if p.ready && p.room == room {
+            if p.ready && p.room == room && self.presence_ok(p) {
                 self.send(id, json!({"t": "presence", "viewers": viewers}));
             }
         }
