@@ -55,7 +55,7 @@ struct DeliverHostSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 SettingRow(text: Text("Version"), detail: Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")")) {
                     Button("Update Now") { Task { await updateNow() } }.settingButton()
-                        .disabled(updates.release == nil || updates.updating != nil || host.version == updates.release?.version)
+                        .disabled(!DeliverPeople.isAdmin(host) || updates.release == nil || updates.updating != nil || host.version == updates.release?.version)
                 }
                 if let last = updates.results[host.id] {
                     Text("Last update: \(last.result) · \(last.at.formatted(date: .abbreviated, time: .shortened))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
@@ -94,7 +94,7 @@ struct DeliverHostSheet: View {
             if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
             HStack {
                 Button("Backup Host…") { backup = true }.buttonStyle(StudioFlatButtonStyle())
-                Button("Replace Host Key") { Task { await rotate() } }.buttonStyle(StudioFlatButtonStyle()).disabled(ReviewHostClient.key(host) == nil)
+                Button("Replace Host Key") { Task { await rotate() } }.buttonStyle(StudioFlatButtonStyle()).disabled(ReviewHostClient.key(host) == nil || !DeliverPeople.isAdmin(host))
                 Menu { DeliverHostActions(host: host) { action = $0 } } label: { StudioMenuLabel(title: String(localized: "Server")) }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
                 Spacer()
@@ -125,7 +125,7 @@ struct DeliverHostSheet: View {
                 Text("\(up) Mbit/s up").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             }
             if let seen { Text(seen, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
-            if id != host.device { Button("Remove") { Task { await remove(id) } }.settingButton() }
+            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove") { Task { await remove(id) } }.settingButton() }
         }
         .padding(.horizontal, 12).frame(height: 36)
     }
@@ -305,7 +305,7 @@ struct DeliverHostActions: View {
     let choose: (DeliverHostAction) -> Void
 
     var body: some View {
-        if host.role != "backup" {
+        if host.role != "backup" && DeliverPeople.isAdmin(host) {
             Button("Invite a Teammate…") { choose(.invite(host)) }
             Divider()
         }
@@ -408,8 +408,9 @@ struct DeliverPairAgainSheet: View {
     }
 }
 
-/// Invite a Teammate: a one-time link for one teammate's Mac (the helper's `invite`, role "mac"), and the Macs
-/// already paired with this server (`devices`), each removable (`device-remove`).
+/// Invite a Teammate: a one-time link for one teammate's Mac (the helper's `invite`, role "mac", with the role it gets
+/// there: Editor unless chosen otherwise), and the Macs already paired with this server (`devices`), each removable
+/// (`device-remove`). A server before roles makes every Mac an admin, so it asks no role.
 struct DeliverInviteSheet: View {
     let host: Deliver.Host
     @Environment(\.dismiss) private var dismiss
@@ -419,6 +420,7 @@ struct DeliverInviteSheet: View {
     @State private var working = false
     @State private var problem: String?
     @State private var removing: [String: Any]?
+    @State private var access = "editor"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -431,6 +433,10 @@ struct DeliverInviteSheet: View {
             }
             Label("Send it to one teammate. It works once; their Pluck joins this server with its own key.", systemImage: "lock.shield")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+            if DeliverPeople.roles(host) {
+                DeliverRolePicker(options: ["editor", "admin"], selection: $access).studioBox()
+                    .onChange(of: access) { Task { await make() } }
+            }
             if let invite {
                 HStack(spacing: 8) {
                     Text(verbatim: invite.link).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
@@ -507,14 +513,13 @@ struct DeliverInviteSheet: View {
             Image(systemName: "laptopcomputer").foregroundStyle(Design.Studio.textQuiet)
             Text(verbatim: device["name"] as? String ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
             if id == host.device { StudioChip(text: Text("This Mac")) }
+            let role = device["access"] as? String == "editor" ? "editor" : "admin"
+            StudioChip(text: Text(verbatim: DeliverPeople.roleName(role)), symbol: DeliverPeople.roleSymbol(role))
             Spacer()
-            if let added = date("added") {
-                Text("Added \(added.formatted(date: .abbreviated, time: .omitted))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-            }
             if let seen = date("lastSeen") {
                 Text("seen \(seen, format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             }
-            if id != host.device { Button("Remove…") { removing = device }.settingButton() }
+            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove…") { removing = device }.settingButton() }
         }
         .padding(.horizontal, 12).frame(height: 36)
     }
@@ -524,7 +529,9 @@ struct DeliverInviteSheet: View {
         working = true
         defer { working = false }
         do {
-            let answer = try await ReviewHostClient.ask(host, ["op": "invite", "role": "mac"])
+            var op: [String: Any] = ["op": "invite", "role": "mac"]
+            if DeliverPeople.roles(host) { op["access"] = access }
+            let answer = try await ReviewHostClient.ask(host, op)
             guard let link = answer["link"] as? String else { throw Deliver.Failure("internal") }
             let expires = (answer["expires"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .now.addingTimeInterval(900)
             var anywhere = false

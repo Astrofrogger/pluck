@@ -60,6 +60,10 @@ extension Deliver {
         var outageLevel: Int? = nil
         /// What its hello said of accounts (`"accounts": 1`, 4.0.4): People can be managed on it (accounts plan §1.8).
         var accounts: Int? = nil
+        /// Roles (4.0.5, `"roles": 1`): its Macs are admins or editors, and `access` is this Mac's ("admin" | "editor").
+        /// A server before that says neither: every Mac is an admin there.
+        var roles: Int? = nil
+        var access: String? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }

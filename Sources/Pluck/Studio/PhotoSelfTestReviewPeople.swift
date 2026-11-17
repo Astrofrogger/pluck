@@ -11,6 +11,7 @@ extension PhotoSelfTest {
 
         final class Main {
             var accounts: Int?
+            var roles: [String: Any] = [:]
             var team: Any = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
             var ops: [[String: Any]] = []
             var invites: [[String: Any]] = []
@@ -24,7 +25,7 @@ extension PhotoSelfTest {
         let saved = (ReviewHostClient.fake, ReviewHostClient.fakeFingerprint)
         ReviewHostClient.fakeFingerprint = fingerprint
         ReviewHostClient.fake = { request, _ in
-            guard let op = request["op"] as? String else { return main.accounts.map { ["ok": true, "accounts": $0] } ?? ["ok": true] }
+            guard let op = request["op"] as? String else { return main.accounts.map { ["ok": true, "accounts": $0].merging(main.roles) { $1 } } ?? ["ok": true] }
             main.ops.append(request)
             switch op {
             case "people":
@@ -37,7 +38,7 @@ extension PhotoSelfTest {
                         "invites": [["id": "i1", "person": "p2", "kind": "device", "by": "p2", "expires": iso]] + main.invites,
                         "used": [], "requests": main.requests, "locked": ["c3"], "approvals": 1]
             case "request-accept", "request-decline": main.requests = []; return ["ok": true] // accepted ones are deleted, declined ones aren't listed
-            case "devices": return ["devices": [["id": "d1", "name": "Edit Mac", "role": "mac", "lastSeen": iso], ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso]]]
+            case "devices": return ["devices": [["id": "d1", "name": "Edit Mac", "role": "mac", "access": "admin", "lastSeen": iso], ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso]]]
             case "team-set": main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]; return ["ok": true, "link": "https://pluck.tools/r/#k.p"]
             case "team-export" where main.export:
                 return main.team is NSNull ? ["error": "notFound"] : ["format": 1, "team": ["id": "t1", "name": "Northwind Films", "room": ["pub": "P1"]], "settings": ["editorsInvite": true]]
@@ -159,5 +160,41 @@ extension PhotoSelfTest {
               && offered == "Northwind Films" && (main.restored?["team"] as? [String: Any])?["id"] as? String == "t1"
               && teamOps == ["team-restore", "person-invite", "team-reset"], "\(String(describing: keptTeam)) \(String(describing: offered)) \(teamOps)")
         DeliverKeychain.delete(DeliverPeople.teamAccount, service: DeliverPeople.teamService)
+
+        // Roles (4.0.5): the team is admins and editors (people and Macs); clients are apart. A server before roles makes
+        // every Mac an admin; one with roles says this Mac's access, and an editor Mac isn't one.
+        main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
+        main.invites = []
+        main.more = [["id": "p4", "userId": "u4", "name": "Kai Moss", "role": "owner", "added": iso, "by": "mac", "passkeys": [["id": "c9", "label": "Safari on Mac"]]]]
+        await model.load()
+        let allAdmin = DeliverPeople.isAdmin(DeliverPeople.main()) && !DeliverPeople.roles(DeliverPeople.main())
+        main.roles = ["roles": 1, "access": "editor"]
+        await model.load()
+        let editorMac = !DeliverPeople.isAdmin(DeliverPeople.main()) && DeliverPeople.roles(DeliverPeople.main())
+        main.roles = ["roles": 1, "access": "admin"]
+        await model.load()
+        check("review: roles: old server all admin, an editor Mac isn’t one", allAdmin && editorMac && DeliverPeople.isAdmin(DeliverPeople.main()), "\(allAdmin) \(editorMac)")
+        check("review: roles: the team is admins and editors, clients apart", model.team.map(\.id) == ["p1", "p4"] && model.clients.map(\.id) == ["p2"]
+              && model.macs.map(\.id) == ["d1"] && model.adminCount == 2 && DeliverPeople.roleName("owner") == DeliverPeople.roleName("admin")
+              && DeliverPeople.roleName("owner") != DeliverPeople.roleName("editor"), "\(model.team.map(\.id)) \(model.clients.map(\.id)) \(model.adminCount)")
+        let kai = model.team.first { $0.id == "p4" }!, mac = model.macs[0]
+        let guardBefore = !model.lastAdmin(kai) && !model.lastAdmin(mac)
+        main.more = []
+        await model.load()
+        check("review: roles: the last admin can't step down here either", guardBefore && model.adminCount == 1 && model.lastAdmin(mac), "\(model.adminCount)")
+        // Transfer Admin: the person up, then this Mac down; a Mac's role is its own op.
+        publish.update(host: host.id) { $0.device = "d1" }
+        main.ops = []
+        let moved = await model.transfer(to: .person("p1"), stepDown: true)
+        await model.setRole(device: "d1", "admin")
+        await model.transfer(to: .mac("d1"), stepDown: false)
+        let roleOps = main.ops.compactMap { op -> String? in
+            guard let name = op["op"] as? String, ["person-update", "device-role"].contains(name) else { return nil }
+            return "\(name) \(op["id"] ?? "") \(op["role"] ?? op["access"] ?? "")"
+        }
+        check("review: roles: Transfer Admin makes them admin, then this Mac an editor", moved && roleOps == ["person-update p1 owner", "device-role d1 editor",
+              "device-role d1 admin", "device-role d1 admin"], "\(roleOps)")
+        check("review: roles: the server's refusals read clearly", ReviewHostClient.problem(Deliver.Failure("lastAdmin")) != ReviewHostClient.problem(Deliver.Failure("x"))
+              && ReviewHostClient.problem(Deliver.Failure("admin")) != ReviewHostClient.problem(Deliver.Failure("x")), "")
     }
 }
