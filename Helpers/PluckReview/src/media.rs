@@ -53,19 +53,21 @@ pub fn admit(running: &mut [usize], waiting: &mut [usize]) -> Vec<usize> {
 }
 
 /// How fast the media channel drains (bytes the browser acknowledged a second), and so how much may be queued in
-/// it: about half a second's worth, between MIN_BUFFERED and MAX_BUFFERED. A cancel or a seek waits for whatever
-/// is queued, so a fixed 1 MiB cost a 25 KB/s link 40 s (the player's first segment, a step down, a seek); half a
-/// second still covers the round trip on fast links, so they keep their speed.
+/// it: about half a second's worth, between MIN_BUFFERED and MAX_BUFFERED, growing at most a quarter a sample. A
+/// cancel or a seek waits for whatever is queued, so a fixed 1 MiB cost a 25 KB/s link 40 s (the player's first
+/// segment, a step down, a seek); half a second still covers the round trip on fast links (up to 500 ms), so they
+/// keep their speed.
 pub struct Drain {
     at: Option<Instant>,
     from: u64,
     busy: bool,
     pub rate: f64,
+    cap: usize,
 }
 
 impl Drain {
     pub fn new() -> Self {
-        Drain { at: None, from: 0, busy: false, rate: 0.0 }
+        Drain { at: None, from: 0, busy: false, rate: 0.0, cap: MIN_BUFFERED }
     }
 
     /// `written` = bytes written to the channel so far, `buffered` = still in it. Sampled every 200 ms; only an
@@ -80,13 +82,16 @@ impl Drain {
             let r = drained.saturating_sub(self.from) as f64 / now.duration_since(at).as_secs_f64();
             self.rate = if self.rate == 0.0 { r } else { 0.6 * self.rate + 0.4 * r };
         }
+        // Up by at most a quarter a sample: a cap that jumps lets SCTP's slow start overshoot a router's queue by
+        // hundreds of packets, and sctp-proto recovers from that with a timeout and a crawl (S2d: 2 s at 20 Mbit/s).
+        self.cap = ((self.rate * 0.5) as usize).clamp(MIN_BUFFERED, MAX_BUFFERED).min(self.cap + self.cap / 4);
         self.from = drained;
-        self.busy = buffered >= self.cap() / 2;
+        self.busy = buffered >= self.cap / 2;
         self.at = Some(now);
     }
 
     pub fn cap(&self) -> usize {
-        ((self.rate * 0.5) as usize).clamp(MIN_BUFFERED, MAX_BUFFERED)
+        self.cap
     }
 }
 
@@ -343,7 +348,7 @@ mod tests {
         assert_eq!(d.cap(), MIN_BUFFERED);
         // 40 MB/s (a LAN): the full queue after a few samples.
         let (mut w, mut at) = ((64 << 10) + 25_000u64, 1000);
-        for _ in 0..12 {
+        for _ in 0..16 {
             let cap = d.cap();
             at += 200;
             w += 8_000_000;
