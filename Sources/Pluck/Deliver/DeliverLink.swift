@@ -15,6 +15,8 @@ final class DeliverLink {
     @ObservationIgnored private var input: FileHandle?
     @ObservationIgnored private var restarts = 0
     @ObservationIgnored private var restart: Task<Void, Never>?
+    /// What the running helper was told: `neverServe` is only read at its start, so a change restarts it.
+    @ObservationIgnored private var launchedNeverServe = false
     /// Tests: settings merged into the first line ({"signal":"ws://127.0.0.1:8787/signal","local":true}).
     @ObservationIgnored var testSettings: [String: Any]?
 
@@ -36,6 +38,7 @@ final class DeliverLink {
         server.store.listeners.append { [weak self] event in
             if case .linksChanged = event { self?.update() }
         }
+        watchHosts()
         update()
         Task { await eraseOldRooms() } // "Make a New Link" while offline: the old rooms still to erase
         server.store.trimAllActivity() // the retention setting (R8), also for links nobody opens any more
@@ -133,10 +136,39 @@ final class DeliverLink {
         }
     }
 
+    /// With a NAS (a main or backup, or the data host) or a paired always-on Mac, clients are only ever served from
+    /// those (the fastest NAS first, an always-on Mac only while no NAS holds the room), never from this Mac: the helper
+    /// still registers (so the room is the owner's) but lets go of any room none of them holds. With neither (a plain
+    /// setup), this Mac serves as before.
+    var neverServe: Bool {
+        let publish = ReviewPublish.shared
+        return publish.hosts.contains { $0.kind == .nas || $0.kind == .mac } || publish.pairedMac != nil || DeliverSync.shared.state.host != nil
+    }
+
+    /// A NAS or always-on Mac added or removed: a running helper starts again with the new `neverServe`.
+    private func watchHosts() {
+        withObservationTracking { _ = neverServe } onChange: { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.watchHosts()
+                if self.process != nil, self.launchedNeverServe != (self.settings()["neverServe"] as? Bool == true) { self.stop(); self.update() }
+            }
+        }
+    }
+
     func update() {
         let rooms = rooms
         if rooms.isEmpty { return stop() }
         if process == nil { launch() } else { write(["rooms": rooms]) }
+    }
+
+    /// The helper's first line: where to signal, the rooms, and whether this Mac may serve them.
+    func settings() -> [String: Any] {
+        var settings: [String: Any] = ["signal": Self.signal, "stun": ["stun.cloudflare.com:3478"],
+                                       "rooms": rooms, "maxPeers": 20, "local": false, "neverServe": neverServe]
+        settings.merge(DeliverRelay.shared.settings) { $1 }
+        settings.merge(testSettings ?? [:]) { $1 }
+        return settings
     }
 
     private func launch() {
@@ -156,10 +188,8 @@ final class DeliverLink {
         self.process = process
         input = stdin.fileHandleForWriting
         running = true
-        var settings: [String: Any] = ["signal": Self.signal, "stun": ["stun.cloudflare.com:3478"],
-                                       "rooms": rooms, "maxPeers": 20, "local": false]
-        settings.merge(DeliverRelay.shared.settings) { $1 }
-        settings.merge(testSettings ?? [:]) { $1 }
+        let settings = settings()
+        launchedNeverServe = settings["neverServe"] as? Bool == true
         write(settings)
         let buffer = LineReader()
         stdout.fileHandleForReading.readabilityHandler = { [weak self] handle in

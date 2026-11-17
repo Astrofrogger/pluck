@@ -307394,6 +307394,64 @@
         }
       }
     },
+    "Waiting for the NAS: clients can’t watch until it’s online" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Warten auf das NAS: Kunden können erst zuschauen, wenn es online ist"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esperando al NAS: los clientes no pueden verlo hasta que esté en línea"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "En attente du NAS : les clients ne peuvent pas regarder tant qu’il n’est pas en ligne"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "In attesa del NAS: i clienti non possono guardare finché non è online"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NAS を待っています：オンラインになるまでクライアントは視聴できません"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NAS를 기다리는 중: 온라인이 될 때까지 클라이언트가 볼 수 없습니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wachten op de NAS: klanten kunnen pas kijken als die online is"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aguardando o NAS: os clientes não podem assistir até que ele esteja online"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在等待 NAS：在它上线之前，客户无法观看"
+          }
+        }
+      }
+    },
     "Waiting for the offload before it" : {
       "localizations" : {
         "de" : {

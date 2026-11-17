@@ -961,10 +961,10 @@ impl Host {
         scope.peek().is_some() && scope.all(|a| Self::arr(a, "versions").last().is_some_and(|v| v["ready"] == true))
     }
 
-    /// The owner's "Prefer fastest even if lighter" (a main's own setting, kept in serving.json).
+    /// The owner's "Prefer fastest even if lighter" (a main's own setting, kept in serving.json; on by default).
     fn load_serving(&self) {
         let on = std::fs::read(self.data.join("serving.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())
-            .is_some_and(|v| v["preferFastest"] == true);
+            .is_none_or(|v| v["preferFastest"] != false); // the fastest NAS serves unless the owner turned it off
         crate::signal::FASTEST.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 

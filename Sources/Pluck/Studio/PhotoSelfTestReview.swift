@@ -657,6 +657,17 @@ extension PhotoSelfTest {
         server.helper(["room": ["room": live.roomID, "state": "active"]])
         UserDefaults.standard.removeObject(forKey: DeliverSettings.authorKey)
         check("review: standby and active rooms, and the name on comments", standby == "standby" && server.rooms[live.roomID] == "active" && DeliverSettings.author == "Editor", "")
+        // With a NAS this Mac never serves clients: the helper is told so, and "nohost" still counts as the owner's room.
+        let hadNAS = DeliverLink.shared.neverServe
+        let testNAS = Deliver.Host(name: "Test NAS", kind: .nas, address: "127.0.0.1:9")
+        ReviewPublish.shared.add(testNAS)
+        let withNAS = DeliverLink.shared.settings()["neverServe"] as? Bool
+        ReviewPublish.shared.removeHost(testNAS.id)
+        let withoutNAS = DeliverLink.shared.settings()["neverServe"] as? Bool
+        let noHostRoom = String(repeating: "N", count: 22)
+        server.helper(["room": ["room": noHostRoom, "state": "nohost"]])
+        check("review: a NAS means this Mac never serves", withNAS == true && withoutNAS == hadNAS && server.rooms[noHostRoom] == "nohost"
+              && server.heldRooms.contains(noHostRoom), "\(String(describing: withNAS)) \(String(describing: withoutNAS)) \(hadNAS)")
 
         // Removing: the asset's copies go, the original stays.
         let heroCopies = store.copies(v1.id)

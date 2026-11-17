@@ -1042,13 +1042,15 @@ struct DeliverLinkRow: View {
     @State private var deleting = false
     @State private var renewing = false
 
-    /// The helper's room state: an always-on host serves it (standby here), or this Mac does.
+    /// The helper's room state: an always-on host serves it (standby here), this Mac does, or (with a NAS, which this
+    /// Mac never stands in for) nobody until the NAS is back.
     private var served: String? {
         switch DeliverServer.shared.rooms[link.roomID] {
         case "standby":
             let host = ReviewPublish.shared.publications.first { $0.scope.project == link.project }.flatMap { ReviewPublish.shared.host($0.host) }
             return host.map { String(localized: "Served by \($0.name)") } ?? String(localized: "Served by an always-on host")
         case "active", "registered": return String(localized: "Served by this Mac")
+        case "nohost": return String(localized: "Waiting for the NAS: clients can’t watch until it’s online")
         default: return nil
         }
     }

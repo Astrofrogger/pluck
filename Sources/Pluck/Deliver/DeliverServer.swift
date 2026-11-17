@@ -62,7 +62,7 @@ final class DeliverServer {
     }
 
     private(set) var peers: [String: Peer] = [:]
-    /// Each room's state from the helper: registered, offline, taken.
+    /// Each room's state from the helper: active, standby, nohost (a NAS should serve it but none holds it), offline, taken.
     private(set) var rooms: [String: String] = [:]
     /// §13.24 H1: rooms one of the owner's servers has held (this Mac registered, or was stood by for an always-on host),
     /// kept across launches. A level-3 link is shown, copied or sent only after that, so nobody who sees the address
@@ -110,7 +110,9 @@ final class DeliverServer {
     func helper(_ report: [String: Any]) {
         if let room = report["room"] as? [String: Any], let id = room["room"] as? String {
             rooms[id] = room["state"] as? String
-            if ["active", "registered", "standby"].contains(rooms[id] ?? "") { held(id) }
+            // "nohost" (a never-serve Mac, no NAS online): the Room accepted our register with the owner's reg before we let
+            // go, so the room is the owner's and nobody else can take it: as safe for H1 as "active".
+            if ["active", "registered", "standby", "nohost"].contains(rooms[id] ?? "") { held(id) }
         }
         if let info = report["peer"] as? [String: Any], let id = info["peer"] as? String {
             if info["state"] as? String == "open" {

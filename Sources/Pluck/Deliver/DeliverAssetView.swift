@@ -706,7 +706,7 @@ final class DeliverPlayback {
     private static func fastestFirst(_ hosts: [Deliver.Host]) async -> [Deliver.Host] {
         guard hosts.contains(where: { $0.role == "backup" }), let main = hosts.first(where: { $0.role != "backup" }),
               let status = try? await ReviewHostClient.ask(main, ["op": "status"]), let up = status["uplinkMbps"] as? Int else { return hosts }
-        let prefer = status["preferFastest"] as? Bool ?? false
+        let prefer = status["preferFastest"] as? Bool ?? true // on unless the owner turned it off
         let fast = (status["backups"] as? [[String: Any]] ?? []).filter { backup in
             let replica = backup["replica"] as? [String: Any]
             return Double(replica?["uplinkMbps"] as? Int ?? 0) > Double(up) * 1.2 && (replica?["quality"] as? String == "same" || prefer)

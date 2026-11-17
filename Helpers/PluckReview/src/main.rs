@@ -4,6 +4,8 @@
 //
 // stdin (JSON lines; the first is the settings; it quits when stdin closes):
 //   {"signal":"wss://pluck.tools/signal","stun":["host:port",…],"rooms":[{"room","reg","join","expires"?,"turn"?,"ready"?}],"maxPeers":20,"local":false}
+//   (+ "neverServe":true: a Mac whose owner has a NAS never serves a browser; "alwaysOn":true with "host": an always-on
+//   Mac hosting bundles, ranked below both NAS roles; see signal.rs)
 //   {"rooms":[…]}  {"send":{"peer","msg"}}  {"serve":{"peer","fetch","path","offset","length"}}  {"close":{"peer","reason"}}
 //   {"serve":{"peer","fetch","pieces":[{"path","offset","length"},…]}}   (one fetch from several pieces: proxy MP4, §6.1)
 //   {"accept":{"peer","upload","path","size","offset"?}}  {"cancel":{"peer","upload"}}   (uploads; send accept before the upload-begin reply;
@@ -186,6 +188,8 @@ pub fn udp(addr: SocketAddr) -> std::io::Result<UdpSocket> {
 
 async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>>) -> Result<()> {
     signal::HOST.store(!cfg["host"].is_null(), std::sync::atomic::Ordering::Relaxed);
+    signal::NEVER_SERVE.store(cfg["neverServe"] == true, std::sync::atomic::Ordering::Relaxed);
+    signal::ALWAYS_ON.store(cfg["host"].is_object() && cfg["alwaysOn"] == true, std::sync::atomic::Ordering::Relaxed);
     let signal_base = cfg["signal"].as_str().context("settings need \"signal\"")?.to_owned();
     if !(signal_base.starts_with("wss://") || signal_base.starts_with("ws://")) {
         bail!("signal must be a ws:// or wss:// address");
@@ -425,7 +429,9 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
                     }
                     Ev::Cmd(v) => command(v, &mut rooms, &mut peers, &signal_base, &ev_tx, &socks),
                     Ev::Signal(signal::Up::Offer { room, peer, sdp }) => {
-                        if peers.contains_key(&peer) {
+                        if signal::NEVER_SERVE.load(std::sync::atomic::Ordering::Relaxed) {
+                            log(format!("peer {peer}: offer dropped (never serve)")); // signal.rs drops them first
+                        } else if peers.contains_key(&peer) {
                             log(format!("peer {peer}: second offer ignored"));
                         } else if peers.len() >= max_peers {
                             log(format!("peer {peer}: too many peers"));

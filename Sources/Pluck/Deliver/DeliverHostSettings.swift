@@ -39,7 +39,7 @@ struct DeliverHostSheet: View {
     @State private var backups: [[String: Any]] = []
     @State private var mainReachable = true
     @State private var uplink: Int?          // this host's measured upload, Mbit/s (nil: not measured)
-    @State private var preferFastest = false // the owner's "Prefer fastest even if lighter" (kept on the host)
+    @State private var preferFastest = true // the owner's "Prefer fastest even if lighter" (kept on the host)
     @State private var backup = false
     @State private var problem: String?
     @State private var quiet = "04:00"
@@ -152,7 +152,7 @@ struct DeliverHostSheet: View {
             let status = try? await ReviewHostClient.ask(host, ["op": "status"])
             backups = status?["backups"] as? [[String: Any]] ?? []
             uplink = status?["uplinkMbps"] as? Int
-            preferFastest = status?["preferFastest"] as? Bool ?? false
+            preferFastest = status?["preferFastest"] as? Bool ?? true
             mainReachable = true
         } catch {
             mainReachable = false

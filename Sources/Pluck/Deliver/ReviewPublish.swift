@@ -998,7 +998,8 @@ final class HostHelper {
         guard (try? process.run()) != nil else { return }
         self.process = process
         input = stdin.fileHandleForWriting
-        let settings: [String: Any] = ["signal": DeliverLink.signal, "stun": ["stun.cloudflare.com:3478"], "maxPeers": 20,
+        // alwaysOn: this Mac ranks below both NAS roles, so it serves a room only while no NAS holds it.
+        let settings: [String: Any] = ["signal": DeliverLink.signal, "stun": ["stun.cloudflare.com:3478"], "maxPeers": 20, "alwaysOn": true,
                                        "local": false, "host": ["dir": dir, "media": [], "listen": NSNull(), "admin": NSNull()]]
         write(settings)
         let reader = LineReader()
