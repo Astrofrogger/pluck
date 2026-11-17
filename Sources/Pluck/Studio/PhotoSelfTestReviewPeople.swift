@@ -14,6 +14,8 @@ extension PhotoSelfTest {
             var team: Any = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
             var ops: [[String: Any]] = []
             var invites: [[String: Any]] = []
+            var export = false
+            var restored: [String: Any]?
             var more: [[String: Any]] = []
             var requests: [[String: Any]] = [["id": "r1", "name": "Alex Kim", "email": "alex@example.com", "link": "L1", "at": ISO8601DateFormatter().string(from: .now)]]
         }
@@ -37,6 +39,12 @@ extension PhotoSelfTest {
             case "request-accept", "request-decline": main.requests = []; return ["ok": true] // accepted ones are deleted, declined ones aren't listed
             case "devices": return ["devices": [["id": "d1", "name": "Edit Mac", "role": "mac", "lastSeen": iso], ["id": "b1", "name": "Backup NAS", "role": "backup", "lastSeen": iso]]]
             case "team-set": main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]; return ["ok": true, "link": "https://pluck.tools/r/#k.p"]
+            case "team-export" where main.export:
+                return main.team is NSNull ? ["error": "notFound"] : ["format": 1, "team": ["id": "t1", "name": "Northwind Films", "room": ["pub": "P1"]], "settings": ["editorsInvite": true]]
+            case "team-restore":
+                main.restored = request["accounts"] as? [String: Any]
+                main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
+                return ["ok": true]
             case "person-invite": return ["person": "p9", "link": "https://pluck.tools/r/#k.p/i/ABCDEFGHJKMNPQRS", "expires": iso]
             default: return ["ok": true]
             }
@@ -131,5 +139,25 @@ extension PhotoSelfTest {
               "\(waiting.map(\.id)) \(answered)")
         let posted = Array(model.posted.suffix(model.posted.count - notices))
         check("review: an editor's invite notifies as waiting for approval", posted == [String(localized: "\("Jo Park") is waiting for your approval")], "\(posted)")
+
+        // The team's identity: kept in this Mac's vault while the main has it; a wiped main gets the same team back
+        // (restore, not a new team-set) on the next invite or "Restore Team"; "Start a New Team" sends team-reset.
+        DeliverKeychain.delete(DeliverPeople.teamAccount, service: DeliverPeople.teamService)
+        main.export = true
+        model.exported = nil
+        main.team = ["id": "t1", "name": "Northwind Films", "link": "https://pluck.tools/r/#k.p"]
+        await model.load()
+        let keptTeam = DeliverPeople.savedTeam()?["team"] as? [String: Any]
+        main.team = NSNull()
+        await model.load()
+        let offered = model.restorable
+        main.ops = []
+        _ = await model.invite(name: "Kai Moss", role: "client", footage: false)
+        await model.startNewTeam()
+        let teamOps = main.ops.compactMap { $0["op"] as? String }.filter { !["people", "devices", "team-export"].contains($0) }
+        check("review: the team is kept on this Mac and put back on a wiped main", keptTeam?["id"] as? String == "t1" && keptTeam?["room"] != nil
+              && offered == "Northwind Films" && (main.restored?["team"] as? [String: Any])?["id"] as? String == "t1"
+              && teamOps == ["team-restore", "person-invite", "team-reset"], "\(String(describing: keptTeam)) \(String(describing: offered)) \(teamOps)")
+        DeliverKeychain.delete(DeliverPeople.teamAccount, service: DeliverPeople.teamService)
     }
 }

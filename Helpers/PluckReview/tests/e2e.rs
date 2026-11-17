@@ -1564,6 +1564,33 @@ async fn real_browser_passkeys() {
     assert_eq!(c.eval(&a, "document.body.innerText.includes('Spring')").await, false);
     ok("removed");
 
+    // Team key pinning: a page that saw this team's key refuses another one for the same team id (no passkey prompt),
+    // warns, and "Forget this team" (confirmed) clears the pin. A team reset's signed move is taken with a short note.
+    let tid = host_op(&mut h, json!({"op": "people"})).await["team"]["id"].clone();
+    let ctx = c.context().await;
+    let k = c.page(Some(&ctx), true, false).await;
+    c.go(&k, &format!("{origin}/r/{ROOM}#{LINK_KEY}.{PUB}")).await;
+    c.until(&k, &format!("JSON.parse(localStorage.getItem('pluck-team-pins')||'{{}}')[{tid}]"), "the team key is pinned").await;
+    let real = c.eval(&k, &format!("JSON.parse(localStorage.getItem('pluck-team-pins'))[{tid}]")).await;
+    c.eval(&k, &format!("localStorage.setItem('pluck-team-pins', JSON.stringify({{[{tid}]: 'A'.repeat(43)}}))")).await;
+    c.go(&k, "about:blank").await;
+    c.go(&k, &team).await;
+    c.sees(&k, "This team's key changed").await;
+    assert_eq!(c.eval(&k, "[...document.querySelectorAll('button')].some(b=>b.textContent.trim()==='Sign in with a passkey')").await, false, "no passkey prompt for it");
+    c.click(&k, "Forget this team").await;
+    c.click(&k, "Forget").await;
+    c.sees(&k, "Sign in to Northwind Films").await;
+    assert_eq!(c.eval(&k, &format!("JSON.parse(localStorage.getItem('pluck-team-pins'))[{tid}]")).await, real, "pinned again after the confirmed forget");
+    ok("team key mismatch");
+    let old = host_op(&mut h, json!({"op": "people"})).await["team"]["link"].clone();
+    assert_eq!(host_op(&mut h, json!({"op": "team-reset"})).await["ok"], true);
+    assert_ne!(host_op(&mut h, json!({"op": "people"})).await["team"]["link"], old);
+    c.go(&k, "about:blank").await;
+    c.go(&k, &format!("{origin}/r/{ROOM}#{LINK_KEY}.{PUB}")).await;
+    c.sees(&k, "started over with a new key").await;
+    assert_ne!(c.eval(&k, &format!("JSON.parse(localStorage.getItem('pluck-team-pins'))[{tid}]")).await, real, "the pin follows the signed move");
+    ok("team moved");
+
     let _ = chrome.kill().await;
     let _ = std::fs::remove_dir_all(base);
     let _ = std::fs::remove_dir_all(profile);

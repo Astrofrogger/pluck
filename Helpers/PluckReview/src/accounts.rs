@@ -131,6 +131,35 @@ pub fn derive_handle(public: &[u8], uid: &[u8]) -> Option<String> {
 }
 
 /// b64url(SHA-256("pluck-account/1 token " ‖ team ‖ "/" ‖ person)): a signed-in peer's authorToken (§1.7).
+/// A fresh level-2 room for a team (§1.6): the link key, the owner secret's register and sign keys, and what follows.
+fn new_room() -> Option<Value> {
+    let (key, r): ([u8; 32], [u8; 32]) = (rand::random(), rand::random());
+    let seed = keys::owner(&r, "sign");
+    let public = keys::public(&seed)?;
+    Some(json!({"roomID": keys::b64(&keys::derive(&key, "room", 16)), "reg": keys::b64(&keys::owner(&r, "register")),
+        "sign": keys::b64(&seed), "auth": keys::b64(&keys::derive(&key, "auth", 32)), "join": keys::join_hash(&key), "level": 2,
+        "key": keys::b64(&key), "pub": keys::b64(&public)}))
+}
+
+/// A room's parts agree with its key and seed (a restored or pulled file can't bring a room that doesn't add up).
+fn room_ok(r: &Value) -> bool {
+    let (Some(key), Some(seed)) = (r["key"].as_str().and_then(keys::unb64), r["sign"].as_str().and_then(keys::unb64)) else { return false };
+    r["roomID"] == keys::b64(&keys::derive(&key, "room", 16)) && r["auth"] == keys::b64(&keys::derive(&key, "auth", 32))
+        && r["join"] == keys::join_hash(&key) && keys::public(&seed).is_some_and(|p| r["pub"] == keys::b64(&p)) && r["reg"].is_string()
+}
+
+/// "pluck-team-moved/1\n" ‖ team id ‖ "\n" ‖ the new key (base64url): what the old team key signs on a reset. The page
+/// checks the same bytes (keys.ts movedMsg).
+pub fn moved_msg(team: &str, new_pub: &str) -> Vec<u8> {
+    format!("pluck-team-moved/1\n{team}\n{new_pub}").into_bytes()
+}
+
+/// The move notice is the old key's signature over the new one.
+pub fn moved_ok(old_pub: &str, team: &str, new_pub: &Value, sig: &Value) -> bool {
+    let (Some(p), Some(n), Some(s)) = (keys::unb64(old_pub), new_pub.as_str(), sig.as_str().and_then(keys::unb64)) else { return false };
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, p).verify(&moved_msg(team, n), &s).is_ok()
+}
+
 pub fn account_token(team: &str, person: &str) -> String {
     keys::sha256_b64(format!("pluck-account/1 token {team}/{person}").as_bytes())
 }
@@ -183,10 +212,18 @@ impl Accounts {
             .and_then(|_| std::fs::rename(&tmp, &self.path)).is_ok()
     }
 
-    /// A backup's copy from the main (`_accounts`), written as the main does.
+    /// A backup's copy from the main (`_accounts`), written as the main does. The backup pins the team key: the same
+    /// team with another key is taken only with a move notice signed by the key it has (`team_reset`).
     pub fn replace(&mut self, v: Value) -> bool {
-        if v["format"] != 1 {
+        if v["format"] != 1 || !room_ok(&v["team"]["room"]) {
             return false;
+        }
+        if self.on() && v["team"]["id"] == self.v["team"]["id"] && v["team"]["room"]["pub"] != self.v["team"]["room"]["pub"] {
+            let (old, m) = (self.v["team"]["room"]["pub"].as_str().unwrap_or(""), &v["team"]["moved"]);
+            if m["from"] != old || m["to"] != v["team"]["room"]["pub"] || !moved_ok(old, v["team"]["id"].as_str().unwrap_or(""), &v["team"]["room"]["pub"], &m["sig"]) {
+                crate::log("host: the main's team key changed without a signed move; the backup keeps its copy".into());
+                return false;
+            }
         }
         self.v = v;
         // Resume keys of passkeys the main removed (or people it removed or reset) go too.
@@ -201,11 +238,19 @@ impl Accounts {
 
     pub fn team(&self) -> Value {
         // pub: on a review link the page derives user.id from it (fix L2); it comes over that link's own verified session.
-        json!({"id": self.v["team"]["id"], "name": self.v["team"]["name"], "pub": self.v["team"]["room"]["pub"]})
+        // moved: after a team reset, the old key's signature on the new one, so pages that pinned the old key follow.
+        let mut t = json!({"id": self.v["team"]["id"], "name": self.v["team"]["name"], "pub": self.v["team"]["room"]["pub"]});
+        if self.v["team"]["moved"].is_object() {
+            t["moved"] = self.v["team"]["moved"].clone();
+        }
+        t
     }
 
+    /// "Editors can invite people" is on unless an owner switched it off (owner decision: on by default, each editor
+    /// invite waits for an admin). Files from before that decision always said `false`, never set by hand from Pluck
+    /// apart from the switch itself, so only a value written with `editorsInviteSet` counts.
     pub fn editors_invite(&self) -> bool {
-        self.v["settings"]["editorsInvite"] == true
+        self.v["settings"]["editorsInviteSet"] != true || self.v["settings"]["editorsInvite"] == true
     }
 
     fn people(&self) -> impl Iterator<Item = &Value> {
@@ -262,20 +307,15 @@ impl Accounts {
     /// `team-set`: the first call makes the team and its level-2 room (§1.6).
     pub fn team_set(&mut self, name: Option<&str>, editors_invite: Option<bool>) -> Value {
         if !self.on() {
-            let (key, r): ([u8; 32], [u8; 32]) = (rand::random(), rand::random());
-            let seed = keys::owner(&r, "sign");
-            let Some(public) = keys::public(&seed) else { return json!({"error": "internal"}) };
-            self.v = json!({"format": 1, "team": {"id": keys::b64(&rand::random::<[u8; 16]>()), "name": "",
-                "room": {"roomID": keys::b64(&keys::derive(&key, "room", 16)), "reg": keys::b64(&keys::owner(&r, "register")),
-                    "sign": keys::b64(&seed), "auth": keys::b64(&keys::derive(&key, "auth", 32)), "join": keys::join_hash(&key), "level": 2,
-                    "key": keys::b64(&key), "pub": keys::b64(&public)}},
-                "settings": {"editorsInvite": false}, "people": [], "invites": [], "requests": []});
+            let Some(room) = new_room() else { return json!({"error": "internal"}) };
+            self.v = json!({"format": 1, "team": {"id": keys::b64(&rand::random::<[u8; 16]>()), "name": "", "room": room},
+                "settings": {"editorsInvite": true}, "people": [], "invites": [], "requests": []});
         }
         if let Some(n) = name.map(|n| clean(n, 60)).filter(|n| !n.is_empty()) {
             self.v["team"]["name"] = json!(n);
         }
         if let Some(e) = editors_invite {
-            self.v["settings"]["editorsInvite"] = json!(e);
+            (self.v["settings"]["editorsInvite"], self.v["settings"]["editorsInviteSet"]) = (json!(e), json!(true));
         }
         if !self.save() {
             return json!({"error": "write"});
@@ -575,6 +615,50 @@ impl Accounts {
 
     // ---- what the owner sees and removes (§3) ----
 
+    /// `team-export` (Pluck only): the whole file, so the owner's Mac keeps the team's identity and a wiped main can get
+    /// the same team back.
+    pub fn export(&self) -> Value {
+        if self.on() { self.v.clone() } else { json!({"error": "notFound"}) }
+    }
+
+    /// `team-restore`: a team onto a main that has none (its own data dir always wins). From a backup's copy (everyone,
+    /// with their passkeys) or the Mac's (the team only: id, name, key, settings; people are invited again).
+    pub fn restore(&mut self, v: &Value) -> Value {
+        if self.on() {
+            return json!({"error": "exists"});
+        }
+        if v["format"] != 1 || !v["team"]["id"].is_string() || !room_ok(&v["team"]["room"]) {
+            return json!({"error": "invalid"});
+        }
+        let mut f = v.clone();
+        for k in ["people", "invites", "requests"] {
+            if !f[k].is_array() {
+                f[k] = json!([]);
+            }
+        }
+        if !f["settings"].is_object() {
+            f["settings"] = json!({"editorsInvite": true});
+        }
+        self.v = f;
+        if self.save() { json!({"ok": true, "link": self.team_link()}) } else { json!({"error": "write"}) }
+    }
+
+    /// `team-reset` ("Start a new team"): a new key and room, the same team id and name; everyone's passkeys were made
+    /// for the old key, so people, invites and requests start over. The old key signs the new one (`moved`), so pages
+    /// and a backup that pinned the old key take the new one with a short note instead of a warning.
+    pub fn team_reset(&mut self) -> Value {
+        let (Some(old), Some(room)) = (self.room().and_then(|r| keys::unb64(r["sign"].as_str()?)), new_room()) else { return json!({"error": "notFound"}) };
+        let (id, new_pub) = (self.v["team"]["id"].as_str().unwrap_or("").to_owned(), room["pub"].as_str().unwrap_or("").to_owned());
+        let Some(sig) = keys::sign(&old, &moved_msg(&id, &new_pub)) else { return json!({"error": "internal"}) };
+        self.v["team"]["moved"] = json!({"from": self.v["team"]["room"]["pub"], "to": new_pub, "sig": sig});
+        self.v["team"]["room"] = room;
+        for k in ["people", "invites", "requests"] {
+            self.v[k] = json!([]);
+        }
+        (self.resume, self.locked, self.fails) = Default::default();
+        if self.save() { json!({"ok": true, "link": self.team_link()}) } else { json!({"error": "write"}) }
+    }
+
     /// `people`: every person and passkey (no public keys), every open invite, every pending request.
     pub fn view(&self, now: i64) -> Value {
         let people: Vec<Value> = self.people().map(|p| {
@@ -591,7 +675,7 @@ impl Accounts {
             .map(|i| json!({"id": i["id"], "person": i["person"], "kind": i["kind"], "used": i["used"], "usedBy": i["usedBy"]})).collect();
         let requests: Vec<Value> = arr(&self.v, "requests").filter(|r| r["state"] == "pending")
             .map(|r| json!({"id": r["id"], "name": r["name"], "email": r["email"], "link": r["link"], "at": r["at"]})).collect();
-        json!({"team": {"id": self.v["team"]["id"], "name": self.v["team"]["name"], "link": self.team_link()}, "settings": self.v["settings"],
+        json!({"team": {"id": self.v["team"]["id"], "name": self.v["team"]["name"], "link": self.team_link()}, "settings": {"editorsInvite": self.editors_invite()},
             "people": people, "invites": invites, "used": used, "requests": requests, "approvals": 1})
     }
 
@@ -779,6 +863,62 @@ pub mod tests {
         let v = a.view(NOW);
         assert_eq!(v["approvals"], 1);
         assert!(v["invites"].as_array().unwrap().iter().any(|i| i["id"] == iid.as_str() && i["approval"] == "pending" && i["by"] == ed.as_str()));
+    }
+
+    /// Owner decision: "Editors can invite people" on by default; a file from before (always `false`, never set) reads on;
+    /// switched off in Pluck stays off.
+    #[test]
+    fn editors_invite_is_on_unless_switched_off() {
+        let (mut a, d) = team();
+        assert!(a.editors_invite());
+        a.v["settings"] = json!({"editorsInvite": false}); // a 4.0.4 test build's file
+        assert!(a.editors_invite());
+        a.team_set(None, Some(false));
+        assert!(!Accounts::load(&d).editors_invite(), "an owner's off stays off");
+        assert_eq!(a.view(NOW)["settings"]["editorsInvite"], false);
+        a.team_set(None, Some(true));
+        assert!(a.editors_invite());
+    }
+
+    /// Team key pinning on the backup, a team reset's signed move, and restoring a team onto an empty main.
+    #[test]
+    fn team_key_pin_move_and_restore() {
+        let (mut a, _d) = team();
+        enrol(&mut a, "editor", NOW);
+        let mut b = Accounts::load(&tmp());
+        assert!(b.replace(a.export()), "the first copy pins the team key");
+        // Same team id, another key, no move: refused (pin mismatch), and the backup keeps its copy.
+        let mut other = a.export();
+        other["team"]["room"] = new_room().unwrap();
+        assert!(!b.replace(other.clone()), "pin mismatch rejected");
+        // An unsigned move, or one signed by a key that isn't the pinned one: refused.
+        other["team"]["moved"] = json!({"from": a.v["team"]["room"]["pub"], "to": other["team"]["room"]["pub"], "sig": keys::b64(&[7u8; 64])});
+        assert!(!b.replace(other.clone()), "unsigned move rejected");
+        let id = a.v["team"]["id"].as_str().unwrap().to_owned();
+        let wrong = keys::sign(&keys::unb64(other["team"]["room"]["sign"].as_str().unwrap()).unwrap(), &moved_msg(&id, other["team"]["room"]["pub"].as_str().unwrap())).unwrap();
+        other["team"]["moved"]["sig"] = json!(wrong);
+        assert!(!b.replace(other), "a move signed by the new key itself");
+        assert_eq!(b.v["team"]["room"]["pub"], a.v["team"]["room"]["pub"]);
+        // A reset: new key, same id; the old key signs the move, so the backup (and pinned pages) take it.
+        let old = a.v["team"]["room"]["pub"].clone();
+        assert_eq!(a.team_reset()["ok"], true);
+        assert_eq!(a.v["team"]["id"], json!(id));
+        assert_ne!(a.v["team"]["room"]["pub"], old);
+        assert!(a.v["people"].as_array().unwrap().is_empty(), "passkeys were for the old key");
+        let t = a.team();
+        assert!(t["moved"]["from"] == old && moved_ok(old.as_str().unwrap(), &id, &t["pub"], &t["moved"]["sig"]), "{t}");
+        assert!(b.replace(a.export()), "signed team-moved accepted");
+        assert_eq!(b.v["team"]["room"]["pub"], a.v["team"]["room"]["pub"]);
+        // Restore: onto an empty main only; the room must add up; the Mac's copy (team only) is enough.
+        let mut c = Accounts::load(&tmp());
+        let mut bad = a.export();
+        bad["team"]["room"]["pub"] = json!(keys::b64(&[1u8; 32]));
+        assert_eq!(c.restore(&bad)["error"], "invalid");
+        let mac = json!({"format": 1, "team": a.v["team"], "settings": a.v["settings"]});
+        assert_eq!(c.restore(&mac)["ok"], true);
+        assert_eq!((c.v["team"]["id"].clone(), c.team_link()), (json!(id), a.team_link()), "the same team and link");
+        assert_eq!(c.restore(&a.export())["error"], "exists", "its own data always wins");
+        assert!(Accounts::load(&tmp()).restore(&json!({"format": 1}))["error"] == "invalid");
     }
 
     /// A passkey in a test: a P-256 key made with ring, signing as an authenticator would.

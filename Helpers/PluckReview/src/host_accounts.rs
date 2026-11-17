@@ -623,8 +623,8 @@ impl Host {
     pub(super) fn account_sync(&mut self, op: &Value) -> Option<Value> {
         let name = op["op"].as_str().unwrap_or("");
         let now = now_secs();
-        const WRITES: [&str; 10] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
-            "request-accept", "request-decline", "invite-approve"];
+        const WRITES: [&str; 12] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
+            "request-accept", "request-decline", "invite-approve", "team-restore", "team-reset"];
         if WRITES.contains(&name) && self.ident.backup {
             return Some(json!({"error": {"code": "main"}}));
         }
@@ -648,6 +648,9 @@ impl Host {
             "passkey-remove" => self.accounts.passkey_remove(&s("person"), &s("id")),
             "invite-cancel" => self.accounts.invite_cancel(&s("id")),
             "invite-approve" => self.accounts.invite_approve(&s("id"), "mac", now),
+            "team-export" => self.accounts.export(),
+            "team-restore" => self.accounts.restore(&op["accounts"]),
+            "team-reset" => self.accounts.team_reset(),
             "request-accept" | "request-decline" => {
                 let hash = self.accounts.request_hash(&s("id"));
                 let r = if name == "request-accept" { self.accounts.request_accept(&s("id"), now) } else { self.accounts.request_decline(&s("id"), now) };
@@ -678,7 +681,7 @@ impl Host {
             }
             _ => return None,
         };
-        if name != "people" && r.get("error").is_none() {
+        if name != "people" && name != "team-export" && r.get("error").is_none() {
             self.people_changed(); // owners' pages re-read `me` and with it the waiting list
         }
         Some(r)
@@ -859,7 +862,8 @@ mod tests {
         assert_eq!(client.ask(&mut h, &mut rx, 5, json!({"t": "list", "project": "P"}))["error"]["code"], "scope");
         assert!(client.ask(&mut h, &mut rx, 6, json!({"t": "device-code"}))["link"].as_str().unwrap().contains("/d/"));
         let (ed, _, ready) = enrol(&mut h, &mut rx, "e1", "editor");
-        assert_eq!(ready["invite"], false);
+        assert_eq!((ready["invite"].clone(), ready["inviteApproval"].clone()), (json!(false), json!(true)), "on by default, with approval");
+        h.sync(&json!({"op": "team-set", "editorsInvite": false})); // an owner switched it off
         for (i, m) in [json!({"t": "approve", "project": "P", "asset": "A", "version": "V", "decision": "approve"}),
                        json!({"t": "field-set", "project": "P", "asset": "A", "field": "status", "value": "approved"}),
                        json!({"t": "invite", "name": "X", "role": "client"})].into_iter().enumerate() {
@@ -1072,6 +1076,30 @@ mod tests {
         assert!(!msgs(&mut brx).iter().any(|m| m.to_string().contains("account-changed")), "the same file again changes nothing");
         let (bb, _, _) = open_team(&mut b, &mut brx, "b2", ("AA", "BB"));
         assert_eq!(bb.ask(&mut b, &mut brx, 2, json!({"t": "account-begin", "purpose": "create", "invite": accounts::new_code()}))["error"]["code"], "main");
+    }
+
+    /// Pluck keeps the team (team-export), a wiped main gets it back (team-restore, only when it has none), a reset
+    /// signs the move and review links carry it; a backup changes none of it.
+    #[tokio::test]
+    async fn team_export_restore_and_reset() {
+        let (mut h, mut rx) = host();
+        h.sync(&json!({"op": "team-set", "name": "Northwind Films"}));
+        let file = h.sync(&json!({"op": "team-export"}));
+        assert!(file["team"]["room"]["sign"].is_string());
+        let (mut fresh, _rx2) = host();
+        assert_eq!(fresh.sync(&json!({"op": "team-export"}))["error"], "notFound");
+        fresh.ident.backup = true;
+        assert_eq!(fresh.sync(&json!({"op": "team-restore", "accounts": file}))["error"]["code"], "main");
+        fresh.ident.backup = false;
+        assert_eq!(fresh.sync(&json!({"op": "team-restore", "accounts": file}))["ok"], true);
+        assert_eq!(fresh.sync(&json!({"op": "people"}))["team"], h.sync(&json!({"op": "people"}))["team"], "the same team id, name and link");
+        assert_eq!(fresh.sync(&json!({"op": "team-restore", "accounts": file}))["error"], "exists");
+        // A reset: the review link's welcome then carries the signed move.
+        let old = h.accounts.team()["pub"].clone();
+        assert_eq!(h.sync(&json!({"op": "team-reset"}))["ok"], true);
+        let (_, _, w) = open(&mut h, &mut rx, "r1", "R1", &[8u8; 32], ("AA", "BB"));
+        assert_eq!((w["team"]["moved"]["from"].clone(), w["team"]["moved"]["to"].clone()), (old, w["team"]["pub"].clone()));
+        assert!(accounts::moved_ok(w["team"]["moved"]["from"].as_str().unwrap(), w["team"]["id"].as_str().unwrap(), &w["team"]["pub"], &w["team"]["moved"]["sig"]));
     }
 
     #[tokio::test]
