@@ -21,6 +21,7 @@ struct DeliverShareSheet: View {
     @State private var editing: UUID?
     @State private var problem: String?
     @State private var copyWhenReady = false
+    @State private var originals: DeliverUploadDestination.Offer?
 
     /// Screenshots: More open.
     @MainActor static var moreOpen = false
@@ -75,6 +76,7 @@ struct DeliverShareSheet: View {
         .onChange(of: made.flatMap { DeliverServer.shared.shareURL($0) }) { _, url in
             if copyWhenReady, let url { DeliverLinkShare.copy(url); copyWhenReady = false }
         }
+        .originalsOffer($originals)
     }
 
     private var form: some View {
@@ -157,6 +159,7 @@ struct DeliverShareSheet: View {
             made = store.link(link.id)
             if let made, made.watermark?.burned == true { DeliverCopies.shared.remark(made) }
             if let made { if let url = DeliverServer.shared.shareURL(made) { DeliverLinkShare.copy(url) } else { copyWhenReady = true } }
+            Task { originals = await DeliverUploadDestination.offer(scope, host: nil) }
         } catch {
             problem = String(localized: "There are as many live links as Pluck keeps. Turn one off first.")
         }
@@ -368,6 +371,7 @@ struct DeliverPublishSheet: View {
     @State private var publish = ReviewPublish.shared
     @State private var chosen: UUID?
     @State private var guide = false
+    @State private var originals: DeliverUploadDestination.Offer?
 
     var body: some View {
         let choices = publish.choices
@@ -412,7 +416,10 @@ struct DeliverPublishSheet: View {
                 Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
                 Button("Publish") {
                     guard let host = choices.first(where: { $0.id == chosen }) else { return dismiss() }
-                    Task { await publish.publish(scope, to: host) }
+                    Task {
+                        await publish.publish(scope, to: host)
+                        if host.kind == .nas { originals = await DeliverUploadDestination.offer(scope, host: host) }
+                    }
                 }
                 .buttonStyle(StudioFlatButtonStyle(prominent: true))
                 .disabled(chosen == nil || publish.working != nil)
@@ -422,6 +429,7 @@ struct DeliverPublishSheet: View {
         .frame(width: 480)
         .background(Design.Studio.panel)
         .sheet(isPresented: $guide) { ReviewNASGuideSheet() }
+        .originalsOffer($originals)
     }
 
     private func hostRow(_ id: UUID?, name: String, symbol: String, online: Bool?) -> some View {

@@ -125,8 +125,12 @@ struct DeliverAssetView: View {
             if let project = store.find(asset)?.project {
                 Button { nav.deliver = .project(project, folder: found.folder) } label: { Image(systemName: "chevron.left") }
                     .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Back to the project")
+                // Project / asset, as a path.
+                Button { nav.deliver = .project(project, folder: found.folder) } label: { Text(verbatim: store.project(project)?.name ?? "") }
+                    .buttonStyle(.plain).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                Text(verbatim: "/").font(Design.Studio.body).foregroundStyle(Design.Studio.textFaint)
             }
-            Text(verbatim: found.name).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text).lineLimit(1)
+            Text(verbatim: found.name).font(Design.Studio.body.weight(.medium)).foregroundStyle(Design.Studio.text).lineLimit(1)
             if found.versions.count > 1 {
                 Menu {
                     ForEach(found.versions.reversed()) { item in
@@ -165,11 +169,29 @@ struct DeliverAssetView: View {
                 }
             } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Design.Studio.textQuiet) }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            stepper(found)
             Button("Publish…") { publishing = true }.buttonStyle(StudioFlatButtonStyle())
-            Button("Share") { sharing = true }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+            Button { sharing = true } label: { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(StudioFlatButtonStyle(prominent: true))
         }
         .padding(.horizontal, 16)
         .frame(height: 52)
+    }
+
+    /// "‹ 2 of 5 ›": the assets next to this one in its folder.
+    @ViewBuilder private func stepper(_ found: Deliver.Asset) -> some View {
+        let siblings = store.find(asset).map { store.content($0.project).assets.filter { $0.folder == found.folder } } ?? []
+        if siblings.count > 1, let index = siblings.firstIndex(where: { $0.id == found.id }) {
+            HStack(spacing: 2) {
+                Button { nav.deliver = .asset(siblings[index - 1].id, version: nil, comment: nil) } label: { Image(systemName: "chevron.left").frame(width: 22, height: 24).contentShape(.rect) }
+                    .disabled(index == 0).help("Previous")
+                Text("\(index + 1) of \(siblings.count)").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.text).padding(.horizontal, 4)
+                Button { nav.deliver = .asset(siblings[index + 1].id, version: nil, comment: nil) } label: { Image(systemName: "chevron.right").frame(width: 22, height: 24).contentShape(.rect) }
+                    .disabled(index == siblings.count - 1).help("Next")
+            }
+            .buttonStyle(.plain).font(.system(size: 10, weight: .semibold)).foregroundStyle(Design.Studio.textQuiet)
+            .padding(.horizontal, 2)
+            .background(Design.Studio.raised, in: .rect(cornerRadius: Design.Studio.controlRadius, style: .continuous))
+        }
     }
 
     private func latestApproval(_ found: Deliver.Asset) -> Deliver.Approval? {
