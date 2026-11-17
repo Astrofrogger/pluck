@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -14,6 +15,8 @@ extension PhotoSelfTest {
         choiceChecks()
         queueChecks()
         await groupWireChecks()
+        revokedChecks()
+        await removalWireChecks()
     }
 
     private typealias Group = OfficeGroup
@@ -270,5 +273,127 @@ extension PhotoSelfTest {
         await group.leave()
         check("group wire: leaving: the group's key no longer gets in", (try? await peer.ask("status")) == nil && !group.isGrouped
               && !server.devices.contains { $0.isPeer })
+    }
+
+    /// Who a home Mac stops trusting from what each office Mac says was removed.
+    private static func revokedChecks() {
+        let a = UUID(), b = UUID(), c = UUID()
+        check("revoked: a removal the others tell", Group.revoked([a: [c], b: [c], c: []]) == [c])
+        check("revoked: the removed Mac saying another was removed changes nothing", Group.revoked([a: [c], b: [c], c: [a]]) == [c])
+        check("revoked: two saying it of each other, no one else: neither trusted", Group.revoked([a: [c], c: [a]]) == [a, c])
+        check("revoked: one that left is out", Group.revoked([a: [b], b: [b]]) == [b])
+    }
+
+    /// Three office Macs (this one, B and C) and two home Macs: C is removed here. It's cut off (its own link, the
+    /// group's old keys, a home Mac's pairing secret it knew, posing as B), B and the home Macs go on without pairing
+    /// again, and a home Mac that was away during the removal stops asking C when it's back.
+    private static func removalWireChecks() async {
+        UserDefaults.standard.set(Int.random(in: 47_900...48_900), forKey: "PluckScreenshotPort")
+        let server = OfficeRenderServer.shared, group = OfficeGroup.shared
+        let local = "127.0.0.1:\(OfficeLink.listenPort)"
+        group.testAddresses = [local]
+        server.start()
+        for _ in 0..<100 where !server.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
+        let home1 = OfficeRenderClient(account: "office-revoke1"), home2 = OfficeRenderClient(account: "office-revoke2")
+        defer {
+            home1.forget()
+            home2.forget()
+            for device in server.devices { server.remove(device) }
+            group.testAddresses = nil
+            server.stop()
+            UserDefaults.standard.removeObject(forKey: "PluckScreenshotPort")
+        }
+        func office(_ device: UUID, _ secret: Data) -> OfficeRenderClient {
+            let client = OfficeRenderClient(account: nil)
+            client.use(.init(address: "127.0.0.1", addresses: ["127.0.0.1"], name: "Office", device: device, secret: secret))
+            return client
+        }
+        // B and C join with keys of their own (nowhere to reach them: they only ask).
+        let keyB = Curve25519.KeyAgreement.PrivateKey(), keyC = Curve25519.KeyAgreement.PrivateKey()
+        var b = member("Office B"), c = member("Office C")
+        b.addresses = ["127.0.0.1:1"]; c.addresses = ["127.0.0.1:1"]
+        b.key = keyB.publicKey.rawRepresentation; c.key = keyC.publicKey.rawRepresentation
+        var views: [UUID: OfficeGroup.Shared] = [:]
+        for joining in [b, c] {
+            server.startPairing()
+            guard let code = server.pairing?.code, let answer = try? await OfficeRenderClient(account: nil).pair(.address("127.0.0.1"), code: code,
+                                                                                                             member: OfficeGroup.encode(joining) ?? ""),
+                  let state = (answer["group"] as? String).flatMap(OfficeGroup.decode(OfficeGroup.Shared.self)) else {
+                return check("removal: \(joining.name) joins", false)
+            }
+            views[joining.id] = state
+        }
+        guard let viewB = views[b.id], let viewC = views[c.id], let linkB = Group.link(keyB, group.publicKey), let linkC = Group.link(keyC, group.publicKey) else {
+            return check("removal: three office Macs", false)
+        }
+        let peerB = office(b.id, linkB), peerC = office(c.id, linkC)
+        let askedB = try? await peerB.ask("status"), askedC = try? await peerC.ask("status")
+        check("removal: three office Macs, each asked with its own link", group.members.count == 3 && askedB != nil && askedC != nil)
+        check("removal: the group's key gets nothing once every office Mac has its own key", (try? await office(viewC.key.device, viewC.key.secret).ask("status")) == nil)
+        check("removal: an office Mac can't pose as another", (try? await office(b.id, linkC).ask("status")) == nil)
+
+        // Two home Macs pair; their first questions register their keys.
+        for home in [home1, home2] {
+            server.startPairing()
+            guard let code = server.pairing?.code, (try? await home.pair(.address("127.0.0.1"), code: code)) != nil else { return check("removal: home Mac paired", false) }
+            await home.refreshGroup()
+        }
+        let registered = [home1, home2].allSatisfy { home in
+            home.office?.registered == true && server.devices.first { $0.id == home.office?.device }?.key != nil
+        }
+        check("removal: home Macs register keys of their own", registered && home1.members.count == 3 && home2.members.contains { $0.id == c.id },
+              "\(home1.members.map(\.name))")
+        guard let paired = home1.office else { return check("removal: home Mac's pairing", false) }
+        check("removal: a home Mac's pairing secret alone no longer gets in", (try? await office(paired.device, paired.secret).ask("status")) == nil)
+
+        // C is removed here (home2 is "away": it isn't asked again until it's back).
+        guard let removing = group.members.first(where: { $0.id == c.id }) else { return check("removal: C in the group", false) }
+        await group.remove(removing)
+        check("removal: C's own link no longer gets in", (try? await peerC.ask("status")) == nil)
+        check("removal: C's view of the group can't be pushed back", (try? await peerC.ask("groupSync", ["state": OfficeGroup.encode(viewC) ?? ""])) == nil)
+        check("removal: the group's old key doesn't get C in", (try? await office(viewC.key.device, viewC.key.secret).ask("groupSync",
+                                                                ["state": OfficeGroup.encode(viewC) ?? ""])) == nil)
+        var asHome = paired
+        asHome.identity = Curve25519.KeyAgreement.PrivateKey().rawRepresentation
+        asHome.officeKey = group.publicKey
+        let posing = OfficeRenderClient(account: nil)
+        posing.use(asHome)
+        let posed = try? await posing.ask("status"), plain = try? await office(paired.device, paired.secret).ask("browse")
+        check("removal: a home Mac's pairing secret C knew doesn't get it in", posed == nil && plain == nil)
+        check("removal: C can't pose as B", (try? await office(b.id, Group.link(keyC, group.publicKey) ?? Data()).ask("status")) == nil)
+
+        // B goes on: its next sync gets the removal and the new key, sealed with its own link.
+        let synced = try? await peerB.ask("groupSync", ["state": OfficeGroup.encode(viewB) ?? ""])
+        let back = (synced?["state"] as? String).flatMap(OfficeGroup.decode(OfficeGroup.Shared.self))
+        check("removal: B goes on without pairing again, and hears C was removed", back.map {
+            $0.removed.contains(c.id) && !$0.members.contains { $0.id == c.id } && $0.members.count == 2 && $0.key.version == viewB.key.version + 1
+        } == true, "\(String(describing: back?.members.map(\.name)))")
+
+        // The home Macs go on without pairing again, and stop asking C.
+        check("removal: a home Mac goes on without pairing again", (try? await home1.ask("status")) != nil)
+        await home1.refreshGroup()
+        check("removal: a home Mac drops C", home1.revoked.contains(c.id) && !home1.members.contains { $0.id == c.id } && home1.members.count == 2)
+        // home2 comes back: Pluck started again, with what it kept.
+        let away = OfficeRenderClient(account: "office-revoke2")
+        away.load()
+        check("removal: the home Mac that was away still lists C", away.members.contains { $0.id == c.id } && !away.revoked.contains(c.id))
+        let first = try? await away.ask("status")
+        check("removal: back, it drops C before asking anything", first != nil && away.revoked.contains(c.id) && !away.members.contains { $0.id == c.id })
+        check("removal: renders and proxies never go to C", [home1, away].allSatisfy { home in
+            ["render", "proxies", "status", "resolveQueue"].allSatisfy { !home.route($0, [:]).contains(c.id) }
+        })
+        let again = try? await away.ask("status"), shares = try? await home1.ask("shares")
+        check("removal: both home Macs still get in", again != nil && shares != nil)
+
+        // An office Mac every other one turns away (as a removed one is) stops taking jobs from the NAS: here, a member
+        // that's this Mac's own server, which knows no link for this Mac.
+        if let gone = group.members.first(where: { $0.id == b.id }) { await group.remove(gone) }
+        var mirror = member("Office D")
+        mirror.addresses = [local]
+        mirror.key = Curve25519.KeyAgreement.PrivateKey().publicKey.rawRepresentation
+        _ = group.admit(mirror)
+        await group.syncAll()
+        check("removal: turned away by every other office Mac, it takes no more jobs", group.cutOff)
+        await group.leave()
     }
 }

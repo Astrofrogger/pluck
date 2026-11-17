@@ -32,6 +32,9 @@ final class OfficeRenderServer {
         var irohMore: [String]?
         /// When its rights were last set, so the office Macs of a group keep the newest.
         var changed: Date?
+        /// Its own public key (a home Mac's, registered once; another office Mac's, from the group): from then on only a
+        /// question sealed with the secret this Mac and it work out from their keys gets in, never `secret`.
+        var key: Data?
 
         /// What this Mac may do here (Edit Anywhere's remote editing).
         struct Rights: Codable, Hashable {
@@ -367,12 +370,23 @@ final class OfficeRenderServer {
                     }
                     let more = Set((list[index].irohMore ?? []) + (device.irohMore ?? []))
                     list[index].irohMore = more.isEmpty ? nil : more.sorted()
+                    list[index].key = OfficeGroup.firstKey(list[index].key, device.key)
                 } else {
                     list.append(device)
                 }
             }
-            list.append(Device(id: shared.key.device, name: "Office group", secret: shared.key.secret, added: Date(timeIntervalSince1970: 0),
-                               rights: Device.Rights(browse: true, proxies: true, originals: true, render: true), peer: true))
+            let me = OfficeGroup.shared.me, all = Device.Rights(browse: true, proxies: true, originals: true, render: true)
+            // Each other office Mac by its own key: a removed one is no longer among them.
+            for member in shared.members where member.id != me {
+                guard let key = member.key else { continue }
+                list.append(Device(id: member.id, name: member.name, secret: Data(SHA256.hash(data: key)), added: Date(timeIntervalSince1970: 0),
+                                   rights: all, peer: true, key: key))
+            }
+            // The group's key only while an office Mac from before (no key of its own) is in it.
+            if shared.members.contains(where: { $0.id != me && $0.key == nil }) {
+                list.append(Device(id: shared.key.device, name: "Office group", secret: shared.key.secret, added: Date(timeIntervalSince1970: 0),
+                                   rights: all, peer: true))
+            }
         }
         guard list != devices else { return }
         devices = list
@@ -608,7 +622,8 @@ final class OfficeRenderServer {
         device.iroh = iroh
         // Its addresses on the office network (at home it goes over the private network).
         let answer: [String: Any] = ["device": device.id.uuidString, "secret": device.secret.base64EncodedString(),
-                                     "office": Host.current().localizedName ?? "Mac", "addresses": Self.addresses()]
+                                     "office": Host.current().localizedName ?? "Mac", "addresses": Self.addresses(),
+                                     "key": OfficeGroup.shared.publicKey.base64EncodedString()]
         guard let body = try? JSONSerialization.data(withJSONObject: answer),
               let sealed = try? ChaChaPoly.seal(body, using: answerKey, authenticating: Data("pluck-pair-answer".utf8)) else {
             return drop(connection, strike: nil)
@@ -634,8 +649,12 @@ final class OfficeRenderServer {
 
     private func request(_ payload: Data, client: String, iroh: String?, on connection: NWConnection) {
         guard payload.count > 16, let id = OfficeLink.uuid(payload.prefix(16)),
-              let device = devices.first(where: { $0.id == id }) else { return drop(connection, strike: client) }
-        let keys = OfficeLink.keys(device.secret)
+              let index = devices.firstIndex(where: { $0.id == id }) else { return drop(connection, strike: client) }
+        var device = devices[index]
+        // A Mac with a key of its own: only the secret the two keys give (what another office Mac knew is no use).
+        let secret: Data? = if let key = device.key { OfficeGroup.shared.link(with: key) } else { device.secret }
+        guard let secret else { return drop(connection, strike: client) }
+        let keys = OfficeLink.keys(secret)
         guard let box = try? ChaChaPoly.SealedBox(combined: payload.dropFirst(16)),
               let plain = try? ChaChaPoly.open(box, using: keys.request, authenticating: payload.prefix(16)),
               let message = try? JSONSerialization.jsonObject(with: plain) as? [String: Any],
@@ -647,6 +666,15 @@ final class OfficeRenderServer {
         guard nonces[nonce] == nil else { return drop(connection, strike: client) }
         nonces[nonce] = .now
         strikes[client] = nil
+        // A home Mac's own key, sent sealed with its pairing secret: registered once (the group gets it at the next sync).
+        var registered = false
+        if device.key == nil, !device.isPeer, let typed = (message["identity"] as? String).flatMap({ Data(base64Encoded: $0) }),
+           OfficeGroup.shared.link(with: typed) != nil {
+            device.key = typed
+            devices[index] = device
+            saveDevices()
+            registered = true
+        }
         lastSeen[device.id] = .now
         saveLastSeen()
         let arguments = message["args"] as? [String: Any] ?? [:]
@@ -660,6 +688,7 @@ final class OfficeRenderServer {
                 answer = ["error": error.localizedDescription]
             }
             answer["nonce"] = nonce.base64EncodedString()
+            if registered { answer["identity"] = true }
             let keeping = keep && kept.count < Self.keptMost && listener != nil
             if keeping { answer["keep"] = true }
             let bytes = answer.removeValue(forKey: OfficeActions.bytesKey) as? Data

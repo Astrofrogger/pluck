@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import os
 
@@ -13,6 +14,24 @@ import os
 ///   NAS folder has the same id on every office Mac (the smallest of theirs), and each Mac answers to all of them.
 /// - Proxies are made into the NAS proxy folder by all of them: each job is a file in `.pluck-queue` there, and each
 ///   clip is taken by one Mac at a time with a claim file next to it (created exclusively; stale after `staleClaim`).
+///
+/// Removing an office Mac cuts that one Mac off, with no pairing again anywhere (owner, 2026-11-17):
+/// - Every office Mac has a key pair of its own (`identity`, X25519; its public half is `Member.key`), and every home
+///   Mac gets one too (`Office.identity`, registered once as `Device.key`, sealed with its pairing secret). Each pair of
+///   Macs seals its questions with a secret only those two can work out (`link`: their key agreement). So what an office
+///   Mac knew (the group's keys, every home Mac's pairing secret) stops counting: an office Mac answers another only as
+///   a member (its key, in the members list), and a home Mac with a key only with that key.
+/// - Removing one: it goes from the members list (and so from every office Mac's devices) and the group's key is new.
+///   The group's key only lets in Macs from before that have no key of their own; it then travels sealed with the link
+///   secrets, so the removed Mac can't read it on the network either, and old keys are never accepted.
+/// - The removal reaches the other office Macs at their next sync (a merge never takes a removal back), and every home
+///   Mac asks all the office Macs it knows ("officeGroup": each tells the removed ones) at every refresh, before its
+///   first question: a home Mac away during the removal hears it from any office Mac left, whatever the removed one
+///   says (`revoked`: a removal claimed by a Mac that's itself removed by one that isn't doesn't count).
+/// - A removed Mac that's turned away by every other office Mac stops taking jobs from the NAS queue.
+/// shortcut: a home Mac that never talked to the office since this build (no key yet) is still let in by its pairing
+/// secret, which the removed Mac knows too; and an office Mac that was offline during the removal and is reached by the
+/// removed Mac before any other can be misled by it. Both need a signed history (or pairing again) to close.
 @MainActor
 @Observable
 final class OfficeGroup {
@@ -45,6 +64,8 @@ final class OfficeGroup {
         var relay: String?
         var shares: [ShareKey] = []
         var updated: Date
+        /// Its own public key (`identity`): the others ask it, and it them, with secrets of their own (`link`).
+        var key: Data?
     }
 
     /// How a home Mac reaches one office Mac (no keys).
@@ -54,6 +75,8 @@ final class OfficeGroup {
         var addresses: [String]
         var iroh: String?
         var relay: String?
+        /// Its own public key: a home Mac seals its questions for this office Mac alone.
+        var key: Data?
     }
 
     /// A folder on the NAS by the share it's on, so each office Mac finds it where it mounted it.
@@ -81,6 +104,8 @@ final class OfficeGroup {
         /// The keys before the last few removals, newest first.
         var previousKeys: [Key]?
         var adoptedFolder: Date?
+        /// This Mac's own private key (X25519), kept when it leaves a group: home Macs' questions are sealed for it.
+        var identity: Data?
     }
 
     /// This Mac's own id in a group.
@@ -97,6 +122,23 @@ final class OfficeGroup {
     @ObservationIgnored private var clients: [UUID: OfficeRenderClient] = [:]
     /// What was last saved (a sync that changed nothing isn't saved again).
     @ObservationIgnored private var savedState: Shared?
+    @ObservationIgnored private let identity: Curve25519.KeyAgreement.PrivateKey
+    /// Every other office Mac turned this one away at the last sync: it was removed (it takes no more jobs from the NAS).
+    private(set) var cutOff = false
+
+    /// This Mac's public key (Member.key, Reach.key).
+    var publicKey: Data { identity.publicKey.rawRepresentation }
+
+    /// The secret only this Mac and the one with that public key can work out (a home Mac, another office Mac).
+    nonisolated func link(with key: Data) -> Data? { Self.link(identity, key) }
+
+    nonisolated static func link(_ mine: Curve25519.KeyAgreement.PrivateKey, _ theirs: Data) -> Data? {
+        guard let other = try? Curve25519.KeyAgreement.PublicKey(rawRepresentation: theirs), other.rawRepresentation != mine.publicKey.rawRepresentation,
+              let shared = try? mine.sharedSecretFromKeyAgreement(with: other) else { return nil }
+        let keys = [mine.publicKey.rawRepresentation, theirs].sorted { $0.lexicographicallyPrecedes($1) }
+        return shared.hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data("pluck-group-link-v1".utf8), sharedInfo: keys[0] + keys[1],
+                                              outputByteCount: 32).withUnsafeBytes { Data($0) }
+    }
 
     var members: [Member] { state?.members ?? [] }
     var isGrouped: Bool { members.count > 1 }
@@ -108,11 +150,15 @@ final class OfficeGroup {
         state = saved?.shared
         previous = saved?.previousKeys ?? (saved?.previous.map { [$0] } ?? [])
         adoptedFolder = saved?.adoptedFolder
+        let known = saved?.identity.flatMap { try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: $0) }
+        identity = known ?? Curve25519.KeyAgreement.PrivateKey()
         updateAliases()
+        if known == nil { save() }
     }
 
     private func save() {
-        let saved = Saved(me: me, shared: state, previous: previous.first, previousKeys: previous, adoptedFolder: adoptedFolder)
+        let saved = Saved(me: me, shared: state, previous: previous.first, previousKeys: previous, adoptedFolder: adoptedFolder,
+                          identity: identity.rawRepresentation)
         if let data = try? JSONEncoder().encode(saved) { OfficeLink.Keychain.save(data, as: Self.account) }
     }
 
@@ -148,12 +194,37 @@ final class OfficeGroup {
             }
             let more = Set((have.irohMore ?? []) + (device.irohMore ?? []))
             have.irohMore = more.isEmpty ? nil : more.sorted()
+            have.key = Self.firstKey(have.key, device.key)
             devices[device.id] = have
         }
         out.devices = devices.values.filter { !removedDevices.contains($0.id) && !$0.isPeer }
             .sorted { ($0.added, $0.id.uuidString) < ($1.added, $1.id.uuidString) }
         if (b.proxyFolder?.changed ?? .distantPast) > (a.proxyFolder?.changed ?? .distantPast) { out.proxyFolder = b.proxyFolder }
         return out
+    }
+
+    /// A home Mac's key as two office Macs had it: the one set (the same either way round if both were).
+    nonisolated static func firstKey(_ a: Data?, _ b: Data?) -> Data? {
+        guard let a, let b else { return a ?? b }
+        return b.lexicographicallyPrecedes(a) ? b : a
+    }
+
+    /// The office Macs a home Mac stops trusting, from what each says was removed (`claims`: who says → which). A
+    /// removal counts when the one saying it is trusted: not itself removed by one that is. A removed Mac saying the
+    /// others were removed changes nothing once one Mac left says it was; two saying it of each other with no one else
+    /// to tell: neither is trusted.
+    nonisolated static func revoked(_ claims: [UUID: Set<UUID>]) -> Set<UUID> {
+        let all = Set(claims.keys).union(claims.values.flatMap { $0 })
+        var trusted = Set<UUID>(), out = Set<UUID>(), changed = true
+        while changed {
+            changed = false
+            for mac in all where !trusted.contains(mac) && !out.contains(mac) {
+                let against = claims.filter { $0.value.contains(mac) }.map(\.key)
+                if against.allSatisfy(out.contains) { trusted.insert(mac); changed = true }
+                else if against.contains(where: trusted.contains) { out.insert(mac); changed = true }
+            }
+        }
+        return all.subtracting(trusted)
     }
 
     /// This Mac's view now: its own entry fresh, and its paired Macs as they are here.
@@ -163,7 +234,7 @@ final class OfficeGroup {
         var mine = shared.members.first { $0.id == me } ?? Member(id: me, name: "", addresses: [], updated: .distantPast)
         let fresh = Member(id: me, name: Host.current().localizedName ?? "Mac", addresses: testAddresses ?? OfficeRenderServer.addresses(),
                            iroh: ownNode,
-                           relay: server.network.relay, shares: ownShares(), updated: mine.updated)
+                           relay: server.network.relay, shares: ownShares(), updated: mine.updated, key: publicKey)
         if fresh != mine { mine = fresh; mine.updated = .now }
         shared.members.removeAll { $0.id == me }
         shared.members.append(mine)
@@ -213,7 +284,7 @@ final class OfficeGroup {
         // A fresh id, as after leave(): a Mac removed earlier and added again isn't taken out again by the old removal.
         me = UUID()
         let mine = Member(id: me, name: Host.current().localizedName ?? "Mac", addresses: testAddresses ?? OfficeRenderServer.addresses(),
-                          shares: ownShares(), updated: .now)
+                          shares: ownShares(), updated: .now, key: publicKey)
         guard let encoded = Self.encode(mine) else { throw OfficeLink.Failure.garbled }
         let answer = try await asking.pair(target, code: code, member: encoded)
         guard let theirs = (answer["group"] as? String).flatMap(Self.decode(Shared.self)) else {
@@ -222,12 +293,14 @@ final class OfficeGroup {
         // (This Mac's own paired Macs join the group's.)
         state = Self.merge(theirs, Shared(key: theirs.key, members: [mine], devices: OfficeRenderServer.shared.pairedMacs))
         previous = []
+        cutOff = false
         apply()
         start()
         await syncAll()
     }
 
-    /// Takes an office Mac out of the group: a new key, so it can't ask any more (the others get it at their next sync).
+    /// Takes an office Mac out of the group: out of the members (its link goes everywhere), and a new key, so it can't
+    /// ask any more (the others get both at their next sync, sealed with their own link secrets).
     func remove(_ member: Member) async {
         guard var shared = local(), member.id != me else { return }
         shared.removed.append(member.id)
@@ -249,6 +322,7 @@ final class OfficeGroup {
         stop()
         state = nil
         previous = []
+        cutOff = false
         adoptedFolder = nil
         clients = [:]
         apply()
@@ -282,27 +356,39 @@ final class OfficeGroup {
         loop = nil
     }
 
-    /// How this Mac asks one other office Mac.
-    func client(_ member: Member, key: Key) -> OfficeRenderClient {
+    /// How this Mac asks one other office Mac: as itself, with their link secret (nil key), or with the group's key (a
+    /// Mac from before with no key of its own).
+    func client(_ member: Member, key: Key?) -> OfficeRenderClient? {
+        guard let way = key.map({ ($0.device, $0.secret) }) ?? member.key.flatMap({ link(with: $0) }).map({ (me, $0) }) else { return nil }
         let client = clients[member.id] ?? OfficeRenderClient(account: nil)
         clients[member.id] = client
         client.use(OfficeRenderClient.Office(address: member.addresses.first ?? "", addresses: member.addresses,
-                                             name: member.name, device: key.device, secret: key.secret))
+                                             name: member.name, device: way.0, secret: way.1))
         return client
     }
 
-    /// Syncs with every other office Mac in turn (with the key before the last removal for one that missed it).
+    /// Syncs with every other office Mac in turn (one from before: with the key before the last removal if it missed it).
     func syncAll(leaving: Bool = false) async {
         guard let mine = local(), let encoded = Self.encode(mine) else { return }
         if !leaving { state = mine }
+        var refused = 0, others = 0
         for member in mine.members where member.id != me {
-            for key in [mine.key] + previous {
-                guard let answer = try? await client(member, key: key).ask("groupSync", ["state": encoded], timeout: 20) else { continue }
+            others += 1
+            for key in member.key != nil ? [nil] : [mine.key] + previous {
+                let answer: [String: Any]
+                do {
+                    guard let client = client(member, key: key) else { continue }
+                    answer = try await client.ask("groupSync", ["state": encoded], timeout: 20)
+                } catch {
+                    if case OfficeLink.Failure.refused = error, key == nil { refused += 1 }
+                    continue
+                }
                 seen[member.id] = .now
                 if !leaving, let theirs = (answer["state"] as? String).flatMap(Self.decode(Shared.self)) { receive(theirs) }
                 break
             }
         }
+        cutOff = others > 0 && refused == others
         if !leaving { apply() }
     }
 
@@ -315,6 +401,7 @@ final class OfficeGroup {
             stop()
             state = nil
             previous = []
+            cutOff = false
             apply()
             save()
             return
@@ -340,9 +427,12 @@ final class OfficeGroup {
             return ["state": shared.local().flatMap(encode) ?? ""]
         }
         // (For home Macs: how to reach each office Mac. An office from before doesn't know it: one office Mac.)
+        // (Also this Mac's key, and the office Macs removed: a home Mac stops asking those.)
         OfficeActions.register("officeGroup") { _, _ in
-            let reach = shared.isGrouped ? (shared.local()?.members ?? []).map { Reach(id: $0.id, name: $0.name, addresses: $0.addresses, iroh: $0.iroh, relay: $0.relay) } : []
-            return ["members": encode(reach) ?? "", "me": shared.me.uuidString]
+            let view = shared.local()
+            let reach = (view?.members ?? []).map { Reach(id: $0.id, name: $0.name, addresses: $0.addresses, iroh: $0.iroh, relay: $0.relay, key: $0.key) }
+            return ["members": encode(reach) ?? "", "me": shared.me.uuidString, "key": shared.publicKey.base64EncodedString(),
+                    "removed": encode(view?.removed ?? []) ?? ""]
         }
         // A home Mac's link to another office Mac of the group (a key of its own): let in by all of them.
         OfficeActions.register("groupNode") { arguments, device in
@@ -512,7 +602,7 @@ final class OfficeGroup {
 
     /// The other office Macs' jobs taken on here (each clip by whoever claims it first).
     func scanQueue() async {
-        guard isGrouped, let folder = OfficeProxies.shared.chosenFolder else { return }
+        guard isGrouped, !cutOff, let folder = OfficeProxies.shared.chosenFolder else { return }
         let found = await RemoteShares.withTimeout("officeGroup.queue", nil, timeout: 10) { Self.queued(in: folder) }
         guard let jobs = found ?? nil else { return }
         RemoteProxyJobs.shared.take(jobs.filter { $0.member != me }, all: Set(jobs.map(\.id)))
