@@ -21,6 +21,7 @@ const MAX_WRONG: u32 = 5;
 struct Invite {
     code: String, // 12 characters, no dashes
     role: String,
+    access: String, // a Mac's: "admin" | "editor"
     until: Instant,
 }
 
@@ -54,6 +55,11 @@ fn norm_code(c: &str) -> String {
 
 pub fn valid_node(n: &str) -> bool {
     n.len() == 64 && n.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+/// A paired Mac's access (roles, 4.0.5): "admin" | "editor". Macs paired before roles have none and stay admin.
+pub fn access(d: &Value) -> &str {
+    d["access"].as_str().unwrap_or("admin")
 }
 
 /// A sync session's identity after its first line.
@@ -108,9 +114,11 @@ impl Devices {
         self.inner.lock().unwrap().locked.is_some_and(|t| Instant::now() < t)
     }
 
-    /// `invite`: a new single-use code for a Mac or a backup host, and the link that carries it.
-    pub fn invite(&self, role: &str) -> Value {
-        if role != "mac" && role != "backup" {
+    /// `invite`: a new single-use code for a Mac or a backup host, and the link that carries it. `access`: what the
+    /// Mac may do once paired; None (a Mac or the admin page from before roles) is admin, as every Mac was then.
+    pub fn invite(&self, role: &str, access: Option<&str>) -> Value {
+        let access = access.unwrap_or("admin");
+        if (role != "mac" && role != "backup") || (access != "admin" && access != "editor") {
             return json!({"error": "invalid"});
         }
         if self.locked() {
@@ -122,7 +130,7 @@ impl Devices {
             let mut i = self.inner.lock().unwrap();
             let now = Instant::now();
             i.invites.retain(|x| x.until > now);
-            i.invites.push(Invite { code: code.clone(), role: role.into(), until: now + Duration::from_secs(INVITE_SECS) });
+            i.invites.push(Invite { code: code.clone(), role: role.into(), access: access.into(), until: now + Duration::from_secs(INVITE_SECS) });
         }
         self.to_iroh(json!({"pair": INVITE_SECS}));
         let shown = format!("{}-{}-{}", &code[..4], &code[4..8], &code[8..]);
@@ -160,13 +168,16 @@ impl Devices {
             }
             return None;
         };
-        i.invites.remove(pos);
+        let access = i.invites.remove(pos).access;
         i.wrong = 0;
         let key: [u8; 32] = rand::random();
         let id = crate::host::uuid();
         let via = if stream.is_some() { "iroh" } else { "lan" };
         i.list.push(json!({"id": id, "name": crate::host::clean(name, 60), "role": role, "node": node, "keyHash": keys::sha256_b64(&key),
             "added": now_iso(), "lastSeen": now_iso(), "via": via}));
+        if role == "mac" {
+            i.list.last_mut().unwrap()["access"] = json!(access);
+        }
         self.save(&i);
         drop(i);
         self.send_allow();
@@ -196,6 +207,35 @@ impl Devices {
         let role = d["role"].as_str().unwrap_or("mac").to_owned();
         self.save(&i);
         Some(role)
+    }
+
+    /// A paired Mac that may do admin work (read on every op, so a change reaches open sessions at once).
+    pub fn is_admin(&self, id: &str) -> bool {
+        self.inner.lock().unwrap().list.iter().any(|d| d["id"] == id && d["role"] == "mac" && access(d) == "admin")
+    }
+
+    /// Admin Macs other than `except`; None when no Mac is paired at all (only the legacy host key, itself an admin).
+    pub fn admin_macs(&self, except: Option<&str>) -> Option<usize> {
+        let i = self.inner.lock().unwrap();
+        let macs: Vec<&Value> = i.list.iter().filter(|d| d["role"] == "mac").collect();
+        (!macs.is_empty()).then(|| macs.iter().filter(|d| access(d) == "admin" && except.is_none_or(|e| d["id"] != e)).count())
+    }
+
+    /// The device record (no key hash).
+    pub fn get(&self, id: &str) -> Option<Value> {
+        self.inner.lock().unwrap().list.iter().find(|d| d["id"] == id).map(|d| json!({"id": d["id"], "name": d["name"], "role": d["role"], "access": access(d)}))
+    }
+
+    /// `device-role`: a paired Mac becomes an admin or an editor (the caller checked who asks and the last admin).
+    pub fn set_access(&self, id: &str, to: &str) -> Value {
+        if to != "admin" && to != "editor" {
+            return json!({"error": "invalid"});
+        }
+        let mut i = self.inner.lock().unwrap();
+        let Some(d) = i.list.iter_mut().find(|d| d["id"] == id && d["role"] == "mac") else { return json!({"error": "notFound"}) };
+        d["access"] = json!(to);
+        self.save(&i);
+        json!({"ok": true})
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -248,6 +288,9 @@ impl Devices {
         json!({"devices": i.list.iter().map(|d| {
             let mut d = d.clone();
             d.as_object_mut().map(|o| o.remove("keyHash"));
+            if d["role"] == "mac" {
+                d["access"] = json!(access(&d)); // one from before roles: admin
+            }
             d
         }).collect::<Vec<_>>(), "pairingLocked": i.locked.is_some_and(|t| Instant::now() < t)})
     }
@@ -335,13 +378,13 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         *d.iroh.lock().unwrap() = Some(tx);
         *d.link.lock().unwrap() = json!({"o": "a".repeat(64), "n": "Office NAS", "fp": "AA:BB"});
-        let inv = d.invite("mac");
+        let inv = d.invite("mac", None);
         let link = inv["link"].as_str().unwrap().strip_prefix("pluck://edit-anywhere/join?i=").unwrap();
         let l: Value = serde_json::from_slice(&keys::unb64(link).unwrap()).unwrap();
         assert_eq!((l["v"].clone(), l["k"].clone(), l["role"].clone(), l["c"].clone()), (json!(3), json!("nas"), json!("mac"), inv["code"].clone()));
         assert_eq!(rx.try_recv().unwrap(), json!({"pair": 900}));
         for _ in 0..200 {
-            let c = code(&d.invite("mac")).replace('-', "");
+            let c = code(&d.invite("mac", None)).replace('-', "");
             assert!(c.len() == 12 && c.bytes().all(|b| b"23456789ABCDEFGHJKMNPQRSTVWXYZ".contains(&b)), "Pluck reads only its own alphabet: {c}");
         }
         let node = "b".repeat(64);
@@ -365,13 +408,13 @@ mod tests {
     #[test]
     fn five_wrong_codes_lock() {
         let d = devs();
-        let inv = d.invite("backup");
+        let inv = d.invite("backup", None);
         for _ in 0..5 {
             assert!(d.pair("AAAA-AAAA-AAAA", "x", None, "backup", None).is_none());
         }
         assert!(d.locked());
         assert!(d.pair(&code(&inv), "x", None, "backup", None).is_none(), "every open code closed");
-        assert!(d.invite("mac").get("error").is_some(), "no new ones while locked");
+        assert!(d.invite("mac", None).get("error").is_some(), "no new ones while locked");
         assert_eq!(d.list()["pairingLocked"], true);
     }
 
@@ -382,7 +425,7 @@ mod tests {
         let d = std::env::temp_dir().join(format!("pluck-dev-o-{}", crate::host::uuid()));
         std::fs::create_dir_all(d.join("main")).unwrap();
         let main = Devices::load(&d.join("main"));
-        let inv = main.invite("mac");
+        let inv = main.invite("mac", None);
         let node = "a".repeat(64);
         let (id, key) = main.pair(&code(&inv), "Edit Suite", Some(&node), "mac", Some(&node)).unwrap();
         assert_eq!(main.outage_macs()["macs"].as_array().unwrap().len(), 0, "not before it registered an outage node");
@@ -403,5 +446,30 @@ mod tests {
         backup.set_outage(&json!([]));
         assert!(backup.check(&id, &key, Some(&outage)).is_none() && !backup.exists(&id), "gone with the main's list");
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    /// Roles (4.0.5): a Mac paired before roles (no `access`) is an admin; an invite says what the new Mac is.
+    #[test]
+    fn old_macs_stay_admin_and_invites_carry_the_role() {
+        let dir = std::env::temp_dir().join(format!("pluck-dev-r-{}", crate::host::uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("devices.json"), json!([{"id": "old", "name": "Edit Suite iMac", "role": "mac", "keyHash": "x"},
+            {"id": "b", "name": "Studio NAS", "role": "backup", "keyHash": "y"}]).to_string()).unwrap();
+        let d = Devices::load(&dir);
+        assert!(d.is_admin("old") && !d.is_admin("b"), "an old Mac is an admin, a backup never");
+        assert_eq!(d.list()["devices"][0]["access"], "admin");
+        assert!(d.list()["devices"][1].get("access").is_none());
+        assert_eq!(d.admin_macs(None), Some(1));
+        assert!(d.invite("mac", Some("boss"))["error"].is_string());
+        let inv = d.invite("mac", Some("editor"));
+        let (id, _) = d.pair(&code(&inv), "Studio MacBook", None, "mac", None).unwrap();
+        assert!(!d.is_admin(&id));
+        assert_eq!(d.get(&id).unwrap()["access"], "editor");
+        assert_eq!(d.admin_macs(Some("old")), Some(0), "without the old one, no admin Mac");
+        assert_eq!(d.set_access(&id, "admin")["ok"], true);
+        assert!(Devices::load(&dir).is_admin(&id), "kept on disk");
+        assert_eq!(d.set_access("b", "admin")["error"], "notFound", "only Macs have roles");
+        assert_eq!(devs().admin_macs(None), None, "no Mac paired: only the host key");
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

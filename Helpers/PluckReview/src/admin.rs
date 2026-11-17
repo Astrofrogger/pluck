@@ -217,7 +217,7 @@ async fn handle(st: &State, r: Req) -> Vec<u8> {
             }
             // "Pair a Mac" / "Pair a backup host": the same invitation as the sync op, shown once.
             match op {
-                "invite" => return json_resp(st.devices.invite(body["role"].as_str().unwrap_or("")), None),
+                "invite" => return json_resp(st.devices.invite(body["role"].as_str().unwrap_or(""), None), None),
                 "devices" => return json_resp(st.devices.list(), None),
                 _ => {}
             }

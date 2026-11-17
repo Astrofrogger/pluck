@@ -382,9 +382,34 @@ impl Host {
                 }
             }
             // Editor invites waiting for an admin: owners list, approve (never their own) and revoke them.
+            "people" => Ok(self.team_people()), // editors read it; owners change roles there
+            "person-role" | "device-role" if role != "owner" => Err("scope"),
+            "person-role" | "device-role" if self.ident.backup => Err("main"),
+            "person-role" | "device-role" => {
+                let me = self.peers[peer].name.clone();
+                let r = if t == "person-role" {
+                    let want = m["role"].as_str().unwrap_or("");
+                    if accounts::ROLES.contains(&want) { self.person_role(m["person"].as_str().unwrap_or(""), &json!({"role": want}), &me) } else { json!({"error": "invalid"}) }
+                } else {
+                    self.device_op("device-role", m["device"].as_str().unwrap_or(""), m["access"].as_str().unwrap_or(""), &me)
+                };
+                if r["error"].is_null() {
+                    self.people_changed(); // a lowered role ends that session (acct_gone); everyone re-reads `me`
+                }
+                Ok(r)
+            }
             "invites" | "invite-approve" | "invite-revoke" if role != "owner" => Err("scope"),
             "invite-approve" | "invite-revoke" if self.ident.backup => Err("main"),
-            "invites" => Ok(json!({"invites": self.accounts.pending_invites(now)})),
+            "invites" => {
+                let mut list = self.accounts.pending_invites(now);
+                for i in &mut list {
+                    // An editor Mac's: its name
+                    if let (Some(d), Some(id)) = (&self.devices, i["by"].as_str().and_then(|b| b.strip_prefix("mac:"))) {
+                        i["byName"] = json!(d.name(id));
+                    }
+                }
+                Ok(json!({"invites": list}))
+            }
             "invite-approve" | "invite-revoke" => {
                 let iid = m["invite"].as_str().unwrap_or("");
                 if !self.accounts.pending_invites(now).iter().any(|i| i["id"] == iid) {
@@ -610,6 +635,62 @@ impl Host {
         }
     }
 
+    /// Roles (4.0.5): is this owner (a person with a passkey) or admin Mac the last admin? The team always keeps one,
+    /// so nobody can lock everyone out of approvals and roles. No Mac paired at all: the legacy host key's Mac counts.
+    fn last_admin(&self, person: Option<&str>, device: Option<&str>) -> bool {
+        let devices = self.devices.as_ref();
+        let is = person.is_some_and(|p| self.accounts.role(p) == Some("owner")) || device.is_some_and(|d| devices.is_some_and(|x| x.is_admin(d)));
+        let owners = self.accounts.owners().iter().filter(|p| Some(p.as_str()) != person).count();
+        is && owners + devices.map_or(Some(1), |d| d.admin_macs(device)).unwrap_or(1) == 0
+    }
+
+    /// A role change in the activity log (link "team"): who made it, whose role, from and to.
+    fn role_log(&mut self, by: &str, detail: Value) {
+        self.append(json!({"activity": {"id": super::uuid(), "link": "team", "at": super::now_iso(), "name": by, "kind": "roleChanged", "detail": detail}}));
+    }
+
+    /// `device-role` / `device-remove` (Pluck, or an owner on the team page for device-role), keeping the last admin.
+    fn device_op(&mut self, name: &str, id: &str, access: &str, by: &str) -> Value {
+        let Some(d) = self.devices.clone() else { return json!({"error": "invalid"}) };
+        let Some(dev) = d.get(id) else { return json!({"error": "notFound"}) };
+        if (name == "device-remove" || access != "admin") && self.last_admin(None, Some(id)) {
+            return json!({"error": "lastAdmin"});
+        }
+        if name == "device-remove" {
+            return d.remove(id);
+        }
+        let r = d.set_access(id, access);
+        if r["ok"] == true && dev["access"] != access {
+            self.role_log(by, json!({"device": id, "target": dev["name"], "from": dev["access"], "to": access}));
+        }
+        r
+    }
+
+    /// `person-update` with a role, from Pluck or the team page: never the last admin down, and logged.
+    fn person_role(&mut self, id: &str, op: &Value, by: &str) -> Value {
+        let from = self.accounts.person(id).map(|p| (p["role"].clone(), p["name"].clone()));
+        if op["role"].as_str().is_some_and(|r| r != "owner") && self.last_admin(Some(id), None) {
+            return json!({"error": "lastAdmin"});
+        }
+        let r = self.accounts.person_update(id, op);
+        if let (Some((was, target)), Some(to)) = (from, op["role"].as_str()) {
+            if r["ok"] == true && was != to {
+                self.role_log(by, json!({"person": id, "target": target, "from": was, "to": to}));
+            }
+        }
+        r
+    }
+
+    /// The team page's People (roles): everyone with their role and the paired Macs; owners change them there.
+    fn team_people(&self) -> Value {
+        let people: Vec<Value> = self.accounts.view(0)["people"].as_array().into_iter().flatten()
+            .map(|p| json!({"id": p["id"], "name": p["name"], "role": p["role"], "lastSeen": p["lastSeen"], "joined": p["passkeys"].as_array().is_some_and(|k| !k.is_empty())}))
+            .collect();
+        let macs: Vec<Value> = self.devices.as_ref().map(|d| d.list()["devices"].clone()).unwrap_or(json!([])).as_array().into_iter().flatten()
+            .filter(|d| d["role"] == "mac").map(|d| json!({"id": d["id"], "name": d["name"], "access": d["access"], "lastSeen": d["lastSeen"]})).collect();
+        json!({"people": people, "macs": macs})
+    }
+
     /// After a People change: sessions of removed people end (bye revoked); the others re-read `me`.
     fn people_changed(&mut self) {
         self.check_links(); // ends removed people, removed passkeys and lowered roles (acct_gone)
@@ -623,12 +704,16 @@ impl Host {
     pub(super) fn account_sync(&mut self, op: &Value) -> Option<Value> {
         let name = op["op"].as_str().unwrap_or("");
         let now = now_secs();
-        const WRITES: [&str; 12] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
-            "request-accept", "request-decline", "invite-approve", "team-restore", "team-reset"];
+        const WRITES: [&str; 13] = ["team-set", "person-invite", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel",
+            "request-accept", "request-decline", "invite-approve", "team-restore", "team-reset", "device-role"];
         if WRITES.contains(&name) && self.ident.backup {
             return Some(json!({"error": {"code": "main"}}));
         }
         let s = |x: &str| op[x].as_str().unwrap_or("").to_owned();
+        // Who asks (sync.rs `_mac`): an editor Mac reaches only person-invite here (sync.rs refuses it the admin ops).
+        // stdin and the admin page don't say: an admin.
+        let admin = op["_mac"]["admin"].as_bool().unwrap_or(true);
+        let by_name = op["_mac"]["name"].as_str().filter(|n| !n.is_empty()).unwrap_or("Pluck").to_owned();
         let r = match name {
             "people" => {
                 let mut v = if self.accounts.on() { self.accounts.view(now) } else { json!({"team": null, "people": [], "invites": [], "requests": []}) };
@@ -640,12 +725,26 @@ impl Host {
                 if !self.accounts.on() {
                     return Some(json!({"error": "invalid"}));
                 }
-                self.accounts.invite(&s("name"), &s("role"), op["footage"] == true, op["email"].as_str(), "mac", now)
+                if admin {
+                    self.accounts.invite(&s("name"), &s("role"), op["footage"] == true, op["email"].as_str(), "mac", now)
+                } else if !self.accounts.editors_invite() || s("role") == "owner" {
+                    json!({"error": "admin"})
+                } else {
+                    // An editor Mac's invite waits for an admin, as an editor's on the web does (by "mac:<device>").
+                    let by = format!("mac:{}", op["_mac"]["id"].as_str().unwrap_or(""));
+                    let r = self.accounts.invite(&s("name"), &s("role"), false, op["email"].as_str(), &by, now);
+                    self.invites_changed();
+                    r
+                }
             }
-            "person-update" => self.accounts.person_update(&s("id"), op),
+            "person-update" => self.person_role(&s("id"), op, &by_name),
+            "person-reset" | "person-remove" if self.last_admin(Some(&s("id")), None) => json!({"error": "lastAdmin"}),
             "person-reset" => self.accounts.person_reset(&s("id"), now),
             "person-remove" => self.accounts.person_remove(&s("id")),
+            "passkey-remove" if self.accounts.person(&s("person")).is_some_and(|p| p["passkeys"].as_array().is_some_and(|k| k.len() == 1 && k[0]["id"] == op["id"]))
+                && self.last_admin(Some(&s("person")), None) => json!({"error": "lastAdmin"}),
             "passkey-remove" => self.accounts.passkey_remove(&s("person"), &s("id")),
+            "device-role" | "device-remove" => self.device_op(name, &s("id"), &s("access"), &by_name),
             "invite-cancel" => self.accounts.invite_cancel(&s("id")),
             "invite-approve" => self.accounts.invite_approve(&s("id"), "mac", now),
             "team-export" => self.accounts.export(),
@@ -1178,6 +1277,67 @@ mod tests {
         let proof = keys::b64(&m.finalize().into_bytes());
         assert_eq!(b4.ask(&mut h, &mut rx, 2, json!({"t": "account-resume", "proof": proof}))["t"], "ready");
     }
+    /// Roles (4.0.5): Macs and people; there is always an admin left; transfer = make admin, then step down; editor
+    /// Macs' invites wait for an admin; owners change roles on the team page, editors only read; every change logged.
+    #[tokio::test]
+    async fn roles_keep_one_admin_and_transfer() {
+        let (mut h, mut rx) = host();
+        let dir = std::env::temp_dir().join(format!("pluck-roles-{}", uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = Arc::new(crate::devices::Devices::load(&dir));
+        h.devices = Some(d.clone());
+        let pair = |access: Option<&str>, name: &str| {
+            let inv = d.invite("mac", access);
+            d.pair(inv["code"].as_str().unwrap(), name, None, "mac", None).unwrap().0
+        };
+        let (mac, other) = (pair(None, "Edit Suite iMac"), pair(Some("editor"), "Studio MacBook"));
+        h.sync(&json!({"op": "team-set", "name": "Studio"}));
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": mac, "access": "editor"}))["error"], "lastAdmin");
+        assert_eq!(h.sync(&json!({"op": "device-remove", "id": mac}))["error"], "lastAdmin");
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": mac, "access": "boss"}))["error"], "lastAdmin", "not admin is down");
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": "nope", "access": "admin"}))["error"], "notFound");
+        // Transfer between Macs: the other one up, this one down.
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": other, "access": "admin"}))["ok"], true);
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": mac, "access": "editor"}))["ok"], true);
+        assert!(d.is_admin(&other) && !d.is_admin(&mac));
+        // An editor Mac invites: waits for an admin; never an owner.
+        let ed_mac = json!({"id": mac, "name": "Edit Suite iMac", "admin": false});
+        let inv = h.sync(&json!({"op": "person-invite", "name": "New client", "role": "client", "_mac": ed_mac}));
+        assert_eq!(inv["approval"], "pending", "{inv}");
+        assert_eq!(h.sync(&json!({"op": "person-invite", "name": "X", "role": "owner", "_mac": ed_mac}))["error"], "admin");
+        // An owner with a passkey is an admin too: the last admin Mac may step down, then the owner is the last admin.
+        let (ob, _, ready) = enrol(&mut h, &mut rx, "o1", "owner");
+        let owner = ready["me"]["account"].as_str().unwrap().to_owned();
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": other, "access": "editor"}))["ok"], true);
+        assert_eq!(h.sync(&json!({"op": "person-update", "id": owner, "role": "editor"}))["error"], "lastAdmin");
+        for op in ["person-remove", "person-reset"] {
+            assert_eq!(h.sync(&json!({"op": op, "id": owner}))["error"], "lastAdmin", "{op}");
+        }
+        let key = h.accounts.person(&owner).unwrap()["passkeys"][0]["id"].clone();
+        assert_eq!(h.sync(&json!({"op": "passkey-remove", "person": owner, "id": key}))["error"], "lastAdmin", "their only passkey");
+        assert_eq!(h.sync(&json!({"op": "person-update", "id": owner, "name": "Renamed"}))["ok"], true, "other changes still work");
+        // The team page: everyone reads People and Macs, only owners change them.
+        let (eb, _, eready) = enrol(&mut h, &mut rx, "e1", "editor");
+        let ed = eready["me"]["account"].as_str().unwrap().to_owned();
+        let p = eb.ask(&mut h, &mut rx, 10, json!({"t": "people"}));
+        assert_eq!((p["macs"].as_array().unwrap().len(), p["macs"][0]["access"].clone()), (2, json!("editor")), "{p}");
+        assert!(p["people"].as_array().unwrap().iter().any(|x| x["id"] == owner && x["role"] == "owner" && x["joined"] == true));
+        assert_eq!(eb.ask(&mut h, &mut rx, 11, json!({"t": "person-role", "person": ed, "role": "owner"}))["error"]["code"], "scope");
+        assert_eq!(eb.ask(&mut h, &mut rx, 12, json!({"t": "device-role", "device": mac, "access": "admin"}))["error"]["code"], "scope");
+        assert_eq!(ob.ask(&mut h, &mut rx, 13, json!({"t": "person-role", "person": owner, "role": "editor"}))["error"]["code"], "lastAdmin");
+        assert_eq!(ob.ask(&mut h, &mut rx, 14, json!({"t": "device-role", "device": mac, "access": "admin"}))["ok"], true);
+        assert!(d.is_admin(&mac));
+        // Transfer Admin on the web: the editor up, then the owner steps down (that session ends: a lower role).
+        assert_eq!(ob.ask(&mut h, &mut rx, 15, json!({"t": "person-role", "person": ed, "role": "owner"}))["ok"], true);
+        assert_eq!(ob.ask(&mut h, &mut rx, 16, json!({"t": "person-role", "person": owner, "role": "editor"}))["ok"], true);
+        assert_eq!(h.accounts.role(&ed), Some("owner"));
+        assert!(!h.peers.contains_key("o1"), "stepped down: signed in again with the new role");
+        let log: Vec<Value> = h.entries.iter().filter_map(|e| e.get("activity")).filter(|a| a["kind"] == "roleChanged").cloned().collect();
+        assert_eq!(log.len(), 6, "{log:?}");
+        assert!(log.iter().any(|a| a["detail"]["target"] == "Edit Suite iMac" && a["detail"]["to"] == "admin" && a["name"] == "owner one"));
+        assert!(log.iter().any(|a| a["detail"]["person"] == json!(owner) && a["detail"]["to"] == "editor"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[cfg(test)]
@@ -1381,4 +1541,5 @@ mod upload_tests {
         t.h.upload_root = None;
         assert_eq!(t.ask("e1", 35, json!({"t": "root-upload-begin", "path": "renders", "name": "a.mov", "size": 1}))["error"]["code"], "scope");
     }
+
 }

@@ -24,7 +24,13 @@ const WEB_INVITES_PER_DAY: usize = 20;
 const CODE_LEN: usize = 16; // base62, about 2^95
 const SPKI_P256: [u8; 26] = [0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a,
     0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00];
+/// Stored as is on the wire and on disk; Pluck and the team page call "owner" Admin (roles, 4.0.5).
 pub const ROLES: [&str; 3] = ["client", "editor", "owner"];
+
+/// An invite Pluck made: "mac" (an admin Mac) or "mac:<device>" (an editor Mac's, waiting for an admin).
+fn by_mac(by: &Value) -> bool {
+    by.as_str().is_some_and(|b| b == "mac" || b.starts_with("mac:"))
+}
 
 /// How an `account-begin create` says who it is.
 pub enum Create<'a> {
@@ -270,6 +276,11 @@ impl Accounts {
         self.person(id).filter(|p| arr(p, "passkeys").next().is_some()).and_then(|p| p["role"].as_str())
     }
 
+    /// The owners (Admins) who can still sign in: people with the role and a passkey.
+    pub fn owners(&self) -> Vec<String> {
+        self.people().filter(|p| p["role"] == "owner" && arr(p, "passkeys").next().is_some()).filter_map(|p| p["id"].as_str().map(str::to_owned)).collect()
+    }
+
     /// The person still has this passkey (review fix H1: a removed passkey ends its own sessions).
     pub fn has_cred(&self, person: &str, cred: &str) -> bool {
         self.person(person).is_some_and(|p| arr(p, "passkeys").any(|k| k["id"] == cred))
@@ -414,7 +425,7 @@ impl Accounts {
             return Err("revoked");
         }
         // An editor's invite lives only while that editor may still invite (review fix M2).
-        if i["kind"] == "invite" && i["by"] != "mac" && !self.may_invite(i["by"].as_str().unwrap_or("")) {
+        if i["kind"] == "invite" && !by_mac(&i["by"]) && !self.may_invite(i["by"].as_str().unwrap_or("")) {
             return Err("revoked");
         }
         if i["approval"] == "pending" {
@@ -439,7 +450,7 @@ impl Accounts {
         if self.person(&person).is_none() {
             return Err("revoked");
         }
-        if i["kind"] == "invite" && i["by"] != "mac" && !self.may_invite(i["by"].as_str().unwrap_or("")) {
+        if i["kind"] == "invite" && !by_mac(&i["by"]) && !self.may_invite(i["by"].as_str().unwrap_or("")) {
             return Err("revoked");
         }
         if i["approval"] == "pending" {
