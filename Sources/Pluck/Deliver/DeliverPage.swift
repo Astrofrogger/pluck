@@ -82,7 +82,7 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
-            case "browsenas", "uploaddest", "uploaddestnone":
+            case "browsenas", "uploaddest", "uploaddestnone", "publishnas":
                 // Two stand-in review servers (main and backup) answering browse with two media roots.
                 let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), key = DeliverKeys.base64url(DeliverKeys.random(32))
                 ReviewHostClient.fakeFingerprint = fingerprint
@@ -111,6 +111,15 @@ struct DeliverPage: View {
                 }
                 guard let main = publish.hosts.first(where: { $0.role == "main" }) else { break }
                 if view == "browsenas" { nav.deliver = .browse(.nas(main.id)); break }
+                // Publish with the main as the data host (stand-in sync): NAS first, the footage still only here.
+                if view == "publishnas" {
+                    DeliverSync.shared.manual = true
+                    if store.content(project.id).assets.isEmpty { _ = try? store.add(files, to: project.id, folder: nil) }
+                    Task { try? await DeliverSync.shared.migrate(to: main) }
+                    panelInPage = AnyView(DeliverPublishSheet(scope: .project(project.id)))
+                    nav.deliver = .inbox
+                    break
+                }
                 // Share for Review's destination step: the uploads folder, opened at the project's last folder (or, "uploaddestnone", none set up).
                 DeliverUploadDestination.remember("renders/Spring campaign", host: main.id, project: project.id)
                 panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: view == "uploaddestnone" ? .noRoot : .loading, done: { _ in }, back: {})
@@ -381,8 +390,9 @@ struct DeliverSidebar: View {
             if let project = openProject { tree(project) } else { projectList }
             places
             if let project = openProject { shareLinks(project) }
-            if let footer = sync.footer {
-                Text(verbatim: footer).font(Design.Studio.hint).foregroundStyle(sync.problem == nil ? Design.Studio.textQuiet : Design.Studio.warn)
+            let onlyHere = openProject.map { DeliverUploadDestination.onlyHere(.project($0.id)).count } ?? 0
+            if let footer = sync.footer(onlyHere: onlyHere, uploading: DeliverUploads.shared.active.count) {
+                Text(verbatim: footer).font(Design.Studio.hint).foregroundStyle(sync.problem == nil && onlyHere == 0 ? Design.Studio.textQuiet : Design.Studio.warn)
                     .lineLimit(1).truncationMode(.tail).padding(.horizontal, 8).padding(.top, 6)
             }
             if let notice = DeliverRelay.shared.notice {

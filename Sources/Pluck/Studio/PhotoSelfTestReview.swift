@@ -2062,6 +2062,7 @@ extension PhotoSelfTest {
         ReviewHostClient.fake = { fake.answer($0, $1) }
         let rows = DeliverBrowseView.backupPlaces(backups, show: { _ in }, remove: { _ in })
         await browseSidebarTest(publish: publish, host: host, backups: backups)
+        nasFirstTest(publish: publish, host: host)
         check("backups: a main's backup is a Backup row with its speed and status", rows.count == 2 && rows[0].id == "backup:d-backup" && rows[0].title == "Proxmox Backup"
               && rows[0].detail == "Backup" && rows[0].help == "Copying · 940 Mbit/s up" && !rows[0].dimmed && rows[0].menu != nil
               && rows[1].detail == "Backup" && rows[1].dimmed && rows[1].help == "Offline",
@@ -2807,19 +2808,20 @@ extension PhotoSelfTest {
         let scope = Deliver.Scope.asset(local.id, project: project)
         let mac = Deliver.Host(name: "Studio Mac", kind: .mac, address: UUID().uuidString)
         DeliverUploadDestination.forgetDeclined(project)
-        let offered = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
-        let forMac = await DeliverUploadDestination.offer(scope, host: mac, store: store, publish: publish)
-        let onMount = await DeliverUploadDestination.offer(scope, host: mounted, store: store, publish: publish)
-        let shared = await DeliverUploadDestination.offer(scope, host: nil, store: store, publish: publish)
+        let offered = DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        let forMac = DeliverUploadDestination.offer(scope, host: mac, store: store, publish: publish)
+        let onMount = DeliverUploadDestination.offer(scope, host: mounted, store: store, publish: publish)
+        let shared = DeliverUploadDestination.offer(scope, host: nil, store: store, publish: publish)
         ReviewHostClient.fake = { request, body in request["op"] as? String == "roots" ? ["roots": ["nas1"], "writable": [String]()] : fake.answer(request, body) }
-        let noRoot = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        let noRoot = DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
         ReviewHostClient.fake = { fake.answer($0, $1) }
         DeliverUploadDestination.decline(project)
-        let declined = await DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
+        let declined = DeliverUploadDestination.offer(scope, host: host, store: store, publish: publish)
         let otherProject = DeliverUploadDestination.declined(UUID())
         DeliverUploadDestination.forgetDeclined(project)
-        check("originals: offered for a file only here when a NAS with an uploads folder is paired; not for a Mac host, a file already on the NAS, or no uploads folder; Share finds the paired NAS",
-              offered?.items.count == 1 && offered?.root == "renders" && offered?.host.id == host.id && forMac == nil && onMount == nil && noRoot == nil
+        // (No uploads folder: still offered; the folder picker says how to set one.)
+        check("originals: offered for a file only here when a NAS is paired; not for a Mac host or a file already on the NAS; Share finds the paired NAS",
+              offered?.items.count == 1 && offered?.host.id == host.id && forMac == nil && onMount == nil && noRoot != nil
               && shared?.host.kind == .nas, "\(String(describing: offered?.items.count)) \(String(describing: shared?.host.name))")
         check("originals: Not now is remembered for that project only and the question stays away", declined == nil && !otherProject
               && !DeliverUploadDestination.declined(project), "")
@@ -2830,12 +2832,77 @@ extension PhotoSelfTest {
             return fake.answer(request, body)
         }
         fake.uploads = [:]
-        if let offered { await DeliverUploadDestination.upload(offered, store: store, publish: publish) }
+        let onlyHereBefore = DeliverUploadDestination.onlyHere(scope, store: store, publish: publish).count
+        DeliverUploadDestination.decline(project)
+        let forced = DeliverUploadDestination.offer(scope, host: nil, asking: false, store: store, publish: publish)
+        DeliverUploadDestination.forgetDeclined(project)
+        if let offered { await DeliverUploadDestination.upload(offered, folder: DeliverUploadDestination.suggested(host, root: "renders", project: project, store: store), store: store, publish: publish) }
         let now = store.find(local.id)?.asset.current.path ?? "-"
+        let uploadedVersion = store.find(local.id)?.asset.current
+        check("nasux: footage only here is flagged; added footage is asked for (even after Not now); once uploaded it is on the NAS, its bookmark gone",
+              onlyHereBefore == 1 && forced?.items.count == 1 && uploadedVersion.map { DeliverUploadDestination.onNAS($0, store: store, publish: publish) } == true
+              && uploadedVersion?.bookmark == nil && DeliverUploadDestination.onlyHere(scope, store: store, publish: publish).isEmpty
+              && DeliverUploadDestination.onNAS(Deliver.Version(number: 1, path: "host:\(host.id.uuidString):x", size: 0), store: store, publish: publish)
+              && !DeliverUploadDestination.onNAS(Deliver.Version(number: 1, path: "/Volumes/Unplugged/a.mov", size: 0), store: store, publish: publish),
+              "\(onlyHereBefore) \(String(describing: forced?.items.count)) \(String(describing: uploadedVersion?.path))")
         check("originals: Upload sends the original through the normal upload path and the version points at the NAS",
               began == ["renders/Client/2026/Spot 30s.mov"]  /* the folder used last for the project */ && now.hasPrefix("nas:") && fake.uploads.values.first?.count == 3000, "\(began) \(now)")
+        // An upload the NAS refuses (full): a failure for that version and the alert, once per burst; Try Again's list keeps it.
+        guard let failing = try? store.add([spot], to: project, folder: nil).first else { return }
+        ReviewHostClient.fake = { request, body in
+            if request["op"] as? String == "upload-begin" { return ["error": "space"] }
+            return fake.answer(request, body)
+        }
+        let alerts = DeliverNASAlert.shared
+        alerts.dismiss(now: .distantPast)
+        await DeliverUploads.shared.uploadVersion(failing.current, of: failing.id, folder: "renders/Client/2026", host: host, store: store)
+        let failed = DeliverUploads.shared.failures.first { $0.version == failing.current.id }
+        let alerted = alerts.shown?.asset == failing.id
+        let failedState = DeliverUploadDestination.state(.asset(failing.id, project: project), host: host, store: store, publish: publish)
+        alerts.dismiss(now: .distantPast)
+        check("nasux: a refused upload is a failure with its file, the alert names it, and the asset says Failed",
+              failed?.why == String(localized: "There isn’t enough space on the NAS.") && alerted && store.find(failing.id)?.asset.current.path.hasPrefix("/") == true
+              && { if case .failed = failedState { true } else { false } }(), "\(String(describing: failed)) \(alerted) \(failedState)")
         ReviewHostClient.fake = { fake.answer($0, $1) }
+        store.remove(asset: failing.id)
         store.remove(asset: local.id)
+    }
+
+    /// NAS first (wip-nasux): the state rule, the alert's once-per-burst, and the Publish sheet's hosts.
+    static func nasFirstTest(publish: ReviewPublish, host: Deliver.Host) {
+        typealias U = DeliverUploadDestination
+        check("nasux: state: failure first, then uploading, waiting, only here, sending, on the NAS",
+              U.state(versions: 5, onNAS: 2, uploading: true, waiting: 1, failure: "x", syncing: true) == .failed("x")
+              && U.state(versions: 5, onNAS: 2, uploading: true, waiting: 1, failure: nil, syncing: false) == .uploading(3, of: 5)
+              && U.state(versions: 5, onNAS: 2, uploading: false, waiting: 1, failure: nil, syncing: false) == .waiting(1)
+              && U.state(versions: 5, onNAS: 4, uploading: false, waiting: 0, failure: nil, syncing: true) == .onlyHere(1)
+              && U.state(versions: 2, onNAS: 2, uploading: false, waiting: 0, failure: nil, syncing: true) == .sending
+              && U.state(versions: 2, onNAS: 2, uploading: false, waiting: 0, failure: nil, syncing: false) == .onNAS
+              && U.state(versions: 0, onNAS: 0, uploading: false, waiting: 0, failure: nil, syncing: false) == .onNAS, "")
+        let alerts = DeliverNASAlert(), t0 = Date(timeIntervalSince1970: 1_000_000)
+        let first = alerts.report(.init(title: "a", detail: ""), now: t0)
+        let second = alerts.report(.init(title: "b", detail: ""), now: t0)
+        let more = alerts.more
+        alerts.dismiss(now: t0)
+        let quiet = alerts.report(.init(title: "c", detail: ""), now: t0.addingTimeInterval(30))
+        let later = alerts.report(.init(title: "d", detail: ""), now: t0.addingTimeInterval(61))
+        alerts.dismiss(now: t0.addingTimeInterval(61))
+        alerts.syncFailed(nil, waiting: 0, host: "NAS", now: t0.addingTimeInterval(200))
+        let offlineNothing = alerts.shown == nil && !alerts.syncAlerted
+        alerts.syncFailed("refused", waiting: 0, host: "NAS", now: t0.addingTimeInterval(200))
+        let syncShown = alerts.shown != nil
+        alerts.dismiss(now: t0.addingTimeInterval(200))
+        alerts.syncFailed("refused", waiting: 3, host: "NAS", now: t0.addingTimeInterval(400))
+        let onceOnly = alerts.shown == nil
+        alerts.syncOK()
+        alerts.syncFailed(nil, waiting: 3, host: "NAS", now: t0.addingTimeInterval(500))
+        check("nasux: one alert per burst (the rest counted), a quiet minute after OK; sync alerts once until a round goes through",
+              first && !second && more == 1 && !quiet && later && offlineNothing && syncShown && onceOnly && alerts.shown != nil, "\(first) \(second) \(more) \(quiet) \(later)")
+        // The data NAS isn't a plain-publish choice, and it is the NAS originals go to; a backup never is.
+        check("nasux: the data host is left out of choices and is the main NAS for originals",
+              !publish.choices.contains { ReviewPublish.isDataHost($0.id) } && !publish.choices.contains { $0.role == "backup" && ReviewPublish.isDataHost($0.id) }
+              && (DeliverSync.shared.state.host == nil || U.mainNAS(project: nil, publish: publish).map { ReviewPublish.isDataHost($0.id) } == true)
+              && publish.pairedMac?.id == publish.pairedMac?.id, "")
     }
 
     /// Browse's sidebar: one group per server (its name, a status dot, its menu), its roots by their real names, the

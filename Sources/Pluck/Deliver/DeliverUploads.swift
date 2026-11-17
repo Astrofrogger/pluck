@@ -79,17 +79,63 @@ final class DeliverUploads {
         throw lastError
     }
 
-    /// "Upload to <NAS>…" for a version: sent, then the version points at the NAS path.
+    /// Versions whose original is on its way to a NAS now.
+    private(set) var active: Set<UUID> = []
+    /// Uploads that didn't go and can't wait (refused, full, the file gone): shown, and sent again by Try Again.
+    struct Failure: Identifiable, Equatable {
+        var id: UUID { version }
+        var version: UUID
+        var asset: UUID
+        var host: UUID
+        var folder: String
+        var name: String
+        var why: String
+    }
+    private(set) var failures: [Failure] = []
+
+    /// "Upload to <NAS>…" for a version: sent, then the version points at the NAS path (the NAS makes its copies). The NAS
+    /// away: it waits in DeliverShareQueue; anything else is a failure, with the alert.
     func uploadVersion(_ version: Deliver.Version, of asset: UUID, folder: String, host: Deliver.Host, store: DeliverStore = .shared) async {
-        guard let file = store.original(version) else { return }
+        failures.removeAll { $0.version == version.id }
+        let name = store.find(asset).map { $0.asset.versions.count > 1 ? "\($0.asset.name) v\(version.number)" : $0.asset.name } ?? URL(fileURLWithPath: version.path).lastPathComponent
+        let project = store.find(asset)?.project
+        guard let file = store.original(version) else {
+            return fail(.init(version: version.id, asset: asset, host: host.id, folder: folder, name: name, why: String(localized: "The original can’t be found")), project: project, host: host)
+        }
+        active.insert(version.id)
+        defer { active.remove(version.id) }
         do {
             _ = try? await ReviewHostClient.ask(host, ["op": "mkdir", "path": folder])
             let path = try await upload(file, to: folder + "/" + file.lastPathComponent, host: host)
-            store.update(version: version.id, of: asset) { $0.path = ReviewPublish.nasPath(host: host.id, path: path) }
+            // (The bookmark goes too: the version is the NAS's file now, not this Mac's.)
+            store.update(version: version.id, of: asset) { $0.path = ReviewPublish.nasPath(host: host.id, path: path); $0.bookmark = nil }
             problem = nil
+        } catch where DeliverShareQueue.waitable(error) && project != nil {
+            problem = String(localized: "The upload to \(host.name) didn’t finish.")
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            DeliverShareQueue.shared.add(.init(file: file.path, size: size, project: project!, asset: asset, upload: .init(host: host.id, folder: folder), version: version.id))
+            DeliverNASAlert.shared.report(.init(title: String(localized: "Pluck can’t reach \(host.name)"),
+                                                detail: String(localized: "\(name) is waiting and goes up as soon as it’s back."), asset: asset, project: project))
         } catch {
             problem = (error as? Deliver.Failure)?.code == "space" ? String(localized: "There isn’t enough space on the NAS.")
                 : String(localized: "The upload to \(host.name) didn’t finish.")
+            fail(.init(version: version.id, asset: asset, host: host.id, folder: folder, name: name, why: problem ?? ""), project: project, host: host)
+        }
+    }
+
+    private func fail(_ failure: Failure, project: UUID?, host: Deliver.Host) {
+        failures.append(failure)
+        DeliverNASAlert.shared.report(.init(title: String(localized: "\(failure.name) didn’t go to \(host.name)"), detail: failure.why, asset: failure.asset, project: project))
+    }
+
+    /// Try Again: every failed upload once more, into the folder it was going to.
+    func retry(store: DeliverStore = .shared, publish: ReviewPublish = .shared) {
+        for failure in failures {
+            guard let host = publish.host(failure.host), let version = store.find(failure.asset)?.asset.versions.first(where: { $0.id == failure.version }) else {
+                failures.removeAll { $0.version == failure.version }
+                continue
+            }
+            Task { await uploadVersion(version, of: failure.asset, folder: failure.folder, host: host, store: store) }
         }
     }
 }

@@ -552,7 +552,9 @@ struct DeliverShareForReviewSheet: View {
     /// The NAS an original from this Mac would be uploaded to: the server chosen, else the one holding the review data.
     private var uploadHost: Deliver.Host? {
         if let chosen = ReviewPublish.shared.choices.first(where: { $0.id == host }) { return chosen.kind == .nas ? chosen : nil }
-        return host == DeliverSync.shared.state.host ? DeliverSync.shared.dataHost : nil
+        if host != nil, host == DeliverSync.shared.state.host { return DeliverSync.shared.dataHost }
+        // ("This Mac" while a NAS is paired: the original still goes to the NAS, unless that's turned off in Settings.)
+        return DeliverUploadDestination.newFootageOnNAS ? DeliverUploadDestination.mainNAS(project: project) : nil
     }
 
     var body: some View {

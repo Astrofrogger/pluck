@@ -159,7 +159,7 @@ struct DeliverShareSheet: View {
             made = store.link(link.id)
             if let made, made.watermark?.burned == true { DeliverCopies.shared.remark(made) }
             if let made { if let url = DeliverServer.shared.shareURL(made) { DeliverLinkShare.copy(url) } else { copyWhenReady = true } }
-            Task { originals = await DeliverUploadDestination.offer(scope, host: nil) }
+            originals = DeliverUploadDestination.offer(scope, host: nil)
         } catch {
             problem = String(localized: "There are as many live links as Pluck keeps. Turn one off first.")
         }
@@ -364,7 +364,9 @@ struct DeliverLinkOptions: View {
     }
 }
 
-/// Publish to an always-on host the owner controls, so clients can watch while this Mac is off.
+/// Publish to an always-on host the owner controls, so clients can watch while this Mac is off. With a NAS paired it is
+/// NAS first: its main and backup with where this scope stands there, then an always-on Mac as the fallback; "This Mac
+/// only" only when there's neither (clients are never served from this Mac while something else can).
 struct DeliverPublishSheet: View {
     let scope: Deliver.Scope
     @Environment(\.dismiss) private var dismiss
@@ -372,20 +374,39 @@ struct DeliverPublishSheet: View {
     @State private var chosen: UUID?
     @State private var guide = false
     @State private var originals: DeliverUploadDestination.Offer?
+    @State private var picking: DeliverUploadDestination.Offer?
+    // (Observed so the states below follow uploads, the queue and sync.)
+    @State private var uploads = DeliverUploads.shared
+    @State private var queue = DeliverShareQueue.shared
+    @State private var sync = DeliverSync.shared
+
+    /// Every NAS, the main(s) before the backup.
+    private var nases: [Deliver.Host] { publish.hosts.filter { $0.kind == .nas }.sorted { ($0.role == "backup" ? 1 : 0) < ($1.role == "backup" ? 1 : 0) } }
 
     var body: some View {
-        let choices = publish.choices
+        let nases = self.nases
+        let choices = publish.choices.filter { $0.kind == .mac || $0.role != "backup" }
+        let macs = choices.filter { $0.kind == .mac }
+        let main = DeliverUploadDestination.mainNAS(project: scope.project)
         VStack(alignment: .leading, spacing: 14) {
             Text("Publish").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
-            VStack(spacing: 6) {
-                hostRow(nil, name: String(localized: "This Mac only"), symbol: "desktopcomputer", online: true)
-                ForEach(choices) { host in hostRow(host.id, name: host.name, symbol: host.kind == .nas ? "externaldrive.connected.to.line.below" : "macmini", online: publish.online[host.id]) }
-            }
-            if !choices.contains(where: { $0.kind == .nas }) {
+            if nases.isEmpty {
+                VStack(spacing: 6) {
+                    if choices.isEmpty { hostRow(nil, name: String(localized: "This Mac only"), symbol: "desktopcomputer", online: true) }
+                    ForEach(choices) { host in hostRow(host.id, name: host.name, symbol: "macmini", online: publish.online[host.id]) }
+                }
                 HStack {
                     Text("Pair an always-on Mac in Edit Anywhere, or set up a NAS.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                     Spacer()
                     Button("Set Up a NAS Host…") { guide = true }.buttonStyle(StudioFlatButtonStyle())
+                }
+            } else {
+                VStack(spacing: 6) {
+                    ForEach(nases) { nasRow($0, selectable: choices.contains($0)) }
+                    // The fallback after the NAS: an always-on Mac, never this one.
+                    ForEach(macs) { host in
+                        hostRow(host.id, name: host.name, symbol: "macmini", online: publish.online[host.id], note: String(localized: "If the NAS is down"))
+                    }
                 }
             }
             if let chosen, let host = choices.first(where: { $0.id == chosen }), host.kind == .nas {
@@ -414,15 +435,21 @@ struct DeliverPublishSheet: View {
                 if publish.working != nil { PlumSpinner() }
                 Spacer()
                 Button("Done") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
-                Button("Publish") {
-                    guard let host = choices.first(where: { $0.id == chosen }) else { return dismiss() }
-                    Task {
-                        await publish.publish(scope, to: host)
-                        if host.kind == .nas { originals = await DeliverUploadDestination.offer(scope, host: host) }
-                    }
+                if let main, !nases.isEmpty, !DeliverUploadDestination.onlyHere(scope).isEmpty {
+                    Button("Upload Originals…") { picking = DeliverUploadDestination.offer(scope, host: main, asking: false) }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: choices.isEmpty))
                 }
-                .buttonStyle(StudioFlatButtonStyle(prominent: true))
-                .disabled(chosen == nil || publish.working != nil)
+                if !choices.isEmpty || nases.isEmpty {
+                    Button("Publish") {
+                        guard let host = choices.first(where: { $0.id == chosen }) else { return dismiss() }
+                        Task {
+                            await publish.publish(scope, to: host)
+                            if host.kind == .nas { originals = DeliverUploadDestination.offer(scope, host: host) }
+                        }
+                    }
+                    .buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    .disabled(chosen == nil || publish.working != nil)
+                }
             }
         }
         .padding(Design.Spacing.sheet)
@@ -430,14 +457,47 @@ struct DeliverPublishSheet: View {
         .background(Design.Studio.panel)
         .sheet(isPresented: $guide) { ReviewNASGuideSheet() }
         .originalsOffer($originals)
+        .originalsPicker($picking)
+        .onAppear { if chosen == nil { chosen = choices.first?.id } }
+        // The data NAS gets this scope through sync: a round now, so what's shown is where it stands.
+        .task { if !nases.isEmpty, sync.dataHost != nil { await sync.round() } }
     }
 
-    private func hostRow(_ id: UUID?, name: String, symbol: String, online: Bool?) -> some View {
+    /// A NAS: main or backup, and this scope's state there. The data host isn't chosen (it syncs); another NAS is, to publish.
+    private func nasRow(_ host: Deliver.Host, selectable: Bool) -> some View {
+        let backup = host.role == "backup"
+        let published = publish.publications.contains { $0.host == host.id && ($0.scope == scope || $0.scope == .project(scope.project)) }
+        let row = HStack(spacing: 10) {
+            Image(systemName: "externaldrive.connected.to.line.below").frame(width: 18)
+            Text(verbatim: host.name).font(Design.Studio.body).lineLimit(1)
+            StudioChip(text: backup ? Text("Backup") : Text("Main"), colour: Design.Studio.textQuiet)
+            Spacer(minLength: 8)
+            if publish.online[host.id] == false { Text("Offline").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
+            if backup {
+                Text("Copy of the main").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            } else if ReviewPublish.isDataHost(host.id) || published {
+                DeliverNASStateLabel(state: DeliverUploadDestination.state(scope, host: host))
+            } else {
+                Text("Not published").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if selectable {
+                Image(systemName: chosen == host.id ? "largecircle.fill.circle" : "circle").foregroundStyle(chosen == host.id ? Design.Brand.pink : Design.Studio.textQuiet)
+            }
+        }
+        .foregroundStyle(Design.Studio.text)
+        .padding(.horizontal, 12).frame(height: 36)
+        .studioBox()
+        .contentShape(.rect)
+        return Button { if selectable { chosen = host.id } } label: { row }.buttonStyle(.plain)
+    }
+
+    private func hostRow(_ id: UUID?, name: String, symbol: String, online: Bool?, note: String? = nil) -> some View {
         Button { chosen = id } label: {
             HStack(spacing: 10) {
                 Image(systemName: symbol).frame(width: 18)
                 Text(verbatim: name).font(Design.Studio.body)
                 Spacer()
+                if let note { Text(verbatim: note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
                 if online == false { Text("Offline").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
                 Image(systemName: chosen == id ? "largecircle.fill.circle" : "circle").foregroundStyle(chosen == id ? Design.Brand.pink : Design.Studio.textQuiet)
             }
@@ -461,6 +521,7 @@ struct DeliverSettings: View {
 
     @AppStorage(DeliverSettings.authorKey) private var name = ""
     @AppStorage(ReviewHosting.settingKey) private var hosting = false
+    @AppStorage(DeliverUploadDestination.newFootageKey) private var footageOnNAS = true
     @AppStorage(DeliverStore.activityDaysKey) private var activityDays = 90
     @State private var space: Int64?
     @State private var publish = ReviewPublish.shared
@@ -503,6 +564,9 @@ struct DeliverSettings: View {
             SettingsCard("Hosting") {
                 SettingSwitch("Host published reviews for paired Macs", isOn: $hosting)
                     .onChange(of: hosting) { ReviewHosting.shared.update() }
+                if publish.hosts.contains(where: { $0.kind == .nas }) {
+                    SettingSwitch("Put new footage on the NAS", help: String(localized: "Originals added to Deliver are uploaded to the NAS, into the folder you pick."), isOn: $footageOnNAS)
+                }
                 ForEach(publish.hosts.filter { $0.kind == .nas }) { host in
                     SettingRow(text: Text(verbatim: host.name), detail: Text(verbatim: (host.address ?? "") + ((host.mounts ?? []).first.map { " · \($0.local) ↔ \($0.remote)" } ?? ""))) {
                         Button("Details…") { detail = host }.settingButton()

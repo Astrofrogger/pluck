@@ -374,7 +374,7 @@ final class DeliverShareQueue {
             }
             let reference = ReviewPublish.nasPath(host: host.id, path: path)
             if let version = entry.version, let asset = entry.asset, store.find(asset) != nil {
-                store.update(version: version, of: asset) { $0.path = reference }
+                store.update(version: version, of: asset) { $0.path = reference; $0.bookmark = nil } // (its local copy no longer stands for it)
             } else if let asset = entry.asset, store.find(asset) != nil {
                 _ = try? store.addVersion(reference: reference, size: entry.size, to: asset)
             } else {
@@ -448,14 +448,44 @@ struct DeliverWaitingRows: View {
     }
 }
 
-/// Publish or Share with footage only on this Mac and a NAS paired: one question, "Upload the originals to <NAS>?".
-/// Upload goes through the normal upload path (DeliverUploads) in the background; "Not now" is remembered per project.
+/// NAS first: with a NAS paired, originals belong on it, in a folder the editor picks (never silently only on this Mac).
+/// Publish or Share with footage only here asks once, "Upload the originals to <NAS>?"; adding footage goes straight to
+/// the picker. Uploads go through DeliverUploads; "Not now" is remembered per project.
 extension DeliverUploadDestination {
-    struct Offer {
+    struct Offer: Identifiable {
+        var id = UUID()
         var host: Deliver.Host
         var scope: Deliver.Scope
-        var root: String
         var items: [(asset: UUID, version: Deliver.Version)]
+    }
+
+    /// Settings › Review › "Put new footage on the NAS": on unless turned off.
+    static let newFootageKey = "deliverNewFootageOnNAS"
+    static var newFootageOnNAS: Bool { UserDefaults.standard.object(forKey: newFootageKey) as? Bool ?? true }
+
+    /// The NAS originals go to: the one holding the review data, else one the project is published on, else the first main.
+    static func mainNAS(project: UUID?, publish: ReviewPublish = .shared) -> Deliver.Host? {
+        let mains = publish.hosts.filter { $0.kind == .nas && $0.role != "backup" }
+        if let data = mains.first(where: { ReviewPublish.isDataHost($0.id) }) { return data }
+        let published = project.map { project in publish.publications.filter { $0.scope.project == project }.map(\.host) } ?? []
+        return mains.first { published.contains($0.id) } ?? mains.first
+    }
+
+    /// Whether a version's original is on a NAS (its NAS path, or a NAS mount), or isn't this Mac's at all (another
+    /// Mac's, kept as copies on the data host). A local path whose drive isn't connected is still only here.
+    /// (`host`: a NAS not in the list yet counts too.)
+    static func onNAS(_ version: Deliver.Version, host: Deliver.Host? = nil, store: DeliverStore = .shared, publish: ReviewPublish = .shared) -> Bool {
+        if ReviewPublish.browsed(version.path) != nil || version.path.hasPrefix("host:") { return true }
+        let path = store.original(version)?.path ?? version.path
+        return (publish.hosts + (host.map { [$0] } ?? [])).contains { ReviewPublish.reference(path, on: $0) != nil }
+    }
+
+    /// The versions in `scope` (all, or `only`) whose original is only on this Mac.
+    static func onlyHere(_ scope: Deliver.Scope, only: Set<UUID>? = nil, host: Deliver.Host? = nil, store: DeliverStore = .shared,
+                         publish: ReviewPublish = .shared) -> [(asset: UUID, version: Deliver.Version)] {
+        publish.assets(scope).flatMap { asset in
+            asset.versions.filter { only?.contains($0.id) ?? true }.filter { !onNAS($0, host: host, store: store, publish: publish) }.map { (asset.id, $0) }
+        }
     }
 
     private static func declinedKey(_ project: UUID) -> String { "deliverOriginalsDeclined." + project.uuidString }
@@ -463,50 +493,235 @@ extension DeliverUploadDestination {
     static func decline(_ project: UUID) { UserDefaults.standard.set(true, forKey: declinedKey(project)) }
     static func forgetDeclined(_ project: UUID) { UserDefaults.standard.removeObject(forKey: declinedKey(project)) }
 
-    /// The offer for `scope`, or nil: `host` (Publish) must be a NAS; without one (Share) it is the NAS the project is published
-    /// on, else the first paired one. Nil too when everything is on the NAS already, "Not now" was said, or it has no uploads folder.
-    static func offer(_ scope: Deliver.Scope, host: Deliver.Host?, store: DeliverStore = .shared, publish: ReviewPublish = .shared) async -> Offer? {
-        let project = scope.project
-        guard !declined(project) else { return nil }
-        let nas = host ?? publish.publications.lazy.filter { $0.scope.project == project }.compactMap { publish.host($0.host) }.first { $0.kind == .nas }
-            ?? publish.hosts.first { $0.kind == .nas }
-        guard let nas, nas.kind == .nas else { return nil }
-        var items: [(asset: UUID, version: Deliver.Version)] = []
-        for asset in publish.assets(scope) {
-            for version in asset.versions {
-                if let file = store.original(version), ReviewPublish.reference(file.path, on: nas) == nil { items.append((asset.id, version)) }
-            }
-        }
-        guard !items.isEmpty, let root = await DeliverUploads.writableRoot(nas) else { return nil }
-        return Offer(host: nas, scope: scope, root: root, items: items)
+    /// The offer for `scope` (its versions in `only`), or nil: `host` (Publish) must be a NAS; without one it is mainNAS.
+    /// Nil too when everything is on the NAS already, or (`asking`, the automatic question) "Not now" was said.
+    static func offer(_ scope: Deliver.Scope, host: Deliver.Host?, only: Set<UUID>? = nil, asking: Bool = true,
+                      store: DeliverStore = .shared, publish: ReviewPublish = .shared) -> Offer? {
+        guard !asking || !declined(scope.project), let nas = host ?? mainNAS(project: scope.project, publish: publish), nas.kind == .nas else { return nil }
+        let items = onlyHere(scope, only: only, host: nas, store: store, publish: publish)
+        return items.isEmpty ? nil : Offer(host: nas, scope: scope, items: items)
     }
 
-    /// Sends each original to the project's folder on the NAS; where the project is published there, it is published again
-    /// afterwards so the NAS makes its review copies from the originals.
-    static func upload(_ offer: Offer, store: DeliverStore = .shared, publish: ReviewPublish = .shared) async {
+    /// Sends each original to `folder` on the NAS; where the project is published there (not the data host, which syncs),
+    /// it is published again afterwards so the NAS makes its review copies from the originals.
+    static func upload(_ offer: Offer, folder: String, store: DeliverStore = .shared, publish: ReviewPublish = .shared) async {
         let project = offer.scope.project
-        let folder = suggested(offer.host, root: offer.root, project: project, store: store)
         remember(folder, host: offer.host.id, project: project)
         for item in offer.items { await DeliverUploads.shared.uploadVersion(item.version, of: item.asset, folder: folder, host: offer.host, store: store) }
         if let again = publish.publications.first(where: { $0.host == offer.host.id && $0.scope.project == project }) {
             await publish.publish(again.scope, to: offer.host)
         }
     }
+
+    /// The server away: each original waits for it ("Waiting for NAS") and its version points at the file once it's there.
+    static func later(_ offer: Offer, folder: String, store: DeliverStore = .shared) {
+        remember(folder, host: offer.host.id, project: offer.scope.project)
+        for item in offer.items {
+            guard let file = store.original(item.version) else { continue }
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize).map(Int64.init) ?? 0
+            DeliverShareQueue.shared.add(.init(file: file.path, size: size, project: offer.scope.project, asset: item.asset,
+                                               upload: .init(host: offer.host.id, folder: folder), version: item.version.id))
+        }
+    }
+
+    // MARK: - Where a scope stands on the NAS
+
+    enum NASState: Equatable {
+        case onNAS, sending, onlyHere(Int), waiting(Int), uploading(Int, of: Int), failed(String)
+    }
+
+    /// The one rule for the Publish sheet, the project row and the footer: a failure first, then what's on its way, then
+    /// what's still only here. `versions`/`onNAS` count the scope's versions; `syncing`: the data host's outbox isn't empty.
+    nonisolated static func state(versions: Int, onNAS: Int, uploading: Bool, waiting: Int, failure: String?, syncing: Bool) -> NASState {
+        if let failure { return .failed(failure) }
+        if uploading { return .uploading(min(onNAS + 1, versions), of: versions) }
+        if waiting > 0 { return .waiting(waiting) }
+        if onNAS < versions { return .onlyHere(versions - onNAS) }
+        return syncing ? .sending : .onNAS
+    }
+
+    /// `scope` on `host` (the data host also counts DeliverSync's state).
+    static func state(_ scope: Deliver.Scope, host: Deliver.Host, store: DeliverStore = .shared, publish: ReviewPublish = .shared) -> NASState {
+        let versions = publish.assets(scope).flatMap(\.versions), ids = Set(versions.map(\.id))
+        let uploads = DeliverUploads.shared, sync = DeliverSync.shared, data = ReviewPublish.isDataHost(host.id)
+        let waiting = DeliverShareQueue.shared.waiting(scope.project).filter { entry in
+            entry.version.map(ids.contains) ?? (scope == .project(scope.project))
+        }.count
+        let failure = uploads.failures.first { ids.contains($0.version) }?.why ?? (data ? sync.problem : nil)
+        return state(versions: versions.count, onNAS: versions.filter { onNAS($0, store: store, publish: publish) }.count,
+                     uploading: !uploads.active.isDisjoint(with: ids), waiting: waiting, failure: failure, syncing: data && (sync.waiting > 0 || sync.syncing))
+    }
 }
 
-/// The question as a dialog on Publish and Share.
-private struct DeliverOriginalsOffer: ViewModifier {
-    @Binding var offer: DeliverUploadDestination.Offer?
+/// A scope's state on the NAS, short: "On the NAS", "Uploading 3 of 5…", "Waiting for NAS", "2 only on this Mac", "Failed: …".
+struct DeliverNASStateLabel: View {
+    let state: DeliverUploadDestination.NASState
 
-    func body(content: Content) -> some View {
-        content.confirmationDialog(Text("Upload the originals to \(offer?.host.name ?? "")?"), isPresented: Binding(get: { offer != nil }, set: { if !$0 { offer = nil } }),
-                                   titleVisibility: .visible, presenting: offer) { offer in
-            Button("Upload") { Task { await DeliverUploadDestination.upload(offer) } }
-            Button("Not now", role: .cancel) { DeliverUploadDestination.decline(offer.scope.project) }
+    var body: some View {
+        HStack(spacing: 6) {
+            switch state {
+            case .onNAS:
+                Image(systemName: "checkmark.circle.fill").foregroundStyle(Design.Studio.good)
+                Text("On the NAS").foregroundStyle(Design.Studio.textQuiet)
+            case .sending:
+                PlumSpinner()
+                Text("Sending…").foregroundStyle(Design.Studio.textQuiet)
+            case .uploading(let n, let total):
+                PlumSpinner()
+                Text("Uploading \(n) of \(total)…").foregroundStyle(Design.Studio.text).monospacedDigit()
+            case .waiting:
+                Image(systemName: "clock.arrow.circlepath").foregroundStyle(Design.Studio.warn)
+                Text("Waiting for NAS").foregroundStyle(Design.Studio.warn)
+            case .onlyHere(let n):
+                Image(systemName: "laptopcomputer").foregroundStyle(Design.Studio.warn)
+                Text("\(n) only on this Mac").foregroundStyle(Design.Studio.warn)
+            case .failed(let why):
+                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Design.Studio.bad)
+                Text("Failed: \(why)").foregroundStyle(Design.Studio.bad).lineLimit(1).truncationMode(.tail)
+            }
+        }
+        .font(Design.Studio.hint)
+    }
+}
+
+/// In a project, when something of it isn't on the NAS: its state and "Upload to <NAS>…" (the folder picker).
+struct DeliverNASStatusRow: View {
+    let scope: Deliver.Scope
+    @State private var offer: DeliverUploadDestination.Offer?
+    @State private var uploads = DeliverUploads.shared
+    @State private var queue = DeliverShareQueue.shared
+
+    var body: some View {
+        if let nas = DeliverUploadDestination.mainNAS(project: scope.project) {
+            let state = DeliverUploadDestination.state(scope, host: nas)
+            if state != .onNAS, state != .sending {
+                HStack(spacing: 8) {
+                    DeliverNASStateLabel(state: state)
+                    Spacer(minLength: 8)
+                    if case .onlyHere = state {
+                        Button("Upload to \(nas.name)…") { offer = DeliverUploadDestination.offer(scope, host: nas, asking: false) }
+                            .buttonStyle(StudioFlatButtonStyle(prominent: true))
+                    } else if case .failed = state {
+                        Button("Try Again") { DeliverNASAlert.shared.retry() }.buttonStyle(StudioFlatButtonStyle())
+                    }
+                }
+                .padding(.horizontal, 10).frame(height: 36).studioBox()
+                .originalsPicker($offer)
+            }
         }
     }
 }
 
+/// The question (Publish, Share), then the folder picker; or (`ask` false: footage just added, Upload…) the picker at once.
+private struct DeliverOriginalsOffer: ViewModifier {
+    @Binding var offer: DeliverUploadDestination.Offer?
+    let ask: Bool
+    @State private var picking: DeliverUploadDestination.Offer?
+
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(Text("Upload the originals to \(offer?.host.name ?? "")?"), isPresented: Binding(get: { ask && offer != nil }, set: { if !$0, ask { offer = nil } }),
+                                titleVisibility: .visible, presenting: offer) { offer in
+                Button("Upload…") { picking = offer }
+                Button("Not now", role: .cancel) { DeliverUploadDestination.decline(offer.scope.project) }
+            }
+            .sheet(item: ask ? $picking : $offer) { offer in
+                DeliverUploadPicker(host: offer.host, project: offer.scope.project, done: { folder in
+                    close()
+                    if let folder { Task { await DeliverUploadDestination.upload(offer, folder: folder) } }
+                }, back: { close() }, later: { folder in
+                    close()
+                    DeliverUploadDestination.later(offer, folder: folder)
+                })
+                .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
+                .background(Design.Studio.panel)
+            }
+    }
+
+    private func close() { if ask { picking = nil } else { offer = nil } }
+}
+
 extension View {
-    func originalsOffer(_ offer: Binding<DeliverUploadDestination.Offer?>) -> some View { modifier(DeliverOriginalsOffer(offer: offer)) }
+    func originalsOffer(_ offer: Binding<DeliverUploadDestination.Offer?>) -> some View { modifier(DeliverOriginalsOffer(offer: offer, ask: true)) }
+    func originalsPicker(_ offer: Binding<DeliverUploadDestination.Offer?>) -> some View { modifier(DeliverOriginalsOffer(offer: offer, ask: false)) }
+    /// The NAS failure alert, once for the whole window.
+    func deliverNASAlert() -> some View { modifier(DeliverNASAlertModifier()) }
+}
+
+/// "Sending to the NAS didn't work": one alert per burst of failures (an upload, or sync's push), with Try Again and Show.
+@MainActor
+@Observable
+final class DeliverNASAlert {
+    static let shared = DeliverNASAlert()
+
+    struct Problem: Equatable {
+        var title: String
+        var detail: String
+        /// Show: the asset, else the project, else the Deliver page.
+        var asset: UUID?
+        var project: UUID?
+    }
+
+    private(set) var shown: Problem?
+    /// Failures after the shown one, in the same burst.
+    private(set) var more = 0
+    /// After OK, a minute without another alert (what failed stays flagged in the project).
+    @ObservationIgnored private var quietUntil = Date.distantPast
+    /// Sync alerts once until a round goes through again.
+    @ObservationIgnored private(set) var syncAlerted = false
+
+    /// Whether it was shown (else it joins the shown one, or the quiet minute).
+    @discardableResult
+    func report(_ problem: Problem, now: Date = .now) -> Bool {
+        if shown != nil { more += 1; return false }
+        guard now >= quietUntil else { return false }
+        shown = problem
+        return true
+    }
+
+    func dismiss(now: Date = .now) {
+        guard shown != nil else { return }
+        shown = nil
+        more = 0
+        quietUntil = now.addingTimeInterval(60)
+    }
+
+    /// A sync round that didn't go through: refused (`problem`), or the NAS away with changes waiting.
+    func syncFailed(_ problem: String?, waiting: Int, host: String, now: Date = .now) {
+        guard !syncAlerted, problem != nil || waiting > 0 else { return }
+        syncAlerted = true
+        report(problem.map { Problem(title: String(localized: "Pluck can’t send to \(host)"), detail: String(localized: "Can’t sync: \($0)")) }
+               ?? Problem(title: String(localized: "Pluck can’t reach \(host)"), detail: String(localized: "\(waiting) changes are waiting. They go up as soon as it’s back.")),
+               now: now)
+    }
+
+    func syncOK() { syncAlerted = false }
+
+    /// Try Again: every failed upload, what waits for the NAS, and a sync round.
+    func retry() {
+        DeliverUploads.shared.retry()
+        Task { await DeliverShareQueue.shared.attempt() }
+        Task { await DeliverSync.shared.round() }
+    }
+}
+
+private struct DeliverNASAlertModifier: ViewModifier {
+    @State private var alerts = DeliverNASAlert.shared
+
+    func body(content: Content) -> some View {
+        content.alert(Text(verbatim: alerts.shown?.title ?? ""), isPresented: Binding(get: { alerts.shown != nil }, set: { if !$0 { alerts.dismiss() } }),
+                      presenting: alerts.shown) { problem in
+            Button("Try Again") { alerts.dismiss(); alerts.retry() }
+            Button("Show") {
+                alerts.dismiss()
+                let nav = StudioNavigator.shared
+                nav.show(.deliver)
+                if let asset = problem.asset, DeliverStore.shared.find(asset) != nil { nav.deliver = .asset(asset, version: nil, comment: nil) }
+                else if let project = problem.project { nav.deliver = .project(project, folder: nil) }
+            }
+            Button("OK", role: .cancel) { alerts.dismiss() }
+        } message: { problem in
+            Text(verbatim: problem.detail + (alerts.more > 0 ? "\n" + String(localized: "And \(alerts.more) more.") : ""))
+        }
+    }
 }

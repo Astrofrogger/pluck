@@ -130,7 +130,9 @@ final class ReviewPublish {
     var pairedMac: Deliver.Host? {
         guard let office = OfficeRenderClient.shared.office else { return nil }
         if let known = hosts.first(where: { $0.kind == .mac && $0.address == office.device.uuidString }) { return known }
-        return Deliver.Host(name: office.name, kind: .mac, address: office.device.uuidString)
+        // The device's own id, not a new one on every read: a fresh UUID each time made the Publish sheet's row
+        // unselectable (the id chosen was gone by the next redraw, so no radio was filled and Publish did nothing).
+        return Deliver.Host(id: office.device, name: office.name, kind: .mac, address: office.device.uuidString)
     }
 
     var choices: [Deliver.Host] { (pairedMac.map { [$0] } ?? []) + hosts.filter { $0.kind == .nas && !Self.isDataHost($0.id) } }
