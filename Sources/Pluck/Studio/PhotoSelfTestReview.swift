@@ -1240,7 +1240,8 @@ extension PhotoSelfTest {
         if mode == "mac" {
             let server = DeliverServer(store: store)
             let running = DeliverLink(server: server)
-            running.testSettings = ["signal": ProcessInfo.processInfo.environment["PLUCK_E2E_SIGNAL"] ?? "ws://127.0.0.1:8787/signal", "local": true]
+            running.testSettings = ["signal": ProcessInfo.processInfo.environment["PLUCK_E2E_SIGNAL"] ?? "ws://127.0.0.1:8787/signal", "local": true,
+                                    "neverServe": false] // this mode is the Mac serving, whatever NAS the test home has
             running.start()
             server.notify = { _, _ in }
             macLink = running

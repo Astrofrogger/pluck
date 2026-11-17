@@ -392,7 +392,8 @@ struct DeliverPublishSheet: View {
             Text("Publish").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
             if nases.isEmpty {
                 VStack(spacing: 6) {
-                    if choices.isEmpty { hostRow(nil, name: String(localized: "This Mac only"), symbol: "desktopcomputer", online: true) }
+                    // Same rule as the helper (DeliverLink.neverServe): this Mac is offered only when it may serve.
+                    if choices.isEmpty && !DeliverLink.shared.neverServe { hostRow(nil, name: String(localized: "This Mac only"), symbol: "desktopcomputer", online: true) }
                     ForEach(choices) { host in hostRow(host.id, name: host.name, symbol: "macmini", online: publish.online[host.id]) }
                 }
                 HStack {
