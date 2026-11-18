@@ -38,6 +38,9 @@ final class DeliverLink {
         server.store.listeners.append { [weak self] event in
             if case .linksChanged = event { self?.update() }
         }
+        // The paired always-on Mac (Edit Anywhere) counts for neverServe from the first launch on, not only once that
+        // page has been opened (the office is read from the keychain lazily). Test copies keep away from the keychain.
+        if ScreenshotMode.scene == nil { OfficeRenderClient.shared.load() }
         watchHosts()
         update()
         Task { await eraseOldRooms() } // "Make a New Link" while offline: the old rooms still to erase
