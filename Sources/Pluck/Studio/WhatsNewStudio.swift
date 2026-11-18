@@ -7,6 +7,14 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.5", items: [
+                Item(symbol: "server.rack", title: String(localized: "Clients watch from your NAS"),
+                     detail: String(localized: "Review links come from your NAS, never from the Mac you edit on.")),
+                Item(symbol: "externaldrive.badge.plus", title: String(localized: "Footage goes to the NAS"),
+                     detail: String(localized: "Pick the NAS folder when you add footage; files already there stay put.")),
+                Item(symbol: "person.2.badge.key", title: String(localized: "Roles"),
+                     detail: String(localized: "Admins and Editors for people and Macs, and Transfer Admin.")),
+            ]),
             Release(version: "4.0.4", items: [
                 Item(symbol: "person.badge.plus", title: String(localized: "Invite your team"),
                      detail: String(localized: "Send a teammate a link; they join and sign in with a passkey.")),

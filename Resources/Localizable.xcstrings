@@ -31567,6 +31567,64 @@
         }
       }
     },
+    "Admins and Editors for people and Macs, and Transfer Admin." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Admins und Editoren für Personen und Macs, dazu Admin übertragen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Administradores y Editores para personas y Mac, y Transferir administración."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Admins et Monteurs pour les personnes et les Mac, et Transférer l’administration."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Amministratori ed Editor per persone e Mac, e Trasferisci amministrazione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "人と Mac に管理者と編集者を設定。管理者を移行することもできます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사람과 Mac에 관리자와 편집자 역할을 지정하고, 관리자 이전도 할 수 있습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beheerders en Editors voor mensen en Macs, en Beheer overdragen."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Administradores e Editores para pessoas e Macs, e Transferir administração."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "为人员和 Mac 设置管理员与编辑，并可转移管理员。"
+          }
+        }
+      }
+    },
     "Adobe RGB" : {
       "shouldTranslate" : false
     },
@@ -64489,6 +64547,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "只要这台 Mac 上的 Pluck 保持打开，客户就可以观看。"
+          }
+        }
+      }
+    },
+    "Clients watch from your NAS" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kunden schauen über dein NAS"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Tus clientes ven desde tu NAS"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vos clients regardent depuis votre NAS"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I clienti guardano dal tuo NAS"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "クライアントは NAS から視聴"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "고객은 NAS에서 시청"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Klanten kijken via je NAS"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Seus clientes assistem pelo seu NAS"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "客户从你的 NAS 观看"
           }
         }
       }
@@ -113830,6 +113946,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "素材访问权限"
+          }
+        }
+      }
+    },
+    "Footage goes to the NAS" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Material kommt auf das NAS"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El material va al NAS"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les rushes vont sur le NAS"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il girato va sul NAS"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "素材は NAS へ"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "영상은 NAS로"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beeldmateriaal gaat naar de NAS"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O material vai para o NAS"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "素材存到 NAS"
           }
         }
       }
@@ -198932,6 +199106,64 @@
         }
       }
     },
+    "Pick the NAS folder when you add footage; files already there stay put." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle beim Hinzufügen von Material den NAS-Ordner; Dateien, die schon dort liegen, bleiben, wo sie sind."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige la carpeta del NAS al añadir material; los archivos que ya están allí no se mueven."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez le dossier du NAS en ajoutant des rushes ; les fichiers qui y sont déjà restent en place."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli la cartella del NAS quando aggiungi il girato; i file già lì restano dove sono."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "素材を追加するときに NAS のフォルダを選びます。すでに NAS にあるファイルはそのままです。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "영상을 추가할 때 NAS 폴더를 고르세요. 이미 NAS에 있는 파일은 그대로 둡니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kies de NAS-map als je materiaal toevoegt; bestanden die er al staan, blijven waar ze zijn."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escolha a pasta do NAS ao adicionar material; arquivos que já estão lá ficam onde estão."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "添加素材时选择 NAS 文件夹；已在 NAS 上的文件保持原位。"
+          }
+        }
+      }
+    },
     "Pick the bin and sub-bin clips go in, from the project’s own or a new name. Clips already in the project are left out, and each clip’s Comments say the rate it was shot at." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -227408,6 +227640,64 @@
         }
       }
     },
+    "Review links come from your NAS, never from the Mac you edit on." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Review-Links kommen von deinem NAS, nie von dem Mac, auf dem du schneidest."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Los enlaces de revisión salen de tu NAS, nunca del Mac en el que editas."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les liens de relecture viennent de votre NAS, jamais du Mac sur lequel vous montez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "I link di revisione arrivano dal tuo NAS, mai dal Mac su cui monti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "レビューリンクは NAS から配信され、編集中の Mac からは配信されません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "검토 링크는 NAS에서 제공되며, 편집 중인 Mac에서는 제공되지 않습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reviewlinks komen van je NAS, nooit van de Mac waarop je monteert."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Os links de revisão vêm do seu NAS, nunca do Mac em que você edita."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "审阅链接由你的 NAS 提供，绝不来自你正在剪辑的 Mac。"
+          }
+        }
+      }
+    },
     "Review links for clients, hosted on your Mac or NAS, with comments on the frame." : {
       "localizations" : {
         "de" : {
@@ -228511,6 +228801,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "职位底板宽度"
+          }
+        }
+      }
+    },
+    "Roles" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rollen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Roles"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rôles"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ruoli"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "役割"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "역할"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rollen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Funções"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "角色"
           }
         }
       }
