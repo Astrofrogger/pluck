@@ -25,7 +25,7 @@ use crate::{host, keys, log, report, roots::Roots};
 const PAGE: &str = include_str!("admin/index.html");
 const SCRIPT: &str = include_str!("admin/admin.js");
 const OPS: &[&str] = &["admin-state", "admin-publish", "admin-unpublish", "admin-renew", "admin-comments", "admin-activity", "roots", "browse", "probe", "thumb",
-    "invite", "devices"];
+    "invite", "devices", "device-remove"];
 
 struct State {
     data: PathBuf,
@@ -221,6 +221,11 @@ async fn handle(st: &State, r: Req) -> Vec<u8> {
                 "devices" => return json_resp(st.devices.list(), None),
                 _ => {}
             }
+            let root = op == "device-remove";
+            let mut body = body;
+            // The page was claimed with the host key: it is the root of trust (it may remove the last admin Mac).
+            body["_root"] = json!(root);
+            body["_mac"] = json!({"name": "NAS admin page", "admin": true});
             let (tx, rx) = oneshot::channel();
             if st.to_host.send(host::Sync { op: body, reply: tx }).await.is_err() {
                 return json_resp(json!({"error": "host stopped"}), None);

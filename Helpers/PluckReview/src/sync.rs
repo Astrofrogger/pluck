@@ -346,7 +346,13 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 v
             }
             "browse" | "probe" | "thumb" => ctx.roots.op(&op).await.unwrap_or_default(),
-            "invite" => ctx.devices.invite(op["role"].as_str().unwrap_or(""), op["access"].as_str()),
+            "invite" => {
+                // `replaces`: the unused invite this one stands in for (Pluck's role switch) stops working.
+                if let Some(old) = op["replaces"].as_str() {
+                    ctx.devices.cancel_invite(old);
+                }
+                ctx.devices.invite(op["role"].as_str().unwrap_or(""), op["access"].as_str())
+            }
             "devices" => ctx.devices.list(),
             // (host.rs: it keeps the last admin, which needs the team too)
             "device-node" => match &who.device {
@@ -456,6 +462,8 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 let mut op = op;
                 let id = who.device.clone();
                 op["_mac"] = if mac { json!({"id": id, "name": id.as_deref().map(|d| ctx.devices.name(d)), "admin": admin}) } else { json!({"admin": false}) };
+                // The legacy host key (and --ctl, which uses it) is the root of trust: it may override the last-admin guard.
+                op["_root"] = json!(mac && id.is_none());
                 to_host(ctx, op).await?
             }
         };

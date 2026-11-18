@@ -392,7 +392,7 @@ impl Host {
                     let want = m["role"].as_str().unwrap_or("");
                     if want == "owner" || want == "editor" { self.person_role(m["person"].as_str().unwrap_or(""), &json!({"role": want}), &me) } else { json!({"error": "invalid"}) }
                 } else {
-                    self.device_op("device-role", m["device"].as_str().unwrap_or(""), m["access"].as_str().unwrap_or(""), &me)
+                    self.device_op("device-role", m["device"].as_str().unwrap_or(""), m["access"].as_str().unwrap_or(""), &me, false)
                 };
                 if r["error"].is_null() {
                     self.people_changed(); // a lowered role ends that session (acct_gone); everyone re-reads `me`
@@ -651,12 +651,14 @@ impl Host {
     }
 
     /// `device-role` / `device-remove` (Pluck, or an owner on the team page for device-role), keeping the last admin.
-    fn device_op(&mut self, name: &str, id: &str, access: &str, by: &str) -> Value {
+    /// `root`: asked with the host key itself (a legacy-key session, `--ctl`, the NAS admin page): the recovery path for
+    /// a lost sole-admin Mac, so it may remove or demote any device.
+    fn device_op(&mut self, name: &str, id: &str, access: &str, by: &str, root: bool) -> Value {
         let Some(d) = self.devices.clone() else { return json!({"error": "invalid"}) };
         let Some(dev) = d.get(id) else { return json!({"error": "notFound"}) };
         // The only Mac paired going: with none left the host key's Mac is the admin again (as before any was paired).
         let only_mac = name == "device-remove" && d.list()["devices"].as_array().is_some_and(|l| l.iter().all(|x| x["role"] != "mac" || x["id"] == id));
-        if (name == "device-remove" || access != "admin") && !only_mac && self.last_admin(None, Some(id)) {
+        if (name == "device-remove" || access != "admin") && !only_mac && !root && self.last_admin(None, Some(id)) {
             return json!({"error": "lastAdmin"});
         }
         if name == "device-remove" {
@@ -748,7 +750,7 @@ impl Host {
             "passkey-remove" if self.accounts.person(&s("person")).is_some_and(|p| p["passkeys"].as_array().is_some_and(|k| k.len() == 1 && k[0]["id"] == op["id"]))
                 && self.last_admin(Some(&s("person")), None) => json!({"error": "lastAdmin"}),
             "passkey-remove" => self.accounts.passkey_remove(&s("person"), &s("id")),
-            "device-role" | "device-remove" => self.device_op(name, &s("id"), &s("access"), &by_name),
+            "device-role" | "device-remove" => self.device_op(name, &s("id"), &s("access"), &by_name, op["_root"] == true),
             "invite-cancel" => self.accounts.invite_cancel(&s("id")),
             "invite-approve" => self.accounts.invite_approve(&s("id"), "mac", now),
             "team-export" => self.accounts.export(),
@@ -1281,6 +1283,30 @@ mod tests {
         let proof = keys::b64(&m.finalize().into_bytes());
         assert_eq!(b4.ask(&mut h, &mut rx, 2, json!({"t": "account-resume", "proof": proof}))["t"], "ready");
     }
+    /// #11: a lost sole-admin Mac with editor Macs left: a Mac can't remove or demote it, the host key (root) can.
+    #[tokio::test]
+    async fn the_host_key_overrides_the_last_admin_guard() {
+        let (mut h, _rx) = host();
+        let dir = std::env::temp_dir().join(format!("pluck-root-{}", uuid()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let d = Arc::new(crate::devices::Devices::load(&dir));
+        h.devices = Some(d.clone());
+        let pair = |access: &str, name: &str| {
+            let inv = d.invite("mac", Some(access));
+            d.pair(inv["code"].as_str().unwrap(), name, None, "mac", None).unwrap().0
+        };
+        let (lost, editor, third) = (pair("admin", "Lost MacBook"), pair("editor", "Studio iMac"), pair("admin", "Second admin"));
+        assert_eq!(h.sync(&json!({"op": "device-remove", "id": third}))["ok"], true, "not the last admin: allowed");
+        let from_mac = json!({"id": editor, "name": "Studio iMac", "admin": true, "_root": false});
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": lost, "access": "editor", "_mac": from_mac, "_root": false}))["error"], "lastAdmin");
+        assert_eq!(h.sync(&json!({"op": "device-remove", "id": lost, "_mac": from_mac}))["error"], "lastAdmin", "a Mac keeps the guard");
+        assert_eq!(h.sync(&json!({"op": "device-role", "id": lost, "access": "editor", "_root": true}))["ok"], true, "the host key may demote");
+        assert!(!d.is_admin(&lost));
+        assert_eq!(h.sync(&json!({"op": "device-remove", "id": lost, "_root": true}))["ok"], true, "and remove");
+        assert!(d.get(&lost).is_none() && d.get(&editor).is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// Roles (4.0.5): Macs and people; there is always an admin left; transfer = make admin, then step down; editor
     /// Macs' invites wait for an admin; owners change roles on the team page, editors only read; every change logged.
     #[tokio::test]

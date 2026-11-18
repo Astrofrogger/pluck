@@ -414,7 +414,7 @@ struct DeliverPairAgainSheet: View {
 struct DeliverInviteSheet: View {
     let host: Deliver.Host
     @Environment(\.dismiss) private var dismiss
-    @State private var invite: (link: String, expires: Date, anywhere: Bool)?
+    @State private var invite: (link: String, expires: Date, anywhere: Bool, code: String?)?
     @State private var teammates: [[String: Any]] = []
     @State private var copied = false
     @State private var working = false
@@ -435,7 +435,8 @@ struct DeliverInviteSheet: View {
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
             if DeliverPeople.roles(host) {
                 DeliverRolePicker(options: ["editor", "admin"], selection: $access).studioBox()
-                    .onChange(of: access) { Task { await make() } }
+                    // The invite made for the other role stops working (one copied as Admin can't pair once it's Editor).
+                    .onChange(of: access) { Task { await make(replacing: true) } }
             }
             if let invite {
                 HStack(spacing: 8) {
@@ -524,19 +525,20 @@ struct DeliverInviteSheet: View {
         .padding(.horizontal, 12).frame(height: 36)
     }
 
-    /// A new one-time invitation (the last one stays valid until it's used or runs out).
-    func make() async {
+    /// A new one-time invitation (the last one stays valid until it's used or runs out, unless `replacing`: a role switch).
+    func make(replacing: Bool = false) async {
         working = true
         defer { working = false }
         do {
             var op: [String: Any] = ["op": "invite", "role": "mac"]
             if DeliverPeople.roles(host) { op["access"] = access }
+            if replacing, let old = invite?.code { op["replaces"] = old }
             let answer = try await ReviewHostClient.ask(host, op)
             guard let link = answer["link"] as? String else { throw Deliver.Failure("internal") }
             let expires = (answer["expires"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) } ?? .now.addingTimeInterval(900)
             var anywhere = false
             if case .reviewHost(let node, _, _, _, _, _) = PrivateNetwork.Invitation(link: link)?.way { anywhere = !node.isEmpty }
-            invite = (link, expires, anywhere)
+            invite = (link, expires, anywhere, answer["code"] as? String)
             copied = false
             problem = nil
         } catch {

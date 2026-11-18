@@ -144,6 +144,12 @@ impl Devices {
         json!({"link": format!("pluck://edit-anywhere/join?i={i}"), "expires": crate::host::iso(expires as i64), "code": shown})
     }
 
+    /// An unused invitation withdrawn (Invite a Teammate's role switched: the one made for the other role stops working).
+    pub fn cancel_invite(&self, code: &str) {
+        let want = norm_code(code);
+        self.inner.lock().unwrap().invites.retain(|x| !keys::subtle_eq(x.code.as_bytes(), want.as_bytes()));
+    }
+
     /// `{"pair","name","node","role"}`: Some((device id, its key)) for a right, open code.
     /// `stream` is the iroh node the session came in on (None on the LAN).
     pub fn pair(&self, code: &str, name: &str, node: Option<&str>, role: &str, stream: Option<&str>) -> Option<(String, String)> {
@@ -471,5 +477,16 @@ mod tests {
         assert_eq!(d.set_access("b", "admin")["error"], "notFound", "only Macs have roles");
         assert_eq!(devs().admin_macs(None), None, "no Mac paired: only the host key");
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// #10: switching Invite a Teammate's role withdraws the invite made for the other role; others stay.
+    #[test]
+    fn a_withdrawn_invite_no_longer_pairs() {
+        let d = devs();
+        let (admin, other) = (d.invite("mac", Some("admin")), d.invite("mac", Some("editor")));
+        d.cancel_invite(admin["code"].as_str().unwrap());
+        assert!(d.pair(&code(&admin), "Copied early", None, "mac", None).is_none(), "the admin invite is gone");
+        let (id, _) = d.pair(&code(&other), "Studio MacBook", None, "mac", None).unwrap();
+        assert!(!d.is_admin(&id));
     }
 }

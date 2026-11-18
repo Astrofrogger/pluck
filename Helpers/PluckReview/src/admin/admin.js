@@ -232,7 +232,8 @@ async function devices() {
   $("devices").replaceChildren(...r.devices.map((d) => {
     const row = el("div", null, "item");
     row.append(el("span", d.name, "name"), el("span", d.role === "backup" ? "Backup host" : "Mac", "quiet"),
-      el("span", "Last seen " + (d.lastSeen || "").slice(0, 16).replace("T", " "), "faint"));
+      el("span", "Last seen " + (d.lastSeen || "").slice(0, 16).replace("T", " "), "faint"),
+      button("Remove", async () => { if (confirm("Remove " + d.name + "? It can't reach this server any more.")) { await op({ op: "device-remove", id: d.id }); devices(); } }));
     return row;
   }));
 }
