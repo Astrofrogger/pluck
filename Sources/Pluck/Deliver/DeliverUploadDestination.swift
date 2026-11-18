@@ -105,13 +105,14 @@ enum DeliverUploadDestination {
     /// The NAS's roots mounted on this Mac (its mounts, or its shares in /Volumes), each with the media path it stands for.
     /// Never mounts anything: a share that isn't connected is just missing.
     static func shares(_ host: Deliver.Host) -> [(local: URL, media: String)] {
-        let volumes = (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []).map(\.path)
+        let volumes = shareVolumes.volumes()
         var found: [(local: URL, media: String)] = []
         for path in (host.mounts ?? []).map(\.local) + volumes {
             // The name match first (no disk access); only the NAS's own shares are looked at.
             guard let media = ReviewPublish.reference(path + "/_", on: host)?.dropLast(2), !found.contains(where: { $0.media == media }) else { continue }
             var folder: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), folder.boolValue else { continue }
+            // (A volume in the mount table is there; stat-ing it could wait on a NAS that stopped answering.)
+            guard volumes.contains(path) || (FileManager.default.fileExists(atPath: path, isDirectory: &folder) && folder.boolValue) else { continue }
             found.append((URL(fileURLWithPath: path, isDirectory: true), String(media)))
             // (Its address, for Connect when it's gone. shortcut: always smb://, fine for TrueNAS SMB shares; an NFS mount would need nfs://.)
             if let share = shareVolumes.share(path), let url = URL(string: "smb://\(share.server)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? share.name)") {

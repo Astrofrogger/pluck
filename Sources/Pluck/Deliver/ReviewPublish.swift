@@ -86,7 +86,9 @@ final class ReviewPublish {
     private(set) var hosts: [Deliver.Host] = []
     private(set) var publications: [Deliver.Publication] = []
     /// Whether each host answered the last time it was asked.
-    private(set) var online: [UUID: Bool] = [:]
+    private(set) var online: [UUID: Bool] = [:] {
+        didSet { if self === Self.shared, online.contains(where: { $0.value && oldValue[$0.key] != true }) { ShareRootNames.soon() } }
+    }
     private(set) var working: UUID?
     var problem: String?
     /// What each host says about its copies (by publication): making (a share), or live.
@@ -305,7 +307,7 @@ final class ReviewPublish {
         let names = host.rootNames ?? [:]
         let address = (host.address ?? "").split(separator: ":").first.map { $0.lowercased() } ?? ""
         let server = share.server.lowercased()
-        let sameServer = !address.isEmpty && ShareVolumes.same(server, address)
+        let sameServer = !address.isEmpty && shareVolumes.matches(server, address)
         // By name only from a paired NAS (this one, or e.g. its backup): another server's "Footage" share isn't this NAS's.
         let root = (sameServer || shareVolumes.paired(server) ? names.first { $0.value.caseInsensitiveCompare(share.name) == .orderedSame }?.key : nil)
             ?? (sameServer && names[share.name] != nil ? share.name : nil)
@@ -1189,7 +1191,11 @@ final class ShareVolumes: @unchecked Sendable {
     private var known: [String: (share: Share?, at: Date)] = [:]
     /// Tests: volumes as if mounted (no real share needed).
     var fake: [String: Share]?
+    /// Tests: what a server name resolves to (no network).
+    var resolver: (@Sendable (String) -> Set<String>)?
     private var servers: Set<String> = []
+    /// Each mount's server and each NAS address → its IPs, looked up off the main thread (refresh); read only from here.
+    private var addresses: [String: Set<String>] = [:]
 
     /// The paired NAS hosts (ReviewPublish keeps this current): whose shares may stand for a root by its name.
     func setServers(_ hosts: [Deliver.Host]) {
@@ -1199,8 +1205,61 @@ final class ShareVolumes: @unchecked Sendable {
     }
 
     func paired(_ server: String) -> Bool {
+        let list = lock.withLock { servers }
+        return list.contains { matches(server, $0) }
+    }
+
+    /// One server: the same name, or names that resolved to a common IP (a Bonjour share "WideOpen-2._smb._tcp.local"
+    /// and the NAS's "10.0.22.187"). Only the cache: never waits on the network.
+    func matches(_ server: String, _ address: String) -> Bool {
+        if Self.same(server, address) { return true }
         lock.lock(); defer { lock.unlock() }
-        return servers.contains { Self.same(server, $0) }
+        guard let a = addresses[server], let b = addresses[address] else { return false }
+        return !a.isDisjoint(with: b)
+    }
+
+    /// The /Volumes mounts that come from a server (the stand-ins while testing).
+    func volumes() -> [String] {
+        if let fake = lock.withLock({ fake }) { return fake.keys.sorted() }
+        return Self.mountTable().keys.filter { $0.hasPrefix("/Volumes/") }.sorted()
+    }
+
+    /// Looks up every mount's server and every paired NAS address again, on a background queue.
+    func refresh() async {
+        lock.withLock { known = [:] } // (a volume just mounted)
+        let names = Set(volumes().compactMap { share($0)?.server }).union(lock.withLock { servers })
+        let resolve = lock.withLock { resolver } ?? Self.lookup
+        let found = await withCheckedContinuation { (done: CheckedContinuation<[String: Set<String>], Never>) in
+            DispatchQueue.global(qos: .utility).async {
+                done.resume(returning: Dictionary(uniqueKeysWithValues: names.map { ($0, resolve($0)) }))
+            }
+        }
+        lock.withLock { addresses = found }
+    }
+
+    /// The name to look up for a mount's server: a Bonjour instance becomes its .local host name.
+    static func hostName(_ name: String) -> String {
+        guard let service = name.range(of: "._"), name.contains("._tcp.") else { return name }
+        return (String(name[..<service.lowerBound]).removingPercentEncoding ?? "").replacingOccurrences(of: " ", with: "-") + ".local"
+    }
+
+    /// A name's IPs (getaddrinfo, blocking: never on the main thread). A Bonjour service instance
+    /// ("<Instance>._smb._tcp.local") is tried as "<Instance>.local".
+    /// shortcut: assumes the instance name is the host name (TrueNAS, macOS and Synology defaults); a renamed service would need a DNS-SD resolve.
+    @Sendable static func lookup(_ name: String) -> Set<String> {
+        let host = hostName(name)
+        var hints = addrinfo(), list: UnsafeMutablePointer<addrinfo>?
+        hints.ai_socktype = SOCK_STREAM
+        guard !host.isEmpty, getaddrinfo(host, nil, &hints, &list) == 0, let list else { return [] }
+        defer { freeaddrinfo(list) }
+        var found: Set<String> = []
+        for entry in sequence(first: list, next: { $0.pointee.ai_next }) {
+            var text = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(entry.pointee.ai_addr, entry.pointee.ai_addrlen, &text, socklen_t(text.count), nil, 0, NI_NUMERICHOST) == 0 {
+                found.insert(String(cString: text))
+            }
+        }
+        return found
     }
 
     /// One server under two spellings ("nas" and "nas.local").

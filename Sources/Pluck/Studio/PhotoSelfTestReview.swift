@@ -2159,6 +2159,7 @@ extension PhotoSelfTest {
 
         await uploadDestinationTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
         nasMountTest(store: store, project: project.id, base: base)
+        await shareNamesTest(fake: fake, publish: publish, host: host, base: base)
         await outageTest(fake: fake, store: store, publish: publish, host: host, project: project.id, base: base)
 
         // A backup paired straight with the main (no host record here): a Backup row under the main, not a browse root.
@@ -2906,7 +2907,8 @@ extension PhotoSelfTest {
     /// skip it, no uploads folder offers the fallback, and an upload lands where chosen (the NAS makes the copies).
     static func uploadDestinationTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL) async {
         let fm = FileManager.default, other = UUID(), elsewhere = UUID()
-        defer { ReviewHostClient.fake = { fake.answer($0, $1) } }
+        shareVolumes.fake = [:] // (stand-in mounts only: the owner's real shares are never looked at)
+        defer { ReviewHostClient.fake = { fake.answer($0, $1) }; shareVolumes.fake = nil }
         DeliverUploadDestination.remember("renders/Client/2026", host: host.id, project: project)
         DeliverUploadDestination.remember("renders/Wedding", host: host.id, project: other)
         let start = await DeliverUploadDestination.start(host, root: "renders", project: project)
@@ -3058,6 +3060,71 @@ extension PhotoSelfTest {
         ReviewHostClient.fake = { fake.answer($0, $1) }
         store.remove(asset: failing.id)
         store.remove(asset: local.id)
+    }
+
+    /// A NAS's shares as macOS mounts them from Bonjour ("//u@WideOpen-2._smb._tcp.local/Wide%20Open"): its server
+    /// matches the NAS when both resolve to one IP (a stub, no network), and a share whose top level lists like one of
+    /// the helper's roots names that root, without an API key. Two roots alike, another server, a TrueNAS name: nothing.
+    static func shareNamesTest(fake: ReviewFakeHost, publish: ReviewPublish, host: Deliver.Host, base: URL) async {
+        let fm = FileManager.default, share = base.appendingPathComponent("Wide Open share")
+        for folder in ["Day 1", "Day 2", "Stills"] { try? fm.createDirectory(at: share.appendingPathComponent(folder), withIntermediateDirectories: true) }
+        fm.createFile(atPath: share.appendingPathComponent("Hero.mov").path, contents: Data([1]))
+        fm.createFile(atPath: share.appendingPathComponent("notes.txt").path, contents: Data([1])) // (the helper doesn't list it)
+        let saved = publish.host(host.id)?.rootNames
+        defer {
+            publish.update(host: host.id) { $0.rootNames = saved }
+            shareVolumes.fake = nil; shareVolumes.resolver = nil; shareVolumes.setServers(ReviewPublish.shared.hosts)
+            ReviewHostClient.fake = { fake.answer($0, $1) }
+            try? fm.removeItem(at: share)
+            Task { await shareVolumes.refresh() }
+        }
+        let parsed = ShareVolumes.parse(from: "//u@WideOpen-2._smb._tcp.local/Wide%20Open"), nfs = ShareVolumes.parse(from: "nas:/mnt/tank/media")
+        check("shares: mount table entries parse (Bonjour SMB, NFS), a Bonjour instance is looked up as its .local name",
+              parsed == .init(server: "wideopen-2._smb._tcp.local", name: "Wide Open") && nfs == .init(server: "nas", name: "media")
+              && ShareVolumes.parse(from: "/dev/disk3s1") == nil
+              && ShareVolumes.hostName("wideopen-2._smb._tcp.local") == "wideopen-2.local" && ShareVolumes.hostName("10.0.22.187") == "10.0.22.187",
+              "\(String(describing: parsed)) \(String(describing: nfs))")
+
+        // Bonjour instance → the NAS's IP; another NAS's same-name share isn't this one's.
+        var main = Deliver.Host(name: "Main", kind: .nas, address: "10.0.22.187:8790")
+        main.rootNames = ["nas1": "Wide Open"]
+        shareVolumes.resolver = { ["wideopen-2._smb._tcp.local": ["10.0.22.187"], "10.0.22.187": ["10.0.22.187"], "wideopen-1._smb._tcp.local": ["10.0.22.244"],
+                                   "nas.test": ["10.0.22.187"], "other.test": ["10.9.9.9"]][$0] ?? [] }
+        shareVolumes.fake = ["/Volumes/Wide Open": .init(server: "wideopen-2._smb._tcp.local", name: "Wide Open"),
+                             "/Volumes/Wide Open-1": .init(server: "wideopen-1._smb._tcp.local", name: "Wide Open")]
+        shareVolumes.setServers([main])
+        await shareVolumes.refresh()
+        check("shares: a Bonjour share whose server resolves to the NAS's IP is the NAS's; another server's same-name share isn't",
+              ReviewPublish.reference("/Volumes/Wide Open/Day 1/A.mov", on: main) == "nas1/Day 1/A.mov"
+              && ReviewPublish.reference("/Volumes/Wide Open-1/Day 1/A.mov", on: main) == nil, "")
+
+        // Root names learned by listing: the stand-in share (a temp folder) against the helper's roots.
+        let alike: [[String: Any]] = ["Day 1", "Day 2", "Stills"].map { ["name": $0, "path": "x/" + $0, "dir": true] } + [["name": "Hero.mov", "path": "x/Hero.mov", "dir": false]]
+        func helper(_ renders: [[String: Any]]) {
+            ReviewHostClient.fake = { request, body in
+                guard request["op"] as? String == "browse" else { return fake.answer(request, body) }
+                return ["entries": request["path"] as? String == "nas1" ? alike : renders]
+            }
+        }
+        func learned(names: [String: String]?, server: String) async -> [String: String]? {
+            publish.update(host: host.id) { $0.rootNames = names }
+            shareVolumes.fake = [share.path: .init(server: server, name: "Wide Open")]
+            shareVolumes.setServers(publish.hosts)
+            await ShareRootNames.learn(publish: publish, timeout: 3)
+            return publish.host(host.id)?.rootNames
+        }
+        helper([["name": "Client", "path": "renders/Client", "dir": true]])
+        let match = await learned(names: nil, server: "wideopen-2._smb._tcp.local")
+        let kept = await learned(names: ["nas1": "Projects-2026"], server: "wideopen-2._smb._tcp.local")
+        let elsewhere = await learned(names: nil, server: "other.test")
+        helper(alike)
+        let ambiguous = await learned(names: nil, server: "wideopen-2._smb._tcp.local")
+        check("shares: a share listing like one root names it; a TrueNAS name stays; two roots alike or another server: nothing",
+              match == ["nas1": "Wide Open"] && kept == ["nas1": "Projects-2026"] && elsewhere == nil && ambiguous == nil
+              && ShareRootNames.same(helper: ["A", "B"], share: ["A", "B", "c.txt"], folders: ["A"])
+              && !ShareRootNames.same(helper: ["A", "B"], share: ["A", "B", "C"], folders: ["A", "B", "C"])
+              && !ShareRootNames.same(helper: ["A", "B", "C", "D", "E"], share: ["A", "B"], folders: ["A", "B"]),
+              "\(String(describing: match)) \(String(describing: kept)) \(String(describing: elsewhere)) \(String(describing: ambiguous))")
     }
 
     /// Footage already on a NAS (its share mounted here, under any volume name): referenced in place, no folder picker;
