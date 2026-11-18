@@ -104,6 +104,7 @@ final class ReviewPublish {
     init(store: DeliverStore) {
         self.store = store
         hosts = (try? Data(contentsOf: hostsFile)).flatMap { try? Deliver.decoder.decode([Deliver.Host].self, from: $0) } ?? []
+        shareVolumes.setServers(hosts)
         publications = (try? Data(contentsOf: publishedFile)).flatMap { try? Deliver.decoder.decode([Deliver.Publication].self, from: $0) } ?? []
         seqs = (try? Data(contentsOf: seqsFile)).flatMap { try? JSONDecoder().decode([String: Int].self, from: $0) } ?? [:]
         store.listeners.append { [weak self] in self?.heard($0) }
@@ -118,6 +119,7 @@ final class ReviewPublish {
     private func save() {
         try? FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
         try? Deliver.encoder.encode(hosts).write(to: hostsFile, options: .atomic)
+        shareVolumes.setServers(hosts)
         try? Deliver.encoder.encode(publications).write(to: publishedFile, options: .atomic)
         try? JSONEncoder().encode(seqs).write(to: seqsFile, options: .atomic)
     }
@@ -264,8 +266,9 @@ final class ReviewPublish {
         let names = host.rootNames ?? [:]
         let address = (host.address ?? "").split(separator: ":").first.map { $0.lowercased() } ?? ""
         let server = share.server.lowercased()
-        let sameServer = !address.isEmpty && (server == address || server.hasPrefix(address + ".") || address.hasPrefix(server + "."))
-        let root = names.first { $0.value.caseInsensitiveCompare(share.name) == .orderedSame }?.key
+        let sameServer = !address.isEmpty && ShareVolumes.same(server, address)
+        // By name only from a paired NAS (this one, or e.g. its backup): another server's "Footage" share isn't this NAS's.
+        let root = (sameServer || shareVolumes.paired(server) ? names.first { $0.value.caseInsensitiveCompare(share.name) == .orderedSame }?.key : nil)
             ?? (sameServer && (names.isEmpty || names[share.name] != nil) ? share.name : nil)
         guard let root, !root.isEmpty, !root.contains("/") else { return nil }
         return root + "/" + parts.dropFirst(2).joined(separator: "/")
@@ -1075,6 +1078,22 @@ final class ShareVolumes: @unchecked Sendable {
     private var known: [String: (share: Share?, at: Date)] = [:]
     /// Tests: volumes as if mounted (no real share needed).
     var fake: [String: Share]?
+    private var servers: Set<String> = []
+
+    /// The paired NAS hosts (ReviewPublish keeps this current): whose shares may stand for a root by its name.
+    func setServers(_ hosts: [Deliver.Host]) {
+        let list = Set(hosts.filter { $0.kind == .nas }.compactMap { $0.address?.split(separator: ":").first.map { $0.lowercased() } })
+        lock.lock(); defer { lock.unlock() }
+        servers = list
+    }
+
+    func paired(_ server: String) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return servers.contains { Self.same(server, $0) }
+    }
+
+    /// One server under two spellings ("nas" and "nas.local").
+    static func same(_ a: String, _ b: String) -> Bool { a == b || a.hasPrefix(b + ".") || b.hasPrefix(a + ".") }
 
     func share(_ volume: String) -> Share? {
         lock.lock(); defer { lock.unlock() }

@@ -2893,9 +2893,11 @@ extension PhotoSelfTest {
                              "/Volumes/Renamed": .init(server: "MAIN-NAS.test", name: "Projects-2026"),
                              "/Volumes/Projects-2026-1": .init(server: "backup-nas.test", name: "Projects-2026"),
                              "/Volumes/media": .init(server: "bare-nas.test", name: "nas2"),
-                             "/Volumes/Elsewhere": .init(server: "other.test", name: "Stuff")]
-        defer { shareVolumes.fake = nil }
+                             "/Volumes/Elsewhere": .init(server: "other.test", name: "Stuff"),
+                             "/Volumes/Footage": .init(server: "other.test", name: "Projects-2026")]  // same name, another server
         let hosts = [backup, main, bare]
+        shareVolumes.setServers(hosts)
+        defer { shareVolumes.fake = nil; shareVolumes.setServers(ReviewPublish.shared.hosts) }
         typealias U = DeliverUploadDestination
         let local = base.appendingPathComponent("Local cut.mov")
         try? Data(repeating: 7, count: 2000).write(to: local)
@@ -2906,6 +2908,7 @@ extension PhotoSelfTest {
               && U.nasReference("/Volumes/Projects-2026-1/Day 1/A.mov", hosts: [backup]) == ReviewPublish.nasPath(host: backup.id, path: "nas1/Day 1/A.mov")
               && U.nasReference("/Volumes/media/x.mov", hosts: hosts) == ReviewPublish.nasPath(host: bare.id, path: "nas2/x.mov")
               && U.nasReference("/Volumes/Elsewhere/x.mov", hosts: hosts) == nil && U.nasReference(local.path, hosts: hosts) == nil
+              && U.nasReference("/Volumes/Footage/x.mov", hosts: hosts) == nil
               && U.nasReference("/Volumes/Renamed/../etc/x.mov", hosts: hosts) == nil, "")
         let onShare = URL(fileURLWithPath: "/Volumes/Renamed/Day 1/Hero.mov")
         let madeHere = (try? U.add([onShare], to: project, folder: nil, store: store, hosts: hosts)) ?? [Deliver.Asset(name: "x", kind: .video, versions: [])]
