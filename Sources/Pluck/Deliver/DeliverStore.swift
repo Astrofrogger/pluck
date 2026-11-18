@@ -592,11 +592,11 @@ final class DeliverStore {
     }
 
     @discardableResult
-    func reply(to comment: UUID, text: String, author: String, token: String? = nil) throws -> Deliver.Comment {
+    func reply(to comment: UUID, text: String, author: String, token: String? = nil, isInternal: Bool = false) throws -> Deliver.Comment {
         let text = try Self.text(text)
         return try change(comment: comment) { found in
             guard found.replies.count < 100 else { throw Deliver.Failure("limit") }
-            found.replies.append(.init(text: text, author: Deliver.clean(author, limit: Self.authorLimit), authorToken: token))
+            found.replies.append(.init(text: text, author: Deliver.clean(author, limit: Self.authorLimit), authorToken: token, internal: isInternal ? true : nil))
             return true
         }
     }

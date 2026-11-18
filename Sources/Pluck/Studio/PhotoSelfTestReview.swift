@@ -623,6 +623,26 @@ extension PhotoSelfTest {
         if let publication { await publish.remove(publication.id) }
         check("review: remove from host", ops == ["publish"] && (removed["projects"] as? [String]) == [project.id.uuidString] && publish.publications.isEmpty
               && store.comments(hero.id).contains { $0.text == "Pulled" }, "\(ops) \(removed)")
+        // #7: a live link no host holds goes on the NAS by itself (taken off by hand: only with Publish); a failure stays on
+        // the link and in the alert; this Mac never serves it meanwhile.
+        if let liveLink = store.links.first(where: { $0.project == project.id && $0.isLive && store.key($0.id) != nil }) {
+            let unheld = !publish.isOnHost(liveLink) && publish.placeHost?.id == nas.id && publish.neverServe
+            await publish.placeLinks()
+            let respected = publish.publications.isEmpty && publish.notPlaced[project.id] != nil
+            await publish.placeLinks(retry: true)
+            let placed = publish.publications.contains { $0.host == nas.id && $0.scope == ReviewPublish.placeScope(liveLink) } && publish.isOnHost(liveLink)
+                && publish.notPlaced[project.id] == nil && publish.placing.isEmpty
+            for item in publish.publications { await publish.remove(item.id) }
+            let working = ReviewHostClient.fake
+            ReviewHostClient.fake = { request, payload in request["op"] as? String == "publish" ? ["error": "space"] : working?(request, payload) }
+            DeliverNASAlert.shared.dismiss(now: .distantPast)
+            await publish.placeLinks(retry: true)
+            let failed = publish.publications.isEmpty && publish.notPlaced[project.id] != nil && DeliverNASAlert.shared.shown?.project == project.id && publish.neverServe
+            DeliverNASAlert.shared.dismiss(now: .distantPast)
+            ReviewHostClient.fake = working
+            check("review: a live link no host holds goes on the NAS by itself, never this Mac", unheld && respected && placed && failed,
+                  "\(unheld) \(respected) \(placed) \(failed) \(publish.problem ?? "-")")
+        } else { check("review: a live link no host holds goes on the NAS by itself, never this Mac", false, "no live link") }
 
         // Branding: a logo made small enough, colours made readable, in `ready` and in the manifest.
         let logoFile = base.appendingPathComponent("logo.png")
@@ -811,6 +831,22 @@ extension PhotoSelfTest {
               && clientList?.isEmpty == true && teamList?.count == 1 && count == 0
               && code(ask("p_c", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 3, "text": "x", "internal": true])) == "scope"
               && code(ask("p_c", ["t": "react", "comment": internalID, "emoji": "👍", "on": true])) == "notFound", "\(internalAdd)")
+
+        // #12: an internal reply in a thread clients see: the team gets it (marked), clients keep the thread without it; it
+        // round-trips on disk and through a merge with a copy that lost the flag.
+        let thread = (ask("p_c", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 4, "text": "Shorter?"])["comment"] as? [String: Any])?["id"] as? String ?? ""
+        let teamReply = ask("p_t", ["t": "reply-add", "comment": thread, "text": "Client wants it long", "internal": true])
+        let replies = { (peer: String) in (ask(peer, ["t": "comments", "asset": spot.id.uuidString, "version": spot.current.id.uuidString])["comments"] as? [[String: Any]])?
+            .first { $0["id"] as? String == thread }?["replies"] as? [[String: Any]] }
+        let stored = UUID(uuidString: thread).flatMap { store.comment($0) }
+        let reread = stored.flatMap { try? Deliver.decoder.decode(Deliver.Comment.self, from: Deliver.encoder.encode($0)) }
+        let lost = stored.map { var c = $0; c.replies = c.replies.map { var r = $0; r.internal = nil; return r }; c.rev = ($0.rev ?? 0) + 1; return c }
+        let merged = stored.flatMap { s in lost.map { DeliverMerge.comment(stored: s, incoming: $0) } }
+        check("parity: internal replies stay with the team", (teamReply["comment"] as? [String: Any]) != nil
+              && replies("p_t")?.first?["internal"] as? Bool == true && replies("p_c")?.isEmpty == true
+              && code(ask("p_c", ["t": "reply-add", "comment": thread, "text": "x", "internal": true])) == "scope"
+              && reread?.replies.first?.isInternal == true && merged?.replies.first?.isInternal == true, "\(teamReply) \(String(describing: replies("p_c")))")
+        if let id = UUID(uuidString: thread) { try? store.deleteComment(id) }
 
         // General, page and pinned comments.
         let generalAdd = ask("p_c", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": NSNull(), "text": "Love it overall #music"])
@@ -2906,7 +2942,9 @@ extension PhotoSelfTest {
               && U.nasReference("/Volumes/Renamed/Day 1/A.mov", hosts: hosts) == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/A.mov")
               && U.nasReference("/Volumes/Projects-2026-1/Day 1/A.mov", hosts: hosts) == ReviewPublish.nasPath(host: main.id, path: "nas1/Day 1/A.mov")
               && U.nasReference("/Volumes/Projects-2026-1/Day 1/A.mov", hosts: [backup]) == ReviewPublish.nasPath(host: backup.id, path: "nas1/Day 1/A.mov")
-              && U.nasReference("/Volumes/media/x.mov", hosts: hosts) == ReviewPublish.nasPath(host: bare.id, path: "nas2/x.mov")
+              && U.nasReference("/Volumes/media/x.mov", hosts: hosts) == nil // #9: a NAS that never said its roots: no share is one
+              && U.nasReference("/Volumes/media/x.mov", hosts: [{ var known = bare; known.rootNames = ["nas2": "media"]; return known }()]) == ReviewPublish.nasPath(host: bare.id, path: "nas2/x.mov")
+              && U.nasReference("/Volumes/media/x.mov", hosts: [{ var other = bare; other.rootNames = ["nas1": "Footage"]; return other }()]) == nil
               && U.nasReference("/Volumes/Elsewhere/x.mov", hosts: hosts) == nil && U.nasReference(local.path, hosts: hosts) == nil
               && U.nasReference("/Volumes/Footage/x.mov", hosts: hosts) == nil
               && U.nasReference("/Volumes/Renamed/../etc/x.mov", hosts: hosts) == nil, "")

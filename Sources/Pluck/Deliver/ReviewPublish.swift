@@ -117,6 +117,7 @@ final class ReviewPublish {
     var bundles: URL { store.root.appendingPathComponent("Bundles", isDirectory: true) }
 
     private func save() {
+        DeliverUploadDestination.forgetNASAnswers() // mounts or roots may have changed
         try? FileManager.default.createDirectory(at: store.root, withIntermediateDirectories: true)
         try? Deliver.encoder.encode(hosts).write(to: hostsFile, options: .atomic)
         shareVolumes.setServers(hosts)
@@ -259,7 +260,8 @@ final class ReviewPublish {
 
     /// A file on a share of the NAS mounted here (/Volumes/<anything>), matched by the share as the server names it, not by
     /// the volume's name: the share is one of the host's roots (by its name, or by id on that same server). The backup's
-    /// shares carry the main's root names, so they count too.
+    /// shares carry the main's root names, so they count too. A share that is no known root (or a NAS that hasn't said
+    /// its roots yet) is not the NAS's: the file counts as local, and the picker asks where it goes.
     nonisolated static func shareReference(_ path: String, on host: Deliver.Host) -> String? {
         let parts = path.split(separator: "/").map(String.init)
         guard parts.count >= 3, parts[0] == "Volumes", !parts.contains(".."), let share = shareVolumes.share("/Volumes/" + parts[1]) else { return nil }
@@ -269,7 +271,7 @@ final class ReviewPublish {
         let sameServer = !address.isEmpty && ShareVolumes.same(server, address)
         // By name only from a paired NAS (this one, or e.g. its backup): another server's "Footage" share isn't this NAS's.
         let root = (sameServer || shareVolumes.paired(server) ? names.first { $0.value.caseInsensitiveCompare(share.name) == .orderedSame }?.key : nil)
-            ?? (sameServer && (names.isEmpty || names[share.name] != nil) ? share.name : nil)
+            ?? (sameServer && names[share.name] != nil ? share.name : nil)
         guard let root, !root.isEmpty, !root.contains("/") else { return nil }
         return root + "/" + parts.dropFirst(2).joined(separator: "/")
     }
@@ -612,6 +614,62 @@ final class ReviewPublish {
         for publication in publications(asset: asset) { outbox[Self.dataName(host: publication.host, project: project), default: []].append(entry) }
     }
 
+    // MARK: - Live links on a host (clients are never served from this Mac while a NAS or always-on Mac exists)
+
+    /// DeliverLink.neverServe's rule: a NAS (main, backup or the data host) or an always-on Mac means clients are only
+    /// ever served from those.
+    var neverServe: Bool { hosts.contains { $0.kind == .nas || $0.kind == .mac } || pairedMac != nil || DeliverSync.shared.state.host != nil }
+
+    /// Projects of live links being put on a host now, and those where that didn't work (with the host's problem).
+    private(set) var placing: Set<UUID> = []
+    private(set) var notPlaced: [UUID: String] = [:]
+
+    /// Whether a host that serves clients holds the link: the data NAS syncs every project; another host has the link
+    /// when its project is published there whole, or (an asset link) that asset is (the manifest's rule for links).
+    func isOnHost(_ link: Deliver.ShareLink) -> Bool {
+        if DeliverSync.shared.state.host != nil { return true }
+        return publications.contains { $0.scope == .project(link.project) || $0.scope == link.scope }
+    }
+
+    /// Where a link no host has goes: the main NAS, else another NAS, else the always-on Mac. Never this Mac.
+    var placeHost: Deliver.Host? {
+        let nases = hosts.filter { $0.kind == .nas && !Self.isDataHost($0.id) }
+        return nases.first { $0.role != "backup" } ?? nases.first ?? pairedMac ?? hosts.first { $0.kind == .mac }
+    }
+
+    /// What a link needs published: its asset, else its whole project (a folder or a pick of assets goes with the project).
+    nonisolated static func placeScope(_ link: Deliver.ShareLink) -> Deliver.Scope {
+        if case .asset = link.scope { return link.scope }
+        return .project(link.project)
+    }
+
+    /// Live links made here that no serving host holds go on one by themselves (with a data NAS: a sync round, which
+    /// carries every project and its copies). A failure stays on the link's row and in the NAS alert; `retry` (the
+    /// row's Publish) tries one that failed again. Without a NAS or always-on Mac there's nothing to do: this Mac serves.
+    func placeLinks(retry: Bool = false) async {
+        guard neverServe else { return }
+        if DeliverSync.shared.state.host != nil {
+            if DeliverSync.shared.waiting > 0 { await DeliverSync.shared.round() }
+            return
+        }
+        var scopes: [Deliver.Scope] = []
+        for link in store.links where link.isLive && store.key(link.id) != nil && !isOnHost(link) {
+            let scope = Self.placeScope(link)
+            if !scopes.contains(scope), !scopes.contains(.project(link.project)) { scopes.append(scope) }
+        }
+        for scope in scopes where !placing.contains(scope.project) && (retry || notPlaced[scope.project] == nil) {
+            guard let host = placeHost else { return }
+            placing.insert(scope.project)
+            notPlaced[scope.project] = nil
+            await publish(scope, to: host)
+            placing.remove(scope.project)
+            guard !publications.contains(where: { $0.scope == scope && $0.host == host.id }) else { continue }
+            let why = problem ?? String(localized: "The host didn’t answer.")
+            notPlaced[scope.project] = why
+            DeliverNASAlert.shared.report(.init(title: String(localized: "Pluck can’t reach \(host.name)"), detail: why, project: scope.project))
+        }
+    }
+
     // MARK: - Publishing, pulling back, removing
 
     func publish(_ scope: Deliver.Scope, to host: Deliver.Host) async {
@@ -879,6 +937,8 @@ final class ReviewPublish {
     /// Off the host: what's left of the project there is published again, or the project and its links go.
     func remove(_ id: UUID) async {
         guard let publication = publications.first(where: { $0.id == id }) else { return }
+        // Taken off by hand: not put back on by itself in this session (the link's row offers Publish).
+        notPlaced[publication.scope.project] = notPlaced[publication.scope.project] ?? ""
         let project = publication.scope.project, name = Self.dataName(host: publication.host, project: project)
         let left = publications.contains { $0.id != id && $0.host == publication.host && $0.scope.project == project }
         let only = published(project, on: publication.host, without: id)

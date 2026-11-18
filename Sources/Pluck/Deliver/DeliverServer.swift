@@ -388,7 +388,9 @@ final class DeliverServer {
             inbox(comment.id, "comment", asset, version.id, comment.text, peer, link)
         case "reply-add":
             let found = try comment(message["comment"], link)
-            let changed = try store.reply(to: found.id, text: message["text"] as? String ?? "", author: author(peer), token: peer.token)
+            let isInternal = message["internal"] as? Bool ?? false
+            if isInternal, !link.isTeam { throw Deliver.Failure("scope") }
+            let changed = try store.reply(to: found.id, text: message["text"] as? String ?? "", author: author(peer), token: peer.token, isInternal: isInternal)
             reply(peer, id, ["comment": wire(changed, peer)])
             log(peer, "commented", asset: found.asset, version: found.version)
             if let asset = store.find(found.asset)?.asset, let made = changed.replies.last {
@@ -684,9 +686,13 @@ final class DeliverServer {
         json["internal"] = comment.isInternal
         json["mine"] = peer?.token != nil && comment.authorToken == peer?.token
         json["reactions"] = Self.reactions(comment, mine: peer?.token ?? "owner")
-        json["replies"] = comment.replies.map { reply -> [String: Any] in
-            ["id": reply.id.uuidString, "text": reply.text, "author": reply.author, "created": Self.date(reply.created),
-             "mine": peer?.token != nil && reply.authorToken == peer?.token]
+        // An internal reply goes to team links only (as on the helper): a client keeps the thread without it.
+        let team = peer.map { store.link($0.link)?.isTeam == true } ?? true
+        json["replies"] = comment.replies.filter { team || !$0.isInternal }.map { reply -> [String: Any] in
+            var wire: [String: Any] = ["id": reply.id.uuidString, "text": reply.text, "author": reply.author, "created": Self.date(reply.created),
+                                       "mine": peer?.token != nil && reply.authorToken == peer?.token]
+            if reply.isInternal { wire["internal"] = true }
+            return wire
         }
         return json
     }

@@ -40,7 +40,10 @@ enum DeliverMerge {
         var base = Stamp(incoming).rounded >= Stamp(stored).rounded ? incoming : stored
         let deleted = Set((stored.deletedReplies ?? []) + (incoming.deletedReplies ?? []))
         var seen = Set<UUID>(), replies: [Deliver.Comment.Reply] = []
-        for reply in base.replies + stored.replies + incoming.replies where !deleted.contains(reply.id) && seen.insert(reply.id).inserted {
+        // Internal stays internal: a copy that lost the flag (an older Pluck) never makes a team-only reply public.
+        let hidden = Set((stored.replies + incoming.replies).filter(\.isInternal).map(\.id))
+        for var reply in base.replies + stored.replies + incoming.replies where !deleted.contains(reply.id) && seen.insert(reply.id).inserted {
+            if hidden.contains(reply.id) { reply.internal = true }
             replies.append(reply)
         }
         base.replies = replies.sorted { ($0.created, $0.id.uuidString) < ($1.created, $1.id.uuidString) }

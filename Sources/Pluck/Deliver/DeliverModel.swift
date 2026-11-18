@@ -152,6 +152,8 @@ enum Deliver {
             var author: String
             var authorToken: String?
             var created = Date()
+            var `internal`: Bool? = nil  // team links and the owner only (the helper's flag; nil reads as false)
+            var isInternal: Bool { `internal` == true }
         }
     }
 

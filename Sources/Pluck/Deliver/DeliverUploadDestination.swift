@@ -508,10 +508,44 @@ extension DeliverUploadDestination {
     /// Whether a version's original is on a NAS (its NAS path, or a NAS mount), or isn't this Mac's at all (another
     /// Mac's, kept as copies on the data host). A local path whose drive isn't connected is still only here.
     /// (`host`: a NAS not in the list yet counts too.)
+    /// Asked in view bodies on every redraw (cards, the NAS row, the footer), so it never mounts a drive or share (an
+    /// unplugged one is just missing) and the answer is kept per version until its path, the hosts or the volumes change.
     static func onNAS(_ version: Deliver.Version, host: Deliver.Host? = nil, store: DeliverStore = .shared, publish: ReviewPublish = .shared) -> Bool {
         if ReviewPublish.browsed(version.path) != nil || version.path.hasPrefix("host:") { return true }
-        let path = store.original(version)?.path ?? version.path
-        return (publish.hosts + (host.map { [$0] } ?? [])).contains { ReviewPublish.reference(path, on: $0) != nil }
+        let cached = host == nil && store === DeliverStore.shared && publish === ReviewPublish.shared
+        if cached { watchVolumes() }
+        if cached, let known = nasAnswers[version.id], known.path == version.path { return known.onNAS }
+        let path = originalWithoutMounting(version)
+        let answer = (publish.hosts + (host.map { [$0] } ?? [])).contains { ReviewPublish.reference(path, on: $0) != nil }
+        if cached { nasAnswers[version.id] = (version.path, answer) }
+        return answer
+    }
+
+    /// Per version: the path it was asked with, and whether that original is on a NAS.
+    private static var nasAnswers: [UUID: (path: String, onNAS: Bool)] = [:]
+    private static var watching = false
+
+    /// Hosts changed (mounts, roots), a drive or share came or went, or the store changed: asked again.
+    static func forgetNASAnswers() { nasAnswers = [:] }
+
+    private static func watchVolumes() {
+        guard !watching else { return }
+        watching = true
+        let centre = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification, NSWorkspace.didRenameVolumeNotification] {
+            centre.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { forgetNASAnswers() } }
+        }
+        DeliverStore.shared.listeners.append { event in if case .assetChanged = event { forgetNASAnswers() } }
+    }
+
+    /// The original's path as far as can be told without mounting anything: where it is, else where its bookmark points
+    /// on a volume that's here (`withoutMounting`), else its recorded path.
+    private static func originalWithoutMounting(_ version: Deliver.Version) -> String {
+        if FileManager.default.fileExists(atPath: version.path) { return version.path }
+        var stale = false
+        if let url = version.bookmark.flatMap({ try? URL(resolvingBookmarkData: $0, options: [.withoutMounting, .withoutUI], bookmarkDataIsStale: &stale) }),
+           FileManager.default.fileExists(atPath: url.path) { return url.path }
+        return version.path
     }
 
     /// The versions in `scope` (all, or `only`) whose original is only on this Mac.

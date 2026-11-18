@@ -167,7 +167,10 @@ struct DeliverCommentsPanel: View {
             reactions(comment)
             ForEach(comment.replies) { item in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(verbatim: item.author).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    HStack(spacing: 6) {
+                        Text(verbatim: item.author).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                        if item.isInternal { StudioChip(text: Text("Internal"), symbol: "lock.fill", colour: Design.Studio.warn, tinted: true).help("Internal: only your team sees it") }
+                    }
                     Text(verbatim: item.text).font(Design.Studio.body).foregroundStyle(Design.Studio.text).fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.leading, 12)

@@ -143,10 +143,7 @@ final class DeliverLink {
     /// those (the fastest NAS first, an always-on Mac only while no NAS holds the room), never from this Mac: the helper
     /// still registers (so the room is the owner's) but lets go of any room none of them holds. With neither (a plain
     /// setup), this Mac serves as before.
-    var neverServe: Bool {
-        let publish = ReviewPublish.shared
-        return publish.hosts.contains { $0.kind == .nas || $0.kind == .mac } || publish.pairedMac != nil || DeliverSync.shared.state.host != nil
-    }
+    var neverServe: Bool { ReviewPublish.shared.neverServe }
 
     /// A NAS or always-on Mac added or removed: a running helper starts again with the new `neverServe`.
     private func watchHosts() {
@@ -155,11 +152,19 @@ final class DeliverLink {
                 guard let self else { return }
                 self.watchHosts()
                 if self.process != nil, self.launchedNeverServe != (self.settings()["neverServe"] as? Bool == true) { self.stop(); self.update() }
+                self.place()
             }
         }
     }
 
+    /// Live links no NAS or always-on Mac holds go on one (never served from here instead). Test copies keep away.
+    private func place() {
+        guard ScreenshotMode.scene == nil else { return }
+        Task { await ReviewPublish.shared.placeLinks() }
+    }
+
     func update() {
+        place()
         let rooms = rooms
         if rooms.isEmpty { return stop() }
         if process == nil { launch() } else { write(["rooms": rooms]) }

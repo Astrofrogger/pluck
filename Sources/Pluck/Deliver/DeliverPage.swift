@@ -1061,9 +1061,22 @@ struct DeliverLinkRow: View {
     @State private var deleting = false
     @State private var renewing = false
 
+    /// With a NAS or always-on Mac, a link no host holds yet: it's being put on one, or that didn't work (Publish).
+    private var unplaced: (host: String, failed: Bool)? {
+        let publish = ReviewPublish.shared
+        guard link.isLive, store.key(link.id) != nil, DeliverLink.shared.neverServe else { return nil }
+        if let data = DeliverSync.shared.dataHost {
+            // The data NAS gets it with the next sync round (its changes still waiting while the room has no host).
+            return DeliverServer.shared.rooms[link.roomID] == "nohost" && DeliverSync.shared.waiting > 0 ? (data.name, DeliverSync.shared.problem != nil) : nil
+        }
+        guard !publish.isOnHost(link), let host = publish.placeHost else { return nil }
+        return (host.name, !publish.placing.contains(link.project) && publish.notPlaced[link.project] != nil)
+    }
+
     /// The helper's room state: an always-on host serves it (standby here), this Mac does, or (with a NAS, which this
     /// Mac never stands in for) nobody until the NAS is back.
     private var served: String? {
+        if let unplaced { return unplaced.failed ? String(localized: "Not on \(unplaced.host) yet") : String(localized: "Putting it on \(unplaced.host)…") }
         switch DeliverServer.shared.rooms[link.roomID] {
         case "standby":
             let host = ReviewPublish.shared.publications.first { $0.scope.project == link.project }.flatMap { ReviewPublish.shared.host($0.host) }
@@ -1118,6 +1131,12 @@ struct DeliverLinkRow: View {
                         StudioChip(text: Text("Made on \(device)"))
                     } else if let url = DeliverServer.shared.shareURL(link) {
                         Button("Copy") { DeliverLinkShare.copy(url) }.buttonStyle(StudioFlatButtonStyle())
+                    }
+                    if unplaced?.failed == true {
+                        Button("Publish") {
+                            if DeliverSync.shared.dataHost != nil { DeliverNASAlert.shared.retry() } else { Task { await ReviewPublish.shared.placeLinks(retry: true) } }
+                        }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: true))
                     }
                     menu
                 }
