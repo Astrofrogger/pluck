@@ -93326,6 +93326,64 @@
         }
       }
     },
+    "Drop the new render on the asset; it reaches the NAS and your clients by itself." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leg den neuen Render auf das Asset; er erreicht NAS und Kunden von selbst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Suelta el nuevo render sobre el recurso; llega solo al NAS y a tus clientes."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Déposez le nouveau rendu sur l’élément ; il arrive tout seul sur le NAS et chez vos clients."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trascina il nuovo render sull’elemento; arriva da solo al NAS e ai clienti."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "新しい書き出しをアセットにドロップするだけで、NASとクライアントに自動で届きます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "새 렌더를 에셋에 놓으면 NAS와 클라이언트에게 알아서 전달됩니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sleep de nieuwe render op het item; die komt vanzelf op de NAS en bij je klanten."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solte o novo render no item; ele chega sozinho ao NAS e aos clientes."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "把新渲染拖到素材上，它会自动送到 NAS 和客户那里。"
+          }
+        }
+      }
+    },
     "Drop videos here" : {
       "localizations" : {
         "de" : {
@@ -96293,6 +96351,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "可编辑标题的文字和颜色，或关闭其背景。新增 15 种转场：擦除、光圈、推入、甩镜、缩放和模糊。同时支持 Canon Log 2。"
+          }
+        }
+      }
+    },
+    "Edit any link, turn on downloads later and save your usual settings as the default." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Jeden Link bearbeiten, Downloads später erlauben und deine üblichen Einstellungen als Standard sichern."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edita cualquier enlace, activa las descargas después y guarda tus ajustes habituales como predeterminados."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifiez chaque lien, autorisez les téléchargements plus tard et enregistrez vos réglages habituels par défaut."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Modifica qualsiasi link, attiva i download in seguito e salva le tue impostazioni abituali come predefinite."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "どのリンクも編集でき、ダウンロードをあとから許可し、いつもの設定をデフォルトとして保存できます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "어떤 링크든 편집하고, 다운로드를 나중에 켜고, 평소 설정을 기본값으로 저장하세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bewerk elke link, zet downloads later aan en bewaar je vaste instellingen als standaard."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Edite qualquer link, libere downloads depois e salve seus ajustes de sempre como padrão."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "编辑任意链接、之后再开放下载，并把常用设置存为默认。"
           }
         }
       }
@@ -114062,6 +114178,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "素材存到 NAS"
+          }
+        }
+      }
+    },
+    "Footage straight into the client folder" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Material direkt in den Kundenordner"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Material directo a la carpeta del cliente"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Les rushes directement dans le dossier client"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Materiale direttamente nella cartella del cliente"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "素材をクライアントフォルダへ直接"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "클라이언트 폴더로 바로 보내는 소스"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Beeldmateriaal direct in de klantmap"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Material direto na pasta do cliente"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "素材直接放进客户文件夹"
           }
         }
       }
@@ -143192,6 +143366,64 @@
         }
       }
     },
+    "Links you can change" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Links, die du ändern kannst"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enlaces que puedes cambiar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Des liens modifiables"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Link che puoi modificare"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "あとから変えられるリンク"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "나중에 바꿀 수 있는 링크"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Links die je kunt aanpassen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Links que você pode mudar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "可随时修改的链接"
+          }
+        }
+      }
+    },
     "Lips" : {
       "localizations" : {
         "de" : {
@@ -168642,6 +168874,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "新版本"
+          }
+        }
+      }
+    },
+    "New versions on the same link" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Neue Versionen im selben Link"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuevas versiones en el mismo enlace"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nouvelles versions sur le même lien"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nuove versioni sullo stesso link"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同じリンクに新しいバージョン"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "같은 링크에 새 버전"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nieuwe versies op dezelfde link"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Novas versões no mesmo link"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "同一链接上的新版本"
           }
         }
       }
@@ -199101,6 +199391,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "在照片上选取颜色"
+          }
+        }
+      }
+    },
+    "Pick any folder on the NAS share; this Mac copies the original there. No extra folder needed." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Wähle einen beliebigen Ordner auf der NAS-Freigabe; dieser Mac kopiert das Original dorthin. Kein Extra-Ordner nötig."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Elige cualquier carpeta del recurso compartido del NAS; este Mac copia allí el original. Sin carpeta extra."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez n’importe quel dossier du partage du NAS ; ce Mac y copie l’original. Aucun dossier en plus."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Scegli una cartella qualsiasi della condivisione del NAS; questo Mac vi copia l’originale. Nessuna cartella in più."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NAS共有の好きなフォルダを選ぶと、このMacがオリジナルをコピーします。追加のフォルダは不要です。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "NAS 공유의 아무 폴더나 고르면 이 Mac이 원본을 복사합니다. 추가 폴더가 필요 없습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kies een map op de NAS-share; deze Mac kopieert het origineel erheen. Geen extra map nodig."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Escolha qualquer pasta do compartilhamento do NAS; este Mac copia o original para lá. Sem pasta extra."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "在 NAS 共享中任选文件夹，这台 Mac 会把原片复制过去，无需额外文件夹。"
           }
         }
       }

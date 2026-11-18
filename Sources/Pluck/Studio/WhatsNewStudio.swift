@@ -7,6 +7,14 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.6", items: [
+                Item(symbol: "folder.badge.plus", title: String(localized: "Footage straight into the client folder"),
+                     detail: String(localized: "Pick any folder on the NAS share; this Mac copies the original there. No extra folder needed.")),
+                Item(symbol: "link", title: String(localized: "Links you can change"),
+                     detail: String(localized: "Edit any link, turn on downloads later and save your usual settings as the default.")),
+                Item(symbol: "square.stack.3d.up", title: String(localized: "New versions on the same link"),
+                     detail: String(localized: "Drop the new render on the asset; it reaches the NAS and your clients by itself.")),
+            ]),
             Release(version: "4.0.5", items: [
                 Item(symbol: "server.rack", title: String(localized: "Clients watch from your NAS"),
                      detail: String(localized: "Review links come from your NAS, never from the Mac you edit on.")),
