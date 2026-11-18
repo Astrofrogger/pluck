@@ -44,6 +44,7 @@ struct DeliverHostSheet: View {
     @State private var problem: String?
     @State private var quiet = "04:00"
     @State private var action: DeliverHostAction?
+    @State private var apiKey = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -55,7 +56,30 @@ struct DeliverHostSheet: View {
             VStack(alignment: .leading, spacing: 2) {
                 SettingRow(text: Text("Version"), detail: Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")")) {
                     Button("Update Now") { Task { await updateNow() } }.settingButton()
-                        .disabled(!DeliverPeople.isAdmin(host) || updates.release == nil || updates.updating != nil || host.version == updates.release?.version)
+                        .disabled(!DeliverPeople.isAdmin(host) || updates.release == nil || updates.updating != nil || updates.asking.contains(host.id)
+                                  || host.version == updates.release?.version)
+                }
+                if updates.asking.contains(host.id) || updates.updating == host.id {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.small)
+                        Text("Updating… this can take a few minutes.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                    .padding(.horizontal, 14)
+                } else if updates.noUpdater.contains(host.id) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Pluck can’t update this NAS from here. Paste its TrueNAS API key to update it.")
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                        HStack(spacing: 6) {
+                            SecureField("TrueNAS API key", text: $apiKey).settingField(width: 260)
+                            Button("Update") {
+                                guard let release = updates.release else { return }
+                                let key = apiKey
+                                apiKey = ""
+                                Task { await updates.update(host, to: release, apiKey: key) }
+                            }.settingButton().disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 4)
                 }
                 if let last = updates.results[host.id] {
                     Text("Last update: \(last.result) · \(last.at.formatted(date: .abbreviated, time: .shortened))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
@@ -179,7 +203,7 @@ struct DeliverHostSheet: View {
         if TrueNASKeychain.load(host.address?.split(separator: ":").first.map(String.init) ?? "") != nil {
             await updates.update(host, to: release, forced: false)
         } else {
-            _ = try? await ReviewHostClient.ask(host, ["op": "update", "version": release.version])
+            await updates.ask(host, to: release)
         }
     }
 }

@@ -18,7 +18,7 @@ struct DeliverShareSheet: View {
     @State private var invited: [Deliver.ShareLink] = []
     @State private var names = ""
     @State private var inviting = false
-    @State private var editing: UUID?
+    @State private var hasDefault = DeliverLinkOptions.hasDefault
     @State private var problem: String?
     @State private var copyWhenReady = false
     @State private var originals: DeliverUploadDestination.Offer?
@@ -28,7 +28,7 @@ struct DeliverShareSheet: View {
 
     init(scope: Deliver.Scope) {
         self.scope = scope
-        _draft = State(initialValue: Deliver.ShareLink(title: "", scope: scope, roomID: ""))
+        _draft = State(initialValue: DeliverLinkOptions.draft(scope))
     }
 
     var body: some View {
@@ -50,14 +50,7 @@ struct DeliverShareSheet: View {
                 let existing = store.links.filter { $0.scope == scope && $0.isLive && $0.id != made?.id && !invited.contains($0) }
                 if !existing.isEmpty {
                     Text("Links").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.top, 4)
-                    ForEach(existing) { link in
-                        VStack(spacing: 6) {
-                            DeliverLinkRow(link: link, viewers: DeliverServer.shared.viewers(link: link.id))
-                            if editing == link.id { DeliverLinkOptions(link: Binding(get: { store.link(link.id) ?? link }, set: { DeliverLinkOptions.save($0) }), editing: true) }
-                        }
-                        .contextMenu { Button("Edit Settings") { editing = editing == link.id ? nil : link.id } }
-                        .onTapGesture { editing = editing == link.id ? nil : link.id }
-                    }
+                    ForEach(existing) { link in DeliverLinkRow(link: link, viewers: DeliverServer.shared.viewers(link: link.id)) }
                 }
                 if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad) }
                 HStack {
@@ -98,6 +91,19 @@ struct DeliverShareSheet: View {
             }
             DisclosureGroup(isExpanded: $more) {
                 DeliverLinkOptions(link: $draft, editing: false).padding(.top, 4)
+                HStack(spacing: 6) {
+                    if hasDefault { Text("New links start with these settings.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
+                    Spacer()
+                    if hasDefault {
+                        Button("Reset to Pluck’s Defaults") {
+                            DeliverLinkOptions.resetDefault()
+                            DeliverLinkOptions.preset(from: Deliver.ShareLink(title: "", scope: scope, roomID: ""), to: &draft)
+                            hasDefault = false
+                        }.settingButton()
+                    }
+                    Button("Save as Default") { DeliverLinkOptions.saveDefault(draft); hasDefault = true }.settingButton()
+                }
+                .padding(.top, 6)
             } label: {
                 Text("More").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
@@ -251,6 +257,44 @@ struct DeliverLinkOptions: View {
     var editing: Bool
     @State private var password = ""
 
+    // MARK: - Default settings for new links (this Mac)
+
+    static let defaultKey = "deliverLinkDefault"
+    static var hasDefault: Bool { UserDefaults.standard.data(forKey: defaultKey) != nil }
+
+    /// What Save as Default keeps: how a link behaves. Not its title, note, password, expiry, deadline, what it shares or who (team).
+    static func preset(from source: Deliver.ShareLink, to link: inout Deliver.ShareLink) {
+        link.mode = source.mode
+        link.allowDownload = source.allowDownload
+        link.latestOnly = source.latestOnly
+        link.layout = source.layout
+        link.requireName = source.requireName
+        link.askEmail = source.askEmail
+        link.allowProxy = source.allowProxy
+        link.watermark = source.watermark
+        link.fields = source.fields
+        link.featuredField = source.featuredField
+        link.uploads = source.uploads.map { var uploads = $0; uploads.folder = nil; return uploads }   // (a folder is one project's)
+        link.notifyOpened = source.notifyOpened
+    }
+
+    static func saveDefault(_ draft: Deliver.ShareLink) {
+        var kept = Deliver.ShareLink(title: "", scope: draft.scope, roomID: "")
+        preset(from: draft, to: &kept)
+        UserDefaults.standard.set(try? Deliver.encoder.encode(kept), forKey: defaultKey)
+    }
+
+    static func resetDefault() { UserDefaults.standard.removeObject(forKey: defaultKey) }
+
+    /// A new link's draft: Pluck's defaults, or the ones saved here.
+    static func draft(_ scope: Deliver.Scope) -> Deliver.ShareLink {
+        var draft = Deliver.ShareLink(title: "", scope: scope, roomID: "")
+        if let data = UserDefaults.standard.data(forKey: defaultKey), let saved = try? Deliver.decoder.decode(Deliver.ShareLink.self, from: data) {
+            preset(from: saved, to: &draft)
+        }
+        return draft
+    }
+
     /// The settings that aren't the basics, from a draft onto a made link.
     static func apply(_ draft: Deliver.ShareLink, to link: inout Deliver.ShareLink) {
         link.description = draft.description?.isEmpty == false ? Deliver.clean(draft.description!, limit: DeliverStore.textLimit) : nil
@@ -268,11 +312,35 @@ struct DeliverLinkOptions: View {
     }
 
     /// An edit saved; a changed watermark makes that link's burned-in copies again.
-    @MainActor static func save(_ changed: Deliver.ShareLink) {
-        let store = DeliverStore.shared
+    @MainActor static func save(_ changed: Deliver.ShareLink, store: DeliverStore = .shared) {
         let before = store.link(changed.id)
         store.updateLink(changed.id) { $0 = changed }
-        if before?.watermark != changed.watermark { DeliverCopies.shared.remark(changed) }
+        // (Assets added to a link with a burned-in watermark need their marked copies too.)
+        if before?.watermark != changed.watermark || (before?.scope != changed.scope && changed.watermark?.burned == true) { DeliverCopies.shared.remark(changed) }
+    }
+
+    /// A link to picked assets: what it shares, changed afterwards (one stays at least).
+    private func assets(_ ids: [UUID], project: UUID) -> some View {
+        let store = DeliverStore.shared
+        let others = store.content(project).assets.filter { !ids.contains($0.id) }
+        return StudioField(label: "Assets") {
+            VStack(alignment: .trailing, spacing: 4) {
+                ForEach(ids, id: \.self) { id in
+                    HStack(spacing: 6) {
+                        Text(verbatim: store.find(id)?.asset.name ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                        Button { link.scope = .assets(ids.filter { $0 != id }, project: project) } label: { Image(systemName: "minus.circle") }
+                            .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).disabled(ids.count == 1).help("Remove from this link")
+                    }
+                }
+                if !others.isEmpty {
+                    Menu {
+                        ForEach(others) { asset in Button(asset.name) { link.scope = .assets(ids + [asset.id], project: project) } }
+                    } label: { StudioMenuLabel(title: String(localized: "Add…")) }
+                        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                }
+            }
+            .padding(.vertical, 4)
+        }
     }
 
     private func flag(_ path: WritableKeyPath<Deliver.ShareLink, Bool?>) -> Binding<Bool> {
@@ -281,6 +349,12 @@ struct DeliverLinkOptions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
+            if editing, case .assets(let ids, let project) = link.scope {
+                assets(ids, project: project)
+            } else if editing {
+                Text("New versions show on this link by themselves: drop the new render on the asset.")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.vertical, 4)
+            }
             if editing {
                 StudioField(label: "Mode") {
                     StudioSegmented(options: [(Deliver.ShareLink.Mode.review, LocalizedStringKey("Review")), (.presentation, LocalizedStringKey("Presentation"))], selection: $link.mode)

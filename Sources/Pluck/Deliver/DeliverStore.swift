@@ -786,6 +786,10 @@ final class DeliverStore {
         var a = before, b = links[index]
         a.lastOpened = nil; b.lastOpened = nil; a.reminded = nil; b.reminded = nil
         if a != b { stampLink(index) }
+        // Downloads on afterwards: the data NAS gets the project's assets again, with the originals it doesn't have (DeliverSync.pushFiles).
+        if !before.allowDownload, b.allowDownload, b.isLive {
+            note(.objects(project: b.project, meta: false, folders: [], assets: content(b.project).assets.map(\.id), links: []))
+        }
         saveLinks()
     }
 

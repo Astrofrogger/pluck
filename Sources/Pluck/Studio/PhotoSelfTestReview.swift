@@ -481,6 +481,23 @@ extension PhotoSelfTest {
         let lockedAnswer = connect("p_lockcheck", locked, password: "right")
         check("review: password limits", closedAfter == 5 && tries == 20 && code(lockedAnswer.ready) == "locked", "\(lockedAnswer.ready)")
 
+        // Save as Default: new links start with how a link behaves, never its title, note, password, expiry, team or scope.
+        do {
+            let kept = UserDefaults.standard.data(forKey: DeliverLinkOptions.defaultKey)
+            var preset = Deliver.ShareLink(title: "Cut 3", scope: .project(project.id), roomID: "", mode: .presentation, allowDownload: true, latestOnly: true,
+                                           expires: .now.addingTimeInterval(86400))
+            preset.layout = "reel"; preset.audience = "team"; preset.description = "Note"; preset.passwordHash = "x"; preset.deadline = .now
+            preset.uploads = .init(folder: UUID()); preset.requireName = true
+            DeliverLinkOptions.saveDefault(preset)
+            let starts = DeliverLinkOptions.draft(.asset(hero.id, project: project.id))
+            DeliverLinkOptions.resetDefault()
+            let plain = DeliverLinkOptions.draft(.asset(hero.id, project: project.id))
+            UserDefaults.standard.set(kept, forKey: DeliverLinkOptions.defaultKey)
+            check("review: link defaults", starts.allowDownload && starts.latestOnly && starts.mode == .presentation && starts.layout == "reel" && starts.requireName == true
+                  && starts.uploads != nil && starts.uploads?.folder == nil && starts.title.isEmpty && starts.audience == nil && starts.description == nil
+                  && starts.expires == nil && starts.passwordHash == nil && starts.deadline == nil && starts.scope == .asset(hero.id, project: project.id)
+                  && !plain.allowDownload && plain.layout == nil && plain.mode == .review && plain.uploads == nil, "")
+        }
         // Publishing (§12): the data folder and manifest, by reference on a NAS, merging a host's entries, removing.
         let publish = ReviewPublish(store: store)
         let dataFolder = base.appendingPathComponent("Data", isDirectory: true)
@@ -612,6 +629,53 @@ extension PhotoSelfTest {
               && dropped.contains(extra?.id.uuidString ?? "-") && ((linkOps.last?["manifest"] as? [String: Any])?["projects"] as? [Any])?.isEmpty == true
               && !((linkOps.last?["manifest"] as? [String: Any])?["links"] as? [[String: Any]] ?? []).contains { $0["id"] as? String == extra?.id.uuidString },
               "\(linkOps.count) \(dropped)")
+        // Downloads turned on after the link was made: published again (the NAS gets the originals with it), and served so.
+        linkOps = []
+        ops = []
+        store.updateLink(live.id) { $0.allowDownload = true }
+        await publish.sendLinks()
+        let republished = linkOps.last?["manifest"] as? [String: Any]
+        let liveWire = (republished?["links"] as? [[String: Any]] ?? []).first { $0["id"] as? String == live.id.uuidString }
+        check("review: downloads turned on later reach the NAS", ops.first == "list" && (republished?["projects"] as? [Any])?.isEmpty == false
+              && liveWire?["allowDownload"] as? Bool == true && store.link(live.id).map { DeliverServer.linkInfo($0, store: store)["allowDownload"] as? Bool } == true, "\(ops)")
+        store.updateLink(live.id) { $0.allowDownload = false }
+        await publish.sendLinks()
+        // A new version (here on the NAS's share) goes to the NAS by itself: every link on the asset shows it.
+        ops = []
+        linkOps = []
+        let newer = try? store.addVersion(reference: ReviewPublish.nasPath(host: nas.id, path: "nas1/Hero 30s v2.mov"), size: 1, to: hero.id)
+        try? await Task.sleep(for: .seconds(2))
+        let sentNewer = ((linkOps.last?["manifest"] as? [String: Any])?["projects"] as? [[String: Any]] ?? []).flatMap { $0["assets"] as? [[String: Any]] ?? [] }
+            .flatMap { $0["versions"] as? [[String: Any]] ?? [] }.contains { $0["id"] as? String == newer?.id.uuidString && $0["source"] as? String == "nas1/Hero 30s v2.mov" }
+        check("review: a new version is published by itself", newer != nil && sentNewer && ops.contains("list"), "\(ops)")
+        if let newer { store.removeVersion(newer.id, of: hero.id) }
+        // Changing what a link to picked assets shares, afterwards.
+        if let picked = try? store.newLink(scope: .assets([hero.id], project: project.id), title: "Picks"), var changed = store.link(picked.id) {
+            let scoper = DeliverServer(store: store)
+            changed.scope = .assets([hero.id, dropAsset.id], project: project.id)
+            DeliverLinkOptions.save(changed, store: store)
+            let grown = store.link(picked.id)
+            let grownWire = (publish.manifest(project: project.id, only: nil, host: nasHost).json["links"] as? [[String: Any]] ?? []).first { $0["id"] as? String == picked.id.uuidString }
+            changed.scope = .assets([dropAsset.id], project: project.id)
+            DeliverLinkOptions.save(changed, store: store)
+            let shrunk = store.link(picked.id)
+            check("review: a picked-assets link changed afterwards", grown.map { scoper.inScope(hero, $0) && scoper.inScope(dropAsset, $0) } == true
+                  && (grownWire?["root"] as? [String: Any])?["assets"] as? [String] == [hero.id.uuidString, dropAsset.id.uuidString]
+                  && shrunk.map { !scoper.inScope(hero, $0) && scoper.inScope(dropAsset, $0) } == true && shrunk?.roomID == picked.roomID, "")
+            store.revoke(picked.id)
+            await publish.sendLinks()
+        }
+        // Update Now on a NAS without its own updater (TrueNAS without the API key here): it says so after waiting.
+        let updates = DeliverHostUpdate()
+        let release = DeliverHostUpdate.Release(version: "99.0.0", level: ReviewHostClient.protocolLevel, image: "", assets: [:])
+        await updates.ask(nasHost, to: release, checks: 2, every: .milliseconds(20))
+        let stuck = updates.noUpdater.contains(nasHost.id)
+        let quiet = ReviewHostClient.fake
+        ReviewHostClient.fake = { request, payload in request["op"] as? String == "status" ? ["version": "99.0.0"] : quiet?(request, payload) }
+        await updates.ask(nasHost, to: release, checks: 2, every: .milliseconds(20))
+        ReviewHostClient.fake = quiet
+        check("review: Update Now says when it can't update the NAS", stuck && !updates.noUpdater.contains(nasHost.id) && updates.asking.isEmpty
+              && updates.results[nasHost.id]?.result == "ok", "")
         ReviewHostClient.fake = beforeLinks
         ops = []
         var removed: [String: Any] = [:]

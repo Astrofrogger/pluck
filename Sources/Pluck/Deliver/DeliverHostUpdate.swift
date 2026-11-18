@@ -175,6 +175,39 @@ final class DeliverHostUpdate {
         }
     }
 
+    // MARK: - Update Now without a TrueNAS API key
+
+    /// Hosts asked to update themselves and not heard back from yet, and those whose version didn't move (a TrueNAS
+    /// host ignores the ask: only its API updates it).
+    private(set) var asking: Set<UUID> = []
+    var noUpdater: Set<UUID> = []   // (set by screenshots too)
+
+    /// The host's own updater (Proxmox) asked; its version watched about 2 minutes (`checks` × `every`).
+    func ask(_ host: Deliver.Host, to release: Release, checks: Int = 24, every: Duration = .seconds(5)) async {
+        guard !asking.contains(host.id) else { return }
+        asking.insert(host.id)
+        noUpdater.remove(host.id)
+        defer { asking.remove(host.id) }
+        _ = try? await ReviewHostClient.ask(host, ["op": "update", "version": release.version])
+        for _ in 0..<checks {
+            try? await Task.sleep(for: every)
+            if let version = (try? await ReviewHostClient.ask(host, ["op": "status"]))?["version"] as? String, version != host.version {
+                results[host.id] = ("ok", .now, nil)
+                return
+            }
+        }
+        noUpdater.insert(host.id)
+    }
+
+    /// The API key pasted after that: kept in the Keychain (as TrueNAS setup does), then the update through the API.
+    func update(_ host: Deliver.Host, to release: Release, apiKey: String) async {
+        let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty, let address = host.address?.split(separator: ":").first.map(String.init) else { return }
+        TrueNASKeychain.save(key, for: address)
+        noUpdater.remove(host.id)
+        await update(host, to: release, forced: false)
+    }
+
     private func notify(_ text: String, host: Deliver.Host) {
         guard ScreenshotMode.scene == nil else { return }
         let content = UNMutableNotificationContent()

@@ -81,6 +81,13 @@ struct DeliverPage: View {
             case "links": nav.deliver = .links(project.id, link: nil)
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
+            case "shareedit": DeliverLinkRow.editOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
+            case "hostupdate":
+                // Update Now on a NAS that didn't move (no TrueNAS API key here): the message and the key field.
+                let sample = Deliver.Host(name: "Studio NAS", kind: .nas, address: "192.0.2.10:8790", pin: Array(repeating: "AB", count: 32).joined(separator: ":"), role: "main")
+                DeliverHostUpdate.shared.noUpdater.insert(sample.id)
+                panelInPage = AnyView(DeliverHostSheet(host: sample))
+                nav.deliver = .inbox
             case "browse": nav.deliver = .browse(.local)
             case "browsenas", "uploaddest", "uploaddestnone", "uploaddestshare", "publishnas":
                 // Two stand-in review servers (main and backup) answering browse with two media roots.
@@ -1064,6 +1071,9 @@ struct DeliverLinkRow: View {
     @State private var reopening = false
     @State private var deleting = false
     @State private var renewing = false
+    @State private var editing = DeliverLinkRow.editOpen
+    /// Screenshots: a link's settings open.
+    @MainActor static var editOpen = false
 
     /// With a NAS or always-on Mac, a link no host holds yet: it's being put on one, or that didn't work (Publish).
     private var unplaced: (host: String, failed: Bool)? {
@@ -1136,6 +1146,9 @@ struct DeliverLinkRow: View {
                     } else if let url = DeliverServer.shared.shareURL(link) {
                         Button("Copy") { DeliverLinkShare.copy(url) }.buttonStyle(StudioFlatButtonStyle())
                     }
+                    if !store.isForeign(link) {
+                        Button("Edit") { editing.toggle() }.buttonStyle(StudioFlatButtonStyle(prominent: editing))
+                    }
                     if unplaced?.failed == true {
                         Button("Publish") {
                             if DeliverSync.shared.dataHost != nil { DeliverNASAlert.shared.retry() } else { Task { await ReviewPublish.shared.placeLinks(retry: true) } }
@@ -1150,6 +1163,11 @@ struct DeliverLinkRow: View {
             }
             if qr, let url = DeliverServer.shared.shareURL(link), let image = DeliverLinkShare.qr(url) {
                 Image(nsImage: image).interpolation(.none).resizable().frame(width: 150, height: 150).padding(8).background(.white, in: .rect(cornerRadius: 8))
+            }
+            // Changed here, live: the hosts and open browsers get it at once (ReviewPublish.sendLinks, DeliverSync).
+            if editing, link.isLive {
+                DeliverLinkOptions(link: Binding(get: { store.link(link.id) ?? link }, set: { DeliverLinkOptions.save($0) }), editing: true)
+                    .padding(.top, 4).onTapGesture {}   // (a tap in here isn't the row's)
             }
         }
         .padding(12)

@@ -294,6 +294,12 @@ struct DeliverProjectView: View {
         Button("Share…") { sharing = .asset(asset.id, project: project) }
         Button("Info…") { info = asset.id }
         Button("Publish…") { publishing = .asset(asset.id, project: project) }
+        Button("Add Version…") {
+            // (Same as dropping a file on the card: the links on it show the new version by themselves.)
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = false
+            if panel.runModal() == .OK, let url = panel.url { addVersion(url, to: asset) }
+        }
         Button("Reveal in Finder") { if let url = store.original(asset.current) { NSWorkspace.shared.activateFileViewerSelecting([url]) } }
         Menu("Set Status") {
             ForEach(Deliver.Status.allCases, id: \.self) { status in

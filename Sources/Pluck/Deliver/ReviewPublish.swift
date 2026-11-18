@@ -100,6 +100,12 @@ final class ReviewPublish {
     /// Per project, the link state hosts were last sent (see linkState), and the update on its way.
     @ObservationIgnored private var sentLinks: [UUID: String] = [:]
     @ObservationIgnored private var linkUpdate: Task<Void, Never>?
+    /// Per project, whether its last full publish carried originals (a live link allowing downloads); one turned on
+    /// afterwards publishes it again, so the host has them (sendLinks).
+    @ObservationIgnored private var sentOriginals: [UUID: Bool] = [:]
+    /// Versions the (not data) hosts were sent, from launch on what's there now; a new one publishes again (newVersions).
+    @ObservationIgnored private var sentVersions: Set<UUID> = []
+    @ObservationIgnored private var versionUpdate: [UUID: Task<Void, Never>] = [:]
 
     init(store: DeliverStore) {
         self.store = store
@@ -108,7 +114,38 @@ final class ReviewPublish {
         publications = (try? Data(contentsOf: publishedFile)).flatMap { try? Deliver.decoder.decode([Deliver.Publication].self, from: $0) } ?? []
         seqs = (try? Data(contentsOf: seqsFile)).flatMap { try? JSONDecoder().decode([String: Int].self, from: $0) } ?? [:]
         store.listeners.append { [weak self] in self?.heard($0) }
-        for project in Set(publications.map(\.scope.project)) { sentLinks[project] = linkState(project) }
+        for project in Set(publications.map(\.scope.project)) {
+            sentLinks[project] = linkState(project)
+            sentOriginals[project] = downloads(project)
+            sentVersions.formUnion(store.content(project).assets.flatMap(\.versions).map(\.id))
+        }
+    }
+
+    /// Whether a live link of the project allows downloads (its originals go to the hosts with it).
+    private func downloads(_ project: UUID) -> Bool { store.links.contains { $0.project == project && $0.isLive && $0.allowDownload } }
+
+    /// A version that can go: its review copy made here, or the NAS has the original and makes it.
+    private func goes(_ version: Deliver.Version, to host: Deliver.Host) -> Bool {
+        if case .ready = version.copy { return true }
+        return host.kind == .nas && Self.reference(store.original(version)?.path ?? version.path, on: host) != nil
+    }
+
+    /// A new version (dropped on an asset, its copy just made) goes where its asset is published, so every link on it shows
+    /// it by itself. The data NAS gets it through sync; this is for the others.
+    private func newVersions(_ asset: UUID) {
+        guard let (project, found) = store.find(asset) else { return }
+        for publication in publications(asset: asset) where !Self.isDataHost(publication.host) {
+            guard let host = host(publication.host), found.versions.contains(where: { !sentVersions.contains($0.id) && goes($0, to: host) }) else { continue }
+            versionUpdate[project]?.cancel()
+            versionUpdate[project] = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled, let self else { return }
+                for publication in self.publications(asset: asset) where !Self.isDataHost(publication.host) {
+                    if let host = self.host(publication.host) { await self.publish(publication.scope, to: host) }
+                }
+            }
+            return
+        }
     }
 
     private var hostsFile: URL { store.root.appendingPathComponent("hosts.json") }
@@ -358,7 +395,9 @@ final class ReviewPublish {
             if case .asset(let a, _) = link.scope { return only?.contains(a) ?? true }
             return only == nil
         }
+        // (The data host has every link, so its fragments carry originals when any of the project's links allows downloads.)
         let downloads = links.contains { $0.allowDownload }
+            || (host.map { Self.isDataHost($0.id) } == true && store.links.contains { $0.project == project && $0.isLive && $0.allowDownload })
         var files: [(String, URL)] = []
         func walk(_ url: URL, as path: String) {
             var isFolder: ObjCBool = false
@@ -599,6 +638,9 @@ final class ReviewPublish {
         case .commentDeleted(let comment):
             entry = ["deleted": ["id": comment.id.uuidString, "asset": comment.asset.uuidString, "version": comment.version.uuidString]]
             asset = comment.asset
+        case .assetChanged(let asset):
+            newVersions(asset)
+            return
         case .linkOff, .linksChanged:
             // (A burst of changes is one update; `opened` stamps change nothing a host knows.)
             linkUpdate?.cancel()
@@ -722,6 +764,8 @@ final class ReviewPublish {
             }
             online[host.id] = true
             sentLinks[project] = linkState(project)
+            sentOriginals[project] = downloads(project)
+            sentVersions.formUnion(store.content(project).assets.filter { only?.contains($0.id) ?? true }.flatMap(\.versions).filter { goes($0, to: host) }.map(\.id))
             publication.published = .now
             publications.removeAll { $0.id == publication.id }
             publications.append(publication)
@@ -861,6 +905,13 @@ final class ReviewPublish {
         for project in Set(publications.map(\.scope.project)) {
             let state = linkState(project)
             guard sentLinks[project] != state else { continue }
+            // Downloads turned on after publishing: the hosts need the originals too, so it's published again.
+            if downloads(project), sentOriginals[project] != true {
+                for publication in publications.filter({ $0.scope.project == project && !Self.isDataHost($0.host) }) {
+                    if let host = host(publication.host) { await publish(publication.scope, to: host) }
+                }
+                continue
+            }
             var reached = true
             for hostID in Set(publications.filter { $0.scope.project == project }.map(\.host)) {
                 guard let host = host(hostID), !Self.isDataHost(hostID) else { continue }
@@ -1167,3 +1218,4 @@ final class ShareVolumes: @unchecked Sendable {
 }
 
 let shareVolumes = ShareVolumes()
+
