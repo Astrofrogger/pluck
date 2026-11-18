@@ -60,10 +60,14 @@ enum DeliverUploadDestination {
     static func remembered(host: UUID, project: UUID) -> String? { UserDefaults.standard.string(forKey: key(host: host, project: project)) }
     static func remember(_ folder: String, host: UUID, project: UUID) { UserDefaults.standard.set(folder, forKey: key(host: host, project: project)) }
 
-    /// What the step shows: the picker in the uploads root, or (none set up) how to set one and the fallback.
-    enum Stage: Equatable { case loading, pick(root: String), noRoot, unreachable(String) }
+    /// What the step shows: a folder on the NAS's share mounted here (`start`, a local path), the picker in the uploads
+    /// root, or (neither) that the share isn't connected here and the fallback.
+    enum Stage: Equatable { case loading, share(start: String), pick(root: String), noRoot, unreachable(String) }
 
-    static func stage(_ host: Deliver.Host) async -> Stage {
+    /// `shares` false (Move to…): only the uploads root. A share of the NAS mounted here comes first: the editor picks
+    /// any folder on it (the client folders) and this Mac copies the original there itself.
+    static func stage(_ host: Deliver.Host, project: UUID? = nil, shares: Bool = true, store: DeliverStore = .shared) async -> Stage {
+        if shares, let start = shareStart(host, project: project, store: store) { return .share(start: start) }
         do {
             let answer = try await ReviewHostClient.ask(host, ["op": "roots"])
             let root = (answer["writable"] as? [String])?.first
@@ -77,6 +81,7 @@ enum DeliverUploadDestination {
     /// While the server is away: the folder a share waits for (the one used last for the project, else one for it in
     /// the uploads folder it had when last seen); nil when it never said it had one.
     static func whileAway(_ host: Deliver.Host, project: UUID?, store: DeliverStore = .shared) -> String? {
+        if let project, let last = remembered(host: host.id, project: project), last.hasPrefix("/") { return last } // a share folder
         guard let root = UserDefaults.standard.string(forKey: "deliverUploadRoot." + host.id.uuidString) else { return nil }
         guard let project else { return root + "/" + "Review" }
         return suggested(host, root: root, project: project, store: store)
@@ -93,6 +98,77 @@ enum DeliverUploadDestination {
     static func suggested(_ host: Deliver.Host, root: String, project: UUID, store: DeliverStore = .shared) -> String {
         if let last = remembered(host: host.id, project: project), last == root || last.hasPrefix(root + "/") { return last }
         return root + "/" + DeliverServer.safeName(store.project(project)?.name ?? "Review")
+    }
+
+    // MARK: - The NAS's share mounted here
+
+    /// The NAS's roots mounted on this Mac (its mounts, or its shares in /Volumes), each with the media path it stands for.
+    /// Never mounts anything: a share that isn't connected is just missing.
+    static func shares(_ host: Deliver.Host) -> [(local: URL, media: String)] {
+        let volumes = (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []).map(\.path)
+        var found: [(local: URL, media: String)] = []
+        for path in (host.mounts ?? []).map(\.local) + volumes {
+            var folder: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), folder.boolValue,
+                  let media = ReviewPublish.reference(path + "/_", on: host)?.dropLast(2), !found.contains(where: { $0.media == media }) else { continue }
+            found.append((URL(fileURLWithPath: path, isDirectory: true), String(media)))
+            // (Its address, as macOS mounted it: what Connect opens when it's gone.)
+            if let remote = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeURLForRemountingKey]).volumeURLForRemounting {
+                UserDefaults.standard.set(remote.absoluteString, forKey: "deliverShareURL." + host.id.uuidString)
+            }
+        }
+        return found
+    }
+
+    /// The share's address as macOS last mounted it (smb://…), for Connect; nil when it was never seen here.
+    static func connectURL(_ host: Deliver.Host) -> URL? {
+        UserDefaults.standard.string(forKey: "deliverShareURL." + host.id.uuidString).flatMap(URL.init(string:))
+    }
+
+    /// Whether `folder` (a local path) is on the NAS's share here.
+    static func onShare(_ folder: String, host: Deliver.Host) -> Bool { ReviewPublish.reference(folder + "/_", on: host) != nil }
+
+    /// Where the share step opens: the folder used last for the project while it's still there, else the client folder
+    /// the project's other footage on that NAS is in (the most used one), else the first share; nil: no share here.
+    static func shareStart(_ host: Deliver.Host, project: UUID?, store: DeliverStore = .shared) -> String? {
+        let shares = shares(host)
+        guard let first = shares.first else { return nil }
+        func exists(_ path: String) -> Bool { var folder: ObjCBool = false; return FileManager.default.fileExists(atPath: path, isDirectory: &folder) && folder.boolValue }
+        guard let project else { return first.local.path }
+        if let last = remembered(host: host.id, project: project), last.hasPrefix("/"), exists(last), onShare(last, host: host) { return last }
+        let folders = store.content(project).assets.flatMap(\.versions).compactMap { version -> String? in
+            guard let nas = ReviewPublish.browsed(version.path), nas.host == host.id else { return nil }
+            let media = (nas.path as NSString).deletingLastPathComponent
+            guard let share = shares.first(where: { media == $0.media || media.hasPrefix($0.media + "/") }) else { return nil }
+            let local = share.local.path + media.dropFirst(share.media.count)
+            return exists(local) ? local : nil
+        }
+        let counts = Dictionary(folders.map { ($0, 1) }, uniquingKeysWith: +)
+        // (A tie: the deeper folder, a client's rather than the share's top.)
+        return counts.max { ($0.value, $0.key.count) < ($1.value, $1.key.count) }?.key ?? first.local.path
+    }
+
+    /// Copies `file` into `folder` (on the share) under its own name, "name 2.ext" when that's taken (nothing is
+    /// overwritten): to a hidden part file in the same folder first, its size checked, then renamed. The original stays.
+    /// A folder that isn't there (the share not connected) is a failure waiting can fix; no permission isn't.
+    nonisolated static func copyIn(_ file: URL, to folder: URL) throws -> URL {
+        let fm = FileManager.default
+        var isFolder: ObjCBool = false
+        guard fm.fileExists(atPath: folder.path, isDirectory: &isFolder), isFolder.boolValue else { throw Deliver.Failure("offline") }
+        guard let size = (try? fm.attributesOfItem(atPath: file.path))?[.size] as? Int64 else { throw Deliver.Failure("notFound") }
+        let part = folder.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString.prefix(8)).pluckpart")
+        defer { try? fm.removeItem(at: part) }
+        do { try fm.copyItem(at: file, to: part) } catch {
+            throw (error as NSError).code == NSFileWriteNoPermissionError || !fm.isWritableFile(atPath: folder.path) ? Deliver.Failure("scope") : error
+        }
+        guard (try? fm.attributesOfItem(atPath: part.path))?[.size] as? Int64 == size else { throw Deliver.Failure("internal") }
+        let base = file.deletingPathExtension().lastPathComponent, ext = file.pathExtension
+        for n in 1...999 {
+            let target = folder.appendingPathComponent(n == 1 ? file.lastPathComponent : "\(base) \(n)" + (ext.isEmpty ? "" : ".\(ext)"))
+            guard !fm.fileExists(atPath: target.path) else { continue }
+            do { try fm.moveItem(at: part, to: target); return target } catch where fm.fileExists(atPath: target.path) { continue } // (taken meanwhile)
+        }
+        throw Deliver.Failure("exists")
     }
 
     /// Move to…: a file in the uploads folder into another folder of it (the helper's `move`, checked inside the root);
@@ -119,8 +195,9 @@ enum DeliverUploadDestination {
     }
 }
 
-/// The destination step of Share for Review: a Finder-style picker in the server's uploads folder, New Folder and
-/// Upload; without an uploads folder, how to set one and "Keep It on the Server Only" (today's hidden data folder).
+/// The destination step of Share for Review: with the NAS's share mounted here, a folder on it (Choose Folder…, opened in
+/// the project's client folder) that this Mac copies the original into; else a Finder-style picker in the server's uploads
+/// folder, New Folder and Upload; with neither, that the share isn't connected here and "Keep It on the Server Only".
 struct DeliverUploadPicker: View {
     let host: Deliver.Host
     let project: UUID?
@@ -139,6 +216,8 @@ struct DeliverUploadPicker: View {
     @State private var name = ""
     @State private var problem: String?
     @State private var uploads = DeliverUploads.shared
+    /// The share folder chosen with Choose Folder… (else the one the step opened in).
+    @State private var chosen: String?
 
     init(host: Deliver.Host, project: UUID?, stage: DeliverUploadDestination.Stage = .loading, title: String? = nil, action: String? = nil,
          done: @escaping (String?) -> Void, back: @escaping () -> Void, later: ((String) -> Void)? = nil) {
@@ -163,6 +242,15 @@ struct DeliverUploadPicker: View {
         return path == root || path.hasPrefix(root + "/") ? path : nil
     }
 
+    /// The share folder Upload copies it into.
+    private var shareFolder: String? {
+        guard case .share(let start) = stage else { return nil }
+        return chosen ?? start
+    }
+
+    /// Only the uploads-root picker needs the big window; the rest is a normal small sheet.
+    private var big: Bool { if case .pick = stage { true } else { false } }
+
     private var rootName: String {
         guard case .pick(let root) = stage else { return "" }
         return source.display(root)
@@ -174,7 +262,8 @@ struct DeliverUploadPicker: View {
             switch stage {
             case .loading:
                 HStack { PlumSpinner(); Text("Looking for the uploads folder…").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, minHeight: 60)
+            case .share: share
             case .noRoot: noRoot
             case .pick(let root): picker(root)
             case .unreachable(let why): away(why)
@@ -193,12 +282,23 @@ struct DeliverUploadPicker: View {
                 if case .pick = stage {
                     if action == nil { Button("Keep It on the Server Only") { done(nil) }.buttonStyle(StudioFlatButtonStyle()) }
                     Button(action ?? String(localized: "Upload")) { if let target { done(target) } }.buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(target == nil || !uploads.progress.isEmpty)
+                } else if case .share = stage {
+                    Button("Choose Folder…") { choose() }.buttonStyle(StudioFlatButtonStyle())
+                    Button("Keep It on the Server Only") { done(nil) }.buttonStyle(StudioFlatButtonStyle())
+                    Button("Upload") { if let shareFolder { done(shareFolder) } }.buttonStyle(StudioFlatButtonStyle(prominent: true)).disabled(shareFolder == nil)
                 } else if stage == .noRoot, action == nil {
+                    if let url = DeliverUploadDestination.connectURL(host) {
+                        Button("Connect") { NSWorkspace.shared.open(url) }.buttonStyle(StudioFlatButtonStyle())
+                    }
+                    Button("Choose Folder…") { choose() }.buttonStyle(StudioFlatButtonStyle())
+                    if let later, let folder = DeliverUploadDestination.whileAway(host, project: project) {
+                        Button("Send When It’s Back") { later(folder) }.buttonStyle(StudioFlatButtonStyle())
+                    }
                     Button("Keep It on the Server Only") { done(nil) }.buttonStyle(StudioFlatButtonStyle(prominent: true))
                 } else if case .unreachable = stage {
-                    Button("Try Again") { stage = .loading; Task { stage = await DeliverUploadDestination.stage(host) } }.buttonStyle(StudioFlatButtonStyle())
+                    Button("Try Again") { stage = .loading; Task { await restage() } }.buttonStyle(StudioFlatButtonStyle())
                     if let later, let folder = DeliverUploadDestination.whileAway(host, project: project) {
-                        let backup = DeliverOutage.backup(for: host) != nil
+                        let backup = DeliverOutage.backup(for: host) != nil && !folder.hasPrefix("/") // (a share folder waits for the share itself)
                         Button("Send When It’s Back") { DeliverShareQueue.shared.chooseBackup(host.id, false); later(folder) }
                             .buttonStyle(StudioFlatButtonStyle(prominent: !backup))
                         if backup {
@@ -209,9 +309,15 @@ struct DeliverUploadPicker: View {
                 }
             }
         }
+        .frame(minWidth: big ? 860 : 480, idealWidth: big ? 1010 : 480, maxWidth: big ? .infinity : 560,
+               minHeight: big ? 560 : nil, idealHeight: big ? 670 : nil, maxHeight: big ? .infinity : nil, alignment: .topLeading)
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didMountNotification)) { _ in
+            // The share connected (Connect, or in Finder): its folders are offered at once.
+            if stage == .noRoot || { if case .unreachable = stage { true } else { false } }() { Task { await restage() } }
+        }
         .task {
             if stage == .loading {
-                let found = await DeliverUploadDestination.stage(host)
+                let found = await DeliverUploadDestination.stage(host, project: project, shares: action == nil)
                 guard !Task.isCancelled else { return }
                 stage = found
             }
@@ -226,6 +332,46 @@ struct DeliverUploadPicker: View {
             TextField("Name", text: $name)
             Button("Create") { Task { await makeFolder() } }
             Button("Cancel", role: .cancel) {}
+        }
+    }
+
+    private func restage() async {
+        let found = await DeliverUploadDestination.stage(host, project: project, shares: action == nil)
+        if found != stage { stage = found }
+    }
+
+    /// Choose Folder…: any folder on the NAS's share here (the client folders); one elsewhere is refused.
+    private func choose() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Choose")
+        panel.directoryURL = URL(fileURLWithPath: shareFolder ?? DeliverUploadDestination.shares(host).first?.local.path ?? "/Volumes", isDirectory: true)
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard DeliverUploadDestination.onShare(url.path, host: host) else {
+            problem = String(localized: "That folder isn’t on \(host.name). Choose one on its share.")
+            return
+        }
+        problem = nil
+        chosen = url.path
+        if case .share = stage {} else { stage = .share(start: url.path) }
+    }
+
+    private var share: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Pluck copies the original into this folder on \(host.name).")
+                .font(Design.Studio.body).foregroundStyle(Design.Studio.text).fixedSize(horizontal: false, vertical: true)
+            if let shareFolder {
+                HStack(spacing: 8) {
+                    Image(systemName: "folder.fill").foregroundStyle(Design.Studio.textQuiet)
+                    Text(verbatim: path(shareFolder))
+                        .font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.head)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 10).frame(height: 36).studioBox()
+            }
         }
     }
 
@@ -245,28 +391,20 @@ struct DeliverUploadPicker: View {
         }
     }
 
-    /// "Uploads › Client › 2026".
+    /// "Uploads › Client › 2026" (a share folder here: as Finder shows it).
     private func path(_ media: String) -> String {
+        if media.hasPrefix("/") { return (FileManager.default.componentsToDisplay(forPath: media) ?? [media]).joined(separator: " › ") }
         let parts = media.split(separator: "/").map(String.init)
         return ([source.display(parts.first ?? "")] + parts.dropFirst()).joined(separator: " › ")
     }
 
     private var noRoot: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("\(host.name) has no uploads folder yet, so Pluck can’t save the original there.")
+            Text("The share of \(host.name) isn’t connected on this Mac.")
                 .font(Design.Studio.body).foregroundStyle(Design.Studio.text).fixedSize(horizontal: false, vertical: true)
-            if TrueNASSetup.isTrueNAS(host) {
-                Text("To set one: Deliver › Browse, right-click \(host.name) › Change Folders…, then choose an Uploads folder (its own dataset).")
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
-            } else {
-                Text("To set one, give the server a folder of its own it may write to (PLUCK_UPLOADS, see Set Up Server › the NAS guide).")
-                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
-            }
-            Text("Or keep it on the server only: Pluck makes the review copies here and sends them to the server’s own data folder, as before.")
+            Text("Connect it, then choose the folder the original goes in. Or keep it on the server only.")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func away(_ why: String) -> some View {
@@ -281,9 +419,7 @@ struct DeliverUploadPicker: View {
                 Text("Pluck can keep it waiting and send it to \(path(folder)) as soon as the server is back, even after a restart.")
                     .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private func makeFolder() async {
@@ -374,9 +510,13 @@ final class DeliverShareQueue {
         var sent = 0
         for entry in entries {
             guard let host = publish.host(entry.upload.host) else { continue }
-            let up = (try? await ReviewHostClient.ask(host, ["op": "roots"])) != nil
             var path: String?
-            if let id = entry.onBackup {
+            // A folder on the NAS's share here: copied over the share once it's connected again (the server isn't asked).
+            let toShare = entry.upload.folder.hasPrefix("/")
+            let up = toShare ? false : (try? await ReviewHostClient.ask(host, ["op": "roots"])) != nil
+            if toShare {
+                path = try? await DeliverUploads.shared.upload(URL(fileURLWithPath: entry.file), to: entry.upload.folder + "/" + entry.name, host: host, attempts: 1)
+            } else if let id = entry.onBackup {
                 // On the backup: the backup moves it to the main once it's back; the main says where it went.
                 guard up, let item = (try? await DeliverOutage.delivered(host))?.first(where: { $0.id == id }) else { continue }
                 if item.quarantine {
@@ -701,8 +841,7 @@ private struct DeliverOriginalsOffer: ViewModifier {
                     close()
                     DeliverUploadDestination.later(offer, folder: folder)
                 })
-                .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
-                .background(Design.Studio.panel)
+                .padding(Design.Spacing.sheet).background(Design.Studio.panel)
             }
     }
 

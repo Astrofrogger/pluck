@@ -4095,64 +4095,6 @@
         }
       }
     },
-    "%@ has no uploads folder yet, so Pluck can’t save the original there." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ hat noch keinen Upload-Ordner, daher kann Pluck das Original dort nicht speichern."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ aún no tiene carpeta de subidas, así que Pluck no puede guardar allí el original."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ n’a pas encore de dossier d’envois, Pluck ne peut donc pas y enregistrer l’original."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ non ha ancora una cartella di upload, quindi Pluck non può salvarvi l’originale."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ にはまだアップロードフォルダがないため、Pluck はそこにオリジナルを保存できません。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@에 아직 업로드 폴더가 없어 Pluck이 원본을 저장할 수 없습니다."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ heeft nog geen uploadmap, dus Pluck kan het origineel daar niet opslaan."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ ainda não tem pasta de uploads, então o Pluck não pode salvar o original lá."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ 还没有上传文件夹，因此 Pluck 无法将原件保存到那里。"
-          }
-        }
-      }
-    },
     "%@ has this project checked out." : {
       "localizations" : {
         "de" : {
@@ -70251,6 +70193,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "用数据线连接相机并开机。"
+          }
+        }
+      }
+    },
+    "Connect it, then choose the folder the original goes in. Or keep it on the server only." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbinde sie und wähle dann den Ordner für das Original. Oder behalte es nur auf dem Server."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conéctala y elige la carpeta para el original. O guárdalo solo en el servidor."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Connectez-le, puis choisissez le dossier de l’original. Ou gardez-le uniquement sur le serveur."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Collegala, poi scegli la cartella per l’originale. Oppure tienilo solo sul server."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "接続してから、オリジナルを入れるフォルダを選んでください。またはサーバーだけに保存します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "연결한 다음 원본을 넣을 폴더를 고르세요. 또는 서버에만 보관하세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verbind hem en kies dan de map voor het origineel. Of houd het alleen op de server."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Conecte-o e escolha a pasta do original. Ou mantenha-o só no servidor."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "连接后，选择原始文件要放入的文件夹。或者只保留在服务器上。"
           }
         }
       }
@@ -189317,64 +189317,6 @@
         }
       }
     },
-    "Or keep it on the server only: Pluck makes the review copies here and sends them to the server’s own data folder, as before." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oder behalte es nur auf dem Server: Pluck erstellt die Review-Kopien hier und schickt sie wie bisher in den eigenen Datenordner des Servers."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O mantenlo solo en el servidor: Pluck crea aquí las copias de revisión y las envía a la carpeta de datos del servidor, como antes."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ou gardez-le sur le serveur uniquement : Pluck crée ici les copies de relecture et les envoie dans le dossier de données du serveur, comme avant."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Oppure tienilo solo sul server: Pluck crea qui le copie di revisione e le invia alla cartella dati del server, come prima."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "またはサーバーにのみ保存：Pluck はここでレビュー用コピーを作成し、これまでどおりサーバー自身のデータフォルダに送ります。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "또는 서버에만 보관: Pluck이 여기서 검토용 사본을 만들어 이전처럼 서버 자체 데이터 폴더로 보냅니다."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Of bewaar het alleen op de server: Pluck maakt de reviewkopieën hier en stuurt ze zoals voorheen naar de eigen datamap van de server."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ou mantenha só no servidor: o Pluck cria as cópias de revisão aqui e as envia para a pasta de dados do próprio servidor, como antes."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "或仅保留在服务器上：Pluck 在这里生成审阅副本，并像以前一样发送到服务器自己的数据文件夹。"
-          }
-        }
-      }
-    },
     "Or type one: tank/renders" : {
       "localizations" : {
         "de" : {
@@ -204236,6 +204178,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Pluck 会将所选类型的已完成文件（包括视频）复制到“自动添加到音乐”文件夹；原始文件保持不变。Apple Music 无法导入 FLAC、Opus 或 WebM 文件。"
+          }
+        }
+      }
+    },
+    "Pluck copies the original into this folder on %@." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck kopiert das Original in diesen Ordner auf %@."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck copia el original en esta carpeta de %@."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck copie l’original dans ce dossier sur %@."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck copia l’originale in questa cartella su %@."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck はオリジナルを %@ のこのフォルダにコピーします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck이 원본을 %@의 이 폴더에 복사합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck kopieert het origineel naar deze map op %@."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Pluck copia o original para esta pasta em %@."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pluck 会把原始文件复制到 %@ 上的这个文件夹。"
           }
         }
       }
@@ -270334,6 +270334,64 @@
         }
       }
     },
+    "That folder isn’t on %@. Choose one on its share." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Ordner ist nicht auf %@. Wähle einen auf seiner Freigabe."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Esa carpeta no está en %@. Elige una de su carpeta compartida."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce dossier n’est pas sur %@. Choisissez-en un sur son partage."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Quella cartella non è su %@. Scegline una sulla sua condivisione."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "そのフォルダは %@ にありません。その共有上のフォルダを選んでください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그 폴더는 %@에 없습니다. 해당 공유 폴더 안에서 고르세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die map staat niet op %@. Kies er een op de share ervan."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Essa pasta não está em %@. Escolha uma no compartilhamento dele."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "该文件夹不在 %@ 上。请在它的共享中选择一个文件夹。"
+          }
+        }
+      }
+    },
     "That folder isn’t shared on the host Mac any more." : {
       "localizations" : {
         "de" : {
@@ -283071,6 +283129,64 @@
         }
       }
     },
+    "The share of %@ isn’t connected on this Mac." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Freigabe von %@ ist auf diesem Mac nicht verbunden."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La carpeta compartida de %@ no está conectada en este Mac."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le partage de %@ n’est pas connecté sur ce Mac."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La condivisione di %@ non è collegata su questo Mac."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ の共有はこの Mac に接続されていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@의 공유 폴더가 이 Mac에 연결되어 있지 않습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De share van %@ is niet verbonden op deze Mac."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O compartilhamento de %@ não está conectado neste Mac."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ 的共享未在这台 Mac 上连接。"
+          }
+        }
+      }
+    },
     "The shared folder isn’t reachable on the host Mac right now." : {
       "localizations" : {
         "de" : {
@@ -294812,122 +294928,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "要让 Mac 从家中连接，请将此 Mac 连接到你的 Tailscale 账户一次。其他人无需账户或 Tailscale App，只需收到邀请链接。"
-          }
-        }
-      }
-    },
-    "To set one, give the server a folder of its own it may write to (PLUCK_UPLOADS, see Set Up Server › the NAS guide)." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Gib dem Server dafür einen eigenen Ordner, in den er schreiben darf (PLUCK_UPLOADS, siehe Server einrichten › die NAS-Anleitung)."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para configurarla, da al servidor una carpeta propia en la que pueda escribir (PLUCK_UPLOADS, consulta Configurar servidor › la guía del NAS)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour en définir un, donnez au serveur un dossier à lui dans lequel il peut écrire (PLUCK_UPLOADS, voir Configurer le serveur › le guide du NAS)."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Per impostarne una, dai al server una cartella sua in cui possa scrivere (PLUCK_UPLOADS, vedi Configura server › la guida NAS)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定するには、サーバーが書き込める専用フォルダを用意してください（PLUCK_UPLOADS、「サーバーを設定」› NAS ガイドを参照）。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "설정하려면 서버가 쓸 수 있는 전용 폴더를 지정하세요(PLUCK_UPLOADS, 서버 설정 › NAS 가이드 참조)."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Geef de server daarvoor een eigen map waarin hij mag schrijven (PLUCK_UPLOADS, zie Server instellen › de NAS-handleiding)."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para definir uma, dê ao servidor uma pasta própria onde ele possa gravar (PLUCK_UPLOADS, veja Configurar servidor › o guia do NAS)."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "要设置上传文件夹，请为服务器提供一个它可写入的专用文件夹（PLUCK_UPLOADS，参见“设置服务器”› NAS 指南）。"
-          }
-        }
-      }
-    },
-    "To set one: Deliver › Browse, right-click %@ › Change Folders…, then choose an Uploads folder (its own dataset)." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "So legst du einen fest: Deliver › Durchsuchen, Rechtsklick auf %@ › Ordner ändern …, dann einen Upload-Ordner wählen (ein eigenes Dataset)."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para configurarla: Deliver › Explorar, clic derecho en %@ › Cambiar carpetas… y elige una carpeta de subidas (su propio dataset)."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pour en définir un : Deliver › Parcourir, clic droit sur %@ › Modifier les dossiers…, puis choisissez un dossier d’envois (son propre dataset)."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Per impostarne una: Deliver › Sfoglia, clic destro su %@ › Cambia cartelle…, poi scegli una cartella di upload (un dataset dedicato)."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "設定方法：Deliver › ブラウズで %@ を右クリック › フォルダを変更… を選び、アップロードフォルダ（専用のデータセット）を選択します。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "설정 방법: Deliver › 둘러보기에서 %@을(를) 오른쪽 클릭 › 폴더 변경…을 선택한 다음 업로드 폴더(전용 데이터셋)를 고르세요."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zo stel je er een in: Deliver › Bladeren, klik met rechts op %@ › Mappen wijzigen…, en kies dan een uploadmap (een eigen dataset)."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Para definir uma: Deliver › Navegar, clique com o botão direito em %@ › Alterar pastas… e escolha uma pasta de uploads (dataset próprio)."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "设置方法：Deliver › 浏览，右键点按 %@ › 更改文件夹…，然后选择上传文件夹（独立的数据集）。"
           }
         }
       }

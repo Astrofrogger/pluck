@@ -100,7 +100,7 @@ struct DeliverAssetView: View {
                     DeliverShareQueue.shared.add(.init(file: file.path, size: size, project: project, asset: found.id,
                                                        upload: .init(host: host.id, folder: folder), version: current.id))
                 })
-                .padding(Design.Spacing.sheet).frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity).background(Design.Studio.panel)
+                .padding(Design.Spacing.sheet).background(Design.Studio.panel)
             }
             .onDisappear { playback.player.pause(); other.player.pause(); playback.stop(); other.stop() }
         }

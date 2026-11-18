@@ -2762,6 +2762,82 @@ extension PhotoSelfTest {
         DeliverKeychain.delete("\(host.id.uuidString)/D-outage", service: DeliverKeychain.hostService)
     }
 
+    /// 4.0.6: no uploads folder needed. With the NAS's share mounted here (a stand-in mount) the step picks any folder on it,
+    /// opened in the project's client folder; this Mac copies the original there itself and the asset is a reference in place.
+    static func shareCopyTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL,
+                              spot: URL, here: DeliverBrowseItem) async {
+        typealias U = DeliverUploadDestination
+        let fm = FileManager.default, share = base.appendingPathComponent("Share \(UUID().uuidString.prefix(6))")
+        let client = share.appendingPathComponent("Clients/Spring")
+        try? fm.createDirectory(at: client, withIntermediateDirectories: true)
+        publish.setMounts([.init(local: share.path, remote: "nas1")], host: host.id)
+        defer { publish.setMounts([], host: host.id); ReviewHostClient.fake = { fake.answer($0, $1) }; try? fm.removeItem(at: share) }
+        guard let mounted = publish.host(host.id) else { return check("share: the stand-in mount is kept", false, "") }
+        let hero = store.addReferences([(name: "Hero", kind: DeliverStore.kind(URL(fileURLWithPath: "Hero.mov")),
+                                         path: ReviewPublish.nasPath(host: host.id, path: "nas1/Clients/Spring/Hero.mov"), size: 1)], to: project)
+        // No uploads folder on the server: with the share mounted the step still never says so.
+        ReviewHostClient.fake = { request, body in request["op"] as? String == "roots" ? ["roots": ["nas1"], "writable": [String]()] : fake.answer(request, body) }
+        let stage = await U.stage(mounted, project: project, store: store)
+        let moving = await U.stage(mounted, project: project, shares: false, store: store)
+        let bare = await U.stage({ var none = mounted; none.mounts = nil; return none }(), project: project, store: store)
+        check("share: a mounted share skips the no-uploads-folder step and opens in the project's client folder",
+              stage == .share(start: client.path) && moving == .noRoot && bare == .noRoot
+              && U.shares(mounted).map(\.media) == ["nas1"] && U.onShare(client.path, host: mounted) && !U.onShare(base.path, host: mounted),
+              "\(stage) \(moving) \(bare)")
+        ReviewHostClient.fake = { fake.answer($0, $1) }
+
+        // Upload: copied into the chosen folder over the share; the asset is the NAS's file in place; the original stays.
+        await DeliverShareForReview.place([here], into: project, asVersions: false, host: nil, upload: .init(host: host.id, folder: client.path), store: store, publish: publish)
+        await DeliverShareForReview.place([here], into: project, asVersions: false, host: nil, upload: .init(host: host.id, folder: client.path), store: store, publish: publish)
+        let placed = store.content(project).assets.filter { $0.name == "Spot 30s" }.map(\.current.path)
+        let first = client.appendingPathComponent("Spot 30s.mov"), second = client.appendingPathComponent("Spot 30s 2.mov")
+        let leftovers = ((try? fm.contentsOfDirectory(atPath: client.path)) ?? []).filter { $0.hasSuffix(".pluckpart") }
+        check("share: Upload copies into the chosen folder and the asset becomes a reference to that file; the original stays",
+              placed.first == ReviewPublish.nasPath(host: host.id, path: "nas1/Clients/Spring/Spot 30s.mov")
+              && (try? fm.attributesOfItem(atPath: first.path))?[.size] as? Int64 == 3000 && fm.fileExists(atPath: spot.path) && leftovers.isEmpty
+              && U.shareStart(mounted, project: project, store: store) == client.path, "\(placed) \(leftovers)")
+        check("share: a name already there is never overwritten, the copy is \"name 2\"",
+              placed.count == 2 && placed.last == ReviewPublish.nasPath(host: host.id, path: "nas1/Clients/Spring/Spot 30s 2.mov")
+              && (try? fm.attributesOfItem(atPath: second.path))?[.size] as? Int64 == 3000, "\(placed)")
+
+        // Upload to NAS… for a version only on this Mac: the version points at the copy (its bookmark gone).
+        if let local = try? store.add([spot], to: project, folder: nil).first {
+            await DeliverUploads.shared.uploadVersion(local.current, of: local.id, folder: client.path, host: mounted, store: store)
+            let after = store.find(local.id)?.asset.current
+            check("share: Upload to NAS… copies the version's original to the share and re-points it",
+                  after?.path == ReviewPublish.nasPath(host: host.id, path: "nas1/Clients/Spring/Spot 30s 3.mov") && after?.bookmark == nil
+                  && after.map { U.onNAS($0, store: store, publish: publish) } == true, after?.path ?? "-")
+            store.remove(asset: local.id)
+        }
+
+        // The share not connected: it waits ("Waiting for NAS"), only on this Mac, and is copied once the folder is back.
+        let later = share.appendingPathComponent("Clients/Later")
+        let queue = DeliverShareQueue(store: store, publish: publish)
+        U.remember(later.path, host: host.id, project: project)
+        queue.add(.init(file: spot.path, size: 3000, project: project, upload: .init(host: host.id, folder: later.path)))
+        let away = await queue.attempt()
+        let waiting = queue.waiting(project).count
+        try? fm.createDirectory(at: later, withIntermediateDirectories: true)
+        let back = await queue.attempt()
+        let arrived = store.content(project).assets.filter { $0.current.path == ReviewPublish.nasPath(host: host.id, path: "nas1/Clients/Later/Spot 30s.mov") }
+        check("share: with the share away the copy waits, then goes into the folder and becomes a reference once it's back",
+              away == 0 && waiting == 1 && back == 1 && queue.entries.isEmpty && arrived.count == 1
+              && U.whileAway(mounted, project: project, store: store) == later.path
+              && fm.fileExists(atPath: later.appendingPathComponent("Spot 30s.mov").path), "\(away) \(waiting) \(back) \(arrived.count)")
+
+        // No permission on the folder: refused (not retried for ever), nothing half-copied left behind.
+        let locked = share.appendingPathComponent("Locked")
+        try? fm.createDirectory(at: locked, withIntermediateDirectories: true)
+        try? fm.setAttributes([.posixPermissions: 0o555], ofItemAtPath: locked.path)
+        var refusal = ""
+        do { _ = try U.copyIn(spot, to: locked) } catch { refusal = (error as? Deliver.Failure)?.code ?? "\(error)" }
+        try? fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: locked.path)
+        check("share: a folder Pluck may not write to is refused, not waited for", refusal == "scope" && !DeliverShareQueue.waitable(Deliver.Failure(refusal))
+              && ((try? fm.contentsOfDirectory(atPath: locked.path)) ?? ["x"]).isEmpty, refusal)
+
+        for asset in store.content(project).assets where asset.current.path.contains("nas1/Clients/") || hero.contains(where: { $0.id == asset.id }) { store.remove(asset: asset.id) }
+    }
+
     /// Share for Review's destination step: the folder remembered per project and server, files already on the NAS
     /// skip it, no uploads folder offers the fallback, and an upload lands where chosen (the NAS makes the copies).
     static func uploadDestinationTest(fake: ReviewFakeHost, store: DeliverStore, publish: ReviewPublish, host: Deliver.Host, project: UUID, base: URL) async {
@@ -2850,6 +2926,9 @@ extension PhotoSelfTest {
               && DeliverShareQueue.waitable(Deliver.Failure("internal")) && !DeliverShareQueue.waitable(Deliver.Failure("space")),
               "\(reloaded.count) \(whileAway) \(stillWaiting) \(back) \(arrived.map(\.current.path))")
         for asset in arrived { store.remove(asset: asset.id) }
+
+        await shareCopyTest(fake: fake, store: store, publish: publish, host: host, project: project, base: base, spot: spot, here: here)
+        DeliverUploadDestination.remember("renders/Client/2026", host: host.id, project: project)
 
         // Publish/Share offers to upload the originals: only for footage that is just here, with a NAS (with an uploads folder);
         // "Not now" is remembered per project; Upload hands each original to the normal upload path.

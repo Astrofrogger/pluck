@@ -30,7 +30,17 @@ final class DeliverUploads {
     }
 
     /// Sends `url` to `path` (inside the uploads root) and returns the path the host gave it (" 2" when taken).
+    /// A local `path` ("/Volumes/…", a folder on the NAS's share here): this Mac copies it there itself, and the media
+    /// path of the copy comes back, as for a file dragged from the share.
     func upload(_ url: URL, to path: String, host: Deliver.Host, attempts: Int = 5) async throws -> String {
+        if path.hasPrefix("/") {
+            progress[path] = 0
+            defer { progress[path] = nil }
+            let folder = URL(fileURLWithPath: path).deletingLastPathComponent()
+            let copy = try await Task.detached(priority: .utility) { try DeliverUploadDestination.copyIn(url, to: folder) }.value
+            guard let media = ReviewPublish.reference(copy.path, on: host) else { throw Deliver.Failure("scope") }
+            return media
+        }
         let end = try await send(url, to: path, host: host, attempts: attempts)
         return end["path"] as? String ?? path
     }
@@ -105,7 +115,7 @@ final class DeliverUploads {
         active.insert(version.id)
         defer { active.remove(version.id) }
         do {
-            _ = try? await ReviewHostClient.ask(host, ["op": "mkdir", "path": folder])
+            if !folder.hasPrefix("/") { _ = try? await ReviewHostClient.ask(host, ["op": "mkdir", "path": folder]) }
             let path = try await upload(file, to: folder + "/" + file.lastPathComponent, host: host)
             // (The bookmark goes too: the version is the NAS's file now, not this Mac's.)
             store.update(version: version.id, of: asset) { $0.path = ReviewPublish.nasPath(host: host.id, path: path); $0.bookmark = nil }

@@ -576,7 +576,6 @@ struct DeliverShareForReviewSheet: View {
             })
             .disabled(working)
             .padding(Design.Spacing.sheet)
-            .frame(minWidth: 900, idealWidth: 1060, maxWidth: .infinity, minHeight: 600, idealHeight: 720, maxHeight: .infinity)
             .background(Design.Studio.panel)
     }
 

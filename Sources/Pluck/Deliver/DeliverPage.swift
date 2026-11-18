@@ -82,7 +82,7 @@ struct DeliverPage: View {
             case "activity": nav.deliver = .links(project.id, link: store.links.first { $0.project == project.id }?.id)
             case "sharemore": DeliverShareSheet.moreOpen = true; sheetInPage = .project(project.id); nav.deliver = .project(project.id, folder: nil)
             case "browse": nav.deliver = .browse(.local)
-            case "browsenas", "uploaddest", "uploaddestnone", "publishnas":
+            case "browsenas", "uploaddest", "uploaddestnone", "uploaddestshare", "publishnas":
                 // Two stand-in review servers (main and backup) answering browse with two media roots.
                 let fingerprint = Array(repeating: "AB", count: 32).joined(separator: ":"), key = DeliverKeys.base64url(DeliverKeys.random(32))
                 ReviewHostClient.fakeFingerprint = fingerprint
@@ -120,10 +120,14 @@ struct DeliverPage: View {
                     nav.deliver = .inbox
                     break
                 }
-                // Share for Review's destination step: the uploads folder, opened at the project's last folder (or, "uploaddestnone", none set up).
+                // Share for Review's destination step: the uploads folder, opened at the project's last folder (or, "uploaddestnone", no
+                // share here and no uploads folder; "uploaddestshare", a client folder on the NAS's share mounted here).
                 DeliverUploadDestination.remember("renders/Spring campaign", host: main.id, project: project.id)
-                panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: view == "uploaddestnone" ? .noRoot : .loading, done: { _ in }, back: {})
-                    .padding(Design.Spacing.sheet).frame(width: 1060, height: 720).background(Design.Studio.panel))
+                let client = FileManager.default.temporaryDirectory.appendingPathComponent("Projects-2026/Clients/Spring campaign")
+                try? FileManager.default.createDirectory(at: client, withIntermediateDirectories: true)
+                let stage: DeliverUploadDestination.Stage = view == "uploaddestnone" ? .noRoot : view == "uploaddestshare" ? .share(start: client.path) : .loading
+                panelInPage = AnyView(DeliverUploadPicker(host: main, project: project.id, stage: stage, done: { _ in }, back: {})
+                    .padding(Design.Spacing.sheet).background(Design.Studio.panel))
                 nav.deliver = .inbox
             case "people": DeliverPeople.snapshot(); nav.deliver = .people
             case "peopletransfer", "peopleinvite":
