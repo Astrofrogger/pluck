@@ -126,6 +126,12 @@ struct DeliverPage: View {
                     .padding(Design.Spacing.sheet).frame(width: 1060, height: 720).background(Design.Studio.panel))
                 nav.deliver = .inbox
             case "people": DeliverPeople.snapshot(); nav.deliver = .people
+            case "peopletransfer", "peopleinvite":
+                // Roles: Transfer Admin… and Invite… over the stand-in team (loaded first).
+                DeliverPeople.snapshot()
+                Task { await DeliverPeople.shared.load() }
+                panelInPage = view == "peopletransfer" ? AnyView(DeliverTransferAdminSheet()) : AnyView(DeliverPersonInviteSheet())
+                nav.deliver = .people
             case "server": panelInPage = AnyView(DeliverServerChooser()); nav.deliver = .inbox
             case "serverbackup": panelInPage = AnyView(DeliverServerChooser(role: .backup)); nav.deliver = .inbox
             case "proxmoxmain": panelInPage = AnyView(DeliverProxmoxMainSheet()); nav.deliver = .inbox
@@ -204,13 +210,16 @@ struct DeliverPage: View {
                     switch request["op"] as? String {
                     case "invite": return ["link": link, "expires": ISO8601DateFormatter().string(from: .now.addingTimeInterval(900)), "code": "ABCD-EFGH-JKMN"]
                     case "devices": return ["devices": [
-                        ["id": "d1", "name": "Edit Suite iMac", "role": "mac", "added": iso(12 * day), "lastSeen": iso(600), "via": "lan"],
-                        ["id": "d2", "name": "MacBook Pro (Colour)", "role": "mac", "added": iso(3 * day), "lastSeen": iso(2 * day), "via": "iroh"],
+                        ["id": "d1", "name": "Edit Suite iMac", "role": "mac", "access": "admin", "added": iso(12 * day), "lastSeen": iso(600), "via": "lan"],
+                        ["id": "d2", "name": "MacBook Pro (Colour)", "role": "mac", "access": "editor", "added": iso(3 * day), "lastSeen": iso(2 * day), "via": "iroh"],
                         ["id": "b1", "name": "Backup NAS", "role": "backup", "added": iso(20 * day), "lastSeen": iso(60)]]]
                     default: return ["ok": true]
                     }
                 }
                 if let host = ReviewPublish.shared.addNAS(name: "Studio NAS", address: "studio-nas.test:8790", pairing: "pluck-host:\(DeliverKeys.base64url(DeliverKeys.random(32)))@\(fingerprint)") {
+                    var host = host
+                    (host.roles, host.access) = (1, "admin")
+                    ReviewPublish.shared.add(host)
                     panelInPage = AnyView(DeliverInviteSheet(host: host))
                 }
                 nav.deliver = .inbox

@@ -86,6 +86,9 @@ enum ReviewHostClient {
         if ReviewPublish.shared.host(host.id).map({ $0.accounts != answer["accounts"] as? Int }) == true {
             ReviewPublish.shared.update(host: host.id) { $0.accounts = answer["accounts"] as? Int }
         }
+        if ReviewPublish.shared.host(host.id).map({ $0.roles != answer["roles"] as? Int || $0.access != answer["access"] as? String }) == true {
+            ReviewPublish.shared.update(host: host.id) { $0.roles = answer["roles"] as? Int; $0.access = answer["access"] as? String }
+        }
         try await work(session)
     }
 
@@ -141,6 +144,8 @@ enum ReviewHostClient {
         case "removed": return String(localized: "This Mac was removed from the review server. Ask its owner for a new invitation.")
         case "pin": return String(localized: "The NAS server shows a different certificate than the one Pluck pinned. If you reinstalled it, Pair Again with its new pairing line")
         case "incompatible": return String(localized: "The NAS server runs a version this Pluck can’t talk to. Update it")
+        case "admin": return String(localized: "Only an admin can do this. This Mac is an editor on the server.")
+        case "lastAdmin": return String(localized: "The team needs at least one admin. Make someone else an admin first.")
         case let code? where code.localizedCaseInsensitiveContains("permission denied"):
             return String(localized: "The NAS server may not read this folder. In TrueNAS: Datasets › the dataset › Permissions › Edit, Add Item (User apps, Read, Flags Inherit), tick “Apply permissions recursively” and “to child datasets”, then Save Access Control List.")
         case let code? where code.contains(" "):

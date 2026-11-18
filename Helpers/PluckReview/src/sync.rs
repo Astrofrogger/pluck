@@ -8,13 +8,16 @@
 // (a hello claiming "protocol" < 2 gets {"error":"incompatible","protocol":3}). Then JSON lines,
 // one answer per request:
 //   list | put + N bytes | delete | get (+ offset/length: a range) + N bytes | roots/browse/probe/thumb
-//   invite | devices | device-remove | device-node | rotate-key | update                (role mac)
+//   invite {role, access} | devices | device-remove | device-role {id, access} | device-node | rotate-key | update  (role mac)
 //   mkdir | move {path,to} | upload-begin | upload-part + n bytes | upload-end | upload-cancel  (role mac, uploads root)
 //   outage-node | outage-list | outage-done | local-time {offset}                         (role mac, §13.25)
 //   pull | append | publish | changes | manifest | status | reload | prepare-update …   → host.rs `sync`
 // A backup may only use manifest, changes, pull, append, get (copies, branding), status and the outage push
 // (outage-macs, outage-begin, outage-part + n bytes, outage-end). On a backup, one of the main's Macs (role
 // "outage", over iroh on the node it registered there) may only upload (upload-begin/-part/-end/-cancel).
+// Roles (4.0.5, hello `"roles": 1`): a paired Mac is an admin or an editor (devices.json `access`; one paired before
+// has none and is an admin). An editor Mac does the Deliver work; ADMIN_OPS answer it {"error":"admin"}. The legacy host
+// key is an admin. Every op handed to host.rs carries `_mac` {id, name, admin}, set here (never the client's).
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, RwLock},
@@ -37,6 +40,11 @@ pub const MAX_PUT: u64 = 256 << 30;
 const BACKUP_OPS: &[&str] = &["_accounts", "manifest", "changes", "pull", "append", "get", "status", "outage-macs", "outage-begin", "outage-part", "outage-end"];
 const OUTAGE_OPS: &[&str] = &["upload-begin", "upload-part", "upload-end", "upload-cancel"];
 const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "outage-end"];
+/// What only an admin Mac may do: pair and remove devices and change their roles, the server's key, updates and
+/// settings, and the team (roles, approvals, removing people, its settings, key, export and restore).
+pub const ADMIN_OPS: &[&str] = &["invite", "device-remove", "device-role", "rotate-key", "update", "prepare-update", "cancel-update", "prefer-fastest",
+    "team-set", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel", "invite-approve", "request-accept", "request-decline",
+    "team-export", "team-restore", "team-reset"];
 
 fn read_or_make(path: &Path, make: impl FnOnce() -> Vec<u8>) -> Result<(Vec<u8>, bool)> {
     if let Ok(b) = std::fs::read(path) {
@@ -184,10 +192,14 @@ async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devic
     let ok = |device: Option<String>, role: &str, key: Option<String>| {
         // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
         // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4). approvals: editor invites wait for an admin (invite-approve).
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1,
+        // roles: Macs are admins or editors (device-role); `access` is this Mac's.
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1, "roles": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);
+        }
+        if role == "mac" {
+            r["access"] = json!(if device.as_deref().is_none_or(|d| ctx.devices.is_admin(d)) { "admin" } else { "editor" });
         }
         if let Some(k) = key {
             r["key"] = json!(k);
@@ -268,6 +280,14 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
             "backup" => BACKUP_OPS.contains(&name.as_str()),
             _ => OUTAGE_OPS.contains(&name.as_str()),
         };
+        // An editor Mac: no admin work, apart from removing itself (leaving the server).
+        let admin = mac && who.device.as_deref().is_none_or(|d| ctx.devices.is_admin(d));
+        let own = name == "device-remove" && who.device.is_some() && op["id"].as_str() == who.device.as_deref();
+        if mac && !admin && !own && ADMIN_OPS.contains(&name.as_str()) {
+            w.write_all(format!("{}\n", json!({"error": "admin"})).as_bytes()).await?;
+            w.flush().await?;
+            continue;
+        }
         // `_accounts`: a backup's copy of the main's accounts.json (accounts plan §1.4); every other `_` op stays internal.
         if (name.starts_with('_') && !(name == "_accounts" && who.role == "backup")) || !allowed {
             if name == "put" || name == "upload-part" || name == "outage-part" {
@@ -326,9 +346,9 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 v
             }
             "browse" | "probe" | "thumb" => ctx.roots.op(&op).await.unwrap_or_default(),
-            "invite" => ctx.devices.invite(op["role"].as_str().unwrap_or("")),
+            "invite" => ctx.devices.invite(op["role"].as_str().unwrap_or(""), op["access"].as_str()),
             "devices" => ctx.devices.list(),
-            "device-remove" => ctx.devices.remove(op["id"].as_str().unwrap_or("")),
+            // (host.rs: it keeps the last admin, which needs the team too)
             "device-node" => match &who.device {
                 Some(d) => ctx.devices.set_node(d, op["node"].as_str().unwrap_or("")),
                 None => json!({"error": "invalid"}),
@@ -432,7 +452,12 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 }
                 s
             }
-            _ => to_host(ctx, op).await?,
+            _ => {
+                let mut op = op;
+                let id = who.device.clone();
+                op["_mac"] = if mac { json!({"id": id, "name": id.as_deref().map(|d| ctx.devices.name(d)), "admin": admin}) } else { json!({"admin": false}) };
+                to_host(ctx, op).await?
+            }
         };
         w.write_all(format!("{reply}\n").as_bytes()).await?;
         w.flush().await?; // TLS: without a flush the end of a big answer can sit in the buffer (H3)
@@ -694,7 +719,7 @@ pub mod tests {
         std::fs::write(data.join("bundle/copies/V/poster.jpg"), b"jpg").unwrap();
         std::fs::write(data.join("bundle/originals/V.mov"), b"orig").unwrap();
         let (c, _rx) = ctx(&data, None);
-        let inv = c.devices.invite("backup");
+        let inv = c.devices.invite("backup", None);
         let (client, server) = tokio::io::duplex(1 << 16);
         let c2 = c.clone();
         let task = tokio::spawn(async move { session(server, &c2, None).await });
@@ -758,6 +783,42 @@ pub mod tests {
         for op in ["mkdir", "move", "outage-list"] {
             assert_eq!(ask(&mut r, &mut w, json!({"op": op, "path": "outage/x", "to": "outage"})).await["error"], "scope", "{op}");
         }
+        let _ = std::fs::remove_dir_all(data);
+    }
+
+    /// Roles (4.0.5): an editor Mac does the Deliver work, gets {"error":"admin"} for every admin op (but may leave),
+    /// and the host learns who asked from `_mac`, never from the client. Made admin, the same session may at once.
+    #[tokio::test]
+    async fn an_editor_mac_does_no_admin_work() {
+        let data = std::env::temp_dir().join(format!("pluck-sync-r-{}", host::uuid()));
+        std::fs::create_dir_all(data.join("bundle")).unwrap();
+        let (c, mut rx) = ctx(&data, None);
+        tokio::spawn(async move {
+            while let Some(s) = rx.recv().await {
+                let _ = s.reply.send(json!({"ok": true, "got": s.op}));
+            }
+        });
+        let inv = c.devices.invite("mac", Some("editor"));
+        let (client, server) = tokio::io::duplex(1 << 16);
+        let c2 = c.clone();
+        tokio::spawn(async move { let _ = session(server, &c2, None).await; });
+        let (r, mut w) = tokio::io::split(client);
+        let mut r = BufReader::new(r);
+        let h = ask(&mut r, &mut w, json!({"pair": inv["code"], "name": "Studio MacBook", "node": null, "role": "mac", "protocol": 3})).await;
+        assert_eq!((h["roles"].clone(), h["access"].clone()), (json!(1), json!("editor")));
+        let id = h["device"].as_str().unwrap().to_owned();
+        for op in ADMIN_OPS {
+            assert_eq!(ask(&mut r, &mut w, json!({"op": op, "id": "other", "role": "mac"})).await["error"], "admin", "{op}");
+        }
+        assert!(ask(&mut r, &mut w, json!({"op": "list"})).await["files"].is_array());
+        assert!(ask(&mut r, &mut w, json!({"op": "devices"})).await["devices"].is_array());
+        let got = ask(&mut r, &mut w, json!({"op": "publish", "_mac": {"admin": true}})).await["got"].clone();
+        assert_eq!((got["_mac"]["admin"].clone(), got["_mac"]["id"].clone(), got["_mac"]["name"].clone()), (json!(false), json!(id), json!("Studio MacBook")), "set here");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "person-invite", "name": "New client", "role": "client"})).await["got"]["op"], "person-invite", "to the host");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "device-remove", "id": id})).await["got"]["op"], "device-remove", "it may leave");
+        assert_eq!(c.devices.set_access(&id, "admin")["ok"], true);
+        assert!(ask(&mut r, &mut w, json!({"op": "invite", "role": "mac", "access": "editor"})).await["link"].is_string(), "admin at once");
+        assert_eq!(ask(&mut r, &mut w, json!({"op": "people"})).await["got"]["_mac"]["admin"], true);
         let _ = std::fs::remove_dir_all(data);
     }
 }

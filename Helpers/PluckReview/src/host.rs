@@ -127,6 +127,7 @@ pub struct Host {
     acct_begins: VecDeque<Instant>,           // account-begin on this host, a minute
     pub upload_root: Option<Arc<crate::upload_root::UploadRoot>>, // a main's uploads root: team uploads go there (§4.4)
     root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
+    pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
 }
 
 /// Who this host is: shown to Pluck, written into tombstones and proofs.
@@ -392,7 +393,7 @@ impl Host {
             fields: HashMap::new(), activity: HashMap::new(), attachments: HashMap::new(), uploads: HashMap::new(), up_hour: HashMap::new(),
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
-            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(),
+            accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), devices: None,
         };
         let _ = std::fs::create_dir_all(&h.dir);
         h.sweep_tmp(Duration::ZERO); // nothing is in flight yet: stills, proofs and link-upload partials of the last run go
@@ -874,7 +875,7 @@ impl Host {
     }
 
     fn admin_comments(&self, op: &Value) -> Value {
-        let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == op["asset"]).map(|c| Self::wire_comment(c, [None, None])).collect();
+        let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == op["asset"]).map(|c| Self::wire_comment(c, [None, None], true)).collect();
         json!({"comments": list})
     }
 
@@ -1104,7 +1105,8 @@ impl Host {
     }
 
     /// `toks`: the browser's per-link token and, signed in, the account's: either one makes it `mine` (§1.7).
-    fn wire_comment(c: &Value, toks: [Option<&str>; 2]) -> Value {
+    /// `team`: a team link (or the Mac) sees internal replies; anyone else gets the thread without them.
+    fn wire_comment(c: &Value, toks: [Option<&str>; 2], team: bool) -> Value {
         let is_mine = |w: Option<&str>| w.is_some() && toks.contains(&w);
         let mine = |x: &Value| json!(is_mine(x["authorToken"].as_str()));
         let mut w = c.clone();
@@ -1122,6 +1124,9 @@ impl Host {
                 o.insert("reactions".into(), json!(list));
             }
             if let Some(rs) = o.get_mut("replies").and_then(Value::as_array_mut) {
+                if !team {
+                    rs.retain(|r| !is(r, "internal"));
+                }
                 for r in rs.iter_mut() {
                     let m = mine(r);
                     if let Some(ro) = r.as_object_mut() {
@@ -1451,7 +1456,7 @@ impl Host {
             let ev = if kind == "deleted" {
                 json!({"t": "comment", "op": "delete", "comment": x})
             } else {
-                json!({"t": "comment", "op": if before.is_some() { "edit" } else { "add" }, "comment": Self::wire_comment(x, Self::toks(p))})
+                json!({"t": "comment", "op": if before.is_some() { "edit" } else { "add" }, "comment": Self::wire_comment(x, Self::toks(p), team(&pl))})
             };
             self.send(id, ev);
         }
@@ -2073,7 +2078,7 @@ impl Host {
         Self::versions(l, a).iter().find(|v| v["id"] == m["version"]).ok_or("scope")?;
         let toks = Self::toks(&self.peers[peer]);
         let list: Vec<Value> = self.comments.iter().filter(|c| c["asset"] == a["id"] && c["version"] == m["version"] && Self::visible(l, c))
-            .map(|c| Self::wire_comment(c, toks)).collect();
+            .map(|c| Self::wire_comment(c, toks, team(l))).collect();
         Ok(json!({"comments": list}))
     }
 
@@ -2128,7 +2133,7 @@ impl Host {
                 // The same browser sending again after its answer was lost (same cid): the stored comment, kept once.
                 let cid = m["cid"].as_str().filter(|c| (8..=64).contains(&c.len()) && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
                 if let Some(c) = cid.and_then(|cid| self.comments.iter().find(|c| c["cid"] == cid && own(c))) {
-                    return Ok(json!({"comment": Self::wire_comment(c, toks)}));
+                    return Ok(json!({"comment": Self::wire_comment(c, toks, team(l))}));
                 }
                 let (_, a) = self.asset_in_scope(l, m["asset"].as_str().ok_or("invalid")?).ok_or("scope")?;
                 let v = *Self::versions(l, a).iter().find(|v| v["id"] == m["version"]).ok_or("scope")?;
@@ -2187,7 +2192,14 @@ impl Host {
                 if !text_ok || c["replies"].as_array().map_or(0, Vec::len) >= 100 {
                     return Err(if text_ok { "limit" } else { "invalid" });
                 }
-                let r = json!({"id": uuid(), "text": text, "author": author, "authorToken": tok, "created": now_iso()});
+                let mut r = json!({"id": uuid(), "text": text, "author": author, "authorToken": tok, "created": now_iso()});
+                // An internal reply (team links only) in a visible thread: clients keep the thread, never see the reply.
+                if is(m, "internal") {
+                    if !team(l) {
+                        return Err("scope");
+                    }
+                    r["internal"] = json!(true);
+                }
                 c["replies"].as_array_mut().ok_or("internal")?.push(r);
                 (c["asset"].clone(), json!({"comment": c}), "edit")
             }
@@ -2299,7 +2311,7 @@ impl Host {
             let ev = match op {
                 "status" => json!({"t": "status", "asset": asset, "status": self.status.get(&asset), "by": author, "approval": entry["approval"]["id"]}),
                 "delete" => json!({"t": "comment", "op": "delete", "comment": entry["deleted"]}),
-                _ => json!({"t": "comment", "op": op, "comment": Self::wire_comment(&entry["comment"], Self::toks(p))}),
+                _ => json!({"t": "comment", "op": op, "comment": Self::wire_comment(&entry["comment"], Self::toks(p), team(&pl))}),
             };
             if id != peer {
                 self.send(id, ev);
@@ -2312,7 +2324,7 @@ impl Host {
                     "asset": a})
             }
             "delete" => json!({"deleted": entry["deleted"]["id"]}),
-            _ => json!({"comment": Self::wire_comment(&entry["comment"], toks)}),
+            _ => json!({"comment": Self::wire_comment(&entry["comment"], toks, team(l))}),
         })
     }
 
@@ -3103,6 +3115,43 @@ mod tests {
         assert_eq!(answer(&mut rx, "team", 6)["comments"][0]["internal"], true);
         // The editor still gets it.
         assert!(h.sync(&json!({"op": "pull", "since": 0}))["entries"].as_array().unwrap().iter().any(|e| e["comment"]["internal"] == true));
+    }
+
+    /// Clients see every comment and reply on what they can open (the team's, other clients', their own) except
+    /// internal ones: an internal comment never, an internal reply taken out of a thread they still see.
+    #[test]
+    fn clients_see_all_comments_but_internal_ones() {
+        let (mut h, mut rx) = test_host();
+        let mut t = link("LT", "RT", json!({"kind": "project", "id": "P"}));
+        t["audience"] = json!("team");
+        h.publish(&sample(json!([link("LC", "RC", json!({"kind": "project", "id": "P"})), t])), &json!({}));
+        named_peer(&mut h, "c1", "RC", "t1", "Client one");
+        named_peer(&mut h, "c2", "RC", "t2", "Client two");
+        named_peer(&mut h, "team", "RT", "tt", "Editor");
+        sent(&mut rx);
+        let add = |h: &mut Host, rx: &mut mpsc::UnboundedReceiver<Ev>, peer: &str, id: u64, text: &str, internal: bool| {
+            h.request(peer, &json!({"id": id, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": text, "internal": internal}));
+            answer(rx, peer, id)["comment"]["id"].clone()
+        };
+        let team_c = add(&mut h, &mut rx, "team", 1, "Grade pass done", false);
+        add(&mut h, &mut rx, "c2", 2, "Love the opening", false);
+        add(&mut h, &mut rx, "team", 3, "Budget note", true);
+        h.request("team", &json!({"id": 4, "t": "reply-add", "comment": team_c, "text": "Between us: v2 is rough", "internal": true}));
+        let msgs = sent(&mut rx);
+        assert!(msgs.iter().filter(|s| s["peer"] == "c1" && s["msg"]["t"] == "comment").all(|s| s["msg"]["comment"]["replies"] == json!([])),
+            "the live event leaves the internal reply out");
+        h.request("team", &json!({"id": 5, "t": "reply-add", "comment": team_c, "text": "Thanks, looks good"}));
+        h.request("c1", &json!({"id": 6, "t": "reply-add", "comment": team_c, "text": "x", "internal": true}));
+        assert_eq!(answer(&mut rx, "c1", 6)["error"]["code"], "scope", "a client can't write an internal reply");
+        h.request("c1", &json!({"id": 7, "t": "comments", "asset": "A", "version": "V"}));
+        let list = answer(&mut rx, "c1", 7)["comments"].clone();
+        let texts: Vec<&str> = list.as_array().unwrap().iter().map(|c| c["text"].as_str().unwrap()).collect();
+        assert_eq!(texts, ["Grade pass done", "Love the opening"], "the team's and another client's, not the internal one");
+        let replies: Vec<&str> = list[0]["replies"].as_array().unwrap().iter().map(|r| r["text"].as_str().unwrap()).collect();
+        assert_eq!(replies, ["Thanks, looks good"], "the thread stays, its internal reply goes");
+        h.request("team", &json!({"id": 8, "t": "comments", "asset": "A", "version": "V"}));
+        let team_list = answer(&mut rx, "team", 8)["comments"].clone();
+        assert_eq!((team_list.as_array().unwrap().len(), team_list[0]["replies"].as_array().unwrap().len()), (3, 2), "the team sees everything");
     }
 
     #[test]

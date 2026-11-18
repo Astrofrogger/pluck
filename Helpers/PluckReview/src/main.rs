@@ -286,6 +286,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         }
         let mut h = host::Host::new(&data, roots.clone(), ev_tx.clone(), copies_on.then_some(job_tx));
         h.upload_root = uploads.clone().filter(|_| !backup); // a main's only (a backup's is for its main's Macs, §13.25)
+        h.devices = Some(devices.clone()); // its paired Macs: the last-admin guard (roles)
         (h.ident, h.busy, h.back) = (me.clone(), busy.clone(), Some(prog_tx));
         // Tests only (accounts plan §1.1): a localhost passkey origin, honoured only with a loopback signaling URL.
         if let Some(o) = hc["webauthnOrigin"].as_str() {
