@@ -108,13 +108,14 @@ enum DeliverUploadDestination {
         let volumes = (FileManager.default.mountedVolumeURLs(includingResourceValuesForKeys: nil, options: [.skipHiddenVolumes]) ?? []).map(\.path)
         var found: [(local: URL, media: String)] = []
         for path in (host.mounts ?? []).map(\.local) + volumes {
+            // The name match first (no disk access); only the NAS's own shares are looked at.
+            guard let media = ReviewPublish.reference(path + "/_", on: host)?.dropLast(2), !found.contains(where: { $0.media == media }) else { continue }
             var folder: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), folder.boolValue,
-                  let media = ReviewPublish.reference(path + "/_", on: host)?.dropLast(2), !found.contains(where: { $0.media == media }) else { continue }
+            guard FileManager.default.fileExists(atPath: path, isDirectory: &folder), folder.boolValue else { continue }
             found.append((URL(fileURLWithPath: path, isDirectory: true), String(media)))
-            // (Its address, as macOS mounted it: what Connect opens when it's gone.)
-            if let remote = try? URL(fileURLWithPath: path).resourceValues(forKeys: [.volumeURLForRemountingKey]).volumeURLForRemounting {
-                UserDefaults.standard.set(remote.absoluteString, forKey: "deliverShareURL." + host.id.uuidString)
+            // (Its address, for Connect when it's gone. shortcut: always smb://, fine for TrueNAS SMB shares; an NFS mount would need nfs://.)
+            if let share = shareVolumes.share(path), let url = URL(string: "smb://\(share.server)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? share.name)") {
+                UserDefaults.standard.set(url.absoluteString, forKey: "deliverShareURL." + host.id.uuidString)
             }
         }
         return found

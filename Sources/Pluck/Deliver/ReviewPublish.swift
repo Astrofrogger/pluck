@@ -1210,10 +1210,46 @@ final class ShareVolumes: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         if let fake { return fake[volume] }
         if let hit = known[volume], Date.now.timeIntervalSince(hit.at) < 60 { return hit.share }
-        let remote = try? URL(fileURLWithPath: volume).resourceValues(forKeys: [.volumeURLForRemountingKey]).volumeURLForRemounting
-        let share = remote.flatMap { url in url.host.flatMap { host in url.pathComponents.dropFirst().first.map { Share(server: host, name: $0.removingPercentEncoding ?? $0) } } }
+        let share = Self.mountTable()[volume]
         known[volume] = (share, .now)
         return share
+    }
+
+    /// Every network mount's server and share from the kernel's mount table (MNT_NOWAIT): never touches the share
+    /// itself, so a NAS that stopped answering can't stall the caller (the remount-URL lookup could, in fsctl).
+    static func mountTable() -> [String: Share] {
+        var list: UnsafeMutablePointer<statfs>?
+        let count = Int(getmntinfo(&list, MNT_NOWAIT))
+        guard count > 0, let list else { return [:] }
+        var table: [String: Share] = [:]
+        for entry in UnsafeBufferPointer(start: list, count: count) {
+            var e = entry
+            let point = withUnsafeBytes(of: &e.f_mntonname) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            let from = withUnsafeBytes(of: &e.f_mntfromname) { String(cString: $0.bindMemory(to: CChar.self).baseAddress!) }
+            if let share = parse(from: from) { table[point] = share }
+        }
+        return table
+    }
+
+    /// "//user@server/share" (smbfs, afpfs, webdav-less) or "server:/path" (nfs) → server and share; nil for local disks.
+    static func parse(from: String) -> Share? {
+        if from.hasPrefix("//") {
+            let rest = from.dropFirst(2)
+            guard let slash = rest.firstIndex(of: "/") else { return nil }
+            var server = String(rest[..<slash])
+            if let at = server.lastIndex(of: "@") { server = String(server[server.index(after: at)...]) }
+            if let colon = server.firstIndex(of: ":") { server = String(server[..<colon]) }
+            let name = rest[rest.index(after: slash)...].split(separator: "/").first.map(String.init) ?? ""
+            guard !server.isEmpty, !name.isEmpty else { return nil }
+            return Share(server: server.lowercased(), name: name.removingPercentEncoding ?? name)
+        }
+        if let colon = from.firstIndex(of: ":"), from[from.index(after: colon)...].hasPrefix("/") {
+            let server = String(from[..<colon])
+            let name = from[from.index(after: colon)...].split(separator: "/").last.map(String.init) ?? ""
+            guard !server.isEmpty, !name.isEmpty, !server.contains("/") else { return nil }
+            return Share(server: server.lowercased(), name: name)
+        }
+        return nil
     }
 }
 
