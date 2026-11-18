@@ -654,7 +654,9 @@ impl Host {
     fn device_op(&mut self, name: &str, id: &str, access: &str, by: &str) -> Value {
         let Some(d) = self.devices.clone() else { return json!({"error": "invalid"}) };
         let Some(dev) = d.get(id) else { return json!({"error": "notFound"}) };
-        if (name == "device-remove" || access != "admin") && self.last_admin(None, Some(id)) {
+        // The only Mac paired going: with none left the host key's Mac is the admin again (as before any was paired).
+        let only_mac = name == "device-remove" && d.list()["devices"].as_array().is_some_and(|l| l.iter().all(|x| x["role"] != "mac" || x["id"] == id));
+        if (name == "device-remove" || access != "admin") && !only_mac && self.last_admin(None, Some(id)) {
             return json!({"error": "lastAdmin"});
         }
         if name == "device-remove" {
