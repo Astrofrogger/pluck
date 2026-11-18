@@ -46,6 +46,13 @@ pub fn merge_comment(stored: &Value, incoming: &Value) -> Value {
         }
     }
     replies.retain(|r| !deleted.contains(&r["id"]));
+    // Internal stays internal: a copy that doesn't know the flag (Pluck's Reply has no such field) must not reveal it.
+    let internal: Vec<Value> = ids(stored, "replies").into_iter().chain(ids(incoming, "replies")).filter(|r| r["internal"] == true).map(|r| r["id"].clone()).collect();
+    for r in &mut replies {
+        if internal.contains(&r["id"]) {
+            r["internal"] = json!(true);
+        }
+    }
     replies.sort_by(|a, b| (a["created"].as_str(), a["id"].as_str()).cmp(&(b["created"].as_str(), b["id"].as_str())));
     base["replies"] = json!(replies);
     if !deleted.is_empty() {
@@ -372,6 +379,15 @@ pub fn changes(m: &Value, since: u64, limit: usize) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A newer copy from a Pluck that drops the reply's `internal` (a Mac marking the thread done) keeps it internal.
+    #[test]
+    fn an_internal_reply_stays_internal_through_a_merge() {
+        let stored = json!({"id": "C", "rev": 1, "at": "2026-11-16T09:00:00Z", "by": "host", "replies": [{"id": "r", "text": "between us", "created": "2026-11-16T09:00:00Z", "internal": true}]});
+        let incoming = json!({"id": "C", "rev": 2, "at": "2026-11-16T10:00:00Z", "by": "mac", "completed": true, "replies": [{"id": "r", "text": "between us", "created": "2026-11-16T09:00:00Z"}]});
+        let m = merge_comment(&stored, &incoming);
+        assert_eq!((m["completed"].clone(), m["replies"][0]["internal"].clone()), (json!(true), json!(true)));
+    }
 
     #[test]
     fn link_merge_keeps_secrets() {
