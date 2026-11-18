@@ -116,16 +116,16 @@ struct DeliverHostSheet: View {
         let serving = role == "backup" && (!mainReachable || backups.contains { $0["id"] as? String == id && $0["serving"] as? Bool == true })
         return HStack(spacing: 8) {
             Image(systemName: role == "backup" ? "externaldrive.badge.timemachine" : "laptopcomputer").foregroundStyle(Design.Studio.textQuiet)
-            Text(verbatim: device["name"] as? String ?? "").font(Design.Studio.body)
+            Text(verbatim: device["name"] as? String ?? "").font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
             if role == "backup", let node = device["node"] as? String { Text(verbatim: DeliverBackup.checkCode(node)).font(Design.Studio.hint.monospaced()).foregroundStyle(Design.Studio.textQuiet) }
-            if serving { StudioChip(text: Text("Serving now"), colour: Design.Studio.good, tinted: true) }
+            if serving { StudioChip(text: Text("Serving now"), colour: Design.Studio.good, tinted: true).fixedSize() }
             else if role == "backup" { Text(verbatim: DeliverBackups.text(DeliverBackups.status(device))).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
             Spacer()
             if role == "backup", let up = Self.uplink(backups.first { $0["id"] as? String == id }) {
-                Text("\(up) Mbit/s up").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Text("\(up) Mbit/s up").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize()
             }
-            if let seen { Text(seen, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet) }
-            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove") { Task { await remove(id) } }.settingButton() }
+            if let seen { Text(seen, format: .relative(presentation: .named)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize() }
+            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove") { Task { await remove(id) } }.settingButton().fixedSize() }
         }
         .padding(.horizontal, 12).frame(height: 36)
     }
@@ -518,9 +518,9 @@ struct DeliverInviteSheet: View {
             StudioChip(text: Text(verbatim: DeliverPeople.roleName(role)), symbol: DeliverPeople.roleSymbol(role))
             Spacer()
             if let seen = date("lastSeen") {
-                Text("seen \(seen, format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                Text("seen \(seen, format: .relative(presentation: .named))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize()
             }
-            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove…") { removing = device }.settingButton() }
+            if id != host.device && DeliverPeople.isAdmin(host) { Button("Remove…") { removing = device }.settingButton().fixedSize() }
         }
         .padding(.horizontal, 12).frame(height: 36)
     }
