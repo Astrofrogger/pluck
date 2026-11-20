@@ -100,6 +100,8 @@ extension ProjectArchive {
         var layouts: [String] = []
         /// The file's own tags (creation time, camera make and model, QuickTime keys…).
         var tags: [String: String] = [:]
+        /// Each track's kind (video, audio, subtitle, data), the timecode track left out (a master gets its own).
+        var kinds: [String] = []
         /// Bits per component, from the pixel format.
         var bits: Int { pixelFormat.contains("16") || pixelFormat.hasPrefix("rgb48") ? 16 : pixelFormat.contains("12") ? 12 : pixelFormat.contains("10") || pixelFormat.hasPrefix("p010") || pixelFormat.hasPrefix("p210") ? 10 : pixelFormat.isEmpty ? 0 : 8 }
     }
@@ -121,6 +123,9 @@ extension ProjectArchive {
         var ok: Bool { problems.isEmpty }
     }
 
+    /// The tag Archive Project's masters carry (Shrink Folders' carry pluck=shrink).
+    static let masterTag = ["-metadata", "pluck=master"]
+
     /// Camera raw Pluck's raw decoder reads (when built with the makers' SDKs).
     static let rawMasterKinds: Set<String> = ["r3d", "braw"]
     static let videoKinds: Set<String> = trimKinds.union(["avi"])
@@ -133,7 +138,7 @@ extension ProjectArchive {
     /// `count`: frames counted (reads the whole file); otherwise from the header.
     static func streams(_ path: String, ffprobe: String, count: Bool = true) -> Streams {
         let out = run(ffprobe, ["-v", "error"] + (count ? ["-count_packets"] : []) + ["-show_entries",
-                                "format=duration:format_tags:stream=codec_type,codec_name,nb_read_packets,nb_frames,duration,channels,channel_layout,sample_rate,avg_frame_rate,width,height,pix_fmt,sample_aspect_ratio,color_primaries,color_transfer,color_space,color_range:stream_tags=timecode,reel_name:stream_side_data=rotation",
+                                "format=duration:format_tags:stream=codec_type,codec_name,codec_tag_string,nb_read_packets,nb_frames,duration,channels,channel_layout,sample_rate,avg_frame_rate,width,height,pix_fmt,sample_aspect_ratio,color_primaries,color_transfer,color_space,color_range:stream_tags=timecode,reel_name:stream_side_data=rotation",
                                 "-of", "json", path]).output
         var result = Streams()
         guard let json = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else { return result }
@@ -145,6 +150,7 @@ extension ProjectArchive {
             let tags = stream["tags"] as? [String: Any]
             result.timecode = result.timecode ?? tags?["timecode"] as? String
             result.reel = result.reel ?? (tags?["reel_name"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            if let type = stream["codec_type"] as? String, type != "data" || stream["codec_tag_string"] as? String != "tmcd" { result.kinds.append(type) }
             switch stream["codec_type"] as? String {
             case "video" where !video:
                 video = true
@@ -167,6 +173,27 @@ extension ProjectArchive {
             }
         }
         return result
+    }
+
+    /// The tracks besides the first picture and the sound that go with a master (subtitles as mov_text and data
+    /// tracks copied; never the timecode track, made anew), or why the clip can't keep them all (a second
+    /// picture, a subtitle or other track a .mov can't take).
+    static func extraTracks(_ path: String, ffprobe: String) -> (kept: [Int], unkept: String?) {
+        let out = run(ffprobe, ["-v", "error", "-show_entries", "stream=index,codec_type,codec_name,codec_tag_string", "-of", "json", path]).output
+        guard let json = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any], let list = json["streams"] as? [[String: Any]] else { return ([], nil) }
+        let unkept = String(localized: "Has extra tracks Pluck can’t keep")
+        var kept: [Int] = [], videos = 0
+        for stream in list {
+            let index = stream["index"] as? Int ?? -1, codec = stream["codec_name"] as? String
+            switch stream["codec_type"] as? String {
+            case "video": videos += 1
+            case "audio": break
+            case "subtitle" where codec == "mov_text": kept.append(index)
+            case "data": if stream["codec_tag_string"] as? String != "tmcd" { kept.append(index) }
+            default: return (kept, unkept)
+            }
+        }
+        return (kept, videos > 1 ? unkept : nil)
     }
 
     // MARK: Encoders
@@ -233,18 +260,22 @@ extension ProjectArchive {
         if rawMasterKinds.contains(kind) { return try encodeRaw(source, to: output, settings: settings, ffmpeg: ffmpeg, reel: reel, sample: sample, metadata: metadata, open: open) }
         let info = streams(source, ffprobe: ffprobe, count: false)
         guard info.frames > 0 || info.width > 0 else { throw RawProblem(text: String(localized: "No picture to make a master of.")) }
+        let extra = extraTracks(source, ffprobe: ffprobe)
+        if let why = extra.unkept { throw RawProblem(text: why) }
         let (video, pixel) = videoArguments(settings, source: info, ffmpeg: ffmpeg)
         let (width, height) = settings.fit(info.width, info.height)
         var arguments = ["-nostdin", "-y", "-v", "error"]
         if let sample { arguments += ["-ss", String(format: "%.3f", max(info.duration / 2 - sample / 2, 0)), "-t", String(format: "%.3f", sample)] }
         // (The picture as stored with its display matrix kept, never turned; its range never converted.)
-        arguments += ["-noautorotate", "-i", source, "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0", "-fps_mode", "passthrough"]
+        arguments += ["-noautorotate", "-i", source, "-map", "0:v:0", "-map", "0:a?"] + extra.kept.flatMap { ["-map", "0:\($0)"] }
+        arguments += ["-map_metadata", "0", "-fps_mode", "passthrough"]
         let range = info.colour.count == 4 && ["pc", "tv"].contains(info.colour[3]) ? ":in_range=\(info.colour[3]):out_range=\(info.colour[3])" : ""
         let resize = width != info.width || height != info.height
         arguments += ["-vf", (resize || !range.isEmpty ? "scale=\(width):\(height)\(resize ? ":flags=lanczos" : "")\(range)," : "") + "format=\(pixel)"]
         arguments += video
         // Sound as it was: PCM copied, anything else (AAC) to 24-bit PCM, never compressed again.
         arguments += ["-c:a", info.audioCodecs.allSatisfy { $0.hasPrefix("pcm_") } ? "copy" : "pcm_s24le"]
+        if !extra.kept.isEmpty { arguments += ["-c:s", "copy", "-c:d", "copy"] }
         if let code = info.timecode, sample == nil { arguments += ["-timecode", code] }
         arguments += ["-metadata:s:v:0", "reel_name=\(info.reel ?? reel)"]
         arguments += metadata
@@ -348,6 +379,7 @@ extension ProjectArchive {
         if got.channels != original.channels || (original.sampleRate > 0 && got.sampleRate != original.sampleRate) {
             problems.append(String(localized: "The sound channels differ"))
         }
+        if !original.kinds.isEmpty, got.kinds.sorted() != original.kinds.sorted() { problems.append(String(localized: "Has extra tracks Pluck can’t keep")) }
         if run(ffmpeg, ["-nostdin", "-v", "error", "-xerror", "-i", master, "-map", "0:v", "-map", "0:a?", "-f", "null", "-"]).status != 0 {
             problems.append(String(localized: "It doesn’t play to the end"))
         }
@@ -520,7 +552,8 @@ extension ProjectArchive {
             }
             if !FileManager.default.fileExists(atPath: output.path) {
                 do {
-                    try encode(item.source, to: partial, settings: chosen, ffmpeg: ffmpeg, ffprobe: ffprobe, open: open)
+                    // (Tagged, so Archive never makes a master of a master.)
+                    try encode(item.source, to: partial, settings: chosen, ffmpeg: ffmpeg, ffprobe: ffprobe, metadata: masterTag, open: open)
                     try FileManager.default.moveItem(at: partial, to: output)
                     try source.write(to: madeFrom, atomically: true, encoding: .utf8)
                 } catch {
