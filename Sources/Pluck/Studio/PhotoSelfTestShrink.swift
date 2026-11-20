@@ -471,7 +471,7 @@ extension PhotoSelfTest {
         // Dates, camera tags, colour tags (full range), rotation and pixel aspect kept on the master.
         let metaFolder = share.appendingPathComponent("Projects/Meta/Rushes"), plain = visual.appendingPathComponent("plain.mov"), metaClip = metaFolder.appendingPathComponent("A005C001.mov")
         try? fm.createDirectory(at: metaFolder, withIntermediateDirectories: true)
-        ProjectArchive.run(ffmpeg, ["-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=1",
+        ProjectArchive.run(ffmpeg, ["-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=1,noise=alls=20:allf=t",
                                     "-f", "lavfi", "-i", "anoisesrc=amplitude=0.1:duration=1,aformat=channel_layouts=4.0:sample_rates=48000", "-shortest",
                                     "-vf", "setsar=4/3", "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p", "-color_primaries", "bt709",
                                     "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "pc", "-c:a", "pcm_s24le",
@@ -490,7 +490,7 @@ extension PhotoSelfTest {
         let metaAfter = ProjectArchive.streams(metaClip.path, ffprobe: ffprobe)
         let dates = try? fm.attributesOfItem(atPath: metaClip.path)
         let metaDone = metaCenter.run(metaID)?.files.first?.state == .done && metaAfter.codec == "hevc"
-        let picture = metaBefore.rotation == 90 && metaAfter.rotation == 90 && metaAfter.sar == "4:3" && metaAfter.colour == ["bt709", "bt709", "bt709", "pc"]
+        let picture = metaBefore.rotation == 90 && metaAfter.rotation == 90 && metaAfter.sar == "4:3" && metaAfter.colour == metaBefore.colour && metaAfter.colour.last == "pc"
         let sound = metaAfter.layouts == ["4.0"] && metaAfter.bits == 10 && metaAfter.timecode == "10:00:00:00"
         let camera = metaAfter.tags["com.apple.quicktime.make"] == "TestMake" && metaAfter.tags["com.apple.quicktime.model"] == "TestCam"
             && metaAfter.tags["creation_time"] == metaBefore.tags["creation_time"]

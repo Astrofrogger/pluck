@@ -180,7 +180,7 @@ enum ShrinkFolders {
                        open: (URL) throws -> RawSource = { try RawFormats.open($0) }, rules: Rules = Rules.load(),
                        stopped: () -> Bool = { false }, found: (Int) -> Void = { _ in }) -> Survey {
         let kinds = ProjectArchive.videoKinds.union(ProjectArchive.rawMasterKinds)
-        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
+        let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey]
         var survey = Survey(folders: folders.map { real($0).path })
         var seen = Set<String>()
         var listed: [String: [String]] = [:]
@@ -199,14 +199,16 @@ enum ShrinkFolders {
             let root = real(folder)
             let share = shareRoot(of: root)
             guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
-                                                            options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
+                                                            options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { continue }
             for case let url as URL in walk {
                 if stopped() { return done() }
                 guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
                 let name = url.lastPathComponent
                 if values.isDirectory == true {
                     let top = url.deletingLastPathComponent().path == share && (name.hasPrefix("_") || name.hasPrefix("#")) && !container(name)
-                    if name == holdingName || skippedFolders.contains(name.lowercased()) || template(name) || top { walk.skipDescendants() }
+                    // Packages aren't looked in, except RED's .RDC clip folders (a package when Finder shows them as one item).
+                    let package = values.isPackage == true && url.pathExtension.lowercased() != "rdc"
+                    if name == holdingName || skippedFolders.contains(name.lowercased()) || template(name) || top || package { walk.skipDescendants() }
                     continue
                 }
                 guard values.isSymbolicLink != true, values.isRegularFile == true, seen.insert(url.path).inserted,
@@ -832,7 +834,7 @@ final class ShrinkCenter {
                 let folder = existing(URL(fileURLWithPath: target).deletingLastPathComponent())
                 if !ShrinkFolders.room(for: file, settings: file.projectSettings ?? settings, free: freeSpace(folder), capacity: capacity(folder)) {
                     let name = destination?.lastPathComponent ?? (ShrinkFolders.shareRoot(of: URL(fileURLWithPath: file.folder)) as NSString).lastPathComponent
-                    runs[r].paused = String(localized: "\(name) is nearly full: delete what’s waiting in Originals to delete, or archive to another folder or NAS")
+                    runs[r].paused = String(localized: "\(name) is nearly full: delete what’s waiting in “Pluck · Originals to delete”, or archive to another folder or NAS")
                     save()
                     break
                 }
