@@ -24,8 +24,7 @@ enum ShrinkFolders {
     /// The tag every master made here carries (so it's never shrunk again).
     static let tag = ["-metadata", "pluck=shrink"]
     /// Caches, proxies and NAS housekeeping, never looked in (lowercased folder names).
-    static let skippedFolders: Set<String> = cacheNames.union([
-                                              "#recycle", "@recycle", "@eadir", "#snapshot", "$recycle.bin"])
+    static let skippedFolders: Set<String> = ["#recycle", "@recycle", "@eadir", "#snapshot", "$recycle.bin", ".snapshot", "lost+found"]
 
     // MARK: Rushes or deliveries
 
@@ -100,6 +99,10 @@ enum ShrinkFolders {
         var codec = ""
         /// The newest change to any file of its project (the first folder below the chosen one).
         var projectChanged: Date?
+        /// Its client, project name and project folder (ShrinkProjects).
+        var client = ""
+        var projectName = ""
+        var project = ""
         /// Why it's left as it is, whatever the settings (nil: it can be shrunk).
         var skip: String?
         /// Other files of the clip that go with it (RED spans, a sidecar).
@@ -144,51 +147,80 @@ enum ShrinkFolders {
         var files: [File]
         var destination: String?
         var roots: [String] = []
+        /// The proxy and cache folders of its projects, by project folder; moved with the originals once a project has masters.
+        var proxyFolders: [String: [String]] = [:]
+        /// Folders moved: from → to.
+        var movedFolders: [String: String] = [:]
     }
 
     // MARK: Finding the files
 
     /// The video files in `folders` (and below; a whole share works too), each probed and sorted
-    /// into rushes and deliveries. Hidden files, caches, the originals' folder, links and packages
-    /// are left out; links are never followed.
+    /// into rushes and deliveries. Hidden files, NAS housekeeping, templates, the originals' folder,
+    /// links and packages are left out; links are never followed.
     static func scan(_ folders: [URL], ffprobe: String, minimum: Int64 = minimumSize, quiet: TimeInterval = quiet,
                      raw: Set<String> = ProjectArchive.rawMasterKinds.intersection(RawHelperSource.formats),
-                     open: (URL) throws -> RawSource = { try RawFormats.open($0) },
+                     open: (URL) throws -> RawSource = { try RawFormats.open($0) }, rules: Rules = Rules(),
                      stopped: () -> Bool = { false }, found: (Int) -> Void = { _ in }) -> [File] {
+        survey(folders, ffprobe: ffprobe, minimum: minimum, quiet: quiet, raw: raw, open: open, rules: rules, stopped: stopped, found: found).files
+    }
+
+    /// The scan with the space report: every file counted into its project (rushes, proxies and
+    /// caches, deliveries, other), the videos probed, the big other files listed.
+    static func survey(_ folders: [URL], ffprobe: String, minimum: Int64 = minimumSize, quiet: TimeInterval = quiet,
+                       raw: Set<String> = ProjectArchive.rawMasterKinds.intersection(RawHelperSource.formats),
+                       open: (URL) throws -> RawSource = { try RawFormats.open($0) }, rules: Rules = Rules.load(),
+                       stopped: () -> Bool = { false }, found: (Int) -> Void = { _ in }) -> Survey {
         let kinds = ProjectArchive.videoKinds.union(ProjectArchive.rawMasterKinds)
         let keys: [URLResourceKey] = [.isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey]
-        var files: [File] = [], seen = Set<String>()
-        var newest: [String: Date] = [:]
-        func project(_ path: String, root: String) -> String {
-            let below = path.hasPrefix(root + "/") ? path.dropFirst(root.count + 1) : ""
-            let parts = below.split(separator: "/")
-            return parts.count > 1 ? root + "/" + parts[0] : root
-        }
-        func done() -> [File] {
-            for index in files.indices { files[index].projectChanged = newest[project(files[index].path, root: files[index].folder)] }
-            return files
+        var survey = Survey(folders: folders.map { real($0).path })
+        var seen = Set<String>()
+        func done() -> Survey {
+            tally(&survey)
+            survey.big = Array(survey.big.sorted { $0.size > $1.size }.prefix(500))
+            return survey
         }
         for folder in folders {
-            let root = folder.resolvingSymlinksInPath().standardizedFileURL
+            let root = real(folder)
+            let share = shareRoot(of: root)
             guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
                                                             options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
             for case let url as URL in walk {
                 if stopped() { return done() }
                 guard let values = try? url.resourceValues(forKeys: Set(keys)) else { continue }
+                let name = url.lastPathComponent
                 if values.isDirectory == true {
-                    if url.lastPathComponent == holdingName || skippedFolders.contains(url.lastPathComponent.lowercased()) { walk.skipDescendants() }
+                    let top = url.deletingLastPathComponent().path == share && (name.hasPrefix("_") || name.hasPrefix("#")) && !container(name)
+                    if name == holdingName || skippedFolders.contains(name.lowercased()) || template(name) || top { walk.skipDescendants() }
                     continue
                 }
-                if let date = values.contentModificationDate {
-                    let key = project(url.path, root: root.path)
-                    newest[key] = max(newest[key] ?? .distantPast, date)
+                guard values.isSymbolicLink != true, values.isRegularFile == true, seen.insert(url.path).inserted,
+                      let place = detect(url.path, share: share, rules: rules) else { continue }
+                let size = Int64(values.fileSize ?? 0)
+                var project = survey.projects[place.folder] ?? Project(folder: place.folder, client: place.client, name: place.project, share: share)
+                defer { survey.projects[place.folder] = project }
+                if let date = values.contentModificationDate { project.newest = max(project.newest, date) }
+                // Proxies and caches (the first such folder below the project).
+                let inside = url.path.hasPrefix(place.folder + "/") ? url.deletingLastPathComponent().path.dropFirst(place.folder.count + 1).split(separator: "/") : []
+                if let first = inside.firstIndex(where: { proxyFolder(String($0)) }) {
+                    project.proxies += size
+                    let proxy = place.folder + "/" + inside[...first].joined(separator: "/")
+                    if !project.proxyFolders.contains(proxy) { project.proxyFolders.append(proxy) }
+                    continue
                 }
                 let kind = url.pathExtension.lowercased()
-                guard values.isSymbolicLink != true, values.isRegularFile == true, kinds.contains(kind), seen.insert(url.path).inserted else { continue }
+                guard kinds.contains(kind) else {
+                    project.loose += size
+                    if size >= bigSize { survey.big.append(Big(path: url.path, size: size, project: place.folder, reason: String(localized: "Not video"))) }
+                    continue
+                }
                 // A RED clip is its _001 file (with its other spans and .RMD); the rest go with it.
                 let stem = url.deletingPathExtension().lastPathComponent
                 if kind == "r3d", stem.range(of: #"_\d{3}$"#, options: .regularExpression) != nil, !stem.hasSuffix("_001") { continue }
-                var file = File(path: url.path, folder: root.path, size: Int64(values.fileSize ?? 0), modified: values.contentModificationDate ?? .distantPast)
+                var file = File(path: url.path, folder: root.path, size: size, modified: values.contentModificationDate ?? .distantPast)
+                file.client = place.client
+                file.projectName = place.project
+                file.project = place.folder
                 file.parts = parts(of: url)
                 file.size += file.parts.reduce(Int64(0)) { $0 + ((try? FileManager.default.attributesOfItem(atPath: $1)[.size] as? Int64) ?? 0) }
                 var tags: [String: String] = [:]
@@ -203,8 +235,8 @@ enum ShrinkFolders {
                     tags = probe(&file, ffprobe: ffprobe, raw: raw.contains(kind), open: open)
                 }
                 (file.kind, file.why) = classify(file.path, root: root.path, tags: tags)
-                files.append(file)
-                found(files.count)
+                survey.files.append(file)
+                found(survey.files.count)
             }
         }
         return done()
@@ -271,10 +303,17 @@ enum ShrinkFolders {
 
     // MARK: Where things go
 
+    /// A folder's real path (links resolved, /var as /private/var), as the file system lists what's in it.
+    static func real(_ url: URL) -> URL {
+        guard let resolved = realpath(url.path, nil) else { return url.standardizedFileURL }
+        defer { free(resolved) }
+        return URL(fileURLWithPath: String(cString: resolved))
+    }
+
     /// The folder the originals of `folder` are moved into: at its share's (drive's) top when
     /// Pluck may write there, else in the chosen folder itself; always on the same drive.
     static func holding(for folder: URL) -> URL {
-        let path = folder.standardizedFileURL.path
+        let path = folder.path
         if let test = OfficeGroup.testVolumes.first(where: { path == $0.prefix || path.hasPrefix($0.prefix + "/") }) {
             return URL(fileURLWithPath: test.prefix).appendingPathComponent(holdingName, isDirectory: true)
         }
@@ -352,6 +391,7 @@ enum ShrinkFolders {
         var file = file
         func skip(_ why: String) -> File { file.state = .skipped; file.note = why; return file }
         func fail(_ why: String) -> File { file.state = .failed; file.note = why; return file }
+        if file.kind == .deliveries { return skip(String(localized: "Delivery: never touched")) }
         if let why = stillTheSame(file, quiet: quiet) { return skip(why) }
         if busy.contains(where: { file.path.hasPrefix($0) }) { return skip(String(localized: "Being copied")) }
         if openElsewhere(file.path) { return skip(String(localized: "Open in another app")) }
@@ -433,13 +473,14 @@ enum ShrinkFolders {
 
     /// Back as it was: the master to the Trash (or, where the drive has none, into a folder to
     /// delete by hand), the original and its parts moved back if they were moved.
-    static func putBack(_ file: File, settings: Settings, inventory: URL? = nil) -> File {
+    static func putBack(_ file: File, settings: Settings, inventory: URL? = nil,
+                        trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) -> File {
         var file = file
         let fm = FileManager.default
         guard file.state == .done, let master = file.master else { return file }
         if let moved = file.moved, !fm.fileExists(atPath: moved) { file.note = String(localized: "The original isn’t in the originals’ folder"); return file }
         if fm.fileExists(atPath: master) {
-            do { try fm.trashItem(at: URL(fileURLWithPath: master), resultingItemURL: nil) } catch {
+            do { try trash(URL(fileURLWithPath: master)) } catch {
                 let aside = file.moved.map { URL(fileURLWithPath: $0).deletingLastPathComponent().appendingPathComponent("Master · " + (master as NSString).lastPathComponent) }
                     ?? URL(fileURLWithPath: master).deletingLastPathComponent().appendingPathComponent(".pluck-removed-" + (master as NSString).lastPathComponent)
                 guard (try? fm.moveItem(at: URL(fileURLWithPath: master), to: aside)) != nil else { file.note = error.localizedDescription; return file }
@@ -500,9 +541,7 @@ extension ShrinkFolders {
     static func projects(_ run: Run) -> [(name: String, files: Int, before: Int64, after: Int64)] {
         var found: [String: (Int, Int64, Int64)] = [:]
         for file in run.files where file.state == .done {
-            let below = file.path.hasPrefix(file.folder + "/") ? String(file.path.dropFirst(file.folder.count + 1)) : ""
-            let parts = below.split(separator: "/")
-            let name = parts.count > 1 ? (file.folder as NSString).lastPathComponent + "/" + parts[0] : (file.folder as NSString).lastPathComponent
+            let name = file.client.isEmpty ? (file.folder as NSString).lastPathComponent : title(client: file.client, project: file.projectName)
             let now = found[name] ?? (0, 0, 0)
             found[name] = (now.0 + 1, now.1 + file.size, now.2 + (file.masterSize ?? 0))
         }
@@ -556,6 +595,8 @@ final class ShrinkCenter {
     var quiet = ShrinkFolders.quiet
     /// Free space where a master goes (tests replace it).
     var freeSpace: @Sendable (URL) -> Int64? = { OffloadCenter.freeSpace($0) }
+    /// Where a master goes when a run is put back (tests: a folder of their own).
+    var trash: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
     /// Keep this Mac awake while a run goes (Run overnight).
     var keepAwake = false
     /// Asked after each file of a run that's partly on the always-on Mac (ShrinkRemote fills it).
@@ -605,11 +646,13 @@ final class ShrinkCenter {
 
     /// Adds a run of these files (`destination`: masters there, originals left; nil: in place).
     @discardableResult
-    func add(_ files: [ShrinkFolders.File], settings: ShrinkFolders.Settings, destination: URL? = nil, roots: [String], id: UUID = UUID()) -> UUID {
+    func add(_ files: [ShrinkFolders.File], settings: ShrinkFolders.Settings, destination: URL? = nil, roots: [String], id: UUID = UUID(),
+             proxies: [String: [String]] = [:]) -> UUID {
         var run = ShrinkFolders.Run(settings: settings, files: files.map { var file = $0; file.state = .pending; file.note = nil; return file })
         run.id = id
         run.destination = destination?.path
-        run.roots = roots
+        run.roots = roots.map { ShrinkFolders.real(URL(fileURLWithPath: $0)).path }
+        run.proxyFolders = destination == nil ? proxies : [:]
         runs.insert(run, at: 0)
         save()
         return id
@@ -632,6 +675,7 @@ final class ShrinkCenter {
         pace = (0, 0)
         holdAwake(true)
         defer { active = nil; current = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReport(run) } }
+        defer { if !stopping { moveProxies(id) } }
         while !stopping, let r = runs.firstIndex(where: { $0.id == id }),
               let f = runs[r].files.firstIndex(where: { $0.state == .pending || $0.state == .working }) {
             let run = runs[r], settings = run.settings, quiet = quiet, freeSpace = freeSpace, mac = mac
@@ -743,6 +787,22 @@ final class ShrinkCenter {
         }.value
     }
 
+    /// Once a run is through: the proxy and cache folders of each project with a master made moved
+    /// into the folder to delete, at their share path (renamed on the same drive).
+    private func moveProxies(_ id: UUID) {
+        guard let r = runs.firstIndex(where: { $0.id == id }), !unfinished(runs[r]) else { return }
+        let projects = Set(runs[r].files.filter { $0.state == .done && $0.moved != nil }.map(\.project))
+        for project in projects {
+            for folder in runs[r].proxyFolders[project] ?? [] where runs[r].movedFolders[folder] == nil && FileManager.default.fileExists(atPath: folder) {
+                guard let file = runs[r].files.first(where: { $0.project == project }) else { continue }
+                var holder = ShrinkFolders.File(path: folder, folder: file.folder, size: 0, modified: .now)
+                let target = ShrinkFolders.movedPath(folder, holding: ShrinkFolders.holding(for: URL(fileURLWithPath: file.folder)))
+                if ShrinkFolders.moveOriginal(&holder, to: target) == nil { runs[r].movedFolders[folder] = target }
+            }
+        }
+        save()
+    }
+
     /// Stops after the file now (the master being made is stopped and dropped).
     func pause() {
         stopping = true
@@ -777,9 +837,12 @@ final class ShrinkCenter {
         guard active == nil, let run = run(id) else { return }
         active = id
         defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
-        let settings = run.settings, inventory = run.destination.map { URL(fileURLWithPath: $0) }
+        let settings = run.settings, inventory = run.destination.map { URL(fileURLWithPath: $0) }, trash = trash
+        for (from, to) in run.movedFolders where FileManager.default.fileExists(atPath: to) && !FileManager.default.fileExists(atPath: from) {
+            if (try? FileManager.default.moveItem(atPath: to, toPath: from)) != nil, let r = runs.firstIndex(where: { $0.id == id }) { runs[r].movedFolders[from] = nil }
+        }
         for file in run.files where file.state == .done {
-            set(await Task.detached { ShrinkFolders.putBack(file, settings: settings, inventory: inventory) }.value, in: id)
+            set(await Task.detached { ShrinkFolders.putBack(file, settings: settings, inventory: inventory, trash: trash) }.value, in: id)
         }
     }
 
@@ -816,29 +879,5 @@ final class ShrinkCenter {
         guard let r = runs.firstIndex(where: { $0.id == id }), let f = runs[r].files.firstIndex(where: { $0.path == file.path }) else { return }
         runs[r].files[f] = file
         save()
-    }
-}
-
-extension ShrinkFolders {
-    /// Cache and proxy folders (Resolve's CacheClip, Optimized Media, proxies) in the chosen folders, with their sizes.
-    static let cacheNames: Set<String> = ["cacheclip", "optimizedmedia", "optimized media", "proxy", "proxies", "render cache", "rendercache"]
-
-    static func caches(in folders: [URL]) -> [(path: String, size: Int64)] {
-        var found: [(String, Int64)] = []
-        for folder in folders {
-            guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
-                                                            options: [.skipsPackageDescendants], errorHandler: { _, _ in true }) else { continue }
-            for case let url as URL in walk {
-                let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-                guard values?.isDirectory == true, values?.isSymbolicLink != true else { continue }
-                if url.lastPathComponent == holdingName { walk.skipDescendants(); continue }
-                guard cacheNames.contains(url.lastPathComponent.lowercased()) else { continue }
-                walk.skipDescendants()
-                let inside = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.fileSizeKey], options: [], errorHandler: { _, _ in true })
-                let size = (inside?.allObjects as? [URL] ?? []).reduce(Int64(0)) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
-                found.append((url.path, size))
-            }
-        }
-        return found
     }
 }

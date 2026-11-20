@@ -1,452 +1,397 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
-/// Archive: folders (or a whole share) shrunk to checked masters, by default; or, from a timeline,
-/// only what an edit used (Archive Project).
+/// Archive: a dashboard of what can be freed and what's being archived, New Archive in three
+/// steps (Folders · Projects · Size and destination), and Archive Project's timeline mode as an
+/// option. Everything it shows and does is ArchiveModel's.
 struct ArchiveView: View {
+    @Bindable private var model = ArchiveModel.shared
     @AppStorage("archiveMode") private var timeline = false
+    @State private var renaming: ShrinkFolders.Project?
+    @State private var newName = ""
+    @State private var more = false
+    @State private var showAll = false
+    private var center: ShrinkCenter { model.center }
+    private let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
+    private var flow: Bool { [.folders, .projects, .settings].contains(model.screen) }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 20) {
-                Text("Archive").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
-                StudioSegmented(options: [(false, "Folders"), (true, "Timeline")], selection: $timeline)
-                    .help("Timeline: only what an edit used, with its renders and project")
-                Spacer()
+            header
+            if timeline {
+                ProjectArchiveView(embedded: true)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 28) {
+                        switch model.screen {
+                        case .dashboard: dashboard
+                        case .folders: foldersStep
+                        case .projects: projectsStep
+                        case .settings: settingsStep
+                        case .untouched: untouchedList
+                        case .history: history
+                        }
+                    }
+                    .frame(maxWidth: 860, alignment: .leading)
+                    .padding(.horizontal, 32).padding(.vertical, 24)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollIndicators(.never)
+                if flow { footer }
             }
-            .padding(.horizontal, 32).padding(.top, 28).padding(.bottom, timeline ? 0 : 6)
-            .frame(maxWidth: 960).frame(maxWidth: .infinity)
-            if timeline { ProjectArchiveView(embedded: true) } else { ShrinkFoldersView() }
         }
         .studioPanel()
-    }
-}
-
-/// Shrink Folders: pick folders → the list with what each saves → Start.
-struct ShrinkFoldersView: View {
-    typealias Settings = ShrinkFolders.Settings
-    typealias File = ShrinkFolders.File
-    enum Machine: Int { case here, office, both }
-
-    /// Kept while another page is open.
-    @MainActor private enum Kept {
-        static var folders: [URL] = []
-        static var files: [File] = []
-    }
-    @State private var folders = Kept.folders
-    @State private var files = Kept.files
-    @State private var scanning: Task<Void, Never>?
-    @State private var found = 0
-    @State private var unticked: Set<String> = []
-    @State private var kinds: Set<ShrinkFolders.Kind> = [.rushes]
-    @State private var overrides: [String: ShrinkFolders.Kind] = [:]
-    @AppStorage("shrinkSize") private var size = Settings.Size.hd.rawValue
-    @AppStorage("shrinkProRes") private var prores = false
-    @AppStorage("shrinkBalanced") private var balanced = false
-    @AppStorage("shrinkMonths") private var months = 6
-    @State private var destination: URL?
-    @State private var machine = Machine.here
-    @State private var officeProblem: String? = String(localized: "Checking…")
-    @AppStorage("shrinkOvernight") private var overnight = false
-    @AppStorage("shrinkClearCaches") private var clearCaches = false
-    @State private var caches: [(path: String, size: Int64)] = []
-    @State private var confirmCaches = false
-    @State private var problems: [String] = []
-    @State private var following: Set<UUID> = []
-    private var center: ShrinkCenter { ShrinkCenter.shared }
-
-    private let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
-    private var tool: (String) -> String? { { AppDelegate.shared?.manager.tool($0) } }
-
-    private var settings: Settings {
-        prores ? Settings.master.with(size: Settings.Size(rawValue: size) ?? .hd)
-            : Settings.compact.with(size: Settings.Size(rawValue: size) ?? .hd, quality: balanced ? .balanced : .high)
-    }
-
-    private func kind(_ file: File) -> ShrinkFolders.Kind { overrides[file.path] ?? file.kind }
-
-    /// Why a file is left as it is (nil: it can be shrunk).
-    private func reason(_ file: File) -> String? {
-        if let skip = file.skip { return skip }
-        if file.tooSmall(settings) { return String(localized: "Already small") }
-        if file.tooRecent(months: months) { return String(localized: "Recent project") }
-        return nil
-    }
-
-    private func chosen(_ file: File) -> Bool { reason(file) == nil && kinds.contains(kind(file)) && !unticked.contains(file.path) }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                foldersBox
-                if !files.isEmpty {
-                    settingsBox
-                    summaryBox
-                    listBox
-                } else if scanning == nil, folders.isEmpty {
-                    StudioEmptyState(symbol: "archivebox", title: "Choose folders to shrink",
-                                     line: "Old footage becomes checked 1080p masters. The originals move to a folder for you to delete.",
-                                     button: "Add Folder…") { addFolder() }
-                        .padding(.vertical, 48)
-                        .studioDropZone(targeted: false)
-                }
-                progressBox
-                ForEach(center.runs.prefix(10)) { run in runBox(run) }
-                StudioFootnote(text: "Pluck never deletes: originals go to “Pluck · Originals to delete”", symbol: "checkmark.shield")
-            }
-            .frame(maxWidth: 960)
-            .padding(.horizontal, 32)
-            .padding(.vertical, 22)
-            .frame(maxWidth: .infinity)
-        }
-        .scrollIndicators(.never)
-        .onChange(of: folders) { Kept.folders = folders }
-        .onChange(of: files) { Kept.files = files }
-        .onChange(of: overnight) { center.keepAwake = overnight }
-        .task {
-            center.keepAwake = overnight
-            for run in center.runs where run.files.contains(where: { $0.state == .elsewhere }) { follow(run.id) }
-            officeProblem = await ShrinkRemote.unavailable()
-        }
-        .confirmationDialog("Move these caches to the Trash?", isPresented: $confirmCaches) {
-            Button("Move to Trash", role: .destructive) {
-                for cache in caches { try? FileManager.default.trashItem(at: URL(fileURLWithPath: cache.path), resultingItemURL: nil) }
-                caches = []
-            }
-        } message: {
-            Text(verbatim: caches.map { "\(($0.path as NSString).abbreviatingWithTildeInPath) (\(bytes($0.size)))" }.joined(separator: "\n"))
+        .task { await model.appeared() }
+        .alert("Rename", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
+            TextField("Name", text: $newName)
+            Button("Rename") { if let renaming { model.rename(renaming, to: newName) } }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
-    // MARK: Folders
+    // MARK: Header and footer
 
-    private var foldersBox: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            ForEach(folders, id: \.self) { folder in
-                let mine = files.filter { $0.folder == folder.standardizedFileURL.resolvingSymlinksInPath().path }
-                let picked = mine.filter(chosen)
-                let before = picked.reduce(Int64(0)) { $0 + $1.size }, after = picked.reduce(Int64(0)) { $0 + $1.estimate(settings) }
-                line("folder", Text(verbatim: folder.lastPathComponent),
-                     Text(verbatim: !FileManager.default.isWritableFile(atPath: folder.path) && destination == nil ? String(localized: "Read-only: choose a destination")
-                          : picked.isEmpty ? "" : "\(picked.count) · \(bytes(before)) → \(bytes(after))"),
-                     colour: FileManager.default.isWritableFile(atPath: folder.path) || destination != nil ? Design.Studio.text : Design.Studio.warn) {
-                    iconButton("xmark", label: "Remove") { folders.removeAll { $0 == folder }; rescan() }
-                }
-                .help(folder.path)
-            }
-            HStack(spacing: 10) {
-                StudioDashedButton(title: "Add Folder or Share", height: 32) { addFolder() }
-                if let scanning {
-                    PlumSpinner().frame(width: 16, height: 16)
-                    Text("Looking… \(found) files").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                    Button("Stop") { scanning.cancel(); self.scanning = nil }.buttonStyle(StudioFlatButtonStyle())
+    private var header: some View {
+        HStack(spacing: 20) {
+            Text("Archive").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
+            if flow && !timeline {
+                HStack(spacing: 14) {
+                    step(.folders, "1 Folders")
+                    step(.projects, "2 Projects")
+                    step(.settings, "3 Size and destination")
                 }
             }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .studioBox()
-        .disabled(center.running)
-    }
-
-    private func addFolder() {
-        guard let folder = pickFolder(), !folders.contains(folder) else { return }
-        folders.append(folder)
-        rescan()
-    }
-
-    private func rescan() {
-        scanning?.cancel()
-        guard let ffprobe = tool("ffprobe"), !folders.isEmpty else { files = []; scanning = nil; return }
-        let chosen = folders
-        found = 0
-        scanning = Task {
-            let stop = StopFlag()
-            let made = await withTaskCancellationHandler {
-                await Task.detached(priority: .userInitiated) {
-                    ShrinkFolders.scan(chosen, ffprobe: ffprobe, stopped: { stop.value }, found: { count in Task { @MainActor in found = count } })
-                }.value
-            } onCancel: { stop.value = true }
-            guard !Task.isCancelled else { return }
-            files = made
-            scanning = nil
-        }
-    }
-
-    // MARK: Settings
-
-    private var settingsBox: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                StudioSegmented(options: [(Settings.Size.hd.rawValue, "1080p"), (Settings.Size.k4.rawValue, "4K")], selection: $size)
-                StudioSegmented(options: [(false, "HEVC 10-bit"), (true, "ProRes 422 HQ")], selection: $prores)
-                if !prores { StudioSegmented(options: [(false, "High"), (true, "Balanced")], selection: $balanced) }
-                Spacer()
-                Menu {
-                    ForEach([0, 3, 6, 12, 24], id: \.self) { value in Button(monthsLabel(value)) { months = value } }
-                } label: { StudioMenuLabel(title: monthsLabel(months)) }
-                    .menuStyle(.button).buttonStyle(.plain).fixedSize()
-                    .help("Whole projects with a newer file are left as they are")
+            Spacer()
+            if timeline {
+                Button("Back") { timeline = false }.buttonStyle(.link)
+            } else if model.screen == .dashboard {
+                Button("New Archive…") { model.newArchive() }.buttonStyle(BrandButtonStyle(large: false)).disabled(center.running)
+            } else if !flow {
+                Button("Back") { model.screen = .dashboard }.buttonStyle(.link)
             }
-            HStack(spacing: 8) {
-                ForEach(ShrinkFolders.Kind.allCases, id: \.self) { item in
-                    let count = files.filter { kind($0) == item && reason($0) == nil }.count
-                    Button {
-                        if kinds.contains(item) { kinds.remove(item) } else { kinds.insert(item) }
-                    } label: {
-                        StudioChip(text: Text(verbatim: "\(item.label) \(count)"), symbol: kinds.contains(item) ? "checkmark" : nil,
-                                   colour: kinds.contains(item) ? Design.Brand.pink : Design.Studio.textQuiet, tinted: kinds.contains(item))
+        }
+        .padding(.horizontal, 32).padding(.top, 28).padding(.bottom, 4)
+        .frame(maxWidth: 924).frame(maxWidth: .infinity)
+    }
+
+    private func step(_ screen: ArchiveModel.Screen, _ title: LocalizedStringKey) -> some View {
+        Text(title).font(Design.Studio.body).foregroundStyle(model.screen == screen ? Design.Studio.text : Design.Studio.textFaint)
+    }
+
+    private var footer: some View {
+        HStack(spacing: 12) {
+            Button(model.screen == .folders ? "Cancel" : "Back") { model.back() }.buttonStyle(StudioFlatButtonStyle())
+            Spacer()
+            if model.screen == .settings {
+                Text("\(Set(model.picked.map(\.project)).count) projects · frees \(bytes(max(model.totals.saving, 0)))")
+                    .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                Button("Start") { model.next() }.buttonStyle(BrandButtonStyle(large: false)).disabled(!model.canStart)
+            } else {
+                Button("Next") { model.next() }.buttonStyle(BrandButtonStyle(large: false))
+                    .disabled(model.screen == .folders ? model.folders.isEmpty : (model.scanning || model.picked.isEmpty))
+            }
+        }
+        .padding(.horizontal, 32).padding(.vertical, 16)
+        .frame(maxWidth: 924).frame(maxWidth: .infinity)
+    }
+
+    // MARK: Dashboard
+
+    @ViewBuilder private var dashboard: some View {
+        if model.survey == nil, model.archivingNow == nil {
+            StudioEmptyState(symbol: "archivebox", title: "Free space on the NAS",
+                             line: "Old rushes become checked 1080p masters. The originals move to a folder for you to delete.",
+                             prominent: true, button: "New Archive…") { model.newArchive() }
+                .padding(.vertical, 60)
+        } else {
+            let free = model.freeable
+            VStack(alignment: .leading, spacing: 6) {
+                Text("You can free").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                Text(verbatim: bytes(free.saving)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Design.Brand.pink)
+                Text("of \(bytes(free.footage)) footage").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            if let now = model.archivingNow { archiving(now) }
+            let places = model.whereItSits
+            if !places.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Where it sits").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                    ForEach(places, id: \.share) { place in
+                        VStack(alignment: .leading, spacing: 4) {
+                            amountLine(Text(verbatim: place.share).foregroundStyle(Design.Studio.text), place.saving)
+                            ForEach(place.projects, id: \.title) { project in
+                                amountLine(Text(verbatim: project.title).foregroundStyle(Design.Studio.textQuiet), project.saving, quiet: true).padding(.leading, 18)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
                 }
+            }
+            HStack(spacing: 6) {
+                Button("Not touched") { model.screen = .untouched }
+                Text(verbatim: "·").foregroundStyle(Design.Studio.textFaint)
+                Button("History") { model.screen = .history }
+                Text(verbatim: "·").foregroundStyle(Design.Studio.textFaint)
+                Button("Look Again") { model.rescan(cached: false) }.disabled(model.scanning || model.folders.isEmpty)
+                if model.scanning { PlumSpinner().frame(width: 12, height: 12) }
+            }
+            .buttonStyle(.link).font(Design.Studio.hint)
+        }
+        StudioFootnote(text: "Pluck never deletes: originals and proxies go to “Pluck · Originals to delete”", symbol: "checkmark.shield")
+    }
+
+    private func amountLine(_ title: Text, _ amount: Int64, quiet: Bool = false) -> some View {
+        HStack {
+            title.font(quiet ? Design.Studio.hint : Design.Studio.body).lineLimit(1)
+            Spacer()
+            Text(verbatim: bytes(amount)).font((quiet ? Design.Studio.hint : Design.Studio.body).monospacedDigit())
+                .foregroundStyle(quiet ? Design.Studio.textQuiet : Design.Studio.text)
+        }
+    }
+
+    private func archiving(_ now: (title: String, freed: Int64, total: Int64, parts: [ArchiveModel.Progress])) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Archiving now").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Text(verbatim: now.title).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 Spacer()
-                Menu {
-                    Button("In place") { destination = nil }
-                    Button("Another Folder…") { destination = pickFolder() ?? destination }
-                } label: {
-                    StudioMenuLabel(title: destination.map { String(localized: "To \($0.lastPathComponent)") } ?? String(localized: "In place"))
+                if center.running {
+                    Button("Pause") { model.pause() }.buttonStyle(.link).font(Design.Studio.hint)
+                } else if let run = center.runs.first(where: center.unfinished) {
+                    Button("Resume") { model.resume(run) }.buttonStyle(.link).font(Design.Studio.hint)
                 }
-                .menuStyle(.button).buttonStyle(.plain).fixedSize()
-                .help("In place: each master takes its original’s name. Another folder: the same folders there, originals left as they are")
             }
-            HStack(spacing: 10) {
-                StudioSegmented(options: [(Machine.here, "This Mac"), (Machine.office, "Always-on Mac"), (Machine.both, "Both")], selection: $machine)
-                    .disabled(officeProblem != nil)
-                    .help(officeProblem ?? String(localized: "Both: the two Macs share the files"))
-                    .onChange(of: machine) { if officeProblem != nil { machine = .here } }
-                if let officeProblem { Text(verbatim: officeProblem).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
-                Spacer()
-                StudioSwitchRow(title: "Run overnight", isOn: $overnight).help("Keeps this Mac awake while it runs")
-                StudioSwitchRow(title: "Clear caches", isOn: $clearCaches).help("Afterwards, offers Resolve’s caches and proxies in these folders for the Trash")
+            StudioProgress(share: Double(now.freed) / Double(max(now.total, 1)))
+            HStack(spacing: 8) {
+                Text("\(bytes(now.freed)) of \(bytes(now.total)) freed").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                if now.parts.isEmpty { Text("Paused").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
             }
-            if files.contains(where: { ProjectArchive.rawMasterKinds.contains(($0.path as NSString).pathExtension.lowercased()) || $0.codec == "prores_raw" }) {
-                Text("RAW: ISO and white balance are baked in as shot, in the camera’s log").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            ForEach(Array(now.parts.enumerated()), id: \.offset) { _, part in
+                HStack(spacing: 8) {
+                    if part.waitingForEdit {
+                        Text("Paused while you edit").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                        Button("Run Anyway") { model.runAnyway() }.buttonStyle(.link).font(Design.Studio.hint)
+                    } else {
+                        Text(verbatim: part.machine + " · " + String(localized: "\(part.done) of \(part.total)")
+                             + (part.left.map { " · " + String(localized: "\(Duration.seconds($0).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))) left") } ?? ""))
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    }
+                }
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .studioBox()
-        .disabled(center.running)
+    }
+
+    // MARK: Step 1: folders
+
+    @ViewBuilder private var foldersStep: some View {
+        Text("Choose shares or folders").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(model.folders, id: \.self) { folder in
+                HStack(spacing: 12) {
+                    Image(systemName: "folder").foregroundStyle(Design.Studio.textQuiet)
+                    Text(verbatim: folder.lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                    Text(verbatim: (folder.path as NSString).abbreviatingWithTildeInPath).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    let root = ShrinkFolders.real(folder).path
+                    let used = (model.survey?.projects.values ?? [:].values).filter { $0.folder == root || $0.folder.hasPrefix(root + "/") }.reduce(Int64(0)) { $0 + $1.total }
+                    if used > 0 { Text(verbatim: bytes(used)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet) }
+                    if !FileManager.default.isWritableFile(atPath: folder.path) {
+                        Text("Read-only").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).help("Masters can only go to another folder")
+                    }
+                    Button { model.remove(folder) } label: { Image(systemName: "xmark").foregroundStyle(Design.Studio.textQuiet) }
+                        .buttonStyle(.plain).help("Remove")
+                }
+                .frame(height: 30)
+            }
+            StudioDashedButton(title: "Add Share or Folder", height: 34) { if let folder = pickFolder() { model.add(folder) } }
+        }
+    }
+
+    // MARK: Step 2: projects
+
+    @ViewBuilder private var projectsStep: some View {
+        HStack {
+            if model.scanning {
+                PlumSpinner().frame(width: 16, height: 16)
+                Text("Looking… \(model.found) videos").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                Button("Stop") { model.stopScan() }.buttonStyle(.link)
+            } else {
+                Text("Projects").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            }
+            Spacer()
+            Menu {
+                ForEach([0, 3, 6, 12, 24], id: \.self) { value in Button(monthsLabel(value)) { model.months = value } }
+            } label: { StudioMenuLabel(title: monthsLabel(model.months), quiet: true) }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                .help("A project with a newer file is left as it is")
+            Button(model.off.isEmpty ? "Select None" : "Select All") { model.selectAll(!model.off.isEmpty) }.buttonStyle(.link).font(Design.Studio.hint)
+        }
+        let rows = model.clients.flatMap(\.projects).sorted { ($0.dim == nil ? 0 : 1, -$0.saving) < ($1.dim == nil ? 0 : 1, -$1.saving) }
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(showAll ? rows : Array(rows.prefix(20))) { row in projectRow(row) }
+            if rows.count > 20, !showAll {
+                Button("\(rows.count - 20) more") { showAll = true }.buttonStyle(.link).font(Design.Studio.hint).padding(.top, 8)
+            }
+        }
+    }
+
+    private func projectRow(_ row: ArchiveModel.ProjectRow) -> some View {
+        let project = row.project
+        let below = Set(model.files.filter { $0.project == project.folder }.map { ($0.path as NSString).deletingLastPathComponent }).filter { $0 != project.folder }.sorted()
+        return HStack(spacing: 10) {
+            Toggle(isOn: Binding(get: { row.selected && row.dim == nil }, set: { model.select([project], $0) })) { EmptyView() }
+                .toggleStyle(.checkbox).labelsHidden().disabled(row.dim != nil)
+            (Text(verbatim: project.client).foregroundStyle(Design.Studio.text)
+             + Text(verbatim: project.name == project.client ? "" : " – " + project.name).foregroundStyle(Design.Studio.textQuiet))
+                .font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
+            Spacer(minLength: 8)
+            if let dim = row.dim { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
+            Text(verbatim: bytes(project.total)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .trailing)
+            Text(verbatim: row.saving > 0 ? "−" + bytes(row.saving) : "").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Brand.pink)
+                .frame(width: 80, alignment: .trailing)
+        }
+        .frame(height: 30)
+        .opacity(row.dim == nil ? 1 : 0.55)
+        .contentShape(.rect)
+        .help(String(localized: "Rushes \(bytes(project.rushes)) · Proxies and caches \(bytes(project.proxies)) · Deliveries \(bytes(project.deliveries)) · Other \(bytes(project.other))"))
+        .contextMenu {
+            Button("Rename…") { newName = project.name; renaming = project }
+            Button("Part of the Folder Above") { model.partOfParent(project) }
+            if !below.isEmpty {
+                Menu("This Folder Is a Project") {
+                    ForEach(below, id: \.self) { folder in
+                        Button(String(folder.dropFirst(project.folder.count + 1))) { model.isProject(folder, share: project.share) }
+                    }
+                }
+            }
+            Button("Detect Again") { model.detectAgain(project) }
+        }
     }
 
     private func monthsLabel(_ value: Int) -> String {
         value == 0 ? String(localized: "Any age") : String(localized: "Older than \(value) months")
     }
 
-    // MARK: The list
+    // MARK: Step 3: size and destination
 
-    private var summaryBox: some View {
-        let picked = files.filter(chosen)
-        let before = picked.reduce(Int64(0)) { $0 + $1.size }, after = picked.reduce(Int64(0)) { $0 + $1.estimate(settings) }
-        return HStack(spacing: 12) {
-            StudioTile(symbol: "arrow.down.right.circle")
-            VStack(alignment: .leading, spacing: 3) {
-                Text("\(picked.count) files · \(bytes(before)) → \(bytes(after))").font(.system(size: 13)).foregroundStyle(Design.Studio.text)
-                Text("Saves about \(bytes(max(before - after, 0)))").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                    .help("Estimated from each file’s length and the master’s bitrate; files that wouldn’t save 30% are left as they are")
+    @ViewBuilder private var settingsStep: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            field("Size") {
+                StudioSegmented(options: [(ShrinkFolders.Settings.Size.hd, "1080p"), (.k4, "4K")], selection: $model.size)
+                StudioSegmented(options: [(false, "HEVC 10-bit"), (true, "ProRes 422 HQ")], selection: $model.prores)
+                if !model.prores { StudioSegmented(options: [(false, "High"), (true, "Balanced")], selection: $model.balanced) }
             }
-            Spacer()
-            Button("Start", systemImage: "play.fill") { start(picked) }
-                .buttonStyle(StudioFlatButtonStyle(prominent: true))
-                .disabled(picked.isEmpty || center.running || (destination == nil && folders.contains { !FileManager.default.isWritableFile(atPath: $0.path) }))
-        }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .studioBox()
-    }
-
-    private var listBox: some View {
-        let groups = Dictionary(grouping: files) { ($0.path as NSString).deletingLastPathComponent }.sorted { $0.key < $1.key }
-        return LazyVStack(alignment: .leading, spacing: 2) {
-            ForEach(groups, id: \.key) { folder, items in
-                groupLine(folder, items)
-                ForEach(items) { file in fileLine(file) }
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .studioBox()
-        .disabled(center.running)
-    }
-
-    private func groupLine(_ folder: String, _ items: [File]) -> some View {
-        let open = items.filter { reason($0) == nil }
-        let root = items.first?.folder ?? ""
-        return HStack(spacing: 10) {
-            Toggle(isOn: Binding(get: { open.contains { !unticked.contains($0.path) } },
-                                 set: { on in for file in open { if on { unticked.remove(file.path) } else { unticked.insert(file.path) } } })) { EmptyView() }
-                .toggleStyle(.checkbox).labelsHidden().disabled(open.isEmpty)
-            Image(systemName: "folder").font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
-            Text(verbatim: folder == root ? (root as NSString).lastPathComponent
-                 : (root as NSString).lastPathComponent + "/" + String(folder.dropFirst(root.count + 1)))
-                .font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
-            Spacer()
-            kindMenu(Set(items.map(kind)).count == 1 ? kind(items[0]) : nil) { new in for file in items { overrides[file.path] = new } }
-        }
-        .frame(height: 28)
-        .padding(.top, 6)
-    }
-
-    private func fileLine(_ file: File) -> some View {
-        let why = reason(file)
-        return HStack(spacing: 10) {
-            Toggle(isOn: Binding(get: { !unticked.contains(file.path) && why == nil }, set: { if $0 { unticked.remove(file.path) } else { unticked.insert(file.path) } })) { EmptyView() }
-                .toggleStyle(.checkbox).labelsHidden().disabled(why != nil)
-            Text(verbatim: (file.path as NSString).lastPathComponent).font(Design.Studio.body)
-                .foregroundStyle(why == nil && kinds.contains(kind(file)) ? Design.Studio.text : Design.Studio.textFaint)
-                .lineLimit(1).truncationMode(.middle)
-            kindMenu(kind(file)) { overrides[file.path] = $0 }
-                .help(overrides[file.path] == nil ? file.why : String(localized: "Set by you"))
-            Spacer(minLength: 8)
-            Text(verbatim: why ?? "\(bytes(file.size)) → \(bytes(file.estimate(settings)))")
-                .font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
-        }
-        .frame(height: 24)
-        .padding(.leading, 24)
-        .help(file.path)
-    }
-
-    private func kindMenu(_ current: ShrinkFolders.Kind?, set: @escaping (ShrinkFolders.Kind) -> Void) -> some View {
-        Menu {
-            ForEach(ShrinkFolders.Kind.allCases, id: \.self) { item in Button(item.label) { set(item) } }
-        } label: {
-            StudioChip(text: Text(verbatim: current?.label ?? "—"))
-        }
-        .menuStyle(.button).buttonStyle(.plain).fixedSize()
-    }
-
-    // MARK: Running
-
-    private func start(_ picked: [File]) {
-        guard let ffmpeg = tool("ffmpeg"), let ffprobe = tool("ffprobe") else { return }
-        let list = picked.map { var file = $0; file.kind = kind($0); return file }
-        let id = center.add(list, settings: settings, destination: destination, roots: folders.map { $0.standardizedFileURL.resolvingSymlinksInPath().path })
-        let machine = machine
-        problems = []
-        Task {
-            if machine != .here, let run = center.run(id) {
-                do {
-                    let sent = try await ShrinkRemote.send(run, files: list, reversed: machine == .both)
-                    if machine == .office {
-                        for file in run.files where sent.contains(file.path) { var file = file; file.state = .elsewhere; center.set(file, in: id) }
-                    }
-                    if !sent.isEmpty { follow(id) }
-                } catch { problems.append(ShrinkRemote.reason(error)) }
-            }
-            await center.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
-            if clearCaches, center.run(id)?.files.contains(where: { $0.state == .failed }) == false {
-                let chosen = folders
-                caches = await Task.detached { ShrinkFolders.caches(in: chosen) }.value
-                if !caches.isEmpty { confirmCaches = true }
-            }
-            rescan()
-        }
-    }
-
-    private func follow(_ id: UUID) {
-        guard following.insert(id).inserted else { return }
-        Task { await ShrinkRemote.follow(id); following.remove(id) }
-    }
-
-    @ViewBuilder private var progressBox: some View {
-        if let id = center.active, let run = center.run(id) {
-            let done = run.files.filter { $0.state != .pending && $0.state != .working }.count
-            HStack(spacing: 12) {
-                if center.waitingForEdit { StudioTile(symbol: "pause.circle") } else { PlumSpinner().frame(width: 40, height: 40) }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(center.waitingForEdit ? "Paused while you edit" : "Shrinking \(done + 1) of \(run.files.count)")
-                        .font(.system(size: 13)).foregroundStyle(Design.Studio.text)
-                    Text(verbatim: center.current.map { ($0 as NSString).lastPathComponent } ?? "").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                        .lineLimit(1).truncationMode(.middle)
+            field("Masters") {
+                Menu {
+                    Button("In place") { model.destination = nil }
+                    Button("Another Folder…") { model.destination = pickFolder() ?? model.destination }
+                } label: {
+                    StudioMenuLabel(title: model.destination.map { String(localized: "To \($0.lastPathComponent)") } ?? String(localized: "In place"))
                 }
-                Spacer()
-                if let left = center.timeLeft {
-                    Text("About \(Duration.seconds(left).formatted(.units(allowed: [.hours, .minutes], width: .abbreviated))) left")
-                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                }
-                if center.waitingForEdit { Button("Run Anyway") { center.runAnyway = true }.buttonStyle(StudioFlatButtonStyle()) }
-                Button("Pause") { pause(id) }.buttonStyle(StudioFlatButtonStyle())
+                .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                .help("In place: each master takes its original’s name. Another folder: the same folders there, originals left as they are")
             }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .studioBox()
-        }
-        ForEach(problems, id: \.self) { problem in
-            line("exclamationmark.triangle", Text(verbatim: problem), Text(verbatim: ""), colour: Design.Studio.warn)
+            field("Runs on") {
+                StudioSegmented(options: [(ArchiveModel.Machine.here, "This Mac"), (.office, "Always-on Mac"), (.both, "Both")], selection: $model.machine)
+                    .disabled(model.officeProblem != nil)
+                    .help(model.officeProblem ?? String(localized: "Both: the two Macs share the files"))
+                StudioSwitchRow(title: "Run overnight", isOn: $model.overnight).help("Keeps this Mac awake while it runs")
+            }
+            if model.files.contains(where: { ProjectArchive.rawMasterKinds.contains(($0.path as NSString).pathExtension.lowercased()) || $0.codec == "prores_raw" }) {
+                Text("RAW: ISO and white balance are baked in as shot, in the camera’s log").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            DisclosureGroup(isExpanded: $more) {
+                VStack(alignment: .leading, spacing: 6) {
+                    StudioSwitchRow(title: "Also unsorted videos", isOn: $model.other).help("Videos that aren’t clearly rushes. Deliveries are never touched")
+                    StudioSwitchRow(title: "Clear proxies and caches", isOn: $model.moveProxies).help("They move to the folder to delete with the originals")
+                    Button("Only What a Timeline Used…") { timeline = true }.buttonStyle(.link).font(Design.Studio.body)
+                }
+                .padding(.top, 6)
+            } label: {
+                Text("More").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
         }
     }
 
-    private func pause(_ id: UUID) {
-        center.pause()
-        if center.run(id)?.files.contains(where: { $0.state == .elsewhere }) == true {
-            Task { _ = try? await OfficeRenderClient.shared.ask("shrinkStop", ["id": id.uuidString], timeout: 20) }
+    private func field<Content: View>(_ label: LocalizedStringKey, @ViewBuilder _ content: () -> Content) -> some View {
+        HStack(spacing: 12) {
+            Text(label).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet).frame(width: 90, alignment: .leading)
+            content()
+            Spacer()
         }
     }
 
-    private func runBox(_ run: ShrinkFolders.Run) -> some View {
+    // MARK: Not touched and history
+
+    @ViewBuilder private var untouchedList: some View {
+        let list = model.untouched
+        HStack {
+            Text("Not touched").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            Text(verbatim: bytes(list.reduce(Int64(0)) { $0 + $1.size })).font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            Spacer()
+            Button("Export CSV…") { export() }.buttonStyle(StudioFlatButtonStyle()).disabled(list.isEmpty)
+        }
+        LazyVStack(alignment: .leading, spacing: 0) {
+            ForEach(list.prefix(200)) { item in
+                HStack(spacing: 10) {
+                    Text(verbatim: (item.path as NSString).lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
+                    Text(verbatim: item.project).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(verbatim: item.reason).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                    Text(verbatim: bytes(item.size)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .trailing)
+                }
+                .frame(height: 26)
+                .help(item.path)
+            }
+        }
+    }
+
+    private func export() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = String(localized: "Not touched.csv")
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? model.untouchedCSV().write(to: url, atomically: true, encoding: .utf8)
+    }
+
+    @ViewBuilder private var history: some View {
+        Text("History").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+        ForEach(model.problems, id: \.self) { problem in Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn) }
+        ForEach(center.runs.prefix(30)) { run in historyRow(run) }
+    }
+
+    private func historyRow(_ run: ShrinkFolders.Run) -> some View {
         let done = run.files.filter { $0.state == .done }
         let failed = run.files.filter { $0.state == .failed }
         let saved = done.reduce(Int64(0)) { $0 + $1.size - ($1.masterSize ?? 0) }
-        let elsewhere = run.files.filter { $0.state == .elsewhere }.count
         let ready = center.readyToDelete(run)
         return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 12) {
-                StudioTile(symbol: failed.isEmpty ? "checkmark" : "exclamationmark.triangle", colour: failed.isEmpty ? Design.Studio.good : Design.Studio.warn)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(run.date, format: .dateTime.day().month().hour().minute()).font(.system(size: 13)).foregroundStyle(Design.Studio.text)
-                    Text(verbatim: [String(localized: "\(done.count) of \(run.files.count) · saved \(bytes(saved))"),
-                                    elsewhere > 0 ? String(localized: "\(elsewhere) on the always-on Mac") : nil,
-                                    failed.isEmpty ? nil : String(localized: "\(failed.count) failed"),
-                                    ready.isEmpty ? nil : String(localized: "\(ready.count) originals ready to delete")]
-                        .compactMap { $0 }.joined(separator: " · "))
-                        .font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
-                }
+            HStack(spacing: 10) {
+                Text(run.date, format: .dateTime.day().month().hour().minute()).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                Text(verbatim: [String(localized: "\(done.count) of \(run.files.count) · saved \(bytes(saved))"),
+                                failed.isEmpty ? nil : String(localized: "\(failed.count) failed"),
+                                ready.isEmpty ? nil : String(localized: "\(ready.count) originals ready to delete")].compactMap { $0 }.joined(separator: " · "))
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 Spacer()
                 if !center.running {
-                    if center.unfinished(run), let ffmpeg = tool("ffmpeg"), let ffprobe = tool("ffprobe") {
-                        Button("Resume") { Task { await center.resume(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe) } }.buttonStyle(StudioFlatButtonStyle())
-                    }
+                    if center.unfinished(run) { Button("Resume") { model.resume(run) }.buttonStyle(.link) }
                     if !ready.isEmpty {
-                        Button("Move Originals") { Task { problems = await center.moveOriginals(run.id) } }.buttonStyle(StudioFlatButtonStyle())
+                        Button("Move Originals") { model.moveOriginals(run) }.buttonStyle(.link)
                             .help("Moves the checked originals into “Pluck · Originals to delete” on their share")
                     }
                     if center.canPutBack(run) {
-                        Button("Put Originals Back") { Task { await center.putBack(run.id) } }.buttonStyle(StudioFlatButtonStyle())
+                        Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link)
                             .help(run.destination == nil ? "Masters to the Trash, originals back in their place" : "The masters of this run to the Trash")
                     }
                 }
-                iconButton("folder", label: "Show in Finder") {
-                    let places = run.destination.map { [URL(fileURLWithPath: $0)] }
-                        ?? Array(Set(done.compactMap { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:)) }))
-                    NSWorkspace.shared.activateFileViewerSelecting(places)
-                }
-                if !center.running { iconButton("xmark", label: "Remove") { center.remove(run.id) } }
+                Button { NSWorkspace.shared.activateFileViewerSelecting(model.places(run)) } label: { Image(systemName: "folder") }
+                    .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show in Finder")
             }
-            ForEach(failed.prefix(20)) { file in
+            .font(Design.Studio.hint)
+            ForEach(failed.prefix(10)) { file in
                 Text(verbatim: "\((file.path as NSString).lastPathComponent): \(file.note ?? "")").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
-                    .lineLimit(1).truncationMode(.middle).padding(.leading, 52).help(file.path)
+                    .lineLimit(1).truncationMode(.middle).help(file.path)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 14)
-        .studioBox()
-    }
-
-    // MARK: Pieces
-
-    private func line<Actions: View>(_ symbol: String, _ title: Text, _ detail: Text, colour: Color = Design.Studio.text,
-                                     @ViewBuilder actions: () -> Actions = { EmptyView() }) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: symbol).font(.system(size: 13)).foregroundStyle(colour).frame(width: 22).accessibilityHidden(true)
-            title.font(Design.Studio.body).foregroundStyle(Design.Studio.text)
-            Spacer(minLength: 8)
-            detail.font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).lineLimit(1).truncationMode(.middle)
-            actions()
-        }
-        .frame(minHeight: 30)
-    }
-
-    private func iconButton(_ symbol: String, label: LocalizedStringKey, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(Design.Studio.textQuiet)
-                .frame(width: 28, height: 28).contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .help(Text(label))
-        .accessibilityLabel(Text(label))
     }
 
     private func pickFolder() -> URL? {
@@ -455,15 +400,5 @@ struct ShrinkFoldersView: View {
         panel.canChooseFiles = false
         panel.prompt = String(localized: "Choose")
         return panel.runModal() == .OK ? panel.url : nil
-    }
-}
-
-/// A flag the scan reads from its own thread.
-private final class StopFlag: @unchecked Sendable {
-    private let lock = NSLock()
-    private var stopped = false
-    var value: Bool {
-        get { lock.withLock { stopped } }
-        set { lock.withLock { stopped = newValue } }
     }
 }
