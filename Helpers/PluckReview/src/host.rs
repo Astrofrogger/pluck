@@ -649,7 +649,7 @@ impl Host {
             }
         }
         let base = if self.raw["format"] == 1 { self.raw.clone() } else { json!({"format": 1, "projects": [], "links": []}) };
-        let (mut raw, stale) = crate::store::merge_publish(&base, &m, tombstones);
+        let (mut raw, stale) = crate::store::merge_publish(&base, &m, tombstones, own);
         if !stale.is_empty() {
             log(format!("publish: {} lost to newer copies here: {}", stale.len(), json!(stale)));
         }

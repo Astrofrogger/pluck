@@ -499,6 +499,9 @@ final class DeliverSync {
         if let uploads = wire["uploads"] as? [String: Any] {
             link.uploads = .init(folder: uuid(uploads["folder"]), maxBytes: (uploads["maxBytes"] as? NSNumber)?.int64Value ?? 21_474_836_480,
                                  types: uploads["types"] as? [String] ?? ["video", "audio", "image", "document", "other"])
+            if let into = uploads["into"] as? [String: Any], let root = into["root"] as? String, let folder = into["folder"] as? String {
+                link.uploads?.into = .init(root: root, folder: folder)
+            }
         }
         stamp(&link, wire)
         return link

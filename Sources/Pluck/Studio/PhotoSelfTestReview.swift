@@ -1161,6 +1161,13 @@ extension PhotoSelfTest {
             check("mail: notify in the manifest only", notify?["email"] as? Bool == true && notify?["recipientEmail"] as? String == "client@example.com"
                   && notify?["mailCode"] as? String == store.code(mailed.id) && store.code(mailed.id) != nil
                   && info["notify"] == nil && (mia["link"] as? [String: Any])?["notify"] == nil, "\(String(describing: notify))")
+            // 4.0.7: off goes as `email: false`, workflow link fields as null (the host keeps what an older Mac leaves out), assets carry `wf`.
+            let fullManifest = ReviewPublish(store: store).manifest(project: project.id, only: nil, host: nil).json
+            let offLink = (fullManifest["links"] as? [[String: Any]] ?? []).first { $0["id"] as? String != mailed.id.uuidString }
+            let wireAssets = (fullManifest["projects"] as? [[String: Any]])?.first?["assets"] as? [[String: Any]] ?? []
+            check("mail: off and cleared fields go explicitly", (offLink?["notify"] as? [String: Any])?["email"] as? Bool == false
+                  && offLink?["statusDefs"] is NSNull && offLink?["customStatuses"] is NSNull
+                  && !wireAssets.isEmpty && wireAssets.allSatisfy { $0["wf"] as? Int == 1 }, "\(String(describing: offLink?["notify"]))")
             let echoed = DeliverSync.link((manifestLink ?? [:]).merging(["notify": ["email": true, "recipientEmail": "client@example.com"]]) { $1 })
             check("mail: notify read back", echoed?.notify == Deliver.ShareLink.Notify(email: true, recipientEmail: "client@example.com"), "")
             check("mail: ready says mentions and mail", mia["mentions"] as? Bool == true && mia["mail"] as? Bool == true, "\(mia["mail"] ?? "-")")

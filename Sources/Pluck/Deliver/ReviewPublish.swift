@@ -463,6 +463,9 @@ final class ReviewPublish {
             if let custom = asset.customFields, !custom.isEmpty {
                 wire["fields"] = ((wire["fields"] as? [String: Any]) ?? [:]).merging(Dictionary(uniqueKeysWithValues: custom.map { ("cf:" + $0.key, $0.value as Any) })) { $1 }
             }
+            // `wf`: this Pluck knows custom statuses and fields, so a host takes its status and `cf:*` as they are
+            // (from an older Pluck it keeps the stored ones).
+            wire["wf"] = 1
             return wire.merging(Self.stamp(asset)) { $1 }
         }
         let wireLinks: [[String: Any]] = links.compactMap { link in
@@ -483,16 +486,20 @@ final class ReviewPublish {
                                        "passwordHash": link.passwordHash.map { $0 as Any } ?? NSNull(), "project": project.uuidString, "root": root,
                                        "paused": link.isPaused]
             // 4.1.0: Email updates go to the host with the mail code (a level-3 link's code), never to browsers.
+            // Off goes as `email: false` so the host clears it; on without the code here (another Mac's link) goes as nothing: the host keeps its own.
             if let notify = link.notify, notify.email, let code = store.code(link.id) {
                 wire["notify"] = ["email": true, "recipientEmail": notify.recipientEmail.map { $0 as Any } ?? NSNull(), "mailCode": code] as [String: Any]
+            } else if link.notify?.email != true {
+                wire["notify"] = ["email": false]
             }
             // §6.1's link fields, as `ready.link` has them (the header goes as a bundle file with the branding).
             var info = DeliverServer.linkInfo(link, store: store)
             for key in ["title", "mode", "allowDownload", "latestOnly", "expires", "header"] { info[key] = nil }
             wire.merge(info) { a, _ in a }
             // Ask for Files: where the NAS puts the files (only the host hears it, never the page).
-            if let into = link.uploads?.into, var uploads = wire["uploads"] as? [String: Any] {
-                uploads["into"] = ["root": into.root, "folder": into.folder]
+            // (null clears it on the host; left out, an older Mac's edit, keeps it.)
+            if var uploads = wire["uploads"] as? [String: Any] {
+                uploads["into"] = link.uploads?.into.map { ["root": $0.root, "folder": $0.folder] as Any } ?? NSNull()
                 wire["uploads"] = uploads
             }
             if case let (key, secret)? = keys {
@@ -503,7 +510,9 @@ final class ReviewPublish {
             wire["created"] = DeliverServer.date(link.created)
             wire["deadline"] = link.deadline.map { DeliverServer.date($0) as Any } ?? NSNull()
             if let madeOn = link.madeOn { wire["madeOn"] = madeOn }
-            if link.customStatuses == true { wire["customStatuses"] = true }
+            wire["customStatuses"] = link.customStatuses == true ? true : NSNull()
+            // Null tells the host they're off (an older Mac leaves them out, and the host keeps its own).
+            for key in ["order", "statusDefs", "fieldDefs"] where wire[key] == nil { wire[key] = NSNull() }
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in

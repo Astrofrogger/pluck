@@ -167,10 +167,54 @@ pub fn stamp(old: &Value, new: &mut Value, by: &str, now: &str, cutoff: &str) {
 /// the room from before "Make a New Link", which must never be paired with the new reg.
 const LINK_SECRETS: [&str; 6] = ["roomID", "reg", "auth", "sign", "join", "level"];
 
+/// Link fields a 4.0.6 Mac (or a Mac without the link's mail code) doesn't send: left out keeps the stored value,
+/// null clears it (a 4.0.7 Mac sends null, or `notify: {"email": false}`, when they're off).
+const LINK_KEPT: [&str; 5] = ["notify", "order", "customStatuses", "statusDefs", "fieldDefs"];
+
+fn keep_link_fields(inc: &mut Value, stored: Option<&Value>) {
+    if let Some(s) = stored {
+        for k in LINK_KEPT {
+            if inc.get(k).is_none() && !s[k].is_null() {
+                inc[k] = s[k].clone();
+            }
+        }
+        if inc["uploads"].is_object() && inc["uploads"].get("into").is_none() && !s["uploads"]["into"].is_null() {
+            inc["uploads"]["into"] = s["uploads"]["into"].clone();
+        }
+    }
+    if let Some(o) = inc.as_object_mut() {
+        o.retain(|k, v| !(v.is_null() && LINK_KEPT.contains(&k.as_str())));
+    }
+    if let Some(u) = inc["uploads"].as_object_mut() {
+        u.retain(|k, v| !(k == "into" && v.is_null()));
+    }
+}
+
+/// An asset from a Pluck before custom statuses and fields (no `wf` marker): it can't show a custom status
+/// (`c:…`) or `cf:*` values, so the stored ones stay.
+fn keep_workflow(inc: &mut Value, stored: Option<&Value>) {
+    let Some(s) = stored else { return };
+    if inc.get("wf").is_some() {
+        return;
+    }
+    if s["status"].as_str().is_some_and(|x| x.starts_with("c:")) && !inc["status"].as_str().is_some_and(|x| x.starts_with("c:")) {
+        inc["status"] = s["status"].clone();
+    }
+    for (k, v) in s["fields"].as_object().into_iter().flatten().filter(|(k, _)| k.starts_with("cf:")) {
+        if !inc["fields"].is_object() {
+            inc["fields"] = json!({});
+        }
+        if inc["fields"].get(k).is_none() {
+            inc["fields"][k] = v.clone();
+        }
+    }
+}
+
 /// `publish` with `merge:true` (§13.1): each project meta, folder, asset (with all its versions)
 /// and link merged on its own under M; only tombstones delete. Returns the merged manifest (not
-/// yet stamped: `stamp` gives the winners their seq) and the ids that lost.
-pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value) -> (Value, Vec<Value>) {
+/// yet stamped: `stamp` gives the winners their seq) and the ids that lost. `fill`: a Mac's own publish, where
+/// what an older Pluck leaves out keeps the stored value (not a backup applying the main's full objects).
+pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value, fill: bool) -> (Value, Vec<Value>) {
     let mut out = raw.clone();
     if !out["projects"].is_array() {
         out["projects"] = json!([]);
@@ -230,8 +274,11 @@ pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value) -> (Value, Vec<
         }
         for (kind, list) in [("folder", "folders"), ("asset", "assets")] {
             for inc in arr(p, list) {
-                let inc = clean(inc);
+                let mut inc = clean(inc);
                 let stored = arr(&out, "projects").find(|x| x["id"] == pid).and_then(|x| arr(x, list).find(|o| o["id"] == inc["id"]).cloned());
+                if fill && kind == "asset" {
+                    keep_workflow(&mut inc, stored.as_ref());
+                }
                 if decide(&out, kind, stored.as_ref(), &inc) {
                     let px = obj_mut(&mut out, "project", &Value::Null, &pid).unwrap();
                     let l = px[list].as_array_mut().unwrap();
@@ -267,6 +314,9 @@ pub fn merge_publish(raw: &Value, m: &Value, tombstones: &Value) -> (Value, Vec<
                 continue;
             }
             None => {}
+        }
+        if fill {
+            keep_link_fields(&mut inc, stored.as_ref());
         }
         if decide(&out, "link", stored.as_ref(), &inc) {
             let l = out["links"].as_array_mut().unwrap();
@@ -395,34 +445,74 @@ mod tests {
         let raw = json!({"format": 1, "projects": [], "links": [full]});
         // From another Mac (no keys there): its changes win, the secrets stay.
         let bare = json!({"id": "L", "roomID": "R", "paused": true, "revoked": "2026-11-16T10:00:00Z", "rev": 2, "at": "2026-11-16T10:00:00Z", "by": "B"});
-        let (out, stale) = merge_publish(&raw, &json!({"links": [bare]}), &Value::Null);
+        let (out, stale) = merge_publish(&raw, &json!({"links": [bare]}), &Value::Null, true);
         let l = &out["links"][0];
         assert!(stale.is_empty());
         assert_eq!((l["paused"].clone(), l["revoked"].clone()), (json!(true), json!("2026-11-16T10:00:00Z")));
         assert_eq!((l["reg"].as_str(), l["auth"].as_str(), l["sign"].as_str(), l["join"].as_str()), (Some("r"), Some("a"), Some("s"), Some("j")));
         // Empty or null ones never overwrite them either.
         let blank = json!({"id": "L", "roomID": "R", "reg": "", "auth": null, "rev": 3, "at": "2026-11-16T11:00:00Z", "by": "B"});
-        let (out, _) = merge_publish(&out, &json!({"links": [blank]}), &Value::Null);
+        let (out, _) = merge_publish(&out, &json!({"links": [blank]}), &Value::Null, true);
         assert_eq!((out["links"][0]["reg"].as_str(), out["links"][0]["auth"].as_str()), (Some("r"), Some("a")));
         // From the Mac with the keys: new secrets replace the old.
         let rekeyed = json!({"id": "L", "roomID": "R", "reg": "r2", "auth": "a2", "sign": "s2", "join": "j2", "rev": 4, "at": "2026-11-16T12:00:00Z", "by": "A"});
-        let (out, _) = merge_publish(&out, &json!({"links": [rekeyed]}), &Value::Null);
+        let (out, _) = merge_publish(&out, &json!({"links": [rekeyed]}), &Value::Null, true);
         assert_eq!((out["links"][0]["reg"].as_str(), out["links"][0]["join"].as_str()), (Some("r2"), Some("j2")));
         // "Make a New Link" (§13.24): level 3 has no `sign`; the old one must not stay, and a keyless Mac keeps the level.
         let v3 = json!({"id": "L", "roomID": "R3", "reg": "r3", "auth": "a3", "join": "j3", "level": 3, "rev": 5, "at": "2026-11-16T13:00:00Z", "by": "A"});
-        let (out, _) = merge_publish(&out, &json!({"links": [v3]}), &Value::Null);
+        let (out, _) = merge_publish(&out, &json!({"links": [v3]}), &Value::Null, true);
         assert!(out["links"][0]["sign"].is_null() && out["links"][0]["level"] == 3);
         let bare = json!({"id": "L", "roomID": "R3", "paused": true, "rev": 6, "at": "2026-11-16T14:00:00Z", "by": "B"});
-        let (out, _) = merge_publish(&out, &json!({"links": [bare]}), &Value::Null);
+        let (out, _) = merge_publish(&out, &json!({"links": [bare]}), &Value::Null, true);
         assert!(out["links"][0]["sign"].is_null() && out["links"][0]["level"] == 3 && out["links"][0]["reg"] == "r3");
         // A keyless Mac that hasn't heard of the new link yet still names the old room: the room stays with its reg.
         let stale_room = json!({"id": "L", "roomID": "R", "paused": false, "rev": 7, "at": "2026-11-16T15:00:00Z", "by": "B"});
-        let (out, _) = merge_publish(&out, &json!({"links": [stale_room]}), &Value::Null);
+        let (out, _) = merge_publish(&out, &json!({"links": [stale_room]}), &Value::Null, true);
         assert_eq!((out["links"][0]["roomID"].as_str(), out["links"][0]["reg"].as_str(), out["links"][0]["paused"].clone()), (Some("R3"), Some("r3"), json!(false)));
         // A new link without them isn't taken; a new level-3 one is.
         let (out, stale) = merge_publish(&out, &json!({"links": [{"id": "N", "roomID": "R2", "rev": 1, "at": T0, "by": "B"},
-            {"id": "N3", "roomID": "R4", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "B"}]}), &Value::Null);
+            {"id": "N3", "roomID": "R4", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "B"}]}), &Value::Null, true);
         assert_eq!((out["links"].as_array().unwrap().len(), stale), (2, vec![json!("N")]));
+    }
+
+    /// A 4.0.6 Mac or one without the mail code leaves out Email updates, Ask for Files' NAS folder and the
+    /// workflow fields: they stay. A 4.0.7 Mac's null (or `email: false`) clears them. A backup takes the main's as is.
+    #[test]
+    fn link_merge_keeps_what_older_macs_leave_out() {
+        let full = json!({"id": "L", "roomID": "R", "reg": "r", "auth": "a", "join": "j", "level": 3, "rev": 1, "at": T0, "by": "A",
+            "notify": {"email": true, "mailCode": "K.P"}, "uploads": {"folder": null, "into": {"root": "m1", "folder": "In"}},
+            "order": ["B", "A"], "customStatuses": true, "statusDefs": [{"id": "c:lock"}], "fieldDefs": [{"id": "cf:shot"}]});
+        let raw = json!({"format": 1, "projects": [], "links": [full]});
+        let old = json!({"id": "L", "roomID": "R", "paused": true, "uploads": {"folder": null}, "rev": 2, "at": T1, "by": "B"});
+        let (out, _) = merge_publish(&raw, &json!({"links": [old]}), &Value::Null, true);
+        let l = &out["links"][0];
+        assert_eq!((l["paused"].clone(), l["notify"]["mailCode"].clone(), l["uploads"]["into"]["folder"].clone(), l["order"][0].clone(),
+            l["customStatuses"].clone(), l["statusDefs"][0]["id"].clone(), l["fieldDefs"][0]["id"].clone()),
+            (json!(true), json!("K.P"), json!("In"), json!("B"), json!(true), json!("c:lock"), json!("cf:shot")), "{l}");
+        let off = json!({"id": "L", "roomID": "R", "notify": {"email": false}, "uploads": {"folder": null, "into": null}, "order": null,
+            "customStatuses": null, "statusDefs": null, "fieldDefs": null, "rev": 3, "at": T2, "by": "A"});
+        let (out, _) = merge_publish(&out, &json!({"links": [off]}), &Value::Null, true);
+        let l = &out["links"][0];
+        assert_eq!(l["notify"], json!({"email": false}));
+        assert!(l.get("order").is_none() && l.get("customStatuses").is_none() && l.get("statusDefs").is_none() && l["uploads"].get("into").is_none(), "{l}");
+        let main = json!({"id": "L", "roomID": "R", "rev": 4, "at": T2, "by": "A"});
+        let (out, _) = merge_publish(&raw, &json!({"links": [main]}), &Value::Null, false);
+        assert!(out["links"][0].get("notify").is_none() && out["links"][0].get("order").is_none(), "a backup applies the main's copy");
+    }
+
+    /// A 4.0.6 Mac's republish (no `wf`) keeps a custom status and `cf:*` values; a 4.0.7 one (`wf: 1`) sets them.
+    #[test]
+    fn asset_merge_keeps_custom_workflow_from_older_macs() {
+        let raw = json!({"format": 1, "links": [], "projects": [{"id": "P", "name": "P", "rev": 1, "at": T0, "by": "A", "folders": [],
+            "assets": [{"id": "A1", "status": "c:lock", "fields": {"cf:shot": "12", "notes": "x"}, "wf": 1, "rev": 1, "at": T0, "by": "A"}]}]});
+        let old = json!({"projects": [{"id": "P", "assets": [{"id": "A1", "status": "none", "fields": {"notes": "y"}, "rev": 2, "at": T1, "by": "B"}]}]});
+        let (out, _) = merge_publish(&raw, &old, &Value::Null, true);
+        let a = &out["projects"][0]["assets"][0];
+        assert_eq!((a["status"].clone(), a["fields"].clone()), (json!("c:lock"), json!({"cf:shot": "12", "notes": "y"})));
+        let new = json!({"projects": [{"id": "P", "assets": [{"id": "A1", "status": "approved", "fields": {}, "wf": 1, "rev": 3, "at": T2, "by": "A"}]}]});
+        let (out, _) = merge_publish(&out, &new, &Value::Null, true);
+        let a = &out["projects"][0]["assets"][0];
+        assert_eq!((a["status"].clone(), a["fields"].clone()), (json!("approved"), json!({})));
     }
 
     const T0: &str = "2026-11-16T09:00:00Z";
@@ -463,22 +553,22 @@ mod tests {
         let inc = json!({"format": 1, "projects": [{"id": "P", "folders": [{"id": "F", "name": "Socials", "rev": 1, "at": T1, "by": "B"}],
             "assets": [{"id": "A1", "name": "Old", "rev": 1, "at": T2, "by": "B", "versions": []}]}],
             "links": [{"id": "L", "title": "T", "reg": "r", "sign": "s", "join": "j", "rev": 1, "at": T1, "by": "B"}]});
-        let (mut out, stale) = merge_publish(&raw, &inc, &Value::Null);
+        let (mut out, stale) = merge_publish(&raw, &inc, &Value::Null, true);
         assert_eq!(stale, [json!("A1")]);
         assert_eq!(out["projects"][0]["assets"][0]["name"], "Hero");
         assert_eq!(out["projects"][0]["name"], "Spring", "a partial project leaves its meta");
         stamp(&raw, &mut out, "host:h", T1, "2000");
         assert_eq!(out["storeSeq"], 4, "project, asset, then the folder and link");
         // A tombstone removes the asset; a late copy of it is then stale.
-        let (mut o2, st) = merge_publish(&out, &json!({}), &json!([{"kind": "asset", "id": "A1", "project": "P", "rev": 3, "at": T2, "by": "B"}]));
+        let (mut o2, st) = merge_publish(&out, &json!({}), &json!([{"kind": "asset", "id": "A1", "project": "P", "rev": 3, "at": T2, "by": "B"}]), true);
         assert!(st.is_empty() && o2["projects"][0]["assets"].as_array().unwrap().is_empty());
         stamp(&out, &mut o2, "host:h", T2, "2000");
         let late = json!({"format": 1, "projects": [{"id": "P", "assets": [{"id": "A1", "name": "Hero", "rev": 2, "at": T2, "by": "Z", "versions": []}]}]});
-        let (o3, st) = merge_publish(&o2, &late, &Value::Null);
+        let (o3, st) = merge_publish(&o2, &late, &Value::Null, true);
         assert_eq!(st, [json!("A1")]);
         assert!(o3["projects"][0]["assets"].as_array().unwrap().is_empty());
         // Applying the same publish twice changes nothing.
-        let (o4, _) = merge_publish(&o2, &inc, &Value::Null);
+        let (o4, _) = merge_publish(&o2, &inc, &Value::Null, true);
         let mut o4 = o4;
         stamp(&o2, &mut o4, "host:h", T2, "2000");
         assert_eq!(o4["storeSeq"], o2["storeSeq"], "idempotent");
