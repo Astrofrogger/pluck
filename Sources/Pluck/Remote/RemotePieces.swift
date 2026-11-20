@@ -10,6 +10,8 @@ enum RemotePieces {
     /// (A test points it at a name no office knows.)
     nonisolated(unsafe) static var action = "originalPiece"
     static let handlesKey = "editAnywhereHandles"
+    /// The folder in "Originals" pulled pieces go into (not translated: a folder name relinks find again).
+    static let folder = "Parts"
 
     /// Handles either side, in seconds (0–10, default 2).
     static var handles: Double {
@@ -112,6 +114,8 @@ enum RemotePieces {
         var first: Int
         var last: Int
         var timecode: String?
+        /// The original's size and modification time when it was cut (changed since: cut again).
+        var source: RemoteDriveOverlay.Stamp? = nil
     }
 
     static var cache: URL {
@@ -184,8 +188,10 @@ enum RemotePieces {
 
     static func make(_ original: URL, share: String, relative: String, first: Int, last: Int, ffmpeg: String, ffprobe: String) throws -> Piece {
         guard !isRaw(original.path), !RemoteEditHost.isDirectory(original) else { throw Whole(why: String(localized: "RAW can’t be cut")) }
+        // (From the network: no frame numbers a clip can't have.)
+        guard first >= 0, last >= first, last <= 1_000_000_000 else { throw Whole(why: String(localized: "this file can’t be cut")) }
         let probed = probe(original, ffprobe: ffprobe)
-        guard let fps = probed.fps, let demuxer = OfficeProxies.demuxer(probed.container) else {
+        guard let fps = probed.fps, fps < 1000, let demuxer = OfficeProxies.demuxer(probed.container) else {
             throw Whole(why: String(localized: "this file can’t be cut"))
         }
         let intra = isIntra(codec: probed.codec, profile: probed.profile)
@@ -197,21 +203,24 @@ enum RemotePieces {
         // (Kept by the range it really has: `fileData` kind piece asks for that one.)
         let target = file(share: share, relative: relative, first: start, last: final)
         let info = target.deletingLastPathComponent().appendingPathComponent(".piece.json")
+        let source = RemoteDriveWriteHost.stamp(of: original)
         if let data = try? Data(contentsOf: info), let kept = try? JSONDecoder().decode(Piece.self, from: data),
-           RemotePullManager.size(of: target) == kept.size {
+           RemotePullManager.size(of: target) == kept.size, kept.source != nil, kept.source == source {
             try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: info.path)
             return kept
         }
-        // (A quarter frame early: ffmpeg keeps the packets from that time on, so the first one is the frame itself.)
-        var arguments = ["-nostdin", "-y", "-v", "error", "-ss", String(format: "%.4f", max(0, (Double(start) - 0.25) / fps)),
+        // (A quarter frame late: ffmpeg starts at the keyframe at or before that time, which is `start` itself (intra: every
+        // frame; long-GOP: `start` is a keyframe). Ending half a frame before `end` keeps exactly start..<end. Checked with
+        // and without edit lists in remotepull.)
+        var arguments = ["-nostdin", "-y", "-v", "error", "-ss", String(format: "%.4f", (Double(start) + 0.25) / fps),
                          "-f", demuxer, "-i", original.path]
-        if let end { arguments += ["-t", String(format: "%.4f", Double(end - start) / fps)] }
-        arguments += ["-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-map_metadata", "0"]
-        var timecode: String?
-        if let source = probed.timecode, let base = RawPlayer.frames(in: source, rate: Int(fps.rounded())) {
-            timecode = RawPlayer.timecode(base + start, rate: Int(fps.rounded()), dropFrame: source.contains(";"))
-            arguments += ["-timecode", timecode!]
-        }
+        if let end { arguments += ["-t", String(format: "%.4f", (Double(end - start) - 0.5) / fps)] }
+        arguments += ["-map", "0:v:0", "-map", "0:a?", "-c", "copy", "-map_metadata", "0", "-avoid_negative_ts", "make_zero"]
+        // The original's timecode (none: 0) plus the offset, always: Resolve places the piece by it.
+        let rate = Int(fps.rounded())
+        let base = probed.timecode.flatMap { RawPlayer.frames(in: $0, rate: rate) } ?? 0
+        let timecode = RawPlayer.timecode(base + start, rate: rate, dropFrame: probed.timecode?.contains(";") == true)
+        arguments += ["-timecode", timecode]
         // (QuickTime keeps the reel on the timecode track: read from every stream, as OfficeProxies does.)
         let reel = OfficeProxies.probe(original, ffprobe: ffprobe).3 ?? probed.reel
         arguments += ["-metadata:s:v:0", "reel_name=" + (reel ?? original.deletingPathExtension().lastPathComponent)]
@@ -223,7 +232,7 @@ enum RemotePieces {
               let checksum = RemoteProxyJobs.checksum(partial) else { throw Whole(why: String(localized: "this file can’t be cut")) }
         try? fm.removeItem(at: target)
         try fm.moveItem(at: partial, to: target)
-        let piece = Piece(size: size, checksum: checksum, first: start, last: final, timecode: timecode)
+        let piece = Piece(size: size, checksum: checksum, first: start, last: final, timecode: timecode, source: source)
         try JSONEncoder().encode(piece).write(to: info, options: .atomic)
         return piece
     }

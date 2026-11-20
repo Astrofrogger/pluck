@@ -18,6 +18,8 @@ final class RemoteRenderQueue {
         var path: String
         /// A part of the original pulled to the editor's Mac (RemotePieces), not a proxy.
         var piece: Bool?
+        /// A piece's first frame in the original (its timecode is the original's plus this).
+        var first: Int?
     }
 
     struct Item: Codable, Identifiable {

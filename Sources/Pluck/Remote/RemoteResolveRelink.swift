@@ -24,10 +24,10 @@ enum RemoteResolveMap {
         for (manifest, root) in roots {
             for entry in manifest.entries {
                 let file = normal(root.appendingPathComponent(entry.proxy).path)
-                known[file] = .init(file: file, share: entry.share, path: entry.path, piece: entry.range != nil ? true : nil)
+                known[file] = .init(file: file, share: entry.share, path: entry.path, piece: entry.range != nil ? true : nil, first: entry.range?.first)
             }
         }
-        return files.compactMap { file in known[normal(file)].map { RemoteRenderQueue.Proxy(file: file, share: $0.share, path: $0.path, piece: $0.piece) } }
+        return files.compactMap { file in known[normal(file)].map { RemoteRenderQueue.Proxy(file: file, share: $0.share, path: $0.path, piece: $0.piece, first: $0.first) } }
     }
 }
 

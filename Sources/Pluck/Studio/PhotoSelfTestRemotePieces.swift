@@ -44,18 +44,37 @@ extension PhotoSelfTest {
             return check("pieces: ffmpeg for the test", false)
         }
         try? fm.createDirectory(at: root.appendingPathComponent("Cuts"), withIntermediateDirectories: true)
-        func make(_ name: String, _ codec: [String]) -> URL {
+        func make(_ name: String, _ codec: [String], timecode: Bool = true) -> URL {
             let file = root.appendingPathComponent("Cuts/" + name)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: ffmpeg)
             process.arguments = ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-f", "lavfi", "-i", "sine=f=440:sample_rate=48000",
-                                 "-t", "20"] + codec + ["-timecode", "01:00:00:00", "-metadata:s:v:0", "reel_name=R" + name.prefix(1), file.path]
+                                 "-t", "20"] + codec + (timecode ? ["-timecode", "01:00:00:00"] : []) + ["-metadata:s:v:0", "reel_name=R" + name.prefix(1), file.path]
             try? process.run()
             process.waitUntilExit()
             return file
         }
         let long = make("L.mp4", ["-c:v", "libx264", "-g", "50", "-bf", "2", "-c:a", "aac"])
         let prores = make("P.mov", ["-c:v", "prores_ks", "-profile:v", "0", "-c:a", "pcm_s16le"])
+        let hevc = make("H.mov", ["-c:v", "libx265", "-g", "50", "-bf", "3", "-tag:v", "hvc1", "-c:a", "aac", "-x265-params", "log-level=none"])
+        let untimed = make("N.mov", ["-c:v", "prores_ks", "-profile:v", "0", "-c:a", "pcm_s16le"], timecode: false)
+        /// Each decoded frame's MD5, in order (with or without the file's edit lists).
+        func md5s(_ file: URL, ignoreEditList: Bool = false) -> [String] {
+            let process = Process(), pipe = Pipe()
+            process.executableURL = URL(fileURLWithPath: ffmpeg)
+            process.arguments = ["-v", "error"] + (ignoreEditList ? ["-ignore_editlist", "1"] : []) + ["-i", file.path, "-map", "0:v:0", "-f", "framemd5", "-"]
+            process.standardOutput = pipe
+            process.standardError = FileHandle.nullDevice
+            try? process.run()
+            let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            process.waitUntilExit()
+            return text.split(whereSeparator: \.isNewline).filter { !$0.hasPrefix("#") }.compactMap { $0.split(separator: ",").last.map { $0.trimmingCharacters(in: .whitespaces) } }
+        }
+        /// Whether a piece's first decoded frame is the original's frame `first` (where its timecode says it is).
+        func startsAt(_ original: URL, _ piece: URL, _ first: Int) -> Bool {
+            let all = md5s(original)
+            return first < all.count && [false, true].allSatisfy { md5s(piece, ignoreEditList: $0).first == all[first] }
+        }
         func frames(_ file: URL) -> Int {
             let process = Process(), pipe = Pipe()
             process.executableURL = URL(fileURLWithPath: ffprobe)
@@ -75,11 +94,31 @@ extension PhotoSelfTest {
             check("pieces: piece timecode is the original's plus the offset", piece.timecode == "01:00:06:00" && probed.timecode == "01:00:06:00",
                   "\(String(describing: piece.timecode)) \(String(describing: probed.timecode)) \(String(describing: probed.reel))")
             check("pieces: piece keeps the original's name", file.lastPathComponent == "L.mp4")
+            check("pieces: H.264 piece's first frame is the one its timecode names", startsAt(long, file, piece.first))
+            let hevcPiece = try RemotePieces.make(hevc, share: share.id, relative: "Cuts/H.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let hevcFile = RemotePieces.file(share: share.id, relative: "Cuts/H.mov", first: hevcPiece.first, last: hevcPiece.last)
+            check("pieces: HEVC piece from the keyframe, first frame and timecode match", hevcPiece.first == 150 && frames(hevcFile) >= 41
+                  && startsAt(hevc, hevcFile, hevcPiece.first) && RemotePieces.probe(hevcFile, ffprobe: ffprobe).timecode == "01:00:06:00",
+                  "\(hevcPiece) \(frames(hevcFile))")
+            let untimedPiece = try RemotePieces.make(untimed, share: share.id, relative: "Cuts/N.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let untimedFile = RemotePieces.file(share: share.id, relative: "Cuts/N.mov", first: 160, last: 190)
+            check("pieces: an original without timecode counts from 0", untimedPiece.timecode == "00:00:06:10"
+                  && OfficeProxies.probe(untimedFile, ffprobe: ffprobe).1 == "00:00:06:10" && startsAt(untimed, untimedFile, 160),
+                  "\(untimedPiece)")
+            check("pieces: hostile frame numbers are refused", (try? RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: -5, last: 10, ffmpeg: ffmpeg, ffprobe: ffprobe)) == nil
+                  && (try? RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: 0, last: 2_000_000_000, ffmpeg: ffmpeg, ffprobe: ffprobe)) == nil)
             let again = try RemotePieces.make(long, share: share.id, relative: "Cuts/L.mp4", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
             check("pieces: a piece cut before is kept", again == piece)
             let exact = try RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
             let exactFile = RemotePieces.file(share: share.id, relative: "Cuts/P.mov", first: 160, last: 190)
-            check("pieces: ProRes piece is frame exact", exact.first == 160 && exact.last == 190 && frames(exactFile) == 31, "\(exact) \(frames(exactFile))")
+            check("pieces: ProRes piece is frame exact", exact.first == 160 && exact.last == 190 && frames(exactFile) == 31 && startsAt(prores, exactFile, 160),
+                  "\(exact) \(frames(exactFile))")
+            // The original changed since (same size, other time): the kept piece isn't trusted.
+            try Data(count: Int(exact.size)).write(to: exactFile)
+            try fm.setAttributes([.modificationDate: Date.now.addingTimeInterval(-3600)], ofItemAtPath: prores.path)
+            let recut = try RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            check("pieces: an original changed since is cut again", recut.checksum == exact.checksum && RemoteProxyJobs.checksum(exactFile) == exact.checksum
+                  && recut.source != exact.source)
             let exactProbe = OfficeProxies.probe(exactFile, ffprobe: ffprobe)
             check("pieces: ProRes piece timecode and reel", exact.timecode == "01:00:06:10" && exactProbe.1 == "01:00:06:10" && exactProbe.3 == "RP",
                   "\(String(describing: exact.timecode)) \(String(describing: exactProbe.3))")
@@ -96,15 +135,21 @@ extension PhotoSelfTest {
         defer { server.setRights(.init(), for: device) }
         let size = Int64((try? fm.attributesOfItem(atPath: prores.path)[.size] as? NSNumber)?.int64Value ?? 0)
         let item = RemotePieces.Item(share: share.id, path: "Cuts/P.mov", range: 100...149, frames: 500)
-        let target = local.appendingPathComponent("Originals/Cuts/P.mov")
+        let target = local.appendingPathComponent("Originals/Parts/Cuts/P.mov")
+        // A whole original pulled earlier stays as it is.
+        let whole = local.appendingPathComponent("Originals/Cuts/P.mov")
+        try? fm.createDirectory(at: whole.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data("whole".utf8).write(to: whole)
+        defer { try? fm.removeItem(at: whole) }
         pulls.pullPieces(share: share, items: [item], sizes: ["Cuts/P.mov": size], into: local)
         if let job = pulls.jobs.first(where: { $0.paths == ["Cuts/P.mov"] }) {
             _ = await pulls.pass(job)
             let pieceSize = RemotePullManager.size(of: target) ?? 0
             check("pieces: a pull fetches the piece, checked", pulls.progress[job.id]?.finished == true && pieceSize > 0 && pieceSize < size / 4
                   && frames(target) == 50, "\(String(describing: pulls.progress[job.id])) \(pieceSize)")
+            check("pieces: a piece never replaces a whole original pulled before", (try? Data(contentsOf: whole)) == Data("whole".utf8))
             let mapped = RemoteManifest.load(in: local)?.entries.first { $0.pieceOf == "Cuts/P.mov" }
-            check("pieces: the share's manifest knows the piece's original and range", mapped?.proxy == "Originals/Cuts/P.mov" && mapped?.range == [100, 149],
+            check("pieces: the share's manifest knows the piece's original and range", mapped?.proxy == "Originals/Parts/Cuts/P.mov" && mapped?.range == [100, 149],
                   "\(String(describing: mapped))")
             let render = RemoteResolveMap.proxies(for: [target.path], roots: [(RemoteManifest.load(in: local)!, local)])
             check("pieces: a render maps the piece back to its original", render.first?.path == "Cuts/P.mov" && render.first?.piece == true, "\(render)")
