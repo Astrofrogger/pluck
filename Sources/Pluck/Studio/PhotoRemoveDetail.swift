@@ -11,9 +11,10 @@ import simd
 enum PhotoRemoveDetail {
     nonisolated(unsafe) private static let toRoot = CIColorKernel(source: "kernel vec4 toRoot(__sample c) { return vec4(sign(c.rgb) * sqrt(abs(c.rgb)), 1.0); }")
     nonisolated(unsafe) private static let fromRoot = CIColorKernel(source: "kernel vec4 fromRoot(__sample c, vec3 lo, vec3 hi) { vec3 v = clamp(c.rgb, lo, hi); return vec4(sign(v) * v * v, 1.0); }")
-    /// (fill + membrane numerator / denominator)
+    /// fill + the spread band's weighted average (its alpha: the weight). (Read in the kernel: CIColorMatrix moving alpha to
+    /// red gave the weight squared, which made the correction far too strong away from the band.)
     nonisolated(unsafe) private static let membrane = CIColorKernel(source: """
-        kernel vec4 membrane(__sample f, __sample num, __sample den) { return vec4(f.rgb + num.rgb / max(den.r, 0.0001), 1.0); }
+        kernel vec4 membrane(__sample f, __sample spread) { return vec4(f.rgb + spread.rgb / max(spread.a, 0.0001), 1.0); }
         """)
     /// The photo on the band round the hole, `outside` elsewhere.
     nonisolated(unsafe) private static let ringed = CIColorKernel(source: """
@@ -40,6 +41,10 @@ enum PhotoRemoveDetail {
             float t = smoothstep(0.3, 0.7, clamp(dot(c.rgb - a, axis) / max(dot(axis, axis), 1e-8), 0.0, 1.0));
             return vec4(vec3(mask.r * (which > 0.5 ? t : 1.0 - t)), 1.0);
         }
+        """)!
+    /// a to b by w.
+    nonisolated(unsafe) private static let blend = CIColorKernel(source: """
+        kernel vec4 blend(__sample a, __sample b, float w) { return vec4(mix(a.rgb, b.rgb, w), 1.0); }
         """)!
     /// The fine layer squared on the band round the hole (none elsewhere).
     nonisolated(unsafe) private static let squared = CIColorKernel(source: """
@@ -70,11 +75,6 @@ enum PhotoRemoveDetail {
         let lowF = crisp.clampedToExtent().applyingGaussianBlur(sigma: sigma)
         func minus(_ a: CIImage, _ b: CIImage) -> CIImage { difference.apply(extent: e, arguments: [a, b])! }
         let fineO = minus(o, lowO)
-        // The membrane: what the photo's broad light is minus the fill's, on the band just outside the hole, spread in.
-        let reach = Double(max(holeBox.width, holeBox.height)) * 0.25
-        let gap = banded.apply(extent: e, arguments: [minus(lowO, lowF), band, hole])!
-        let spread = gap.clampedToExtent().applyingGaussianBlur(sigma: reach)
-        let den = spread.applyingFilter("CIColorMatrix", parameters: ["inputRVector": CIVector(x: 0, y: 0, z: 0, w: 1)])
         // Kept within the light and colours round the hole (a bright line drew along some edges where the model's edge and the
         // photo's detail met slightly apart): the band's broad tones' range, widened by four times its grain (so grain isn't
         // cut). (Clamped in fromRoot: the sum's alpha is two, which CIColorClamp divides by.)
@@ -91,7 +91,6 @@ enum PhotoRemoveDetail {
             let r = SIMD3(v.x, v.y, v.z) + (outside > 0 ? -grain : grain)
             return CIVector(x: CGFloat(r.x), y: CGFloat(r.y), z: CGFloat(r.z))
         }
-        let matched = membrane.apply(extent: e, arguments: [lowF, spread, den])!
         // The model's fill came out a few percent off over plain textures (its edge met the photo, its middle didn't): its
         // average inside the hole moved to the band's; where the band is two tones, each tone's to its own.
         /// (A tone hardly there gives no mean.)
@@ -106,7 +105,7 @@ enum PhotoRemoveDetail {
             "inputRVector": CIVector(x: 0, y: 0, z: 0, w: 1), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)])
         func vector(_ v: SIMD3<Float>) -> CIVector { CIVector(x: CGFloat(v.x), y: CGFloat(v.y), z: CGFloat(v.z)) }
         func gapOf(_ a: SIMD3<Float>?, _ b: SIMD3<Float>?) -> SIMD3<Float> { a.flatMap { a in b.map { a - $0 } } ?? SIMD3() }
-        var shifts = (vector(gapOf(mean(lowO, ringOnly, ringBox), mean(matched, hole, holeBox))), CIVector(x: 0, y: 0, z: 0))
+        var shifts = (vector(gapOf(mean(lowO, ringOnly, ringBox), mean(lowF, hole, holeBox))), CIVector(x: 0, y: 0, z: 0))
         let toneA = tones?.0 ?? CIVector(x: 0, y: 0, z: 0), toneB = tones?.1 ?? CIVector(x: 0, y: 0, z: 0)
         if let tones, twoTones > 0 {
             // (Each tone's share: how far along from one tone to the other, as the snap reads it.)
@@ -114,11 +113,26 @@ enum PhotoRemoveDetail {
                 side.apply(extent: image.extent.isInfinite ? ringBox.union(holeBox) : image.extent, arguments: [image, mask, tones.0, tones.1, which])!
             }
             func shift(_ which: Float) -> SIMD3<Float> {
-                gapOf(mean(lowO, share(lowO, ringOnly, which), ringBox), mean(matched, share(matched, hole, which), holeBox))
+                gapOf(mean(lowO, share(lowO, ringOnly, which), ringBox), mean(lowF, share(lowF, hole, which), holeBox))
             }
             shifts = (vector(shift(0)), vector(shift(1)))
         }
-        let low = offset.apply(extent: e, arguments: [matched, hole, shifts.0, shifts.1, toneA, toneB, twoTones > 0 ? 1 : 0])!
+        // The model's fill moved first (so the membrane below then only has the edge left to meet).
+        let moved = offset.apply(extent: e, arguments: [lowF, hole, shifts.0, shifts.1, toneA, toneB, twoTones > 0 ? 1 : 0])!
+        // Where the band isn't two tones, the fill's broadest light (a blur the size of the hole) is the photo's round it,
+        // spread in from all sides, instead of the model's: it drew a soft glow in the middle of plain areas and skies.
+        let broad = Double(max(holeBox.width, holeBox.height)) * 0.15
+        let shape = minus(lowF, lowF.applyingGaussianBlur(sigma: broad))
+        let around = banded.apply(extent: e, arguments: [minus(lowO, shape), band, hole])!.clampedToExtent().applyingGaussianBlur(sigma: broad)
+        let even = membrane.apply(extent: e, arguments: [shape, around])!
+        let evenShift = vector(gapOf(mean(lowO, ringOnly, ringBox), mean(even, hole, holeBox)))
+        let evened = offset.apply(extent: e, arguments: [even, hole, evenShift, evenShift, toneA, toneB, 0])!
+        let shiftedF = twoTones >= 1 ? moved : blend.apply(extent: e, arguments: [moved, evened, 1 - twoTones])!
+        // The membrane: what the photo's broad light is minus the fill's, on the band just outside the hole, spread in.
+        let reach = Double(max(holeBox.width, holeBox.height)) * 0.25
+        let gap = banded.apply(extent: e, arguments: [minus(lowO, shiftedF), band, hole])!
+        let spread = gap.clampedToExtent().applyingGaussianBlur(sigma: reach)
+        let low = membrane.apply(extent: e, arguments: [shiftedF, spread])!
 
         // The fine layer, quilted in on the CPU over the hole plus a ring round it to take from.
         let block = min(max(Int((sigma * 6).rounded()) / 2 * 2, 16), 48)
