@@ -21,6 +21,26 @@ enum PhotoRemoveDetail {
             return outer.r * (1.0 - hole.r) > 0.5 ? vec4(c.rgb, 1.0) : vec4(vec3(outside), 1.0);
         }
         """)
+    /// An image weighted by a mask's red (alpha: the weight), for a masked average.
+    nonisolated(unsafe) private static let weighted = CIColorKernel(source: """
+        kernel vec4 weighted(__sample c, __sample m) { return vec4(c.rgb * m.r, m.r); }
+        """)!
+    /// Moved by `shiftA` inside the hole (two tones: by each tone's shift, by how far along from tone a to b it is).
+    nonisolated(unsafe) private static let offset = CIColorKernel(source: """
+        kernel vec4 offset(__sample c, __sample hole, vec3 shiftA, vec3 shiftB, vec3 a, vec3 b, float two) {
+            vec3 axis = b - a;
+            float t = two > 0.5 ? smoothstep(0.3, 0.7, clamp(dot(c.rgb - a, axis) / max(dot(axis, axis), 1e-8), 0.0, 1.0)) : 0.0;
+            return vec4(c.rgb + mix(shiftA, shiftB, t) * hole.r, 1.0);
+        }
+        """)!
+    /// A mask's red times how much a pixel belongs to tone a (which 0) or b (which 1).
+    nonisolated(unsafe) private static let side = CIColorKernel(source: """
+        kernel vec4 side(__sample c, __sample mask, vec3 a, vec3 b, float which) {
+            vec3 axis = b - a;
+            float t = smoothstep(0.3, 0.7, clamp(dot(c.rgb - a, axis) / max(dot(axis, axis), 1e-8), 0.0, 1.0));
+            return vec4(vec3(mask.r * (which > 0.5 ? t : 1.0 - t)), 1.0);
+        }
+        """)!
     /// The fine layer squared on the band round the hole (none elsewhere).
     nonisolated(unsafe) private static let squared = CIColorKernel(source: """
         kernel vec4 squared(__sample c, __sample outer, __sample hole) {
@@ -40,14 +60,14 @@ enum PhotoRemoveDetail {
                         pixel: CGFloat, context: CIContext) -> CIImage {
         let e = image.extent
         guard let toRoot, let fromRoot, let membrane, let banded, let difference, let ringed, let squared else { return fill.applyingFilter("CIBlendWithRedMask", parameters: [kCIInputBackgroundImageKey: image, kCIInputMaskImageKey: alpha]) }
-        let sigma = Double(max(1.2, pixel * 0.8))
+        let sigma = Double(max(2.5, pixel * 1.5))
         let o = toRoot.apply(extent: e, arguments: [image])!.clampedToExtent()
         let f = toRoot.apply(extent: square, arguments: [fill.cropped(to: square)])!.clampedToExtent()
         let lowO = o.applyingGaussianBlur(sigma: sigma)
         let ringBox = holeBox.insetBy(dx: -CGFloat(sigma) * 4 - 8, dy: -CGFloat(sigma) * 4 - 8).intersection(e)
         // (Made crisp before the blur, so its edge comes out as soft as the photo's own at that blur.)
-        let lowF = sharpened(f.cropped(to: square), around: ringed.apply(extent: ringBox, arguments: [lowO, band, hole, -1])!, hole: hole, box: ringBox, context: context)
-            .clampedToExtent().applyingGaussianBlur(sigma: sigma)
+        let (crisp, twoTones, tones) = sharpened(f.cropped(to: square), around: ringed.apply(extent: ringBox, arguments: [lowO, band, hole, -1])!, hole: hole, box: ringBox, context: context)
+        let lowF = crisp.clampedToExtent().applyingGaussianBlur(sigma: sigma)
         func minus(_ a: CIImage, _ b: CIImage) -> CIImage { difference.apply(extent: e, arguments: [a, b])! }
         let fineO = minus(o, lowO)
         // The membrane: what the photo's broad light is minus the fill's, on the band just outside the hole, spread in.
@@ -71,7 +91,34 @@ enum PhotoRemoveDetail {
             let r = SIMD3(v.x, v.y, v.z) + (outside > 0 ? -grain : grain)
             return CIVector(x: CGFloat(r.x), y: CGFloat(r.y), z: CGFloat(r.z))
         }
-        let low = membrane.apply(extent: e, arguments: [lowF, spread, den])!
+        let matched = membrane.apply(extent: e, arguments: [lowF, spread, den])!
+        // The model's fill came out a few percent off over plain textures (its edge met the photo, its middle didn't): its
+        // average inside the hole moved to the band's; where the band is two tones, each tone's to its own.
+        /// (A tone hardly there gives no mean.)
+        func mean(_ image: CIImage, _ mask: CIImage, _ box: CGRect) -> SIMD3<Float>? {
+            var p = [Float](repeating: 0, count: 4)
+            let masked = weighted.apply(extent: box, arguments: [image, mask])!
+            context.render(masked.applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: box)]), toBitmap: &p, rowBytes: 16,
+                           bounds: CGRect(x: 0, y: 0, width: 1, height: 1), format: .RGBAf, colorSpace: nil)
+            return p[3] > 0.02 ? SIMD3(p[0], p[1], p[2]) / p[3] : nil
+        }
+        let ringOnly = banded.apply(extent: ringBox, arguments: [CIImage(color: .white), band, hole])!.applyingFilter("CIColorMatrix", parameters: [
+            "inputRVector": CIVector(x: 0, y: 0, z: 0, w: 1), "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 0), "inputBiasVector": CIVector(x: 0, y: 0, z: 0, w: 1)])
+        func vector(_ v: SIMD3<Float>) -> CIVector { CIVector(x: CGFloat(v.x), y: CGFloat(v.y), z: CGFloat(v.z)) }
+        func gapOf(_ a: SIMD3<Float>?, _ b: SIMD3<Float>?) -> SIMD3<Float> { a.flatMap { a in b.map { a - $0 } } ?? SIMD3() }
+        var shifts = (vector(gapOf(mean(lowO, ringOnly, ringBox), mean(matched, hole, holeBox))), CIVector(x: 0, y: 0, z: 0))
+        let toneA = tones?.0 ?? CIVector(x: 0, y: 0, z: 0), toneB = tones?.1 ?? CIVector(x: 0, y: 0, z: 0)
+        if let tones, twoTones > 0 {
+            // (Each tone's share: how far along from one tone to the other, as the snap reads it.)
+            func share(_ image: CIImage, _ mask: CIImage, _ which: Float) -> CIImage {
+                side.apply(extent: image.extent.isInfinite ? ringBox.union(holeBox) : image.extent, arguments: [image, mask, tones.0, tones.1, which])!
+            }
+            func shift(_ which: Float) -> SIMD3<Float> {
+                gapOf(mean(lowO, share(lowO, ringOnly, which), ringBox), mean(matched, share(matched, hole, which), holeBox))
+            }
+            shifts = (vector(shift(0)), vector(shift(1)))
+        }
+        let low = offset.apply(extent: e, arguments: [matched, hole, shifts.0, shifts.1, toneA, toneB, twoTones > 0 ? 1 : 0])!
 
         // The fine layer, quilted in on the CPU over the hole plus a ring round it to take from.
         let block = min(max(Int((sigma * 6).rounded()) / 2 * 2, 16), 48)
@@ -90,8 +137,9 @@ enum PhotoRemoveDetail {
     /// Two regions meeting at an edge (a table and the wall behind it): where the photo round the hole is two clear tones,
     /// the fill's soft blend between them is made a crisp step (along the line between the two, at its middle, so the fill's
     /// own shading stays); textures that aren't two clear tones are left as they are.
-    private static func sharpened(_ low: CIImage, around: CIImage, hole: CIImage, box: CGRect, context: CIContext) -> CIImage {
-        guard let snap, !box.isEmpty else { return low }
+    /// (Also how clearly two tones the band is, 0…1.)
+    private static func sharpened(_ low: CIImage, around: CIImage, hole: CIImage, box: CGRect, context: CIContext) -> (CIImage, Float, (CIVector, CIVector)?) {
+        guard let snap, !box.isEmpty else { return (low, 0, nil) }
         // The band's tones, on a copy at most 400 px across (nearest pixels: the band's edge isn't mixed with what's outside).
         let k = min(1, 400 / max(box.width, box.height))
         let small = around.samplingNearest().transformed(by: CGAffineTransform(translationX: -box.minX, y: -box.minY).concatenating(CGAffineTransform(scaleX: k, y: k)))
@@ -100,7 +148,7 @@ enum PhotoRemoveDetail {
         context.render(small, toBitmap: &p, rowBytes: w * 16, bounds: CGRect(x: 0, y: 0, width: w, height: h), format: .RGBAf, colorSpace: nil)
         var points: [SIMD3<Float>] = []
         for i in stride(from: 0, to: w * h, by: 1) where p[i * 4] >= 0 && p[i * 4 + 1] >= 0 && p[i * 4 + 2] >= 0 { points.append(SIMD3(p[i * 4], p[i * 4 + 1], p[i * 4 + 2])) }
-        guard points.count >= 32 else { return low }
+        guard points.count >= 32 else { return (low, 0, nil) }
         // Two groups (k-means from the darkest and the brightest).
         func luma(_ v: SIMD3<Float>) -> Float { 0.2126 * v.x + 0.7152 * v.y + 0.0722 * v.z }
         var a = points.min { luma($0) < luma($1) }!, b = points.max { luma($0) < luma($1) }!
@@ -111,16 +159,16 @@ enum PhotoRemoveDetail {
                 let da = simd_length_squared(v - a), db = simd_length_squared(v - b)
                 if da < db { sa += v; na += 1; sq += da } else { sb += v; nb += 1; sq += db }
             }
-            guard na > 0, nb > 0 else { return low }
+            guard na > 0, nb > 0 else { return (low, 0, nil) }
             a = sa / na; b = sb / nb; spread = (sq / Float(points.count)).squareRoot()
             // (Each a fair share of the band: a few odd pixels aren't a region.)
-            if min(na, nb) < Float(points.count) * 0.1 { return low }
+            if min(na, nb) < Float(points.count) * 0.1 { return (low, 0, nil) }
         }
         // How clearly two: their distance against the spread within them (texture and grain).
         let strength = Float(min(max((simd_length(b - a) / max(spread, 1e-4) - 6) / 4, 0), 1))
-        guard strength > 0 else { return low }
-        return snap.apply(extent: low.extent, arguments: [low, hole, CIVector(x: CGFloat(a.x), y: CGFloat(a.y), z: CGFloat(a.z)),
-                                                          CIVector(x: CGFloat(b.x), y: CGFloat(b.y), z: CGFloat(b.z)), strength]) ?? low
+        guard strength > 0 else { return (low, 0, nil) }
+        let tones = (CIVector(x: CGFloat(a.x), y: CGFloat(a.y), z: CGFloat(a.z)), CIVector(x: CGFloat(b.x), y: CGFloat(b.y), z: CGFloat(b.z)))
+        return (snap.apply(extent: low.extent, arguments: [low, hole, tones.0, tones.1, strength]) ?? low, strength, tones)
     }
     nonisolated(unsafe) private static let snap = CIColorKernel(source: """
         kernel vec4 snap(__sample v, __sample hole, vec3 a, vec3 b, float strength) {
