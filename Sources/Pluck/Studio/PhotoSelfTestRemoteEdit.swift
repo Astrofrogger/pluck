@@ -103,6 +103,10 @@ extension PhotoSelfTest {
             check("access: a role writes its flags and is kept", viewer?.role == "viewer" && viewer?.allowed == OfficeAccess.Role.viewer.rights,
                   "\(String(describing: viewer?.role)) \(String(describing: viewer?.allowed))")
             check("access: a Viewer can't fetch originals", await refused({ _ = try await client.fileData(share: id, path: "big.bin", kind: .original, offset: 0) }))
+            let viewerCanWrite = (try? await client.ask("driveCanWrite", ["share": id, "path": ""]))?["can"] as? Bool
+            let viewerWrite = await refused({
+                _ = try await client.ask("driveWrite", ["share": id, "path": "viewer.txt", "size": 1, "modified": 0, "offset": 0, "data": "eA=="]) })
+            check("access: a Viewer can't write through the drive", viewerCanWrite == false && viewerWrite)
             server.setRole(.editor, for: device.id)
             // Every action that takes a path checks the Mac's role in that folder: with No Access on "B Folder", each is refused there.
             let lockedKey = OfficeAccess.folderKey(root: root, share: id, relative: "B Folder")

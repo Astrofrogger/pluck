@@ -352,7 +352,8 @@ final class RemoteDriveOverlay: @unchecked Sendable {
     static func keepsLocal(_ path: String) -> Bool {
         path.split(separator: "/").contains { part in
             let name = String(part)
-            return name.hasPrefix(".") || localNames.contains(name) || name.lowercased().hasSuffix(".lck") || !RemoteSendInto.nameOK(name)
+            // ("(A Document Being Saved By …)": macOS's folder for a safe save on a network volume.)
+            return name.hasPrefix(".") || name.hasPrefix("(A Document Being Saved By") || localNames.contains(name) || name.lowercased().hasSuffix(".lck") || !RemoteSendInto.nameOK(name)
         }
     }
 
@@ -759,8 +760,11 @@ final class RemoteDriveWrites {
         var conflicts: [(path: String, name: String)] = []
         var refused: [(path: String, message: String)] = []
         var problems: [String] = []
+        /// Whether the office takes writes, and this Mac may write in the share's top folder (nil: not known yet).
+        var hostWrites = false
+        var top: Bool?
         static func == (a: Summary, b: Summary) -> Bool {
-            a.pending == b.pending && a.pendingBytes == b.pendingBytes && a.sending == b.sending && a.problems == b.problems
+            a.hostWrites == b.hostWrites && a.top == b.top && a.pending == b.pending && a.pendingBytes == b.pendingBytes && a.sending == b.sending && a.problems == b.problems
                 && a.conflicts.map(\.path) == b.conflicts.map(\.path) && a.refused.map(\.path) == b.refused.map(\.path)
         }
     }
@@ -814,6 +818,8 @@ final class RemoteDriveWrites {
         summary.conflicts = saved.items.compactMap { path, item in item.conflict.map { (path, $0) } }.sorted { $0.path < $1.path }
         summary.refused = saved.items.compactMap { path, item in item.state == .refused ? (path, item.note ?? "") : nil }.sorted { $0.path < $1.path }
         summary.problems = saved.problems
+        summary.hostWrites = saved.hostWrites
+        summary.top = saved.access[""]
         if summaries[share] != summary { summaries[share] = summary }
     }
 

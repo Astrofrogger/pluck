@@ -4,8 +4,24 @@ import SwiftUI
 /// Host: whether paired Macs may stream the proxies (Pluck's own drive, no File Sharing involved).
 struct RemoteNetworkHostView: View {
     @AppStorage(RemoteNetworkHost.streamKey) private var allowed = true
+    @AppStorage(RemoteDriveWriteHost.keepKey) private var keepDays = 7
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            streaming
+            // What Editors save on the drive replaces a file only after the old one is kept; deletes go to a hidden trash.
+            HStack(spacing: 12) {
+                Text("Keep replaced and deleted files").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                Spacer(minLength: 0)
+                Picker("Keep replaced and deleted files", selection: $keepDays) {
+                    ForEach([3, 7, 14, 30], id: \.self) { Text("\($0) days").tag($0) }
+                }
+                .labelsHidden().fixedSize()
+            }
+        }
+    }
+
+    private var streaming: some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Streaming").font(Design.Studio.sectionTitle)
@@ -36,6 +52,7 @@ struct RemoteNetworkPane: View {
                 Label(problem, systemImage: "exclamationmark.triangle").font(Design.Studio.body).foregroundStyle(Design.Studio.warn)
                     .fixedSize(horizontal: false, vertical: true)
             }
+            RemoteDriveWritesView(share: share, mounted: network.state(share).isMounted, hostWrites: network.hostWrites)
         }
         .task(id: share) { await network.refresh() }
     }
@@ -117,4 +134,62 @@ struct RemoteNetworkPane: View {
 
 extension RemoteNetwork.State {
     var isMounted: Bool { if case .mounted = self { true } else { false } }
+}
+
+/// A streamed share's writing: whether this Mac can write here, what waits to upload, and what the office kept apart.
+struct RemoteDriveWritesView: View {
+    let share: String
+    let mounted: Bool
+    let hostWrites: Bool?
+    @State private var writes = RemoteDriveWrites.shared
+
+    var body: some View {
+        let summary = writes.summary(share)
+        VStack(alignment: .leading, spacing: 6) {
+            if mounted { access(summary) }
+            if summary.pending > 0 {
+                let bytes = ByteCountFormatter.string(fromByteCount: summary.pendingBytes, countStyle: .file)
+                line("arrow.up.circle", summary.sending.map { String(localized: "Uploading “\($0)” · \(summary.pending) waiting (\(bytes))") }
+                     ?? String(localized: "\(summary.pending) waiting to upload (\(bytes))"), Design.Studio.textQuiet)
+            }
+            ForEach(summary.conflicts, id: \.path) { conflict in
+                HStack(spacing: 8) {
+                    line("doc.on.doc", String(localized: "“\((conflict.path as NSString).lastPathComponent)” changed at the office. Yours is saved as “\(conflict.name)”."),
+                         Design.Studio.warn)
+                    Spacer(minLength: 8)
+                    Button("OK") { writes.seen(share, conflict.path) }.buttonStyle(StudioFlatButtonStyle())
+                }
+            }
+            ForEach(summary.refused, id: \.path) { refused in
+                HStack(spacing: 8) {
+                    line("exclamationmark.triangle", String(localized: "“\((refused.path as NSString).lastPathComponent)” wasn’t uploaded: \(refused.message)"),
+                         Design.Studio.warn)
+                    Spacer(minLength: 8)
+                    Button("Try Again") { writes.retry(share, refused.path) }.buttonStyle(StudioFlatButtonStyle())
+                }
+            }
+            if !summary.problems.isEmpty {
+                HStack(spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) { ForEach(summary.problems, id: \.self) { line("exclamationmark.triangle", $0, Design.Studio.warn) } }
+                    Spacer(minLength: 8)
+                    Button("OK") { writes.clearProblems(share) }.buttonStyle(StudioFlatButtonStyle())
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+    }
+
+    @ViewBuilder private func access(_ summary: RemoteDriveWrites.Summary) -> some View {
+        if hostWrites == false || !summary.hostWrites {
+            line("lock", String(localized: "Read only: the office Mac runs an older Pluck."), Design.Studio.textQuiet)
+        } else if summary.top == false {
+            line("lock", String(localized: "Read only: this Mac isn’t an Editor here."), Design.Studio.textQuiet)
+        } else if summary.top == true {
+            line("pencil", String(localized: "Can write here"), Design.Studio.good)
+        }
+    }
+
+    private func line(_ symbol: String, _ text: String, _ colour: Color) -> some View {
+        Label(text, systemImage: symbol).font(Design.Studio.hint).foregroundStyle(colour).fixedSize(horizontal: false, vertical: true)
+    }
 }

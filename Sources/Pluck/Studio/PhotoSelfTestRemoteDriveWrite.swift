@@ -6,7 +6,7 @@ extension PhotoSelfTest {
     static func remoteDriveWriteUnits() {
         check("drive write: macOS and Resolve junk stays on this Mac", [".DS_Store", "Day 1/._A001.mov", ".Spotlight-V100/x", ".fseventsd",
                                                                        ".Trashes", "Proj/CacheClip/a.bin", "Proj/.gallery/s.png", "OptimizedMedia/x.mov",
-                                                                       "ProxyMedia/x.mov", "Proj/edit.lck", "a:b.txt"].allSatisfy(RemoteDriveOverlay.keepsLocal)
+                                                                       "ProxyMedia/x.mov", "Proj/edit.lck", "a:b.txt", "(A Document Being Saved By Pluck)/x"].allSatisfy(RemoteDriveOverlay.keepsLocal)
               && !["notes.txt", "Day 1/Edit v2.drp", "Renders/final.mov"].contains(where: RemoteDriveOverlay.keepsLocal))
         check("drive write: a conflict copy is named after the Mac", RemoteDriveWriteHost.conflictName("edit.drp", mac: "Studio Mac") == "edit (Studio Mac).drp"
               && RemoteDriveWriteHost.conflictName("README", mac: "M") == "README (M)")
@@ -158,6 +158,12 @@ extension PhotoSelfTest {
         OfficeAccess.shared.set(subject: device.id.uuidString, folder: key, role: nil)
         check("drive write: nothing waits at the end", await wait("idle") { writes.summary(id).pending == 0 }, "\(writes.summary(id))")
     }
+
+    // Needs Resolve (written down, not run here: the self-tests never start Resolve). On a home Mac streaming a share from
+    // an office where it's an Editor: in Resolve, Project Manager > Export Project to "<drive>/Day 1/Test.drp", then
+    // Export again (replace), then Media > Render a short clip to "<drive>/Renders". Expect: Test.drp at the office with
+    // the first one in .pluck-versions; the render there whole once Resolve finishes; no CacheClip, .gallery or *.lck at
+    // the office; "0 waiting to upload" afterwards. Then edit Test.drp at the office and export again: "Test (<Mac>).drp".
 
     /// Before the writable mount: an overlay with a file written while the office was away, picked up after a "restart"
     /// (a new overlay from the same folder) and sent then.
