@@ -100,6 +100,14 @@ pub fn is_hdr(probe: &Value) -> bool {
 pub const UNTONED: &str = "format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709";
 pub const TONEMAP: &str = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
+/// The tone map for this source: one tagged with only its transfer is taken as BT.2020 (zscale finds no path otherwise).
+pub fn tonemap_for(probe: &Value) -> String {
+    match probe["primaries"].as_str() {
+        Some(p) if !p.is_empty() && p != "unknown" => TONEMAP.to_owned(),
+        _ => format!("setparams=color_primaries=bt2020:colorspace=bt2020nc,{TONEMAP}"),
+    }
+}
+
 /// The renditions a video gets on this host: the H.264 ladder always; with the 4K switch, a source ≥ 3000 px and libx265,
 /// "2160" and from HDR "2160h" too (the NAS has no VideoToolbox; without x265 it skips 4K and says so in the log).
 pub fn uhd_renditions(probe: &Value, uhd: bool, x265: bool) -> Vec<&'static str> {
@@ -117,12 +125,12 @@ pub fn uhd_args(src: &str, r: &str, probe: &Value, tonemap: bool) -> (Vec<String
     let size = fit(w, h, 3840);
     let hdr = r == "2160h";
     let trc = probe["transfer"].as_str().unwrap_or("smpte2084").to_owned();
-    let sdr = if !is_hdr(probe) { "format=yuv420p" } else if tonemap { TONEMAP } else { UNTONED };
+    let sdr = if !is_hdr(probe) { "format=yuv420p".to_owned() } else if tonemap { tonemap_for(probe) } else { UNTONED.to_owned() };
     let colour: Vec<String> = if hdr { vec![s("-color_primaries"), s("bt2020"), s("-color_trc"), trc.clone(), s("-colorspace"), s("bt2020nc")] }
         else if is_hdr(probe) { vec![s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")] } else { vec![] };
     let params = if hdr { format!("log-level=error:colorprim=bt2020:transfer={trc}:colormatrix=bt2020nc") } else { s("log-level=error") };
     let mut a = vec![s("-i"), s(src), s("-map"), s("0:v:0"), s("-map"), s("0:a:0?"), s("-sn"), s("-dn"), s("-map_metadata"), s("-1"),
-        s("-vf"), format!("scale={}:{}:flags=lanczos,{}", size.0, size.1, if hdr { "format=yuv420p10le" } else { sdr }),
+        s("-vf"), format!("scale={}:{}:flags=lanczos,{}", size.0, size.1, if hdr { "format=yuv420p10le" } else { &sdr }),
         s("-fps_mode"), s("cfr"), s("-r"), format!("{num}/{den}"), s("-c:v"), s("libx265"), s("-preset"), s("fast"), s("-x265-params"), params,
         s("-profile:v"), s(if hdr { "main10" } else { "main" }), s("-tag:v"), s("hvc1"), s("-b:v"), s("18M"), s("-maxrate"), s("24M"), s("-bufsize"), s("36M"),
         s("-g"), g.clone(), s("-keyint_min"), g, s("-bf"), s("0")];
@@ -241,7 +249,7 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
             let g = (2.0 * num as f64 / den as f64).round().max(1.0).to_string();
             let audio = probe["hasAudio"].as_bool().unwrap_or(false);
             let tonemap = is_hdr(&probe) && has("-filters", " zscale ").await && has("-filters", " tonemap ").await;
-            let sdr = if !is_hdr(&probe) { "format=yuv420p" } else if tonemap { TONEMAP } else { UNTONED };
+            let mut sdr = if !is_hdr(&probe) { "format=yuv420p".to_owned() } else if tonemap { tonemap_for(&probe) } else { UNTONED.to_owned() };
             if is_hdr(&probe) && !tonemap {
                 crate::log(format!("copies {}: this ffmpeg has no zscale/tonemap, so the SDR copies of an HDR source may look flat", job.version));
             }
@@ -255,6 +263,7 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
                 let dir = tmp.join(r);
                 tokio::fs::create_dir_all(&dir).await?;
                 let size = fit(w, h, edge);
+                let args = |sdr: &str| -> Vec<String> {
                 let mut a: Vec<String> = vec![s("-i"), src.clone(), s("-map"), s("0:v:0"), s("-map"), s("0:a:0?"), s("-sn"), s("-dn"),
                     s("-map_metadata"), s("-1"), s("-vf"), format!("scale={}:{}:flags=lanczos,{sdr}{wm_r}", size.0, size.1),
                     s("-fps_mode"), s("cfr"), s("-r"), format!("{num}/{den}"), s("-c:v"), s("libx264"), s("-preset"), s("medium"),
@@ -265,7 +274,16 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
                     a.extend([s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")]);
                 }
                 a.extend(hls());
-                run(a, &dir, dur, job, progress, ([0.0, 0.55, 0.8][i], [0.55, 0.25, 0.1][i])).await?;
+                a
+                };
+                let share = ([0.0, 0.55, 0.8][i], [0.55, 0.25, 0.1][i]);
+                if let Err(e) = run(args(&sdr), &dir, dur, job, progress, share).await {
+                    // A tone map this ffmpeg can't do for this file: the plain BT.709 re-tag instead (as 4.0.6), so the ladder still comes.
+                    if !is_hdr(&probe) || sdr == UNTONED { return Err(e); }
+                    crate::log(format!("copies {} {r}: the tone map failed ({e:#}), made without it", job.version));
+                    sdr = UNTONED.to_owned();
+                    run(args(&sdr), &dir, dur, job, progress, share).await?;
+                }
                 let codecs = if audio { format!("{avc},mp4a.40.2") } else { avc.to_owned() };
                 let idx = index_from(&std::fs::read_to_string(dir.join("index.m3u8"))?, &dir, &codecs, &probe, size)?;
                 std::fs::write(dir.join("index.json"), idx.to_string())?;
@@ -279,7 +297,7 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
             for r in uhd_renditions(&probe, job.uhd && job.watermark.is_none(), x265) {
                 let dir = tmp.join(r);
                 tokio::fs::create_dir_all(&dir).await?;
-                let (mut a, codecs, size) = uhd_args(&src, r, &probe, tonemap);
+                let (mut a, codecs, size) = uhd_args(&src, r, &probe, tonemap && sdr != UNTONED);
                 a.extend(hls());
                 match run(a, &dir, dur, job, progress, (0.85, 0.05)).await.and_then(|_| {
                     let idx = index_from(&std::fs::read_to_string(dir.join("index.m3u8"))?, &dir, &codecs, &probe, size)?;
@@ -662,6 +680,32 @@ mod tests {
         let p = probe_from(&json!({"format": {"duration": "1"}, "streams": [{"codec_type": "video", "width": 3840, "height": 2160,
             "color_transfer": "arib-std-b67", "color_primaries": "bt2020"}]})).unwrap();
         assert!(p["transfer"] == "arib-std-b67" && p["primaries"] == "bt2020" && is_hdr(&p));
+        assert!(tonemap_for(&pq).starts_with("setparams=color_primaries=bt2020:colorspace=bt2020nc,zscale"), "only the transfer tagged: BT.2020 assumed");
+        assert_eq!(tonemap_for(&p), TONEMAP);
+    }
+
+    /// The real tools: PQ tagged with only its transfer still gets its tone-mapped H.264 ladder.
+    #[tokio::test]
+    async fn real_bare_pq_copies() {
+        let x265 = std::process::Command::new(tool("ffmpeg")).args(["-hide_banner", "-encoders"]).output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(" libx265 "));
+        if !x265 {
+            return eprintln!("no ffmpeg with libx265: skipped");
+        }
+        let base = std::env::temp_dir().join(format!("pluck-barepq-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let clip = base.join("pq.mp4");
+        assert!(std::process::Command::new(tool("ffmpeg")).args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=1",
+            "-c:v", "libx265", "-pix_fmt", "yuv420p10le", "-x265-params", "log-level=none:transfer=smpte2084", "-tag:v", "hvc1"]).arg(&clip).status().unwrap().success());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let out = base.join("copies/V");
+        std::fs::create_dir_all(&out).unwrap();
+        let job = Job { version: "V".into(), kind: "video".into(), src: clip, out: out.clone(), captions: None, watermark: None, uhd: false };
+        make(&job, &tx).await.unwrap();
+        let ready: Value = serde_json::from_slice(&std::fs::read(out.join("ready.json")).unwrap()).unwrap();
+        assert_eq!(ready["renditions"], json!(["1080", "540", "360"]));
+        let _ = std::fs::remove_dir_all(base);
     }
 
     /// A host remaking a version's copies keeps the transcript Pluck sent (and its captions unless a sidecar made new ones).
