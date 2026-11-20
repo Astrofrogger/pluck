@@ -81,7 +81,7 @@ enum PrivateNetwork {
         return "pluck-" + String(name.prefix(40))
     }
 
-    enum Failure: LocalizedError {
+    enum Failure: LocalizedError, Equatable {
         case noHelper, token, tokenExpired, account(String), helper(String), needsInvite, timeout, inviteExpired, inviteUsed
         /// iroh: the helper quit by itself (how: "exit 1", "signal 9") and restarting it didn't help.
         case stopped(String)
@@ -347,6 +347,8 @@ final class Tunnel {
     @ObservationIgnored var testSettings: [String: Any]?
 
     @ObservationIgnored private var process: Process?
+    /// Tests: the running helper's process id.
+    var helperID: Int32? { process?.processIdentifier }
     @ObservationIgnored private var input: FileHandle?
     @ObservationIgnored private var pending: Task<Void, Error>?
     /// iroh, home: the office (and relay) the running helper leads to.
@@ -561,7 +563,10 @@ final class Tunnel {
         let old = process
         halt()
         await Self.reap(old)
-        guard let helper = PrivateNetwork.helper(transport) else { throw PrivateNetwork.Failure.noHelper }
+        // (Tests: "helper" runs another program in its place.)
+        guard let helper = (testSettings?["helper"] as? String).map(URL.init(fileURLWithPath:)) ?? PrivateNetwork.helper(transport) else {
+            throw PrivateNetwork.Failure.noHelper
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         state = .starting
@@ -571,6 +576,8 @@ final class Tunnel {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        // A helper that quit must not take Pluck with it (SIGPIPE on the next write).
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         try process.run()
         ConnectionLog.add(tag, "started helper \(process.processIdentifier)")
         self.process = process
@@ -589,10 +596,12 @@ final class Tunnel {
             if let office { settings["office"] = office }
             if let officeRelay { settings["officeRelay"] = officeRelay }
             settings.merge(testSettings ?? [:]) { $1 }
+            settings["helper"] = nil
         }
         var line = try JSONSerialization.data(withJSONObject: settings)
         line.append(0x0A)
-        try stdin.fileHandleForWriting.write(contentsOf: line)
+        // (One that quit at once is told by its reports ending, below.)
+        try? stdin.fileHandleForWriting.write(contentsOf: line)
 
         // Its reports, until it carries connections (or gives up), then for as long as it runs.
         let iroh = transport == .iroh
