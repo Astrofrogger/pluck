@@ -1139,8 +1139,12 @@ final class ReviewHosting {
         OfficeActions.register("reviewMail") { arguments, device in
             guard shared.isOn else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host reviews.")) }
             guard let op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
-            if name != "mail-state", !OfficeAccess.shared.isAdmin(device), !OfficeAccess.shared.rights(for: device).fullTrust { throw OfficeActions.refused() }
-            return try await shared.mail(op)
+            let admin = OfficeAccess.shared.isAdmin(device) || OfficeAccess.shared.rights(for: device).fullTrust
+            if name != "mail-state", !admin { throw OfficeActions.refused() }
+            // The state for an Editor too (the share sheet's Email updates), but who subscribed only for an Admin.
+            if !admin { try OfficeActions.require(\.render, device) }
+            let answer = try await shared.mail(op)
+            return admin ? answer : Self.withoutPeople(answer)
         }
         OfficeActions.register("reviewUnhost") { arguments, device in
             let folder = try shared.folder(arguments, device)
@@ -1149,6 +1153,13 @@ final class ReviewHosting {
             try? FileManager.default.removeItem(at: folder)
             return ["hosting": false]
         }
+    }
+
+    /// `mail-state` for a Mac that isn't an Admin: subscribers without their emails and names.
+    nonisolated static func withoutPeople(_ state: [String: Any]) -> [String: Any] {
+        var state = state
+        state["subscribers"] = (state["subscribers"] as? [[String: Any]] ?? []).map { $0.filter { !["email", "name"].contains($0.key) } }
+        return state
     }
 
     nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set"]
@@ -1170,7 +1181,7 @@ final class ReviewHosting {
             var merged: [String: Any] = [:], subscribers: [Any] = [], hooks: [String: Any] = [:], queued = 0, sent = 0
             for (_, helper) in all {
                 guard let answer = try? await helper.ask(op) else { continue }
-                if merged.isEmpty { merged = answer } else if let error = answer["lastError"] as? String { merged["lastError"] = error }
+                if merged.isEmpty { merged = answer } else if let error = answer["lastError"] as? [String: Any] { merged["lastError"] = error }
                 subscribers += answer["subscribers"] as? [Any] ?? []
                 hooks.merge(answer["hooks"] as? [String: Any] ?? [:]) { a, _ in a }
                 queued += answer["queued"] as? Int ?? 0

@@ -1125,6 +1125,13 @@ extension PhotoSelfTest {
         check("mail: mention id vector", DeliverMail.mentionID(mailToken) == "a:9sXYOUiNEwau8WPK", DeliverMail.mentionID(mailToken))
         check("mail: error texts and emails", DeliverMail.errorText(["error": ["code": "auth"]]) == "The mail server didn’t accept the user name or password."
               && DeliverMail.errorText(["ok": true]) == nil && DeliverMail.validEmail("a@b.co") && !DeliverMail.validEmail("a@") && !DeliverMail.validEmail("a b@c.d") && !DeliverMail.validEmail("@c.d"), "")
+        let heardMail = DeliverMail()
+        heardMail.heard(["lastError": ["code": "rejected", "detail": "550 no such user", "at": "2026-11-20T10:00:00Z"]])
+        let stripped = ReviewHosting.withoutPeople(["queued": 1, "subscribers": [["id": "s1", "kind": "client", "email": "c@example.com", "name": "C", "mode": "daily"]]])
+        let strippedRow = (stripped["subscribers"] as? [[String: Any]])?.first
+        check("mail: last error object shown, state without people for non-admins", heardMail.lastError == "The mail server refused the message."
+              && strippedRow?["email"] == nil && strippedRow?["name"] == nil && strippedRow?["mode"] as? String == "daily" && stripped["queued"] as? Int == 1,
+              heardMail.lastError ?? "-")
         let mailHost = UUID()
         DeliverMail.savePassword("fake-secret", for: mailHost)
         let kept = DeliverMail.password(for: mailHost)

@@ -50,7 +50,8 @@ final class DeliverMail {
                             security: s["security"] as? String ?? "tls", user: s["user"] as? String ?? "", from: s["from"] as? String ?? "",
                             replyTo: s["replyTo"] as? String ?? "", digestHour: s["digestHour"] as? Int ?? 8)
         hasPassword = answer["hasPassword"] as? Bool ?? false
-        lastError = answer["lastError"] as? String
+        // The host's last failure is {code, detail, at}: shown as the same texts as an answer's error.
+        lastError = (answer["lastError"] as? [String: Any]).flatMap { Self.errorText(["error": $0]) } ?? answer["lastError"] as? String
         queued = answer["queued"] as? Int ?? 0
         subscribers = (answer["subscribers"] as? [[String: Any]] ?? []).compactMap { row in
             guard let id = row["id"] as? String else { return nil }
