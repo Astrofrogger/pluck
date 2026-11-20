@@ -175,6 +175,7 @@ final class DeliverCopies {
         case .video:
             guard let probe = await probe(source, ffprobe: ffprobe), probe.width > 0 else { return (nil, nil) }
             let inputs = input(source), tools = await tools(ffmpeg)
+            if probe.isHDR && !tools.tonemap { NSLog("Pluck copies: this ffmpeg has no zscale/tonemap, so the SDR copies of an HDR source may look flat") }
             let list = renditions(for: probe, uhd: uhd, hevc: tools.hevc != nil)
             for (index, rendition) in list.enumerated() {
                 let share = { @Sendable (done: Double) in progress((Double(index) + done) / (Double(list.count) + 0.2)) }
@@ -523,6 +524,8 @@ final class DeliverCopies {
     }
 
     /// PQ/HLG to BT.709 SDR (Hable, linear light at 100 nits), ending in 8-bit 4:2:0.
+    /// No zscale/tonemap: the frames re-tagged BT.709 (the encoder takes the frames' tags over -color_trc); colours may look flat.
+    nonisolated static let untoned = "format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709"
     nonisolated static let toneMap = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 
     /// One video rendition's longer side, H.264 level and codec, -b:v/-maxrate/-bufsize and AAC rate.
@@ -558,8 +561,9 @@ final class DeliverCopies {
         let video = spec(rendition, fast: probe.fps > 30.5), rates = video.rates
         let (width, height) = fit(probe.width, probe.height, box: video.box)
         let g = String(Int((2 * probe.fps).rounded()))
-        let sdr = probe.isHDR && tools.tonemap ? toneMap : "format=yuv420p"
-        let bt709 = probe.isHDR && tools.tonemap ? ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"] : []
+        let sdr = !probe.isHDR ? "format=yuv420p" : tools.tonemap ? toneMap : untoned
+        // An HDR source's SDR copies are tagged BT.709 even when this ffmpeg can't tone-map (else they'd keep the PQ/HLG tag).
+        let bt709 = probe.isHDR ? ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"] : []
         if rendition.hasPrefix("2160"), let hevc = tools.hevc {
             // HEVC (hvc1 for Safari); HDR keeps its transfer and BT.2020 tags, Dolby Vision isn't carried (re-encoded without its RPU).
             let hdr = rendition == "2160h"

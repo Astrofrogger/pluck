@@ -49,6 +49,9 @@ extension PhotoSelfTest {
             func at(_ a: [String], _ k: String) -> String? { a.firstIndex(of: k).map { a[$0 + 1] } }
             check("media: 2160h arguments", at(hdr, "-c:v") == "hevc_videotoolbox" && at(hdr, "-profile:v") == "main10" && at(hdr, "-tag:v") == "hvc1"
                   && at(hdr, "-color_trc") == "smpte2084" && at(hdr, "-vf")?.hasSuffix("format=p010le") == true, hdr.joined(separator: " "))
+            let flat = DeliverCopies.arguments(URL(fileURLWithPath: "/in.mov"), rendition: "1080", probe: pqProbe, folder: folder, tools: .init(hevc: nil, tonemap: false))
+            check("media: without tonemap the SDR copy of HDR is still tagged BT.709", at(flat, "-color_trc") == "bt709" && at(flat, "-colorspace") == "bt709"
+                  && at(flat, "-vf")?.contains("tonemap") == false && at(flat, "-vf")?.contains("color_trc=bt709") == true, flat.joined(separator: " "))
             check("media: 1080 tone-mapped", at(sdr1080, "-c:v") == "libx264" && at(sdr1080, "-vf")?.contains("tonemap=hable") == true && at(sdr1080, "-color_trc") == "bt709")
         }
 

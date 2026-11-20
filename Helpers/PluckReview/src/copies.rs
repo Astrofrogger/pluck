@@ -96,6 +96,8 @@ pub fn is_hdr(probe: &Value) -> bool {
 }
 
 /// PQ/HLG to BT.709 SDR, as the Mac does it (Hable at 100 nits), ending in 8-bit 4:2:0.
+/// No zscale/tonemap: the frames re-tagged BT.709 (the encoder takes the frames' tags over -color_trc), colours may look flat.
+pub const UNTONED: &str = "format=yuv420p,setparams=color_primaries=bt709:color_trc=bt709:colorspace=bt709";
 pub const TONEMAP: &str = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
 
 /// The renditions a video gets on this host: the H.264 ladder always; with the 4K switch, a source ≥ 3000 px and libx265,
@@ -115,9 +117,9 @@ pub fn uhd_args(src: &str, r: &str, probe: &Value, tonemap: bool) -> (Vec<String
     let size = fit(w, h, 3840);
     let hdr = r == "2160h";
     let trc = probe["transfer"].as_str().unwrap_or("smpte2084").to_owned();
-    let sdr = if is_hdr(probe) && tonemap { TONEMAP } else { "format=yuv420p" };
+    let sdr = if !is_hdr(probe) { "format=yuv420p" } else if tonemap { TONEMAP } else { UNTONED };
     let colour: Vec<String> = if hdr { vec![s("-color_primaries"), s("bt2020"), s("-color_trc"), trc.clone(), s("-colorspace"), s("bt2020nc")] }
-        else if is_hdr(probe) && tonemap { vec![s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")] } else { vec![] };
+        else if is_hdr(probe) { vec![s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")] } else { vec![] };
     let params = if hdr { format!("log-level=error:colorprim=bt2020:transfer={trc}:colormatrix=bt2020nc") } else { s("log-level=error") };
     let mut a = vec![s("-i"), s(src), s("-map"), s("0:v:0"), s("-map"), s("0:a:0?"), s("-sn"), s("-dn"), s("-map_metadata"), s("-1"),
         s("-vf"), format!("scale={}:{}:flags=lanczos,{}", size.0, size.1, if hdr { "format=yuv420p10le" } else { sdr }),
@@ -239,7 +241,10 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
             let g = (2.0 * num as f64 / den as f64).round().max(1.0).to_string();
             let audio = probe["hasAudio"].as_bool().unwrap_or(false);
             let tonemap = is_hdr(&probe) && has("-filters", " zscale ").await && has("-filters", " tonemap ").await;
-            let sdr = if tonemap { TONEMAP } else { "format=yuv420p" };
+            let sdr = if !is_hdr(&probe) { "format=yuv420p" } else if tonemap { TONEMAP } else { UNTONED };
+            if is_hdr(&probe) && !tonemap {
+                crate::log(format!("copies {}: this ffmpeg has no zscale/tonemap, so the SDR copies of an HDR source may look flat", job.version));
+            }
             // 360: ≤ 0.4 Mbit/s in all, for slow lossy links (WebRTC goodput there is ~0.2–0.35 Mbit/s).
             let parts: [(&str, i64, &str, [&str; 3], &str, &str); 3] = [
                 ("1080", 1920, "4.2", if fast { ["12M", "15M", "24M"] } else { ["8M", "10M", "16M"] }, "160k", "avc1.64002a"),
@@ -256,7 +261,7 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
                     s("-profile:v"), s("high"), s("-level:v"), s(level), s("-b:v"), s(b), s("-maxrate"), s(max), s("-bufsize"), s(buf),
                     s("-g"), g.clone(), s("-keyint_min"), g.clone(), s("-sc_threshold"), s("0"), s("-bf"), s("0"),
                     s("-c:a"), s("aac"), s("-b:a"), s(ab), s("-ac"), s(if r == "360" { "1" } else { "2" }), s("-ar"), s("48000"), s("-avoid_negative_ts"), s("make_zero")];
-                if tonemap {
+                if is_hdr(&probe) { // tagged BT.709 even untone-mapped: never a PQ/HLG tag on an SDR copy
                     a.extend([s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")]);
                 }
                 a.extend(hls());
@@ -650,6 +655,8 @@ mod tests {
         let (a, codecs, _) = uhd_args("in.mov", "2160", &pq, true);
         assert_eq!((codecs.as_str(), at(&a, "-profile:v"), at(&a, "-color_trc")), ("hvc1.1.6.L153.B0,mp4a.40.2", "main".into(), "bt709".into()));
         assert!(at(&a, "-vf").contains("tonemap=hable") && at(&a, "-vf").ends_with("format=yuv420p"), "the SDR 4K of an HDR source is tone-mapped");
+        let (a, _, _) = uhd_args("in.mov", "2160", &pq, false);
+        assert!(at(&a, "-color_trc") == "bt709" && !at(&a, "-vf").contains("tonemap") && at(&a, "-vf").contains("color_trc=bt709"), "no tonemap: still tagged BT.709, not PQ");
         let (a, codecs, _) = uhd_args("in.mov", "2160", &sdr, true);
         assert!(codecs == "hvc1.1.6.L153.B0" && !a.contains(&"-color_trc".to_owned()) && !at(&a, "-vf").contains("tonemap"));
         let p = probe_from(&json!({"format": {"duration": "1"}, "streams": [{"codec_type": "video", "width": 3840, "height": 2160,
@@ -705,9 +712,7 @@ mod tests {
         let probe = std::process::Command::new(tool("ffprobe")).args(["-v", "error", "-show_entries", "stream=pix_fmt,color_transfer", "-of", "csv=p=0"])
             .arg(out.join("1080/index.m3u8")).output().unwrap();
         let text = String::from_utf8_lossy(&probe.stdout);
-        if has("-filters", " zscale ").await && has("-filters", " tonemap ").await { // without them the SDR copies stay untone-mapped
-            assert!(text.contains("yuv420p") && !text.contains("smpte2084"), "the 1080 is SDR: {text}");
-        }
+        assert!(text.contains("yuv420p") && !text.contains("smpte2084"), "the 1080 is SDR (tagged BT.709 even without tonemap): {text}");
         let _ = std::fs::remove_dir_all(base);
     }
 
