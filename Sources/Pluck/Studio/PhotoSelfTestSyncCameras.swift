@@ -15,6 +15,7 @@ extension PhotoSelfTest {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else {
             return check("sync: ffmpeg", false, "no ffmpeg")
         }
+        await syncProxiesTest(ffmpeg: ffmpeg)
         let base = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("SyncCamerasTest-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: base) }
 
@@ -165,8 +166,32 @@ extension PhotoSelfTest {
         let cache = SyncCache()
         defer { cache.clear() }
         let unsynced = cameras
-        cameras = await CameraSync.sync(cameras, options: .init(ffmpeg: ffmpeg, cache: cache))
-        note("sync: synced in \(String(format: "%.1f", Date().timeIntervalSince(started))) s")
+        let stages = StageClock(), heardLive = CameraSync.Counter(), placedLive = CameraSync.Counter()
+        cameras = await CameraSync.sync(cameras, options: .init(ffmpeg: ffmpeg, cache: cache, live: { event in
+            switch event {
+            case .listening: _ = heardLive.next()
+            case .placed: _ = placedLive.next()
+            case .heard: break
+            }
+        })) { _, text in stages.mark(text) }
+        let listenedLive = heardLive.next(), foundLive = placedLive.next()
+        check("sync: live reports of each clip listened to and each place found", listenedLive == 15 && foundLive >= 12, "\(listenedLive) \(foundLive)")
+        note("sync: synced in \(String(format: "%.1f", Date().timeIntervalSince(started))) s (\(stages.summary))")
+        // The old way (one clip at a time, every piece read on its own): the same places, within a frame.
+        let slowStarted = Date(), slowStages = StageClock()
+        let slow = await CameraSync.sync(unsynced, options: .init(ffmpeg: ffmpeg, cache: SyncCache(), width: 1)) { _, text in slowStages.mark(text) }
+        note("sync: one at a time (as before) in \(String(format: "%.1f", Date().timeIntervalSince(slowStarted))) s (\(slowStages.summary))")
+        let slowClips = slow.flatMap(\.clips)
+        let apart = cameras.flatMap(\.clips).map { clip -> String? in
+            guard let other = slowClips.first(where: { $0.id == clip.id }) else { return clip.name + " missing" }
+            if clip.start == nil, other.start == nil { return nil }
+            guard let a = clip.start, let b = other.start, abs(a - b) < 1 / max(clip.fps, 25), clip.method == other.method else {
+                return "\(clip.name) \(clip.start ?? -1) \(other.start ?? -1) \(clip.method?.rawValue ?? "-") \(other.method?.rawValue ?? "-")"
+            }
+            return nil
+        }.compactMap { $0 }
+        check("sync: quick sync gives the old places within a frame, the same methods", apart.isEmpty, apart.joined(separator: "; "))
+        await syncSpeedTest(ffmpeg: ffmpeg, ffprobe: ffprobe)
         let clips = cameras.flatMap(\.clips)
         func shot(_ clip: SyncClip) -> Shot? { shots.first { $0.name == clip.name } }
         guard let anchor = clips.first(where: { $0.name == "A001.mov" }), let anchorStart = anchor.start else {
@@ -278,6 +303,96 @@ extension PhotoSelfTest {
             let kept = nudged[c].clips[i].start
             let again = await CameraSync.sync(nudged, options: .init(ffmpeg: ffmpeg, cache: cache))
             check("sync: a locked clip stays put when synced again", again[c].clips[i].start == kept && again[c].clips[i].method == .manual)
+        }
+
+        // Live on the page: places shown as they're found, the stages, all gone once done.
+        let watcher = CameraSyncModel()
+        watcher.cameras = unsynced
+        watcher.sync()
+        var most = 0, seen = Set<Int>(), lines = 0
+        for _ in 0..<1200 where watcher.running {
+            most = max(most, watcher.live.count)
+            if let stage = watcher.stage { seen.insert(stage.rawValue) }
+            if watcher.liveLine != nil { lines += 1 }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        check("sync live: places appear while syncing, with the stages and a line, then the result", most >= 5 && seen.isSuperset(of: [1, 2]) && lines > 0
+              && watcher.live.isEmpty && watcher.stage == nil && watcher.clips.filter { $0.start != nil }.count == cameras.flatMap(\.clips).filter { $0.start != nil }.count,
+              "most \(most) stages \(seen.sorted()) lines \(lines)")
+        // The viewer's edits: nudges (a frame, ten), a drag (to a frame), Undo; what's sent uses them; none while syncing.
+        let editor = CameraSyncModel()
+        editor.cameras = cameras
+        if let target = cameras.flatMap(\.clips).first(where: { $0.name == "C0001.mov" }), let before = target.start {
+            func now() -> Double? { editor.clips.first { $0.id == target.id }?.start }
+            editor.nudge(target.id, frames: 1)
+            let one = now()
+            editor.nudge(target.id, frames: -10)
+            let ten = now()
+            editor.shift(target.id, by: 0.333)
+            let dragged = now()
+            let held = editor.clips.first { $0.id == target.id }
+            check("sync edit: nudges and a drag move by whole frames, and hold the clip",
+                  abs((one ?? 0) - before - 0.04) < 1e-9 && abs((ten ?? 0) - before + 0.36) < 1e-9 && abs((dragged ?? 0) - before + 0.04) < 1e-9
+                  && held?.method == .manual && held?.locked == true, "\(one ?? -1) \(ten ?? -1) \(dragged ?? -1) from \(before)")
+            editor.undo()
+            let undone = now()
+            editor.undo(); editor.undo()
+            check("sync edit: Undo steps back, to exactly how it was", abs((undone ?? 0) - before + 0.36) < 1e-9 && editor.cameras == cameras && !editor.canUndo)
+            editor.redo(); editor.redo()
+            let redone = now()
+            editor.redo()
+            check("sync edit: Redo steps forward again, to the last edit", abs((redone ?? 0) - before + 0.36) < 1e-9 && abs((now() ?? 0) - before + 0.04) < 1e-9
+                  && !editor.canRedo && editor.canUndo, "\(redone ?? -1) \(now() ?? -1)")
+            editor.undo(); editor.undo(); editor.undo()
+            editor.nudge(target.id, frames: 5)
+            let was = CameraSyncExport.placements(cameras, rate: 25).first { $0.clip.id == target.id }?.record
+            let sent = CameraSyncExport.placements(editor.cameras, rate: 25).first { $0.clip.id == target.id }?.record
+            let xml = CameraSyncExport.fcpxml(editor.cameras, name: "Edited")
+            check("sync edit: what's sent uses the edit", was != nil && sent == was! + 5 && xml != CameraSyncExport.fcpxml(cameras, name: "Edited"),
+                  "\(was ?? -1) → \(sent ?? -1)")
+            // While syncing: nothing can be changed, and Undo records nothing.
+            let steps = editor.history.count
+            editor.sync()
+            let during = editor.cameras
+            editor.nudge(target.id, frames: 3)
+            editor.shift(target.id, by: 1)
+            editor.toggleLock(target.id)
+            editor.move(target.id, to: nil)
+            editor.rename(editor.cameras[0].id, "Changed")
+            editor.undo()
+            editor.redo()
+            editor.clear()
+            let refused = editor.running && editor.cameras == during && editor.history.count == steps && !editor.canUndo && !editor.canRedo
+            editor.stop()
+            editor.nudge(target.id, frames: 1)
+            check("sync edit: no changes while syncing, all of them again once stopped", refused && !editor.running && editor.canUndo
+                  && abs((now() ?? 0) - before - 0.24) < 1e-9, "running \(refused)")
+        }
+    }
+}
+
+/// When each stage of a sync began (from its progress lines), for the timings.
+final class StageClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private let started = Date()
+    private var stages: [(String, Double)] = []
+
+    func mark(_ text: String) {
+        let stage = String(text.split(separator: " ").first ?? "")
+        lock.withLock { if !stage.isEmpty, stages.last?.0 != stage { stages.append((stage, Date().timeIntervalSince(started))) } }
+    }
+
+    var summary: String {
+        lock.withLock {
+            let total = Date().timeIntervalSince(started)
+            // Stages that come back (a second round of matching) add up.
+            var spent: [String: Double] = [:], order: [String] = []
+            for (k, (stage, at)) in stages.enumerated() {
+                let end = k + 1 < stages.count ? stages[k + 1].1 : total
+                if spent[stage] == nil { order.append(stage) }
+                spent[stage, default: 0] += end - at
+            }
+            return order.map { "\($0) \(String(format: "%.1f", spent[$0]!)) s" }.joined(separator: ", ")
         }
     }
 }

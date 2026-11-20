@@ -536,6 +536,8 @@ enum ScreenshotMode {
                 // -PluckScreenshotFile <folder> is added (and synced with -PluckScreenshotBuild).
                 CameraSyncView.openFiles = defaults.string(forKey: "PluckScreenshotFile").map { [URL(fileURLWithPath: $0)] } ?? []
                 StudioNavigator.shared.open(windowID: "syncCameras")
+                // -PluckScreenshotLink shown: timecode on camera read, the viewer on Shown timecode.
+                if defaults.string(forKey: "PluckScreenshotLink") == "shown" { CameraSyncModel.shared.shownTimecode = true; SyncAngleViewer.startChecking = true }
                 if defaults.bool(forKey: "PluckScreenshotBuild") { DispatchQueue.main.asyncAfter(deadline: .now() + 4) { CameraSyncModel.shared.sync() } }
                 // -PluckScreenshotItem <file name>: that clip chosen once synced.
                 if let item = defaults.string(forKey: "PluckScreenshotItem") {

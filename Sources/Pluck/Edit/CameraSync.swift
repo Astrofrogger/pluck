@@ -29,6 +29,8 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     /// The time a timecode slate shown to the camera reads at the first frame, once looked for.
     var slate: Double?
     var slateChecked = false
+    /// Every timecode read off its picture (to check by eye), and whether it agrees with the slate value.
+    var shown: [ShownTimecode] = []
     /// Frames the slate it shows is off from the other cameras' slates where it's synced.
     var slateOff: Int?
     /// Where its clock time alone puts it: shown, never synced.
@@ -38,6 +40,14 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     var method: Method?
     var confidence = 0.0
     var locked = false
+    /// The picture's size and codec ("prores Proxy", "h264"), to tell a proxy from its original.
+    var width = 0
+    var height = 0
+    var codec = ""
+    /// A proxy of this clip that was dropped too: played (and listened to) instead, the original synced and sent.
+    var proxy: String?
+    /// A proxy whose original isn't here: the only copy of that angle.
+    var isProxy = false
 
     var file: URL { URL(fileURLWithPath: path) }
     var name: String { file.lastPathComponent }
@@ -48,6 +58,13 @@ struct SyncClip: Identifiable, Hashable, Sendable {
         if method == .manual { return .good }
         return confidence >= 0.7 ? .good : confidence >= 0.4 ? .fair : .poor
     }
+}
+
+/// A timecode read off a clip's picture: at which frame, what it read.
+struct ShownTimecode: Hashable, Sendable {
+    var frame: Int
+    var text: String
+    var agrees: Bool
 }
 
 /// One camera (or sound recorder): its clips in order.
@@ -105,6 +122,9 @@ enum CameraSync {
             defer { source.close() }
             let info = source.info
             clip.fps = info.fps
+            clip.width = info.width
+            clip.height = info.height
+            clip.codec = info.format
             clip.duration = Double(info.frames) / max(info.fps, 1)
             clip.hasVideo = true
             clip.hasAudio = info.audioChannels > 0 || ((try? source.audio()) ?? nil) != nil
@@ -136,6 +156,9 @@ enum CameraSync {
         func number(_ value: Any?) -> Double? { (value as? String).flatMap(Double.init) }
         clip.hasVideo = video != nil
         clip.hasAudio = audio != nil
+        clip.width = video?["width"] as? Int ?? 0
+        clip.height = video?["height"] as? Int ?? 0
+        clip.codec = [video?["codec_name"] as? String, video?["profile"] as? String].compactMap { $0 }.joined(separator: " ")
         clip.fps = video.map { rate($0["avg_frame_rate"]) ?? rate($0["r_frame_rate"]) ?? 25 } ?? 0
         clip.duration = number(format["duration"]) ?? number(video?["duration"]) ?? number(audio?["duration"]) ?? 0
         if let video, let audio, let a = number(audio["start_time"]), let v = number(video["start_time"]) { clip.audioOffset = a - v }
@@ -156,6 +179,66 @@ enum CameraSync {
         let serial = tags.first { $0.key.contains("serial") || $0.key.hasSuffix("camera.identifier") }?.value
         let model = tags["com.apple.quicktime.model"] ?? tags["model"] ?? tags["com.android.model"]
         return Probe(clip: clip, root: root, serial: serial?.trimmingCharacters(in: .whitespaces), model: model)
+    }
+
+    // MARK: - Proxies
+
+    /// Folders proxies are kept in: Resolve's ProxyMedia and OptimizedMedia, a camera's Proxy or Sub (Sony XAVC),
+    /// Pluck's "… – Proxies (H.265)".
+    static func inProxyFolder(_ clip: SyncClip) -> Bool {
+        // (The nearest three folders: a drive or a folder far above named "Proxies" doesn't make everything a proxy.)
+        clip.file.deletingLastPathComponent().pathComponents.suffix(3).contains { part in
+            let name = part.lowercased()
+            return ["sub", "proxymedia", "optimizedmedia", "optimised media", "optimized media"].contains(name) || name.hasPrefix("proxy") || name.contains("proxies")
+        }
+    }
+
+    /// A clip's name without its extension(s) and a proxy's mark: "A001_Proxy.mov", "A001.MXF.mov" (Pluck),
+    /// "C0001S03.MP4" (Sony), "…_P.mov" (RED), "…_001.R3D" all give the original's.
+    static func baseName(_ clip: SyncClip) -> (name: String, marked: Bool) {
+        var name = clip.file.deletingPathExtension().lastPathComponent
+        let inner = (name as NSString).pathExtension.lowercased()
+        if videoExtensions.contains(inner) { name = (name as NSString).deletingPathExtension }
+        if clip.file.pathExtension.lowercased() == "r3d", let mark = name.range(of: "_[0-9]{3}$", options: .regularExpression) { name.removeSubrange(mark) }
+        for pattern in ["(?i)[ ._-]?prox(y|ies)$", "_[Pp]$", "(?<=[0-9])S[0-9]{2}$"] {
+            if let mark = name.range(of: pattern, options: .regularExpression) { name.removeSubrange(mark); return (name.uppercased(), true) }
+        }
+        return (name.uppercased(), false)
+    }
+
+    /// How much a clip looks like a proxy: in a proxy folder, a proxy's mark in its name, a proxy codec.
+    static func proxyLook(_ clip: SyncClip) -> Int {
+        let codec = clip.codec.lowercased()
+        return (inProxyFolder(clip) ? 1 : 0) + (baseName(clip).marked ? 1 : 0) + (codec.hasPrefix("prores") && (codec.hasSuffix("proxy") || codec.hasSuffix(" lt")) ? 1 : 0)
+    }
+
+    /// Proxies whose original is among the clips (proxy → original): the same name (or, in a proxy folder,
+    /// the same timecode) and length within a frame, and smaller or more proxy-like than the original.
+    /// shortcut: Pluck's proxy manifest isn't read; its proxies match by name and folder like any other.
+    static func proxies(_ clips: [SyncClip]) -> [UUID: UUID] {
+        var pairs: [UUID: UUID] = [:]
+        let videos = clips.filter(\.hasVideo)
+        let bases = Dictionary(grouping: videos) { baseName($0).name }
+        for proxy in videos {
+            let look = proxyLook(proxy)
+            let frame = 1.5 / max(proxy.fps, 24)
+            let named = bases[baseName(proxy).name] ?? []
+            // (Resolve's OptimizedMedia has names of its own: there, the timecode has to match.)
+            let timed = inProxyFolder(proxy) && proxy.timecode != nil ? videos.filter { $0.timecode.map { abs($0 - proxy.timecode!) < frame } ?? false } : []
+            let original = (named + timed).filter { o in
+                guard o.id != proxy.id, abs(o.duration - proxy.duration) < frame else { return false }
+                if let a = o.timecode, let b = proxy.timecode, abs(a - b) >= frame { return false }
+                if !named.contains(where: { $0.id == o.id }) && proxy.width >= o.width { return false }
+                // (Lower resolution alone: at most half the pixels, so two cameras started together aren't taken for one.)
+                let area = proxy.width * proxy.height, full = o.width * o.height
+                let smaller = area > 0 && full > 0 && (area * 2 <= full || (look > 0 && area < full))
+                return (smaller || look > proxyLook(o)) && !(o.width > 0 && proxy.width > o.width)
+            }.max { $0.width * $0.height < $1.width * $1.height }
+            if let original { pairs[proxy.id] = original.id }
+        }
+        // A chain (a proxy of a proxy) points at the real original.
+        for (proxy, original) in pairs { if let further = pairs[original] { pairs[proxy] = further } }
+        return pairs
     }
 
     /// The file's dates as a last resort: its last change (kept when copied), less its length, else when it was made.
@@ -254,6 +337,18 @@ enum CameraSync {
         var cache: SyncCache?
         /// Sound before timecode, for a shoot whose timecode can't be trusted.
         var audioFirst = false
+        /// Timecode shown on camera (a slate, a timecode app held in frame, burned-in): looked for all through each clip's first and last 10 s.
+        var shownTimecode = false
+        /// Clips read and matched at once (1: one after the other, the overlap read piece by piece, no proxies: the old way, for checks).
+        var width = CameraSync.width
+        /// What's happening as it happens, to show it.
+        var live: (@Sendable (Live) -> Void)?
+    }
+
+    enum Live: Sendable {
+        case listening(UUID), heard(UUID)
+        /// A clip's place found (by sound; the rest come at the end).
+        case placed(SyncClip)
     }
 
     /// The camera the others are matched to: a sound recorder if there is one, else the camera with the most sound.
@@ -283,10 +378,16 @@ enum CameraSync {
         }
         for (c, i) in all { cameras[c].clips[i].slateOff = nil }
         // Timecode slates shown to the cameras (read once).
-        for (c, i) in all where !cameras[c].clips[i].slateChecked && cameras[c].clips[i].hasVideo {
-            if Task.isCancelled { return cameras }
-            progress(0, String(localized: "Looking for timecode slates"))
-            cameras[c].clips[i].slate = await slate(cameras[c].clips[i], ffmpeg: options.ffmpeg)
+        let unread = all.filter { !cameras[$0.0].clips[$0.1].slateChecked && cameras[$0.0].clips[$0.1].hasVideo }
+        if !unread.isEmpty { progress(0, String(localized: "Looking for timecode slates")) }
+        let known = cameras
+        let slates = await each(unread, width: options.width) { c, i in
+            Task.isCancelled ? nil : await slate(known[c].clips[i], ffmpeg: options.ffmpeg, thorough: options.shownTimecode)
+        }
+        if Task.isCancelled { return cameras }
+        for ((c, i), found) in zip(unread, slates) {
+            cameras[c].clips[i].slate = found?.value
+            cameras[c].clips[i].shown = found?.shown ?? []
             cameras[c].clips[i].slateChecked = true
         }
         let sound = await bySound(cameras, options: options, progress: progress)
@@ -321,22 +422,31 @@ enum CameraSync {
             }
         }
         shift(1)
-        // 1. Listen to every clip.
-        var heard: [UUID: Heard] = [:]
-        let sounding = all.filter { cameras[$0.0].clips[$0.1].hasAudio }
-        for (number, (c, i)) in sounding.enumerated() {
-            if Task.isCancelled { return cameras }
-            let clip = cameras[c].clips[i]
-            if let known = options.cache?.heard(clip.path) { heard[clip.id] = Heard(channels: known); continue }
+        // 1. Listen to every clip (several at once; a clip's proxy where there is one: smaller, quicker over a network).
+        let sounding = all.filter { cameras[$0.0].clips[$0.1].hasAudio }.map { cameras[$0.0].clips[$0.1] }
+        let listened = Counter()
+        let heardList = await each(sounding, width: options.width) { clip -> (UUID, Heard)? in
+            if Task.isCancelled { return nil }
+            if let known = options.cache?.heard(clip.path) { return (clip.id, Heard(channels: known)) }
+            options.live?(.listening(clip.id))
+            defer { options.live?(.heard(clip.id)) }
+            let number = listened.next()
             progress(Double(number) / Double(max(sounding.count, 1)) * 0.4, String(localized: "Listening to \(clip.name)"))
-            guard let file = options.sound(clip),
-                  let samples = try? await AudioFeatures.samples(of: file, ffmpeg: options.ffmpeg) else { continue }
+            // (The proxy only for this rough listen: the exact match reads the original.)
+            let proxy = options.width > 1 ? clip.proxy.map { URL(fileURLWithPath: $0) } : nil
+            var samples: [Float]?
+            if let proxy { samples = try? await AudioFeatures.samples(of: proxy, ffmpeg: options.ffmpeg) }
+            if samples == nil, let file = options.sound(clip) { samples = try? await AudioFeatures.samples(of: file, ffmpeg: options.ffmpeg) }
+            guard let samples else { return nil }
             let features = AudioFeatures(samples: samples)
             // The first values jump just for the sound starting (nothing before it): left out, or every clip's start "matches".
             let skip = Int(AudioFeatures.latency / AudioFeatures.step) + 3
-            heard[clip.id] = Heard(channels: ([features.onset] + features.bands).map { curve in curve.enumerated().map { $0.offset < skip ? 0 : $0.element } })
-            options.cache?.keep(clip.path, heard[clip.id]!.channels)
+            let channels = ([features.onset] + features.bands).map { curve in curve.enumerated().map { $0.offset < skip ? 0 : $0.element } }
+            options.cache?.keep(clip.path, channels)
+            return (clip.id, Heard(channels: channels))
         }
+        let heard = Dictionary(heardList.compactMap { $0 }, uniquingKeysWith: { a, _ in a })
+        if Task.isCancelled { return cameras }
         // 2. By sound: the master's longest clip first, then whatever matches what's placed, round by round.
         let master = Self.master(cameras)
         if !all.contains(where: { cameras[$0.0].clips[$0.1].start != nil }), let master,
@@ -345,6 +455,7 @@ enum CameraSync {
             cameras[master].clips[anchor].start = 0
             cameras[master].clips[anchor].method = .audio
             cameras[master].clips[anchor].confidence = 1
+            options.live?(.placed(cameras[master].clips[anchor]))
         }
         for round in 0..<8 {
             if Task.isCancelled { return cameras }
@@ -354,16 +465,17 @@ enum CameraSync {
             let composite = Composite(placed.map { (cameras[$0.0].clips[$0.1], heard[cameras[$0.0].clips[$0.1].id]!.channels) })
             let others = placed.map { cameras[$0.0].clips[$0.1] }
             let masterClips = master.map { Set(cameras[$0].clips.map(\.id)) } ?? []
+            let known = cameras
             /// The clip at a coarse place, then exact against the placed clip it shares most with
             /// (another camera's; surer ones and the master's first, as a reference's drift carries over).
-            func refined(_ c: Int, _ clip: SyncClip, _ match: Match, quick: Bool) async -> (SyncClip, Fine?) {
+            @Sendable func refined(_ c: Int, _ clip: SyncClip, _ match: Match, quick: Bool) async -> (SyncClip, Fine?) {
                 var clip = clip
                 clip.start = match.start
                 clip.drift = match.drift
                 clip.confidence = match.confidence
                 clip.method = .audio
                 func worth(_ o: SyncClip) -> Double { overlap(o, clip) * o.confidence * (masterClips.contains(o.id) ? 2 : 1) * (o.drift == 0 ? 1.5 : 1) }
-                guard let reference = others.filter({ o in !cameras[c].clips.contains { $0.id == o.id } && overlap(o, clip) > 10 }).max(by: { worth($0) < worth($1) })
+                guard let reference = others.filter({ o in !known[c].clips.contains { $0.id == o.id } && overlap(o, clip) > 10 }).max(by: { worth($0) < worth($1) })
                     ?? others.max(by: { overlap($0, clip) < overlap($1, clip) }),
                       overlap(reference, clip) > 1,
                       let fine = await fine(clip, reference: reference, around: match.at, options: options, windows: quick ? 3 : 24) else { return (clip, nil) }
@@ -372,34 +484,72 @@ enum CameraSync {
                 clip.confidence = min(1, (clip.confidence + fine.confidence) / 2 + 0.2)
                 return (clip, fine)
             }
-            var found = 0
-            for (number, (c, i)) in waiting.enumerated() {
-                if Task.isCancelled { break }
-                progress(0.4 + 0.35 * Double(number) / Double(waiting.count) / Double(round + 1), String(localized: "Matching \(cameras[c].clips[i].name)"))
+            // Each waiting clip against what was placed before this round (several at once).
+            let matched = Counter()
+            let results = await each(waiting, width: options.width) { (c, i) -> SyncClip? in
+                if Task.isCancelled { return nil }
+                let clip = known[c].clips[i]
+                progress(0.4 + 0.35 * Double(matched.next()) / Double(waiting.count) / Double(round + 1), String(localized: "Matching \(clip.name)"))
                 // Where the camera's clock puts it (its clock offset known from its placed clips) narrows the search.
-                let hint = cameras[c].clips[i].clockFromFile ? nil : clockHint(cameras, c, i, shared: false)
-                let matches = narrowed(coarse(heard[cameras[c].clips[i].id]!.channels, composite), hint: hint)
-                guard let first = matches.first else { continue }
-                if first.confidence >= 0.35 {
-                    cameras[c].clips[i] = await refined(c, cameras[c].clips[i], first, quick: false).0
-                    found += 1
-                    continue
-                }
+                let hint = clip.clockFromFile ? nil : clockHint(known, c, i, shared: false)
+                let matches = narrowed(coarse(heard[clip.id]!.channels, composite), hint: hint)
+                guard let first = matches.first else { return nil }
+                if first.confidence >= 0.35 { return await refined(c, clip, first, quick: false).0 }
                 // Not clear from the onsets (a steady beat repeats): the likely places checked on the waveform itself.
                 for match in matches {
-                    let (clip, fine) = await refined(c, cameras[c].clips[i], match, quick: true)
+                    let (found, fine) = await refined(c, clip, match, quick: true)
                     guard let fine, fine.confidence >= 0.5 else { continue }
-                    var placed = await refined(c, cameras[c].clips[i], Match(start: clip.start!, confidence: 0.3, at: match.at, drift: clip.drift), quick: false).0
+                    var placed = await refined(c, clip, Match(start: found.start!, confidence: 0.3, at: match.at, drift: found.drift), quick: false).0
                     placed.confidence = max(placed.confidence, 0.5)
-                    cameras[c].clips[i] = placed
-                    found += 1
-                    break
+                    return placed
                 }
+                return nil
+            }
+            var found = 0
+            for ((c, i), result) in zip(waiting, results) {
+                guard let result else { continue }
+                cameras[c].clips[i] = result
+                found += 1
+                // (Shown in picture time.)
+                var shown = result
+                shown.start! -= result.audioOffset * (1 + result.drift)
+                options.live?(.placed(shown))
             }
             guard found > 0 else { break }
         }
         shift(-1)
         return cameras
+    }
+
+    /// How many clips are read at once: half the cores (each ffmpeg uses more than one).
+    static let width = max(1, min(8, ProcessInfo.processInfo.activeProcessorCount / 2))
+
+    /// `work` on each item, `width` at a time; the results in the items' order.
+    static func each<T: Sendable, R: Sendable>(_ items: [T], width: Int, _ work: @escaping @Sendable (T) async -> R) async -> [R] {
+        await withTaskGroup(of: (Int, R).self) { group in
+            var results = [R?](repeating: nil, count: items.count), next = 0
+            for _ in 0..<min(max(width, 1), items.count) {
+                let k = next
+                group.addTask { (k, await work(items[k])) }
+                next += 1
+            }
+            for await (k, result) in group {
+                results[k] = result
+                if next < items.count {
+                    let k = next
+                    group.addTask { (k, await work(items[k])) }
+                    next += 1
+                }
+            }
+            return results.map { $0! }
+        }
+    }
+
+    /// 0, 1, 2… from any thread.
+    final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func next() -> Int { lock.withLock { defer { value += 1 }; return value } }
     }
 
     /// How long two placed clips run at the same time.
@@ -643,6 +793,24 @@ enum CameraSync {
         let count = min(max(Int((to - from) / 8), 2), 24)
         let centres = (0..<count).map { from + window / 2 + 0.2 + Double($0) * (to - from - window - 0.4) / Double(max(count - 1, 1)) }
             .sorted { abs($0 - around) < abs($1 - around) }.prefix(windows)
+        // The overlap read once from each file (not a read per piece), when it isn't long: the pieces are cut from it.
+        // shortcut: over 20 minutes of overlap is read piece by piece (memory); a chunked read would suit hour-long takes.
+        var clipSpan: (from: Double, samples: [Float])?, refSpan: (from: Double, samples: [Float])?
+        if options.width > 1, to - from <= 1200 {
+            let e0 = (1 + clip.drift) / (1 + reference.drift) - 1, c0 = (start - refStart) / (1 + reference.drift)
+            let y0 = max(0, c0 + from * (1 + e0) - 1), y1 = min(reference.duration, c0 + to * (1 + e0) + 1)
+            async let a = try? AudioFeatures.samples(of: clipSound, ffmpeg: options.ffmpeg, from: from + skipClip, duration: to - from)
+            async let b = y1 > y0 ? try? AudioFeatures.samples(of: refSound, ffmpeg: options.ffmpeg, from: y0 + skipReference, duration: y1 - y0) : nil
+            if let a = await a { clipSpan = (from + skipClip, a) }
+            if let b = await b { refSpan = (y0 + skipReference, b) }
+        }
+        func piece(_ file: URL, _ span: (from: Double, samples: [Float])?, from at: Double, duration: Double) async -> [Float]? {
+            if let span {
+                let i0 = Int(((at - span.from) * rate).rounded()), n = Int((duration * rate).rounded())
+                if i0 >= 0, i0 + n <= span.samples.count { return Array(span.samples[i0..<(i0 + n)]) }
+            }
+            return try? await AudioFeatures.samples(of: file, ffmpeg: options.ffmpeg, from: at, duration: duration)
+        }
         var points: [(x: Double, y: Double, weight: Double)] = []
         // The reference's own time for a clip time, from the points so far (coarse at first).
         func line() -> (c: Double, e: Double) {
@@ -661,8 +829,8 @@ enum CameraSync {
             // The clip's piece stretched to the reference's clock, so drift doesn't blur the match.
             let x0 = centre - window / 2, span = window * (1 + e), y0 = predicted - span / 2 - margin
             guard y0 >= 0, predicted + span / 2 + margin <= reference.duration,
-                  let a = try? await AudioFeatures.samples(of: refSound, ffmpeg: options.ffmpeg, from: y0 + skipReference, duration: span + 2 * margin),
-                  let raw = try? await AudioFeatures.samples(of: clipSound, ffmpeg: options.ffmpeg, from: x0 + skipClip, duration: window),
+                  let a = await piece(refSound, refSpan, from: y0 + skipReference, duration: span + 2 * margin),
+                  let raw = await piece(clipSound, clipSpan, from: x0 + skipClip, duration: window),
                   raw.count > Int(window * rate * 0.9) else { continue }
             let b = abs(e) < 1e-6 ? raw : (0..<Int(Double(raw.count) * (1 + e))).map { j -> Float in
                 let at = Double(j) / (1 + e), i = Int(at), f = Float(at - Double(i))
@@ -824,7 +992,9 @@ enum CameraSync {
                 }
                 cameras[source.c].clips[source.i].start = source.value + offset
                 cameras[source.c].clips[source.i].method = key == -1 ? .slate : offset == 0 ? .timecode : .timecodeOffset
-                cameras[source.c].clips[source.i].confidence = source.check != nil || offset != 0 ? 0.95 : 0.8
+                // A slate read once only (no second frame agreeing) and nothing heard to confirm it: to check.
+                let once = key == -1 && cameras[source.c].clips[source.i].shown.filter(\.agrees).count < 2
+                cameras[source.c].clips[source.i].confidence = source.check != nil || offset != 0 ? 0.95 : once ? 0.5 : 0.8
             }
         }
         for c in cameras.indices {
@@ -868,31 +1038,74 @@ enum CameraSync {
 
     // MARK: Timecode slates
 
-    /// A timecode slate shown to the camera (a slate app or a smart slate: big HH:MM:SS:FF digits)
-    /// at the clip's start or end: what it reads at the clip's first frame, from a dozen frames read.
+    /// Timecode shown to the camera (a slate app, a smart slate, burned-in: big HH:MM:SS:FF digits): what it
+    /// reads at the clip's first frame (half a shown frame later: a frame shows the one begun before it),
+    /// and every reading. Quick: a frame at the start and near the end, a dozen where one shows a timecode,
+    /// two readings at least. `thorough`: a frame every 2 s through the first and last 10 s (a few in between
+    /// if none), a dozen at the first that shows one; one reading is enough (its confidence is low).
     /// shortcut: the slate is taken to run at the clip's rate unless it shows a higher frame number (then 30/50/60/120); RED/BRAW aren't read.
-    static func slate(_ clip: SyncClip, ffmpeg: String) async -> Double? {
+    static func slate(_ clip: SyncClip, ffmpeg: String, thorough: Bool = false) async -> (value: Double, shown: [ShownTimecode])? {
         guard clip.hasVideo, clip.fps > 0, !RawFormats.isRawVideo(clip.file) else { return nil }
-        return await Task.detached { () -> Double? in
-            let frame = 1 / clip.fps
-            var readings: [(t: Double, tc: [Int])] = []
-            for from in [0, max(0, ((clip.duration - 1.5) / frame).rounded(.down) * frame)] {
-                // One frame first; a dozen only where it shows a slate.
-                guard let first = frames(clip.file, from: from, count: 1, ffmpeg: ffmpeg).first, readTimecode(first) != nil else { continue }
-                for (k, image) in frames(clip.file, from: from, count: 12, ffmpeg: ffmpeg).enumerated() {
-                    if let tc = readTimecode(image) { readings.append((from + Double(k) * frame, tc)) }
+        return await Task.detached { () -> (value: Double, shown: [ShownTimecode])? in
+            let last = max(0, Int(clip.duration * clip.fps) - 1)
+            func at(_ seconds: Double) -> Int { min(last, max(0, Int(seconds * clip.fps))) }
+            var spots = thorough ? stride(from: 0.0, to: 10, by: 2).map(at) + stride(from: 10.0, to: 0, by: -2).map { at(clip.duration - $0) }
+                : [0, at(clip.duration - 1.5)]
+            spots = Array(Set(spots)).sorted()
+            var readings: [(frame: Int, tc: [Int], drop: Bool)] = []
+            func look(_ spots: [Int]) {
+                for spot in spots {
+                    // (A quarter frame early: ffmpeg starts at the frame there.)
+                    let from = spot == 0 ? 0 : (Double(spot) - 0.25) / clip.fps
+                    guard let first = frames(clip.file, from: from, count: 1, ffmpeg: ffmpeg).first, let read = readTimecode(first) else { continue }
+                    guard !thorough || readings.isEmpty else { readings.append((spot, read.tc, read.drop)); continue }
+                    // A dozen frames where a timecode shows first: its readings, and the slate's rate from its highest frame number.
+                    for (k, image) in frames(clip.file, from: from, count: 12, ffmpeg: ffmpeg).enumerated() {
+                        if let read = readTimecode(image) { readings.append((spot + k, read.tc, read.drop)) }
+                    }
                 }
             }
-            guard readings.count >= 4, let most = readings.map({ $0.tc[3] }).max() else { return nil }
+            look(spots)
+            if thorough, readings.isEmpty, clip.duration > 25 { look((1...4).map { at(clip.duration * Double($0) / 5) }) }
+            guard readings.count >= (thorough ? 1 : 2), let most = readings.map({ $0.tc[3] }).max() else { return nil }
             let own = clip.fps.rounded()
             let rate = Double(most) < own ? own : [30.0, 50, 60, 120].first { Double(most) < $0 } ?? own
-            var offsets = readings.map { Double(($0.tc[0] * 60 + $0.tc[1]) * 60 + $0.tc[2]) + Double($0.tc[3]) / rate - $0.t }
-            // Past midnight.
-            if let high = offsets.max() { offsets = offsets.map { high - $0 > 43200 ? $0 + 86400 : $0 } }
-            guard let agreed = consensus(offsets, tolerance: 1 / rate), agreed.members.count >= 4 else { return nil }
-            // A frame shows the slate frame begun before it: half a slate frame later on average.
-            return agreed.value + 0.5 / rate
+            // A slate on a 29.97/59.94 camera counts frames at that rate, drop frame or not: whichever more readings agree on
+            // (a ; is often read as a :), drop frame on a tie where one showed a ; or .
+            let fractional = rate == own && abs(clip.fps - own) > 0.01
+            let shownDrop = readings.contains(where: \.drop)
+            func agreement(_ drop: Bool) -> (value: Double, members: [Int])? {
+                var offsets = readings.map { shownSeconds($0.tc, drop: drop, rate: rate, fractional: fractional) - Double($0.frame) / clip.fps }
+                // Past midnight.
+                if let high = offsets.max() { offsets = offsets.map { high - $0 > 43200 ? $0 + 86400 : $0 } }
+                return consensus(offsets, tolerance: 1 / rate)
+            }
+            let tried = (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(drop).map { (drop, $0) } }
+            guard let (drop, agreed) = tried.max(by: { $0.1.members.count < $1.1.members.count }), agreed.members.count >= (thorough ? 1 : 2) else { return nil }
+            let members = Set(agreed.members)
+            let shown = readings.enumerated().map { k, reading in
+                ShownTimecode(frame: reading.frame, text: timecodeText(reading.tc, drop: drop && fractional), agrees: members.contains(k))
+            }
+            return (agreed.value + 0.5 / rate, shown)
         }.value
+    }
+
+    /// A shown timecode in seconds: whole seconds and frames at an integer `rate`; with `fractional` (29.97,
+    /// 59.94) counted in frames of 1001/1000 longer, drop frame skipping the frame numbers drop frame skips.
+    static func shownSeconds(_ tc: [Int], drop: Bool, rate: Double, fractional: Bool) -> Double {
+        let whole = (tc[0] * 60 + tc[1]) * 60 + tc[2]
+        guard fractional else { return Double(whole) + Double(tc[3]) / rate }
+        let base = Int(rate)
+        var frames = whole * base + tc[3]
+        if drop, base % 30 == 0 {
+            let minutes = tc[0] * 60 + tc[1]
+            frames -= base / 15 * (minutes - minutes / 10)
+        }
+        return Double(frames) * 1001 / (rate * 1000)
+    }
+
+    static func timecodeText(_ tc: [Int], drop: Bool) -> String {
+        String(format: "%02d:%02d:%02d", tc[0], tc[1], tc[2]) + (drop ? ";" : ":") + String(format: "%02d", tc[3])
     }
 
     /// `count` frames from `from` seconds, small and grey.
@@ -915,14 +1128,16 @@ enum CameraSync {
         }
     }
 
-    /// The timecode a picture shows in big digits, if any: [hours, minutes, seconds, frames].
-    static func readTimecode(_ image: CGImage) -> [Int]? {
+    /// The timecode a picture shows in big digits, if any: [hours, minutes, seconds, frames], and whether it's drop frame (; or . before the frames).
+    static func readTimecode(_ image: CGImage) -> (tc: [Int], drop: Bool)? {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         guard (try? VNImageRequestHandler(cgImage: image).perform([request])) != nil else { return nil }
         for observation in request.results ?? [] {
-            for candidate in observation.topCandidates(3) { if let tc = parseTimecode(candidate.string) { return tc } }
+            for candidate in observation.topCandidates(3) {
+                if let tc = parseTimecode(candidate.string) { return (tc, candidate.string.last { !$0.isNumber && !$0.isWhitespace }.map { ";.".contains($0) } ?? false) }
+            }
         }
         return nil
     }
@@ -994,11 +1209,17 @@ enum CameraSync {
                 return length(a) > length(b)
             }
             .prefix(2)
+        guard !references.isEmpty else { return }
+        // Every picture needed, read at once (several at a time).
+        let waiting = cameras.flatMap(\.clips).filter { $0.start == nil && $0.hasVideo && !$0.locked && decodable($0) }
+        let wanted = references.flatMap { c in known[c].clips.filter { $0.start != nil && decodable($0) } } + waiting
+        let read = await each(wanted, width: options.width) { clip in Task.isCancelled ? nil : await flashes(clip.file, ffmpeg: options.ffmpeg) }
+        let risesOf = Dictionary(zip(wanted.map(\.id), read).compactMap { id, rises in rises.map { (id, $0) } }, uniquingKeysWith: { a, _ in a })
         var events: [Double] = []
         var placed: [(SyncClip, [Float])] = []
         for c in references {
             for clip in cameras[c].clips where clip.start != nil && decodable(clip) {
-                guard let rises = await flashes(clip.file, ffmpeg: options.ffmpeg) else { continue }
+                guard let rises = risesOf[clip.id] else { continue }
                 placed.append((clip, rises))
                 for (k, value) in rises.enumerated() where value > 8 && (k == 0 || rises[k - 1] <= 8) {
                     if let t = clip.time(Double(k) / clip.fps) { events.append(t) }
@@ -1025,7 +1246,7 @@ enum CameraSync {
         for c in cameras.indices {
             for i in cameras[c].clips.indices where cameras[c].clips[i].start == nil && cameras[c].clips[i].hasVideo && !cameras[c].clips[i].locked {
                 let clip = cameras[c].clips[i]
-                guard decodable(clip), let rises = await flashes(clip.file, ffmpeg: options.ffmpeg) else { continue }
+                guard decodable(clip), let rises = risesOf[clip.id] else { continue }
                 var own = [Float](repeating: 0, count: Int(clip.duration / step) + 1)
                 for (k, value) in rises.enumerated() where value > 0 { lay(value, from: Double(k) / clip.fps, frame: 1 / clip.fps, into: &own) }
                 let minOverlap = max(own.count / 3, 300)
