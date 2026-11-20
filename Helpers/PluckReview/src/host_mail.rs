@@ -468,7 +468,7 @@ impl Host {
     /// mail-set, mail-state, subscriber-set/-remove, unsubscribe, hook-set. None: not a mail op.
     pub(super) fn mail_sync(&mut self, op: &Value) -> Option<Value> {
         let name = op["op"].as_str().unwrap_or("");
-        if !matches!(name, "mail-set" | "mail-state" | "subscriber-set" | "subscriber-remove" | "unsubscribe" | "hook-set") {
+        if !matches!(name, "mail-set" | "mail-state" | "subscriber-set" | "subscriber-remove" | "unsubscribe" | "hook-set" | "mail-remind") {
             return None;
         }
         if self.ident.backup && name != "mail-state" {
@@ -482,6 +482,7 @@ impl Host {
                 self.mail.state()
             }
             "unsubscribe" => self.unsubscribe(op["token"].as_str().unwrap_or("")),
+            "mail-remind" => self.mail_remind(op),
             "subscriber-remove" => {
                 self.mail.subs.retain(|r| r["id"] != op["id"]);
                 if self.mail.save_subs() { json!({"ok": true}) } else { json!({"error": {"code": "write"}}) }
@@ -509,6 +510,26 @@ impl Host {
                 json!({"ok": true, "secret": self.mail.hooks[p]["secret"]})
             }
         })
+    }
+
+    /// `mail-remind` {asset, person, overdue}: an assignment due today or overdue, to that teammate's team row only (never a
+    /// client: team rows are owners and editors). Once per asset, person and day (in the host's offset), however many Macs ask.
+    fn mail_remind(&mut self, op: &Value) -> Value {
+        if !self.mail_on() {
+            return json!({"error": {"code": "off"}});
+        }
+        let (Some(asset), Some(person)) = (op["asset"].as_str(), op["person"].as_str()) else { return json!({"error": {"code": "invalid"}}) };
+        if !self.manifest["projects"].as_array().into_iter().flatten().flat_map(|p| Self::arr(p, "assets")).any(|a| a["id"] == asset) {
+            return json!({"ok": true, "queued": false});
+        }
+        self.sync_rows();
+        let Some(row) = self.rows().into_iter().find(|r| r["kind"] == "team" && r["person"] == person) else { return json!({"ok": true, "queued": false}) };
+        let day = (now_secs() + self.mail.cfg["tzOffset"].as_i64().unwrap_or(0) * 60).div_euclid(86_400);
+        let ev = if op["overdue"] == true { "overdue" } else { "due" };
+        let mut q = Self::item(&row, ev, &Value::Null, &json!(asset), &Value::Null, &Value::Null, &Value::Null);
+        q["id"] = json!(format!("r:{asset}:{day}:{}", row["id"].as_str().unwrap_or("")));
+        self.mail.push(vec![q]);
+        json!({"ok": true, "queued": true})
     }
 
     fn subscriber_set(&mut self, op: &Value) -> Value {

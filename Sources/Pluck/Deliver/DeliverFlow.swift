@@ -168,8 +168,10 @@ extension DeliverDeadlines {
     /// every assignee (the notifications plan's email or push to a team member listens there, or calls this).
     func remind(_ asset: Deliver.Asset, assignee: String, overdue: Bool) {
         NotificationCenter.default.post(name: .deliverAssignmentDue, object: nil, userInfo: ["asset": asset.id, "assignee": assignee, "overdue": overdue])
-        // TODO(4.1 mail): no mail to the assignee yet. Host mail is driven by host events and its subscriber rows are emails,
-        // while an assignee is a name kept on this Mac; it needs a name→team-row mapping and a host op (e.g. "mail-queue").
+        // A teammate with an email: the main host mails them (it dedupes per asset and day, so every Mac may ask).
+        if DeliverMail.shared.active, let person = DeliverMail.teammate(assignee, in: DeliverPeople.shared.people.people ?? []) {
+            Task { _ = await DeliverMail.shared.ask(["op": "mail-remind", "asset": asset.id.uuidString, "person": person, "overdue": overdue]) }
+        }
         guard Deliver.isAssigned(asset, to: DeliverSettings.author) else { return }
         let text = Self.dueText(asset, overdue: overdue)
         if let posted { return posted(text) }

@@ -351,7 +351,7 @@ struct DeliverLinkOptions: View {
         if !(store.library.statuses ?? []).isEmpty {
             StudioSwitchRow(title: "Show custom statuses", isOn: flag(\.customStatuses))
             if link.customStatuses == true {
-                Text("Review pages from before 4.1 show them as “—”.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.leading, 20)
+                Text("Review pages from before 4.0.7 show them as “—”.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.leading, 20)
             }
         }
         ForEach(store.fieldDefs) { def in

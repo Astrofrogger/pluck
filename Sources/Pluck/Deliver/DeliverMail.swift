@@ -106,6 +106,16 @@ final class DeliverMail {
         "a:" + String(DeliverKeys.base64url(Data(SHA256.hash(data: Data(("pluck-mention:" + authorToken).utf8)))).prefix(16))
     }
 
+    /// The team person (Admin or Editor with an email) an assignee's name is; nil when none or more than one has that name.
+    nonisolated static func teammate(_ assignee: String, in people: [Deliver.Person]) -> String? {
+        let name = assignee.trimmingCharacters(in: .whitespaces)
+        let found = people.filter { person in
+            ["owner", "editor"].contains(person.role ?? "") && person.email.map(validEmail) == true
+                && person.name?.trimmingCharacters(in: .whitespaces).caseInsensitiveCompare(name) == .orderedSame
+        }
+        return found.count == 1 ? found[0].id : nil
+    }
+
     nonisolated static func validEmail(_ text: String) -> Bool {
         let parts = text.split(separator: "@", omittingEmptySubsequences: false)
         return text.count <= 120 && parts.count == 2 && !parts[0].isEmpty && !parts[1].isEmpty && !text.contains(where: \.isWhitespace)

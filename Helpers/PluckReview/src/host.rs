@@ -4031,6 +4031,30 @@ mod tests {
         assert_eq!(h.mail.queue.len(), n + 1);
     }
 
+    /// Assignment reminders by mail (4.0.7): to the teammate's row only, once per asset and day, never a client.
+    #[test]
+    fn mail_remind_queues_once_for_the_teammate() {
+        let (mut h, _rx) = test_host();
+        h.publish(&sample(json!([])), &json!({}));
+        let remind = |h: &mut Host, person: &str, overdue: bool| h.sync(&json!({"op": "mail-remind", "asset": "A", "person": person, "overdue": overdue}));
+        assert_eq!(remind(&mut h, "ed", false)["error"]["code"], "off", "mail not set up");
+        h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "studio@example.com", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"));
+        h.accounts.v = json!({"team": {"id": "T", "room": {"roomID": "TR"}}, "people": [
+            {"id": "ed", "name": "Editor", "email": "ed@example.com", "role": "editor"},
+            {"id": "cl", "name": "Client", "email": "client@example.com", "role": "client"}]});
+        assert_eq!(remind(&mut h, "ed", false)["queued"], true);
+        assert_eq!(remind(&mut h, "ed", true)["queued"], true);
+        assert_eq!(h.mail.queue.len(), 1, "both reminders the same day, or from two Macs: one mail");
+        assert_eq!((remind(&mut h, "cl", false)["queued"].clone(), remind(&mut h, "nobody", false)["queued"].clone()), (json!(false), json!(false)));
+        let ev = h.sync(&json!({"op": "mail-remind", "asset": "nope", "person": "ed"}));
+        assert_eq!((ev["queued"].clone(), h.mail.queue.len()), (json!(false), 1), "a client or an unknown person or asset: nothing");
+        let row = h.mail.subs.iter().find(|r| r["person"] == "ed").unwrap().clone();
+        assert_eq!(h.mail.queue[0]["to"], row["id"]);
+        let m = h.compose(&row, &h.mail.queue.clone()).unwrap();
+        assert_eq!((m.to.as_str(), m.subject.as_str()), ("ed@example.com", "Cut is due today"));
+    }
+
     /// A host with the media root "m1" (holding "Clients" and a link "Out" to a folder outside it).
     fn drop_host(droppable: bool) -> (Host, mpsc::UnboundedReceiver<Ev>, PathBuf) {
         let dir = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("pluck-drop-{}", uuid()));

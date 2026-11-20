@@ -34,6 +34,12 @@ extension PhotoSelfTest {
         check("flow: overdue (before today, not approved; today isn't)", Deliver.isOverdue(with(due: "2026-11-18"), today: "2026-11-20")
               && !Deliver.isOverdue(with(due: "2026-11-20"), today: "2026-11-20") && !Deliver.isOverdue(with(due: "2026-11-18", status: .approved), today: "2026-11-20")
               && !Deliver.isOverdue(with(due: nil), today: "2026-11-20") && Deliver.dayAfter("2026-12-29", 7) == "2027-01-05")
+        let team = [Deliver.Person(id: "e1", name: "Editor", email: "e@example.com", role: "editor"), Deliver.Person(id: "c1", name: "Client", email: "c@example.com", role: "client"),
+                    Deliver.Person(id: "n1", name: "No Mail", role: "owner"), Deliver.Person(id: "s1", name: "Same", email: "a@example.com", role: "owner"),
+                    Deliver.Person(id: "s2", name: "same", email: "b@example.com", role: "editor")]
+        check("flow: an assignee maps to one teammate with an email, never a client",
+              DeliverMail.teammate(" editor ", in: team) == "e1" && DeliverMail.teammate("Client", in: team) == nil
+              && DeliverMail.teammate("No Mail", in: team) == nil && DeliverMail.teammate("Same", in: team) == nil && DeliverMail.teammate("Nobody", in: team) == nil)
         check("flow: assignee match (case, spaces)", Deliver.isAssigned(with(due: nil, assignee: " editor "), to: "Editor")
               && !Deliver.isAssigned(with(due: nil, assignee: "Producer"), to: "Editor") && !Deliver.isAssigned(with(due: nil, assignee: nil), to: "Editor"))
         let savedAuthor = UserDefaults.standard.string(forKey: DeliverSettings.authorKey), savedDue = UserDefaults.standard.stringArray(forKey: DeliverDeadlines.dueKey)
