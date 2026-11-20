@@ -50,7 +50,7 @@ struct PlaylistPickerView: View {
             if let owner = pick.owner { parts.append(owner) }
             if pick.hiddenCount > 0 { parts.append(String(localized: "\(pick.hiddenCount) unavailable hidden")) }
             if !pick.downloaded.isEmpty { parts.append(String(localized: "\(pick.downloaded.count) already downloaded")) }
-            return parts.joined(separator: " · ")
+            return ([parts.joined(separator: " · ")] + [pick.note].compactMap { $0 }).joined(separator: "\n")
         }
     }
 

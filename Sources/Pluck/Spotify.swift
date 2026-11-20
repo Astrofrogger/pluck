@@ -49,6 +49,11 @@ enum Spotify {
         let name: String
         let kind: Kind
         let tracks: [SpotifyTrack]
+        /// How many songs the album or playlist really has, when Spotify's page says (the embed lists only the first 50–100).
+        var total: Int? = nil
+
+        /// The embed left songs out (a few missing from a short list are unavailable ones, not a cut-off).
+        var isCutOff: Bool { (total ?? 0) > tracks.count && tracks.count >= 50 }
     }
 
     enum Failure: LocalizedError {
@@ -56,32 +61,66 @@ enum Spotify {
 
         var errorDescription: String? {
             switch self {
-            case .unsupported: String(localized: "Only Spotify track, album and playlist links are supported.")
+            case .unsupported: String(localized: "Only Spotify songs, albums and playlists can be downloaded.")
             case .unreadable: String(localized: "Couldn’t read this Spotify page. It may be private or region-locked.")
             }
         }
     }
 
-    /// Matches open.spotify.com/track/ID, /intl-xx/album/ID, and spotify:playlist:ID.
+    /// Matches open.spotify.com/track/ID, /intl-xx/album/ID, /embed/…, /user/NAME/playlist/ID, play.spotify.com,
+    /// spotify:playlist:ID and spotify:user:NAME:playlist:ID. Short share links (spotify.link) need `resolveShortLink` first.
     static func parse(_ string: String) -> Link? {
+        let parts: [String]
         if string.hasPrefix("spotify:") {
-            let parts = string.split(separator: ":")
-            guard parts.count == 3, let kind = Kind(rawValue: String(parts[1])) else { return nil }
-            return Link(kind: kind, id: String(parts[2]))
+            parts = string.split(separator: ":").dropFirst().map(String.init)
+        } else if let url = URL(string: string), let host = url.host?.lowercased(), host == "spotify.com" || host.hasSuffix(".spotify.com") {
+            parts = url.pathComponents.filter { $0 != "/" }
+        } else {
+            return nil
         }
-        guard let url = URL(string: string), url.host?.hasSuffix("spotify.com") == true else { return nil }
-        let parts = url.pathComponents.filter { $0 != "/" && !$0.hasPrefix("intl-") && $0 != "embed" }
-        guard parts.count >= 2, let kind = Kind(rawValue: parts[0]) else { return nil }
-        return Link(kind: kind, id: parts[1])
+        // The first song/album/playlist word, wherever it sits (after intl-xx, embed or user/NAME).
+        guard let at = parts.firstIndex(where: { Kind(rawValue: $0) != nil }), at + 1 < parts.count,
+              let kind = Kind(rawValue: parts[at]), !parts[at + 1].isEmpty else { return nil }
+        return Link(kind: kind, id: parts[at + 1])
+    }
+
+    /// Hosts of Spotify's short share links (the phone's share sheet gives spotify.link ones).
+    static let shortHosts: Set<String> = ["spotify.link", "spotify.app.link", "spoti.fi"]
+
+    static func isShortLink(_ string: String) -> Bool {
+        URL(string: string)?.host.map { shortHosts.contains($0.lowercased()) } == true
     }
 
     static func isSpotify(_ string: String) -> Bool {
-        string.hasPrefix("spotify:") || URL(string: string)?.host?.hasSuffix("spotify.com") == true
+        guard !string.hasPrefix("spotify:") else { return true }
+        guard let host = URL(string: string)?.host?.lowercased() else { return false }
+        return host == "spotify.com" || host.hasSuffix(".spotify.com") || shortHosts.contains(host)
+    }
+
+    /// A short share link to the open.spotify.com link it stands for: the redirect's end, or (spotify.link ends on a
+    /// Branch page that sends you on with JavaScript) the open.spotify.com link written in that page.
+    static func resolveShortLink(_ string: String) async throws -> String {
+        guard let url = URL(string: string) else { throw Failure.unreadable }
+        var request = URLRequest(url: url, timeoutInterval: 15)
+        request.setValue("Pluck", forHTTPHeaderField: "User-Agent")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let end = response.url?.absoluteString, isSpotify(end), !isShortLink(end), !end.hasPrefix("spotify:") { return end }
+        guard let found = linkInPage(String(decoding: data, as: UTF8.self)) else { throw Failure.unreadable }
+        return found
+    }
+
+    /// The open.spotify.com link in a redirect page: a song/album/playlist one first, else any (an episode's, so
+    /// it gets the clear "only songs…" message).
+    static func linkInPage(_ html: String) -> String? {
+        let found = html.matches(of: #/https://open\.spotify\.com/[^"'<>\s\\]+/#)
+            .map { String($0.output).replacingOccurrences(of: "&amp;", with: "&") }
+        return found.first { parse($0) != nil } ?? found.first
     }
 
     static func fetch(_ link: Link) async throws -> Collection {
         async let entityTask = embedEntity(link)
         async let coverTask = coverURL(link)
+        async let totalTask = link.kind == .track ? nil : pageTotal(link)
         let entity = try await entityTask
         let cover = await coverTask
 
@@ -114,7 +153,7 @@ enum Spotify {
                     cover: link.kind == .album ? cover : nil)
             }
             guard !tracks.isEmpty else { throw Failure.unreadable }
-            return Collection(name: name, kind: link.kind, tracks: tracks)
+            return Collection(name: name, kind: link.kind, tracks: tracks, total: await totalTask)
         }
     }
 
@@ -130,6 +169,25 @@ enum Spotify {
               let entity = (root as AnyObject).value(forKeyPath: "props.pageProps.state.data.entity") as? [String: Any]
         else { throw Failure.unreadable }
         return entity
+    }
+
+    /// The song count from the normal open.spotify.com page (server-rendered for a plain user agent): its
+    /// base64 "initialState" has content.totalCount (playlists) or tracksV2.totalCount (albums).
+    private static func pageTotal(_ link: Link) async -> Int? {
+        var request = URLRequest(url: URL(string: "https://open.spotify.com/\(link.kind.rawValue)/\(link.id)")!, timeoutInterval: 15)
+        request.setValue("Pluck", forHTTPHeaderField: "User-Agent")
+        guard let (data, _) = try? await URLSession.shared.data(for: request) else { return nil }
+        return pageTotal(in: String(decoding: data, as: UTF8.self), link: link)
+    }
+
+    static func pageTotal(in html: String, link: Link) -> Int? {
+        guard let start = html.range(of: #"<script id="initialState" type="text/plain">"#),
+              let end = html.range(of: "</script>", range: start.upperBound..<html.endIndex),
+              let decoded = Data(base64Encoded: html[start.upperBound..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)),
+              let root = try? JSONSerialization.jsonObject(with: decoded) as? [String: Any],
+              let items = (root["entities"] as? [String: Any])?["items"] as? [String: Any],
+              let entity = items["spotify:\(link.kind.rawValue):\(link.id)"] as? [String: Any] else { return nil }
+        return ((entity["content"] ?? entity["tracksV2"]) as? [String: Any])?["totalCount"] as? Int
     }
 
     private static func coverURL(_ link: Link) async -> URL? {

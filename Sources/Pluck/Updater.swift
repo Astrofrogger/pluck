@@ -97,6 +97,21 @@ final class Updater {
 
     var isBusy: Bool { status == .checking || status == .downloading }
 
+    /// Pluck's own yt-dlp is over 30 days old (its version is its release date) and the last check didn't find it
+    /// current: offered as "Update yt-dlp" when a YouTube download fails.
+    var isStale: Bool {
+        guard UserDefaults.standard.bool(forKey: Prefs.autoUpdate), status != .upToDate, !isBusy,
+              let date = installedVersion.flatMap(Self.releaseDate) else { return false }
+        return Date.now.timeIntervalSince(date) > 30 * 86400
+    }
+
+    /// "2026.10.26" or a nightly's "2026.10.26.232857" → that day.
+    nonisolated static func releaseDate(_ version: String) -> Date? {
+        let parts = version.split(separator: ".").prefix(3).compactMap { Int($0) }
+        guard parts.count == 3 else { return nil }
+        return Calendar(identifier: .gregorian).date(from: DateComponents(year: parts[0], month: parts[1], day: parts[2]))
+    }
+
     var failureMessage: String? {
         if case .failed(let message) = status { return message }
         return nil

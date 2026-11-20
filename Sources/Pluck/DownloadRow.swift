@@ -239,6 +239,13 @@ struct DownloadRow: View {
                 .foregroundStyle(.red)
                 .lineLimit(2)
                 .help(item.errorMessage ?? "")
+            // Songs (matched on YouTube Music) and YouTube links: an old yt-dlp is the usual reason.
+            if let updater = AppDelegate.shared?.updater, updater.isStale,
+               item.spotify != nil || URL(string: item.url)?.host.map({ $0.hasSuffix("youtube.com") || $0 == "youtu.be" }) == true {
+                Button("Update yt-dlp") { Task { await updater.check() } }
+                    .controlSize(.small)
+                    .help(updater.failureMessage ?? "")
+            }
             #if STUDIO
             // Studio starts without a cookie browser: offered here, when a site turns out to need a login.
             if item.needsLogin, !item.fromOtherDevice {

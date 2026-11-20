@@ -762,6 +762,11 @@ final class DownloadManager {
                 } else {
                     pick.folderPath = Folders.sanitize(collection.name)
                 }
+                if collection.isCutOff {
+                    pick.note = link.kind == .album
+                        ? String(localized: "Spotify shows only the first \(collection.tracks.count) songs of this album.")
+                        : String(localized: "Spotify shows only the first \(collection.tracks.count) songs of this playlist.")
+                }
                 pick.entries = collection.tracks.map { track in
                     PlaylistEntry(id: track.id, url: track.url, title: track.title,
                                   subtitle: track.artists.joined(separator: ", "),
@@ -883,6 +888,21 @@ final class DownloadManager {
         placeholder.phase = service == .spotify ? String(localized: "Reading Spotify link…")
                                                 : String(localized: "Reading Apple Music link…")
         items.insert(placeholder, at: 0)
+
+        // A short share link (spotify.link…): read where it goes, then add that link as if it had been pasted.
+        if Spotify.isShortLink(url) {
+            Task {
+                do {
+                    let full = try await Spotify.resolveShortLink(url)
+                    guard placeholder.state != .cancelled else { return }
+                    items.removeAll { $0.id == placeholder.id }
+                    add([full], options: options, folder: folder, clip: clip, fromOtherDevice: fromOtherDevice)
+                } catch {
+                    fail(placeholder, error.localizedDescription)
+                }
+            }
+            return
+        }
 
         guard let link = MusicLinks.parse(url) else {
             fail(placeholder, MusicLinks.unsupported(service))
