@@ -46,6 +46,55 @@ pub fn free_space(dir: &Path) -> Option<u64> {
     (unsafe { libc::statvfs(c.as_ptr(), &mut s) } == 0).then(|| (s.f_bavail as u64).saturating_mul(s.f_frsize as u64))
 }
 
+/// `folder` ("" or "a/b") inside `base`, by its real path: every component passes the name rule and
+/// no link leads out of `base` (nor into the partial folder). It must exist.
+pub fn subdir(base: &Path, folder: &str) -> Option<PathBuf> {
+    let parts: Vec<&str> = if folder.is_empty() { vec![] } else { folder.split('/').collect() };
+    if parts.len() > MAX_DEPTH || !parts.iter().all(|c| name_ok(c)) {
+        return None;
+    }
+    let base = std::fs::canonicalize(base).ok()?;
+    let real = std::fs::canonicalize(parts.iter().fold(base.clone(), |p, c| p.join(c))).ok()?;
+    (real.starts_with(&base) && !real.starts_with(base.join(PARTIAL)) && real.is_dir()).then_some(real)
+}
+
+/// Links `src` into `dir` as `name`, or "Name 2.ext", "Name 3.ext"… when taken: never overwrites, never follows a link.
+fn link_free(src: &Path, dir: &Path, name: &str) -> std::io::Result<String> {
+    let (stem, ext) = match name.rsplit_once('.') { Some((s, e)) if !s.is_empty() => (s, format!(".{e}")), _ => (name, String::new()) };
+    for n in 1..1000 {
+        let cand = if n == 1 { name.to_owned() } else { format!("{stem} {n}{ext}") };
+        match std::fs::hard_link(src, dir.join(&cand)) {
+            Ok(()) => return Ok(cand),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    Err(std::io::ErrorKind::AlreadyExists.into())
+}
+
+/// Moves the file `src` into the real folder `dir` as `name` (" 2" when taken) and returns the name it got.
+/// From another filesystem it's copied into a hidden O_EXCL file in `dir`, synced, then linked to its name.
+/// On an error `src` is left as it was (the caller keeps it where it is).
+pub fn place(src: &Path, dir: &Path, name: &str) -> std::io::Result<String> {
+    let placed = match link_free(src, dir, name) {
+        Ok(n) => n,
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => return Err(e),
+        Err(_) => {
+            let tmp = dir.join(format!(".pluck-drop-{}", crate::host::uuid()));
+            let r = (|| {
+                let mut f = std::fs::OpenOptions::new().write(true).create_new(true).custom_flags(libc::O_NOFOLLOW).open(&tmp)?;
+                std::io::copy(&mut std::fs::File::open(src)?, &mut f)?;
+                f.sync_all()?;
+                link_free(&tmp, dir, name)
+            })();
+            let _ = std::fs::remove_file(&tmp);
+            r?
+        }
+    };
+    let _ = std::fs::remove_file(src);
+    Ok(placed)
+}
+
 impl UploadRoot {
     /// `id=path`; the id must differ from every media root's.
     pub fn parse(spec: &str, media: &[String], busy: Arc<Busy>) -> Option<UploadRoot> {
@@ -450,5 +499,30 @@ mod tests {
         assert_eq!(id("renders/a.mov", "D"), a, "the same upload resumes");
         assert_ne!(id("renders/Clients/a.mov", "D"), a);
         assert_ne!(id("renders/a.mov", "E"), a);
+    }
+
+    #[test]
+    fn place_never_overwrites_and_copies_when_it_cant_link() {
+        let d = std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("pluck-place-{}", crate::host::uuid()));
+        std::fs::create_dir_all(d.join("to")).unwrap();
+        std::os::unix::fs::symlink("/", d.join("to/up")).unwrap();
+        assert_eq!(subdir(&d, "to"), Some(d.join("to")));
+        assert_eq!((subdir(&d, "to/up"), subdir(&d, "../"), subdir(&d, "to/.x"), subdir(&d, "")), (None, None, None, Some(d.clone())));
+        std::fs::write(d.join("to/a.mov"), b"old").unwrap();
+        std::fs::write(d.join("src"), b"new").unwrap();
+        assert_eq!(place(&d.join("src"), &d.join("to"), "a.mov").unwrap(), "a 2.mov");
+        assert_eq!((std::fs::read(d.join("to/a.mov")).unwrap(), std::fs::read(d.join("to/a 2.mov")).unwrap()), (b"old".to_vec(), b"new".to_vec()));
+        assert!(!d.join("src").exists());
+        // A source that can't be linked (as from another filesystem): copied, synced, linked; no temp file left.
+        #[cfg(target_os = "macos")]
+        {
+            std::fs::write(d.join("locked"), b"copy").unwrap();
+            assert!(std::process::Command::new("chflags").arg("uchg").arg(d.join("locked")).status().unwrap().success());
+            let r = place(&d.join("locked"), &d.join("to"), "a.mov");
+            let _ = std::process::Command::new("chflags").arg("nouchg").arg(d.join("locked")).status();
+            assert_eq!(r.unwrap(), "a 3.mov");
+            assert_eq!(std::fs::read(d.join("to/a 3.mov")).unwrap(), b"copy");
+            assert!(std::fs::read_dir(d.join("to")).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with(".pluck-drop")));
+        }
     }
 }
