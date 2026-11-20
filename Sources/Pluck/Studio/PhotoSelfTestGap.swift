@@ -52,7 +52,7 @@ extension PhotoSelfTest {
         ReviewHosting.seedMail(into: hostedB, from: [hostedA])
         check("gap: always-on Mac seeds mail into a new hosted folder", (try? String(contentsOf: hostedB.appendingPathComponent("mail.secret"), encoding: .utf8)) == "app-password"
               && mode == 0o600 && (try? String(contentsOf: hostedB.appendingPathComponent("mail.json"), encoding: .utf8)) == #"{"enabled":false}"#
-              && ReviewHosting.mailOps.contains("mail-set") && !ReviewHosting.mailOps.contains("unsubscribe"), "mode \(String(mode, radix: 8))")
+              && ReviewHosting.mailOps.contains("mail-set") && ReviewHosting.mailOps.isSuperset(of: ["unsubscribe", "subscribe-confirm"]), "mode \(String(mode, radix: 8))")
         check("gap: link mute list for this Mac's person's emails", DeliverMail.muted(["a"], "b", true) == ["a", "b"] && DeliverMail.muted(["a", "b"], "a", false) == ["b"]
               && DeliverMail.muted(["a"], "a", true) == ["a"])
         let muteRow = DeliverMail.Subscriber(id: "r1", kind: "team", email: "a@example.com", name: "", mode: "daily", mute: ["web"])
