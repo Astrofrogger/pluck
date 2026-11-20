@@ -35,6 +35,8 @@ struct ProjectArchiveView: View {
     @State private var sizes: [String: [Int]] = [:]
     /// A timeline file to read when the view appears (screenshot mode).
     @MainActor static var openFile: URL?
+    /// Inside Archive's page (its title is the page's).
+    var embedded = false
 
     private var tool: (String) -> String? { { AppDelegate.shared?.manager.tool($0) } }
     private var busy: Bool { reading || run.phase == .preparing || run.phase == .copying }
@@ -43,7 +45,7 @@ struct ProjectArchiveView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
-                Text("Archive Project").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text)
+                if !embedded { Text("Archive Project").font(Design.Studio.pageTitle).foregroundStyle(Design.Studio.text) }
                 sourceField
                 if let problem {
                     row(StudioTile(symbol: "exclamationmark.triangle", colour: Design.Studio.bad), Text("Couldn’t read the project"), Text(problem))

@@ -1039,7 +1039,7 @@ private struct ToolsPage: View {
         case .brandPack: BrandPackView()
         case .musicFit: MusicFitView()
         case .officeRender: OfficeRenderView()
-        case .archive: ProjectArchiveView()
+        case .archive: ArchiveView()
         case .thumbnailMaker: ThumbnailMakerView()
         case .cutdowns: SocialCutdownsView()
         case .library, .findShots, .rawPlayer: EmptyView()
@@ -1184,7 +1184,7 @@ extension PluckTool {
         case .brandPack: "Lower thirds and cards in brand colours"
         case .musicFit: "Make a song as long as the edit"
         case .officeRender: "Render on another Mac"
-        case .archive: "Used media, renders and project, checked"
+        case .archive: "Shrink old footage, or keep what an edit used"
         case .thumbnailMaker: "Best frames, titled in brand style"
         case .cutdowns: "9:16, 1:1 and 4:5 that follow the subject"
         case .library: "Everything Pluck saved"
