@@ -15,6 +15,7 @@ enum Deliver {
         var hidden: Bool?                // "Browse previews": not in the sidebar or the grid
         var transcripts: Bool?           // review copies get a transcript made on this Mac (off by default)
         var uhd: Bool?                   // 4K (and HDR) review copies too (off by default)
+        var spokenLanguage: String?      // its transcripts' language ("nl-BE"); nil = guessed per file
         var rev: Int?, at: Date?, by: String?
     }
 

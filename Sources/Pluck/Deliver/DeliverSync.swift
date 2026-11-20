@@ -374,6 +374,7 @@ final class DeliverSync {
         var project = Deliver.Project(id: id, name: name, created: date(wire["created"]) ?? .now, cover: uuid(wire["cover"]),
                                       order: wire["order"] as? Int, deadline: date(wire["deadline"]))
         project.hidden = (wire["hidden"] as? Bool) == true ? true : nil
+        project.spokenLanguage = (wire["spokenLanguage"] as? String).map { String($0.prefix(20)) }
         stamp(&project, wire)
         return project
     }

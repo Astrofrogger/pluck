@@ -26,15 +26,14 @@ extension DeliverCopies {
 
     /// The saved transcript of the original (made earlier in Pluck), else a new one; then the two files.
     func makeTranscript(asset: UUID, version id: UUID) async {
-        guard #available(macOS 26, *), let (_, found) = store.find(asset), let version = found.versions.first(where: { $0.id == id }),
+        guard #available(macOS 26, *), let (project, found) = store.find(asset), let version = found.versions.first(where: { $0.id == id }),
               let source = store.original(version), let ai = AppDelegate.shared?.ai else { return }
         var transcript = TranscriptStore.find(forFile: source.path)
         if transcript == nil || (transcript?.hasSpeakers == false && Speakers.isSupported) {
             guard let audio = try? await ai.extractAudio(from: source) else { return }
             defer { try? FileManager.default.removeItem(at: audio) }
             if transcript == nil {
-                // shortcut: the language is guessed from the asset's name (else this Mac's); a wrong guess needs "Make Transcript" after fixing it in the Editor.
-                let language = LocalAI.guessLanguage(title: found.name, metadata: nil)
+                let language = Self.spokenLanguage(project: store.project(project)?.spokenLanguage, file: source.path, name: found.name)
                 guard let words = try? await OnDeviceSpeech.transcribe(audio, locale: language, duration: version.probe?.duration, status: { _, _ in }),
                       !words.isEmpty else { return }
                 transcript = Transcript(id: UUID().uuidString, title: found.name, filePath: source.path, sourceURL: nil, language: language.identifier,
@@ -48,6 +47,14 @@ extension DeliverCopies {
         store.update(version: id, of: asset) { $0.transcribed = .now }   // (a change: the data NAS gets the files with it)
         store.tell(.assetChanged(asset))
         ReviewPublish.shared.resend(asset)
+    }
+
+    /// The language spoken in a file: the project's choice, else what the site said when Pluck downloaded it, else a guess
+    /// from the asset's name (else this Mac's language).
+    static func spokenLanguage(project: String?, file: String, name: String) -> Locale {
+        if let project, !project.isEmpty { return Locale(identifier: project) }
+        let item = AppDelegate.shared?.manager.items.first { $0.existingFile?.path == file }
+        return LocalAI.guessLanguage(title: name, metadata: item?.spokenLanguage)
     }
 
     /// captions.vtt and transcript.json from a Pluck transcript (word times kept; speakers by the names set in Pluck).

@@ -545,6 +545,7 @@ final class ReviewPublish {
         if let cover = project.cover { meta["cover"] = cover.uuidString }
         if project.hidden == true { meta["hidden"] = true }
         if project.uhd == true { meta["uhd"] = true }   // (a NAS that makes the copies makes 4K too; older hosts ignore it)
+        if let language = project.spokenLanguage { meta["spokenLanguage"] = language }
         return meta.merging(stamp(project)) { $1 }
     }
 

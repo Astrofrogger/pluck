@@ -28,6 +28,8 @@ struct DeliverProjectView: View {
     @State private var info: UUID?
     /// Footage just added, on its way to the NAS: where it goes there (the folder picker).
     @State private var toNAS: DeliverUploadDestination.Offer?
+    /// The languages this Mac can transcribe (for the project's spoken language).
+    @State private var speechLanguages: [Locale] = []
 
     private var content: Deliver.ProjectContent { store.content(project) }
     private var folders: [Deliver.Folder] { content.folders.filter { $0.parent == folder }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending } }
@@ -302,6 +304,16 @@ struct DeliverProjectView: View {
                     if on { copies.transcribeProject(project) }
                 }))
                 .disabled(!LocalAI.canTranscribe)
+                if options?.transcripts == true {
+                    Picker("Spoken Language", selection: Binding(get: { options?.spokenLanguage }, set: { language in
+                        store.setOption(project: project) { $0.spokenLanguage = language }
+                    })) {
+                        Text("Guess per File").tag(String?.none)
+                        ForEach(speechLanguages, id: \.identifier) { locale in
+                            Text(verbatim: Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier).tag(String?.some(locale.identifier))
+                        }
+                    }
+                }
             }
             Section("About 9 GB per hour of 4K on the NAS") {
                 Toggle("4K and HDR Copies", isOn: Binding(get: { options?.uhd == true }, set: { on in
@@ -311,6 +323,10 @@ struct DeliverProjectView: View {
             }
         } label: { DeliverToolLabel(symbol: "film.stack", title: "Review Copies") }
             .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+            .task {
+                guard #available(macOS 26, *), LocalAI.canTranscribe, speechLanguages.isEmpty else { return }
+                speechLanguages = await OnDeviceSpeech.languages()
+            }
     }
 
     @ViewBuilder private func menu(_ asset: Deliver.Asset) -> some View {
