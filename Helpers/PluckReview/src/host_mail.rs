@@ -11,6 +11,7 @@ use crate::{accounts, log, mail::{self, Mail, mention_id, valid_email}};
 
 const MAX_MENTIONS: usize = 10;
 const MAX_MENTIONABLE: usize = 200;
+const MAX_ROWS_PER_LINK: usize = 200;
 const OLD_SECS: i64 = 86_400; // a comment older than this arriving by sync is history, not news
 
 impl Host {
@@ -144,6 +145,10 @@ impl Host {
                 self.mail.subs[i]["email"] = json!(e);
             }
             return Some(i);
+        }
+        // A cap per link: new browsers can't keep adding rows (each one an address this host would write to).
+        if self.mail.subs.iter().filter(|r| r["link"] == l["id"]).count() >= MAX_ROWS_PER_LINK {
+            return None;
         }
         let mut r = Mail::new_row("client");
         (r["link"], r["author"], r["email"], r["name"]) = (l["id"].clone(), json!(tok), json!(email?), json!(name));
