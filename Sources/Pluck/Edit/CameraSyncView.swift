@@ -15,6 +15,10 @@ final class CameraSyncModel {
     var selected: UUID?
     /// Sound before timecode, for a shoot whose timecode can't be trusted.
     var audioFirst = false
+    /// Timecode shown on camera (a slate, a phone's timecode app, burned-in): looked for through each clip's first and last 10 s.
+    var shownTimecode = false {
+        didSet { if shownTimecode != oldValue { for c in cameras.indices { for i in cameras[c].clips.indices { cameras[c].clips[i].slateChecked = false } } } }
+    }
     /// Proxies of clips that are here as originals: not synced, not sent.
     var proxiesLeftOut: [CameraSync.Probe] = []
     /// While syncing: the places found so far (shown as they come), the clips being listened to, and what just happened.
@@ -134,7 +138,7 @@ final class CameraSyncModel {
         let held = Set(clips.filter { only != nil && $0.id != only && $0.start != nil && !$0.locked }.map(\.id))
         for c in input.indices { for i in input[c].clips.indices where held.contains(input[c].clips[i].id) { input[c].clips[i].locked = true } }
         if let only { for c in input.indices { for i in input[c].clips.indices where input[c].clips[i].id == only { input[c].clips[i].locked = false } } }
-        let cache = cache, audioFirst = audioFirst
+        let cache = cache, audioFirst = audioFirst, shownTimecode = shownTimecode
         let buffer = LiveBuffer()
         // What's found is shown about ten times a second, not on every event.
         let flusher = Task { [weak self] in
@@ -147,7 +151,7 @@ final class CameraSyncModel {
         task = Task {
             status = String(localized: "Listening")
             var result = await CameraSync.sync(input, options: .init(ffmpeg: ffmpeg, sound: { cache.sound($0) }, cache: cache, audioFirst: audioFirst,
-                                                                     live: { buffer.add(.event($0)) })) { share, text in
+                                                                     shownTimecode: shownTimecode, live: { buffer.add(.event($0)) })) { share, text in
                 buffer.add(.progress(share, text == slates ? .reading : share < 0.4 ? .listening : .matching, text))
             }
             flusher.cancel()
@@ -220,6 +224,7 @@ final class CameraSyncModel {
         selected = nil
         proxiesLeftOut = []
         audioFirst = false
+        shownTimecode = false
         done = nil
         problem = nil
         cache.clear()
@@ -421,6 +426,12 @@ struct CameraSyncView: View {
                     Toggle("Sound first", isOn: $model.audioFirst).toggleStyle(StudioSwitchStyle())
                 }
                 .help("For a shoot whose timecode can't be trusted")
+                .disabled(model.running)
+                HStack(spacing: 6) {
+                    Text("Timecode on camera").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                    Toggle("Timecode on camera", isOn: $model.shownTimecode).toggleStyle(StudioSwitchStyle())
+                }
+                .help("A slate, a timecode app held in frame, or burned-in timecode: read off the picture")
                 .disabled(model.running)
                 Menu {
                     Button("FCPXML File…", systemImage: "doc", action: model.saveFCPXML)

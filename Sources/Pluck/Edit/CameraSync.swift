@@ -29,6 +29,8 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     /// The time a timecode slate shown to the camera reads at the first frame, once looked for.
     var slate: Double?
     var slateChecked = false
+    /// Every timecode read off its picture (to check by eye), and whether it agrees with the slate value.
+    var shown: [ShownTimecode] = []
     /// Frames the slate it shows is off from the other cameras' slates where it's synced.
     var slateOff: Int?
     /// Where its clock time alone puts it: shown, never synced.
@@ -56,6 +58,13 @@ struct SyncClip: Identifiable, Hashable, Sendable {
         if method == .manual { return .good }
         return confidence >= 0.7 ? .good : confidence >= 0.4 ? .fair : .poor
     }
+}
+
+/// A timecode read off a clip's picture: at which frame, what it read.
+struct ShownTimecode: Hashable, Sendable {
+    var frame: Int
+    var text: String
+    var agrees: Bool
 }
 
 /// One camera (or sound recorder): its clips in order.
@@ -328,6 +337,8 @@ enum CameraSync {
         var cache: SyncCache?
         /// Sound before timecode, for a shoot whose timecode can't be trusted.
         var audioFirst = false
+        /// Timecode shown on camera (a slate, a timecode app held in frame, burned-in): looked for all through each clip's first and last 10 s.
+        var shownTimecode = false
         /// Clips read and matched at once (1: one after the other, the overlap read piece by piece, no proxies: the old way, for checks).
         var width = CameraSync.width
         /// What's happening as it happens, to show it.
@@ -370,10 +381,13 @@ enum CameraSync {
         let unread = all.filter { !cameras[$0.0].clips[$0.1].slateChecked && cameras[$0.0].clips[$0.1].hasVideo }
         if !unread.isEmpty { progress(0, String(localized: "Looking for timecode slates")) }
         let known = cameras
-        let slates = await each(unread, width: options.width) { c, i in Task.isCancelled ? nil : await slate(known[c].clips[i], ffmpeg: options.ffmpeg) }
+        let slates = await each(unread, width: options.width) { c, i in
+            Task.isCancelled ? nil : await slate(known[c].clips[i], ffmpeg: options.ffmpeg, thorough: options.shownTimecode)
+        }
         if Task.isCancelled { return cameras }
-        for ((c, i), value) in zip(unread, slates) {
-            cameras[c].clips[i].slate = value
+        for ((c, i), found) in zip(unread, slates) {
+            cameras[c].clips[i].slate = found?.value
+            cameras[c].clips[i].shown = found?.shown ?? []
             cameras[c].clips[i].slateChecked = true
         }
         let sound = await bySound(cameras, options: options, progress: progress)
@@ -978,7 +992,9 @@ enum CameraSync {
                 }
                 cameras[source.c].clips[source.i].start = source.value + offset
                 cameras[source.c].clips[source.i].method = key == -1 ? .slate : offset == 0 ? .timecode : .timecodeOffset
-                cameras[source.c].clips[source.i].confidence = source.check != nil || offset != 0 ? 0.95 : 0.8
+                // A slate read once only (no second frame agreeing) and nothing heard to confirm it: to check.
+                let once = key == -1 && cameras[source.c].clips[source.i].shown.filter(\.agrees).count < 2
+                cameras[source.c].clips[source.i].confidence = source.check != nil || offset != 0 ? 0.95 : once ? 0.5 : 0.8
             }
         }
         for c in cameras.indices {
@@ -1022,31 +1038,74 @@ enum CameraSync {
 
     // MARK: Timecode slates
 
-    /// A timecode slate shown to the camera (a slate app or a smart slate: big HH:MM:SS:FF digits)
-    /// at the clip's start or end: what it reads at the clip's first frame, from a dozen frames read.
+    /// Timecode shown to the camera (a slate app, a smart slate, burned-in: big HH:MM:SS:FF digits): what it
+    /// reads at the clip's first frame (half a shown frame later: a frame shows the one begun before it),
+    /// and every reading. Quick: a frame at the start and near the end, a dozen where one shows a timecode,
+    /// two readings at least. `thorough`: a frame every 2 s through the first and last 10 s (a few in between
+    /// if none), a dozen at the first that shows one; one reading is enough (its confidence is low).
     /// shortcut: the slate is taken to run at the clip's rate unless it shows a higher frame number (then 30/50/60/120); RED/BRAW aren't read.
-    static func slate(_ clip: SyncClip, ffmpeg: String) async -> Double? {
+    static func slate(_ clip: SyncClip, ffmpeg: String, thorough: Bool = false) async -> (value: Double, shown: [ShownTimecode])? {
         guard clip.hasVideo, clip.fps > 0, !RawFormats.isRawVideo(clip.file) else { return nil }
-        return await Task.detached { () -> Double? in
-            let frame = 1 / clip.fps
-            var readings: [(t: Double, tc: [Int])] = []
-            for from in [0, max(0, ((clip.duration - 1.5) / frame).rounded(.down) * frame)] {
-                // One frame first; a dozen only where it shows a slate.
-                guard let first = frames(clip.file, from: from, count: 1, ffmpeg: ffmpeg).first, readTimecode(first) != nil else { continue }
-                for (k, image) in frames(clip.file, from: from, count: 12, ffmpeg: ffmpeg).enumerated() {
-                    if let tc = readTimecode(image) { readings.append((from + Double(k) * frame, tc)) }
+        return await Task.detached { () -> (value: Double, shown: [ShownTimecode])? in
+            let last = max(0, Int(clip.duration * clip.fps) - 1)
+            func at(_ seconds: Double) -> Int { min(last, max(0, Int(seconds * clip.fps))) }
+            var spots = thorough ? stride(from: 0.0, to: 10, by: 2).map(at) + stride(from: 10.0, to: 0, by: -2).map { at(clip.duration - $0) }
+                : [0, at(clip.duration - 1.5)]
+            spots = Array(Set(spots)).sorted()
+            var readings: [(frame: Int, tc: [Int], drop: Bool)] = []
+            func look(_ spots: [Int]) {
+                for spot in spots {
+                    // (A quarter frame early: ffmpeg starts at the frame there.)
+                    let from = spot == 0 ? 0 : (Double(spot) - 0.25) / clip.fps
+                    guard let first = frames(clip.file, from: from, count: 1, ffmpeg: ffmpeg).first, let read = readTimecode(first) else { continue }
+                    guard !thorough || readings.isEmpty else { readings.append((spot, read.tc, read.drop)); continue }
+                    // A dozen frames where a timecode shows first: its readings, and the slate's rate from its highest frame number.
+                    for (k, image) in frames(clip.file, from: from, count: 12, ffmpeg: ffmpeg).enumerated() {
+                        if let read = readTimecode(image) { readings.append((spot + k, read.tc, read.drop)) }
+                    }
                 }
             }
-            guard readings.count >= 4, let most = readings.map({ $0.tc[3] }).max() else { return nil }
+            look(spots)
+            if thorough, readings.isEmpty, clip.duration > 25 { look((1...4).map { at(clip.duration * Double($0) / 5) }) }
+            guard readings.count >= (thorough ? 1 : 2), let most = readings.map({ $0.tc[3] }).max() else { return nil }
             let own = clip.fps.rounded()
             let rate = Double(most) < own ? own : [30.0, 50, 60, 120].first { Double(most) < $0 } ?? own
-            var offsets = readings.map { Double(($0.tc[0] * 60 + $0.tc[1]) * 60 + $0.tc[2]) + Double($0.tc[3]) / rate - $0.t }
-            // Past midnight.
-            if let high = offsets.max() { offsets = offsets.map { high - $0 > 43200 ? $0 + 86400 : $0 } }
-            guard let agreed = consensus(offsets, tolerance: 1 / rate), agreed.members.count >= 4 else { return nil }
-            // A frame shows the slate frame begun before it: half a slate frame later on average.
-            return agreed.value + 0.5 / rate
+            // A slate on a 29.97/59.94 camera counts frames at that rate, drop frame or not: whichever more readings agree on
+            // (a ; is often read as a :), drop frame on a tie where one showed a ; or .
+            let fractional = rate == own && abs(clip.fps - own) > 0.01
+            let shownDrop = readings.contains(where: \.drop)
+            func agreement(_ drop: Bool) -> (value: Double, members: [Int])? {
+                var offsets = readings.map { shownSeconds($0.tc, drop: drop, rate: rate, fractional: fractional) - Double($0.frame) / clip.fps }
+                // Past midnight.
+                if let high = offsets.max() { offsets = offsets.map { high - $0 > 43200 ? $0 + 86400 : $0 } }
+                return consensus(offsets, tolerance: 1 / rate)
+            }
+            let tried = (fractional ? [shownDrop, !shownDrop] : [false]).compactMap { drop in agreement(drop).map { (drop, $0) } }
+            guard let (drop, agreed) = tried.max(by: { $0.1.members.count < $1.1.members.count }), agreed.members.count >= (thorough ? 1 : 2) else { return nil }
+            let members = Set(agreed.members)
+            let shown = readings.enumerated().map { k, reading in
+                ShownTimecode(frame: reading.frame, text: timecodeText(reading.tc, drop: drop && fractional), agrees: members.contains(k))
+            }
+            return (agreed.value + 0.5 / rate, shown)
         }.value
+    }
+
+    /// A shown timecode in seconds: whole seconds and frames at an integer `rate`; with `fractional` (29.97,
+    /// 59.94) counted in frames of 1001/1000 longer, drop frame skipping the frame numbers drop frame skips.
+    static func shownSeconds(_ tc: [Int], drop: Bool, rate: Double, fractional: Bool) -> Double {
+        let whole = (tc[0] * 60 + tc[1]) * 60 + tc[2]
+        guard fractional else { return Double(whole) + Double(tc[3]) / rate }
+        let base = Int(rate)
+        var frames = whole * base + tc[3]
+        if drop, base % 30 == 0 {
+            let minutes = tc[0] * 60 + tc[1]
+            frames -= base / 15 * (minutes - minutes / 10)
+        }
+        return Double(frames) * 1001 / (rate * 1000)
+    }
+
+    static func timecodeText(_ tc: [Int], drop: Bool) -> String {
+        String(format: "%02d:%02d:%02d", tc[0], tc[1], tc[2]) + (drop ? ";" : ":") + String(format: "%02d", tc[3])
     }
 
     /// `count` frames from `from` seconds, small and grey.
@@ -1069,14 +1128,16 @@ enum CameraSync {
         }
     }
 
-    /// The timecode a picture shows in big digits, if any: [hours, minutes, seconds, frames].
-    static func readTimecode(_ image: CGImage) -> [Int]? {
+    /// The timecode a picture shows in big digits, if any: [hours, minutes, seconds, frames], and whether it's drop frame (; or . before the frames).
+    static func readTimecode(_ image: CGImage) -> (tc: [Int], drop: Bool)? {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         guard (try? VNImageRequestHandler(cgImage: image).perform([request])) != nil else { return nil }
         for observation in request.results ?? [] {
-            for candidate in observation.topCandidates(3) { if let tc = parseTimecode(candidate.string) { return tc } }
+            for candidate in observation.topCandidates(3) {
+                if let tc = parseTimecode(candidate.string) { return (tc, candidate.string.last { !$0.isNumber && !$0.isWhitespace }.map { ";.".contains($0) } ?? false) }
+            }
         }
         return nil
     }

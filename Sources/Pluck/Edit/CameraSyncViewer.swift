@@ -4,12 +4,16 @@ import SwiftUI
 /// The angle viewer: the synced timeline at the playhead through one camera, large, with every camera
 /// small under it (a frame each, fresh whenever it stops), to check the sync by switching angles.
 /// Keys: Space, J K L, ← →, 1–9 for the angle, , . a frame and < > ten frames for the chosen clip, ⌘Z ⇧⌘Z.
+/// "Shown timecode": the frames each timecode on camera was read from, side by side, to confirm at a glance.
 struct SyncAngleViewer: View {
     let model: CameraSyncModel
     @State private var transport = SyncTransport()
     @State private var posters: [UUID: CGImage] = [:]
     /// The angle shown, larger (paused).
     @State private var still: CGImage?
+    @State private var checking = Self.startChecking
+    /// Opens on Shown timecode (screenshot mode).
+    @MainActor static var startChecking = false
     @State private var refresh: Task<Void, Never>?
     @FocusState private var focused: Bool
 
@@ -23,9 +27,21 @@ struct SyncAngleViewer: View {
         camera.clips.first { clip in clip.start.map { time >= $0 && time < clip.end! } ?? false }
     }
 
+    /// Clips whose timecode was read off the picture.
+    private var readClips: [SyncClip] { model.shown.flatMap(\.clips).filter { !$0.shown.isEmpty } }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            do {
+            if !readClips.isEmpty {
+                Picker("", selection: $checking) {
+                    Text("Angles").tag(false)
+                    Text("Shown timecode").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+            }
+            if checking && !readClips.isEmpty {
+                ShownTimecodeCheck(model: model, clips: readClips)
+            } else {
                 picture
                 HStack(spacing: 8) {
                     ForEach(Array(angles.enumerated()), id: \.element.id) { number, camera in thumbnail(camera, number: number + 1) }
@@ -317,6 +333,89 @@ final class SyncTransport {
             defer { source.close() }
             return try? source.displayFrame(Int(local.seconds * fps), scale: width > 640 ? 4 : 8, settings: RawSettings())
         }.value
+    }
+}
+
+/// Each clip whose timecode was read off its picture: two of the frames it was read from side by side, each
+/// with what was read and its frame number, so a wrong reading shows at a glance. Read once only: flagged, to nudge.
+private struct ShownTimecodeCheck: View {
+    let model: CameraSyncModel
+    let clips: [SyncClip]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(clips) { clip in row(clip) }
+            }
+        }
+        .frame(maxHeight: 420)
+    }
+
+    /// The first and last readings that agree (the first reading where none do).
+    static func pair(_ clip: SyncClip) -> [ShownTimecode] {
+        let agreeing = clip.shown.filter(\.agrees)
+        guard let first = agreeing.first ?? clip.shown.first else { return [] }
+        if let last = agreeing.last, last.frame != first.frame { return [first, last] }
+        return [first]
+    }
+
+    private func row(_ clip: SyncClip) -> some View {
+        let sure = clip.shown.filter(\.agrees).count >= 2
+        let chosen = model.selected == clip.id
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(verbatim: clip.file.deletingPathExtension().lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.text).lineLimit(1)
+                StudioChip(text: sure ? Text("Sure") : Text("Check"), colour: sure ? Design.Studio.good : Design.Studio.warn, tinted: true)
+                    .help(sure ? Text("Frames apart read the same timecode") : Text("Read in one frame only: check it, nudge if needed"))
+                Spacer()
+                if !sure {
+                    Button { model.nudge(clip.id, frames: -1) } label: { Image(systemName: "chevron.left") }
+                        .buttonStyle(StudioFlatButtonStyle()).disabled(model.running)
+                        .help(model.running ? Text("Syncing…") : Text("A frame earlier (,)"))
+                    Button { model.nudge(clip.id, frames: 1) } label: { Image(systemName: "chevron.right") }
+                        .buttonStyle(StudioFlatButtonStyle()).disabled(model.running)
+                        .help(model.running ? Text("Syncing…") : Text("A frame later (.)"))
+                }
+            }
+            HStack(spacing: 8) {
+                ForEach(Self.pair(clip), id: \.frame) { reading in ShownFrame(clip: clip, reading: reading) }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(8)
+        .background(chosen ? Design.Studio.raised : Color.clear, in: .rect(cornerRadius: 8))
+        .contentShape(.rect)
+        .onTapGesture { model.selected = chosen ? nil : clip.id }
+    }
+}
+
+/// A frame a timecode was read from, with the reading and the frame number over it.
+private struct ShownFrame: View {
+    let clip: SyncClip
+    let reading: ShownTimecode
+    @State private var image: CGImage?
+
+    var body: some View {
+        ZStack {
+            Color.black
+            if let image { Image(decorative: image, scale: 1).resizable().aspectRatio(contentMode: .fit) }
+        }
+        .aspectRatio(16 / 9, contentMode: .fit)
+        .frame(width: 300)
+        .clipShape(.rect(cornerRadius: 6))
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: 6) {
+                Text(verbatim: reading.text).font(.system(size: 12, weight: .semibold, design: .monospaced))
+                Text("frame \(reading.frame)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .foregroundStyle(Design.Studio.text)
+            .padding(.horizontal, 8).frame(height: 22)
+            .background(.black.opacity(0.6), in: .capsule)
+            .padding(6)
+        }
+        .task(id: reading.frame) {
+            image = await SyncTransport.frame(clip, local: CMTime(seconds: (Double(reading.frame) + 0.5) / max(clip.fps, 1), preferredTimescale: 60000), width: 640)
+        }
     }
 }
 
