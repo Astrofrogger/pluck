@@ -325,6 +325,12 @@ extension PhotoSelfTest {
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let stub = folder.appendingPathComponent("pluck-raw"), clip = folder.appendingPathComponent("A001_C002.R3D")
         try? Data(repeating: 3, count: 400_000).write(to: clip)
+        // The stand-in's frame: a smooth gradient (rgba64le, 64×36), the same each time, so the master's picture check can compare.
+        let pattern = folder.appendingPathComponent("pattern.raw")
+        try? Data((0..<(64 * 36)).flatMap { i -> [UInt8] in
+            let x = i % 64, y = i / 64
+            return [UInt16(x * 1000), UInt16(y * 1800), UInt16(30000), UInt16.max].flatMap { [UInt8($0 & 0xff), UInt8($0 >> 8)] }
+        }).write(to: pattern)
         try? #"""
         #!/bin/sh
         while read -r line; do
@@ -332,7 +338,7 @@ extension PhotoSelfTest {
             *'"op":"open"'*) echo '{"ok":true,"format":"r3d","width":64,"height":36,"fps":23.976,"frames":12,"timecode":"01:02:03:04","meta":{"camera_model":"Test Cam"}}' ;;
             *'"op":"frame"'*)
               buffer=$(printf "%s" "$line" | sed 's/.*"buffer":"\([^"]*\)".*/\1/' | sed 's/\\\//\//g')
-              dd if=/dev/urandom of="$buffer" bs=18432 count=1 conv=notrunc 2>/dev/null
+              dd if="$(dirname "$0")/pattern.raw" of="$buffer" bs=18432 count=1 conv=notrunc 2>/dev/null
               echo '{"ok":true,"width":64,"height":36}' ;;
             *) echo '{"ok":false,"problem":"no"}' ;;
           esac
