@@ -206,8 +206,8 @@ enum PhotoRemoveDetail {
         let cell = b / 4
         // Broad shapes as cell averages (a box the size of a cell), to compare 4 × 4 points of a block.
         func boxed(_ i: CIImage) -> CIImage { i.applyingFilter("CIBoxBlur", parameters: [kCIInputRadiusKey: max(cell / 2, 1)]) }
-        func read(_ i: CIImage) -> [Float16] {
-            var p = [Float16](repeating: 0, count: w * h * 4)
+        func read(_ i: CIImage) -> [UInt16] {
+            var p = [UInt16](repeating: 0, count: w * h * 4)
             context.render(i, toBitmap: &p, rowBytes: w * 8, bounds: work, format: .RGBAh, colorSpace: nil)
             return p
         }
@@ -232,10 +232,10 @@ enum PhotoRemoveDetail {
                 sum[(y + b) * (w + 1) + x + b] - sum[y * (w + 1) + x + b] - sum[(y + b) * (w + 1) + x] + sum[y * (w + 1) + x] == 0
         }
         // A block's 4 × 4 cell averages (48 numbers) and its largest step between neighbouring cells.
-        func describe(_ P: [Float16], _ x: Int, _ y: Int, into d: inout [Float]) -> Float {
+        func describe(_ P: [UInt16], _ x: Int, _ y: Int, into d: inout [Float]) -> Float {
             for j in 0..<4 { for i in 0..<4 {
                 let a = ((y + cell / 2 + j * cell) * w + x + cell / 2 + i * cell) * 4
-                for k in 0..<3 { d[(j * 4 + i) * 3 + k] = Float(P[a + k]) }
+                for k in 0..<3 { d[(j * 4 + i) * 3 + k] = filmHalfToFloat(P[a + k]) }
             } }
             var most: Float = 0
             for j in 0..<4 { for i in 0..<4 { for k in 0..<3 {
@@ -282,7 +282,7 @@ enum PhotoRemoveDetail {
                     c += 2 * st * st
                     guard c < bound, !known.isEmpty else { return c }
                     let t0 = (ty * w + tx) * 4, s0 = (sy * w + sx) * 4
-                    for o in known { for k in 0..<3 { let e = Float(F[t0 + o * 4 + k]) - Float(F[s0 + o * 4 + k]); c += e * e * 0.5 } }
+                    for o in known { for k in 0..<3 { let e = filmHalfToFloat(F[t0 + o * 4 + k]) - filmHalfToFloat(F[s0 + o * 4 + k]); c += e * e * 0.5 } }
                     return c
                 }
                 var best = sources[0], bestCost = Float.infinity
@@ -306,7 +306,7 @@ enum PhotoRemoveDetail {
                         var c: Float = 0
                         for yy in stride(from: 0, to: b, by: 2) { for xx in stride(from: 0, to: b, by: 2) {
                             let t = ((ty + yy) * w + tx + xx) * 4, s = ((best.1 + dy + yy) * w + best.0 + dx + xx) * 4
-                            for k in 0..<3 { let e = Float(T[t + k]) - Float(S[s + k]); c += e * e }
+                            for k in 0..<3 { let e = filmHalfToFloat(T[t + k]) - filmHalfToFloat(S[s + k]); c += e * e }
                         } }
                         if c < fine.1 { fine = ((best.0 + dx, best.1 + dy), c) }
                     } }
@@ -315,7 +315,7 @@ enum PhotoRemoveDetail {
                 for yy in 0..<b { for xx in 0..<b {
                     let t = (ty + yy) * w + tx + xx, s = (best.1 + yy) * w + best.0 + xx
                     let wt = window[xx] * window[yy]
-                    for k in 0..<3 { acc[t * 3 + k] += wt * Float(F[s * 4 + k]) }
+                    for k in 0..<3 { acc[t * 3 + k] += wt * filmHalfToFloat(F[s * 4 + k]) }
                     w1[t] += wt; w2[t] += wt * wt
                     if first[t] < 0 { first[t] = Int32(s) } else if first[t] != Int32(s) { mixed[t] = true }
                 } }
@@ -324,12 +324,12 @@ enum PhotoRemoveDetail {
             }
             y0 += step
         }
-        var out = [Float16](repeating: 0, count: w * h * 4)
+        var out = [UInt16](repeating: 0, count: w * h * 4)
         for t in 0..<(w * h) where w2[t] > 0 {
             // Independent pieces: by √Σw² (grain keeps its strength); one piece from all (a texture carried on): by Σw.
             let scale: Float = mixed[t] ? 1 / w2[t].squareRoot() : 1 / max(w1[t], 1e-6)
-            for k in 0..<3 { out[t * 4 + k] = Float16(acc[t * 3 + k] * scale) }
-            out[t * 4 + 3] = 1
+            for k in 0..<3 { out[t * 4 + k] = halfBits(acc[t * 3 + k] * scale) }
+            out[t * 4 + 3] = 0x3C00     // 1.0
         }
         let data = out.withUnsafeBufferPointer { Data(buffer: $0) }
         let made = CIImage(bitmapData: data, bytesPerRow: w * 8, size: CGSize(width: w, height: h), format: .RGBAh, colorSpace: nil)
@@ -340,6 +340,19 @@ enum PhotoRemoveDetail {
         }
         return made
     }
+}
+
+/// A Float as binary16 bits (Float16 isn't available on Intel Macs, which the app is also built for).
+private func halfBits(_ f: Float) -> UInt16 {
+    let sign: UInt16 = f.sign == .minus ? 0x8000 : 0
+    let v = min(abs(f.isNaN ? 0 : f), 65504)
+    let bits = v.bitPattern, exponent = Int(bits >> 23) - 112, mantissa = bits & 0x7FFFFF
+    if exponent <= 0 {
+        if exponent < -10 { return sign }
+        let m = mantissa | 0x800000, shift = UInt32(14 - exponent)
+        return sign | UInt16((m + (1 << (shift - 1))) >> shift)
+    }
+    return sign | UInt16(min(UInt32(exponent) << 10 + (mantissa + 0x1000) >> 13, 0x7BFF))
 }
 
 /// A small seeded random source (the same fill every time for the same photo and hole).
