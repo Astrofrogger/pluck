@@ -59,7 +59,7 @@ struct SyncAngleViewer: View {
         .onAppear {
             transport.model = model
             focused = true
-            if angles.allSatisfy({ Self.clip(of: $0, at: model.playhead) == nil }) { model.playhead = busiestMoment() }
+            onPicture()
             cue()
         }
         .onDisappear { transport.stop() }
@@ -67,7 +67,9 @@ struct SyncAngleViewer: View {
         .onChange(of: model.soundFrom) { if transport.playing { transport.play(rate: transport.rate) } }
         .onChange(of: shownClip?.start) { cue() }
         .onChange(of: model.playhead) { if !transport.playing { cue() } }
-        .onChange(of: model.live.count) { freshPosters() }
+        .onChange(of: model.live.count) { onPicture(); freshPosters() }
+        // (Once synced the places move, timecode ones far: the playhead goes where there's a picture.)
+        .onChange(of: model.running) { onPicture(); cue() }
         .onChange(of: transport.playing) { if transport.playing { still = nil } else { freshPosters() } }
     }
 
@@ -91,7 +93,7 @@ struct SyncAngleViewer: View {
             }
         }
         .aspectRatio(16 / 9, contentMode: .fit)
-        .frame(maxWidth: .infinity, maxHeight: 380)
+        .frame(maxWidth: 380 * 16 / 9, maxHeight: 380)
         .clipShape(.rect(cornerRadius: 8))
         .overlay(alignment: .topLeading) {
             if let current {
@@ -108,6 +110,7 @@ struct SyncAngleViewer: View {
                 .padding(10)
             }
         }
+        .frame(maxWidth: .infinity)
         .onTapGesture { focused = true }
     }
 
@@ -198,6 +201,11 @@ struct SyncAngleViewer: View {
             model.nudge(clip.id, frames: frames)
         }
         return .handled
+    }
+
+    /// The playhead where some angle films, if it's where none does.
+    private func onPicture() {
+        if !transport.playing, angles.allSatisfy({ Self.clip(of: $0, at: model.playhead) == nil }) { model.playhead = busiestMoment() }
     }
 
     /// The moment the most cameras film at once (the start of a clip, a second in).
@@ -403,7 +411,7 @@ private struct ShownFrame: View {
         .aspectRatio(16 / 9, contentMode: .fit)
         .frame(width: 300)
         .clipShape(.rect(cornerRadius: 6))
-        .overlay(alignment: .bottomLeading) {
+        .overlay(alignment: .topLeading) {
             HStack(spacing: 6) {
                 Text(verbatim: reading.text).font(.system(size: 12, weight: .semibold, design: .monospaced))
                 Text("frame \(reading.frame)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
