@@ -82,7 +82,7 @@ enum DeliverResolveMarkers {
         })
         let (placed, moved, skipped) = place(ours, occupied: occupied)
         let answer = try await bridge(["action": "addMarkers", "markers": placed.map(\.json), "remove": old.sorted()])
-        remember(placed.map(\.data))
+        remember(placed.map(\.data), timeline: name)
         return Result(timeline: name, added: answer["added"] as? Int ?? 0, moved: moved + (answer["moved"] as? [String] ?? []),
                       skipped: skipped + (answer["skipped"] as? [String] ?? []))
     }
@@ -100,12 +100,19 @@ extension DeliverResolveMarkers {
         struct New: Equatable { var frame: Int; var markerFrame: Int; var text: String }
     }
 
-    /// The `pluck:<id>` data sent to Resolve, so a missing marker reads as removed, not as never sent.
+    /// The `pluck:<id>` data sent to each Resolve timeline ("<timeline>\u{1F}<data>"), so a missing marker reads as removed
+    /// there, not as never sent (nor as removed from another timeline). Entries from before have no timeline: they count for all.
     static let sentKey = "deliverResolveSent"
-    static var sent: Set<String> { Set(UserDefaults.standard.stringArray(forKey: sentKey) ?? []) }
-    static func remember(_ data: [String]) {
-        let old = (UserDefaults.standard.stringArray(forKey: sentKey) ?? []).filter { !data.contains($0) }
-        UserDefaults.standard.set(Array((old + data).suffix(5000)), forKey: sentKey)
+    static func sent(_ timeline: String) -> Set<String> {
+        Set((UserDefaults.standard.stringArray(forKey: sentKey) ?? []).compactMap { entry in
+            guard let cut = entry.firstIndex(of: "\u{1F}") else { return entry }
+            return entry[..<cut] == timeline ? String(entry[entry.index(after: cut)...]) : nil
+        })
+    }
+    static func remember(_ data: [String], timeline: String) {
+        let fresh = data.map { timeline + "\u{1F}" + $0 }
+        let old = (UserDefaults.standard.stringArray(forKey: sentKey) ?? []).filter { !fresh.contains($0) }
+        UserDefaults.standard.set(Array((old + fresh).suffix(5000)), forKey: sentKey)
     }
 
     /// Matches by id only (a marker moved up to 5 frames still matches); frames come back by 1 / factor.
@@ -141,7 +148,7 @@ extension DeliverResolveMarkers {
     static func read(_ version: Deliver.Version, comments: [Deliver.Comment]) async throws -> Pull {
         guard let probe = version.probe else { throw Failure(message: String(localized: "This version has no frames to mark.")) }
         let info = try? await bridge(["action": "timelineInfo"])
-        guard let info, let found = pull(comments, probe: probe, info: info, sent: sent) else {
+        guard let info, let found = pull(comments, probe: probe, info: info, sent: sent(info["timeline"] as? String ?? "")) else {
             throw Failure(message: String(localized: "Open the timeline in DaVinci Resolve first"))
         }
         return found
@@ -158,7 +165,7 @@ extension DeliverResolveMarkers {
             tags.append(["frame": marker.markerFrame, "data": "pluck:\(made.id.uuidString)"])
         }
         if !tags.isEmpty {
-            remember(tags.compactMap { $0["data"] as? String })
+            remember(tags.compactMap { $0["data"] as? String }, timeline: pull.timeline)
             _ = try await bridge(["action": "tagMarkers", "tags": tags])
         }
         return (completed, tags.count)

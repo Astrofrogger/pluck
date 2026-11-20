@@ -178,7 +178,9 @@ extension PhotoSelfTest {
             default: return [:]
             }
         }
-        DeliverResolveMarkers.remember(["pluck:\(green.id.uuidString)", "pluck:\(gone.id.uuidString)", "pluck:\(kept.id.uuidString)"])
+        DeliverResolveMarkers.remember(["pluck:\(green.id.uuidString)", "pluck:\(gone.id.uuidString)", "pluck:\(kept.id.uuidString)"], timeline: "Hero edit")
+        check("flow: markers sent to one timeline aren't 'removed' from another", !DeliverResolveMarkers.sent("Other cut").contains("pluck:\(gone.id.uuidString)")
+              && DeliverResolveMarkers.sent("Hero edit").contains("pluck:\(gone.id.uuidString)"))
         let first = try? await DeliverResolveMarkers.read(version, comments: store.comments(asset.id, version: version.id))
         check("flow: resolve pull reads (green, removed, own; replies and past the end skipped)", first?.complete == [green.id] && first?.removed == [gone.id]
               && first?.new == [.init(frame: 50, markerFrame: 100, text: "Fix the grade\ntoo warm")] && first?.timeline == "Hero edit"
