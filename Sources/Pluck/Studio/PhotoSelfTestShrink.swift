@@ -132,6 +132,45 @@ extension PhotoSelfTest {
             .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
         check("shrink: inventory and the run's report with its projects", inventory.contains(pro4k.path) && inventory.contains("verified")
               && report.contains("project,files,bytes_before") && report.contains("\"Projects – Job\",2,"), report)
+        // The path list, waiting to delete, freed so far, a recycle bin, Relink in Resolve (a fake bridge).
+        let relinkCSV = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Relink ") && $0.hasSuffix(".csv") }
+            .flatMap { try? String(contentsOf: holding.appendingPathComponent($0), encoding: .utf8) } ?? ""
+        let relinkJSON = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).first { $0.hasPrefix("Relink ") && $0.hasSuffix(".json") }
+            .flatMap { try? Data(contentsOf: holding.appendingPathComponent($0)) }.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: String]] } ?? []
+        check("shrink: old path → new path list written (CSV and JSON)", relinkCSV.contains("\"\(avc4k.path)\",\"\(job.appendingPathComponent("Rushes/clip.mov").path)\"")
+              && relinkJSON.contains { $0["old"] == avc4k.path && $0["new"] == job.appendingPathComponent("Rushes/clip.mov").path } && relinkJSON.count == 2, relinkCSV)
+        try? fm.createDirectory(at: share.appendingPathComponent("#recycle"), withIntermediateDirectories: true)
+        let spaceModel = ArchiveModel(center: center)
+        await spaceModel.refreshSpace()
+        let waitingHere = spaceModel.waiting.first { $0.folder.path == holding.path }
+        let movedMP4 = holding.appendingPathComponent("Projects/Job/Rushes/clip.mp4"), aside = base.appendingPathComponent("aside.mp4")
+        check("shrink: waiting to delete is what's in the folder to delete; a recycle bin is said; nothing freed yet",
+              waitingHere.map { $0.bytes == S.bytes(in: holding) && $0.bytes >= originalBytes + (avcDone?.size ?? 0) && $0.recycle == "#recycle" } == true
+              && spaceModel.freedSoFar == 0, "\(spaceModel.waiting) \(spaceModel.freedSoFar)")
+        try? fm.moveItem(at: movedMP4, to: aside)
+        await spaceModel.refreshSpace()
+        check("shrink: freed so far counts only what's gone from the folder to delete",
+              spaceModel.freedSoFar == (avcDone.map { $0.size - ($0.masterSize ?? 0) } ?? -1), "\(spaceModel.freedSoFar)")
+        try? fm.moveItem(at: aside, to: movedMP4)
+        try? fm.removeItem(at: share.appendingPathComponent("#recycle"))
+        final class Asked { var items: [[String: Any]] = [] }
+        let bridged = Asked()
+        let bridgeBefore = ShrinkRelink.bridge
+        ShrinkRelink.bridge = { instruction in
+            bridged.items.append(instruction)
+            if instruction["action"] as? String == "projects" { return ["projects": ["Alpha", "Beta", "Gamma"]] }
+            let map = instruction["map"] as? [String: String] ?? [:]
+            return ["results": (instruction["projects"] as? [String] ?? []).map { ["project": $0, "replaced": map.count, "failed": [String]()] }]
+        }
+        let listed = (try? await ShrinkRelink.projects()) ?? []
+        let relinked = (try? await ShrinkRelink.relink([center.run(id)].compactMap { $0 }, projects: ["Alpha", "Gamma"], drp: [])) ?? []
+        let none = (try? await ShrinkRelink.relink([center.run(id)].compactMap { $0 }, projects: [], drp: [])) ?? [ShrinkRelink.Result(project: "x", replaced: 0, failed: [])]
+        ShrinkRelink.bridge = bridgeBefore
+        let sentMap = bridged.items.last?["map"] as? [String: String] ?? [:]
+        check("shrink: Relink in Resolve (fake bridge) opens only the chosen projects and maps each archived file to its master",
+              listed == ["Alpha", "Beta", "Gamma"] && bridged.items.count == 2 && bridged.items.last?["projects"] as? [String] == ["Alpha", "Gamma"]
+              && sentMap == [pro4k.path: pro4k.path, avc4k.path: job.appendingPathComponent("Rushes/clip.mov").path]
+              && relinked.map(\.project) == ["Alpha", "Gamma"] && relinked.allSatisfy { $0.replaced == 2 } && none.isEmpty, "\(sentMap) \(relinked)")
         let rescan = S.scan([share.appendingPathComponent("Projects")], ffprobe: ffprobe, minimum: 200_000, quiet: 0)
         check("shrink: masters aren't shrunk again, the folder to delete isn't looked in",
               rescan.first { $0.path == pro4k.path }?.skip == String(localized: "Already shrunk") && !rescan.contains { $0.path.contains(S.holdingName) })
@@ -196,12 +235,30 @@ extension PhotoSelfTest {
         spaceCenter.quiet = 0
         spaceCenter.editing = { _ in false }
         let asked = OSAllocatedUnfairLock<[String]>(initialState: [])
-        spaceCenter.freeSpace = { url in asked.withLock { $0.append(url.path) }; return 0 }
-        let spaceID = await spaceCenter.start(Array(two.prefix(1)), settings: hd, destination: base.appendingPathComponent("Full"), roots: [rootA.path, rootB.path],
+        let freeBytes = OSAllocatedUnfairLock<Int64>(initialState: 0)
+        try? fm.createDirectory(at: base.appendingPathComponent("Full"), withIntermediateDirectories: true)
+        spaceCenter.freeSpace = { url in asked.withLock { $0.append(url.path) }; return freeBytes.withLock { $0 } }
+        spaceCenter.capacity = { _ in 100_000_000_000 }
+        let spaceID = await spaceCenter.start(Array(two), settings: hd, destination: base.appendingPathComponent("Full"), roots: [rootA.path, rootB.path],
                                               ffmpeg: ffmpeg, ffprobe: ffprobe)
-        check("shrink: free space looked at in the destination", spaceCenter.run(spaceID)?.files.first?.state == .failed
+        check("shrink: a nearly full drive pauses the run with why (files stay to do, none failed), looked at in the destination",
+              spaceCenter.run(spaceID)?.files.allSatisfy { $0.state == .pending } == true && spaceCenter.run(spaceID)?.paused?.contains("Full") == true
               && asked.withLock { $0 }.allSatisfy { $0.hasPrefix(base.appendingPathComponent("Full").path) } && !asked.withLock { $0 }.isEmpty,
-              "\(asked.withLock { $0 })")
+              "\(asked.withLock { $0 }) \(spaceCenter.run(spaceID)?.paused ?? "none")")
+        // Room for each master but not for all: the one whose original is largest next to its master goes first.
+        let estimates = two.map { $0.estimate(hd) }
+        freeBytes.withLock { $0 = S.headroom(100_000_000_000) + Int64(Double(estimates.max() ?? 0) * 1.2) + 1 }
+        let order = OSAllocatedUnfairLock<[String]>(initialState: [])
+        spaceCenter.onFile = { [weak spaceCenter] id in
+            MainActor.assumeIsolated {
+                for file in spaceCenter?.run(id)?.files ?? [] where file.state == .done && !order.withLock({ $0.contains(file.path) }) { order.withLock { $0.append(file.path) } }
+            }
+        }
+        await spaceCenter.resume(spaceID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        let ratio = two.max { Double($0.size) / Double(max($0.estimate(hd), 1)) < Double($1.size) / Double(max($1.estimate(hd), 1)) }?.path
+        check("shrink: resumed once there's room; nearly full, the best saving first", spaceCenter.run(spaceID)?.files.allSatisfy { $0.state == .done } == true
+              && spaceCenter.run(spaceID)?.paused == nil && order.withLock { $0.first } == ratio && order.withLock { $0.count } == 2,
+              "\(order.withLock { $0 }) best \(ratio ?? "") \(spaceCenter.run(spaceID)?.files.map { "\($0.state) \($0.note ?? "")" } ?? [])")
 
         // Two Macs on one run: each file made once.
         let shared = share.appendingPathComponent("Projects/Both")
@@ -226,6 +283,12 @@ extension PhotoSelfTest {
         try? Data(repeating: 3, count: 400_000).write(to: clip)
         try? Data(repeating: 3, count: 300_000).write(to: rawFolder.appendingPathComponent("A001_C002_0101AB_002.R3D"))
         try? Data(repeating: 3, count: 300_000).write(to: rawFolder.appendingPathComponent("B001_C001.braw"))
+        let rdc = rawFolder.appendingPathComponent("A002_C001_0202CD.RDC")
+        try? fm.createDirectory(at: rdc, withIntermediateDirectories: true)
+        for (name, count) in [("A002_C001_0202CD_001.R3D", 300_000), ("A002_C001_0202CD_002.R3D", 200_000), ("A002_C001_0202CD.RMD", 1000)] {
+            try? Data(repeating: 4, count: count).write(to: rdc.appendingPathComponent(name))
+            try? fm.setAttributes([.modificationDate: old], ofItemAtPath: rdc.appendingPathComponent(name).path)
+        }
         for name in (try? fm.contentsOfDirectory(atPath: rawFolder.path)) ?? [] {
             try? fm.setAttributes([.modificationDate: old], ofItemAtPath: rawFolder.appendingPathComponent(name).path)
         }
@@ -242,7 +305,11 @@ extension PhotoSelfTest {
         let raws = S.scan([share.appendingPathComponent("Projects/Raw")], ffprobe: ffprobe, minimum: 200_000, quiet: 0, raw: ["r3d"],
                           open: { try RawHelperSource(url: $0, helper: stub) })
         let red = raws.first { $0.path == clip.path }, braw = raws.first { $0.path.hasSuffix(".braw") }
-        check("shrink: RAW listed as rushes and ticked by default, its spans go with it", raws.count == 2 && red?.skip == nil && red?.kind == .rushes
+        let span = raws.first { $0.path.hasSuffix("A002_C001_0202CD_001.R3D") }
+        check("shrink: a RED .RDC clip in two spans is one unit (its spans and .RMD go with it, one master from the first)",
+              span.map { $0.skip == nil && $0.parts.count == 2 && $0.size == 501_000 && $0.parts.contains { $0.hasSuffix(".RMD") } } == true
+              && !raws.contains { $0.path.hasSuffix("_002.R3D") }, "\(String(describing: span))")
+        check("shrink: RAW listed as rushes and ticked by default, its spans go with it", raws.count == 3 && red?.skip == nil && red?.kind == .rushes
               && red.map { !$0.tooSmall(hd) && !$0.tooRecent(months: 6) } == true && red?.parts.count == 1 && red?.size == 700_000,
               "\(raws.map { "\($0.path) \($0.skip ?? "") \($0.kind)" })")
         check("shrink: RAW without its decoder says why", braw?.skip?.hasPrefix(String(localized: "Can’t shrink: this Pluck has no decoder for BRAW")) == true,
@@ -339,5 +406,134 @@ extension PhotoSelfTest {
         check("shrink: the owner's corrections (a folder made a project, renamed, put back with its parent)",
               split?.project == "Roadshow City A" && split?.folder == roadshow + "/CITY A" && joined?.folder == roadshow
               && regrouped.projects[roadshow]?.title == "Agency – Tour", "\(String(describing: split)) \(String(describing: joined))")
+
+        // Clips in several files and card structures.
+        let u = { S.unit(of: URL(fileURLWithPath: $0), names: $1) }
+        let chapters = u("/V/GoPro/GX010042.MP4", ["GX010042.MP4", "GX020042.MP4", "GL010042.LRF", "GX010043.MP4"])
+        let later = u("/V/GoPro/GX020042.MP4", ["GX010042.MP4", "GX020042.MP4"])
+        let older = u("/V/GoPro/GOPR0044.MP4", ["GOPR0044.MP4", "GP010044.MP4"])
+        let single = u("/V/GoPro/GX010043.MP4", ["GX010042.MP4", "GX020042.MP4", "GX010043.MP4", "GL010043.LRF", "GX010043.THM"])
+        check("shrink: GoPro chapters left alone with why, a single chapter keeps its LRF and THM beside it",
+              chapters.skip == String(localized: "GoPro recording in 2 chapters") && later.skip != nil && older.skip != nil && single.skip == nil
+              && single.sidecars.map { ($0 as NSString).lastPathComponent } == ["GL010043.LRF", "GX010043.THM"], "\(chapters) \(single)")
+        let spanned = u("/V/A002_C001_0202CD.RDC/A002_C001_0202CD_001.R3D", ["A002_C001_0202CD_001.R3D", "A002_C001_0202CD_002.R3D", "A002_C001_0202CD.RMD", "A002_C001_0202CD.rtn"])
+        let gap = u("/V/A002_C001_0202CD.RDC/A002_C001_0202CD_001.R3D", ["A002_C001_0202CD_001.R3D", "A002_C001_0202CD_003.R3D"])
+        check("shrink: a RED clip's whole .RDC goes with it; a missing span leaves it alone", spanned.skip == nil && spanned.parts.count == 3
+              && gap.skip == String(localized: "A part of this RED clip is missing"), "\(spanned) \(gap)")
+        let sony = u("/V/Card/PRIVATE/M4ROOT/CLIP/C0001.MP4", ["C0001.MP4", "C0001M01.XML", "C0002.MP4", "C0002M01.XML"])
+        let xf = u("/V/Card/CONTENTS/CLIPS001/AA0001/AA000101.MXF", ["AA000101.MXF", "AA000102.MXF", "AA0001.XML"])
+        let xfOne = u("/V/Card/CONTENTS/CLIPS001/AA0002/AA000201.MXF", ["AA000201.MXF", "AA0002.XML", "AA0002.CIF"])
+        let avchd = u("/V/Card/PRIVATE/AVCHD/BDMV/STREAM/00000.MTS", ["00000.MTS", "00001.MTS"])
+        let p2 = base.appendingPathComponent("P2/CONTENTS")
+        for folder in ["VIDEO", "AUDIO", "CLIP"] { try? fm.createDirectory(at: p2.appendingPathComponent(folder), withIntermediateDirectories: true) }
+        let p2Clip = u(p2.appendingPathComponent("VIDEO/0001AB.MXF").path, ["0001AB.MXF"])
+        check("shrink: Sony XAVC keeps its XML, a Canon XF clip in two files and P2 and AVCHD cards are left alone with why",
+              sony.skip == nil && sony.sidecars.map { ($0 as NSString).lastPathComponent } == ["C0001M01.XML"]
+              && xf.skip == String(localized: "Canon XF clip in 2 files") && xfOne.skip == nil && xfOne.sidecars.count == 2
+              && avchd.skip != nil && p2Clip.skip == String(localized: "P2 card: picture and sound are separate files"),
+              "\(sony) \(xf) \(xfOne) \(avchd) \(p2Clip)")
+        let sonyClip = share.appendingPathComponent("Projects/Sony/PRIVATE/M4ROOT/CLIP/C0001.MP4"), sonyXML = sonyClip.deletingLastPathComponent().appendingPathComponent("C0001M01.XML")
+        make(sonyClip, "testsrc2=size=640x360", 1, prores + ["-f", "mov"])
+        try? Data("<NonRealTimeMeta/>".utf8).write(to: sonyXML)
+        let sonyFiles = S.scan([share.appendingPathComponent("Projects/Sony")], ffprobe: ffprobe, minimum: 200_000, quiet: 0)
+        let sonyCenter = ShrinkCenter(store: base.appendingPathComponent("sony.json"))
+        sonyCenter.quiet = 0
+        sonyCenter.editing = { _ in false }
+        let sonyID = await sonyCenter.start(sonyFiles, settings: hd, roots: [share.appendingPathComponent("Projects/Sony").path], ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink: a Sony XAVC card's clip shrunk in its folders, its XML beside the master and a copy with the original",
+              sonyCenter.run(sonyID)?.files.first?.state == .done && sonyFiles.first?.sidecars == [sonyXML.path]
+              && fm.fileExists(atPath: sonyClip.deletingLastPathComponent().appendingPathComponent("C0001.mov").path) && fm.fileExists(atPath: sonyXML.path)
+              && fm.fileExists(atPath: holding.appendingPathComponent("Projects/Sony/PRIVATE/M4ROOT/CLIP/C0001M01.XML").path)
+              && fm.fileExists(atPath: holding.appendingPathComponent("Projects/Sony/PRIVATE/M4ROOT/CLIP/C0001.MP4").path),
+              "\(sonyCenter.run(sonyID)?.files.map { "\($0.state) \($0.note ?? "")" } ?? [])")
+
+        // The visual check: a right master passes; range, rotation and gamma mistakes fail.
+        let visual = base.appendingPathComponent("Visual")
+        let source = visual.appendingPathComponent("original.mov")
+        make(source, "testsrc2=size=640x360", 2, prores + ["-color_range", "tv"])
+        let sourceInfo = ProjectArchive.streams(source.path, ffprobe: ffprobe)
+        func wrong(_ name: String, _ filter: String) -> String {
+            let out = visual.appendingPathComponent(name).path
+            ProjectArchive.run(ffmpeg, ["-nostdin", "-y", "-v", "error", "-i", source.path, "-vf", filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "16",
+                                        "-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709", "-an", out])
+            return out
+        }
+        let right = visual.appendingPathComponent("right.mov")
+        try? ProjectArchive.encode(source.path, to: right, settings: hd, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        let looks = [("right", right.path), ("x264", wrong("x264.mp4", "null")), ("range", wrong("range.mp4", "setparams=range=pc")),
+                     ("rotated", wrong("rotated.mp4", "transpose=1")), ("gamma", wrong("gamma.mp4", "eq=gamma=0.8"))]
+            .map { ($0.0, ProjectArchive.pictureProblems($0.1, source: source.path, original: sourceInfo, ffmpeg: ffmpeg, ffprobe: ffprobe)) }
+        let verdict = Dictionary(uniqueKeysWithValues: looks)
+        check("shrink: the picture check passes right masters and fails a video/full range swap, a 90° turn and a darker gamma",
+              verdict["right"] == [] && verdict["x264"] == [] && verdict["range"]?.isEmpty == false && verdict["rotated"]?.isEmpty == false
+              && verdict["gamma"]?.isEmpty == false, "\(looks)")
+
+        // Dates, camera tags, colour tags (full range), rotation and pixel aspect kept on the master.
+        let metaFolder = share.appendingPathComponent("Projects/Meta/Rushes"), plain = visual.appendingPathComponent("plain.mov"), metaClip = metaFolder.appendingPathComponent("A005C001.mov")
+        try? fm.createDirectory(at: metaFolder, withIntermediateDirectories: true)
+        ProjectArchive.run(ffmpeg, ["-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25:duration=1",
+                                    "-f", "lavfi", "-i", "anoisesrc=amplitude=0.1:duration=1,aformat=channel_layouts=4.0:sample_rates=48000", "-shortest",
+                                    "-vf", "setsar=4/3", "-c:v", "libx264", "-preset", "ultrafast", "-qp", "0", "-pix_fmt", "yuv420p", "-color_primaries", "bt709",
+                                    "-color_trc", "bt709", "-colorspace", "bt709", "-color_range", "pc", "-c:a", "pcm_s24le",
+                                    "-metadata", "creation_time=2023-05-01T10:00:00.000000Z", "-metadata", "com.apple.quicktime.make=TestMake",
+                                    "-metadata", "com.apple.quicktime.model=TestCam", "-movflags", "+use_metadata_tags", "-timecode", "10:00:00:00", plain.path])
+        ProjectArchive.run(ffmpeg, ["-nostdin", "-y", "-v", "error", "-display_rotation", "90", "-i", plain.path, "-c", "copy", "-map_metadata", "0",
+                                    "-movflags", "+use_metadata_tags", metaClip.path])
+        let shot = Date(timeIntervalSince1970: 1_683_000_000)
+        try? fm.setAttributes([.creationDate: shot, .modificationDate: old], ofItemAtPath: metaClip.path)
+        let metaBefore = ProjectArchive.streams(metaClip.path, ffprobe: ffprobe)
+        let metaFiles = S.scan([share.appendingPathComponent("Projects/Meta")], ffprobe: ffprobe, minimum: 200_000, quiet: 0)
+        let metaCenter = ShrinkCenter(store: base.appendingPathComponent("meta.json"))
+        metaCenter.quiet = 0
+        metaCenter.editing = { _ in false }
+        let metaID = await metaCenter.start(metaFiles, settings: hd, roots: [share.appendingPathComponent("Projects/Meta").path], ffmpeg: ffmpeg, ffprobe: ffprobe)
+        let metaAfter = ProjectArchive.streams(metaClip.path, ffprobe: ffprobe)
+        let dates = try? fm.attributesOfItem(atPath: metaClip.path)
+        let metaDone = metaCenter.run(metaID)?.files.first?.state == .done && metaAfter.codec == "hevc"
+        let picture = metaBefore.rotation == 90 && metaAfter.rotation == 90 && metaAfter.sar == "4:3" && metaAfter.colour == ["bt709", "bt709", "bt709", "pc"]
+        let sound = metaAfter.layouts == ["4.0"] && metaAfter.bits == 10 && metaAfter.timecode == "10:00:00:00"
+        let camera = metaAfter.tags["com.apple.quicktime.make"] == "TestMake" && metaAfter.tags["com.apple.quicktime.model"] == "TestCam"
+            && metaAfter.tags["creation_time"] == metaBefore.tags["creation_time"]
+        let created = (dates?[.creationDate] as? Date).map { abs($0.timeIntervalSince(shot)) < 2 } == true
+        let modifiedKept = (dates?[.modificationDate] as? Date).map { abs($0.timeIntervalSince(old)) < 2 } == true
+        check("shrink: the master keeps the shoot dates, camera tags, full range, rotation, pixel aspect, 4.0 layout and 10 bits",
+              metaDone && picture && sound && camera && created && modifiedKept,
+              "\(metaCenter.run(metaID)?.files.map { "\($0.state) \($0.note ?? "")" } ?? []) \(metaBefore) → \(metaAfter) \(String(describing: dates?[.creationDate]))")
+        var stripped = metaBefore
+        stripped.rotation = 0
+        stripped.tags["com.apple.quicktime.make"] = nil
+        stripped.colour[3] = "tv"
+        check("shrink: the metadata check says what a master lost", ProjectArchive.metadataProblems(stripped, metaBefore).count == 3,
+              "\(ProjectArchive.metadataProblems(stripped, metaBefore))")
+
+        // A project's own size: Keep 4K and Skip, remembered per share; the client's switch still works.
+        let rulesBefore = try? Data(contentsOf: S.Rules.url)
+        defer { if let rulesBefore { try? rulesBefore.write(to: S.Rules.url) } else { try? fm.removeItem(at: S.Rules.url) } }
+        let chooser = ArchiveModel(center: ShrinkCenter(store: base.appendingPathComponent("choose.json")))
+        chooser.survey = looked
+        if let project = looked.projects[job.path], let plainFile = file(pro4k) {
+            let before = chooser.files.first { $0.path == pro4k.path }?.estimate(chooser.settings) ?? 0
+            chooser.choose([project], .k4)
+            let kept = chooser.files.first { $0.path == pro4k.path }
+            let k4ok = chooser.settings.size == .k4 || (kept?.projectSettings?.size == .k4 && (kept?.estimate(chooser.settings) ?? 0) > before * 3)
+            chooser.choose([project], .skip)
+            let skipped = chooser.files.first { $0.path == pro4k.path }.map(chooser.reason)
+            let again = ArchiveModel(center: ShrinkCenter(store: base.appendingPathComponent("choose2.json")))
+            again.survey = looked
+            let row = chooser.clients.flatMap(\.projects).first { $0.project.folder == job.path }
+            check("shrink: Keep 4K sizes a project's masters at 4K, Skip leaves it (remembered per share), Default undoes it",
+                  k4ok && skipped == String(localized: "Skipped") && !chooser.picked.contains { $0.project == job.path } && row?.dim == String(localized: "skipped")
+                  && again.choices[job.path] == .skip && plainFile.projectSettings == nil,
+                  "\(String(describing: kept?.projectSettings)) \(String(describing: skipped)) \(String(describing: row?.dim)) \(again.choices)")
+            chooser.choose([project], nil)
+            let back = chooser.files.first { $0.path == pro4k.path }.map(chooser.reason) ?? "x"
+            chooser.select([project], false)
+            let off = !chooser.picked.contains { $0.project == job.path }
+            chooser.select([project], true)
+            check("shrink: back to Default, the client switch still turns it off and on", chooser.choices.isEmpty && back == nil && off
+                  && chooser.picked.contains { $0.project == job.path }, "\(String(describing: back))")
+        } else {
+            check("shrink: Keep 4K and Skip", false, "no job project")
+        }
     }
 }
