@@ -395,7 +395,7 @@ struct PhotoPage: View {
         }
         .sheet(isPresented: $editing.showingKeys) { PhotoKeysSheet() }
         .sheet(isPresented: $importing) {
-            PhotoImportSheet(initial: Self.importTest) { paths, name in imported(paths, named: name) }
+            PhotoImportSheet(initial: Self.importTest, intoAlbum: importAlbum.flatMap { id in catalog.albums.first { $0.id == id }?.name }) { paths, name in imported(paths, named: name) }
         }
         .sheet(item: $editingSmart) { album in
             SmartAlbumSheet(album: album) { saved in
@@ -457,7 +457,9 @@ struct PhotoPage: View {
                     }
                 } accessory: {
                     Menu {
-                        Button("New Album…") { importPhotos() }
+                        // An empty album to fill later (Add Photos…, or drop photos on it).
+                        Button("New Album") { newAlbum(in: nil) }
+                        Button("Import Photos…") { importPhotos() }
                         Button("New Smart Album…") { editingSmart = SmartAlbum(name: String(localized: "Smart Album")) }
                         Button("New Folder") { renamingFolder = catalog.newFolder(named: String(localized: "New Folder")).id; folderName = String(localized: "New Folder") }
                     } label: {
@@ -617,7 +619,7 @@ struct PhotoPage: View {
                 .help("Find photos by what’s in them, the text in them or their name")
                 Text("^[\(photos.count) photo](inflect: true)").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                 moreMenu
-                Button("Import…", systemImage: "square.and.arrow.down") { importPhotos() }
+                Button("Import…", systemImage: "square.and.arrow.down") { importPhotos(into: currentAlbum) }
                     .buttonStyle(StudioFlatButtonStyle(prominent: true))
             }
         }
@@ -865,7 +867,7 @@ struct PhotoPage: View {
     private var empty: some View {
         VStack(spacing: Design.Spacing.section) {
             DropZone(symbol: "photo.on.rectangle.angled", text: Text("Drop photos or a folder of photos"), targeted: dropTargeted)
-            Button("Import Photos…", systemImage: "square.and.arrow.down") { importPhotos() }
+            Button("Import Photos…", systemImage: "square.and.arrow.down") { importPhotos(into: currentAlbum) }
                 .buttonStyle(BrandButtonStyle())
         }
         .padding(Design.Spacing.window)
@@ -1015,6 +1017,9 @@ struct PhotoPage: View {
     }
 
     /// The import sheet (a card or a folder; copied or used where they are).
+    /// The album shown, so Import fills it instead of making another.
+    private var currentAlbum: UUID? { if case .album(let id) = source { id } else { nil } }
+
     private func importPhotos(into album: UUID? = nil) {
         importAlbum = album
         importing = true

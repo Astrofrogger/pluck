@@ -118617,6 +118617,64 @@
         }
       }
     },
+    "Folders or photos; ⌘-click to choose several" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ordner oder Fotos; mit ⌘-Klick mehrere wählen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Carpetas o fotos; ⌘-clic para elegir varias"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dossiers ou photos ; ⌘-clic pour en choisir plusieurs"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cartelle o foto; ⌘-clic per sceglierne più di una"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォルダまたは写真。⌘-クリックで複数選択"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "폴더 또는 사진. ⌘-클릭으로 여러 개 선택"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mappen of foto’s; ⌘-klik om er meerdere te kiezen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Pastas ou fotos; ⌘-clique para escolher várias"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "文件夹或照片；按住 ⌘ 点按可选择多个"
+          }
+        }
+      }
+    },
     "Folders paired Macs can browse. Nothing in them is changed." : {
       "localizations" : {
         "de" : {

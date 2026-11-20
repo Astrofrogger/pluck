@@ -10,6 +10,8 @@ import SwiftUI
 struct PhotoImportSheet: View {
     /// Where the photos came from, given (a drop, a folder chosen elsewhere), or nil to choose.
     var initial: [URL] = []
+    /// The album the photos go into, when importing into one that exists (no name to type then).
+    var intoAlbum: String? = nil
     let done: (_ photos: [String], _ album: String) -> Void
     @Environment(\.dismiss) private var dismiss
 
@@ -45,13 +47,26 @@ struct PhotoImportSheet: View {
                 Text("From").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 HStack(spacing: 8) {
                     ForEach(cards, id: \.self) { card in
-                        Button { choose([card]) } label: {
+                        // A card is added or taken off the list, so photos from several cameras come in together.
+                        Button { toggle(card) } label: {
                             Label(card.lastPathComponent, systemImage: "sdcard").lineLimit(1)
                         }
                         .buttonStyle(.bordered)
-                        .tint(sources == [card] ? .accentColor : nil)
+                        .tint(sources.contains(card) ? .accentColor : nil)
                     }
-                    Button("Choose…", systemImage: "folder") { pick() }
+                    Button(sources.isEmpty ? "Choose…" : "Add…", systemImage: "folder.badge.plus") { pick() }
+                        .help("Folders or photos; ⌘-click to choose several")
+                }
+                ForEach(sources.filter { !cards.contains($0) }, id: \.self) { source in
+                    HStack(spacing: 6) {
+                        Image(systemName: source.hasDirectoryPath ? "folder" : "photo").foregroundStyle(.secondary)
+                        Text(verbatim: source.lastPathComponent).lineLimit(1).truncationMode(.middle).help(source.path)
+                        Spacer(minLength: 4)
+                        Button { choose(sources.filter { $0 != source }) } label: { Image(systemName: "xmark.circle.fill") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary)
+                            .accessibilityLabel(Text("Remove"))
+                    }
+                    .font(.callout)
                 }
                 if !sources.isEmpty {
                     Text(found.isEmpty ? String(localized: "No photos found there.")
@@ -90,7 +105,12 @@ struct PhotoImportSheet: View {
             }
             HStack {
                 Text("Album").foregroundStyle(.secondary)
-                TextField("Album", text: $album).textFieldStyle(.roundedBorder)
+                if let intoAlbum {
+                    Text(verbatim: intoAlbum).lineLimit(1)
+                    Spacer()
+                } else {
+                    TextField("Album", text: $album).textFieldStyle(.roundedBorder)
+                }
             }
             .font(.callout)
             HStack {
@@ -176,25 +196,39 @@ struct PhotoImportSheet: View {
         }
     }
 
+    /// Folders (or single photos) added to the list: an album's photos often sit in a folder per camera.
     private func pick() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
+        panel.canChooseFiles = true
         panel.allowsMultipleSelection = true
-        panel.allowedContentTypes = [.image]
-        if panel.runModal() == .OK { choose(panel.urls) }
+        // .folder too: with only .image a folder can't be chosen, only opened.
+        panel.allowedContentTypes = [.image, .folder]
+        panel.prompt = String(localized: "Add")
+        if panel.runModal() == .OK { choose(sources + panel.urls.filter { !sources.contains($0) }) }
+    }
+
+    private func toggle(_ card: URL) {
+        choose(sources.contains(card) ? sources.filter { $0 != card } : sources + [card])
     }
 
     private func choose(_ urls: [URL]) {
+        let named = album.isEmpty || album == suggested
         sources = urls
         // A card is copied; a folder already on this Mac is usually used where it is.
-        if urls.count == 1, cards.contains(urls[0]) { copy = true }
-        album = urls.count == 1 ? urls[0].lastPathComponent : String(localized: "Imported \(Date.now.formatted(date: .abbreviated, time: .omitted))")
+        if urls.contains(where: cards.contains) { copy = true }
+        if named { album = suggested }
         let list = urls
         Task {
             let photos = await Task.detached(priority: .userInitiated) { PhotoCatalog.photos(in: list).map { URL(fileURLWithPath: $0) } }.value
             found = photos
             bytes = photos.reduce(0) { $0 + Int64((try? $1.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0) }
         }
+    }
+
+    /// The album name offered for what's on the list (kept once typed over).
+    private var suggested: String {
+        sources.count == 1 ? sources[0].lastPathComponent : sources.isEmpty ? "" : String(localized: "Imported \(Date.now.formatted(date: .abbreviated, time: .omitted))")
     }
 
     // MARK: - Copying
