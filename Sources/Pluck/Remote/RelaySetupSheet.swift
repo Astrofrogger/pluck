@@ -110,8 +110,10 @@ struct RelaySetupSheet: View {
     private var proxmox: some View {
         if let image = RelaySetup.image, complete, let sha = DeliverHostUpdate.shared.release?.assets["pluck-relay-proxmox.sh"],
            let command = RelaySetup.proxmoxCommand(tag: "v" + DeliverHostUpdate.pluckVersion, sha256: sha, image: image, setup: setup, allow: RelaySetup.allowlist()) {
+            // (Macs changed since the command was copied: the relay's allowlist is old, so this is said in the warning colour.)
+            let changed = RelaySetup.saved.map { $0.kind == .proxmox && $0.pushed != RelaySetup.allowlist() } ?? false
             Text("Run in the Proxmox host’s shell: it makes a container for the relay. When Macs are added or removed, run the new command again.")
-                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+                .font(Design.Studio.hint).foregroundStyle(changed ? Design.Studio.warn : Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
             if certificate == .dns {
                 Text("First put DNS_TOKEN= and your Cloudflare token in \(RelaySetup.proxmoxSecrets) on the Proxmox host (chmod 600).")
                     .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
