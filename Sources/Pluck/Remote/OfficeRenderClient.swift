@@ -315,7 +315,7 @@ final class OfficeRenderClient {
         if account != nil, !refreshed, !members.isEmpty { await refreshGroup() }
         guard grouped, account != nil else {
             if let primary, revoked.contains(primary) { throw OfficeLink.Failure.refused }
-            do { return try await askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw OfficeLink.Failure.unreachable }
+            do { return try await askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw irohTunnel.failure() ?? OfficeLink.Failure.unreachable }
         }
         return try await askGroup(action, arguments, timeout: timeout)
     }
@@ -389,6 +389,9 @@ final class OfficeRenderClient {
                 reply = try await Self.roundTrip(connection, question.frame, timeout: timeout)
             } catch {
                 connection.cancel()
+                // Through the private network while it isn't linked to the office: that's the network, not the office
+                // turning this Mac away (the helper drops what it can't carry). The office network's addresses next.
+                if address == tunnel, let node = office.iroh, irohTunnel.links[node] == nil, !irohTunnel.refused { continue }
                 // Connected, but the office hung up straight away: it doesn't know this Mac (any
                 // more), or the message was too old. A long silence is a timeout.
                 throw Date.now.timeIntervalSince(asked) < 5 ? OfficeLink.Failure.refused : OfficeLink.Failure.unreachable
@@ -702,7 +705,8 @@ extension OfficeRenderClient {
     /// Asks the office Mac a render (or other thing) is on (nil: wherever).
     func ask(on host: UUID?, _ action: String, _ arguments: [String: Any] = [:], timeout: TimeInterval = 90) async throws -> [String: Any] {
         guard let host, grouped else { return try await ask(action, arguments, timeout: timeout) }
-        do { return try await client(host).askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw OfficeLink.Failure.unreachable }
+        let client = client(host)
+        do { return try await client.askHere(action, arguments, timeout: timeout) } catch is NoRoute { throw client.irohTunnel.failure() ?? OfficeLink.Failure.unreachable }
     }
 
     /// Tests: these office Macs, without asking.
