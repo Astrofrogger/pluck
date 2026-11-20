@@ -80,7 +80,7 @@ final class RemoteProxyJobs {
 
     static func register() {
         OfficeActions.register("shareProxyMake") { arguments, device in
-            try OfficeActions.require(\.proxies, device)
+            // (No base-role check: each path is checked in its folder below, where a folder role may give more.)
             let (root, id) = try RemoteEditHost.share(arguments["share"])
             let format = try format(arguments["format"])
             guard let asked = arguments["paths"] as? [Any], !asked.isEmpty, asked.count <= 5000 else { throw OfficeActions.incomplete() }

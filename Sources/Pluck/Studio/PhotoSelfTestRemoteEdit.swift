@@ -135,6 +135,17 @@ extension PhotoSelfTest {
             check("access: a No Access folder isn't listed", !listed.contains { $0.name == "B Folder" } && listed.contains { $0.name == "big.bin" }, "\(listed.map(\.name))")
             OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
             check("access: with the folder role gone it is listed again", try await client.browse(share: id, path: "").contains { $0.name == "B Folder" })
+            // A folder role can give more than the base one: Viewer overall, Downloader in "B Folder" fetches proxies there only.
+            func refusal(_ work: () async throws -> Void) async -> Bool {
+                do { try await work(); return false } catch { return (String(describing: error) + error.localizedDescription).contains("doesn’t allow this Mac") }
+            }
+            server.setRole(.viewer, for: device.id)
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: .downloader)
+            let proxyThere = await refusal({ _ = try await client.ask("proxyData", ["folder": id, "format": "light", "path": "B Folder/inner.txt", "offset": 0]) })
+            let proxyOutside = await refusal({ _ = try await client.ask("proxyData", ["folder": id, "format": "light", "path": "big.bin", "offset": 0]) })
+            check("access: Viewer overall + Downloader in one folder can fetch proxies there", !proxyThere && proxyOutside, "\(proxyThere) \(proxyOutside)")
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
+            server.setRole(.editor, for: device.id)
             check("access: a path-aware check still refuses .. and paths out of the share",
                   (try? OfficeActions.require(\.browse, device, share: (root, id), path: "../Outside")) == nil
                   && (try? OfficeActions.require(\.browse, device, share: (root, id), path: "escape")) == nil

@@ -865,7 +865,7 @@ final class OfficeRenderServer {
             return status
         case "proxyData":
             let right: KeyPath<Device.Rights, Bool> = try proxyFormat(arguments["format"]) == .original ? \.originals : \.proxies
-            try OfficeActions.require(right, device)
+            // (Checked in the clip's folder only: a folder role may give more than the base one.)
             guard OfficeActions.allowed(right, device, share: try RemoteEditHost.share(arguments["folder"]), relative: try text(arguments["path"], 1000)) else {
                 throw OfficeActions.refused()
             }

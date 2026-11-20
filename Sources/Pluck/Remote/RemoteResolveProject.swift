@@ -19,7 +19,7 @@ enum RemoteResolveProject {
             return ["presets": try await RemoteResolveScript.run(["action": "presets"])["presets"] ?? []]
         }
         OfficeActions.register("resolveBuild") { arguments, device in
-            try OfficeActions.require(\.proxies, device)
+            // (build checks the folder's role: a folder role may give more than the base one.)
             return try await build(arguments, device)
         }
         OfficeActions.register("resolveProjects") { _, device in
