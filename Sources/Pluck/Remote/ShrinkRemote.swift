@@ -80,7 +80,7 @@ enum ShrinkRemote {
         let center = given ?? .shared
         guard let id = UUID(uuidString: try OfficeActions.text(arguments["id"], 40)), let sent = arguments["files"],
               let settingsValue = arguments["settings"],
-              let files = try? JSONDecoder().decode([ShrinkFolders.File].self, from: JSONSerialization.data(withJSONObject: sent)),
+              let files = ShrinkFolders.decodeFiles(sent),
               let settings = try? JSONDecoder().decode(ShrinkFolders.Settings.self, from: JSONSerialization.data(withJSONObject: settingsValue)),
               files.count <= 20_000 else { throw OfficeActions.incomplete() }
         var here: [ShrinkFolders.File] = [], missing: [String] = [], refused = 0
@@ -143,7 +143,7 @@ enum ShrinkRemote {
     static func poll(_ id: UUID, center given: ShrinkCenter? = nil) async -> Bool {
         let center = given ?? .shared
         guard let answer = try? await OfficeRenderClient.shared.ask("shrinkState", ["id": id.uuidString], timeout: 20),
-              let sent = answer["files"], let files = try? JSONDecoder().decode([ShrinkFolders.File].self, from: JSONSerialization.data(withJSONObject: sent))
+              let sent = answer["files"], let files = ShrinkFolders.decodeFiles(sent)
         else { return false }
         merge(files.compactMap { translated($0, local) ?? translatedLoose($0) }, into: id, center: center)
         return answer["working"] as? Bool == true

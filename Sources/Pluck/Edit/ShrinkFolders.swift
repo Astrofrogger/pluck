@@ -117,6 +117,21 @@ enum ShrinkFolders {
         var masterSize: Int64?
         /// Where the original went (nil: it stayed).
         var moved: String?
+        /// The hidden master being made (its name has this Mac's claim in it, so no other Mac's is ever touched).
+        var temp: String?
+        /// The original's frames and length, the original's first and last MB (SHA-256), and the master's
+        /// xxHash64 read back from the drive once it's checked: what Check Before Deleting compares.
+        var frames: Int?
+        var duration: Double?
+        var originalHead: String?
+        var masterHash: String?
+        /// Check Before Deleting: when, and what it found (empty: its original is safe to delete).
+        var checked: Date?
+        var checkProblems: [String]?
+        /// Put Back couldn't finish: why (shown in the history).
+        var problem: String?
+
+        var safeToDelete: Bool { state == .done && checked != nil && checkProblems?.isEmpty == true }
 
         /// The master's size, from its length × the settings' bitrate.
         func estimate(_ settings: Settings) -> Int64 {
@@ -159,6 +174,8 @@ enum ShrinkFolders {
         var movedFolders: [String: String] = [:]
         /// Why it stopped by itself (a share nearly full); nil once it carries on.
         var paused: String?
+        /// When Relink in Resolve pointed projects at its masters (Put Back then offers the way back).
+        var relinked: Date?
     }
 
     // MARK: Finding the files
@@ -766,13 +783,33 @@ final class ShrinkCenter {
         load()
     }
 
+    /// The runs kept. A runs.json that can't be read (all or part) is kept aside as runs.json.unreadable-<date>
+    /// before anything is saved over it; one not read at all falls back to runs.json.bak.
     func load() {
-        runs = (try? JSONDecoder().decode([ShrinkFolders.Run].self, from: Data(contentsOf: store))) ?? []
+        let backup = store.appendingPathExtension("bak")
+        guard let data = try? Data(contentsOf: store) else { runs = (try? Data(contentsOf: backup)).flatMap(ShrinkFolders.decodeRuns)?.runs ?? []; return }
+        let stamp = Date.now.formatted(.iso8601.year().month().day().timeSeparator(.omitted).time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "")
+        let aside = store.path + ".unreadable-" + stamp
+        if let read = ShrinkFolders.decodeRuns(data) {
+            runs = read.runs
+            if !read.complete { try? FileManager.default.copyItem(atPath: store.path, toPath: aside) }
+        } else {
+            _ = rename(store.path, aside)
+            runs = (try? Data(contentsOf: backup)).flatMap(ShrinkFolders.decodeRuns)?.runs ?? []
+        }
     }
 
+    /// Written to a new file and renamed over runs.json (never half written); the one before stays as runs.json.bak.
     private func save() {
         try? FileManager.default.createDirectory(at: store.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? JSONEncoder().encode(runs).write(to: store, options: .atomic)
+        guard let data = try? JSONEncoder().encode(runs) else { return }
+        let saving = store.path + ".saving", backup = store.path + ".bak"
+        guard (try? data.write(to: URL(fileURLWithPath: saving))) != nil else { return }
+        if FileManager.default.fileExists(atPath: store.path) {
+            unlink(backup)
+            if link(store.path, backup) != 0 { try? FileManager.default.copyItem(atPath: store.path, toPath: backup) }
+        }
+        _ = rename(saving, store.path)
     }
 
     var running: Bool { active != nil }
@@ -1054,5 +1091,97 @@ final class ShrinkCenter {
         guard let r = runs.firstIndex(where: { $0.id == id }), let f = runs[r].files.firstIndex(where: { $0.path == file.path }) else { return }
         runs[r].files[f] = file
         save()
+    }
+}
+
+// MARK: Reading what's kept, whatever Pluck wrote it
+
+/// Every field read on its own: a key missing (an older Pluck) or one this Pluck can't read takes its
+/// default, so a run is never lost to a field. Only a file without its path can't be read.
+extension ShrinkFolders.File {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ key: CodingKeys) -> T? { (try? c.decodeIfPresent(T.self, forKey: key)) ?? nil }
+        path = try c.decode(String.self, forKey: .path)
+        folder = v(.folder) ?? (path as NSString).deletingLastPathComponent
+        size = v(.size) ?? 0
+        modified = v(.modified) ?? .distantPast
+        seconds = v(.seconds) ?? 0
+        fps = v(.fps) ?? 0
+        width = v(.width) ?? 0
+        height = v(.height) ?? 0
+        channels = v(.channels) ?? 0
+        sampleRate = v(.sampleRate) ?? 0
+        // (A kind this Pluck doesn't know is taken as a delivery: never touched.)
+        kind = v(.kind) ?? (c.contains(.kind) ? .deliveries : .other)
+        why = v(.why) ?? ""
+        codec = v(.codec) ?? ""
+        projectChanged = v(.projectChanged)
+        client = v(.client) ?? ""
+        projectName = v(.projectName) ?? ""
+        project = v(.project) ?? ""
+        skip = v(.skip)
+        parts = v(.parts) ?? []
+        sidecars = v(.sidecars)
+        projectSettings = v(.projectSettings)
+        note = v(.note)
+        // (A state this Pluck doesn't know: failed, so nothing is done to it.)
+        if let known: State = v(.state) { state = known } else if c.contains(.state) { state = .failed; note = note ?? String(localized: "Written by a newer Pluck") }
+        master = v(.master)
+        masterSize = v(.masterSize)
+        moved = v(.moved)
+        temp = v(.temp)
+        frames = v(.frames)
+        duration = v(.duration)
+        originalHead = v(.originalHead)
+        masterHash = v(.masterHash)
+        checked = v(.checked)
+        checkProblems = v(.checkProblems)
+        problem = v(.problem)
+    }
+}
+
+extension ShrinkFolders.Run {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        func v<T: Decodable>(_ key: CodingKeys) -> T? { (try? c.decodeIfPresent(T.self, forKey: key)) ?? nil }
+        id = v(.id) ?? UUID()
+        date = v(.date) ?? .distantPast
+        // (A run without its settings can't carry on: it's kept aside, never guessed.)
+        settings = try c.decode(ShrinkFolders.Settings.self, forKey: .settings)
+        files = try c.decode([LossyFile].self, forKey: .files).compactMap(\.file)
+        destination = v(.destination)
+        roots = v(.roots) ?? []
+        proxyFolders = v(.proxyFolders) ?? [:]
+        movedFolders = v(.movedFolders) ?? [:]
+        paused = v(.paused)
+        relinked = v(.relinked)
+    }
+}
+
+/// A file of a run that may not be readable.
+struct LossyFile: Decodable {
+    var file: ShrinkFolders.File?
+    init(from decoder: Decoder) throws { file = try? ShrinkFolders.File(from: decoder) }
+}
+
+extension ShrinkFolders {
+    /// Runs read one by one: the readable ones, and whether anything couldn't be (a run, or a file of one);
+    /// nil: not a list of runs at all.
+    static func decodeRuns(_ data: Data) -> (runs: [Run], complete: Bool)? {
+        guard let list = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return nil }
+        var runs: [Run] = [], complete = true
+        for item in list {
+            guard let one = try? JSONSerialization.data(withJSONObject: item), let run = try? JSONDecoder().decode(Run.self, from: one) else { complete = false; continue }
+            if ((item as? [String: Any])?["files"] as? [Any])?.count != run.files.count { complete = false }
+            runs.append(run)
+        }
+        return (runs, complete)
+    }
+
+    /// Files sent as JSON (the always-on Mac's): the readable ones.
+    static func decodeFiles(_ json: Any) -> [File]? {
+        guard let data = try? JSONSerialization.data(withJSONObject: json), let list = try? JSONDecoder().decode([LossyFile].self, from: data) else { return nil }
+        return list.compactMap(\.file)
     }
 }
