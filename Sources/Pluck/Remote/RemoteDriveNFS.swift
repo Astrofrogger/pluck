@@ -18,7 +18,7 @@ struct RemoteDriveNode: Sendable, Equatable {
     var writable = false
 }
 
-enum RemoteDriveError: Error { case noEntry, io, notFolder, readOnly, denied, exists, notEmpty, isFolder }
+enum RemoteDriveError: Error { case noEntry, io, notFolder, readOnly, denied, exists, notEmpty, isFolder, busy }
 
 protocol RemoteDriveBackend: AnyObject, Sendable {
     func node(_ path: String) async throws -> RemoteDriveNode
@@ -98,7 +98,7 @@ final class RemoteDriveServer: @unchecked Sendable {
     /// NFSv3 status codes used here.
     enum Status: UInt32 {
         case ok = 0, noent = 2, io = 5, acces = 13, exist = 17, notdir = 20, isdir = 21, inval = 22, rofs = 30, notempty = 66
-        case stale = 70, badhandle = 10001, badCookie = 10003, notsupp = 10004, serverfault = 10006
+        case stale = 70, badhandle = 10001, badCookie = 10003, notsupp = 10004, serverfault = 10006, jukebox = 10008
     }
 
     let backend: RemoteDriveBackend
@@ -109,6 +109,10 @@ final class RemoteDriveServer: @unchecked Sendable {
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let lock = NSLock()
     private var paths: [Data: String] = [:]
+    /// The handle each path has now (a path made again after a rename or delete gets a new one).
+    private var handles: [String: Data] = [:]
+    /// Where the handle of a deleted or replaced file points: nowhere (STALE).
+    private static let gone = "\0gone"
     private(set) var port: UInt16 = 0
     /// Any process on this Mac can reach 127.0.0.1, so the root handle is only given out while Pluck itself
     /// mounts, and handles are salted per run (no guessing one from a path).
@@ -160,21 +164,49 @@ final class RemoteDriveServer: @unchecked Sendable {
     // MARK: File handles: stable per path (hash), mapped back while the server runs
 
     func handle(_ path: String) -> Data {
-        let value = Data(SHA256.hash(data: Self.salt + Data(path.utf8)).prefix(16))
-        lock.lock(); paths[value] = path; lock.unlock()
+        lock.lock(); defer { lock.unlock() }
+        if let known = handles[path] { return known }
+        // (Taken by another file, one renamed away or deleted: a new generation, so the old handle never aliases this one.)
+        var generation = 0, value = Data()
+        repeat {
+            value = Data(SHA256.hash(data: Self.salt + Data(path.utf8) + (generation == 0 ? Data() : Data("\0\(generation)".utf8))).prefix(16))
+            generation += 1
+        } while paths[value] != nil
+        paths[value] = path
+        handles[path] = value
         return value
     }
 
     func path(_ handle: Data) -> String? {
         lock.lock(); defer { lock.unlock() }
-        return paths[handle]
+        return paths[handle].flatMap { $0 == Self.gone ? nil : $0 }
     }
 
-    /// After a rename: the handle a client still holds for the old path finds the file at its new one.
+    /// After a rename: the handles a client still holds for the old path (and what's in it) find them at the new one;
+    /// a file it replaced goes stale.
     func moved(_ from: String, to: String) {
-        let old = handle(from)
-        _ = handle(to)
-        lock.lock(); paths[old] = to; lock.unlock()
+        guard from != to else { return }
+        lock.lock(); defer { lock.unlock() }
+        forget(to)
+        for (path, value) in handles where path == from || path.hasPrefix(from + "/") {
+            let now = to + path.dropFirst(from.count)
+            handles[path] = nil
+            handles[now] = value
+            paths[value] = now
+        }
+    }
+
+    /// After a delete: its handles (and those of what was in it) go stale.
+    func removed(_ path: String) {
+        lock.lock(); defer { lock.unlock() }
+        forget(path)
+    }
+
+    private func forget(_ path: String) {
+        for (known, value) in handles where known == path || known.hasPrefix(path + "/") {
+            handles[known] = nil
+            paths[value] = Self.gone
+        }
     }
 
     static func fileID(_ handle: Data) -> UInt64 { handle.prefix(8).reduce(0) { $0 << 8 | UInt64($1) } | 1 }
@@ -332,6 +364,7 @@ final class RemoteDriveServer: @unchecked Sendable {
         case .exists: .exist
         case .notEmpty: .notempty
         case .isFolder: .isdir
+        case .busy: .jukebox
         default: .io
         }
     }
@@ -389,7 +422,8 @@ final class RemoteDriveServer: @unchecked Sendable {
         func fail(_ status: Status) { out.u32(status.rawValue); for _ in 0..<Self.failureWords(procedure) { out.u32(0) } }
         guard let path = path(handle) else { fail(.stale); return true }
         let node: RemoteDriveNode
-        do { node = try await backend.node(path) } catch { fail(status(of: error)); return true }
+        // (A handle given out for a path that's gone: STALE, so the client looks the name up again.)
+        do { node = try await backend.node(path) } catch { fail(error as? RemoteDriveError == .noEntry ? .stale : status(of: error)); return true }
         if writing.contains(procedure) {
             try await nfsWrite(procedure, path: path, node: node, handle: handle, &input, &out)
             return true
@@ -550,6 +584,7 @@ extension RemoteDriveServer {
                 if procedure == 12, child.folder { throw RemoteDriveError.isFolder }
                 if procedure == 13, !child.folder { throw RemoteDriveError.notFolder }
                 try await backend.remove(childPath, folder: procedure == 13)
+                removed(childPath)
                 out.u32(0)
             } catch { out.u32(status(of: error).rawValue) }
             wcc(await after(path), handle: handle, &out)
