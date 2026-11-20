@@ -140,24 +140,32 @@ final class ArchiveModel {
         let projects = Array(survey?.projects.values ?? [:].values)
         return Set(projects.map(\.share)).sorted().map { root in
             let used = projects.filter { $0.share == root }.reduce(Int64(0)) { $0 + $1.total }
-            let saving = picked.filter { file in survey?.projects[file.project]?.share == root }.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) }
+            let mine = picked.filter { file in survey?.projects[file.project]?.share == root }
+            let saving = mine.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) } + proxyBytes(of: mine)
             let capacity = (try? URL(fileURLWithPath: root).resourceValues(forKeys: [.volumeTotalCapacityKey]))?.volumeTotalCapacity.map(Int64.init)
             return Share(path: root, name: (root as NSString).lastPathComponent, used: used, saving: saving,
                          free: OffloadCenter.freeSpace(URL(fileURLWithPath: root)), capacity: capacity)
         }
     }
 
+    /// The proxy and cache folders that go to the to-delete folder with these files' projects (when that's on): part of what's freed.
+    func proxyBytes(of files: [File]) -> Int64 {
+        guard moveProxies else { return 0 }
+        return Set(files.map(\.project)).reduce(Int64(0)) { $0 + (survey?.projects[$1]?.proxies ?? 0) }
+    }
+
     /// Footage found, what the chosen files would save, what earlier runs saved.
     var totals: (footage: Int64, saving: Int64, saved: Int64) {
         let footage = (survey?.projects.values ?? [:].values).reduce(Int64(0)) { $0 + $1.rushes }
-        let saving = picked.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) }
+        let saving = picked.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) } + proxyBytes(of: picked)
         let saved = center.runs.flatMap(\.files).filter { $0.state == .done }.reduce(Int64(0)) { $0 + $1.size - ($1.masterSize ?? 0) }
         return (footage, saving, saved)
     }
 
     /// Everything that could be shrunk in the last look (whatever's chosen), and the footage found.
     var freeable: (saving: Int64, footage: Int64) {
-        let saving = files.filter { reason($0) == nil }.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) }
+        let open = files.filter { reason($0) == nil }
+        let saving = open.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) } + proxyBytes(of: open)
         return (saving, (survey?.projects.values ?? [:].values).reduce(Int64(0)) { $0 + $1.rushes })
     }
 
@@ -172,7 +180,7 @@ final class ArchiveModel {
             let dim: String? = !open.isEmpty ? nil
                 : mine.contains { $0.tooRecent(months: months) && kind($0) == .rushes } ? String(localized: "recent")
                 : mine.contains { kind($0) == .rushes } ? String(localized: "small") : String(localized: "no rushes")
-            return ProjectRow(project: project, saving: open.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) }, files: open.count,
+            return ProjectRow(project: project, saving: open.reduce(Int64(0)) { $0 + $1.size - $1.estimate(settings) } + proxyBytes(of: open), files: open.count,
                               newest: project.newest, selected: !off.contains(project.folder),
                               done: doneFiles.filter { $0.project == project.folder }.count,
                               waiting: active?.files.filter { $0.project == project.folder && ($0.state == .pending || $0.state == .working) }.count ?? 0,
