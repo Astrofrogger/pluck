@@ -1170,7 +1170,7 @@ extension PhotoSelfTest {
             try? await Task.sleep(for: .milliseconds(300))
             let sub = asked.first { $0["op"] as? String == "subscriber-set" }
             check("mail: subscribe and unsubscribe go to the host", sub?["email"] as? String == "me@example.com" && sub?["kind"] as? String == "client" && sub?["mode"] as? String == "daily"
-                  && sub?["link"] as? String == mailed.id.uuidString && (sub?["author"] as? String)?.count == 44
+                  && sub?["link"] as? String == mailed.id.uuidString && (sub?["author"] as? String)?.count == 43
                   && sent("p_noah").contains { $0["re"] as? Int == 9001 && $0["ok"] as? Bool == true }
                   && sent("p_noah").contains { $0["re"] as? Int == 9002 && $0["scope"] as? String == "link" }
                   && asked.contains { $0["op"] as? String == "unsubscribe" }, "\(asked)")
