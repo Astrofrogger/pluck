@@ -85,12 +85,13 @@ final class RemoteProxyJobs {
             let format = try format(arguments["format"])
             guard let asked = arguments["paths"] as? [Any], !asked.isEmpty, asked.count <= 5000 else { throw OfficeActions.incomplete() }
             let paths = try asked.map { try OfficeActions.text($0, empty: true) }
-            // Each must be in the share (the checks of RemoteEditHost.resolve), kept by its share path.
+            // Each must be in the share (the checks of RemoteEditHost.resolve), kept by its share path, and allowed there.
             let checked = try await Task.detached {
                 try paths.map { path in
                     RemoteEditHost.relative(try RemoteEditHost.resolve(path, in: root), in: root)
                 }
             }.value
+            guard checked.allSatisfy({ OfficeActions.allowed(\.proxies, device, share: (root, id), relative: $0) }) else { throw OfficeActions.refused() }
             let request = shared.add(Request(share: id, paths: checked, format: format, device: device.id))
             return ["request": summary(request)]
         }
@@ -105,21 +106,21 @@ final class RemoteProxyJobs {
             return ["requests": mine.suffix(50).map(summary)]
         }
         OfficeActions.register("shareManifest") { arguments, device in
-            try OfficeActions.require(\.proxies, device)
             let (root, id) = try RemoteEditHost.share(arguments["share"])
-            let folder = try RemoteEditHost.resolve(try OfficeActions.text(arguments["path"] ?? "", empty: true), in: root)
+            let folder = try OfficeActions.require(\.proxies, device, share: (root, id), path: try OfficeActions.text(arguments["path"] ?? "", empty: true))
+            // (Clips in folders this Mac may not have proxies of are left out: OfficeAccess folder roles.)
             let entries = try await shared.manifest(root: root, share: id, under: folder, format: try format(arguments["format"]))
+                .filter { OfficeActions.allowed(\.proxies, device, share: (root, id), relative: $0.path) }
             OfficeProxies.shared.used(id, format: try format(arguments["format"]))
             let list = try JSONSerialization.jsonObject(with: JSONEncoder().encode(entries))
             return ["share": id, "shareName": root.lastPathComponent, "office": Host.current().localizedName ?? "Mac", "entries": list,
                     "pending": shared.pending(share: id, format: try format(arguments["format"]))]
         }
         OfficeActions.register("shareWatch") { arguments, device in
-            try OfficeActions.require(\.proxies, device)
-            let (root, _) = try RemoteEditHost.share(arguments["share"])
+            let place = try RemoteEditHost.share(arguments["share"]), root = place.root
             let format = try format(arguments["format"])
             let path = try OfficeActions.text(arguments["path"] ?? "", empty: true)
-            let checked = try await Task.detached { RemoteEditHost.relative(try RemoteEditHost.resolve(path, in: root), in: root) }.value
+            let checked = RemoteEditHost.relative(try OfficeActions.require(\.proxies, device, share: place, path: path), in: root)
             let watch = RemoteShares.Watch(path: checked, format: format)
             if arguments["on"] as? Bool ?? true { RemoteShares.shared.addWatch(watch.path, format: format, in: root) }
             else { RemoteShares.shared.removeWatch(watch, in: root) }

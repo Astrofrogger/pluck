@@ -172,9 +172,10 @@ enum RemoteResolveProject {
     private static func build(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) async throws -> [String: Any] {
         let (root, id) = try RemoteEditHost.share(arguments["share"])
         let path = try OfficeActions.text(arguments["path"], empty: true)
-        let folder = try RemoteEditHost.resolve(path, in: root)
+        let folder = try OfficeActions.require(\.proxies, device, share: (root, id), path: path)
         let shareName = root.lastPathComponent
         let videos = try await Task.detached { try videos(in: folder, root: root) }.value
+            .filter { OfficeActions.allowed(\.proxies, device, share: (root, id), relative: $0) }
         guard !videos.isEmpty else { throw OfficeLink.Failure.office(String(localized: "There are no clips in that folder.")) }
         let files: [[String: Any]] = videos.map { relative in
             var file: [String: Any] = ["path": root.appendingPathComponent(relative).path, "bin": bin(relative, share: shareName)]

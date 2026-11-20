@@ -16,20 +16,23 @@ enum RemoteEditHost {
              "load": RemoteProxyJobs.shared.requests.filter { $0.state == .queued || $0.state == .making }.count, "shares": await shares()]
         }
         OfficeActions.register("browse") { arguments, device in
-            try OfficeActions.require(\.browse, device)
-            let (root, _) = try share(arguments["share"])
-            let folder = try resolve(try OfficeActions.text(arguments["path"], empty: true), in: root)
-            return ["entries": try await Task.detached { try list(folder, in: root) }.value]
+            let place = try share(arguments["share"])
+            let folder = try OfficeActions.require(\.browse, device, share: place, path: try OfficeActions.text(arguments["path"], empty: true))
+            let entries = try await Task.detached { try list(folder, in: place.root) }.value
+            // (Folders this Mac may not see aren't listed: OfficeAccess folder roles.)
+            return ["entries": entries.filter { entry in
+                guard let name = entry["name"] as? String, let real = realPath(folder.appendingPathComponent(name).path) else { return false }
+                return OfficeActions.allowed(\.browse, device, share: place, file: URL(fileURLWithPath: real))
+            }]
         }
         OfficeActions.register("mediaInfo") { arguments, device in
-            try OfficeActions.require(\.browse, device)
-            let (root, _) = try share(arguments["share"])
-            return try await mediaInfo(try resolve(try OfficeActions.text(arguments["path"]), in: root))
+            let place = try share(arguments["share"])
+            return try await mediaInfo(try OfficeActions.require(\.browse, device, share: place, path: try OfficeActions.text(arguments["path"])))
         }
         OfficeActions.register("thumb") { arguments, device in
-            try OfficeActions.require(\.browse, device)
-            let (root, _) = try share(arguments["share"])
-            return [OfficeActions.bytesKey: try await thumb(try resolve(try OfficeActions.text(arguments["path"]), in: root))]
+            let place = try share(arguments["share"])
+            return [OfficeActions.bytesKey: try await thumb(try OfficeActions.require(\.browse, device, share: place,
+                                                                                     path: try OfficeActions.text(arguments["path"])))]
         }
         OfficeActions.register("fileData") { arguments, device in RemoteKeepAwake.transferred(); return try await fileData(arguments, device) }
     }
@@ -190,17 +193,16 @@ enum RemoteEditHost {
     /// OfficeLink.fileChunk raw bytes, with the whole file's size. Each piece is its own request, so
     /// several can run at once.
     static func fileData(_ arguments: [String: Any], _ device: OfficeRenderServer.Device) async throws -> [String: Any] {
-        let (root, id) = try share(arguments["share"])
-        let original = try resolve(try OfficeActions.text(arguments["path"]), in: root)
+        let place = try share(arguments["share"]), (root, id) = place
+        let path = try OfficeActions.text(arguments["path"])
         let offset = try OfficeActions.number(arguments["offset"] ?? 0)
         let length = Int(min(try OfficeActions.number(arguments["length"] ?? OfficeLink.fileChunk), Int64(OfficeLink.fileChunk)))
         let file: URL
         switch arguments["kind"] as? String {
         case "original":
-            try OfficeActions.require(\.originals, device)
-            file = original
+            file = try OfficeActions.require(\.originals, device, share: place, path: path)
         case "proxy":
-            try OfficeActions.require(\.proxies, device)
+            let original = try OfficeActions.require(\.proxies, device, share: place, path: path)
             if arguments["stream"] as? Bool == true, !RemoteNetworkHost.streamAllowed {
                 throw OfficeLink.Failure.office(String(localized: "Streaming is turned off on the host Mac."))
             }
@@ -210,8 +212,7 @@ enum RemoteEditHost {
             file = OfficeProxies.shared.proxy(relative(original, in: root), folder: id, format: format)
             OfficeProxies.shared.used(id, format: format)
         case "thumb":
-            try OfficeActions.require(\.browse, device)
-            let picture = try await thumb(original)
+            let picture = try await thumb(try OfficeActions.require(\.browse, device, share: place, path: path))
             let start = Int(min(offset, Int64(picture.count)))
             return [OfficeActions.bytesKey: picture.subdata(in: start..<min(start + length, picture.count)), "size": picture.count]
         default:

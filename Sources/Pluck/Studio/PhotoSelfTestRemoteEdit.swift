@@ -6,6 +6,7 @@ extension PhotoSelfTest {
     /// it sorted without hidden or system files, paths out of the share (`..`, symlinks, absolute)
     /// are refused, file pieces equal the file's bytes, originals need their right.
     static func remoteEditTest() async {
+        accessRoleChecks()
         remoteClipChecks()
         finderWidthChecks()
         let fm = FileManager.default
@@ -96,12 +97,81 @@ extension PhotoSelfTest {
             check("remote: status says not busy, with the share", !status.busy && status.shares.contains { $0.id == id } && !status.office.isEmpty)
             check("remote: the existing actions still answer", (try await client.ask("jobs"))["jobs"] != nil)
 
+            // Roles: a role's flags are written into the Mac's rights (older office Macs enforce those).
+            server.setRole(.viewer, for: device.id)
+            let viewer = server.devices.first { $0.id == device.id }
+            check("access: a role writes its flags and is kept", viewer?.role == "viewer" && viewer?.allowed == OfficeAccess.Role.viewer.rights,
+                  "\(String(describing: viewer?.role)) \(String(describing: viewer?.allowed))")
+            check("access: a Viewer can't fetch originals", await refused({ _ = try await client.fileData(share: id, path: "big.bin", kind: .original, offset: 0) }))
+            server.setRole(.editor, for: device.id)
+            // Every action that takes a path checks the Mac's role in that folder: with No Access on "B Folder", each is refused there.
+            let lockedKey = OfficeAccess.folderKey(root: root, share: id, relative: "B Folder")
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: OfficeAccess.Role.none)
+            let noPath: Set<String> = ["hello", "projects", "project", "render", "jobs", "cancel", "preview", "archive", "archiveSearch", "archiveClip",
+                                       "archiveClipData", "sendState", "send", "proxyFolders", "proxyMake", "proxyStatus", "shares", "status", "driveInfo",
+                                       "shareProxyStatus", "resolveRoot", "resolvePresets", "resolveProjects", "resolveCheckout", "resolveRelease",
+                                       "resolveUpload", "resolveCheckin", "resolveRestore", "resolveVersionData", "resolveRender", "resolveQueue",
+                                       "resolveCancel", "resolvePreview", "reviewComments", "reviewAdd", "reviewResolve", "groupSync", "officeGroup",
+                                       "groupNode", "reviewHost", "reviewReload", "reviewLinks", "reviewPull", "reviewAppend", "reviewUnhost",
+                                       "askFilesList"]
+            let probe: [String: Any] = ["share": id, "folder": id, "path": "B Folder/inner.txt", "paths": ["B Folder/inner.txt"], "kind": "original",
+                                        "format": "light", "offset": 0, "size": 2, "modified": 0, "data": Data("in".utf8).base64EncodedString(),
+                                        "name": "x", "days": 7]
+            var unchecked: [String] = []
+            for name in OfficeActions.names.sorted() where !noPath.contains(name) {
+                var arguments = probe
+                if name == "fileData" { for kind in ["proxy", "thumb"] { arguments["kind"] = kind; if !(await refused({ _ = try await client.ask(name, arguments) })) { unchecked.append(name + " " + kind) } }; arguments["kind"] = "original" }
+                if !(await refused({ _ = try await client.ask(name, arguments) })) { unchecked.append(name) }
+            }
+            check("access: every action taking a path checks the role in that folder", unchecked.isEmpty, "\(unchecked)")
+            check("access: the list of actions is known (a new one must be sorted into path or no path)",
+                  Set(OfficeActions.names).subtracting(noPath).isSuperset(of: ["browse", "fileData", "thumb", "mediaInfo", "shareManifest", "shareProxyMake",
+                                                                              "shareWatch", "resolveBuild", "proxyData"]))
+            let listed = try await client.browse(share: id, path: "")
+            check("access: a No Access folder isn't listed", !listed.contains { $0.name == "B Folder" } && listed.contains { $0.name == "big.bin" }, "\(listed.map(\.name))")
+            OfficeAccess.shared.set(subject: device.id.uuidString, folder: lockedKey, role: nil)
+            check("access: with the folder role gone it is listed again", try await client.browse(share: id, path: "").contains { $0.name == "B Folder" })
+            check("access: a path-aware check still refuses .. and paths out of the share",
+                  (try? OfficeActions.require(\.browse, device, share: (root, id), path: "../Outside")) == nil
+                  && (try? OfficeActions.require(\.browse, device, share: (root, id), path: "escape")) == nil
+                  && (try? OfficeActions.require(\.browse, device, share: (root, id), path: "B Folder")) != nil)
+
             server.setRights(.init(browse: false, proxies: true, originals: false, render: true), for: device.id)
             check("remote: browsing refused without the right", await refused({ _ = try await client.browse(share: id, path: "") }))
             check("remote: rights are set on the pairing", server.devices.first?.allowed.browse == false)
         } catch {
             check("remote: round trip", false, error.localizedDescription)
         }
+    }
+
+    /// The roles as flags, a person's role over the Mac's, the nearest folder role (more or fewer rights), and merging.
+    static func accessRoleChecks() {
+        typealias Role = OfficeAccess.Role
+        typealias Grant = OfficeAccess.Grant
+        let table = Role.allCases.map { ($0, $0.rights.browse, $0.rights.proxies, $0.rights.originals, $0.rights.render) }
+        check("access: the role table", table.map { "\($0.1)\($0.2)\($0.3)\($0.4)" } == [
+            "falsefalsefalsefalse", "truefalsefalsefalse", "truetruetruefalse", "truetruetruetrue", "truetruetruetrue"], "\(table)")
+        var mac = OfficeRenderServer.Device(id: UUID(), name: "Mac", secret: Data(), added: .now,
+                                            rights: .init(browse: true, proxies: false, originals: true, render: false, fullTrust: true))
+        check("access: no role is Custom: the Mac's own flags", OfficeAccess.rights(for: mac, grants: [], place: nil) == mac.allowed)
+        mac.role = "downloader"
+        let now = Date.now
+        var grants = [Grant(subject: mac.id.uuidString, folder: "smb://nas/footage/a", role: "none", changed: now),
+                      Grant(subject: mac.id.uuidString, folder: "smb://nas/footage/a/b", role: "editor", changed: now)]
+        func at(_ place: String?) -> OfficeAccess.Rights { OfficeAccess.rights(for: mac, grants: grants, place: place) }
+        check("access: a role counts, Full Trust stays the Mac's", at(nil).originals && !at(nil).render && at(nil).fullTrust)
+        check("access: the nearest folder role wins, fewer or more rights",
+              !at("smb://nas/footage/a").browse && !at("smb://nas/footage/a/x/y").browse && at("smb://nas/footage/a/b/c").render
+              && at("smb://nas/footage/ab").browse && !at("smb://nas/footage/ab").render)
+        mac.person = "p1"
+        grants.append(Grant(subject: OfficeAccess.person("p1"), folder: nil, role: "viewer", changed: now))
+        grants.append(Grant(subject: OfficeAccess.person("p1"), folder: "smb://nas/footage/a/b", role: "viewer", changed: now))
+        check("access: the person's role over the Mac's; the Mac's own folder role first at the same folder",
+              !at(nil).proxies && at(nil).browse && at("smb://nas/footage/a/b").render && OfficeAccess.role(for: mac, grants: grants) == .viewer)
+        let older = Grant(subject: "s", folder: "f", role: "editor", changed: now), newer = Grant(subject: "s", folder: "f", role: nil, changed: now + 1)
+        let ab = OfficeAccess.merge([older], [newer]), ba = OfficeAccess.merge([newer], [older])
+        check("access: merging keeps the newest of each, a removal too, either way round", ab == ba && ab?.count == 1 && ab?.first?.role == nil)
+        check("access: an office Mac from before roles (no list) keeps ours", OfficeAccess.merge([older], nil) == [older] && OfficeAccess.merge(nil, [older]) == [older])
     }
 
     /// A RED clip folder on the host is one clip with its files' size (raw, so played from a proxy the host
