@@ -49,13 +49,16 @@ enum PhotoEdgeFill {
         guard let fill = PhotoRemove.fill(mirror, mask: holes, square: square, context: context)?.cropped(to: big) else { return nil }
         // The mirror's fine detail (what a blur the size of the model's pixels takes away) on the model's fill.
         let radius = Double(side / 800 * 1.5)
-        let detail = mirror.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: big)
-            .applyingFilter("CISubtractBlendMode", parameters: [kCIInputBackgroundImageKey: mirror])
-        let made = detail.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: fill]).cropped(to: big)
+        // (Not CISubtractBlendMode: it stops at zero, so the detail's darker half was lost.)
+        let blurred = mirror.clampedToExtent().applyingGaussianBlur(sigma: radius).cropped(to: big)
+        guard let made = Self.addDetail?.apply(extent: big, arguments: [fill, mirror.clampedToExtent(), blurred]) else { return nil }
         // Mirror at the photo's edge, the fill a little way out.
         let ramp = max(m * 0.5, 4)
         return blend.apply(extent: big, roiCallback: { _, r in r }, arguments: [mirror, made, CIVector(cgRect: e), ramp])
     }
+
+    /// `fill` plus the fine detail `sharp − blurred` (negative values kept).
+    nonisolated(unsafe) private static let addDetail = CIColorKernel(source: "kernel vec4 addDetail(__sample f, __sample s, __sample b) { return vec4(f.rgb + s.rgb - b.rgb, f.a); }")
 
     /// The photo mirrored at each edge (out to a photo's width or height beyond it).
     static func mirrored(_ image: CIImage) -> CIImage {
