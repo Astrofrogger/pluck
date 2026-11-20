@@ -101,22 +101,6 @@ async fn main() {
         let _ = rustls::crypto::ring::default_provider().install_default();
         std::process::exit(update::ctl(std::path::Path::new(dir), op).await);
     }
-    // `pluck-review mail-send`: one mail through the owner's SMTP account, for an always-on Mac without a NAS (T11).
-    // stdin: a JSON line {"settings": <mail.json>, "to", "subject", "body"}, then the password on its own line.
-    if args.first().map(String::as_str) == Some("mail-send") {
-        let _ = rustls::crypto::ring::default_provider().install_default();
-        let job: Value = lines.next_line().await.ok().flatten().and_then(|l| serde_json::from_str(&l).ok()).unwrap_or(Value::Null);
-        let pw = lines.next_line().await.ok().flatten().unwrap_or_default();
-        let s = |k: &str| job[k].as_str().unwrap_or("").to_owned();
-        let r = if !mail::valid_email(&s("to")) || pw.is_empty() {
-            json!({"error": {"code": "invalid"}})
-        } else {
-            let msg = mail::Msg { to: s("to"), subject: s("subject"), body: s("body"), unsubscribe: false };
-            mail::send(&job["settings"], &pw, &[msg], None).await.map_or_else(|e| json!({"error": {"code": e.code, "detail": e.detail}}), |()| json!({"ok": true}))
-        };
-        println!("{r}");
-        std::process::exit(if r["ok"] == true { 0 } else { 1 });
-    }
     // `pluck-review --host <data> [--media <id>=<path>]… [--drop <id>[=<path>]]… [--uploads <id>=<path>] [--listen <addr:port>]
     // [--admin <addr:port>] [--signal <url>] [--local] [--iroh] [--iroh-bin <path>] [--iroh-relay <url>]
     // [--backup --main-link <link> --max-storage 50G --quality 1080-low] [--name <name>] [--turn-url <url>]…`:
