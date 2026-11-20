@@ -97,6 +97,7 @@ struct DeliverHostSheet: View {
                 if devices.isEmpty { Text("None yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(10) }
             }
             .studioBox()
+            if host.mail == 1, host.role != "backup" { DeliverMailSection(host: host) }
             if let served = servedBy {
                 Text(verbatim: served).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             }

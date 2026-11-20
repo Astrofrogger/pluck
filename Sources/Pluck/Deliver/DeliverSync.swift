@@ -194,6 +194,7 @@ final class DeliverSync {
                 status = (try? await session.ask(["op": "status"])) ?? [:]
                 // People (accounts plan §5): new requests notify even while People isn't open.
                 if ReviewPublish.shared.host(host.id)?.accounts == 1, let people = try? await session.ask(["op": "people"]) { DeliverPeople.shared.heard(people) }
+                if ReviewPublish.shared.host(host.id)?.mail == 1, let mail = try? await session.ask(["op": "mail-state"]) { DeliverMail.shared.heard(mail) }
             }
             await DeliverOutage.note(status: status, host: host)
             state.lastSync = .now
@@ -446,6 +447,9 @@ final class DeliverSync {
         if link.mode != .review, link.featuredField == "none" { link.featuredField = nil }
         link.paused = (wire["paused"] as? Bool) == true ? true : nil
         link.deadline = date(wire["deadline"])
+        if let notify = wire["notify"] as? [String: Any], notify["email"] as? Bool == true {
+            link.notify = .init(email: true, recipientEmail: notify["recipientEmail"] as? String)
+        }
         link.madeOn = wire["madeOn"] as? String
         if let mark = wire["watermark"] as? [String: Any], let data = try? JSONSerialization.data(withJSONObject: mark) {
             link.watermark = try? Deliver.decoder.decode(Deliver.ShareLink.Watermark.self, from: data)

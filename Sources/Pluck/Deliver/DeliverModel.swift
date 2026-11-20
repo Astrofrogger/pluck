@@ -126,6 +126,7 @@ enum Deliver {
         var `internal`: Bool?            // only the owner and team links see it
         var reactions: [String: [String]]?   // emoji → author tokens ("owner" for the Mac)
         var attachments: [Attachment]?
+        var mentions: [String]?          // ids from the link's `mentionable` (4.1.0); the text is never parsed for them
         var rev: Int?, at: Date?, by: String?
         var deletedReplies: [UUID]?      // sync only (§13.0 MC), never sent to browsers
 
@@ -153,6 +154,7 @@ enum Deliver {
             var authorToken: String?
             var created = Date()
             var `internal`: Bool? = nil  // team links and the owner only (the helper's flag; nil reads as false)
+            var mentions: [String]? = nil
             var isInternal: Bool { `internal` == true }
         }
     }
@@ -203,6 +205,7 @@ enum Deliver {
         var paused: Bool?
         var muted: Bool?                 // no notifications for this link
         var notifyOpened: Bool?
+        var notify: Notify?              // "Email updates" (4.1.0)
         // §13.
         var deadline: Date?              // feedback closes then (else the project's)
         var reminded: [String]?          // this Mac only: "3d", "1d", "closed"
@@ -213,6 +216,12 @@ enum Deliver {
         var isTeam: Bool { audience == "team" }
         var isPaused: Bool { paused == true }
         var shownFields: [String] { fields ?? ["status"] }
+
+        /// Email updates for this link; the mail code (the link's fragment) goes to the host only, in the manifest.
+        struct Notify: Codable, Hashable {
+            var email = false
+            var recipientEmail: String?
+        }
 
         struct Watermark: Codable, Hashable {
             var text = "{name} · {email} · {date}"

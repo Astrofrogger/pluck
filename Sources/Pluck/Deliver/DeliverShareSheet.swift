@@ -308,6 +308,7 @@ struct DeliverLinkOptions: View {
         link.featuredField = draft.featuredField
         link.uploads = draft.uploads
         link.notifyOpened = draft.notifyOpened
+        link.notify = draft.notify
         link.deadline = draft.deadline
     }
 
@@ -385,6 +386,17 @@ struct DeliverLinkOptions: View {
             StudioSwitchRow(title: "Team link (sees internal comments)", isOn: Binding(get: { link.isTeam }, set: { link.audience = $0 ? "team" : nil }))
             StudioSwitchRow(title: "Clients can upload files", isOn: Binding(get: { link.uploads != nil }, set: { link.uploads = $0 ? .init() : nil }))
             StudioSwitchRow(title: "Tell me when it’s opened", isOn: flag(\.notifyOpened))
+            if DeliverMail.shared.available {
+                StudioSwitchRow(title: "Email updates", isOn: Binding(get: { link.notify?.email == true }, set: { on in
+                    link.notify = on ? .init(email: true, recipientEmail: link.notify?.recipientEmail) : nil
+                }))
+                if link.notify?.email == true, link.recipient != nil {
+                    StudioField(label: "Email") {
+                        TextField("name@example.com", text: Binding(get: { link.notify?.recipientEmail ?? "" }, set: { link.notify?.recipientEmail = $0.isEmpty ? nil : String($0.prefix(120)) }))
+                            .settingField(width: 220)
+                    }
+                }
+            }
             StudioSwitchRow(title: "Watermark", isOn: Binding(get: { link.watermark != nil }, set: { link.watermark = $0 ? .init() : nil }))
             if let mark = link.watermark {
                 VStack(alignment: .leading, spacing: 2) {

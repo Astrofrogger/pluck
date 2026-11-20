@@ -74,6 +74,16 @@
     <div class="faint" id="pair-note"></div>
     <div id="devices"></div>
   </section>
+  <section class="wide">
+    <div class="row"><h2 style="flex:1;margin:0">Email</h2><label><input type="checkbox" id="mail-on"> Send email updates</label></div>
+    <div class="faint">Comments, replies and new versions are emailed through your own mail account. Use an app password.</div>
+    <div class="row"><input id="mail-server" placeholder="smtp.example.com" style="flex:2"><select id="mail-port"><option value="587">587 STARTTLS</option><option value="465">465 TLS</option></select></div>
+    <div class="row"><input id="mail-user" placeholder="User" style="flex:1"><input id="mail-password" type="password" placeholder="Password (leave empty to keep)" style="flex:1"></div>
+    <div class="row"><input id="mail-from" placeholder="Studio &lt;updates@example.com&gt;" style="flex:1"><input id="mail-reply" placeholder="Reply to (optional)" style="flex:1"></div>
+    <div class="row"><label>Daily summary at <input id="mail-hour" type="number" min="0" max="23" value="8" style="width:4em">:00</label>
+      <button class="primary" id="mail-save">Save</button><input id="mail-to" placeholder="Send a test to" style="flex:1"><button id="mail-test">Send Test</button></div>
+    <div class="quiet" id="mail-msg"></div>
+  </section>
   <section class="wide hidden" id="activity-box">
     <div class="row"><h2 style="flex:1;margin:0" id="activity-title">Activity</h2><button id="activity-close">Close</button></div>
     <div id="activity"></div>
