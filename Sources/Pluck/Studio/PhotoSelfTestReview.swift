@@ -677,6 +677,28 @@ extension PhotoSelfTest {
         ReviewHostClient.fake = quiet
         check("review: Update Now says when it can't update the NAS", stuck && !updates.noUpdater.contains(nasHost.id) && updates.asking.isEmpty
               && updates.results[nasHost.id]?.result == "ok", "")
+        // A host that updates itself (4.0.7): its state in words, and Update Now through `self-update` (no API key).
+        let states = [["state": "waiting"], ["state": "downloading"], ["state": "available"], ["state": "failed", "error": "e"], ["state": "upToDate"], [:]]
+            .map { DeliverHostUpdate.selfState($0) }
+        let mapped = states == [.updating, .updating, .available, .failed("e"), .upToDate, .upToDate] && DeliverHostUpdate.selfState(nil) == nil
+            && DeliverHostUpdate.text(.updating) == String(localized: "Updating at the next quiet moment")
+            && DeliverHostUpdate.checked(["checked": "2026-11-20T10:00:00Z"]) != nil
+        var selfOps: [[String: Any]] = []
+        ReviewHostClient.fake = { request, payload in
+            switch request["op"] as? String {
+            case "self-update": selfOps.append(request); return ["state": "waiting", "auto": true, "checked": "2026-11-20T10:00:00Z"]
+            case "status": return ["version": "99.0.0"]
+            default: return quiet?(request, payload)
+            }
+        }
+        await updates.updateItself(nasHost, checks: 2, every: .milliseconds(20))
+        let off = await updates.tell(nasHost, ["auto": false])
+        ReviewHostClient.fake = { request, payload in request["op"] as? String == "self-update" ? ["error": "admin"] : quiet?(request, payload) }
+        let refused = await updates.tell(nasHost) == nil
+        ReviewHostClient.fake = quiet
+        check("review: a NAS that updates itself: state, Update Now, Updates by itself", mapped && selfOps.first?["now"] as? Bool == true
+              && selfOps.last?["auto"] as? Bool == false && off != nil && refused && updates.results[nasHost.id]?.result == "ok"
+              && DeliverHostUpdate.selfState(updates.selfStatus[nasHost.id]) == .updating, "\(mapped) \(selfOps)")
         ReviewHostClient.fake = beforeLinks
         ops = []
         var removed: [String: Any] = [:]

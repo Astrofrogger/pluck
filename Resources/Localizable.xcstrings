@@ -213266,64 +213266,6 @@
         }
       }
     },
-    "Pluck can’t update this NAS from here. Paste its TrueNAS API key to update it." : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck kann dieses NAS nicht von hier aktualisieren. Füge seinen TrueNAS-API-Schlüssel ein, um es zu aktualisieren."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck no puede actualizar este NAS desde aquí. Pega su clave de API de TrueNAS para actualizarlo."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck ne peut pas mettre à jour ce NAS d’ici. Collez sa clé d’API TrueNAS pour le mettre à jour."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck non può aggiornare questo NAS da qui. Incolla la sua chiave API di TrueNAS per aggiornarlo."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck はここからこの NAS をアップデートできません。アップデートするには TrueNAS の API キーを貼り付けてください。"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck은 여기서 이 NAS를 업데이트할 수 없습니다. 업데이트하려면 TrueNAS API 키를 붙여 넣으세요."
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck kan deze NAS niet van hieruit bijwerken. Plak de TrueNAS-API-sleutel om hem bij te werken."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "O Pluck não consegue atualizar este NAS daqui. Cole a chave de API do TrueNAS para atualizá-lo."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Pluck 无法从这里更新此 NAS。粘贴它的 TrueNAS API 密钥即可更新。"
-          }
-        }
-      }
-    },
     "Pluck can’t write to that folder." : {
       "localizations" : {
         "de" : {
@@ -318566,64 +318508,6 @@
         }
       }
     },
-    "Update available: paste the API key to update" : {
-      "localizations" : {
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update verfügbar: API-Schlüssel einfügen, um zu aktualisieren"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Actualización disponible: pega la clave de API para actualizar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Mise à jour disponible : collez la clé d’API pour mettre à jour"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Aggiornamento disponibile: incolla la chiave API per aggiornare"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "アップデートがあります：API キーを貼り付けて更新"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "업데이트 가능: API 키를 붙여넣어 업데이트하세요"
-          }
-        },
-        "nl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Update beschikbaar: plak de API-sleutel om bij te werken"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Atualização disponível: cole a chave de API para atualizar"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "有可用更新：粘贴 API 密钥即可更新"
-          }
-        }
-      }
-    },
     "Update check failed: %@" : {
       "localizations" : {
         "de" : {
@@ -357289,6 +357173,412 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "整个项目"
+          }
+        }
+      }
+    },
+    "Updating at the next quiet moment" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktualisiert sich beim nächsten ruhigen Moment"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se actualizará en el próximo momento tranquilo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour au prochain moment calme"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si aggiornerà al prossimo momento tranquillo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "次の空いている時間にアップデートします"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "다음 한가한 때에 업데이트합니다"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Werkt bij op het volgende rustige moment"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atualizando no próximo momento tranquilo"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将在下一个空闲时刻更新"
+          }
+        }
+      }
+    },
+    "Update available" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update verfügbar"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Actualización disponible"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Mise à jour disponible"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiornamento disponibile"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートがあります"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "업데이트 있음"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update beschikbaar"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atualização disponível"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "有可用更新"
+          }
+        }
+      }
+    },
+    "Update failed" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Update fehlgeschlagen"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La actualización falló"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Échec de la mise à jour"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aggiornamento non riuscito"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "アップデートに失敗しました"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "업데이트 실패"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bijwerken mislukt"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A atualização falhou"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "更新失败"
+          }
+        }
+      }
+    },
+    "Updates by itself" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aktualisiert sich selbst"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se actualiza solo"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Se met à jour tout seul"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Si aggiorna da solo"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自動でアップデート"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "스스로 업데이트"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Werkt zichzelf bij"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Atualiza sozinho"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "自动更新"
+          }
+        }
+      }
+    },
+    "Or paste a TrueNAS API key once:" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oder füge einmal einen TrueNAS-API-Schlüssel ein:"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O pega una vez una clave de API de TrueNAS:"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ou collez une fois une clé d’API TrueNAS :"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Oppure incolla una volta una chiave API di TrueNAS:"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "または TrueNAS の API キーを一度だけ貼り付けます:"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "또는 TrueNAS API 키를 한 번 붙여넣으세요:"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Of plak één keer een TrueNAS-API-sleutel:"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ou cole uma chave de API do TrueNAS uma vez:"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "或粘贴一次 TrueNAS API 密钥："
+          }
+        }
+      }
+    },
+    "This NAS needs one last update by hand. In TrueNAS: Apps › %@ › Edit, replace the image with this one, then Save. After that it updates by itself." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieses NAS braucht ein letztes Update von Hand. In TrueNAS: Apps › %@ › Edit, ersetze das Image durch dieses und klicke auf Save. Danach aktualisiert es sich selbst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este NAS necesita una última actualización a mano. En TrueNAS: Apps › %@ › Edit, sustituye la imagen por esta y pulsa Save. Después se actualiza solo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce NAS a besoin d’une dernière mise à jour à la main. Dans TrueNAS : Apps › %@ › Edit, remplacez l’image par celle-ci, puis Save. Ensuite, il se met à jour tout seul."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo NAS ha bisogno di un ultimo aggiornamento a mano. In TrueNAS: Apps › %@ › Edit, sostituisci l’immagine con questa, poi Save. Dopo si aggiorna da solo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この NAS は最後に一度だけ手動でアップデートが必要です。TrueNAS で Apps › %@ › Edit を開き、イメージをこれに置き換えて Save します。その後は自動でアップデートします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 NAS는 마지막으로 한 번 직접 업데이트해야 합니다. TrueNAS에서 Apps › %@ › Edit을 열고 이미지를 이것으로 바꾼 다음 Save를 누르세요. 그 후에는 스스로 업데이트합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deze NAS heeft nog één laatste update met de hand nodig. In TrueNAS: Apps › %@ › Edit, vervang de image door deze en klik op Save. Daarna werkt hij zichzelf bij."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este NAS precisa de uma última atualização manual. No TrueNAS: Apps › %@ › Edit, substitua a imagem por esta e clique em Save. Depois ele se atualiza sozinho."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此 NAS 需要最后一次手动更新。在 TrueNAS 中：Apps › %@ › Edit，将镜像替换为下面这个，然后点击 Save。之后它会自动更新。"
+          }
+        }
+      }
+    },
+    "This server needs one last update by hand: run its setup command again on the Proxmox host. After that it updates by itself." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Dieser Server braucht ein letztes Update von Hand: Führe seinen Einrichtungsbefehl auf dem Proxmox-Host noch einmal aus. Danach aktualisiert er sich selbst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este servidor necesita una última actualización a mano: vuelve a ejecutar su comando de configuración en el host de Proxmox. Después se actualiza solo."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ce serveur a besoin d’une dernière mise à jour à la main : relancez sa commande d’installation sur l’hôte Proxmox. Ensuite, il se met à jour tout seul."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Questo server ha bisogno di un ultimo aggiornamento a mano: esegui di nuovo il suo comando di configurazione sull’host Proxmox. Dopo si aggiorna da solo."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このサーバーは最後に一度だけ手動でアップデートが必要です。Proxmox ホストでセットアップコマンドをもう一度実行してください。その後は自動でアップデートします。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 서버는 마지막으로 한 번 직접 업데이트해야 합니다. Proxmox 호스트에서 설정 명령을 다시 실행하세요. 그 후에는 스스로 업데이트합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deze server heeft nog één laatste update met de hand nodig: voer zijn installatieopdracht opnieuw uit op de Proxmox-host. Daarna werkt hij zichzelf bij."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Este servidor precisa de uma última atualização manual: execute de novo o comando de configuração no host Proxmox. Depois ele se atualiza sozinho."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "此服务器需要最后一次手动更新：在 Proxmox 主机上再次运行它的安装命令。之后它会自动更新。"
           }
         }
       }

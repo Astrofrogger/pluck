@@ -1,9 +1,9 @@
 import CryptoKit
 import Foundation
-import UserNotifications
 
 /// Host versions and updates (§13.15): what a host's protocol means for this Pluck, the signed `host-release.json` of
-/// Pluck's own release (never "latest"), and TrueNAS updates at the quiet time, never while the host is busy.
+/// Pluck's own release (never "latest"). A host from 4.0.7 updates itself (`selfUpdate: 1`): Pluck only tells it this
+/// version. An older one needs one last update by hand, or the TrueNAS API route when a key is already here.
 @MainActor
 @Observable
 final class DeliverHostUpdate {
@@ -112,7 +112,12 @@ final class DeliverHostUpdate {
     private func updateDue() async {
         guard let release else { return }
         for host in ReviewPublish.shared.hosts where host.kind == .nas && Self.isUpgrade(from: host.version, to: release.version) {
-            guard Self.due(now: .now, quiet: Self.quietTime(host.id), hostLevel: host.protocol) else { continue }
+            if host.selfUpdate == 1 {
+                await tell(host)
+                continue
+            }
+            guard Self.due(now: .now, quiet: Self.quietTime(host.id), hostLevel: host.protocol),
+                  let address = host.address?.split(separator: ":").first.map(String.init), TrueNASKeychain.load(address) != nil else { continue }
             await update(host, to: release, forced: host.protocol.map { Self.compatibility(host: $0) == .refused } ?? false)
         }
     }
@@ -143,7 +148,8 @@ final class DeliverHostUpdate {
         }
         guard updating == nil, let address = host.address?.split(separator: ":").first.map(String.init) else { return }
         guard let key = TrueNASKeychain.load(address) else {
-            return notify(String(localized: "Update available: paste the API key to update"), host: host)
+            noUpdater.insert(host.id) // the one last update by hand (DeliverHostSheet)
+            return
         }
         updating = host.id
         defer { updating = nil }
@@ -211,12 +217,73 @@ final class DeliverHostUpdate {
         await update(host, to: release, forced: false)
     }
 
-    private func notify(_ text: String, host: Deliver.Host) {
-        guard ScreenshotMode.scene == nil else { return }
-        let content = UNMutableNotificationContent()
-        content.title = host.name
-        content.body = text
-        content.categoryIdentifier = Notifications.hostUpdateCategory
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "review-update-" + host.id.uuidString, content: content, trigger: nil))
+    // MARK: - Hosts that update themselves (4.0.7)
+
+    enum SelfState: Equatable { case upToDate, updating, available, failed(String?) }
+
+    /// A self-updating host's `selfUpdate` (status, or its `self-update` answer) as the Server settings show it.
+    nonisolated static func selfState(_ answer: [String: Any]?) -> SelfState? {
+        guard let answer else { return nil }
+        switch answer["state"] as? String {
+        case "waiting", "downloading": return .updating
+        case "available": return .available
+        case "failed": return .failed(answer["error"] as? String)
+        default: return .upToDate
+        }
+    }
+
+    nonisolated static func text(_ state: SelfState) -> String {
+        switch state {
+        case .upToDate: return String(localized: "Up to date")
+        case .updating: return String(localized: "Updating at the next quiet moment")
+        case .available: return String(localized: "Update available")
+        case .failed: return String(localized: "Update failed")
+        }
+    }
+
+    /// When the host last heard which version to follow.
+    nonisolated static func checked(_ answer: [String: Any]?) -> Date? {
+        (answer?["checked"] as? String).flatMap { ISO8601DateFormatter().date(from: $0) }
+    }
+
+    /// Per host: its last `selfUpdate` answer.
+    private(set) var selfStatus: [UUID: [String: Any]] = [:]
+
+    /// Tells a self-updating host this Pluck's version (it never goes down); `extra`: "auto" or "now". An editor Mac's
+    /// ask is refused there (admins only): nil.
+    @discardableResult
+    func tell(_ host: Deliver.Host, _ extra: [String: Any] = [:]) async -> [String: Any]? {
+        var op: [String: Any] = ["op": "self-update"]
+        if let release { op["target"] = release.version }
+        op.merge(extra) { $1 }
+        guard let answer = try? await ReviewHostClient.ask(host, op), answer["error"] == nil else { return nil }
+        selfStatus[host.id] = answer
+        return answer
+    }
+
+    /// Update Now on a self-updating host: it switches as soon as no upload or copy is running; watched for `checks` × `every`.
+    func updateItself(_ host: Deliver.Host, checks: Int = 60, every: Duration = .seconds(5)) async {
+        guard !asking.contains(host.id) else { return }
+        asking.insert(host.id)
+        defer { asking.remove(host.id) }
+        guard await tell(host, ["now": true]) != nil else {
+            results[host.id] = ("failed", .now, String(localized: "\(host.name) didn’t answer."))
+            return
+        }
+        for _ in 0..<checks {
+            try? await Task.sleep(for: every)
+            guard let status = try? await ReviewHostClient.ask(host, ["op": "status"]) else { continue } // (restarting)
+            if let version = status["version"] as? String, version != host.version {
+                results[host.id] = ("ok", .now, nil)
+                return
+            }
+            if let answer = status["selfUpdate"] as? [String: Any] {
+                selfStatus[host.id] = answer
+                if case .failed(let error) = Self.selfState(answer) {
+                    results[host.id] = ("failed", .now, error)
+                    return
+                }
+            }
+        }
     }
 }

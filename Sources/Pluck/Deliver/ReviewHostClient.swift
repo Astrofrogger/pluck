@@ -89,6 +89,9 @@ enum ReviewHostClient {
         if ReviewPublish.shared.host(host.id).map({ $0.mail != answer["mail"] as? Int }) == true {
             ReviewPublish.shared.update(host: host.id) { $0.mail = answer["mail"] as? Int }
         }
+        if ReviewPublish.shared.host(host.id).map({ $0.selfUpdate != answer["selfUpdate"] as? Int }) == true {
+            ReviewPublish.shared.update(host: host.id) { $0.selfUpdate = answer["selfUpdate"] as? Int }
+        }
         if ReviewPublish.shared.host(host.id).map({ $0.roles != answer["roles"] as? Int || $0.access != answer["access"] as? String }) == true {
             ReviewPublish.shared.update(host: host.id) { $0.roles = answer["roles"] as? Int; $0.access = answer["access"] as? String }
         }
