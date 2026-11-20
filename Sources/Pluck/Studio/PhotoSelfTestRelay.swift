@@ -29,9 +29,35 @@ extension PhotoSelfTest {
               (try? RelaySetup.compose(template, image: image, setup: setup, allow: [], dnsToken: "x")) == nil
               && (try? RelaySetup.compose(template, image: image, setup: .init(kind: .truenas, hostname: "bad host", contact: "a@example.com"), allow: [id], dnsToken: nil)) == nil
               && (try? RelaySetup.compose(template, image: "ghcr.io/example/pluck-relay:latest", setup: setup, allow: [id], dnsToken: "x")) == nil)
-        let command = RelaySetup.proxmoxCommand(image: image, setup: .init(kind: .proxmox, hostname: "relay.example.com", contact: "o'k@example.com"), allow: [id])
-        check("relay: the Proxmox command is hardened and quoted", command.contains("--read-only") && command.contains("--cap-drop ALL") && command.contains("-p 443:8443/tcp")
-              && command.contains("-e PLUCK_RELAY_CONTACT='o'\\''k@example.com'") && !command.contains(" -p 80"), command)
+        let sha = String(repeating: "ab", count: 32)
+        let proxmox = RelaySetup.Setup(kind: .proxmox, hostname: "Relay.Example.com", contact: "owner+relay@example.com")
+        let command = RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: sha, image: image, setup: proxmox, allow: [id, other]) ?? ""
+        check("relay: the Proxmox command fetches the script, checks its SHA-256, then runs it", command.contains("releases/download/v4.0.7/pluck-relay-proxmox.sh")
+              && command.contains("echo \"\(sha)  pluck-relay-proxmox.sh\" | sha256sum -c -") && command.contains("&& bash pluck-relay-proxmox.sh --hostname relay.example.com")
+              && command.contains("--contact 'owner+relay@example.com' --tls acme") && command.contains("--allow \(id),\(other)") && !command.contains("secrets"), command)
+        var dnsSetup = proxmox
+        dnsSetup.certificate = .dns
+        let dnsCommand = RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: sha, image: image, setup: dnsSetup, allow: [id]) ?? ""
+        check("relay: Proxmox DNS certificates read the token from a root-only file, never the command line",
+              dnsCommand.contains("--tls files") && dnsCommand.contains("--secrets-file \(RelaySetup.proxmoxSecrets)") && !dnsCommand.contains("TOKEN"), dnsCommand)
+        check("relay: no Proxmox command with a value the script would refuse",
+              RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: "x", image: image, setup: proxmox, allow: [id]) == nil
+              && RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: sha, image: "ghcr.io/example/pluck-relay:latest", setup: proxmox, allow: [id]) == nil
+              && RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: sha, image: image, setup: .init(kind: .proxmox, hostname: "relay.example.com", contact: "o'k;x@example.com"), allow: [id]) == nil
+              && RelaySetup.proxmoxCommand(tag: "v4.0.7", sha256: sha, image: image, setup: proxmox, allow: []) == nil)
+        // The script itself: shell syntax, hardening, no port 80, the token never an argument.
+        if let script = try? String(contentsOf: source.appendingPathComponent("Helpers/PluckRelay/docker/proxmox/pluck-relay-proxmox.sh"), encoding: .utf8) {
+            let syntax = Process()
+            syntax.executableURL = URL(fileURLWithPath: "/bin/bash")
+            syntax.arguments = ["-n", source.appendingPathComponent("Helpers/PluckRelay/docker/proxmox/pluck-relay-proxmox.sh").path]
+            try? syntax.run()
+            syntax.waitUntilExit()
+            check("relay: the Proxmox script parses and is hardened", syntax.terminationStatus == 0
+                  && ["--unprivileged 1", "--user 568:568", "--read-only", "--cap-drop ALL", "no-new-privileges:true", "-p 443:8443/tcp", "-p 7842:7842/udp",
+                      "--perms 0600", "--dns-token is not accepted"].allSatisfy(script.contains) && !script.contains("-p 80"))
+        } else {
+            note("SKIP relay: the Proxmox script (no source tree here)")
+        }
         check("relay: the allowlist holds only node ids", RelaySetup.allowlist().allSatisfy(PrivateNetwork.isNodeID))
 
         // A relay-only round trip through a local iroh-relay (http on this Mac).

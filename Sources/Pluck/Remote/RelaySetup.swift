@@ -2,7 +2,8 @@ import Darwin
 import Foundation
 
 /// The office's own relay (Helpers/PluckRelay: iroh-relay at PluckIroh's iroh version) on a TrueNAS (an app made
-/// through its API, like the review host) or on Proxmox (a `docker run` to paste). Only the paired Macs and the office
+/// through its API, like the review host) or on Proxmox (pluck-relay-proxmox.sh makes an LXC container, as the review
+/// host's Proxmox script does, and is pasted as one checked command). Only the paired Macs and the office
 /// group's Macs may use it (an allowlist of node ids, pushed again to TrueNAS when it changes; Proxmox shows the
 /// command again). Pluck never changes router or NAS network settings, and the relay never calls into the LAN.
 @MainActor
@@ -74,15 +75,24 @@ enum RelaySetup {
     /// The single-quoted shell form of a value.
     nonisolated static func quoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 
-    /// Proxmox (a Docker-capable LXC or VM there): the same container with the same hardening, as one command. Run again
-    /// with a new allowlist, it replaces the container (the certificates' volume stays).
-    /// shortcut: automatic certificates only on Proxmox (DNS-challenge needs the sidecar), add it when asked for.
-    nonisolated static func proxmoxCommand(image: String, setup: Setup, allow: [String]) -> String {
-        "docker rm -f pluck-relay 2>/dev/null; docker run -d --name pluck-relay --restart unless-stopped --user 568:568 --read-only "
-            + "--cap-drop ALL --security-opt no-new-privileges:true --tmpfs /tmp:size=8m --pids-limit 128 --memory 256m --cpus 1 "
-            + "-p 443:8443/tcp -p 7842:7842/udp -v pluck-relay-certs:/certs "
-            + "-e PLUCK_RELAY_HOSTNAME=\(quoted(setup.hostname.lowercased())) -e PLUCK_RELAY_CONTACT=\(quoted(setup.contact)) "
-            + "-e PLUCK_RELAY_ALLOW=\(quoted(allow.joined(separator: ","))) -e PLUCK_RELAY_TLS=acme \(quoted(image))"
+    /// Where the DNS token goes on the Proxmox host for DNS certificates (`DNS_TOKEN=…`, chmod 600; never on the command line).
+    nonisolated static let proxmoxSecrets = "/root/pluck-relay-secrets"
+
+    /// Proxmox: one command for the Proxmox host's shell that downloads pluck-relay-proxmox.sh from this Pluck's release,
+    /// checks its SHA-256 (from the signed host-release.json) and only then runs it: an unprivileged LXC container with
+    /// Docker and the relay in it, hardened like the TrueNAS app. Run again with a new allowlist, it updates the same
+    /// container (the certificates stay). nil when a value isn't one the script takes.
+    nonisolated static func proxmoxCommand(tag: String, sha256: String, image: String, setup: Setup, allow: [String]) -> String? {
+        guard tag.wholeMatch(of: #/v[0-9A-Za-z.\-]{1,40}/#) != nil, sha256.wholeMatch(of: #/[0-9a-f]{64}/#) != nil,
+              image.wholeMatch(of: #/[a-z0-9.\/_\-]{1,200}@sha256:[0-9a-f]{64}/#) != nil, isHostname(setup.hostname),
+              setup.contact.wholeMatch(of: #/[A-Za-z0-9._%+\-]{1,64}@[A-Za-z0-9.\-]{1,253}/#) != nil,
+              !allow.isEmpty, allow.allSatisfy(PrivateNetwork.isNodeID) else { return nil }
+        let script = "pluck-relay-proxmox.sh"
+        return "cd /root && curl -fsSLO https://github.com/Astrofrogger/pluck/releases/download/\(tag)/\(script) \\\n"
+            + "  && echo \"\(sha256)  \(script)\" | sha256sum -c - \\\n"
+            + "  && bash \(script) --hostname \(setup.hostname.lowercased()) --contact \(quoted(setup.contact)) --tls \(setup.certificate.rawValue) \\\n"
+            + "     --image \(quoted(image))" + (setup.certificate == .dns ? " --secrets-file \(proxmoxSecrets)" : "") + " \\\n"
+            + "     --allow \(allow.map { $0.lowercased() }.joined(separator: ","))"
     }
 
     static var template: String? {

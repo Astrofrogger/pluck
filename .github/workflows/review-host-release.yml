@@ -288,13 +288,15 @@ jobs:
           for f in pluck-proxmox.sh pluck-review-update.sh; do
             sed -e "s|__PLUCK_REPO__|$REPO|g" -e "s|__PLUCK_TAG__|$TAG|g" "$src/$f" > "out/$f"
           done
+          # The relay's Proxmox script (Edit Anywhere's own relay): no placeholders, its SHA-256 in host-release.json like the rest.
+          cp Helpers/PluckRelay/docker/proxmox/pluck-relay-proxmox.sh out/
           cp "$src"/pluck-review.service "$src"/pluck-review-update.service \
              "$src"/pluck-review-update.timer "$src"/pluck-review-update.path out/
-          assets="$(cd out && sha256sum -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
+          assets="$(cd out && sha256sum -- *.tar.gz pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
             | jq -Rn '[inputs | capture("^(?<v>[0-9a-f]+)  (?<k>.+)$") | {key: .k, value: .v}] | from_entries')"
           jq -n --arg version "$TAG" --arg image "$IMAGE" --arg relay "$RELAY_IMAGE" --argjson assets "$assets" \
             '{version: $version, protocol: 3, image: $image, relayImage: $relay, assets: $assets}' > out/host-release.json
           cat out/host-release.json
           cd out
-          gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh \
+          gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh \
             pluck-review.service pluck-review-update.service pluck-review-update.timer pluck-review-update.path host-release.json
