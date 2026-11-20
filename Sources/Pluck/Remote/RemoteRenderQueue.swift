@@ -32,6 +32,11 @@ final class RemoteRenderQueue {
         var preset: String
         var share: String?
         var proxies: [Proxy]
+        /// Files the editor's Mac sent (or found on a share) for its own files: the path map, swapped like proxies
+        /// but byte for byte the same file, so not compared (RemoteMissing). nil from an older home Mac.
+        var files: [Proxy]? = nil
+        /// Render Anyway: missing fonts and effects don't stop it.
+        var anyway: Bool? = nil
         var device: String
         var deviceID: UUID
         var added = Date.now
@@ -175,8 +180,10 @@ final class RemoteRenderQueue {
             problems += RemoteResolveProject.uses(inspected, roots: RemoteResolveProject.shareRoots(), builtIn: RemoteResolveProject.builtInRoots,
                                                   trusted: trusted).prefix(20)
             let clips = (inspected["items"] as? [[String: Any]] ?? []).map(RemoteResolveProject.Clip.init)
-            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies, trusted: trusted)
+            let plan = await RemoteResolveProject.conform(clips, proxies: item.proxies, files: item.files ?? [], trusted: trusted)
             problems += plan.problems
+            // Fonts and effects as this Mac has them now (the editor's Mac checked before sending; they may differ).
+            if item.anyway != true { problems += RemoteMissing.problems(inspected).prefix(20) }
             guard problems.isEmpty else {
                 update(id) { $0.state = .problems; $0.problems = problems }
                 return

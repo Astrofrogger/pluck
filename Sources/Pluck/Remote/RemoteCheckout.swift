@@ -32,6 +32,7 @@ final class RemoteCheckout {
                                          "versions": versions.map { ["number": $0.number, "date": $0.date.timeIntervalSince1970, "by": $0.by,
                                                                      "size": $0.size, "restoredFrom": $0.restoredFrom ?? 0] }]
             if let holderName { result["holder"] = holderName }
+            if let share { result["share"] = share }
             if let since { result["since"] = since.timeIntervalSince1970 }
             return result
         }

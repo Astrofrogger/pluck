@@ -99,7 +99,8 @@ LUT_ENDINGS = (".cube", ".3dl", ".dctl", ".dctle", ".ilut", ".olut", ".lut", ".c
 
 class Notes:
     def __init__(self):
-        self.found = {"refs": [], "expressions": [], "scripts": [], "unchecked": []}
+        # (fonts and effects: what the office Mac must have installed, RemoteMissing.)
+        self.found = {"refs": [], "expressions": [], "scripts": [], "unchecked": [], "fonts": [], "effects": []}
         self.seen = set()
     def add(self, kind, entry):
         key = (kind,) + tuple(sorted((k, str(v)) for k, v in entry.items()))
@@ -128,6 +129,12 @@ def fusion_settings(settings, label, notes, map_path):
                     sub_regid = str(sub.get("__ctor", ""))
                     if sub_regid == "RunCommand":
                         notes.add("scripts", {"item": label, "tool": k})
+                    if sub_regid.startswith("ofx."):
+                        notes.add("effects", {"id": sub_regid[4:], "name": k.rstrip("0123456789") or k})
+                    inputs = sub.get("Inputs") if isinstance(sub.get("Inputs"), dict) else {}
+                    font = input_value(inputs.get("Font"))
+                    if font:
+                        notes.add("fonts", {"family": font, "style": input_value(inputs.get("Style"))})
                     walk(sub, k, sub_regid, k)
                 elif k == "Expression":
                     if str(sub or "").strip():
@@ -152,6 +159,11 @@ def fusion_settings(settings, label, notes, map_path):
             if path:
                 notes.add("refs", {"item": label, "tool": tool, "regid": regid, "path": path, "lut": False})
     walk(settings, "", "", "")
+
+def input_value(value):
+    # A Fusion input's plain text value (Input { Value = "…" }), else "".
+    value = value.get("Value") if isinstance(value, dict) else value
+    return value.strip() if isinstance(value, str) else ""
 
 def fusion_prefs(prefs, label, notes):
     # Comp preferences: only their scripts matter (their paths are the comp's own path maps).
@@ -304,6 +316,10 @@ def drp_uses(path, notes, label):
         def owner(at):
             i = bisect.bisect(starts, at)
             return names[i - 1][1] if i else label
+        # Fonts the project keeps as plain text (subtitle and title styles).
+        # shortcut: fonts inside binary blobs (the Edit page's plain Text title) aren't read; upgrade if one turns up.
+        for m in re.finditer(r"<(Font|FontName|FontFamily)>([^<]+)</\1>", text):
+            notes.add("fonts", {"family": xml_text(m.group(2)).strip(), "style": ""})
         for m in re.finditer(r"<MediaFilePath>([^<]*)</MediaFilePath>", text):
             if m.group(1):
                 notes.add("refs", {"item": owner(m.start()), "tool": "", "regid": "media", "path": xml_text(m.group(1)), "lut": False})
@@ -380,6 +396,13 @@ def uses(project, drp=None, drp_label=None):
             lut = graph.GetLUT(n)
             if lut:
                 notes.add("refs", {"item": label, "tool": "LUT", "regid": "", "path": str(lut), "lut": True})
+            try:
+                # (Resolve 21's node tooltip: "OFX: name" for a ResolveFX or third-party plugin.)
+                for tool in graph.GetToolsInNode(n) or []:
+                    if str(tool).startswith("OFX: "):
+                        notes.add("effects", {"id": "", "name": str(tool)[5:].strip()})
+            except Exception:
+                pass
     timelines = [t for t in (project.GetTimelineByIndex(i) for i in range(1, project.GetTimelineCount() + 1)) if t]
     try:
         layers = max(1, int(project.GetSetting("nodeStackLayers") or 1))
@@ -401,6 +424,10 @@ def uses(project, drp=None, drp_label=None):
                             scan_comp(it.GetFusionCompByIndex(c), label)
                         for effect in it.GetEffects("fusion") or []:
                             scan_comp(effect.GetFusionComp(), label)
+                        for effect in it.GetEffects("ofx") or []:
+                            info = effect.GetInfo() or {}
+                            if info.get("id") or info.get("name"):
+                                notes.add("effects", {"id": str(info.get("id") or ""), "name": str(info.get("name") or "")})
                         if kind == "video":
                             for layer in range(1, layers + 1):
                                 scan_graph(it.GetNodeGraph(layer), label)
@@ -510,7 +537,12 @@ if action == "inspect":
     render = flattened(project, cmd.get("timeline", ""))
     pm.SaveProject()
     found = uses(project, cmd["drp"] + ".check.drp", cmd.get("label"))
-    found.update({"items": items, "timelines": names, "render": render,
+    try:
+        installed = [{"id": str(e.get("id") or ""), "name": str(e.get("name") or "")}
+                     for kind in ("video", "audio") for e in (resolve.GetEffectsList(kind) or [])]
+    except Exception:
+        installed = None
+    found.update({"items": items, "timelines": names, "render": render, "installed": installed,
                   "presets": [p for p in (project.GetRenderPresetList() or []) if p in host_presets]})
     out(found)
 
@@ -568,6 +600,11 @@ if action == "uses":
     found["files"] = sorted(set(prop(c, "File Path") for c in clips_in(project.GetMediaPool().GetRootFolder())) - {""})
     found["types"] = sorted(set(prop(c, "Type") for c in clips_in(project.GetMediaPool().GetRootFolder())))
     out(found)
+
+if action == "effects":
+    # The effects (ResolveFX, OFX and audio plugins) this Resolve has, for RemoteMissing's check.
+    out({"effects": [{"id": str(e.get("id") or ""), "name": str(e.get("name") or "")}
+                     for kind in ("video", "audio") for e in (resolve.GetEffectsList(kind) or [])]})
 
 if action == "presets":
     project = pm.GetCurrentProject()

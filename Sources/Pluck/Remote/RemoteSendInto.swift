@@ -140,7 +140,8 @@ enum RemoteSendInto {
 
     /// Sends these files into a folder of a share, one after the other, each resumed where the host has got to.
     /// `progress`: the file and how far. Gives the names they got there.
-    static func send(_ files: [URL], share: String, path: String, client: OfficeRenderClient = .shared,
+    /// `hashes`: SHA-256s already read (by file), not read again.
+    static func send(_ files: [URL], share: String, path: String, client: OfficeRenderClient = .shared, hashes: [URL: String] = [:],
                      progress: @escaping (String, Double) -> Void = { _, _ in }) async throws -> [String] {
         var names: [String] = []
         for url in files {
@@ -148,7 +149,8 @@ enum RemoteSendInto {
             let size = Int64(values.fileSize ?? 0)
             let modified = (values.contentModificationDate ?? .now).timeIntervalSince1970.rounded()
             let file: [String: Any] = ["share": share, "path": path, "name": url.lastPathComponent, "size": size, "modified": modified]
-            let sha = try await Task.detached { try hash(url) }.value
+            let sha: String
+            if let known = hashes[url] { sha = known } else { sha = try await Task.detached { try hash(url) }.value }
             var have = (try await client.ask("sendIntoState", file)["have"] as? NSNumber)?.int64Value ?? 0
             let handle = try FileHandle(forReadingFrom: url)
             defer { try? handle.close() }

@@ -17,6 +17,8 @@ struct RemoteResolvePane: View {
     @State private var problem: String?
     @State private var downloading: [String: Double] = [:]
     @State private var pullingParts = false
+    /// A pre-flight that found something the office lacks, shown before sending.
+    @State private var pending: RemoteMissing.Plan?
 
     private var project: RemoteResolve.HostProject? { model.projects.first { $0.id == projectID } }
 
@@ -123,7 +125,7 @@ struct RemoteResolvePane: View {
                     .disabled(model.local == nil || timeline.isEmpty || working)
                     .help("Pulls only the parts of the originals this timeline uses, to finish on this Mac")
                     .sheet(isPresented: $pullingParts) { RemotePiecesSheet(timeline: timeline) }
-                Button { act { try await model.render(project, timeline: timeline, preset: preset) } } label: {
+                Button { act { try await preflightAndRender() } } label: {
                     Label("Render on \(host)", systemImage: "play.fill")
                 }
                 .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32))
@@ -132,6 +134,7 @@ struct RemoteResolvePane: View {
             }
             Text(model.local.map { String(localized: "Open in Resolve: \($0.project)") } ?? String(localized: "DaVinci Resolve isn’t open on this Mac."))
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            if let pending { missing(pending) }
         }
         .font(Design.Studio.body)
         .padding(.horizontal, 16)
@@ -141,6 +144,58 @@ struct RemoteResolvePane: View {
             if let local, !local.timelines.contains(timeline) { timeline = local.timeline ?? local.timelines.first ?? "" }
         }
         .onChange(of: model.presets) { _, presets in if !presets.contains(preset) { preset = presets.first ?? "" } }
+    }
+
+    /// What the office lacks, with what can be done about it.
+    private func missing(_ plan: RemoteMissing.Plan) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Divider().overlay(Design.Studio.line)
+            if !plan.send.isEmpty {
+                line(String(localized: "Only on this Mac: \(RemoteMissing.summary(plan.send))"))
+                if !plan.takesFiles { hint(String(localized: "The office Mac needs a newer Pluck to receive them.")) }
+            }
+            if !plan.stuck.isEmpty {
+                line(String(localized: "Read by Fusion or a grade, only on this Mac: \(plan.stuck.prefix(4).map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))"))
+                hint(String(localized: "Copy them into a share and relink them in DaVinci Resolve."))
+            }
+            ForEach(plan.fonts, id: \.self) { line(RemoteMissing.problem($0)) }
+            ForEach(plan.effects, id: \.self) { line(RemoteMissing.problem($0)) }
+            if !plan.fonts.isEmpty || !plan.effects.isEmpty {
+                hint(String(localized: "Resolve would use another font or leave the effect out. Install them on the office Mac (licences apply)."))
+            }
+            HStack(spacing: 10) {
+                Spacer(minLength: 0)
+                Button("Cancel") { pending = nil }.buttonStyle(StudioFlatButtonStyle())
+                if plan.canSend {
+                    Button { renderWith(plan) } label: { Label("Send Missing Files and Render", systemImage: "arrow.up.doc") }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32)).disabled(working)
+                } else if plan.canRenderAnyway {
+                    Button { renderWith(plan) } label: { Label("Render Anyway", systemImage: "play.fill") }
+                        .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 32)).disabled(working)
+                }
+            }
+        }
+    }
+
+    private func line(_ text: String) -> some View {
+        Label(text, systemImage: "exclamationmark.triangle").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func hint(_ text: String) -> some View {
+        Text(text).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func preflightAndRender() async throws {
+        pending = nil
+        let plan = try await model.preflight()
+        if plan.clean { try await model.render(project, timeline: timeline, preset: preset, plan: plan) } else { pending = plan }
+    }
+
+    /// The editor has seen the list: missing fonts and effects don't stop this render.
+    private func renderWith(_ plan: RemoteMissing.Plan) {
+        pending = nil
+        act { try await model.render(project, timeline: timeline, preset: preset, plan: plan, anyway: true) }
     }
 
     // MARK: Rows

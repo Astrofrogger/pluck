@@ -37,6 +37,7 @@ enum OfficeActions {
         OfficeAccess.register()
         RemoteDriveWriteHost.register()
         ShrinkRemote.register()
+        RemoteMissing.register()
         // B1–B4 add one line each here, e.g. RemoteShares.register()
     }
 
