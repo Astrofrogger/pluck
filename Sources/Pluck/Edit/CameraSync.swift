@@ -38,6 +38,14 @@ struct SyncClip: Identifiable, Hashable, Sendable {
     var method: Method?
     var confidence = 0.0
     var locked = false
+    /// The picture's size and codec ("prores Proxy", "h264"), to tell a proxy from its original.
+    var width = 0
+    var height = 0
+    var codec = ""
+    /// A proxy of this clip that was dropped too: played (and listened to) instead, the original synced and sent.
+    var proxy: String?
+    /// A proxy whose original isn't here: the only copy of that angle.
+    var isProxy = false
 
     var file: URL { URL(fileURLWithPath: path) }
     var name: String { file.lastPathComponent }
@@ -105,6 +113,9 @@ enum CameraSync {
             defer { source.close() }
             let info = source.info
             clip.fps = info.fps
+            clip.width = info.width
+            clip.height = info.height
+            clip.codec = info.format
             clip.duration = Double(info.frames) / max(info.fps, 1)
             clip.hasVideo = true
             clip.hasAudio = info.audioChannels > 0 || ((try? source.audio()) ?? nil) != nil
@@ -136,6 +147,9 @@ enum CameraSync {
         func number(_ value: Any?) -> Double? { (value as? String).flatMap(Double.init) }
         clip.hasVideo = video != nil
         clip.hasAudio = audio != nil
+        clip.width = video?["width"] as? Int ?? 0
+        clip.height = video?["height"] as? Int ?? 0
+        clip.codec = [video?["codec_name"] as? String, video?["profile"] as? String].compactMap { $0 }.joined(separator: " ")
         clip.fps = video.map { rate($0["avg_frame_rate"]) ?? rate($0["r_frame_rate"]) ?? 25 } ?? 0
         clip.duration = number(format["duration"]) ?? number(video?["duration"]) ?? number(audio?["duration"]) ?? 0
         if let video, let audio, let a = number(audio["start_time"]), let v = number(video["start_time"]) { clip.audioOffset = a - v }
@@ -156,6 +170,66 @@ enum CameraSync {
         let serial = tags.first { $0.key.contains("serial") || $0.key.hasSuffix("camera.identifier") }?.value
         let model = tags["com.apple.quicktime.model"] ?? tags["model"] ?? tags["com.android.model"]
         return Probe(clip: clip, root: root, serial: serial?.trimmingCharacters(in: .whitespaces), model: model)
+    }
+
+    // MARK: - Proxies
+
+    /// Folders proxies are kept in: Resolve's ProxyMedia and OptimizedMedia, a camera's Proxy or Sub (Sony XAVC),
+    /// Pluck's "… – Proxies (H.265)".
+    static func inProxyFolder(_ clip: SyncClip) -> Bool {
+        // (The nearest three folders: a drive or a folder far above named "Proxies" doesn't make everything a proxy.)
+        clip.file.deletingLastPathComponent().pathComponents.suffix(3).contains { part in
+            let name = part.lowercased()
+            return ["sub", "proxymedia", "optimizedmedia", "optimised media", "optimized media"].contains(name) || name.hasPrefix("proxy") || name.contains("proxies")
+        }
+    }
+
+    /// A clip's name without its extension(s) and a proxy's mark: "A001_Proxy.mov", "A001.MXF.mov" (Pluck),
+    /// "C0001S03.MP4" (Sony), "…_P.mov" (RED), "…_001.R3D" all give the original's.
+    static func baseName(_ clip: SyncClip) -> (name: String, marked: Bool) {
+        var name = clip.file.deletingPathExtension().lastPathComponent
+        let inner = (name as NSString).pathExtension.lowercased()
+        if videoExtensions.contains(inner) { name = (name as NSString).deletingPathExtension }
+        if clip.file.pathExtension.lowercased() == "r3d", let mark = name.range(of: "_[0-9]{3}$", options: .regularExpression) { name.removeSubrange(mark) }
+        for pattern in ["(?i)[ ._-]?prox(y|ies)$", "_[Pp]$", "(?<=[0-9])S[0-9]{2}$"] {
+            if let mark = name.range(of: pattern, options: .regularExpression) { name.removeSubrange(mark); return (name.uppercased(), true) }
+        }
+        return (name.uppercased(), false)
+    }
+
+    /// How much a clip looks like a proxy: in a proxy folder, a proxy's mark in its name, a proxy codec.
+    static func proxyLook(_ clip: SyncClip) -> Int {
+        let codec = clip.codec.lowercased()
+        return (inProxyFolder(clip) ? 1 : 0) + (baseName(clip).marked ? 1 : 0) + (codec.hasPrefix("prores") && (codec.hasSuffix("proxy") || codec.hasSuffix(" lt")) ? 1 : 0)
+    }
+
+    /// Proxies whose original is among the clips (proxy → original): the same name (or, in a proxy folder,
+    /// the same timecode) and length within a frame, and smaller or more proxy-like than the original.
+    /// shortcut: Pluck's proxy manifest isn't read; its proxies match by name and folder like any other.
+    static func proxies(_ clips: [SyncClip]) -> [UUID: UUID] {
+        var pairs: [UUID: UUID] = [:]
+        let videos = clips.filter(\.hasVideo)
+        let bases = Dictionary(grouping: videos) { baseName($0).name }
+        for proxy in videos {
+            let look = proxyLook(proxy)
+            let frame = 1.5 / max(proxy.fps, 24)
+            let named = bases[baseName(proxy).name] ?? []
+            // (Resolve's OptimizedMedia has names of its own: there, the timecode has to match.)
+            let timed = inProxyFolder(proxy) && proxy.timecode != nil ? videos.filter { $0.timecode.map { abs($0 - proxy.timecode!) < frame } ?? false } : []
+            let original = (named + timed).filter { o in
+                guard o.id != proxy.id, abs(o.duration - proxy.duration) < frame else { return false }
+                if let a = o.timecode, let b = proxy.timecode, abs(a - b) >= frame { return false }
+                if !named.contains(where: { $0.id == o.id }) && proxy.width >= o.width { return false }
+                // (Lower resolution alone: at most half the pixels, so two cameras started together aren't taken for one.)
+                let area = proxy.width * proxy.height, full = o.width * o.height
+                let smaller = area > 0 && full > 0 && (area * 2 <= full || (look > 0 && area < full))
+                return (smaller || look > proxyLook(o)) && !(o.width > 0 && proxy.width > o.width)
+            }.max { $0.width * $0.height < $1.width * $1.height }
+            if let original { pairs[proxy.id] = original.id }
+        }
+        // A chain (a proxy of a proxy) points at the real original.
+        for (proxy, original) in pairs { if let further = pairs[original] { pairs[proxy] = further } }
+        return pairs
     }
 
     /// The file's dates as a last resort: its last change (kept when copied), less its length, else when it was made.

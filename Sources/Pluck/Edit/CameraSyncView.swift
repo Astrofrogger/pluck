@@ -15,6 +15,8 @@ final class CameraSyncModel {
     var selected: UUID?
     /// Sound before timecode, for a shoot whose timecode can't be trusted.
     var audioFirst = false
+    /// Proxies of clips that are here as originals: not synced, not sent.
+    var proxiesLeftOut: [CameraSync.Probe] = []
     private(set) var task: Task<Void, Never>?
     /// Dropped while clips were still being read: read right after (a second drop used to report ffmpeg missing).
     @ObservationIgnored private var pending: [URL] = []
@@ -45,6 +47,7 @@ final class CameraSyncModel {
                 if let probe = await Task.detached(operation: { CameraSync.probe(item.file, root: item.root, ffprobe: ffprobe) }).value { probes.append(probe) }
             }
             guard !Task.isCancelled else { return }
+            probes = leaveOutProxies(probes)
             // New clips join the camera they belong to; the rest make new cameras.
             var cameras = self.cameras
             for camera in CameraSync.group(probes) {
@@ -59,6 +62,38 @@ final class CameraSyncModel {
                 add(next)
             }
         }
+    }
+
+    /// Proxies whose original is here too are left out (kept aside, played instead of the original); a proxy
+    /// alone stays, marked. Clips already here that turn out to be proxies of new ones move aside too.
+    private func leaveOutProxies(_ probes: [CameraSync.Probe]) -> [CameraSync.Probe] {
+        let all = clips + probes.map(\.clip)
+        let pairs = CameraSync.proxies(all)
+        let paths = Dictionary(all.map { ($0.id, $0.path) }, uniquingKeysWith: { a, _ in a })
+        var proxyOf: [UUID: String] = [:]
+        for (proxy, original) in pairs where proxyOf[original] == nil { proxyOf[original] = paths[proxy] }
+        for c in cameras.indices {
+            for clip in cameras[c].clips where pairs[clip.id] != nil {
+                proxiesLeftOut.append(CameraSync.Probe(clip: clip, root: clip.file.deletingLastPathComponent()))
+            }
+            cameras[c].clips.removeAll { pairs[$0.id] != nil }
+            for i in cameras[c].clips.indices { if let proxy = proxyOf[cameras[c].clips[i].id] { cameras[c].clips[i].proxy = proxy } }
+        }
+        cameras.removeAll { $0.clips.isEmpty }
+        proxiesLeftOut += probes.filter { pairs[$0.clip.id] != nil }
+        return probes.filter { pairs[$0.clip.id] == nil }.map { probe in
+            var probe = probe
+            probe.clip.proxy = proxyOf[probe.clip.id]
+            probe.clip.isProxy = CameraSync.proxyLook(probe.clip) > 0
+            return probe
+        }
+    }
+
+    /// The proxies left out, back in as cameras of their own.
+    func includeProxies() {
+        guard task == nil else { return }
+        cameras += CameraSync.group(proxiesLeftOut)
+        proxiesLeftOut = []
     }
 
     /// Syncs everything not locked, or only `only` (everything else stays where it is).
@@ -114,6 +149,7 @@ final class CameraSyncModel {
         stop()
         cameras = []
         selected = nil
+        proxiesLeftOut = []
         audioFirst = false
         done = nil
         problem = nil
@@ -212,6 +248,7 @@ struct CameraSyncView: View {
     @State private var model = CameraSyncModel.shared
     @State private var dropping = false
     @State private var zoom = 1.0
+    @State private var showingProxies = false
     /// Footage to add when the view appears (screenshot mode).
     @MainActor static var openFiles: [URL] = []
 
@@ -237,6 +274,7 @@ struct CameraSyncView: View {
                 }
                 if let problem = model.problem { notice(problem, symbol: "exclamationmark.triangle", colour: Design.Studio.warn) }
                 if let done = model.done { notice(done, symbol: "checkmark", colour: Design.Studio.good) }
+                if !model.proxiesLeftOut.isEmpty { proxiesLine }
                 if !model.cameras.isEmpty { lanes }
                 if let id = model.selected, let clip = model.clips.first(where: { $0.id == id }) {
                     SyncClipInspector(model: model, clip: clip).id(clip.id)
@@ -297,6 +335,33 @@ struct CameraSyncView: View {
                         .disabled(model.running)
                 }
             }
+        }
+    }
+
+    /// One quiet line for the proxies left out, to see or put back.
+    private var proxiesLine: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "square.stack.3d.down.right").foregroundStyle(Design.Studio.textQuiet)
+            Text("Left out \(model.proxiesLeftOut.count) proxies of clips that are here as originals")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            Button("Show") { showingProxies.toggle() }
+                .buttonStyle(.link).font(Design.Studio.hint)
+                .popover(isPresented: $showingProxies) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(model.proxiesLeftOut, id: \.clip.id) { probe in
+                                Text(verbatim: probe.clip.file.deletingLastPathComponent().lastPathComponent + "/" + probe.clip.name)
+                                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.text).lineLimit(1).truncationMode(.middle)
+                            }
+                        }
+                        .padding(12)
+                    }
+                    .frame(width: 320, height: min(CGFloat(model.proxiesLeftOut.count) * 20 + 24, 300))
+                }
+            Button("Include", action: model.includeProxies)
+                .buttonStyle(.link).font(Design.Studio.hint).disabled(model.running)
+                .help("Sync the proxies as cameras of their own")
+            Spacer(minLength: 0)
         }
     }
 
@@ -424,6 +489,10 @@ struct CameraSyncView: View {
                 HStack(spacing: 3) {
                     if clip.locked { Image(systemName: "lock.fill").font(.system(size: 8)) }
                     if let symbol = Self.symbol(clip) { Image(systemName: symbol).font(.system(size: 8)) }
+                    if clip.isProxy {
+                        Text("Proxy").font(.system(size: 8, weight: .medium)).padding(.horizontal, 4).frame(height: 13)
+                            .background(Design.Studio.raised, in: .capsule).help("Only a proxy of this clip is here")
+                    }
                     Text(clip.file.deletingPathExtension().lastPathComponent).lineLimit(1)
                 }
                 .font(.system(size: 10)).foregroundStyle(Design.Studio.text).padding(.horizontal, 5)

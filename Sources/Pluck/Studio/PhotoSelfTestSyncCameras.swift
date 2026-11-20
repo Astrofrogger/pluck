@@ -15,6 +15,7 @@ extension PhotoSelfTest {
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else {
             return check("sync: ffmpeg", false, "no ffmpeg")
         }
+        await syncProxiesTest(ffmpeg: ffmpeg)
         let base = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("SyncCamerasTest-\(UUID().uuidString)", isDirectory: true)
         defer { try? fm.removeItem(at: base) }
 
