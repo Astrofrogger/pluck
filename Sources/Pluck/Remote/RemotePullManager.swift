@@ -69,6 +69,7 @@ enum RemotePullClient {
 final class RemotePullManager {
     static let shared = RemotePullManager()
     private static let jobsKey = "editAnywherePulls", rootsKey = "editAnywherePullRoots", limitKey = "editAnywherePullLimit"
+    static let alsoKey = "editAnywherePullAlsoRoots"
     /// Files fetched at once (each piece is a connection; the host takes 16 from all Macs).
     static let parallel = 4
     /// Tries per file in a pass before it waits for the next.
@@ -84,6 +85,8 @@ final class RemotePullManager {
         var paused = false
         /// Originals: the files themselves (no manifest: the host doesn't make anything).
         var originals: [RemoteManifestEntry]?
+        /// "Also copy to": the same place on a second drive; each file is copied there from here and checked (never pulled twice).
+        var also: String?
         var id: String { share + "|" + format.rawValue + "|" + paths.joined(separator: "\n") }
     }
 
@@ -108,6 +111,8 @@ final class RemotePullManager {
     private(set) var progress: [Job.ID: Progress] = [:]
     /// The folder here per share id.
     private(set) var roots: [String: String] = [:]
+    /// A second folder per share id that gets a checked copy of everything pulled (another drive).
+    private(set) var alsoRoots: [String: String] = [:]
     /// Bytes per second at most (0: as fast as it goes).
     var limit: Int { didSet { UserDefaults.standard.set(limit, forKey: Self.limitKey) } }
     /// Bytes fetched since Pluck opened (every pull).
@@ -124,6 +129,7 @@ final class RemotePullManager {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: Self.jobsKey), let saved = try? JSONDecoder().decode([Job].self, from: data) { jobs = saved }
         roots = defaults.dictionary(forKey: Self.rootsKey) as? [String: String] ?? [:]
+        alsoRoots = defaults.dictionary(forKey: Self.alsoKey) as? [String: String] ?? [:]
         limit = defaults.integer(forKey: Self.limitKey)
     }
 
@@ -136,6 +142,56 @@ final class RemotePullManager {
     private func save() {
         if let data = try? JSONEncoder().encode(jobs) { UserDefaults.standard.set(data, forKey: Self.jobsKey) }
         UserDefaults.standard.set(roots, forKey: Self.rootsKey)
+        UserDefaults.standard.set(alsoRoots, forKey: Self.alsoKey)
+    }
+
+    /// "Also copy to" a second folder for a share (nil: stop). Pulls under way copy there too.
+    func setAlso(_ url: URL?, for share: String) {
+        alsoRoots[share] = url?.path
+        for index in jobs.indices where jobs[index].share == share { jobs[index].also = nil; jobs[index].also = mirror(jobs[index]) }
+        save()
+        resume()
+    }
+
+    /// A pull's place under the share's second folder (its place under the first one, there).
+    private func mirror(_ job: Job) -> String? {
+        guard let also = alsoRoots[job.share] else { return nil }
+        guard let root = roots[job.share], job.destination.hasPrefix(root) else { return also }
+        return also + job.destination.dropFirst(root.count)
+    }
+
+    /// Copies what's here and not yet there to the second folder, each checked against its checksum (or the copy here).
+    /// A second drive that isn't there only leaves a note: the pull here goes on.
+    private func copyAlso(_ entries: [RemoteManifestEntry], of job: Job, from root: URL) async {
+        guard let also = job.also, let top = alsoRoots[job.share] else { return }
+        guard FileManager.default.fileExists(atPath: top) else {
+            progress[job.id]?.note = String(localized: "The second folder isn’t there (a drive not connected?): copies wait for it.")
+            return
+        }
+        let target = URL(fileURLWithPath: also, isDirectory: true)
+        let failed = await Task.detached { () -> Int in
+            var failed = 0
+            for entry in entries where Self.isHere(entry, in: root) && !Self.isHere(entry, in: target) {
+                if !Self.copyChecked(root.appendingPathComponent(entry.proxy), to: target.appendingPathComponent(entry.proxy), checksum: entry.checksum) { failed += 1 }
+            }
+            for name in [RemoteManifest.fileName] where FileManager.default.fileExists(atPath: root.appendingPathComponent(name).path) {
+                _ = Self.copyChecked(root.appendingPathComponent(name), to: target.appendingPathComponent(name), checksum: nil)
+            }
+            return failed
+        }.value
+        if failed > 0 { progress[job.id]?.note = String(localized: "\(failed) copies to the second folder didn’t check out; they’re made again on the next pass.") }
+    }
+
+    /// A copy next to its place, its SHA-256 compared, then put in place. False (and nothing left) when it doesn't match.
+    nonisolated static func copyChecked(_ source: URL, to target: URL, checksum: String?) -> Bool {
+        let fm = FileManager.default
+        let partial = target.appendingPathExtension("part")
+        try? fm.removeItem(at: partial)
+        guard (try? fm.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)) != nil,
+              (try? fm.copyItem(at: source, to: partial)) != nil else { return false }
+        guard let sum = sha256(partial), sum == (checksum?.lowercased() ?? sha256(source)) else { try? fm.removeItem(at: partial); return false }
+        try? fm.removeItem(at: target)
+        return (try? fm.moveItem(at: partial, to: target)) != nil
     }
 
     // MARK: - Folders here
@@ -233,6 +289,8 @@ final class RemotePullManager {
     }
 
     private func add(_ job: Job) {
+        var job = job
+        job.also = mirror(job)
         jobs.removeAll { $0.id == job.id }
         jobs.append(job)
         progress[job.id] = nil
@@ -338,6 +396,12 @@ final class RemotePullManager {
             let folder = root.lastPathComponent
             let pieces = originals.map { var entry = $0; entry.proxy = folder + "/" + entry.proxy; return entry }
             do { try writeManifest(pieces, of: job, in: root.deletingLastPathComponent()) } catch { progress[job.id]?.problem = error.localizedDescription }
+        }
+        await copyAlso(final, of: now, from: root)
+        if now.originals != nil, let also = now.also {
+            // (Parts of originals: the share's manifest beside "Originals" goes too.)
+            await copyAlso([], of: Job(share: now.share, shareName: now.shareName, format: now.format, paths: [], destination: root.deletingLastPathComponent().path,
+                                        also: URL(fileURLWithPath: also).deletingLastPathComponent().path), from: root.deletingLastPathComponent())
         }
         let done = !final.isEmpty && here.count == final.count && pending == 0
         progress[job.id]?.filesHere = here.count

@@ -169,6 +169,32 @@ extension PhotoSelfTest {
         let again = await pulls.pass(pulls.jobs.first { $0.id == job.id }!)
         check("pull: a file that keeps failing is tried again later, not taken", again && pulls.progress[job.id]?.failed["Day 1/A004.mov"] != nil
               && !fm.fileExists(atPath: local.appendingPathComponent("Day 1/A004.mov").path))
+        // Also copy to a second drive: copied from here and checked, never pulled twice; a missing drive only leaves a note.
+        let second = base.appendingPathComponent("Second", isDirectory: true)
+        try? fm.createDirectory(at: second, withIntermediateDirectories: true)
+        pulls.setAlso(second, for: id)
+        let pulledBefore = pulls.fetched
+        _ = await pulls.pass(pulls.jobs.first { $0.id == job.id }!)
+        let copied = ["A001.mov", "A002.mov", "A003.mov"].allSatisfy { (try? Data(contentsOf: second.appendingPathComponent("Day 1/" + $0))) == proxies[$0] }
+        check("pull: also copied to the second folder, checked, nothing pulled twice", copied && RemoteManifest.load(in: second) != nil
+              && pulls.fetched - pulledBefore <= Int64(proxies["A004.mov"]!.count) * Int64(RemotePullManager.tries), "\(pulls.fetched - pulledBefore)")
+        let scratch = base.appendingPathComponent("copy-check")
+        fm.createFile(atPath: scratch.path, contents: Data("abc".utf8))
+        check("pull: a copy that doesn't match its checksum is not kept", !RemotePullManager.copyChecked(scratch, to: base.appendingPathComponent("copy-bad"), checksum: String(repeating: "0", count: 64))
+              && !fm.fileExists(atPath: base.appendingPathComponent("copy-bad").path) && RemotePullManager.copyChecked(scratch, to: base.appendingPathComponent("copy-good"), checksum: nil))
+        pulls.setAlso(base.appendingPathComponent("Unplugged", isDirectory: true), for: id)
+        try? fm.removeItem(at: local.appendingPathComponent("Day 1/A001.mov"))
+        _ = await pulls.pass(pulls.jobs.first { $0.id == job.id }!)
+        check("pull: a missing second drive doesn't stop the first", pulls.progress[job.id]?.note != nil
+              && (try? Data(contentsOf: local.appendingPathComponent("Day 1/A001.mov"))) == proxies["A001.mov"], "\(String(describing: pulls.progress[job.id]?.note))")
+        pulls.setAlso(nil, for: id)
+        // Send to several office Macs: the list, and the single office of builds before.
+        let one = UUID(), two = UUID()
+        check("send: the single office of builds before becomes the list", SendSync.offices(list: nil, single: one.uuidString) == [one]
+              && SendSync.offices(list: [one.uuidString, two.uuidString], single: one.uuidString) == [one, two] && SendSync.offices(list: nil, single: nil).isEmpty)
+        let oldFolder = #"{"path":"/x","sent":{"a.mov":{"size":1,"modified":2}}}"#
+        let folder = try? JSONDecoder().decode(SendSync.Folder.self, from: Data(oldFolder.utf8))
+        check("send: a folder from before keeps what the first office has, none for others", folder?.sent(at: nil, first: true).count == 1 && folder?.sent(at: two, first: false).isEmpty == true)
         if let device = server.devices.first?.id { await remotePiecesTest(share: share, root: root, local: local, device: device) }
         await remoteLookTest(root: root)
     }

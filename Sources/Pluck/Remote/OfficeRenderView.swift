@@ -2081,6 +2081,21 @@ private struct SendPane: View {
             if !sync.files.isEmpty {
                 Text("^[\(sync.files.count) file](inflect: true) waiting to be sent").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
             }
+            // Several office Macs: also to the others' inbox folders, each its own transfer.
+            let others = OfficeRenderClient.shared.members.filter { $0.id != sync.office }
+            if OfficeRenderClient.shared.members.count > 1, sync.office != nil, !others.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Also send to").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    ForEach(others) { member in
+                        HStack(spacing: 10) {
+                            Toggle(isOn: Binding(get: { sync.offices.contains(member.id) }, set: { sync.setAlso(member.id, $0) })) { Text(verbatim: member.name) }
+                                .toggleStyle(StudioSwitchStyle()).labelsHidden()
+                            Text(verbatim: member.name).font(Design.Studio.body)
+                        }
+                        .frame(height: 28)
+                    }
+                }
+            }
             if let problem = sync.problem { ProblemLine(text: problem) }
             HStack(spacing: 8) {
                 Button("Add folder…", systemImage: "plus") { choose(folders: true) }

@@ -259,6 +259,15 @@ private struct RemotePullsList: View {
                 HStack(spacing: 8) {
                     Text(summary).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
                     Spacer(minLength: 8)
+                    Menu {
+                        Button("Choose a Folder…") { chooseAlso() }
+                        if pulls.alsoRoots[share] != nil { Button("Stop Copying") { pulls.setAlso(nil, for: share) } }
+                    } label: {
+                        Text(pulls.alsoRoots[share].map { String(localized: "Also to \(URL(fileURLWithPath: $0).lastPathComponent)") } ?? String(localized: "Also copy to…"))
+                            .font(Design.Studio.hint)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                    .help("Copies everything pulled to a second drive too, checked, without pulling it twice")
                     Picker("Speed", selection: Bindable(pulls).limit) {
                         ForEach(Self.limits, id: \.0) { Text($0.1).tag($0.0) }
                     }
@@ -269,6 +278,17 @@ private struct RemotePullsList: View {
                 ForEach(jobs) { row($0) }
             }
         }
+    }
+
+    private func chooseAlso() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "A second folder (on another drive) that gets a copy of everything pulled.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pulls.setAlso(url, for: share)
     }
 
     private var summary: String {
