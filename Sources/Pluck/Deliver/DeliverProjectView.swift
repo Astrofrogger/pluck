@@ -167,6 +167,7 @@ struct DeliverProjectView: View {
                     DeliverToolLabel(symbol: "line.3.horizontal.decrease", title: "Sorted by", value: sort == "name" ? String(localized: "Name") : String(localized: "Date Added"))
                 }
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+                copiesMenu
                 if searching || !search.isEmpty {
                     HStack(spacing: 6) {
                         Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(Design.Studio.textQuiet)
@@ -291,6 +292,27 @@ struct DeliverProjectView: View {
         .frame(height: 30)
     }
 
+    /// The project's review-copy switches (both off by default; both cost this Mac's time).
+    private var copiesMenu: some View {
+        let options = store.project(project)
+        return Menu {
+            Section("Made on this Mac, also for NAS copies") {
+                Toggle("Transcripts", isOn: Binding(get: { options?.transcripts == true }, set: { on in
+                    store.setOption(project: project) { $0.transcripts = on ? true : nil }
+                    if on { copies.transcribeProject(project) }
+                }))
+                .disabled(!LocalAI.canTranscribe)
+            }
+            Section("About 9 GB per hour of 4K on the NAS") {
+                Toggle("4K and HDR Copies", isOn: Binding(get: { options?.uhd == true }, set: { on in
+                    store.setOption(project: project) { $0.uhd = on ? true : nil }
+                }))
+                Button("Delete 4K Copies") { copies.deleteUHD(project) }
+            }
+        } label: { DeliverToolLabel(symbol: "film.stack", title: "Review Copies") }
+            .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
+    }
+
     @ViewBuilder private func menu(_ asset: Deliver.Asset) -> some View {
         Button("Share…") { sharing = .asset(asset.id, project: project) }
         Button("Info…") { info = asset.id }
@@ -318,6 +340,9 @@ struct DeliverProjectView: View {
             }
         }
         if case .failed = asset.current.copy { Button("Retry Review Copy") { copies.retry(asset: asset.id, version: asset.current.id) } }
+        if asset.kind == .video || asset.kind == .audio, LocalAI.canTranscribe, store.original(asset.current) != nil {
+            Button(asset.current.transcribed == nil ? "Make Transcript" : "Make Transcript Again") { copies.enqueueTranscript(asset: asset.id, version: asset.current.id) }
+        }
         Divider()
         Button("Remove from Project", role: .destructive) { store.remove(asset: asset.id) }
     }

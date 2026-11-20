@@ -535,13 +535,13 @@ impl Host {
         if self.busy.preparing() {
             return; // an update waits: no new copy jobs (§13.15)
         }
-        let want: Vec<(String, String, String)> = self.manifest["projects"].as_array().into_iter().flatten()
-            .flat_map(|p| Self::arr(p, "assets"))
-            .flat_map(|a| Self::arr(a, "versions").map(move |v| (a, v)))
-            .filter(|(_, v)| v["ready"] == false)
-            .filter_map(|(a, v)| Some((v["id"].as_str()?.to_owned(), a["kind"].as_str()?.to_owned(), v["source"].as_str()?.to_owned())))
+        let want: Vec<(String, String, String, bool)> = self.manifest["projects"].as_array().into_iter().flatten()
+            .flat_map(|p| Self::arr(p, "assets").map(move |a| (p["uhd"] == true, a)))
+            .flat_map(|(uhd, a)| Self::arr(a, "versions").map(move |v| (uhd, a, v)))
+            .filter(|(_, _, v)| v["ready"] == false)
+            .filter_map(|(uhd, a, v)| Some((v["id"].as_str()?.to_owned(), a["kind"].as_str()?.to_owned(), v["source"].as_str()?.to_owned(), uhd)))
             .collect();
-        for (vid, kind, source) in want {
+        for (vid, kind, source, uhd) in want {
             if self.jobs.contains_key(&vid) {
                 continue; // queued, making, or failed (a new publish retries)
             }
@@ -553,7 +553,7 @@ impl Host {
             let stem = source.rsplit_once('.').map_or(source.as_str(), |(s, _)| s);
             let captions = ["vtt", "srt"].iter().find_map(|e| self.resolve_media(&format!("{stem}.{e}")));
             self.jobs.insert(vid.clone(), json!({"state": "queued", "progress": 0.0}));
-            let _ = tx.send(copies::Job { out: self.dir.join("copies").join(&vid), version: vid, kind, src, captions, watermark: None });
+            let _ = tx.send(copies::Job { out: self.dir.join("copies").join(&vid), version: vid, kind, src, captions, watermark: None, uhd });
         }
         // Links that burn their watermark in get their own copies of the versions they show, once
         // the plain copy is ready. Only for versions this host makes (Pluck pushes the others).
@@ -579,7 +579,7 @@ impl Host {
         for (key, kind, src, out, text, settings) in wm {
             let Some(src) = self.resolve_media(&src) else { continue };
             self.jobs.insert(key.clone(), json!({"state": "queued", "progress": 0.0}));
-            let _ = tx.send(copies::Job { out, version: key, kind, src, captions: None, watermark: Some((text, settings)) });
+            let _ = tx.send(copies::Job { out, version: key, kind, src, captions: None, watermark: Some((text, settings)), uhd: false });
         }
     }
 
@@ -2493,7 +2493,8 @@ impl Host {
         let (path, of) = match original {
             Some(p) => (p, "original"),
             None => {
-                let top = Self::arr(&v, "renditions").filter_map(Value::as_str).filter(|r| id_ok(r))
+                // (The 1080 copy, as before 4K: "2160"/"2160h" are left out.)
+                let top = Self::arr(&v, "renditions").filter_map(Value::as_str).filter(|r| id_ok(r) && r.parse::<u64>().is_ok_and(|n| n <= 1080))
                     .max_by_key(|r| r.parse::<u64>().unwrap_or(0)).ok_or("notReady")?;
                 (self.dir.join("copies").join(vid).join(top).join("media.m4s"), "copy")
             }

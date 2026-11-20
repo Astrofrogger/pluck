@@ -100,6 +100,7 @@ extension PhotoSelfTest {
         guard let manager = AppDelegate.shared?.manager, let ffmpeg = manager.tool("ffmpeg"), let ffprobe = manager.tool("ffprobe") else {
             return check("review: ffmpeg", false, "no ffmpeg")
         }
+        await deliverMediaChecks(base, ffmpeg: ffmpeg, ffprobe: ffprobe)
         let media = base.appendingPathComponent("Media", isDirectory: true)
         try? fm.createDirectory(at: media.appendingPathComponent("Socials"), withIntermediateDirectories: true)
         let clip = media.appendingPathComponent("Hero 30s.mov"), drop = media.appendingPathComponent("Socials/Drop.mov")

@@ -2,6 +2,7 @@ import AppKit
 import CryptoKit
 import ImageIO
 import PDFKit
+import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
 /// Review copies (§2): three H.264 renditions per video (1080, 540, and 360 for slow lossy links) as fragmented MP4 through ffmpeg's HLS muxer (so
@@ -17,6 +18,9 @@ final class DeliverCopies {
     private(set) var working: UUID?
     /// Per-link burned-in copies to make (after the plain ones).
     private(set) var marks: [(asset: UUID, version: UUID, link: UUID)] = []
+    /// Transcripts to make (DeliverTranscripts.swift), only once every copy above is made: one job at a time on this Mac.
+    var transcripts: [(asset: UUID, version: UUID)] = []
+    private(set) var transcribing: UUID?
     /// Set when burned-in copies couldn't be made (an ffmpeg without drawtext, say).
     var markProblem: String?
     @ObservationIgnored private var task: Task<Void, Never>?
@@ -51,6 +55,21 @@ final class DeliverCopies {
         enqueue(asset: asset, version: version)
     }
 
+    /// The project's 4K copies go (the 1080 ladder stays); the hosts get the shorter list.
+    /// shortcut: a NAS keeps the 4K files it was sent until "Delete Review Copies"; they're no longer listed, so never served.
+    func deleteUHD(_ project: UUID) {
+        for asset in store.content(project).assets {
+            var changed = false
+            for version in asset.versions {
+                guard case .ready(let list) = version.copy, list.contains(where: { $0.hasPrefix("2160") }) else { continue }
+                for r in list where r.hasPrefix("2160") { try? FileManager.default.removeItem(at: store.copies(version.id).appendingPathComponent(r)) }
+                store.update(version: version.id, of: asset.id) { $0.copy = .ready(list.filter { !$0.hasPrefix("2160") }) }
+                changed = true
+            }
+            if changed { store.tell(.assetChanged(asset.id)); ReviewPublish.shared.resend(asset.id) }
+        }
+    }
+
     /// A link's burned-in copies of a version (made once; asked for again when the link's watermark changes).
     func enqueueMark(asset: UUID, version: UUID, link: UUID) {
         guard !marks.contains(where: { $0.version == version && $0.link == link }) else { return }
@@ -71,7 +90,7 @@ final class DeliverCopies {
         }
     }
 
-    private func next() {
+    func next() {
         if task == nil, queue.isEmpty, !marks.isEmpty {
             let job = marks.removeFirst()
             guard let link = store.link(job.link), let mark = link.watermark, mark.burned, let (_, asset) = store.find(job.asset),
@@ -83,6 +102,17 @@ final class DeliverCopies {
                 let ok = await Self.makeMarked(source, kind: kind, probe: probe, plain: plain, into: out, mark: mark, text: text, ffmpeg: ffmpeg)
                 markProblem = ok ? nil : await Self.hasDrawtext(ffmpeg) ? String(localized: "The watermarked copy couldn’t be made.")
                     : String(localized: "This ffmpeg can’t burn text into copies.")
+                task = nil
+                next()
+            }
+            return
+        }
+        if task == nil, queue.isEmpty, marks.isEmpty, !transcripts.isEmpty {
+            let job = transcripts.removeFirst()
+            transcribing = job.version
+            task = Task {
+                await makeTranscript(asset: job.asset, version: job.version)
+                transcribing = nil
                 task = nil
                 next()
             }
@@ -112,10 +142,13 @@ final class DeliverCopies {
         }
         store.update(version: id, of: owner) { $0.copy = .making(0) }
         let out = store.copies(id)
-        let result = await Self.make(source, kind: asset.kind, into: out, ffmpeg: ffmpeg, ffprobe: ffprobe) { share in
+        let uhd = store.find(owner).flatMap { store.project($0.project)?.uhd } == true
+        let result = await Self.make(source, kind: asset.kind, into: out, ffmpeg: ffmpeg, ffprobe: ffprobe, uhd: uhd) { share in
             Task { @MainActor in self.store.update(version: id, of: owner) { $0.copy = .making(share) } }
         }
         let pages = asset.kind == .document ? Self.pageCount(out) : nil
+        // (A Quick Look preview makes a download-only file a picture on the review page, by both servers' image path.)
+        if asset.kind == .other, result.probe != nil { store.update(asset: owner) { $0.kind = .image } }
         store.update(version: id, of: owner) { version in
             if let probe = result.probe { version.probe = probe }
             if let pages { version.pages = pages }
@@ -124,6 +157,7 @@ final class DeliverCopies {
         store.tell(.assetChanged(owner))
         // The original's SHA-256, for approval proofs (§13.8).
         if result.renditions != nil { DeliverProof.hashSoon(asset: owner, version: id, store: store) }
+        if result.renditions != nil, wantsTranscript(owner) { enqueueTranscript(asset: owner, version: id) }
         // Links with a burned-in watermark get their own copies of it too.
         for link in store.links where link.isLive && link.watermark?.burned == true {
             if let found = store.find(owner)?.asset, DeliverServer(store: store).inScope(found, link) { enqueueMark(asset: owner, version: id, link: link.id) }
@@ -133,23 +167,29 @@ final class DeliverCopies {
     // MARK: - Making them (no state: the self-test calls these directly)
 
     /// Probes `source` and makes its copies in `out`; nil renditions when that failed.
-    nonisolated static func make(_ source: URL, kind: Deliver.Kind, into out: URL, ffmpeg: String, ffprobe: String,
+    nonisolated static func make(_ source: URL, kind: Deliver.Kind, into out: URL, ffmpeg: String, ffprobe: String, uhd: Bool = false,
                                  progress: @escaping @Sendable (Double) -> Void) async -> (probe: Deliver.Probe?, renditions: [String]?) {
         try? FileManager.default.removeItem(at: out)
         try? FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         switch kind {
         case .video:
             guard let probe = await probe(source, ffprobe: ffprobe), probe.width > 0 else { return (nil, nil) }
-            let inputs = input(source)
-            for (index, rendition) in renditions.enumerated() {
-                let share = { @Sendable (done: Double) in progress((Double(index) + done) / 3.2) }
-                guard await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, progress: share) else { return (probe, nil) }
+            let inputs = input(source), tools = await tools(ffmpeg)
+            let list = renditions(for: probe, uhd: uhd, hevc: tools.hevc != nil)
+            for (index, rendition) in list.enumerated() {
+                let share = { @Sendable (done: Double) in progress((Double(index) + done) / (Double(list.count) + 0.2)) }
+                guard await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, tools: tools, progress: share) else {
+                    // (A 4K copy that didn't work leaves the usual ones.)
+                    if rendition.hasPrefix("2160") { continue }
+                    return (probe, nil)
+                }
             }
+            let made = list.filter { FileManager.default.fileExists(atPath: out.appendingPathComponent("\($0)/index.json").path) }
             await pictures(source, input: inputs, probe: probe, into: out, ffmpeg: ffmpeg)
             if probe.hasAudio { await waveform(source, into: out, ffmpeg: ffmpeg) }
             captions(for: source, duration: probe.duration, into: out)
             progress(1)
-            return (probe, renditions)
+            return (probe, made)
         case .audio:
             guard let probe = await probe(source, ffprobe: ffprobe) else { return (nil, nil) }
             guard await encode(source, rendition: "a", probe: probe, into: out, ffmpeg: ffmpeg, progress: progress) else { return (probe, nil) }
@@ -161,12 +201,35 @@ final class DeliverCopies {
             return (Deliver.Probe(duration: 0, fpsNum: 25, fpsDen: 1, width: size.0, height: size.1, startTimecode: "00:00:00:00",
                                   dropFrame: false, hasAudio: false, frames: 1), [])
         case .image:
-            guard let size = picture(source, into: out.appendingPathComponent("image.jpg")) else { return (nil, nil) }
+            // (ImageIO can't read every picture type: an Illustrator file gets Quick Look's page 1.)
+            let file = out.appendingPathComponent("image.jpg")
+            var size = picture(source, into: file)
+            if size == nil { size = await quickLook(source, into: file) }
+            guard let size else { return (nil, nil) }
             return (Deliver.Probe(duration: 0, fpsNum: 25, fpsDen: 1, width: size.0, height: size.1, startTimecode: "00:00:00:00",
                                   dropFrame: false, hasAudio: false, frames: 1), [])
         case .other:
-            return (nil, [])
+            // Office, Keynote and the like: Quick Look's first page as a picture, else download only.
+            guard let size = await quickLook(source, into: out.appendingPathComponent("image.jpg")) else { return (nil, []) }
+            return (Deliver.Probe(duration: 0, fpsNum: 25, fpsDen: 1, width: size.0, height: size.1, startTimecode: "00:00:00:00",
+                                  dropFrame: false, hasAudio: false, frames: 1), [])
         }
+    }
+
+    /// Quick Look's thumbnail of page 1 (≤ 2560 px, in-process: no qlmanage), as JPEG; nil when it has none (never an icon).
+    nonisolated static func quickLook(_ source: URL, into file: URL) async -> (Int, Int)? {
+        let request = QLThumbnailGenerator.Request(fileAt: source, size: CGSize(width: 2560, height: 2560), scale: 1, representationTypes: .thumbnail)
+        guard let image = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).cgImage,
+              DeliverExport.jpeg(image, file) else { return nil }
+        return (image.width, image.height)
+    }
+
+    /// A picture this Mac can only show through Quick Look (Office, Illustrator…): the review page gets a preview of it.
+    nonisolated static func isPreviewOnly(_ original: URL?) -> Bool {
+        guard let original else { return false }
+        let types = (CGImageSourceCopyTypeIdentifiers() as? [String]) ?? []
+        return !(UTType(filenameExtension: original.pathExtension).map { type in types.contains { UTType($0).map(type.conforms(to:)) ?? false } } ?? false)
+            && DeliverStore.kind(original) != .document
     }
 
     /// The picture at most 2560 px on its longer side, as JPEG at 0.85; its size.
@@ -370,9 +433,10 @@ final class DeliverCopies {
         guard (try? text.write(to: textFile, atomically: true, encoding: .utf8)) != nil else { return false }
         switch kind {
         case .video:
+            let tools = await tools(ffmpeg)
             for rendition in renditions {
                 let (width, _) = fit(probe.width, probe.height, box: spec(rendition, fast: false).box)
-                guard await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, filter: drawtext(mark, textFile: textFile.path, width: width), progress: { _ in })
+                guard await encode(source, rendition: rendition, probe: probe, into: out, ffmpeg: ffmpeg, filter: drawtext(mark, textFile: textFile.path, width: width), tools: tools, progress: { _ in })
                 else { return false }
             }
             await pictures(source, input: input(source), probe: probe, into: out, ffmpeg: ffmpeg) { drawtext(mark, textFile: textFile.path, width: $0) }
@@ -428,7 +492,8 @@ final class DeliverCopies {
         let timecode = tags["timecode"] as? String ?? (format["tags"] as? [String: Any])?["timecode"] as? String ?? "00:00:00:00"
         let fps = Double(num) / Double(den)
         return Deliver.Probe(duration: duration, fpsNum: num, fpsDen: den, width: width, height: height, startTimecode: timecode,
-                             dropFrame: timecode.contains(";"), hasAudio: hasAudio, frames: max(1, Int((duration * fps).rounded())))
+                             dropFrame: timecode.contains(";"), hasAudio: hasAudio, frames: max(1, Int((duration * fps).rounded())),
+                             transfer: video?["color_transfer"] as? String, primaries: video?["color_primaries"] as? String)
     }
 
     /// The display size scaled so its longer side fits `box`, never up, both sides even.
@@ -438,13 +503,34 @@ final class DeliverCopies {
         return (even(Double(width) * scale), even(Double(height) * scale))
     }
 
-    /// A video's renditions, highest first.
+    /// A video's renditions, highest first: always H.264 SDR (tone-mapped from an HDR source), so every browser plays one.
     nonisolated static let renditions = ["1080", "540", "360"]
+
+    /// With the project's 4K switch on and a source at least 3000 px: HEVC "2160" (SDR) and, from an HDR source, "2160h"
+    /// (Main10, PQ or HLG) on top. Never instead of the H.264 ladder.
+    nonisolated static func renditions(for probe: Deliver.Probe, uhd: Bool, hevc: Bool) -> [String] {
+        guard uhd, hevc, max(probe.width, probe.height) >= 3000 else { return renditions }
+        return (probe.isHDR ? ["2160h", "2160"] : ["2160"]) + renditions
+    }
+
+    /// What this ffmpeg can do for 4K and HDR: an HEVC encoder (VideoToolbox, else x265) and zscale + tonemap.
+    struct Tools: Sendable { var hevc: String?; var tonemap = false }
+
+    nonisolated static func tools(_ ffmpeg: String) async -> Tools {
+        let encoders = await DeliveryCheck.output(ffmpeg, ["-hide_banner", "-encoders"]), filters = await DeliveryCheck.output(ffmpeg, ["-hide_banner", "-filters"])
+        return Tools(hevc: encoders.contains(" hevc_videotoolbox ") ? "hevc_videotoolbox" : encoders.contains(" libx265 ") ? "libx265" : nil,
+                     tonemap: filters.contains(" zscale ") && filters.contains(" tonemap "))
+    }
+
+    /// PQ/HLG to BT.709 SDR (Hable, linear light at 100 nits), ending in 8-bit 4:2:0.
+    nonisolated static let toneMap = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p"
 
     /// One video rendition's longer side, H.264 level and codec, -b:v/-maxrate/-bufsize and AAC rate.
     /// 360 is ≤ 0.4 Mbit/s in all (mono sound), for slow lossy links (WebRTC goodput there is ~0.2–0.35 Mbit/s).
     nonisolated static func spec(_ rendition: String, fast: Bool) -> (box: Int, level: String, avc: String, rates: [String], audio: String) {
         switch rendition {
+        case "2160": (3840, "5.1", "hvc1.1.6.L153.B0", ["18M", "24M", "36M"], "160k")
+        case "2160h": (3840, "5.1", "hvc1.2.4.L153.B0", ["18M", "24M", "36M"], "160k")
         case "1080": (1920, "4.2", "avc1.64002a", fast ? ["12M", "15M", "24M"] : ["8M", "10M", "16M"], "160k")
         case "360": (640, "3.1", "avc1.64001f", ["330k", "380k", "660k"], "48k") // any frame rate: the bits matter, not the frames
         default: (960, "3.2", "avc1.640020", fast ? ["3M", "3.75M", "6M"] : ["2M", "2.5M", "4M"], "128k")
@@ -458,7 +544,7 @@ final class DeliverCopies {
     }
 
     /// ffmpeg's arguments for one rendition (§2), written into `folder`.
-    nonisolated static func arguments(_ source: URL, rendition: String, probe: Deliver.Probe, folder: URL, filter: String? = nil) -> [String] {
+    nonisolated static func arguments(_ source: URL, rendition: String, probe: Deliver.Probe, folder: URL, filter: String? = nil, tools: Tools = Tools()) -> [String] {
         var arguments = ["-hide_banner", "-nostdin", "-y", "-v", "error"] + input(source)
         // (§2 says make_zero; that shifts the video by AAC's priming, 21 ms, so frame N no longer starts at N/fps.
         // "disabled" keeps video and sound starting at 0, the priming in the edit list.)
@@ -472,23 +558,38 @@ final class DeliverCopies {
         let video = spec(rendition, fast: probe.fps > 30.5), rates = video.rates
         let (width, height) = fit(probe.width, probe.height, box: video.box)
         let g = String(Int((2 * probe.fps).rounded()))
+        let sdr = probe.isHDR && tools.tonemap ? toneMap : "format=yuv420p"
+        let bt709 = probe.isHDR && tools.tonemap ? ["-color_primaries", "bt709", "-color_trc", "bt709", "-colorspace", "bt709"] : []
+        if rendition.hasPrefix("2160"), let hevc = tools.hevc {
+            // HEVC (hvc1 for Safari); HDR keeps its transfer and BT.2020 tags, Dolby Vision isn't carried (re-encoded without its RPU).
+            let hdr = rendition == "2160h"
+            let colour = hdr ? ["-color_primaries", "bt2020", "-color_trc", probe.transfer ?? "smpte2084", "-colorspace", "bt2020nc"] : bt709
+            let x265 = hevc == "libx265" ? ["-preset", "fast", "-x265-params", "log-level=error" + (hdr ? ":colorprim=bt2020:transfer=\(probe.transfer ?? "smpte2084"):colormatrix=bt2020nc" : "")] : []
+            arguments += ["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1",
+                          "-vf", "scale=\(width):\(height):flags=lanczos," + (hdr ? "format=p010le" : sdr),
+                          "-fps_mode", "cfr", "-r", "\(probe.fpsNum)/\(probe.fpsDen)",
+                          "-c:v", hevc] + x265 + ["-profile:v", hdr ? "main10" : "main", "-tag:v", "hvc1",
+                          "-b:v", rates[0], "-maxrate", rates[1], "-bufsize", rates[2], "-g", g, "-keyint_min", g, "-bf", "0"] + colour
+                + ["-c:a", "aac", "-b:a", video.audio, "-ac", "2", "-ar", "48000"]
+            return arguments + hls
+        }
         arguments += ["-map", "0:v:0", "-map", "0:a:0?", "-sn", "-dn", "-map_metadata", "-1",
-                      "-vf", "scale=\(width):\(height):flags=lanczos,format=yuv420p" + (filter.map { "," + $0 } ?? ""),
+                      "-vf", "scale=\(width):\(height):flags=lanczos," + sdr + (filter.map { "," + $0 } ?? ""),
                       "-fps_mode", "cfr", "-r", "\(probe.fpsNum)/\(probe.fpsDen)",
                       "-c:v", "libx264", "-preset", "medium", "-profile:v", "high", "-level:v", video.level,
                       "-b:v", rates[0], "-maxrate", rates[1], "-bufsize", rates[2],
                       "-g", g, "-keyint_min", g, "-sc_threshold", "0", "-bf", "0",
-                      "-c:a", "aac", "-b:a", video.audio, "-ac", rendition == "360" ? "1" : "2", "-ar", "48000"]
+                      "-c:a", "aac", "-b:a", video.audio, "-ac", rendition == "360" ? "1" : "2", "-ar", "48000"] + bt709
         return arguments + hls
     }
 
     /// One rendition and its index.json; false when ffmpeg didn't finish it.
     nonisolated static func encode(_ source: URL, rendition: String, probe: Deliver.Probe, into out: URL, ffmpeg: String, filter: String? = nil,
-                                   progress: @escaping @Sendable (Double) -> Void) async -> Bool {
+                                   tools: Tools = Tools(), progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         let folder = out.appendingPathComponent(rendition, isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let duration = max(probe.duration, 0.001)
-        _ = await DeliveryCheck.output(ffmpeg, arguments(source, rendition: rendition, probe: probe, folder: folder, filter: filter)) { line in
+        _ = await DeliveryCheck.output(ffmpeg, arguments(source, rendition: rendition, probe: probe, folder: folder, filter: filter, tools: tools)) { line in
             if line.hasPrefix("out_time_ms="), let micro = Double(line.dropFirst(12)) { progress(min(micro / 1_000_000 / duration, 1)) }
         }
         guard let playlist = try? String(contentsOf: folder.appendingPathComponent("index.m3u8"), encoding: .utf8), playlist.contains("#EXT-X-ENDLIST") else { return false }

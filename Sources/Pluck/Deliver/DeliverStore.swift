@@ -190,6 +190,14 @@ final class DeliverStore {
         saveProjects()
     }
 
+    /// A project's own switches (transcripts, 4K copies).
+    func setOption(project id: UUID, _ change: (inout Deliver.Project) -> Void) {
+        guard let index = projects.firstIndex(where: { $0.id == id }) else { return }
+        change(&projects[index])
+        stampProject(index)
+        saveProjects()
+    }
+
     /// A project's feedback deadline (its links' own win); synced like any project change.
     func setDeadline(_ deadline: Date?, project id: UUID) {
         guard let index = projects.firstIndex(where: { $0.id == id }) else { return }

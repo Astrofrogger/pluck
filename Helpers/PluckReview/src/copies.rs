@@ -26,6 +26,7 @@ pub struct Job {
     pub out: PathBuf,    // copies/<versionID> (or …/wm-<linkID>)
     pub captions: Option<PathBuf>, // a .vtt or .srt next to the source
     pub watermark: Option<(String, Value)>, // burned-in text, and the link's watermark settings
+    pub uhd: bool,       // the project's 4K switch: HEVC "2160" (and "2160h" from HDR) on top, when this ffmpeg has libx265
 }
 
 /// (versionID, {"state":"making"|"ready"|"failed","progress":0…1,"error"?})
@@ -85,7 +86,58 @@ pub fn probe_from(p: &Value) -> Result<Value> {
     let fps = num as f64 / den as f64;
     Ok(json!({"duration": duration, "fpsNum": num, "fpsDen": den, "width": w, "height": h,
         "dropFrame": tc.contains(';'), "startTimecode": tc, "hasAudio": has_audio,
-        "frames": (duration * fps).round() as i64}))
+        "frames": (duration * fps).round() as i64,
+        "transfer": v.and_then(|v| v["color_transfer"].as_str()), "primaries": v.and_then(|v| v["color_primaries"].as_str())}))
+}
+
+/// PQ or HLG (the H.264 ladder is tone-mapped from it; "2160h" keeps it).
+pub fn is_hdr(probe: &Value) -> bool {
+    matches!(probe["transfer"].as_str(), Some("smpte2084" | "arib-std-b67"))
+}
+
+/// PQ/HLG to BT.709 SDR, as the Mac does it (Hable at 100 nits), ending in 8-bit 4:2:0.
+pub const TONEMAP: &str = "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p";
+
+/// The renditions a video gets on this host: the H.264 ladder always; with the 4K switch, a source ≥ 3000 px and libx265,
+/// "2160" and from HDR "2160h" too (the NAS has no VideoToolbox; without x265 it skips 4K and says so in the log).
+pub fn uhd_renditions(probe: &Value, uhd: bool, x265: bool) -> Vec<&'static str> {
+    let edge = probe["width"].as_i64().unwrap_or(0).max(probe["height"].as_i64().unwrap_or(0));
+    if !uhd || !x265 || edge < 3000 { return vec![]; }
+    if is_hdr(probe) { vec!["2160h", "2160"] } else { vec!["2160"] }
+}
+
+/// ffmpeg arguments (before the HLS ones) for a 4K HEVC rendition, mirroring DeliverCopies.arguments; and its codecs.
+pub fn uhd_args(src: &str, r: &str, probe: &Value, tonemap: bool) -> (Vec<String>, String, (i64, i64)) {
+    let s = |x: &str| x.to_owned();
+    let (w, h) = (probe["width"].as_i64().unwrap_or(0), probe["height"].as_i64().unwrap_or(0));
+    let (num, den) = (probe["fpsNum"].as_i64().unwrap_or(25), probe["fpsDen"].as_i64().unwrap_or(1).max(1));
+    let g = (2.0 * num as f64 / den as f64).round().max(1.0).to_string();
+    let size = fit(w, h, 3840);
+    let hdr = r == "2160h";
+    let trc = probe["transfer"].as_str().unwrap_or("smpte2084").to_owned();
+    let sdr = if is_hdr(probe) && tonemap { TONEMAP } else { "format=yuv420p" };
+    let colour: Vec<String> = if hdr { vec![s("-color_primaries"), s("bt2020"), s("-color_trc"), trc.clone(), s("-colorspace"), s("bt2020nc")] }
+        else if is_hdr(probe) && tonemap { vec![s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")] } else { vec![] };
+    let params = if hdr { format!("log-level=error:colorprim=bt2020:transfer={trc}:colormatrix=bt2020nc") } else { s("log-level=error") };
+    let mut a = vec![s("-i"), s(src), s("-map"), s("0:v:0"), s("-map"), s("0:a:0?"), s("-sn"), s("-dn"), s("-map_metadata"), s("-1"),
+        s("-vf"), format!("scale={}:{}:flags=lanczos,{}", size.0, size.1, if hdr { "format=yuv420p10le" } else { sdr }),
+        s("-fps_mode"), s("cfr"), s("-r"), format!("{num}/{den}"), s("-c:v"), s("libx265"), s("-preset"), s("fast"), s("-x265-params"), params,
+        s("-profile:v"), s(if hdr { "main10" } else { "main" }), s("-tag:v"), s("hvc1"), s("-b:v"), s("18M"), s("-maxrate"), s("24M"), s("-bufsize"), s("36M"),
+        s("-g"), g.clone(), s("-keyint_min"), g, s("-bf"), s("0")];
+    a.extend(colour);
+    a.extend([s("-c:a"), s("aac"), s("-b:a"), s("160k"), s("-ac"), s("2"), s("-ar"), s("48000"), s("-avoid_negative_ts"), s("make_zero")]);
+    let hvc = if hdr { "hvc1.2.4.L153.B0" } else { "hvc1.1.6.L153.B0" };
+    let codecs = if probe["hasAudio"] == true { format!("{hvc},mp4a.40.2") } else { hvc.to_owned() };
+    (a, codecs, size)
+}
+
+/// Files Pluck sent for this version (its transcript: a NAS has no speech engine) stay when the host remakes the copies.
+pub fn keep_sent(old: &Path, new: &Path) {
+    for f in ["transcript.json", "captions.vtt"] {
+        if old.join(f).is_file() && (f == "transcript.json" || !new.join(f).exists()) {
+            let _ = std::fs::copy(old.join(f), new.join(f));
+        }
+    }
 }
 
 /// The HLS playlist ffmpeg wrote → the spec's index.json.
@@ -186,6 +238,8 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
             let fast = num as f64 / den as f64 > 30.0;
             let g = (2.0 * num as f64 / den as f64).round().max(1.0).to_string();
             let audio = probe["hasAudio"].as_bool().unwrap_or(false);
+            let tonemap = is_hdr(&probe) && has("-filters", " zscale ").await && has("-filters", " tonemap ").await;
+            let sdr = if tonemap { TONEMAP } else { "format=yuv420p" };
             // 360: ≤ 0.4 Mbit/s in all, for slow lossy links (WebRTC goodput there is ~0.2–0.35 Mbit/s).
             let parts: [(&str, i64, &str, [&str; 3], &str, &str); 3] = [
                 ("1080", 1920, "4.2", if fast { ["12M", "15M", "24M"] } else { ["8M", "10M", "16M"] }, "160k", "avc1.64002a"),
@@ -197,17 +251,38 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
                 tokio::fs::create_dir_all(&dir).await?;
                 let size = fit(w, h, edge);
                 let mut a: Vec<String> = vec![s("-i"), src.clone(), s("-map"), s("0:v:0"), s("-map"), s("0:a:0?"), s("-sn"), s("-dn"),
-                    s("-map_metadata"), s("-1"), s("-vf"), format!("scale={}:{}:flags=lanczos,format=yuv420p{wm_r}", size.0, size.1),
+                    s("-map_metadata"), s("-1"), s("-vf"), format!("scale={}:{}:flags=lanczos,{sdr}{wm_r}", size.0, size.1),
                     s("-fps_mode"), s("cfr"), s("-r"), format!("{num}/{den}"), s("-c:v"), s("libx264"), s("-preset"), s("medium"),
                     s("-profile:v"), s("high"), s("-level:v"), s(level), s("-b:v"), s(b), s("-maxrate"), s(max), s("-bufsize"), s(buf),
                     s("-g"), g.clone(), s("-keyint_min"), g.clone(), s("-sc_threshold"), s("0"), s("-bf"), s("0"),
                     s("-c:a"), s("aac"), s("-b:a"), s(ab), s("-ac"), s(if r == "360" { "1" } else { "2" }), s("-ar"), s("48000"), s("-avoid_negative_ts"), s("make_zero")];
+                if tonemap {
+                    a.extend([s("-color_primaries"), s("bt709"), s("-color_trc"), s("bt709"), s("-colorspace"), s("bt709")]);
+                }
                 a.extend(hls());
                 run(a, &dir, dur, job, progress, ([0.0, 0.55, 0.8][i], [0.55, 0.25, 0.1][i])).await?;
                 let codecs = if audio { format!("{avc},mp4a.40.2") } else { avc.to_owned() };
                 let idx = index_from(&std::fs::read_to_string(dir.join("index.m3u8"))?, &dir, &codecs, &probe, size)?;
                 std::fs::write(dir.join("index.json"), idx.to_string())?;
                 renditions.push(r);
+            }
+            // 4K after the ladder (a failed one leaves the ladder; plain copies only, watermarked ones stay ≤ 1080).
+            let x265 = job.uhd && job.watermark.is_none() && has("-encoders", " libx265 ").await;
+            if job.uhd && !x265 && job.watermark.is_none() {
+                crate::log(format!("copies {}: no libx265 in this ffmpeg, so no 4K copy (Pluck on the Mac can make it)", job.version));
+            }
+            for r in uhd_renditions(&probe, job.uhd && job.watermark.is_none(), x265) {
+                let dir = tmp.join(r);
+                tokio::fs::create_dir_all(&dir).await?;
+                let (mut a, codecs, size) = uhd_args(&src, r, &probe, tonemap);
+                a.extend(hls());
+                match run(a, &dir, dur, job, progress, (0.85, 0.05)).await.and_then(|_| {
+                    let idx = index_from(&std::fs::read_to_string(dir.join("index.m3u8"))?, &dir, &codecs, &probe, size)?;
+                    Ok(std::fs::write(dir.join("index.json"), idx.to_string())?)
+                }) {
+                    Ok(()) => renditions.push(r),
+                    Err(e) => { crate::log(format!("copies {} {r}: {e:#}", job.version)); let _ = std::fs::remove_dir_all(&dir); }
+                }
             }
             let t = format!("{:.3}", dur * 0.1);
             run([s("-ss"), t, s("-i"), src.clone(), s("-frames:v"), s("1"), s("-vf"), format!("scale=640:-2{wm}"), s("-q:v"), s("4"),
@@ -262,6 +337,9 @@ async fn make(job: &Job, progress: &Progress) -> Result<()> {
         }
     }
     std::fs::write(tmp.join("ready.json"), ready.to_string())?;
+    if job.watermark.is_none() {
+        keep_sent(&job.out, &tmp);
+    }
     let _ = tokio::fs::remove_dir_all(&job.out).await;
     tokio::fs::rename(&tmp, &job.out).await?;
     Ok(())
@@ -312,7 +390,7 @@ pub async fn replica_rendition(src: &Path, dir: &Path, q: &str, probe: &Value) -
     let (args, codecs, size) = replica_args(&src.to_string_lossy(), q, probe).context("no picture size or bad quality")?;
     tokio::fs::create_dir_all(dir).await?;
     let (tx, _rx) = mpsc::unbounded_channel();
-    let job = Job { version: String::new(), kind: "video".into(), src: src.into(), out: dir.into(), captions: None, watermark: None };
+    let job = Job { version: String::new(), kind: "video".into(), src: src.into(), out: dir.into(), captions: None, watermark: None, uhd: false };
     run(args, dir, probe["duration"].as_f64().unwrap_or(0.0), &job, &tx, (0.0, 1.0)).await?;
     let idx = index_from(&std::fs::read_to_string(dir.join("index.m3u8"))?, dir, &codecs, probe, size)?;
     std::fs::write(dir.join("index.json"), idx.to_string())?;
@@ -338,6 +416,12 @@ pub fn drawtext(wm: &Value, textfile: &str) -> String {
         .find(|p| Path::new(p).exists()).map_or(String::new(), |p| format!("fontfile={p}:"));
     format!("drawtext={font}textfile={textfile}:expansion=none:fontsize=h*{size:.4}:fontcolor=white@{opacity:.2}:borderw=1:bordercolor=black@{:.2}:x={x}:y={y}",
         opacity * 0.5)
+}
+
+/// Whether this ffmpeg lists `name` (padded with spaces) under `-encoders` or `-filters`.
+pub async fn has(list: &str, name: &str) -> bool {
+    let out = Command::new(tool("ffmpeg")).args(["-hide_banner", list]).kill_on_drop(true).output().await;
+    out.is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(name))
 }
 
 pub async fn has_drawtext() -> bool {
@@ -547,6 +631,83 @@ mod tests {
         out
     }
 
+    #[test]
+    fn uhd_and_hdr_arguments() {
+        let pq = json!({"width": 3840, "height": 2160, "fpsNum": 25, "fpsDen": 1, "hasAudio": true, "transfer": "smpte2084"});
+        let sdr = json!({"width": 3840, "height": 2160, "fpsNum": 25, "fpsDen": 1, "hasAudio": false});
+        assert!(is_hdr(&pq) && !is_hdr(&sdr) && is_hdr(&json!({"transfer": "arib-std-b67"})));
+        assert_eq!(uhd_renditions(&pq, true, true), vec!["2160h", "2160"]);
+        assert_eq!(uhd_renditions(&sdr, true, true), vec!["2160"]);
+        assert!(uhd_renditions(&sdr, true, false).is_empty(), "no libx265: the NAS skips 4K");
+        assert!(uhd_renditions(&sdr, false, true).is_empty(), "off by default");
+        assert!(uhd_renditions(&json!({"width": 2880, "height": 1620}), true, true).is_empty(), "under 3000 px");
+        let at = |a: &[String], k: &str| a[a.iter().position(|x| x == k).unwrap() + 1].clone();
+        let (a, codecs, size) = uhd_args("in.mov", "2160h", &pq, true);
+        assert_eq!((codecs.as_str(), size), ("hvc1.2.4.L153.B0,mp4a.40.2", (3840, 2160)));
+        assert_eq!((at(&a, "-c:v"), at(&a, "-profile:v"), at(&a, "-tag:v"), at(&a, "-color_trc")), ("libx265".into(), "main10".into(), "hvc1".into(), "smpte2084".into()));
+        assert!(at(&a, "-vf").ends_with("format=yuv420p10le"));
+        let (a, codecs, _) = uhd_args("in.mov", "2160", &pq, true);
+        assert_eq!((codecs.as_str(), at(&a, "-profile:v"), at(&a, "-color_trc")), ("hvc1.1.6.L153.B0,mp4a.40.2", "main".into(), "bt709".into()));
+        assert!(at(&a, "-vf").contains("tonemap=hable") && at(&a, "-vf").ends_with("format=yuv420p"), "the SDR 4K of an HDR source is tone-mapped");
+        let (a, codecs, _) = uhd_args("in.mov", "2160", &sdr, true);
+        assert!(codecs == "hvc1.1.6.L153.B0" && !a.contains(&"-color_trc".to_owned()) && !at(&a, "-vf").contains("tonemap"));
+        let p = probe_from(&json!({"format": {"duration": "1"}, "streams": [{"codec_type": "video", "width": 3840, "height": 2160,
+            "color_transfer": "arib-std-b67", "color_primaries": "bt2020"}]})).unwrap();
+        assert!(p["transfer"] == "arib-std-b67" && p["primaries"] == "bt2020" && is_hdr(&p));
+    }
+
+    /// A host remaking a version's copies keeps the transcript Pluck sent (and its captions unless a sidecar made new ones).
+    #[test]
+    fn keeps_a_sent_transcript() {
+        let base = std::env::temp_dir().join(format!("pluck-keep-{}", std::process::id()));
+        let (old, new) = (base.join("V"), base.join("V.making"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("transcript.json"), r#"{"lang":"en","speakers":["Host"],"words":[[0,1,"Hi",0]]}"#).unwrap();
+        std::fs::write(old.join("captions.vtt"), "WEBVTT\n\nfrom Pluck").unwrap();
+        keep_sent(&old, &new);
+        assert!(std::fs::read_to_string(new.join("transcript.json")).unwrap().contains("speakers"));
+        assert!(std::fs::read_to_string(new.join("captions.vtt")).unwrap().contains("from Pluck"));
+        std::fs::write(new.join("captions.vtt"), "WEBVTT\n\nsidecar").unwrap();
+        keep_sent(&old, &new);
+        assert!(std::fs::read_to_string(new.join("captions.vtt")).unwrap().contains("sidecar"), "a sidecar the host read wins for captions");
+        keep_sent(&base.join("none"), &base.join("none2"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    /// The real tools, 4K: a small PQ clip ≥ 3000 px gets a tone-mapped H.264 ladder plus "2160h" and "2160" (libx265).
+    #[tokio::test]
+    async fn real_uhd_copies() {
+        let x265 = std::process::Command::new(tool("ffmpeg")).args(["-hide_banner", "-encoders"]).output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(" libx265 "));
+        if !x265 {
+            return eprintln!("no ffmpeg with libx265: skipped");
+        }
+        let base = std::env::temp_dir().join(format!("pluck-uhd-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let clip = base.join("pq.mov");
+        assert!(std::process::Command::new(tool("ffmpeg")).args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=size=3200x1800:rate=25:duration=1",
+            "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "ultrafast", "-x265-params", "log-level=error:colorprim=bt2020:transfer=smpte2084:colormatrix=bt2020nc",
+            "-color_primaries", "bt2020", "-color_trc", "smpte2084", "-colorspace", "bt2020nc"]).arg(&clip).status().unwrap().success());
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let out = base.join("copies/V");
+        std::fs::create_dir_all(&out).unwrap();
+        std::fs::write(out.join("transcript.json"), r#"{"lang":"en","words":[]}"#).unwrap(); // sent by Pluck before the copy was made
+        let job = Job { version: "V".into(), kind: "video".into(), src: clip, out: out.clone(), captions: None, watermark: None, uhd: true };
+        make(&job, &tx).await.unwrap();
+        let ready: Value = serde_json::from_slice(&std::fs::read(out.join("ready.json")).unwrap()).unwrap();
+        assert_eq!(ready["renditions"], json!(["1080", "540", "360", "2160h", "2160"]));
+        let top: Value = serde_json::from_slice(&std::fs::read(out.join("2160h/index.json")).unwrap()).unwrap();
+        assert!(top["codecs"] == "hvc1.2.4.L153.B0" && top["width"] == 3200, "{top}");
+        assert!(out.join("transcript.json").is_file(), "the host keeps Pluck's transcript");
+        let probe = std::process::Command::new(tool("ffprobe")).args(["-v", "error", "-show_entries", "stream=pix_fmt,color_transfer", "-of", "csv=p=0"])
+            .arg(out.join("1080/index.m3u8")).output().unwrap();
+        let text = String::from_utf8_lossy(&probe.stdout);
+        assert!(text.contains("yuv420p") && !text.contains("smpte2084"), "the 1080 is SDR: {text}");
+        let _ = std::fs::remove_dir_all(base);
+    }
+
     /// The real tools: a clip with a subtitle sidecar (copies, waveform, captions, a still from the
     /// HLS copy), a burned watermark when this ffmpeg can draw text, and a PDF when pdftoppm is here.
     #[tokio::test]
@@ -562,7 +723,7 @@ mod tests {
             "-f", "lavfi", "-i", "sine=frequency=440:duration=3", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-shortest"]).arg(&clip).status().unwrap().success());
         std::fs::write(base.join("clip.srt"), "1\n00:00:00,500 --> 00:00:01,500\nHi\n").unwrap();
         let (tx, _rx) = mpsc::unbounded_channel();
-        let job = Job { version: "V".into(), kind: "video".into(), src: clip.clone(), out: base.join("copies/V"), captions: Some(base.join("clip.srt")), watermark: None };
+        let job = Job { version: "V".into(), kind: "video".into(), src: clip.clone(), out: base.join("copies/V"), captions: Some(base.join("clip.srt")), watermark: None, uhd: false };
         make(&job, &tx).await.unwrap();
         let out = base.join("copies/V");
         let ready: Value = serde_json::from_slice(&std::fs::read(out.join("ready.json")).unwrap()).unwrap();
@@ -577,7 +738,7 @@ mod tests {
         still(&out.join("1080/index.m3u8"), 1.0, &still_path).await.unwrap();
         assert!(std::fs::read(&still_path).unwrap().starts_with(&[0xFF, 0xD8, 0xFF]));
         let wm = Job { version: "V/wm-L".into(), kind: "video".into(), src: clip, out: out.join("wm-L"), captions: None,
-            watermark: Some(("Anna · 2026-11-16".into(), json!({"position": "bottomRight", "opacity": 0.3}))) };
+            watermark: Some(("Anna · 2026-11-16".into(), json!({"position": "bottomRight", "opacity": 0.3}))), uhd: false };
         match make(&wm, &tx).await {
             Ok(()) => assert!(out.join("wm-L/poster.jpg").exists() && out.join("wm-L/1080/index.json").exists() && !out.join("wm-L/waveform.json").exists()),
             Err(e) if !has_drawtext().await => eprintln!("burned watermark skipped: {e:#}"),
@@ -600,7 +761,7 @@ mod tests {
         if std::process::Command::new(tool("pdftoppm")).arg("-v").output().is_ok() {
             let pdf = base.join("doc.pdf");
             std::fs::write(&pdf, tiny_pdf()).unwrap();
-            let doc = Job { version: "D".into(), kind: "document".into(), src: pdf, out: base.join("copies/D"), captions: None, watermark: None };
+            let doc = Job { version: "D".into(), kind: "document".into(), src: pdf, out: base.join("copies/D"), captions: None, watermark: None, uhd: false };
             make(&doc, &tx).await.unwrap();
             let ready: Value = serde_json::from_slice(&std::fs::read(base.join("copies/D/ready.json")).unwrap()).unwrap();
             assert_eq!(ready["probe"]["pages"], 1);
