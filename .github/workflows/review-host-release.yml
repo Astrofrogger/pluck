@@ -175,9 +175,94 @@ jobs:
           manifest="$(docker buildx imagetools inspect "$image:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
           echo "ref=$image@$manifest" >> "$GITHUB_OUTPUT"
 
+  # Edit Anywhere's own relay (Helpers/PluckRelay): iroh-relay at PluckIroh's iroh version, same push-by-digest steps.
+  relay-image:
+    name: Relay image (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - { platform: linux/amd64, arch: amd64, runner: ubuntu-24.04 }
+          - { platform: linux/arm64, arch: arm64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: iroh-relay at PluckIroh's iroh version
+        run: |
+          set -euo pipefail
+          iroh="$(grep -A1 '^name = "iroh"$' Helpers/PluckIroh/Cargo.lock | sed -n 's/^version = "\(.*\)"$/\1/p')"
+          relay="$(sed -n 's/^ARG IROH_RELAY_VERSION=//p' Helpers/PluckRelay/docker/Dockerfile)"
+          echo "iroh $iroh, iroh-relay $relay"
+          [ -n "$iroh" ] && [ "$iroh" = "$relay" ] || { echo "IROH_RELAY_VERSION must equal PluckIroh's iroh ($iroh)" >&2; exit 1; }
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push by digest
+        env:
+          PLATFORM: ${{ matrix.platform }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          docker buildx build --platform "$PLATFORM" --provenance=false \
+            -f Helpers/PluckRelay/docker/Dockerfile \
+            --output "type=image,name=ghcr.io/$owner/pluck-relay,push-by-digest=true,name-canonical=true,push=true" \
+            --metadata-file meta.json Helpers
+          mkdir -p digests
+          digest="$(jq -r '."containerimage.digest"' meta.json)"
+          echo "${digest#sha256:}" > "digests/$ARCH"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: relay-digest-${{ matrix.arch }}
+          path: digests/${{ matrix.arch }}
+          if-no-files-found: error
+
+  relay-merge:
+    name: Relay image manifest
+    needs: relay-image
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      ref: ${{ steps.merge.outputs.ref }}
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: relay-digest-*
+          path: digests
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge into one multi-arch image
+        id: merge
+        env:
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          image="ghcr.io/$owner/pluck-relay"
+          sources=""
+          for f in digests/*; do sources="$sources $image@sha256:$(cat "$f")"; done
+          # shellcheck disable=SC2086
+          docker buildx imagetools create -t "$image:$TAG" $sources
+          manifest="$(docker buildx imagetools inspect "$image:$TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          echo "ref=$image@$manifest" >> "$GITHUB_OUTPUT"
+
   assets:
     name: Release assets
-    needs: [binaries, image-merge]
+    needs: [binaries, image-merge, relay-merge]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -195,6 +280,7 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
           REPO: ${{ github.repository }}
           IMAGE: ${{ needs.image-merge.outputs.ref }}
+          RELAY_IMAGE: ${{ needs.relay-merge.outputs.ref }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -206,8 +292,8 @@ jobs:
              "$src"/pluck-review-update.timer "$src"/pluck-review-update.path out/
           assets="$(cd out && sha256sum -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
             | jq -Rn '[inputs | capture("^(?<v>[0-9a-f]+)  (?<k>.+)$") | {key: .k, value: .v}] | from_entries')"
-          jq -n --arg version "$TAG" --arg image "$IMAGE" --argjson assets "$assets" \
-            '{version: $version, protocol: 3, image: $image, assets: $assets}' > out/host-release.json
+          jq -n --arg version "$TAG" --arg image "$IMAGE" --arg relay "$RELAY_IMAGE" --argjson assets "$assets" \
+            '{version: $version, protocol: 3, image: $image, relayImage: $relay, assets: $assets}' > out/host-release.json
           cat out/host-release.json
           cd out
           gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-proxmox.sh pluck-review-update.sh \

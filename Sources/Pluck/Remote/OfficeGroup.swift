@@ -68,6 +68,8 @@ final class OfficeGroup {
         var key: Data?
         /// Its Pluck version; nil: from before roles (it enforces only each Mac's flags, not folder roles).
         var version: String?
+        /// Its wired Ethernet address, so another office Mac can wake it (OfficeWake); nil without one or from before.
+        var ethernet: String?
     }
 
     /// How a home Mac reaches one office Mac (no keys).
@@ -245,7 +247,7 @@ final class OfficeGroup {
         var mine = shared.members.first { $0.id == me } ?? Member(id: me, name: "", addresses: [], updated: .distantPast)
         let fresh = Member(id: me, name: Host.current().localizedName ?? "Mac", addresses: testAddresses ?? OfficeRenderServer.addresses(),
                            iroh: ownNode,
-                           relay: server.network.relay, shares: ownShares(), updated: mine.updated, key: publicKey, version: Self.version)
+                           relay: server.network.relay, shares: ownShares(), updated: mine.updated, key: publicKey, version: Self.version, ethernet: OfficeWake.ethernet())
         if fresh != mine { mine = fresh; mine.updated = .now }
         shared.members.removeAll { $0.id == me }
         shared.members.append(mine)
@@ -459,6 +461,7 @@ final class OfficeGroup {
             }
             return ["added": true]
         }
+        OfficeWake.register()
     }
 
     // MARK: - Shares by NAS folder

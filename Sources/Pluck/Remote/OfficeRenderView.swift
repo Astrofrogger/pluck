@@ -104,7 +104,7 @@ private struct AnywherePane<Content: View>: View {
 }
 
 /// A pane's or section's title, with a quiet line under it.
-private struct PaneHeader<Trailing: View>: View {
+struct PaneHeader<Trailing: View>: View {
     let title: Text
     var subtitle: Text?
     @ViewBuilder var trailing: Trailing
@@ -169,7 +169,7 @@ private struct IconButton: View {
 }
 
 /// A pink text link ("It’s spelled right", "Clear finished").
-private struct PinkLink: View {
+struct PinkLink: View {
     let title: LocalizedStringKey
     let action: () -> Void
 
@@ -215,7 +215,7 @@ private struct ProblemLine: View {
 
 extension View {
     /// A text field's dark box on a panel (raised when it sits in a box).
-    fileprivate func anywhereInput(inBox: Bool = false, height: CGFloat = 32) -> some View {
+    func anywhereInput(inBox: Bool = false, height: CGFloat = 32) -> some View {
         padding(.horizontal, 10)
             .frame(height: height)
             .background(inBox ? Design.Studio.raised : Design.Studio.backdrop,
@@ -248,6 +248,7 @@ private struct HomeRenderView: View {
     @State private var picked: OfficeFinder.Found?
     @State private var joining = false
     @State private var pairingWithCode = false
+    @State private var wakeProblem: String?
     /// The invitation the alert shows, taken from the client so a newer link can't swap in under the click.
     @State private var shownInvitation: PrivateNetwork.Invitation?
     @AppStorage("editAnywherePane") private var pane = Pane.proxies
@@ -437,6 +438,13 @@ private struct HomeRenderView: View {
                         .frame(width: 6, height: 6).accessibilityHidden(true)
                     Text(member.name).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
+                    if state?.online == false, client.members.count > 1 {
+                        Button("Wake") {
+                            Task { do { try await OfficeWake.wake(member.id); wakeProblem = nil } catch { wakeProblem = error.localizedDescription } }
+                        }
+                        .buttonStyle(.plain).foregroundStyle(Design.Brand.pink)
+                        .help("Another office Mac sends it a wake message on the office network")
+                    }
                     Group {
                         if state?.online == false { Text("Offline") } else if state?.busy == true { Text("Rendering") }
                         else if (client.active ?? client.primary) == member.id { Text("In use") } else { Text("Online") }
@@ -445,6 +453,7 @@ private struct HomeRenderView: View {
                 }
                 .font(Design.Studio.hint)
             }
+            if let wakeProblem { Text(wakeProblem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true) }
         }
         .padding(12)
         .studioBox()
@@ -871,6 +880,7 @@ private struct HostMacsPane: View {
                 }
             }
             officeMacs
+            if group.isGrouped { WakeGuide() }
             Divider().overlay(Design.Studio.line)
             FootLine(text: Text("Connection: \(iroh ? String(localized: "Pluck (no account)") : "Tailscale")")) {
                 PinkLink(title: "Change…") { connection = true }
@@ -1127,6 +1137,7 @@ private struct ConnectionSheet: View {
     @State private var tokenSaved = false
     @State private var confirmDisconnect = false
     @State private var switching: PrivateNetwork.Transport?
+    @State private var relaySetup = false
 
     private var iroh: Bool { transport == PrivateNetwork.Transport.iroh.rawValue }
 
@@ -1282,6 +1293,10 @@ private struct ConnectionSheet: View {
                         .buttonStyle(StudioFlatButtonStyle(height: 32))
                         .disabled(PrivateNetwork.relayAddress(relayText) == nil || relayText == storedRelay)
                 }
+                PinkLink(title: "Set up a relay on a TrueNAS or Proxmox server…") { relaySetup = true }
+                    .sheet(isPresented: $relaySetup) {
+                        RelaySetupSheet { address in relayText = address; saveRelay() }
+                    }
             }
         }
     }
@@ -1419,6 +1434,7 @@ private struct HostProxiesPane: View {
             makingNow
             keptUpToDate
             madeList
+            ViewingLookList()
             Divider().overlay(Design.Studio.line)
             FootLine(text: Text("Made in \(proxies.chosenFolder?.lastPathComponent ?? String(localized: "Pluck’s own folder"))")) {
                 PinkMenu {
@@ -2073,6 +2089,21 @@ private struct SendPane: View {
             }
             if !sync.files.isEmpty {
                 Text("^[\(sync.files.count) file](inflect: true) waiting to be sent").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+            }
+            // Several office Macs: also to the others' inbox folders, each its own transfer.
+            let others = OfficeRenderClient.shared.members.filter { $0.id != sync.office }
+            if OfficeRenderClient.shared.members.count > 1, sync.office != nil, !others.isEmpty {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Also send to").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    ForEach(others) { member in
+                        HStack(spacing: 10) {
+                            Toggle(isOn: Binding(get: { sync.offices.contains(member.id) }, set: { sync.setAlso(member.id, $0) })) { Text(verbatim: member.name) }
+                                .toggleStyle(StudioSwitchStyle()).labelsHidden()
+                            Text(verbatim: member.name).font(Design.Studio.body)
+                        }
+                        .frame(height: 28)
+                    }
+                }
             }
             if let problem = sync.problem { ProblemLine(text: problem) }
             HStack(spacing: 8) {

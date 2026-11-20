@@ -52,7 +52,7 @@ extension OfficeRenderClient {
         var audioChannels: Int
     }
 
-    enum FileKind: String { case original, proxy, thumb }
+    enum FileKind: String { case original, proxy, thumb, piece }
 
     func shares() async throws -> [RemoteShare] {
         if members.count > 1, account != nil { return try await groupShares() }
@@ -82,9 +82,9 @@ extension OfficeRenderClient {
     /// One piece of a file (at most OfficeLink.fileChunk bytes) and the whole file's size. Pieces
     /// can be asked for at once, each on its own connection.
     func fileData(share: String, path: String, kind: FileKind, format: OfficeProxies.Format = .light,
-                  offset: Int64, length: Int = OfficeLink.fileChunk) async throws -> (data: Data, size: Int64) {
+                  offset: Int64, length: Int = OfficeLink.fileChunk, extra: [String: Any] = [:]) async throws -> (data: Data, size: Int64) {
         let answer = try await ask("fileData", ["share": share, "path": path, "kind": kind.rawValue, "format": format.rawValue,
-                                                "offset": offset, "length": length], timeout: 120)
+                                                "offset": offset, "length": length].merging(extra) { a, _ in a }, timeout: 120)
         guard let data = answer[OfficeActions.bytesKey] as? Data, let size = (answer["size"] as? NSNumber)?.int64Value else {
             throw OfficeLink.Failure.garbled
         }

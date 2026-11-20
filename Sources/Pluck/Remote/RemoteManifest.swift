@@ -19,6 +19,12 @@ struct RemoteManifestEntry: Codable, Hashable, Sendable {
     var size: Int64
     /// SHA-256 of the proxy file, hex (verify after a pull).
     var checksum: String?
+    /// An original pulled here (in "Originals/"): its path in the share. With `range`, only that part of it (RemotePieces).
+    var pieceOf: String?
+    /// The piece's first and last frame in the original.
+    var range: [Int]?
+    /// The viewing look burnt into this proxy ("slog3-709"); nil: none (OfficeLook).
+    var look: String?
 }
 
 /// The manifest of one share as the remote keeps it: written as `RemoteManifest.fileName` in the root of the

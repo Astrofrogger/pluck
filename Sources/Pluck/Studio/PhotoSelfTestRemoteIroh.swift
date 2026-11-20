@@ -66,6 +66,7 @@ extension PhotoSelfTest {
         check("iroh: paired Macs from before decode", (try? JSONDecoder().decode(OfficeRenderServer.Device.self, from: Data(oldDevice.utf8)))?.iroh == nil)
 
         await irohLoopback()
+        await relayTest()
     }
 
     /// Two local helpers on this Mac carrying the Pluck protocol: no internet, no relays. Also: a

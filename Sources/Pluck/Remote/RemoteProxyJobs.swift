@@ -126,6 +126,7 @@ final class RemoteProxyJobs {
             else { RemoteShares.shared.removeWatch(watch, in: root) }
             return ["on": RemoteShares.shared.share(root)?.watch.contains(watch) ?? false]
         }
+        RemotePieces.register()
         RemoteKeepAwake.start()
         shared.startWatching()
         Task { await RemoteShares.shared.sync() }
@@ -308,7 +309,7 @@ final class RemoteProxyJobs {
             progress = 0
             // (One encode at a time with OfficeProxies' own: makeClaimed waits its turn.)
             guard let made = await OfficeProxies.shared.makeClaimed(root.appendingPathComponent(relative), to: target(relative), format: request.format,
-                                                                    ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
+                                                                    ffmpeg: ffmpeg, ffprobe: ffprobe, look: OfficeLook.setting(request.share), progress: { value in
                 Task { @MainActor in RemoteProxyJobs.shared.progress = value }
             }) else {
                 waiting.append(relative)
@@ -319,7 +320,8 @@ final class RemoteProxyJobs {
                 _ = await entry(root: root, share: request.share, relative: relative, format: request.format)
                 saveCache()
             } else {
-                set(id) { $0.failed.append(relative) }
+                let mismatch = OfficeProxies.mismatches.withLock { $0.removeValue(forKey: target(relative).path) }
+                set(id) { $0.failed.append(relative); if let mismatch { $0.problem = mismatch } }
             }
             save()
           }
@@ -327,7 +329,7 @@ final class RemoteProxyJobs {
         working = nil
         set(id) { request in
             request.state = request.failed.isEmpty ? .ready : .failed
-            if !request.failed.isEmpty { request.problem = String(localized: "Some files couldn’t be made into proxies.") }
+            if !request.failed.isEmpty, request.problem == nil { request.problem = String(localized: "Some files couldn’t be made into proxies.") }
         }
         save()
     }
@@ -361,14 +363,14 @@ final class RemoteProxyJobs {
         let original = root.appendingPathComponent(relative)
         let info = (try? await RemoteEditHost.mediaInfo(original)) ?? [:]
         let ffprobe = OfficeRenderServer.shared.manager?.tool("ffprobe")
-        let (reel, checksum) = await Task.detached {
-            (OfficeProxies.probe(original, ffprobe: ffprobe).3, Self.checksum(proxy))
+        let (reel, checksum, look) = await Task.detached {
+            (OfficeProxies.probe(original, ffprobe: ffprobe).3, Self.checksum(proxy), OfficeLook.tagged(proxy, ffprobe: ffprobe))
         }.value
         let entry = RemoteManifestEntry(share: share, path: relative, proxy: OfficeProxies.shared.proxyName(relative, folder: share),
                                         reel: reel ?? original.deletingPathExtension().lastPathComponent,
                                         timecode: info["timecode"] as? String, duration: info["duration"] as? Double,
                                         fps: info["fps"] as? Double, audioChannels: info["audioChannels"] as? Int,
-                                        size: Int64(size), checksum: checksum)
+                                        size: Int64(size), checksum: checksum, look: look)
         cache[proxy.path] = Cached(size: Int64(size), modified: modified, entry: entry)
         return entry
     }

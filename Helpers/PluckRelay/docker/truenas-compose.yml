@@ -1,0 +1,57 @@
+# Pluck's own relay for TrueNAS SCALE 25.04+ (Apps > Install via YAML / app.create custom compose).
+# Pluck fills this template in; you don't edit it by hand. Same rules as the review host's template:
+# double-curly-brace placeholders only, each YAML-escaped inside double quotes, no newlines; the image is the
+# full ghcr.io reference with its sha256 digest, never latest. Optional block (begin/end marker lines):
+#   dns   a sidecar that gets the certificate by DNS challenge (dns_token, dns_email); without it iroh-relay gets
+#         one from Let's Encrypt itself over port 443 (no port 80, no extra secret)
+# No dataset is mounted: only a named volume for the certificates. Ports: 443/tcp and 7842/udp, nothing else.
+services:
+  pluck-relay:
+    image: "{{image}}"
+    restart: unless-stopped
+    user: "568:568"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=8m"]
+    environment:
+      PLUCK_RELAY_HOSTNAME: "{{hostname}}"
+      PLUCK_RELAY_ALLOW: "{{allow}}"
+      PLUCK_RELAY_TLS: "{{tls}}"
+      PLUCK_RELAY_CONTACT: "{{contact}}"
+    ports:
+      - "443:8443/tcp"
+      - "7842:7842/udp"
+    volumes:
+      - "certs:/certs"
+    pids_limit: 128
+    mem_limit: "{{mem}}"
+    cpus: "{{cpus}}"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+  # begin:dns
+  pluck-relay-certs:
+    image: "{{lego_image}}"
+    restart: unless-stopped
+    user: "568:568"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:size=8m"]
+    environment:
+      CLOUDFLARE_DNS_API_TOKEN: "{{dns_token}}"
+      EMAIL: "{{contact}}"
+      HOST: "{{hostname}}"
+    # First run, then a renewal check every day (lego renews 30 days before expiry).
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - "lego --accept-tos --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" run; while true; do lego --path /certs --email \"$$EMAIL\" --dns cloudflare --domains \"$$HOST\" renew --days 30; sleep 86400; done"
+    volumes:
+      - "certs:/certs"
+    mem_limit: "128m"
+    cpus: "0.25"
+  # end:dns
+
+volumes:
+  certs: {}

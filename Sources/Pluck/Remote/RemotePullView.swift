@@ -38,6 +38,7 @@ struct RemoteFilesPane<Legacy: View>: View {
                     if !browsing { header }
                     content
                     if host == .current, local == nil, let share, share.online { delivery(share) }
+                    if host == .current, local == nil { OtherEditorsGuide() }
                 }
             }
         }
@@ -258,6 +259,15 @@ private struct RemotePullsList: View {
                 HStack(spacing: 8) {
                     Text(summary).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).monospacedDigit()
                     Spacer(minLength: 8)
+                    Menu {
+                        Button("Choose a Folder…") { chooseAlso() }
+                        if pulls.alsoRoots[share] != nil { Button("Stop Copying") { pulls.setAlso(nil, for: share) } }
+                    } label: {
+                        Text(pulls.alsoRoots[share].map { String(localized: "Also to \(URL(fileURLWithPath: $0).lastPathComponent)") } ?? String(localized: "Also copy to…"))
+                            .font(Design.Studio.hint)
+                    }
+                    .menuStyle(.button).buttonStyle(.plain).fixedSize()
+                    .help("Copies everything pulled to a second drive too, checked, without pulling it twice")
                     Picker("Speed", selection: Bindable(pulls).limit) {
                         ForEach(Self.limits, id: \.0) { Text($0.1).tag($0.0) }
                     }
@@ -268,6 +278,17 @@ private struct RemotePullsList: View {
                 ForEach(jobs) { row($0) }
             }
         }
+    }
+
+    private func chooseAlso() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "A second folder (on another drive) that gets a copy of everything pulled.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        pulls.setAlso(url, for: share)
     }
 
     private var summary: String {
@@ -289,6 +310,12 @@ private struct RemotePullsList: View {
                     Text(subtitle(job, state)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 }
                 Spacer(minLength: 8)
+                // (Proxies with a Rec.709 look burnt in, for cutting only: OfficeLook.)
+                if state?.filesHere ?? 0 > 0, job.originals == nil,
+                   RemoteManifest.load(in: URL(fileURLWithPath: job.destination, isDirectory: true))?.entries.contains(where: { $0.look != nil }) == true {
+                    StudioChip(text: Text("Viewing look"), symbol: "eye")
+                        .help("These proxies have a Rec.709 look for cutting. Grades made on them won’t match the render.")
+                }
                 if state?.finished == true, job.originals == nil, let link = RemoteHooks.linkInResolve {
                     if linking == job.id { PlumSpinner() } else {
                         Button("Link in Resolve") {
@@ -314,6 +341,9 @@ private struct RemotePullsList: View {
             }
             if let problem = state?.problem ?? state?.failed.values.first {
                 Text(problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2)
+            }
+            if let note = state?.note {
+                Text(note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
             }
         }
         .padding(.horizontal, 16)

@@ -18,6 +18,7 @@ extension PhotoSelfTest {
         await groupWireChecks()
         revokedChecks()
         await removalWireChecks()
+        await wakeChecks()
     }
 
     private typealias Group = OfficeGroup

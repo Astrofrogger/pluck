@@ -9,7 +9,8 @@ enum RemoteResolveMap {
     /// (when the host's share root is known: clips of a host-built project get their proxy linked),
     /// the local proxy, and the bin it goes into (the share, then its folders).
     nonisolated static func links(_ manifest: RemoteManifest, proxyRoot: URL, originalRoot: String?) -> [[String: Any]] {
-        manifest.entries.map { entry in
+        // (Pulled originals and their parts aren't proxies.)
+        manifest.entries.filter { $0.pieceOf == nil }.map { entry in
             var link: [String: Any] = ["proxy": normal(proxyRoot.appendingPathComponent(entry.proxy).path),
                                        "bin": RemoteResolveProject.bin(entry.path, share: manifest.shareName)]
             if let originalRoot { link["original"] = (originalRoot as NSString).appendingPathComponent(entry.path) }
@@ -23,10 +24,10 @@ enum RemoteResolveMap {
         for (manifest, root) in roots {
             for entry in manifest.entries {
                 let file = normal(root.appendingPathComponent(entry.proxy).path)
-                known[file] = .init(file: file, share: entry.share, path: entry.path)
+                known[file] = .init(file: file, share: entry.share, path: entry.path, piece: entry.range != nil ? true : nil)
             }
         }
-        return files.compactMap { file in known[normal(file)].map { RemoteRenderQueue.Proxy(file: file, share: $0.share, path: $0.path) } }
+        return files.compactMap { file in known[normal(file)].map { RemoteRenderQueue.Proxy(file: file, share: $0.share, path: $0.path, piece: $0.piece) } }
     }
 }
 
@@ -225,6 +226,35 @@ final class RemoteResolve {
                       files: answer["files"] as? [String] ?? [])
     }
 
+    // MARK: - XML from Premiere Pro or Final Cut Pro
+
+    /// Sends an exported XML to render on the host with `preset`: its proxies mapped to their originals (RemoteXML).
+    /// Answers the paths that weren't this Mac's proxies (left as they are). A host from before can't.
+    func renderXML(_ text: String, name: String, timeline: String, preset: String) async throws -> [String] {
+        let proxies = RemoteResolveMap.proxies(for: RemoteXML.files(text), roots: await roots(everyMode: true))
+        let answer: [String: Any]
+        do {
+            answer = try await client.ask(RemoteXML.action, ["xml": text, "name": name, "timeline": timeline, "preset": preset,
+                                                             "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path] }], timeout: 300)
+        } catch OfficeLink.Failure.office(let message) where message == String(localized: "The host Mac doesn’t know how to do that.") {
+            throw OfficeLink.Failure.office(String(localized: "The host Mac’s Pluck is too old to render XML. Update it there."))
+        }
+        try await refresh()
+        follow()
+        return answer["unknown"] as? [String] ?? []
+    }
+
+    // MARK: - Parts of originals
+
+    /// The originals the timeline open in Resolve uses (through this Mac's proxies), each as its used part plus handles
+    /// or whole with why (RemotePieces.plan).
+    func usedParts(timeline: String?) async throws -> [RemotePieces.Item] {
+        var instruction: [String: Any] = ["action": "ranges"]
+        if let timeline, !timeline.isEmpty { instruction["timeline"] = timeline }
+        let found = RemotePieces.uses(try await RemoteResolveScript.run(instruction))
+        return RemotePieces.plan(found.uses, whole: found.whole, roots: await roots(everyMode: true), handles: RemotePieces.handles)
+    }
+
     // MARK: - Starting
 
     /// A new project the host builds from a shared folder's originals, opened here with the local proxies.
@@ -324,7 +354,7 @@ final class RemoteResolve {
         step = String(localized: "Adding to the queue…")
         defer { step = nil }
         _ = try await client.ask("resolveRender", ["id": made.id, "version": made.version, "timeline": timeline, "preset": preset,
-                                                   "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path] }])
+                                                   "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path, "piece": $0.piece == true] }])
         try await refresh()
         follow()
     }

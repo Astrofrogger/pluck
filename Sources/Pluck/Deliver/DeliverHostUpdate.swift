@@ -36,6 +36,8 @@ final class DeliverHostUpdate {
         var level: Int
         var image: String
         var assets: [String: String]
+        /// Edit Anywhere's own relay image (Helpers/PluckRelay), with its digest; nil from a release before it.
+        var relayImage: String?
     }
 
     /// The Ed25519 public key (32 raw bytes, base64) that signs host releases. The owner puts the key from
@@ -52,7 +54,8 @@ final class DeliverHostUpdate {
               let version = object["version"] as? String, let level = object["protocol"] as? Int,
               let image = object["image"] as? String, image.contains("@sha256:"),
               let assets = object["assets"] as? [String: String] else { return nil }
-        return Release(version: version, level: level, image: image, assets: assets)
+        let relay = (object["relayImage"] as? String).flatMap { $0.contains("@sha256:") ? $0 : nil }
+        return Release(version: version, level: level, image: image, assets: assets, relayImage: relay)
     }
 
     static var key: Curve25519.Signing.PublicKey? {

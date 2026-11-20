@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// Proxies for Edit Anywhere, on the host Mac: light copies of a shared footage folder, made one
 /// file at a time, that paired Macs fetch to edit with at home and relink to the originals later.
@@ -479,7 +480,8 @@ final class OfficeProxies {
                         progress = 0
                         let source = folder.appendingPathComponent(relative)
                         let target = proxy(relative, folder: request.folder, format: request.format)
-                        if await makeOne(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
+                        if await makeOne(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe,
+                                         look: OfficeLook.setting(request.folder), progress: { value in
                             Task { @MainActor in OfficeProxies.shared.progress = value }
                         }) {
                             made = true
@@ -512,16 +514,18 @@ final class OfficeProxies {
             && !jobs.contains(where: { $0.share == item.share && $0.format == item.format && ($0.watch || $0.state == .queued || $0.state == .making) }) {
             await delete(item, trash: false)
         }
+        let keep = Self.keepDays
+        await Task.detached { RemotePieces.tidy(keepDays: keep) }.value
     }
 
     /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.
-    func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look: OfficeLook = .off,
                  progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        await makeClaimed(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress) ?? false
+        await makeClaimed(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, look: look, progress: progress) ?? false
     }
 
     /// makeOne, and nil when another office Mac of the group is making it (its claim, see OfficeGroup.claim).
-    func makeClaimed(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    func makeClaimed(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look: OfficeLook = .off,
                      progress: @escaping @Sendable (Double) -> Void) async -> Bool? {
         while encoding { await withCheckedContinuation { encodeQueue.append($0) } }
         encoding = true
@@ -556,12 +560,12 @@ final class OfficeProxies {
         for name in (try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? [] where name.hasPrefix(base) && name.hasSuffix(".part.mov") {
             try? FileManager.default.removeItem(at: place.appendingPathComponent(name))
         }
-        return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
+        return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, look: look, progress: progress)
     }
 
     /// One proxy: same frame rate, length and timecode as the original, at up to 1080p (720p to stream), written
     /// next to its final name (a name of its own) and moved there when it's complete.
-    nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look setting: OfficeLook = .off,
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         await Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -571,9 +575,13 @@ final class OfficeProxies {
             let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
             let (duration, timecode, container, reel) = probe(source, ffprobe: ffprobe)
             guard let demuxer = demuxer(container) else { return false }
+            // A viewing look (OfficeLook) goes on before the scale; the proxy says which one it has.
+            let look = OfficeLook.look(for: source, setting: setting, ffprobe: ffprobe)
+            let cube = look?.file()
             var common = ["-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-f", demuxer, "-i", source.path,
                           "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
-                          "-vf", "scale=-2:'min(\(format.height),ih)'"]
+                          "-vf", (cube.map { "lut3d=file='\($0.path)'," } ?? "") + "scale=-2:'min(\(format.height),ih)'"]
+            if let look, cube != nil { common += ["-metadata", "comment=" + OfficeLook.tagPrefix + look.name] }
             if let timecode { common += ["-timecode", timecode] }
             // Resolve and editors know a clip by its reel: the original's, else its file name.
             common += ["-metadata:s:v:0", "reel_name=" + (reel ?? source.deletingPathExtension().lastPathComponent)]
@@ -606,6 +614,13 @@ final class OfficeProxies {
                 process.waitUntilExit()
                 pipe.fileHandleForReading.readabilityHandler = nil
                 if process.terminationStatus == 0 {
+                    // Premiere's Attach Proxies and Final Cut's Relink Proxy Files need the original's frame rate, timecode,
+                    // aspect and audio channels: a proxy that differs fails loudly instead of linking wrong.
+                    if let problem = attachProblem(source, partial, ffprobe: ffprobe) {
+                        mismatches.withLock { $0[target.path] = problem }
+                        try? FileManager.default.removeItem(at: partial)
+                        return false
+                    }
                     try? FileManager.default.removeItem(at: target)
                     if (try? FileManager.default.moveItem(at: partial, to: target)) != nil { return true }
                 }
@@ -613,6 +628,51 @@ final class OfficeProxies {
             }
             return false
         }.value
+    }
+
+    /// Why a proxy made last didn't match its original (by the proxy's path), for the request's problem.
+    nonisolated static let mismatches = OSAllocatedUnfairLock(initialState: [String: String]())
+
+    /// The stream facts Attach Proxies / Relink Proxy Files compare: frame rate, timecode, display aspect, audio channels per stream.
+    nonisolated static func attachFacts(_ file: URL, ffprobe: String) -> (fps: String, timecode: String?, aspect: Double?, audio: [Int]) {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: ffprobe)
+        process.arguments = ["-v", "error", "-show_entries", "stream=codec_type,r_frame_rate,width,height,sample_aspect_ratio,channels:stream_tags=timecode:format_tags=timecode",
+                             "-of", "json", file.path]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return ("", nil, nil, []) }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let streams = json["streams"] as? [[String: Any]] ?? []
+        let video = streams.first { $0["codec_type"] as? String == "video" } ?? [:]
+        var aspect: Double?
+        if let w = video["width"] as? Int, let h = video["height"] as? Int, h > 0 {
+            let sar = (video["sample_aspect_ratio"] as? String)?.split(separator: ":").compactMap { Double($0) } ?? []
+            aspect = Double(w) / Double(h) * (sar.count == 2 && sar[0] > 0 && sar[1] > 0 ? sar[0] / sar[1] : 1)
+        }
+        let timecode = ((json["format"] as? [String: Any])?["tags"] as? [String: Any])?["timecode"] as? String
+            ?? streams.lazy.compactMap { ($0["tags"] as? [String: Any])?["timecode"] as? String }.first
+        return (video["r_frame_rate"] as? String ?? "", timecode,
+                aspect, streams.filter { $0["codec_type"] as? String == "audio" }.map { $0["channels"] as? Int ?? 0 })
+    }
+
+    /// nil when the proxy can stand in for the original in Premiere and Final Cut Pro, else what differs.
+    nonisolated static func attachProblem(_ original: URL, _ proxy: URL, ffprobe: String?) -> String? {
+        guard let ffprobe else { return nil }
+        let a = attachFacts(original, ffprobe: ffprobe), b = attachFacts(proxy, ffprobe: ffprobe)
+        func rate(_ text: String) -> Double? {
+            let parts = text.split(separator: "/").compactMap { Double($0) }
+            return parts.count == 2 && parts[1] > 0 ? parts[0] / parts[1] : nil
+        }
+        if let x = rate(a.fps), let y = rate(b.fps), abs(x - y) > x * 0.005 { return String(localized: "The proxy’s frame rate (\(b.fps)) isn’t the original’s (\(a.fps)).") }
+        if a.timecode?.replacingOccurrences(of: ";", with: ":") != b.timecode?.replacingOccurrences(of: ";", with: ":") {
+            return String(localized: "The proxy’s timecode isn’t the original’s.")
+        }
+        if let x = a.aspect, let y = b.aspect, abs(x - y) > 0.01 { return String(localized: "The proxy’s picture shape isn’t the original’s.") }
+        if a.audio != b.audio { return String(localized: "The proxy’s audio channels aren’t the original’s.") }
+        return nil
     }
 
     /// A raw clip (RED, Blackmagic RAW, a CinemaDNG folder) through pluck-raw, which ffmpeg can't read: at the
