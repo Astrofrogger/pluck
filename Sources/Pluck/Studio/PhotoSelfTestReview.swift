@@ -1118,6 +1118,69 @@ extension PhotoSelfTest {
         let copy = try? store.duplicate(client.id)
         check("parity: duplicate", copy?.roomID != client.roomID && copy?.requireName == true && copy?.uploads == store.link(client.id)?.uploads && copy.map { store.url($0) != nil } == true, "")
 
+        // 4.1.0 mail: mention ids, @mentions on comments and replies, Email updates in the manifest (never to browsers), subscribe.
+        let mailToken = "q1w2e3r4t5y6u7i8o9p0a1s2d3f4g5h6j7k8l9z0x1c"
+        check("mail: mention id vector", DeliverMail.mentionID(mailToken) == "a:9sXYOUiNEwau8WPK", DeliverMail.mentionID(mailToken))
+        check("mail: error texts and emails", DeliverMail.errorText(["error": ["code": "auth"]]) == "The mail server didn’t accept the user name or password."
+              && DeliverMail.errorText(["ok": true]) == nil && DeliverMail.validEmail("a@b.co") && !DeliverMail.validEmail("a@") && !DeliverMail.validEmail("a b@c.d") && !DeliverMail.validEmail("@c.d"), "")
+        let mailHost = UUID()
+        DeliverMail.savePassword("fake-secret", for: mailHost)
+        let kept = DeliverMail.password(for: mailHost)
+        DeliverKeychain.delete(mailHost.uuidString, service: DeliverMail.service)
+        check("mail: password round trip (in memory)", kept == "fake-secret" && DeliverMail.password(for: mailHost) == nil && ScreenshotMode.scene != nil, "")
+        if let mailed = try? store.newLink(scope: .project(project.id), title: "Mailed") {
+            store.updateLink(mailed.id) { $0.notify = .init(email: true, recipientEmail: "client@example.com") }
+            var asked: [[String: Any]] = []
+            server.mailActive = { true }
+            server.mailAsk = { asked.append($0); return $0["op"] as? String == "unsubscribe" ? ["ok": true, "scope": "link"] : ["ok": true, "id": "s1"] }
+            let mia = connect("p_mia", store.link(mailed.id)!, name: "Mia")
+            let miaComment = ask("p_mia", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 6, "text": "Hi"])
+            let miaID = DeliverMail.mentionID(UUID(uuidString: (miaComment["comment"] as? [String: Any])?["id"] as? String ?? "").flatMap { store.comment($0)?.authorToken } ?? "")
+            _ = connect("p_noah", store.link(mailed.id)!, name: "Noah")
+            _ = ask("p_t", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 7, "text": "Team only", "internal": true])
+            let people = (ask("p_noah", ["t": "mentionable"])["people"] as? [[String: String]]) ?? []
+            let teamPeople = (ask("p_t", ["t": "mentionable"])["people"] as? [[String: String]]) ?? []
+            check("mail: mentionable", people.contains { $0["id"] == miaID && $0["name"] == "Mia" } && !people.contains { $0["name"] == "Producer" }
+                  && teamPeople.contains { $0["name"] == "Producer" }, "\(people) \(teamPeople)")
+            let mentioned = ask("p_noah", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 8, "text": "@Mia look",
+                                           "mentions": [miaID, "bogus", miaID] + (0..<12).map { "x\($0)" }])
+            let mentionedID = (mentioned["comment"] as? [String: Any])?["id"] as? String ?? ""
+            let mentionedReply = ask("p_noah", ["t": "reply-add", "comment": mentionedID, "text": "again", "mentions": [miaID]])
+            let plain = ask("p_noah", ["t": "comment-add", "asset": spot.id.uuidString, "version": spot.current.id.uuidString, "frame": 9, "text": "No one", "mentions": ["bogus"]])
+            check("mail: mentions are filtered and stored", (mentioned["comment"] as? [String: Any])?["mentions"] as? [String] == [miaID]
+                  && (((mentionedReply["comment"] as? [String: Any])?["replies"] as? [[String: Any]])?.first?["mentions"] as? [String]) == [miaID]
+                  && (plain["comment"] as? [String: Any])?["mentions"] == nil, "\(mentioned)")
+            let storedMention = UUID(uuidString: mentionedID).flatMap { store.comment($0) }
+            let roundTrip = storedMention.flatMap { try? Deliver.decoder.decode(Deliver.Comment.self, from: Deliver.encoder.encode($0)) }
+            check("mail: mentions survive storage", storedMention?.mentions == [miaID] && roundTrip?.replies.first?.mentions == [miaID], "")
+            let manifestLink = (ReviewPublish(store: store).manifest(project: project.id, only: nil, host: nil).json["links"] as? [[String: Any]] ?? []).first { $0["id"] as? String == mailed.id.uuidString }
+            let notify = manifestLink?["notify"] as? [String: Any]
+            let info = DeliverServer.linkInfo(store.link(mailed.id)!, store: store)
+            check("mail: notify in the manifest only", notify?["email"] as? Bool == true && notify?["recipientEmail"] as? String == "client@example.com"
+                  && notify?["mailCode"] as? String == store.code(mailed.id) && store.code(mailed.id) != nil
+                  && info["notify"] == nil && (mia["link"] as? [String: Any])?["notify"] == nil, "\(String(describing: notify))")
+            let echoed = DeliverSync.link((manifestLink ?? [:]).merging(["notify": ["email": true, "recipientEmail": "client@example.com"]]) { $1 })
+            check("mail: notify read back", echoed?.notify == Deliver.ShareLink.Notify(email: true, recipientEmail: "client@example.com"), "")
+            check("mail: ready says mentions and mail", mia["mentions"] as? Bool == true && mia["mail"] as? Bool == true, "\(mia["mail"] ?? "-")")
+            let plainReady = connect("p_nomail", client, name: "Zed")
+            check("mail: no mail flag without Email updates", plainReady["mentions"] as? Bool == true && plainReady["mail"] == nil, "")
+            out = []
+            server.helper(["msg": ["peer": "p_noah", "msg": ["t": "subscribe", "id": 9001, "email": " me@example.com ", "mode": "daily", "lang": "nl"]]])
+            server.helper(["msg": ["peer": "p_noah", "msg": ["t": "unsubscribe", "id": 9002, "token": String(repeating: "A", count: 43)]]])
+            try? await Task.sleep(for: .milliseconds(300))
+            let sub = asked.first { $0["op"] as? String == "subscriber-set" }
+            check("mail: subscribe and unsubscribe go to the host", sub?["email"] as? String == "me@example.com" && sub?["kind"] as? String == "client" && sub?["mode"] as? String == "daily"
+                  && sub?["link"] as? String == mailed.id.uuidString && (sub?["author"] as? String)?.count == 44
+                  && sent("p_noah").contains { $0["re"] as? Int == 9001 && $0["ok"] as? Bool == true }
+                  && sent("p_noah").contains { $0["re"] as? Int == 9002 && $0["scope"] as? String == "link" }
+                  && asked.contains { $0["op"] as? String == "unsubscribe" }, "\(asked)")
+            check("mail: subscribe is checked", code(ask("p_noah", ["t": "subscribe", "email": "nope", "mode": "daily"])) == "invalid"
+                  && code(ask("p_noah", ["t": "subscribe", "email": "a@b.c", "mode": "weekly"])) == "invalid"
+                  && code(ask("p_nomail", ["t": "subscribe", "email": "a@b.c", "mode": "daily"])) == "off"
+                  && code(ask("p_noah", ["t": "unsubscribe", "token": "short"])) == "invalid", "")
+            server.mailActive = { DeliverMail.shared.active }
+        }
+
         // A share of a few assets.
         let few = try? store.newLink(scope: .assets([spot.id, script.id], project: project.id), title: "Two")
         let fewReady = few.map { connect("p_few", $0) } ?? [:]
