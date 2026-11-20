@@ -62510,6 +62510,64 @@
         }
       }
     },
+    "Checking what the office Mac needs…" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Prüfen, was der Büro-Mac braucht …"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comprobando lo que necesita el Mac de la oficina…"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Vérification de ce dont le Mac du bureau a besoin…"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controllo di ciò che serve al Mac dell’ufficio…"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフィスの Mac に必要なものを確認中…"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사무실 Mac에 필요한 것을 확인하는 중…"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Controleren wat de kantoor-Mac nodig heeft…"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verificando o que o Mac do escritório precisa…"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在检查办公室 Mac 需要什么…"
+          }
+        }
+      }
+    },
     "Checking…" : {
       "localizations" : {
         "de" : {
@@ -80509,6 +80567,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "拷贝设置（选择内容）"
+          }
+        }
+      }
+    },
+    "Copy them into a share and relink them in DaVinci Resolve." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopiere sie in eine Freigabe und verknüpfe sie in DaVinci Resolve neu."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cópialos en una carpeta compartida y vuelve a vincularlos en DaVinci Resolve."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiez-les dans un partage et reliez-les à nouveau dans DaVinci Resolve."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copiali in una condivisione e ricollegali in DaVinci Resolve."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "共有フォルダにコピーして、DaVinci Resolve で再リンクしてください。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "공유 폴더에 복사한 뒤 DaVinci Resolve에서 다시 연결하세요."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Kopieer ze naar een gedeelde map en koppel ze opnieuw in DaVinci Resolve."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Copie-os para uma pasta compartilhada e vincule-os de novo no DaVinci Resolve."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将它们复制到共享文件夹，然后在 DaVinci Resolve 中重新链接。"
           }
         }
       }
@@ -104974,6 +105090,64 @@
         }
       }
     },
+    "Effect “%@” isn’t installed on the office Mac." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Effekt „%@“ ist auf dem Büro-Mac nicht installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El efecto «%@» no está instalado en el Mac de la oficina."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’effet « %@ » n’est pas installé sur le Mac du bureau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "L’effetto “%@” non è installato sul Mac dell’ufficio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "エフェクト「%@」はオフィスの Mac にインストールされていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "효과 ‘%@’이(가) 사무실 Mac에 설치되어 있지 않습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Effect ‘%@’ is niet geïnstalleerd op de kantoor-Mac."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O efeito “%@” não está instalado no Mac do escritório."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上没有安装效果“%@”。"
+          }
+        }
+      }
+    },
     "Effects" : {
       "localizations" : {
         "de" : {
@@ -122154,6 +122328,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "字幕字重"
+          }
+        }
+      }
+    },
+    "Font “%@” isn’t installed on the office Mac." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Die Schrift „%@“ ist auf dem Büro-Mac nicht installiert."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La fuente «%@» no está instalada en el Mac de la oficina."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "La police « %@ » n’est pas installée sur le Mac du bureau."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il font “%@” non è installato sul Mac dell’ufficio."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "フォント「%@」はオフィスの Mac にインストールされていません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "서체 ‘%@’이(가) 사무실 Mac에 설치되어 있지 않습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lettertype ‘%@’ is niet geïnstalleerd op de kantoor-Mac."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A fonte “%@” não está instalada no Mac do escritório."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上没有安装字体“%@”。"
           }
         }
       }
@@ -198964,6 +199196,64 @@
         }
       }
     },
+    "Only on this Mac: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nur auf diesem Mac: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo en este Mac: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Uniquement sur ce Mac : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Solo su questo Mac: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "この Mac にのみ：%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "이 Mac에만 있음: %@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Alleen op deze Mac: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Só neste Mac: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仅在这台 Mac 上：%@"
+          }
+        }
+      }
+    },
     "Only part of the file" : {
       "localizations" : {
         "de" : {
@@ -231126,6 +231416,64 @@
         }
       }
     },
+    "Read by Fusion or a grade, only on this Mac: %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Von Fusion oder einem Grade gelesen, nur auf diesem Mac: %@"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Leídos por Fusion o un etalonaje, solo en este Mac: %@"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lus par Fusion ou un étalonnage, uniquement sur ce Mac : %@"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Letti da Fusion o da una correzione colore, solo su questo Mac: %@"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fusion またはグレードが読み込む、この Mac にのみあるファイル：%@"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fusion 또는 그레이드가 읽는 파일, 이 Mac에만 있음: %@"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gelezen door Fusion of een grade, alleen op deze Mac: %@"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Lidos pelo Fusion ou por uma correção de cor, só neste Mac: %@"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "由 Fusion 或调色读取，仅在这台 Mac 上：%@"
+          }
+        }
+      }
+    },
     "Read only: the office Mac runs an older Pluck." : {
       "localizations" : {
         "de" : {
@@ -239320,6 +239668,64 @@
         }
       }
     },
+    "Render Anyway" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Trotzdem rendern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renderizar de todos modos"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Rendre quand même"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renderizza comunque"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "このままレンダリング"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그래도 렌더링"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Toch renderen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Renderizar mesmo assim"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "仍然渲染"
+          }
+        }
+      }
+    },
     "Render DaVinci Resolve timelines on another Mac from anywhere, with the originals on its storage, and get a preview back. Invite a Mac with a one-time link; everything stays on your own private network." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -242462,6 +242868,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Resolve 渲染缓存"
+          }
+        }
+      }
+    },
+    "Resolve would use another font or leave the effect out. Install them on the office Mac (licences apply)." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve würde eine andere Schrift verwenden oder den Effekt weglassen. Installiere sie auf dem Büro-Mac (Lizenzen beachten)."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve usaría otra fuente u omitiría el efecto. Instálalos en el Mac de la oficina (se aplican licencias)."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve utiliserait une autre police ou omettrait l’effet. Installez-les sur le Mac du bureau (les licences s’appliquent)."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve userebbe un altro font o tralascerebbe l’effetto. Installali sul Mac dell’ufficio (valgono le licenze)."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve は別のフォントを使うか、エフェクトを省きます。オフィスの Mac にインストールしてください（ライセンスに従ってください）。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve가 다른 서체를 쓰거나 효과를 빼게 됩니다. 사무실 Mac에 설치하세요(라이선스가 적용됩니다)."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve zou een ander lettertype gebruiken of het effect weglaten. Installeer ze op de kantoor-Mac (licenties gelden)."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Resolve usaria outra fonte ou deixaria o efeito de fora. Instale-os no Mac do escritório (licenças se aplicam)."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Resolve 会改用其他字体或省略该效果。请在办公室 Mac 上安装它们（须遵守许可）。"
           }
         }
       }
@@ -256168,6 +256632,64 @@
         }
       }
     },
+    "Send Missing Files and Render" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Fehlende Dateien senden und rendern"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar archivos que faltan y renderizar"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les fichiers manquants et rendre"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invia i file mancanti e renderizza"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "足りないファイルを送ってレンダリング"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "누락된 파일 보내고 렌더링"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ontbrekende bestanden sturen en renderen"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar arquivos que faltam e renderizar"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送缺少的文件并渲染"
+          }
+        }
+      }
+    },
     "Send Test" : {
       "localizations" : {
         "de" : {
@@ -257757,6 +258279,64 @@
         }
       }
     },
+    "Sending %@… %lld%%" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ wird gesendet … %2$lld %%"
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviando %1$@… %2$lld %%"
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoi de %1$@… %2$lld %%"
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Invio di %1$@… %2$lld%%"
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ を送信中… %2$lld%%"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ 보내는 중… %2$lld%%"
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@ versturen… %2$lld%%"
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviando %1$@… %2$lld%%"
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "正在发送 %1$@… %2$lld%%"
+          }
+        }
+      }
+    },
     "Sending camera clips to DaVinci Resolve stopped with an error in 3.1.6. It's fixed." : {
       "extractionState" : "stale",
       "localizations" : {
@@ -257870,6 +258450,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "向办公室发送文件需要编辑角色。请让办公室更改这台 Mac 的角色。"
+          }
+        }
+      }
+    },
+    "Sending the missing files needs the Editor role in that folder on the office Mac. An Admin there can give it in Edit Anywhere." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Zum Senden der fehlenden Dateien ist die Rolle Editor in diesem Ordner auf dem Büro-Mac nötig. Ein Admin dort kann sie in Edit Anywhere vergeben."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Para enviar los archivos que faltan se necesita el rol Editor en esa carpeta del Mac de la oficina. Un Admin allí puede darlo en Edit Anywhere."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Envoyer les fichiers manquants nécessite le rôle Monteur dans ce dossier sur le Mac du bureau. Un Admin là-bas peut le donner dans Edit Anywhere."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Per inviare i file mancanti serve il ruolo Editor in quella cartella sul Mac dell’ufficio. Un Admin lì può assegnarlo in Edit Anywhere."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "足りないファイルを送るには、オフィスの Mac のそのフォルダで編集者の役割が必要です。そこの管理者が Edit Anywhere で付与できます。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "누락된 파일을 보내려면 사무실 Mac의 해당 폴더에서 편집자 역할이 필요합니다. 그곳의 관리자가 Edit Anywhere에서 줄 수 있습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De ontbrekende bestanden sturen vraagt de rol Editor in die map op de kantoor-Mac. Een Admin daar kan die geven in Edit Anywhere."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enviar os arquivos que faltam exige a função Editor nessa pasta do Mac do escritório. Um Admin lá pode concedê-la no Edit Anywhere."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "发送缺少的文件需要办公室 Mac 上该文件夹的编辑角色。那里的管理员可以在 Edit Anywhere 中授予。"
           }
         }
       }
@@ -299578,6 +300216,64 @@
         }
       }
     },
+    "The office Mac needs a newer Pluck to receive them." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der Büro-Mac braucht ein neueres Pluck, um sie zu empfangen."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "El Mac de la oficina necesita un Pluck más reciente para recibirlos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le Mac du bureau a besoin d’une version plus récente de Pluck pour les recevoir."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il Mac dell’ufficio ha bisogno di un Pluck più recente per riceverli."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "受け取るには、オフィスの Mac に新しい Pluck が必要です。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "받으려면 사무실 Mac에 최신 Pluck이 필요합니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "De kantoor-Mac heeft een nieuwere Pluck nodig om ze te ontvangen."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "O Mac do escritório precisa de um Pluck mais recente para recebê-los."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 需要更新版的 Pluck 才能接收它们。"
+          }
+        }
+      }
+    },
     "The old link stops working. Send the new one to everyone who should still see this." : {
       "localizations" : {
         "de" : {
@@ -307534,6 +308230,64 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "没有空间打开归档。"
+          }
+        }
+      }
+    },
+    "There’s no share on the office Mac to send the files to." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Auf dem Büro-Mac gibt es keine Freigabe, in die die Dateien gesendet werden können."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ninguna carpeta compartida en el Mac de la oficina a la que enviar los archivos."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Il n’y a aucun partage sur le Mac du bureau où envoyer les fichiers."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Sul Mac dell’ufficio non c’è una condivisione in cui inviare i file."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "オフィスの Mac にファイルを送る共有フォルダがありません。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "사무실 Mac에 파일을 보낼 공유 폴더가 없습니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Er is geen gedeelde map op de kantoor-Mac om de bestanden naartoe te sturen."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não há uma pasta compartilhada no Mac do escritório para enviar os arquivos."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "办公室 Mac 上没有可发送文件的共享文件夹。"
           }
         }
       }
