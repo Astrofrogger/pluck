@@ -18,18 +18,25 @@ enum ShrinkRelink {
         try await bridge(["action": "projects"])["projects"] as? [String] ?? []
     }
 
-    /// Old path → master for every master of these runs that's there.
-    static func map(_ runs: [ShrinkFolders.Run]) -> [String: String] {
+    /// Old path → master for every master of these runs that's there (`back`: master → original, for the
+    /// files put back whose master had another name, the original there again).
+    static func map(_ runs: [ShrinkFolders.Run], back: Bool = false) -> [String: String] {
         var map: [String: String] = [:]
         for run in runs {
-            for move in ShrinkFolders.pathList(run) where FileManager.default.fileExists(atPath: move.new) { map[move.old] = move.new }
+            if back {
+                for file in run.files where file.state == .restored {
+                    if let master = file.master, master != file.path, FileManager.default.fileExists(atPath: file.path) { map[master] = file.path }
+                }
+            } else {
+                for move in ShrinkFolders.pathList(run) where FileManager.default.fileExists(atPath: move.new) { map[move.old] = move.new }
+            }
         }
         return map
     }
 
     /// Only the chosen projects and files are opened; each is saved after its clips are replaced.
-    static func relink(_ runs: [ShrinkFolders.Run], projects: [String], drp: [URL]) async throws -> [Result] {
-        let map = map(runs)
+    static func relink(_ runs: [ShrinkFolders.Run], projects: [String], drp: [URL], back: Bool = false) async throws -> [Result] {
+        let map = map(runs, back: back)
         guard !map.isEmpty, !(projects.isEmpty && drp.isEmpty) else { return [] }
         let answer = try await bridge(["action": "relink", "projects": projects, "drp": drp.map(\.path), "map": map])
         return (answer["results"] as? [[String: Any]] ?? []).map {

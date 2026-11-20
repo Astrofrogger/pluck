@@ -47,8 +47,21 @@ final class ArchiveModel {
     struct Client: Identifiable { var id: String { name }; var name: String; var projects: [ProjectRow] }
     struct Untouched: Identifiable { var id: String { path }; var path: String; var size: Int64; var project: String; var reason: String }
     struct Progress { var machine: String; var done: Int; var total: Int; var current: String?; var left: Double?; var waitingForEdit: Bool }
-    /// A share's folder to delete: what's in it, and a recycle bin there that keeps deleted files' space.
-    struct Waiting: Identifiable, Sendable { var id: String { folder.path }; var share: String; var folder: URL; var bytes: Int64; var recycle: String? }
+    /// A share's folder to delete: what's in it, and a recycle bin there that keeps deleted files' space; what of
+    /// it a checked master accounts for (safe to delete) and what not (not checked, or not safe), by file.
+    struct Waiting: Identifiable, Sendable {
+        var id: String { folder.path }
+        var share: String
+        var folder: URL
+        var bytes: Int64
+        var recycle: String?
+        var safe: Int64 = 0
+        var unsafe: Int64 = 0
+        var safeFiles: [URL] = []
+        var unsafeFiles: [String] = []
+    }
+    /// Check Before Deleting's result for one project of a run.
+    struct ProjectCheck: Identifiable { var id: String { title }; var title: String; var masters: Int; var checked: Int; var problems: [String] }
     typealias Choice = ShrinkFolders.Rules.Choice
 
     // MARK: State
@@ -376,23 +389,83 @@ final class ArchiveModel {
     }
 
     /// Measures the folders to delete on each share (and a recycle bin there) and what's been deleted from them.
+    /// Safe to delete: an original (its parts, its sidecars' copies) whose master passed Check Before Deleting, and
+    /// a project's proxies once all its masters did; anything else in the folder is not safe (yet).
     func refreshSpace() async {
         let shares = Set((survey?.projects.values ?? [:].values).map(\.share))
-        let moved = center.runs.flatMap(\.files).filter { $0.state == .done && $0.moved != nil }
+        let runs = center.runs
+        let moved = runs.flatMap(\.files).filter { $0.state == .done && $0.moved != nil }
         let holdings = Set(moved.compactMap { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:)) })
         let result = await Task.detached(priority: .utility) { () -> ([Waiting], Int64) in
             var folders = holdings
             for share in shares { folders.insert(ShrinkFolders.holding(for: URL(fileURLWithPath: share))) }
+            // Paths below their folder to delete (the folder by its real path).
+            func key(_ path: String) -> (String, String)? {
+                guard let holding = ShrinkFolders.holdingFolder(of: path) else { return nil }
+                return (ShrinkFolders.real(holding).path, String(path.dropFirst(holding.path.count + 1)))
+            }
+            var safe: [String: Set<String>] = [:], safeFolders: [String: [String]] = [:]
+            for file in moved where file.safeToDelete {
+                guard let original = file.moved else { continue }
+                let folder = (original as NSString).deletingLastPathComponent
+                for path in [original] + (file.parts + (file.sidecars ?? [])).map({ (folder as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }) {
+                    if let (root, below) = key(path) { safe[root, default: []].insert(below) }
+                }
+            }
+            for run in runs {
+                for (project, proxies) in run.proxyFolders {
+                    let masters = run.files.filter { $0.project == project && $0.state == .done }
+                    guard !masters.isEmpty, masters.allSatisfy(\.safeToDelete) else { continue }
+                    for folder in proxies { if let to = run.movedFolders[folder], let (root, below) = key(to) { safeFolders[root, default: []].append(below + "/") } }
+                }
+            }
             let waiting = folders.sorted { $0.path < $1.path }.compactMap { folder -> Waiting? in
-                guard FileManager.default.fileExists(atPath: folder.path) else { return nil }
-                let share = folder.deletingLastPathComponent().path
-                return Waiting(share: (share as NSString).lastPathComponent, folder: folder, bytes: ShrinkFolders.bytes(in: folder), recycle: ShrinkFolders.recycleBin(share))
+                guard FileManager.default.fileExists(atPath: folder.path), let walk = FileManager.default.enumerator(atPath: folder.path) else { return nil }
+                let share = folder.deletingLastPathComponent().path, root = ShrinkFolders.real(folder).path
+                var place = Waiting(share: (share as NSString).lastPathComponent, folder: folder, bytes: 0, recycle: ShrinkFolders.recycleBin(share))
+                while let below = walk.nextObject() as? String {
+                    guard walk.fileAttributes?[.type] as? FileAttributeType == .typeRegular else { continue }
+                    let size = (walk.fileAttributes?[.size] as? NSNumber)?.int64Value ?? 0
+                    place.bytes += size
+                    // (Pluck's own lists at its top: neither.)
+                    if !below.contains("/"), below == "Inventory.csv" || below.hasPrefix("Shrink ") || below.hasPrefix("Relink ") { continue }
+                    if safe[root]?.contains(below) == true || safeFolders[root]?.contains(where: { below.hasPrefix($0) }) == true {
+                        place.safe += size
+                        if place.safeFiles.count < 500 { place.safeFiles.append(folder.appendingPathComponent(below)) }
+                    } else {
+                        place.unsafe += size
+                        if place.unsafeFiles.count < 50 { place.unsafeFiles.append(below) }
+                    }
+                }
+                return place
             }
             // shortcut: proxy folders moved and deleted aren't counted (no size kept for them); keep their size in the run if wanted.
             let freed = moved.filter { !FileManager.default.fileExists(atPath: $0.moved ?? "") }.reduce(Int64(0)) { $0 + max($1.size - ($1.masterSize ?? 0), 0) }
             return (waiting, freed)
         }.value
         (waiting, freedSoFar) = result
+    }
+
+    /// Check Before Deleting's results for a run, by project.
+    func checks(_ run: ShrinkFolders.Run) -> [ProjectCheck] {
+        let done = run.files.filter { $0.state == .done }
+        return Dictionary(grouping: done) { $0.client.isEmpty ? ($0.folder as NSString).lastPathComponent : ShrinkFolders.title(client: $0.client, project: $0.projectName) }
+            .map { title, files in
+                ProjectCheck(title: title, masters: files.count, checked: files.filter { $0.checked != nil }.count,
+                             problems: files.compactMap { file in file.checkProblems.flatMap { $0.isEmpty ? nil : "\((file.path as NSString).lastPathComponent): \($0.joined(separator: ", "))" } })
+            }
+            .sorted { $0.title < $1.title }
+    }
+
+    /// Check Before Deleting, for a run or for what waits in one share's folder to delete.
+    func check(_ run: ShrinkFolders.Run) {
+        guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else { return }
+        Task { await center.check(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe); await refreshSpace() }
+    }
+
+    func check(_ place: Waiting) {
+        guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else { return }
+        Task { await center.check(holding: place.folder, ffmpeg: ffmpeg, ffprobe: ffprobe); await refreshSpace() }
     }
 
     /// A project's own size (nil: the run's), kept per share like a rename.
@@ -453,7 +526,10 @@ final class ArchiveModel {
     }
 
     func putBack(_ run: ShrinkFolders.Run) { Task { await center.putBack(run.id); await refreshSpace() } }
-    func moveOriginals(_ run: ShrinkFolders.Run) { Task { problems = await center.moveOriginals(run.id); await refreshSpace() } }
+    func moveOriginals(_ run: ShrinkFolders.Run) {
+        guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else { return }
+        Task { problems = await center.moveOriginals(run.id, ffmpeg: ffmpeg, ffprobe: ffprobe); await refreshSpace() }
+    }
 
     /// The folders a run's originals (or masters, in a destination) are in.
     func places(_ run: ShrinkFolders.Run) -> [URL] {

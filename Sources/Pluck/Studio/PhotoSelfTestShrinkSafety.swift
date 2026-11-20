@@ -98,7 +98,7 @@ extension PhotoSelfTest {
         if destFiles.count == 2, destFiles.allSatisfy({ $0.state == .done }), let m1 = destFiles[0].master, let m2 = destFiles[1].master {
             try? fm.removeItem(atPath: m1)
             if let handle = FileHandle(forWritingAtPath: m2) { try? handle.truncate(atOffset: 1000); try? handle.close() }
-            _ = await destCenter.moveOriginals(destID)
+            _ = await destCenter.moveOriginals(destID, ffmpeg: ffmpeg, ffprobe: ffprobe)
             check("shrink safety: destination master missing or cut short: its original stays where it is",
                   fm.fileExists(atPath: destClip.path) && fm.fileExists(atPath: destClip2.path)
                   && destCenter.run(destID)?.files.allSatisfy { $0.moved == nil } == true,
@@ -219,5 +219,128 @@ extension PhotoSelfTest {
               remoteCenter.run(remoteID)?.files.first?.state == .done && mapped?.sidecars == ["/mnt/v/a.xml"]
               && remoteCenter.run(remoteID).map(remoteCenter.unfinished) == true,
               "\(remoteCenter.run(remoteID)?.files.map { "\($0.state)" } ?? []) \(String(describing: mapped?.sidecars))")
+
+        // 3 Check Before Deleting: run at the end of every run; a master changed by a byte or an original gone is NOT safe.
+        let checkFolder = projects.appendingPathComponent("Check/Rushes")
+        let c1 = checkFolder.appendingPathComponent("A008C001.mov"), c2 = checkFolder.appendingPathComponent("A008C002.mov"), c3 = checkFolder.appendingPathComponent("A008C003.mov")
+        for url in [c1, c2, c3] { make(url) }
+        let checkCenter = center("check")
+        let checkID = await checkCenter.start(scan(checkFolder), settings: hd, roots: [checkFolder.path], ffmpeg: ffmpeg, ffprobe: ffprobe)
+        let checkedFiles = checkCenter.run(checkID)?.files ?? []
+        let inventoryJSON = ((try? fm.contentsOfDirectory(atPath: holding.path)) ?? []).filter { $0.hasPrefix("Shrink ") && $0.hasSuffix(".json") }
+            .compactMap { try? Data(contentsOf: holding.appendingPathComponent($0)) }.compactMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }
+            .flatMap { $0 }.filter { ($0["original"] as? String)?.hasPrefix(checkFolder.path) == true }
+        check("shrink safety: every run ends with Check Before Deleting: each master safe, its checksum, frames and check in the inventory",
+              checkedFiles.count == 3 && checkedFiles.allSatisfy { $0.safeToDelete && $0.masterHash != nil && $0.frames == 25 && $0.originalHead != nil }
+              && inventoryJSON.count == 3 && inventoryJSON.allSatisfy { $0["safe_to_delete"] as? Bool == true && ($0["master_xxhash64"] as? String)?.isEmpty == false
+                  && $0["frames"] as? Int == 25 && $0["checked"] != nil },
+              "\(checkedFiles.map { "\($0.state) \($0.note ?? "") \($0.checkProblems ?? ["unchecked"])" }) \(inventoryJSON.count)")
+        if checkedFiles.count == 3, let m2 = checkedFiles.first(where: { $0.path == c2.path })?.master, let o3 = checkedFiles.first(where: { $0.path == c3.path })?.moved {
+            if let handle = FileHandle(forUpdatingAtPath: m2) {
+                try? handle.seek(toOffset: 5000)
+                let byte = (try? handle.read(upToCount: 1))?.first ?? 0
+                try? handle.seek(toOffset: 5000)
+                try? handle.write(contentsOf: Data([byte ^ 0xFF]))
+                try? handle.close()
+            }
+            let stray = holding.appendingPathComponent("Projects/Check/Rushes/stray.mov")
+            try? Data(repeating: 9, count: 4000).write(to: stray)
+            let o3aside = base.appendingPathComponent("o3-aside.mov")
+            try? fm.moveItem(atPath: o3, toPath: o3aside.path)
+            await checkCenter.check(checkID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let after = checkCenter.run(checkID)?.files ?? []
+            func problems(_ url: URL) -> [String] { after.first { $0.path == url.path }?.checkProblems ?? ["unchecked"] }
+            check("shrink safety: Check Before Deleting finds a master changed by one byte and an original gone; the right one stays safe",
+                  after.first { $0.path == c1.path }?.safeToDelete == true && problems(c2).contains(String(localized: "The master’s checksum differs"))
+                  && problems(c3).contains(String(localized: "The original isn’t all there")) && after.filter(\.safeToDelete).count == 1,
+                  "\(after.map { "\(($0.path as NSString).lastPathComponent) \($0.checkProblems ?? [])" })")
+            try? fm.moveItem(atPath: o3aside.path, toPath: o3)
+            let model = ArchiveModel(center: checkCenter)
+            await model.refreshSpace()
+            let place = model.waiting.first { S.real($0.folder).path == S.real(holding).path }
+            let safeNames = Set(place?.safeFiles.map(\.lastPathComponent) ?? []), unsafeNames = Set(place?.unsafeFiles.map { ($0 as NSString).lastPathComponent } ?? [])
+            check("shrink safety: waiting to delete says safe for checked originals only; anything else (a changed master's original, a stray file) not safe",
+                  safeNames.contains("A008C001.mov") && !safeNames.contains("A008C002.mov") && unsafeNames.contains("A008C002.mov") && unsafeNames.contains("stray.mov")
+                  && !safeNames.contains("stray.mov") && (place?.safe ?? 0) > 0 && (place?.unsafe ?? 0) > 0, "\(safeNames) \(unsafeNames)")
+            try? fm.removeItem(at: stray)
+        }
+
+        // 6 A claim taken over before the master goes in: nothing is touched.
+        let lostFolder = projects.appendingPathComponent("Lost/Rushes"), lostClip = lostFolder.appendingPathComponent("A009C001.mov")
+        make(lostClip)
+        if let file = scan(lostFolder).first {
+            let prepared = S.prepare(file, settings: hd, holding: holding, temp: S.temporary(lostClip.path, token: "11112222"), ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
+            let after = S.finish(prepared, settings: hd, stillOurs: { false })
+            check("shrink safety: the claim isn't this Mac's any more: the original and the hidden master are left as they are",
+                  prepared.state == .working && after.state == .working && ProjectArchive.streams(lostClip.path, ffprobe: ffprobe).codec == "prores"
+                  && fm.fileExists(atPath: prepared.temp ?? "/nonexistent") && !fm.fileExists(atPath: prepared.moved ?? "/nonexistent"), "\(after.state) \(after.note ?? "")")
+            try? fm.removeItem(atPath: prepared.temp ?? "/nonexistent")
+        }
+
+        // 5 Put Back after Relink in Resolve: the way back points Resolve at the originals again.
+        let relinkFolder = base.appendingPathComponent("RelinkBack")
+        try? fm.createDirectory(at: relinkFolder, withIntermediateDirectories: true)
+        let backOriginal = relinkFolder.appendingPathComponent("C0009.MP4")
+        try? Data(repeating: 1, count: 10).write(to: backOriginal)
+        let relinkCenter = center("relink")
+        var restored = S.File(path: backOriginal.path, folder: relinkFolder.path, size: 10, modified: old)
+        let relinkID = relinkCenter.add([restored], settings: hd, roots: [relinkFolder.path])
+        restored.state = .restored
+        restored.master = relinkFolder.appendingPathComponent("C0009.mov").path
+        relinkCenter.set(restored, in: relinkID)
+        relinkCenter.markRelinked(relinkID)
+        let bridgeBefore = ShrinkRelink.bridge
+        final class Sent { var map: [String: String] = [:] }
+        let sent = Sent()
+        ShrinkRelink.bridge = { instruction in
+            sent.map = instruction["map"] as? [String: String] ?? [:]
+            return ["results": [["project": "Alpha", "replaced": 1, "failed": [String]()]]]
+        }
+        _ = try? await ShrinkRelink.relink([relinkCenter.run(relinkID)].compactMap { $0 }, projects: ["Alpha"], drp: [], back: true)
+        ShrinkRelink.bridge = bridgeBefore
+        check("shrink safety: Relink to Originals maps each removed master back to its original", sent.map == [restored.master ?? "": backOriginal.path]
+              && relinkCenter.run(relinkID)?.relinked != nil, "\(sent.map)")
+        check("shrink safety: runs.json keeps the one before as runs.json.bak", fm.fileExists(atPath: base.appendingPathComponent("relink.json.bak").path))
+
+        // Crash tests: Pluck killed at each step of making, checking and swapping; after Resume the master is in under
+        // the original's name, the original whole in the folder to delete, and the check passes. Nothing lost at any point.
+        for kind in ["mov", "mp4"] {
+            for step in ["encoded", "verified", "master in", "moving", "original out"] {
+                let folder = projects.appendingPathComponent("Crash/Rushes/\(kind) \(step.replacingOccurrences(of: " ", with: "-").replacingOccurrences(of: "master", with: "m"))")
+                let clip = folder.appendingPathComponent(kind == "mov" ? "A010C001.mov" : "C0010.MP4")
+                make(clip)
+                let rmd = folder.appendingPathComponent(clip.deletingPathExtension().lastPathComponent + ".RMD")
+                try? Data(repeating: 5, count: 1000).write(to: rmd)
+                try? fm.setAttributes([.modificationDate: old], ofItemAtPath: rmd.path)
+                guard var file = scan(folder).first(where: { $0.path == clip.path }) else { check("shrink safety: crash \(kind) \(step) clip", false); continue }
+                // (A part that moves with it, so a kill can land between the original and its part.)
+                file.parts = [rmd.path]
+                file.sidecars = nil
+                file.size += 1000
+                let store = "crash-\(kind)-\(step)".replacingOccurrences(of: " ", with: "-")
+                let first = center(store)
+                let id = first.add([file], settings: hd, roots: [folder.path])
+                S.kill = { name, killed in
+                    guard name == step, killed.path == clip.path else { return false }
+                    if name == "encoded", let temp = killed.temp, let handle = FileHandle(forWritingAtPath: temp) { try? handle.truncate(atOffset: 100); try? handle.close() }
+                    return true
+                }
+                await first.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
+                S.kill = nil
+                let wasKilled = S.killed
+                let moved = S.movedPath(clip.path, holding: holding)
+                let nothingLost = (fm.fileExists(atPath: clip.path) && ProjectArchive.streams(clip.path, ffprobe: ffprobe).codec == "prores") || fm.fileExists(atPath: moved)
+                let again = center(store)
+                await again.resume(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
+                let result = again.run(id)?.files.first
+                let master = result?.master ?? "/nonexistent"
+                let leftovers = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(".shrinking-") }
+                check("shrink safety: killed at \(step) (\(kind)): nothing lost; after Resume the checked master is in and the original whole in the folder to delete",
+                      wasKilled && nothingLost && result?.state == .done && result?.safeToDelete == true && ProjectArchive.streams(master, ffprobe: ffprobe).codec == "hevc"
+                      && fm.fileExists(atPath: moved) && fm.fileExists(atPath: (moved as NSString).deletingLastPathComponent + "/" + rmd.lastPathComponent)
+                      && !fm.fileExists(atPath: rmd.path) && leftovers.isEmpty,
+                      "killed \(wasKilled) lost \(!nothingLost) \(String(describing: result?.state)) \(result?.note ?? "") \(result?.checkProblems ?? []) \(leftovers)")
+            }
+        }
     }
 }

@@ -12,6 +12,7 @@ struct ArchiveView: View {
     @State private var more = false
     @State private var showAll = false
     @State private var relinking: ShrinkFolders.Run?
+    @State private var relinkingBack: ShrinkFolders.Run?
     private var center: ShrinkCenter { model.center }
     private let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     private var flow: Bool { [.folders, .projects, .settings].contains(model.screen) }
@@ -48,7 +49,8 @@ struct ArchiveView: View {
             Button("Rename") { if let renaming { model.rename(renaming, to: newName) } }
             Button("Cancel", role: .cancel) {}
         }
-        .sheet(item: $relinking) { run in RelinkSheet(run: run) }
+        .sheet(item: $relinking) { run in RelinkSheet(run: run) { center.markRelinked(run.id) } }
+        .sheet(item: $relinkingBack) { run in RelinkSheet(run: run, back: true) { center.markRelinked(run.id, false) } }
     }
 
     // MARK: Header and footer
@@ -154,15 +156,32 @@ struct ArchiveView: View {
                 Text(verbatim: bytes(model.waiting.reduce(Int64(0)) { $0 + $1.bytes })).font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.text)
             }
             ForEach(model.waiting) { place in
-                HStack(spacing: 8) {
-                    Text(verbatim: place.share).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
-                    Spacer()
-                    Text(verbatim: bytes(place.bytes)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
-                    Button { NSWorkspace.shared.activateFileViewerSelecting([place.folder]) } label: { Image(systemName: "folder") }
-                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show in Finder")
-                }
-                if let bin = place.recycle {
-                    Text("Deleted files stay in \(bin) on this share until it’s emptied").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 8) {
+                        Text(verbatim: place.share).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                        Spacer()
+                        if place.safe > 0 {
+                            Text("Safe to delete \(bytes(place.safe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.good)
+                        }
+                        if place.unsafe > 0 {
+                            Text("Not checked \(bytes(place.unsafe))").font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.warn)
+                        }
+                        Button("Check") { model.check(place) }.buttonStyle(.link).font(Design.Studio.hint)
+                            .disabled(center.checking != nil || center.running).help("Reads every master again before you delete its original")
+                        if !place.safeFiles.isEmpty {
+                            Button { NSWorkspace.shared.activateFileViewerSelecting(place.safeFiles) } label: { Image(systemName: "folder") }
+                                .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show what’s safe to delete in Finder")
+                        }
+                    }
+                    if !place.unsafeFiles.isEmpty {
+                        let names = place.unsafeFiles.prefix(3).map { ($0 as NSString).lastPathComponent }.joined(separator: ", ") + (place.unsafeFiles.count > 3 ? "…" : "")
+                        Text("Don’t delete yet: \(names)")
+                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2)
+                            .help(place.unsafeFiles.joined(separator: "\n"))
+                    }
+                    if let bin = place.recycle {
+                        Text("Deleted files stay in \(bin) on this share until it’s emptied").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    }
                 }
             }
             Text("Space comes back once you delete these. On TrueNAS, snapshots keep deleted files until they expire.")
@@ -192,6 +211,8 @@ struct ArchiveView: View {
                 }
             }
             StudioProgress(share: Double(now.freed) / Double(max(now.total, 1)))
+            Text("Pauses only for editing on this Mac: another Mac using a file over the network can’t be seen")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
             if !center.running, let why = center.runs.first(where: center.unfinished)?.paused {
                 Text(verbatim: why).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
             }
@@ -481,8 +502,16 @@ struct ArchiveView: View {
                         Button("Relink in Resolve…") { relinking = run }.buttonStyle(.link)
                             .help("Points the clips of the Resolve projects you choose at their masters")
                     }
+                    if run.files.contains(where: { $0.state == .done }) {
+                        if center.checking == run.id {
+                            Text("Checking…").foregroundStyle(Design.Studio.textQuiet)
+                        } else {
+                            Button("Check Before Deleting") { model.check(run) }.buttonStyle(.link).disabled(center.checking != nil)
+                                .help("Reads every master again from the drive and looks at its original before you delete anything")
+                        }
+                    }
                     if center.canPutBack(run) {
-                        Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link)
+                        Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link).disabled(center.checking != nil)
                             .help(run.destination == nil ? "Masters to the Trash, originals back in their place" : "The masters of this run to the Trash")
                     }
                 }
@@ -493,6 +522,29 @@ struct ArchiveView: View {
             ForEach(failed.prefix(10)) { file in
                 Text(verbatim: "\((file.path as NSString).lastPathComponent): \(file.note ?? "")").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
                     .lineLimit(1).truncationMode(.middle).help(file.path)
+            }
+            ForEach(run.files.filter { $0.problem != nil }.prefix(10)) { file in
+                Text(verbatim: "\((file.path as NSString).lastPathComponent): \(file.problem ?? "")").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    .lineLimit(2).truncationMode(.middle).help(file.path)
+            }
+            ForEach(model.checks(run).filter { $0.checked > 0 }) { project in
+                if project.problems.isEmpty && project.checked == project.masters {
+                    Text("\(project.title) · \(project.masters) masters checked · safe to delete").font(Design.Studio.hint).foregroundStyle(Design.Studio.good)
+                } else {
+                    Text(verbatim: project.title).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    ForEach(project.problems.prefix(10), id: \.self) { problem in
+                        Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2).padding(.leading, 12)
+                    }
+                    if project.checked < project.masters {
+                        Text("\(project.masters - project.checked) not checked: don’t delete yet").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).padding(.leading, 12)
+                    }
+                }
+            }
+            if run.relinked != nil, !ShrinkRelink.map([run], back: true).isEmpty {
+                HStack(spacing: 8) {
+                    Text("Resolve projects relinked to these masters now point at removed files").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                    Button("Relink to Originals…") { relinkingBack = run }.buttonStyle(.link).font(Design.Studio.hint)
+                }
             }
         }
     }
@@ -511,6 +563,9 @@ struct ArchiveView: View {
 /// manager or as .drp files; nothing is opened that isn't chosen.
 private struct RelinkSheet: View {
     let run: ShrinkFolders.Run
+    /// Back to the originals after Put Back.
+    var back = false
+    var relinked: () -> Void = {}
     @Environment(\.dismiss) private var dismiss
     @State private var projects: [String] = []
     @State private var chosen: Set<String> = []
@@ -521,8 +576,9 @@ private struct RelinkSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Relink in Resolve").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
-            Text("\(ShrinkRelink.map([run]).count) masters. Their clips in the projects you choose are replaced; each project is saved.")
+            (back ? Text("Relink to Originals") : Text("Relink in Resolve")).font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            (back ? Text("\(ShrinkRelink.map([run], back: true).count) originals. Their clips in the projects you choose point at them again; each project is saved.")
+             : Text("\(ShrinkRelink.map([run]).count) masters. Their clips in the projects you choose are replaced; each project is saved."))
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
@@ -574,7 +630,11 @@ private struct RelinkSheet: View {
         busy = true
         problem = nil
         Task {
-            do { results = try await ShrinkRelink.relink([run], projects: projects.filter(chosen.contains), drp: files) } catch { problem = error.localizedDescription }
+            do {
+                let done = try await ShrinkRelink.relink([run], projects: projects.filter(chosen.contains), drp: files, back: back)
+                results = done
+                if done.contains(where: { $0.replaced > 0 }) { relinked() }
+            } catch { problem = error.localizedDescription }
             busy = false
         }
     }

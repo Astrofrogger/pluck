@@ -45,6 +45,8 @@ enum ShrinkRemote {
         file.parts = file.parts.compactMap(map)
         file.master = file.master.flatMap(map)
         file.moved = file.moved.flatMap(map)
+        file.sidecars = file.sidecars?.compactMap(map)
+        file.temp = file.temp.flatMap(map)
         return file
     }
 
@@ -162,16 +164,15 @@ enum ShrinkRemote {
     }
 
     /// The office Mac's states for files this Mac left to it (or both took): done, skipped and failed count.
+    /// Its done counts over anything here but done (this Mac found the file gone or changed: the office Mac
+    /// had moved it); the rest only over files this Mac didn't do.
     static func merge(_ files: [ShrinkFolders.File], into id: UUID, center: ShrinkCenter) {
         guard let run = center.run(id) else { return }
         for remote in files where [.done, .skipped, .failed, .restored].contains(remote.state) {
-            guard var mine = run.files.first(where: { $0.path == remote.path }), mine.state == .elsewhere || mine.state == .pending else { continue }
-            mine.state = remote.state
-            mine.note = remote.note
-            mine.master = remote.master
-            mine.masterSize = remote.masterSize
-            mine.moved = remote.moved
-            center.set(mine, in: id)
+            guard let mine = run.files.first(where: { $0.path == remote.path }) else { continue }
+            let open = mine.state == .elsewhere || mine.state == .pending
+            guard open || (remote.state == .done && ![.done, .restored, .working].contains(mine.state)) else { continue }
+            center.set(remote, in: id)
         }
     }
 
@@ -190,5 +191,7 @@ enum ShrinkRemote {
             try? await Task.sleep(for: .seconds(15))
         }
         if held == true { _ = try? await OfficeRenderClient.shared.ask("shrinkHold", ["hold": false], timeout: 20) }
+        // (Its proxies wait until the office Mac is done with the project too.)
+        center.wrapUp(id)
     }
 }

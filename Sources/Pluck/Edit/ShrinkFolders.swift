@@ -833,6 +833,43 @@ enum ShrinkFolders {
         return file
     }
 
+    // MARK: Check Before Deleting
+
+    /// One file whose master is in place, read again from the drive: the master there under its name with
+    /// Pluck's tag, its size and xxHash64 as when it was checked, decoding to the end (nice'd), the
+    /// original's frame count and length within a frame; and the original whole where it waits (its size,
+    /// its first and last MB). What's wrong (empty: its original is safe to delete).
+    static func check(_ file: File, ffmpeg: String, ffprobe: String, open: (URL) throws -> RawSource = { try RawFormats.open($0) }) -> [String] {
+        let fm = FileManager.default
+        func size(_ path: String) -> Int64? { (try? fm.attributesOfItem(atPath: path))?[.size] as? Int64 }
+        guard file.state == .done, let master = file.master, let got = size(master) else { return [String(localized: "The master is gone")] }
+        var problems: [String] = []
+        if let expected = file.masterSize, got != expected { problems.append(String(localized: "The master’s size changed")) }
+        let tag = ProjectArchive.run(ffprobe, ["-v", "error", "-show_entries", "format_tags=pluck", "-of", "default=nw=1:nk=1", master]).output
+        if !tag.contains("shrink") { problems.append(String(localized: "The master isn’t Pluck’s")) }
+        if problems.isEmpty, let stored = file.masterHash, MHL.hash(master, kind: "xxhash64", progress: { _ in }, stopped: { false }) != stored {
+            problems.append(String(localized: "The master’s checksum differs"))
+        }
+        if ProjectArchive.run("/usr/bin/nice", ["-n", "15", ffmpeg, "-nostdin", "-v", "error", "-xerror", "-i", master, "-map", "0:v", "-map", "0:a?", "-f", "null", "-"]).status != 0 {
+            problems.append(String(localized: "It doesn’t play to the end"))
+        }
+        let original = file.moved ?? file.path
+        // (An older run kept no frame count: the original's own, counted.)
+        let reference = file.frames == nil ? ProjectArchive.reference(original, ffprobe: ffprobe, open: open) : nil
+        let frames = file.frames ?? reference?.frames ?? 0, length = file.duration ?? reference?.duration ?? 0
+        let made = ProjectArchive.streams(master, ffprobe: ffprobe)
+        if made.frames != frames { problems.append(String(localized: "\(made.frames) frames of \(frames)")) }
+        if abs(made.duration - length) > 1 / max(made.fps > 0 ? made.fps : file.fps, 1) + 0.001 { problems.append(String(localized: "The length differs")) }
+        let folder = (original as NSString).deletingLastPathComponent
+        let sizes = ([original] + file.parts.map { (folder as NSString).appendingPathComponent(($0 as NSString).lastPathComponent) }).map(size)
+        if sizes.contains(where: { $0 == nil }) {
+            problems.append(String(localized: "The original isn’t all there"))
+        } else if sizes.reduce(Int64(0), { $0 + ($1 ?? 0) }) != file.size || file.originalHead.map({ headHash(original) != $0 }) == true {
+            problems.append(String(localized: "The original changed"))
+        }
+        return problems
+    }
+
     /// A line in Inventory.csv: the holding folder's (in place) or the destination's.
     static func record(_ file: File, settings: Settings, check: String, in given: URL? = nil) {
         guard let folder = given ?? file.moved.flatMap(holdingFolder(of:)) else { return }
@@ -893,11 +930,29 @@ extension ShrinkFolders {
             ?? Array(Set(run.files.compactMap { $0.moved.flatMap(holdingFolder(of:)) }))
         guard !folders.isEmpty else { return }
         let stamp = run.date.formatted(.iso8601.year().month().day().timeSeparator(.omitted).time(includingFractionalSeconds: false)).replacingOccurrences(of: ":", with: "")
-        var csv = "original,moved_to,master,original_bytes,master_bytes,settings,kind,state,note\n"
+        let iso = ISO8601DateFormatter()
+        var csv = "original,moved_to,master,original_bytes,master_bytes,settings,kind,state,note,master_xxhash64,original_head_sha256,frames,seconds,checked,safe_to_delete,check_problems\n"
         for file in run.files where file.state != .pending {
             csv += [cell(file.path), cell(file.moved ?? ""), cell(file.master ?? ""), "\(file.size)", "\(file.masterSize ?? 0)", cell(run.settings.label),
-                    file.kind.rawValue, file.state.rawValue, cell(file.note ?? "")].joined(separator: ",") + "\n"
+                    file.kind.rawValue, file.state.rawValue, cell(file.note ?? ""), file.masterHash ?? "", file.originalHead ?? "", file.frames.map { "\($0)" } ?? "",
+                    file.duration.map { String(format: "%.3f", $0) } ?? "", file.checked.map(iso.string) ?? "", file.safeToDelete ? "yes" : "no",
+                    cell((file.checkProblems ?? []).joined(separator: "; "))].joined(separator: ",") + "\n"
         }
+        // The same as JSON, for anyone checking by hand or by script.
+        let records: [[String: Any]] = run.files.filter { $0.state != .pending }.map { file in
+            var record: [String: Any] = ["original": file.path, "original_bytes": file.size, "state": file.state.rawValue, "safe_to_delete": file.safeToDelete]
+            record["moved_to"] = file.moved
+            record["master"] = file.master
+            record["master_bytes"] = file.masterSize
+            record["master_xxhash64"] = file.masterHash
+            record["original_head_sha256"] = file.originalHead
+            record["frames"] = file.frames
+            record["seconds"] = file.duration
+            record["checked"] = file.checked.map(iso.string)
+            record["check_problems"] = file.checkProblems
+            return record
+        }
+        let inventory = try? JSONSerialization.data(withJSONObject: records, options: [.prettyPrinted, .sortedKeys])
         csv += "\nproject,files,bytes_before,bytes_after,saved\n"
         for project in projects(run) {
             csv += "\(cell(project.name)),\(project.files),\(project.before),\(project.after),\(project.before - project.after)\n"
@@ -910,6 +965,7 @@ extension ShrinkFolders {
         for folder in folders {
             try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             try? csv.write(to: folder.appendingPathComponent("Shrink \(stamp).csv"), atomically: true, encoding: .utf8)
+            try? inventory?.write(to: folder.appendingPathComponent("Shrink \(stamp).json"), options: .atomic)
             guard !moves.isEmpty else { continue }
             try? relink.write(to: folder.appendingPathComponent("Relink \(stamp).csv"), atomically: true, encoding: .utf8)
             try? json?.write(to: folder.appendingPathComponent("Relink \(stamp).json"), options: .atomic)
@@ -929,6 +985,8 @@ final class ShrinkCenter {
     /// The run being worked through, and the master being made now.
     private(set) var active: UUID?
     private(set) var current: String?
+    /// The run whose masters are being checked (Check Before Deleting).
+    private(set) var checking: UUID?
     private var currentTemp: String?
     private var stopping = false
     /// Bytes of originals done and seconds spent in this go (for the time left).
@@ -1002,8 +1060,11 @@ final class ShrinkCenter {
 
     func run(_ id: UUID) -> ShrinkFolders.Run? { runs.first { $0.id == id } }
 
-    /// A run with files still to do (paused, or Pluck quit).
-    func unfinished(_ run: ShrinkFolders.Run) -> Bool { run.files.contains { $0.state == .pending || $0.state == .working } }
+    /// A run with files still to do (paused, or Pluck quit), here or on the always-on Mac.
+    func unfinished(_ run: ShrinkFolders.Run) -> Bool { run.files.contains { $0.state == .pending || $0.state == .working || $0.state == .elsewhere } }
+
+    /// A run done here and on the always-on Mac: its proxies moved, unless it's working.
+    func wrapUp(_ id: UUID) { if active != id { moveProxies(id) } }
 
     /// Seconds left for the active run, once one file is done.
     var timeLeft: Double? {
@@ -1035,9 +1096,17 @@ final class ShrinkCenter {
         return id
     }
 
-    /// Works through a run's files still to do, one at a time, until done or paused.
+    /// Works through a run's files still to do, one at a time, until done or paused; once every file is
+    /// through, Check Before Deleting on the masters not checked yet.
     func resume(_ id: UUID, ffmpeg: String, ffprobe: String) async {
         guard active == nil else { return }
+        await work(id, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        if !stopping, !ShrinkFolders.killed, let run = run(id), !run.files.contains(where: { $0.state == .pending || $0.state == .working }) {
+            await check(id, onlyNew: true, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        }
+    }
+
+    private func work(_ id: UUID, ffmpeg: String, ffprobe: String) async {
         active = id
         stopping = false
         pace = (0, 0)
@@ -1261,9 +1330,10 @@ final class ShrinkCenter {
         }
     }
 
-    /// A destination run's checked originals, moved into their share's folder to delete (where Pluck may write).
+    /// A destination run's originals, moved into their share's folder to delete (where Pluck may write), each only
+    /// once its master is there and passes Check Before Deleting.
     @discardableResult
-    func moveOriginals(_ id: UUID) async -> [String] {
+    func moveOriginals(_ id: UUID, ffmpeg: String, ffprobe: String) async -> [String] {
         guard active == nil, let run = run(id) else { return [] }
         active = id
         defer { active = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
@@ -1273,14 +1343,51 @@ final class ShrinkCenter {
             let holding = ShrinkFolders.holding(for: URL(fileURLWithPath: file.folder))
             let moved: ShrinkFolders.File = await Task.detached {
                 var file = file
+                let found = ShrinkFolders.check(file, ffmpeg: ffmpeg, ffprobe: ffprobe)
+                file.checked = .now
+                file.checkProblems = found
+                guard found.isEmpty else { file.note = found.joined(separator: ", "); return file }
                 if let why = ShrinkFolders.moveOriginal(&file, to: ShrinkFolders.movedPath(file.path, holding: holding)) { file.note = why }
-                else { ShrinkFolders.record(file, settings: settings, check: "original moved") }
+                else { ShrinkFolders.record(file, settings: settings, check: "checked, original moved") }
                 return file
             }.value
             if moved.moved == nil { problems.append("\((file.path as NSString).lastPathComponent): \(moved.note ?? "")") }
             set(moved, in: id)
         }
         return problems
+    }
+
+    /// Check Before Deleting: each master of a run (`holding`: only those whose originals wait in that folder;
+    /// `onlyNew`: only those not checked yet) read again from the drive (ShrinkFolders.check), the result kept
+    /// per file and written into the run's inventory. Nothing is moved or deleted.
+    func check(_ id: UUID, holding: URL? = nil, onlyNew: Bool = false, ffmpeg: String, ffprobe: String) async {
+        guard checking == nil, let run = run(id) else { return }
+        checking = id
+        defer { checking = nil; if let run = self.run(id) { ShrinkFolders.writeReport(run) } }
+        let folder = holding.map { ShrinkFolders.real($0).path }
+        for file in run.files where file.state == .done && (!onlyNew || file.checked == nil)
+            && (folder == nil || file.moved.flatMap(ShrinkFolders.holdingFolder(of:)).map { ShrinkFolders.real($0).path } == folder) {
+            let problems = await Task.detached(priority: .utility) { ShrinkFolders.check(file, ffmpeg: ffmpeg, ffprobe: ffprobe) }.value
+            guard var now = self.run(id)?.files.first(where: { $0.path == file.path }), now.state == .done else { continue }
+            now.checked = .now
+            now.checkProblems = problems
+            set(now, in: id)
+        }
+    }
+
+    /// Check Before Deleting for everything waiting in one folder to delete.
+    func check(holding: URL, ffmpeg: String, ffprobe: String) async {
+        let folder = ShrinkFolders.real(holding).path
+        for run in runs where run.files.contains(where: { $0.moved.flatMap(ShrinkFolders.holdingFolder(of:)).map { ShrinkFolders.real($0).path } == folder }) {
+            await check(run.id, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        }
+    }
+
+    /// Relink in Resolve pointed projects at a run's masters (Put Back then says how to point them back).
+    func markRelinked(_ id: UUID, _ on: Bool = true) {
+        guard let r = runs.firstIndex(where: { $0.id == id }) else { return }
+        runs[r].relinked = on ? .now : nil
+        save()
     }
 
     func remove(_ id: UUID) {
