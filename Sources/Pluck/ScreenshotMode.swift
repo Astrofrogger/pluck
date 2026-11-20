@@ -69,11 +69,13 @@ enum ScreenshotMode {
                 if NSApp.isHidden { NSApp.unhide(nil) }
                 for window in NSApp.windows where window.styleMask.contains(.titled) || window.isSheet {
                     window.collectionBehavior.formUnion([.canJoinAllSpaces, .fullScreenAuxiliary])
+                    if quiet, !window.isSheet { Offscreen.keepOffActiveDisplay(window) }
                     if window.isVisible || window.isSheet { window.orderFrontRegardless() }
                 }
             }
             rounds += 1
-            if rounds > 30 { timer.invalidate() }
+            // Quiet runs keep checking: a window opened later must not land on the display in use either.
+            if rounds > 30, !quiet { timer.invalidate() }
         }
 
         // -PluckScreenshotSeed <folder>: its videos, songs and photos added as finished items (once),
@@ -868,6 +870,19 @@ enum Offscreen {
     private static var hide: Timer?
 
     /// Every window see-through, unclickable and far off the screen, from the moment it exists.
+    /// Quiet self-tests never draw on the display the owner is using (the one with the pointer): their windows go
+    /// to another display, or off every screen when there is only one.
+    static func keepOffActiveDisplay(_ window: NSWindow) {
+        let mouse = NSEvent.mouseLocation
+        guard let side = NSScreen.screens.last(where: { !NSMouseInRect(mouse, $0.frame, false) }) else {
+            if window.frame.origin.x > -10_000 { window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000)) }
+            return
+        }
+        if side.frame.contains(window.frame) { return }
+        let v = side.visibleFrame
+        window.setFrameOrigin(NSPoint(x: v.minX + 20, y: max(v.minY, v.maxY - window.frame.height - 20)))
+    }
+
     static func hideWindows(size: String?) {
         guard hide == nil else { return }
         let wanted = size?.split(separator: "x").compactMap { Double($0) }
