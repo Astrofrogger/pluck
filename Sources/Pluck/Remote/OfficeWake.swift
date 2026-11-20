@@ -67,6 +67,9 @@ enum OfficeWake {
 
     // MARK: - Home
 
+    /// An office Mac from before 4.0.7 (no version in the group) doesn't know the wake action.
+    nonisolated static func canWake(_ member: OfficeGroup.Member?) -> Bool { member?.version != nil }
+
     /// Asks another online office Mac of the group to wake `member`. An office Mac from before says it can't.
     @MainActor
     static func wake(_ member: UUID) async throws {
@@ -75,11 +78,14 @@ enum OfficeWake {
         guard !helpers.isEmpty else { throw OfficeLink.Failure.office(String(localized: "No other office Mac is online to wake it.")) }
         var last: Error?
         for helper in helpers {
+            // By its version, not the error's words (those come in that Mac's own language).
+            guard canWake(OfficeGroup.shared.members.first { $0.id == helper.id }) else {
+                last = OfficeLink.Failure.office(String(localized: "\(helper.name)’s Pluck can’t wake other Macs yet. Update it there."))
+                continue
+            }
             do {
                 _ = try await client.ask(on: helper.id, action, ["member": member.uuidString], timeout: 30)
                 return
-            } catch OfficeLink.Failure.office(let message) where message == String(localized: "The host Mac doesn’t know how to do that.") {
-                last = OfficeLink.Failure.office(String(localized: "\(helper.name)’s Pluck can’t wake other Macs yet. Update it there."))
             } catch {
                 last = error
             }

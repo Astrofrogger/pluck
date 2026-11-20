@@ -13,7 +13,11 @@ extension PhotoSelfTest {
               && OfficeWake.packet("a1b2:03:04:05:06:07") == nil)
         check("wake: this Mac's Ethernet address reads as one", OfficeWake.ethernet().map { OfficeWake.packet($0) != nil } ?? true)
         let old = #"{"id":"\#(UUID().uuidString)","name":"Office 2","addresses":[],"shares":[],"updated":0}"#
-        check("wake: a member from before has no address", (try? JSONDecoder().decode(OfficeGroup.Member.self, from: Data(old.utf8)))?.ethernet == nil)
+        let oldMember = try? JSONDecoder().decode(OfficeGroup.Member.self, from: Data(old.utf8))
+        check("wake: a member from before has no address", oldMember?.ethernet == nil)
+        var newMember = oldMember
+        newMember?.version = "4.0.7"
+        check("wake: an older office Mac is told apart by its version", !OfficeWake.canWake(oldMember) && OfficeWake.canWake(newMember) && !OfficeWake.canWake(nil))
         check("wake: the schedule command needs an administrator and is only shown", OfficeWake.schedule.hasPrefix("sudo pmset repeat wakeorpoweron"))
         OfficeActions.registerAll()
         guard let handler = OfficeActions.handler(OfficeWake.action) else { return check("wake: the office action is there", false) }
