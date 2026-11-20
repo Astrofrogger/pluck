@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// Archive masters: each used original made into a smaller master that can replace it (ProRes
@@ -93,6 +94,14 @@ extension ProjectArchive {
         /// Primaries, transfer, matrix, range ("unknown" when not stated).
         var colour: [String] = []
         var codec = ""
+        /// The display matrix's rotation (degrees), the pixel aspect ratio, the sound's channel layouts.
+        var rotation = 0
+        var sar = ""
+        var layouts: [String] = []
+        /// The file's own tags (creation time, camera make and model, QuickTime keys…).
+        var tags: [String: String] = [:]
+        /// Bits per component, from the pixel format.
+        var bits: Int { pixelFormat.contains("16") || pixelFormat.hasPrefix("rgb48") ? 16 : pixelFormat.contains("12") ? 12 : pixelFormat.contains("10") || pixelFormat.hasPrefix("p010") || pixelFormat.hasPrefix("p210") ? 10 : pixelFormat.isEmpty ? 0 : 8 }
     }
 
     /// A master and how its check went.
@@ -124,12 +133,13 @@ extension ProjectArchive {
     /// `count`: frames counted (reads the whole file); otherwise from the header.
     static func streams(_ path: String, ffprobe: String, count: Bool = true) -> Streams {
         let out = run(ffprobe, ["-v", "error"] + (count ? ["-count_packets"] : []) + ["-show_entries",
-                                "format=duration:format_tags=timecode:stream=codec_type,codec_name,nb_read_packets,nb_frames,duration,channels,sample_rate,avg_frame_rate,width,height,pix_fmt,color_primaries,color_transfer,color_space,color_range:stream_tags=timecode,reel_name",
+                                "format=duration:format_tags:stream=codec_type,codec_name,nb_read_packets,nb_frames,duration,channels,channel_layout,sample_rate,avg_frame_rate,width,height,pix_fmt,sample_aspect_ratio,color_primaries,color_transfer,color_space,color_range:stream_tags=timecode,reel_name:stream_side_data=rotation",
                                 "-of", "json", path]).output
         var result = Streams()
         guard let json = try? JSONSerialization.jsonObject(with: Data(out.utf8)) as? [String: Any] else { return result }
         let format = json["format"] as? [String: Any]
-        result.timecode = (format?["tags"] as? [String: Any])?["timecode"] as? String
+        result.tags = (format?["tags"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
+        result.timecode = result.tags["timecode"]
         var video = false
         for stream in json["streams"] as? [[String: Any]] ?? [] {
             let tags = stream["tags"] as? [String: Any]
@@ -146,10 +156,13 @@ extension ProjectArchive {
                 result.pixelFormat = stream["pix_fmt"] as? String ?? ""
                 result.codec = stream["codec_name"] as? String ?? ""
                 result.colour = ["color_primaries", "color_transfer", "color_space", "color_range"].map { stream[$0] as? String ?? "unknown" }
+                result.sar = stream["sample_aspect_ratio"] as? String ?? ""
+                result.rotation = (stream["side_data_list"] as? [[String: Any]] ?? []).compactMap { ($0["rotation"] as? NSNumber)?.intValue }.first ?? 0
             case "audio":
                 result.channels += stream["channels"] as? Int ?? 0
                 result.sampleRate = result.sampleRate == 0 ? Int(stream["sample_rate"] as? String ?? "") ?? 0 : result.sampleRate
                 result.audioCodecs.append(stream["codec_name"] as? String ?? "")
+                result.layouts.append(stream["channel_layout"] as? String ?? "")
             default: break
             }
         }
@@ -224,8 +237,11 @@ extension ProjectArchive {
         let (width, height) = settings.fit(info.width, info.height)
         var arguments = ["-nostdin", "-y", "-v", "error"]
         if let sample { arguments += ["-ss", String(format: "%.3f", max(info.duration / 2 - sample / 2, 0)), "-t", String(format: "%.3f", sample)] }
-        arguments += ["-i", source, "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0", "-fps_mode", "passthrough"]
-        arguments += ["-vf", (width != info.width || height != info.height ? "scale=\(width):\(height):flags=lanczos," : "") + "format=\(pixel)"]
+        // (The picture as stored with its display matrix kept, never turned; its range never converted.)
+        arguments += ["-noautorotate", "-i", source, "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0", "-fps_mode", "passthrough"]
+        let range = info.colour.count == 4 && ["pc", "tv"].contains(info.colour[3]) ? ":in_range=\(info.colour[3]):out_range=\(info.colour[3])" : ""
+        let resize = width != info.width || height != info.height
+        arguments += ["-vf", (resize || !range.isEmpty ? "scale=\(width):\(height)\(resize ? ":flags=lanczos" : "")\(range)," : "") + "format=\(pixel)"]
         arguments += video
         // Sound as it was: PCM copied, anything else (AAC) to 24-bit PCM, never compressed again.
         arguments += ["-c:a", info.audioCodecs.allSatisfy { $0.hasPrefix("pcm_") } ? "copy" : "pcm_s24le"]
@@ -320,7 +336,10 @@ extension ProjectArchive {
 
     /// What's wrong with a master next to its original (empty: nothing). Frame count, length,
     /// timecode, sound channels and rate, and that it decodes to the end.
-    static func verify(_ master: String, against original: Streams, ffmpeg: String, ffprobe: String) -> [String] {
+    /// Also the file's dates' tags, colour tags, rotation, pixel aspect, bit depth and channel layouts; then, with
+    /// `source`, the picture itself (pictureProblems).
+    static func verify(_ master: String, against original: Streams, ffmpeg: String, ffprobe: String, source: String? = nil,
+                       open: (URL) throws -> RawSource = { try RawFormats.open($0) }) -> [String] {
         let got = streams(master, ffprobe: ffprobe)
         var problems: [String] = []
         if got.frames != original.frames { problems.append(String(localized: "\(got.frames) frames of \(original.frames)")) }
@@ -332,7 +351,134 @@ extension ProjectArchive {
         if run(ffmpeg, ["-nostdin", "-v", "error", "-xerror", "-i", master, "-map", "0:v", "-map", "0:a?", "-f", "null", "-"]).status != 0 {
             problems.append(String(localized: "It doesn’t play to the end"))
         }
+        problems += metadataProblems(got, original)
+        if problems.isEmpty, let source { problems += pictureProblems(master, source: source, original: original, ffmpeg: ffmpeg, ffprobe: ffprobe, open: open) }
         return problems
+    }
+
+    /// The camera tags kept: creation time, make, model, reel and tape, Apple's QuickTime keys.
+    static func keptTag(_ key: String) -> Bool {
+        key.range(of: "creation_time|make|model|reel|tape|com\\.apple\\.quicktime", options: [.regularExpression, .caseInsensitive]) != nil && key != "pluck"
+    }
+
+    /// What ffprobe says the master lost: tags, colour tags (range too), rotation, pixel aspect, bit depth, channel layouts.
+    static func metadataProblems(_ got: Streams, _ original: Streams) -> [String] {
+        var problems: [String] = []
+        let lost = original.tags.filter { keptTag($0.key) && got.tags[$0.key] != $0.value }.map(\.key).sorted()
+        if !lost.isEmpty { problems.append(String(localized: "Tags lost: \(lost.joined(separator: ", "))")) }
+        if original.colour.count == 4, got.colour.count == 4,
+           zip(original.colour, got.colour).contains(where: { $0 != "unknown" && !$0.isEmpty && $0 != $1 }) {
+            problems.append(String(localized: "The colour tags differ"))
+        }
+        if got.rotation != original.rotation { problems.append(String(localized: "The rotation differs")) }
+        func aspect(_ text: String) -> String { ["", "0:1", "N/A"].contains(text) ? "1:1" : text }
+        if !original.sar.isEmpty, aspect(got.sar) != aspect(original.sar) { problems.append(String(localized: "The pixel aspect ratio differs")) }
+        if original.bits >= 10, got.bits < 10 { problems.append(String(localized: "Fewer bits than the original")) }
+        if !original.layouts.isEmpty, original.layouts.contains(where: { !$0.isEmpty }), got.layouts != original.layouts {
+            problems.append(String(localized: "The sound’s channel layout differs"))
+        }
+        return problems
+    }
+
+    /// The picture compared, after the other checks pass: 3 frames spread over the clip from both, small (160 wide,
+    /// the master's shape), the original scaled to it with the same colour handling (raw: the RAW helper's log
+    /// development the master was made from). Fails on SSIM (luma) under 0.95, a mean ΔE over 2 in display RGB, or a
+    /// black master frame: catches full/video range, gamma, rotation, flips and colour-tag mistakes.
+    static func pictureProblems(_ master: String, source: String, original: Streams, ffmpeg: String, ffprobe: String,
+                                open: (URL) throws -> RawSource = { try RawFormats.open($0) }) -> [String] {
+        let info = streams(master, ffprobe: ffprobe, count: false)
+        let turned = abs(info.rotation) % 180 == 90
+        let (dw, dh) = turned ? (info.height, info.width) : (info.width, info.height)
+        guard dw > 0, dh > 0, original.frames > 0, original.fps > 0 else { return [String(localized: "The picture couldn’t be compared")] }
+        let w = 160, h = max(Int((Double(w) * Double(dh) / Double(dw) / 2).rounded()) * 2, 2)
+        let raw = rawMasterKinds.contains((source as NSString).pathExtension.lowercased())
+        let clip = raw ? try? open(URL(fileURLWithPath: source)) : nil
+        defer { clip?.close() }
+        if raw, clip == nil { return [String(localized: "The picture couldn’t be compared")] }
+        func grab(_ path: String, _ seconds: Double) -> [UInt8]? {
+            let out = runData(ffmpeg, ["-nostdin", "-v", "error", "-ss", String(format: "%.4f", max(seconds, 0)), "-i", path, "-frames:v", "1",
+                                       "-vf", "scale=\(w):\(h):flags=area,format=rgb24", "-f", "rawvideo", "-"])
+            return out.status == 0 && out.data.count >= w * h * 3 ? Array(out.data.prefix(w * h * 3)) : nil
+        }
+        var worst: (ssim: Double, delta: Double) = (1, 0)
+        for share in [0.2, 0.5, 0.8] {
+            let index = min(Int(Double(original.frames) * share), original.frames - 1)
+            // (A seek gives the first frame at or after the time: half a frame early lands on this one.)
+            let seconds = (Double(index) - 0.5) / original.fps
+            guard let mine = grab(master, seconds) else { return [String(localized: "The picture couldn’t be compared")] }
+            let theirs: [UInt8]?
+            if let clip {
+                var scale = 1
+                while scale < 8, clip.info.width / (scale * 2) >= w * 2 { scale *= 2 }
+                theirs = (try? clip.frame(index, scale: scale, settings: RawSettings(look: .log))).flatMap { rgb24($0, width: w, height: h) }
+            } else {
+                theirs = grab(source, seconds)
+            }
+            guard let theirs else { return [String(localized: "The picture couldn’t be compared")] }
+            let (ssim, delta, dark) = compare(theirs, mine, width: w, height: h)
+            if dark { return [String(localized: "The master’s picture is black")] }
+            worst = (min(worst.ssim, ssim), max(worst.delta, delta))
+        }
+        if worst.ssim < 0.95 || worst.delta > 2 {
+            return [String(localized: "The picture differs (SSIM \(String(format: "%.3f", worst.ssim)), ΔE \(String(format: "%.1f", worst.delta)))")]
+        }
+        return []
+    }
+
+    /// A CGImage drawn into 8-bit RGB at this size, in its own colour space (no colour conversion).
+    static func rgb24(_ image: CGImage, width: Int, height: Int) -> [UInt8]? {
+        let space = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
+        guard space.model == .rgb, let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4, space: space,
+                                                           bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let data = context.data else { return nil }
+        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        return (0..<(width * height)).flatMap { [bytes[$0 * 4], bytes[$0 * 4 + 1], bytes[$0 * 4 + 2]] }
+    }
+
+    /// Two RGB frames: SSIM of luma (8×8 blocks), mean ΔE (CIE76, as sRGB), and whether the second is black where the first isn't.
+    static func compare(_ a: [UInt8], _ b: [UInt8], width: Int, height: Int) -> (ssim: Double, delta: Double, black: Bool) {
+        func luma(_ p: [UInt8], _ i: Int) -> Double { (0.2126 * Double(p[i * 3]) + 0.7152 * Double(p[i * 3 + 1]) + 0.0722 * Double(p[i * 3 + 2])) / 255 }
+        func lab(_ p: [UInt8], _ i: Int) -> (Double, Double, Double) {
+            func linear(_ v: UInt8) -> Double { let c = Double(v) / 255; return c <= 0.04045 ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4) }
+            let (r, g, b) = (linear(p[i * 3]), linear(p[i * 3 + 1]), linear(p[i * 3 + 2]))
+            let x = (0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047, y = 0.2126 * r + 0.7152 * g + 0.0722 * b, z = (0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883
+            func f(_ t: Double) -> Double { t > 0.008856 ? cbrt(t) : 7.787 * t + 16 / 116 }
+            return (116 * f(y) - 16, 500 * (f(x) - f(y)), 200 * (f(y) - f(z)))
+        }
+        let count = width * height
+        var delta = 0.0, meanA = 0.0, meanB = 0.0
+        for i in 0..<count {
+            let (l1, a1, b1) = lab(a, i), (l2, a2, b2) = lab(b, i)
+            delta += sqrt((l1 - l2) * (l1 - l2) + (a1 - a2) * (a1 - a2) + (b1 - b2) * (b1 - b2))
+            meanA += luma(a, i); meanB += luma(b, i)
+        }
+        let (c1, c2) = (0.01 * 0.01, 0.03 * 0.03)
+        var ssim = 0.0, blocks = 0
+        for by in stride(from: 0, through: height - 8, by: 8) {
+            for bx in stride(from: 0, through: width - 8, by: 8) {
+                var sa = 0.0, sb = 0.0, saa = 0.0, sbb = 0.0, sab = 0.0
+                for y in by..<(by + 8) { for x in bx..<(bx + 8) {
+                    let p = luma(a, y * width + x), q = luma(b, y * width + x)
+                    sa += p; sb += q; saa += p * p; sbb += q * q; sab += p * q
+                } }
+                let n = 64.0, ma = sa / n, mb = sb / n
+                let va = saa / n - ma * ma, vb = sbb / n - mb * mb, cov = sab / n - ma * mb
+                ssim += ((2 * ma * mb + c1) * (2 * cov + c2)) / ((ma * ma + mb * mb + c1) * (va + vb + c2))
+                blocks += 1
+            }
+        }
+        return (blocks > 0 ? ssim / Double(blocks) : 0, delta / Double(max(count, 1)), meanB / Double(count) < 0.03 && meanA / Double(count) > 0.1)
+    }
+
+    /// The original's creation and modification dates on the master (Finder's sorting and Archive's age filter see the shoot date).
+    static func copyDates(from original: String, to master: String, modified: Date? = nil) {
+        let attributes = (try? FileManager.default.attributesOfItem(atPath: original)) ?? [:]
+        var dates: [FileAttributeKey: Any] = [:]
+        dates[.modificationDate] = modified ?? attributes[.modificationDate]
+        dates[.creationDate] = attributes[.creationDate]
+        try? FileManager.default.setAttributes(dates, ofItemAtPath: master)
     }
 
     /// The master's place in Media/: the same name as a .mov; when that's taken (by any file, whatever
@@ -382,7 +528,7 @@ extension ProjectArchive {
                 }
             }
             let problems = FileManager.default.fileExists(atPath: output.path)
-                ? verify(output.path, against: original, ffmpeg: ffmpeg, ffprobe: ffprobe) : [String(localized: "The master couldn’t be made.")]
+                ? verify(output.path, against: original, ffmpeg: ffmpeg, ffprobe: ffprobe, source: item.source, open: open) : [String(localized: "The master couldn’t be made.")]
             let size = Int64((try? output.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
             let check = MasterCheck(original: item.original, relative: relative, settings: chosen, originalSize: item.size, size: size,
                                     originalHash: problems.isEmpty ? MHL.hash(item.source, kind: "xxhash64", progress: { _ in }, stopped: { false }) : nil,
@@ -400,7 +546,7 @@ extension ProjectArchive {
             master.size = size
             master.trim = nil
             master.master = chosen
-            try? FileManager.default.setAttributes([.modificationDate: item.modified], ofItemAtPath: output.path)
+            copyDates(from: item.source, to: output.path, modified: item.modified)
             return master
         }
         return (result, checks, notes)

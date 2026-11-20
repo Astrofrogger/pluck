@@ -700,16 +700,21 @@ out({"error": "Unknown action " + action})
 
     @discardableResult
     static func run(_ tool: String, _ arguments: [String]) -> (status: Int32, output: String) {
+        let result = runData(tool, arguments)
+        return (result.status, String(decoding: result.data, as: UTF8.self))
+    }
+
+    static func runData(_ tool: String, _ arguments: [String]) -> (status: Int32, data: Data) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: tool)
         process.arguments = arguments
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = FileHandle.nullDevice
-        guard (try? process.run()) != nil else { return (-1, "") }
+        guard (try? process.run()) != nil else { return (-1, Data()) }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
-        return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+        return (process.terminationStatus, data)
     }
 }
 

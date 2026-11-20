@@ -11,6 +11,7 @@ struct ArchiveView: View {
     @State private var newName = ""
     @State private var more = false
     @State private var showAll = false
+    @State private var relinking: ShrinkFolders.Run?
     private var center: ShrinkCenter { model.center }
     private let bytes = { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     private var flow: Bool { [.folders, .projects, .settings].contains(model.screen) }
@@ -47,6 +48,7 @@ struct ArchiveView: View {
             Button("Rename") { if let renaming { model.rename(renaming, to: newName) } }
             Button("Cancel", role: .cancel) {}
         }
+        .sheet(item: $relinking) { run in RelinkSheet(run: run) }
     }
 
     // MARK: Header and footer
@@ -109,8 +111,13 @@ struct ArchiveView: View {
                 Text("You can free").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
                 Text(verbatim: bytes(free.saving)).font(.system(size: 34, weight: .semibold)).foregroundStyle(Design.Brand.pink)
                 Text("of \(bytes(free.footage)) footage").font(Design.Studio.body).foregroundStyle(Design.Studio.textQuiet)
+                if model.freedSoFar > 0 {
+                    Text("Freed so far \(bytes(model.freedSoFar))").font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                        .help("Only what you’ve deleted from “Pluck · Originals to delete”")
+                }
             }
             if let now = model.archivingNow { archiving(now) }
+            if !model.waiting.isEmpty { waitingList }
             let places = model.whereItSits
             if !places.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
@@ -138,6 +145,31 @@ struct ArchiveView: View {
         StudioFootnote(text: "Pluck never deletes: originals and proxies go to “Pluck · Originals to delete”", symbol: "checkmark.shield")
     }
 
+    /// What's in each share's folder to delete: the space only comes back once it's deleted.
+    private var waitingList: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Waiting to delete").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+                Spacer()
+                Text(verbatim: bytes(model.waiting.reduce(Int64(0)) { $0 + $1.bytes })).font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Studio.text)
+            }
+            ForEach(model.waiting) { place in
+                HStack(spacing: 8) {
+                    Text(verbatim: place.share).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
+                    Spacer()
+                    Text(verbatim: bytes(place.bytes)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet)
+                    Button { NSWorkspace.shared.activateFileViewerSelecting([place.folder]) } label: { Image(systemName: "folder") }
+                        .buttonStyle(.plain).foregroundStyle(Design.Studio.textQuiet).help("Show in Finder")
+                }
+                if let bin = place.recycle {
+                    Text("Deleted files stay in \(bin) on this share until it’s emptied").font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+                }
+            }
+            Text("Space comes back once you delete these. On TrueNAS, snapshots keep deleted files until they expire.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+        }
+    }
+
     private func amountLine(_ title: Text, _ amount: Int64, quiet: Bool = false) -> some View {
         HStack {
             title.font(quiet ? Design.Studio.hint : Design.Studio.body).lineLimit(1)
@@ -160,6 +192,9 @@ struct ArchiveView: View {
                 }
             }
             StudioProgress(share: Double(now.freed) / Double(max(now.total, 1)))
+            if !center.running, let why = center.runs.first(where: center.unfinished)?.paused {
+                Text(verbatim: why).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
+            }
             HStack(spacing: 8) {
                 Text("\(bytes(now.freed)) of \(bytes(now.total)) freed").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
                 if now.parts.isEmpty { Text("Paused").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
@@ -269,6 +304,7 @@ struct ArchiveView: View {
         .padding(.top, 6)
         .opacity(open.isEmpty ? 0.55 : 1)
         .help(String(localized: "All of this client's projects on or off"))
+        .contextMenu { sizeMenu(rows.map(\.project)) }
     }
 
     private func projectRow(_ row: ArchiveModel.ProjectRow, grouped: Bool = false) -> some View {
@@ -282,6 +318,12 @@ struct ArchiveView: View {
                 + Text(verbatim: project.name == project.client ? "" : " – " + project.name).foregroundStyle(Design.Studio.textQuiet))
                 .font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
+            if let choice = model.choices[project.folder] {
+                Menu { sizeMenu([project]) } label: {
+                    StudioChip(text: choice == .k4 ? Text(verbatim: "4K") : Text("Skip"), colour: choice == .skip ? Design.Studio.warn : Design.Studio.textQuiet, tinted: true)
+                }
+                .menuStyle(.button).buttonStyle(.plain).fixedSize().help("This project’s size")
+            }
             if let dim = row.dim { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
             Text(verbatim: bytes(project.total)).font(Design.Studio.hint.monospacedDigit()).foregroundStyle(Design.Studio.textQuiet).frame(width: 72, alignment: .trailing)
             Text(verbatim: row.saving > 0 ? "−" + bytes(row.saving) : "").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Brand.pink)
@@ -303,6 +345,17 @@ struct ArchiveView: View {
                 }
             }
             Button("Detect Again") { model.detectAgain(project) }
+            Divider()
+            sizeMenu([project])
+        }
+    }
+
+    /// Size: Default / Keep 4K / Skip, for a project or all of a client's.
+    @ViewBuilder private func sizeMenu(_ projects: [ShrinkFolders.Project]) -> some View {
+        Menu("Size") {
+            Button("Default") { model.choose(projects, nil) }
+            Button("Keep 4K") { model.choose(projects, .k4) }
+            Button("Skip") { model.choose(projects, .skip) }
         }
     }
 
@@ -328,6 +381,13 @@ struct ArchiveView: View {
                 }
                 .menuStyle(.button).buttonStyle(.plain).fixedSize()
                 .help("In place: each master takes its original’s name. Another folder: the same folders there, originals left as they are")
+            }
+            if let short = model.spaceShort {
+                HStack(spacing: 8) {
+                    Text(verbatim: short).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true)
+                    Button("To Another Folder or NAS…") { model.destination = pickFolder() ?? model.destination }.buttonStyle(.link).font(Design.Studio.hint)
+                }
+                .padding(.leading, 102)
             }
             field("Runs on") {
                 StudioSegmented(options: [(ArchiveModel.Machine.here, "This Mac"), (.office, "Always-on Mac"), (.both, "Both")], selection: $model.machine)
@@ -417,6 +477,10 @@ struct ArchiveView: View {
                         Button("Move Originals") { model.moveOriginals(run) }.buttonStyle(.link)
                             .help("Moves the checked originals into “Pluck · Originals to delete” on their share")
                     }
+                    if run.files.contains(where: { $0.state == .done }) {
+                        Button("Relink in Resolve…") { relinking = run }.buttonStyle(.link)
+                            .help("Points the clips of the Resolve projects you choose at their masters")
+                    }
                     if center.canPutBack(run) {
                         Button("Put Originals Back") { model.putBack(run) }.buttonStyle(.link)
                             .help(run.destination == nil ? "Masters to the Trash, originals back in their place" : "The masters of this run to the Trash")
@@ -439,5 +503,79 @@ struct ArchiveView: View {
         panel.canChooseFiles = false
         panel.prompt = String(localized: "Choose")
         return panel.runModal() == .OK ? panel.url : nil
+    }
+}
+
+
+/// Relink in Resolve: the projects to point at this run's masters, chosen from Resolve's project
+/// manager or as .drp files; nothing is opened that isn't chosen.
+private struct RelinkSheet: View {
+    let run: ShrinkFolders.Run
+    @Environment(\.dismiss) private var dismiss
+    @State private var projects: [String] = []
+    @State private var chosen: Set<String> = []
+    @State private var files: [URL] = []
+    @State private var results: [ShrinkRelink.Result]?
+    @State private var problem: String?
+    @State private var busy = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Relink in Resolve").font(Design.Studio.sectionTitle).foregroundStyle(Design.Studio.text)
+            Text("\(ShrinkRelink.map([run]).count) masters. Their clips in the projects you choose are replaced; each project is saved.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(projects, id: \.self) { name in
+                        Toggle(isOn: Binding(get: { chosen.contains(name) }, set: { if $0 { chosen.insert(name) } else { chosen.remove(name) } })) {
+                            Text(verbatim: name).font(Design.Studio.body)
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                    ForEach(files, id: \.self) { file in
+                        Text(verbatim: file.lastPathComponent).font(Design.Studio.body).foregroundStyle(Design.Studio.text)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 200)
+            if let problem { Text(verbatim: problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn) }
+            if let results {
+                ForEach(results, id: \.project) { result in
+                    Text(verbatim: result.project + " · " + String(localized: "\(result.replaced) relinked") + (result.failed.isEmpty ? "" : " · " + String(localized: "\(result.failed.count) failed")))
+                        .font(Design.Studio.hint).foregroundStyle(result.failed.isEmpty ? Design.Studio.textQuiet : Design.Studio.warn)
+                }
+            }
+            Text("A .drp is imported and saved again beside it as “… relinked.drp”. Resolve keeps its own project backups.")
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            HStack {
+                Button("Add .drp…") { addFiles() }.buttonStyle(StudioFlatButtonStyle())
+                Spacer()
+                Button("Close") { dismiss() }.buttonStyle(StudioFlatButtonStyle())
+                Button("Relink") { relink() }.buttonStyle(BrandButtonStyle(large: false)).disabled(busy || (chosen.isEmpty && files.isEmpty))
+            }
+        }
+        .padding(24)
+        .frame(width: 480)
+        .background(Design.Studio.panel)
+        .task {
+            do { projects = try await ShrinkRelink.projects() } catch { problem = String(localized: "Open DaVinci Resolve to choose its projects, or add .drp files") }
+        }
+    }
+
+    private func addFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "drp") ?? .data]
+        if panel.runModal() == .OK { files += panel.urls.filter { !files.contains($0) } }
+    }
+
+    private func relink() {
+        busy = true
+        problem = nil
+        Task {
+            do { results = try await ShrinkRelink.relink([run], projects: projects.filter(chosen.contains), drp: files) } catch { problem = error.localizedDescription }
+            busy = false
+        }
     }
 }
