@@ -533,8 +533,8 @@ struct DeliverStatusPill: View {
         case .inProgress: "In Progress"
         case .needsChanges: "Needs Changes"
         case .approved: "Approved"
-        // shortcut: a custom name goes through the string table (unmatched, it shows as typed).
-        default: LocalizedStringKey(custom(status)?.name ?? "—")
+        // A custom name is the user's own: interpolated, so it is shown as typed, never looked up as an app string.
+        default: "\(custom(status)?.name ?? "—")"
         }
     }
 

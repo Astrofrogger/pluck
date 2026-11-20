@@ -413,7 +413,7 @@ final class DeliverCopies {
         let alpha = min(max(mark.opacity, 0.05), 1)
         let opacity = String(format: "%.2f", alpha), border = String(format: "%.2f", alpha / 2), size = String(format: "%.4f", min(max(mark.size, 0.005), 0.2))
         return "drawtext=textfile=\(textFile):expansion=none:fontfile=/System/Library/Fonts/Helvetica.ttc:fontcolor=white@\(opacity):borderw=2:bordercolor=black@\(border)"
-            + ":fontsize=h*\(size):x=\(x):y=\(y)"
+            + ":fontsize=max(8\\,h*\(size)):x=\(x):y=\(y)"
     }
 
     /// The link's own renditions, poster and strip (video) or picture (image) with the text burned in; `ready` written last.

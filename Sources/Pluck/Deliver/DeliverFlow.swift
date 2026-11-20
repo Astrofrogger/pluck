@@ -168,6 +168,8 @@ extension DeliverDeadlines {
     /// every assignee (the notifications plan's email or push to a team member listens there, or calls this).
     func remind(_ asset: Deliver.Asset, assignee: String, overdue: Bool) {
         NotificationCenter.default.post(name: .deliverAssignmentDue, object: nil, userInfo: ["asset": asset.id, "assignee": assignee, "overdue": overdue])
+        // TODO(4.1 mail): no mail to the assignee yet. Host mail is driven by host events and its subscriber rows are emails,
+        // while an assignee is a name kept on this Mac; it needs a name→team-row mapping and a host op (e.g. "mail-queue").
         guard Deliver.isAssigned(asset, to: DeliverSettings.author) else { return }
         let text = Self.dueText(asset, overdue: overdue)
         if let posted { return posted(text) }
@@ -411,7 +413,7 @@ struct DeliverCustomFieldRow: View {
     @Binding var value: String
 
     var body: some View {
-        StudioField(label: LocalizedStringKey(def.name)) {
+        StudioField(label: "\(def.name)") { // the user's own name, shown as typed
             switch def.kind {
             case "checkbox": Toggle("", isOn: Binding(get: { value == "1" }, set: { value = $0 ? "1" : "" })).labelsHidden().toggleStyle(.checkbox)
             case "select":

@@ -1195,7 +1195,7 @@ extension PhotoSelfTest {
         let day = Date(timeIntervalSince1970: 1_800_000_000)
         let filled = DeliverCopies.watermarkText(mark, link: personal[1], date: day)
         check("parity: watermark text", filled == "Dan · \(day.formatted(.iso8601.year().month().day())) · \(personal[1].title)"
-              && DeliverCopies.drawtext(mark, textFile: "/tmp/x.txt", width: 1000).contains("fontsize=h*0.0500:x=w-tw-w*0.04:y=h-th-h*0.04")
+              && DeliverCopies.drawtext(mark, textFile: "/tmp/x.txt", width: 1000).contains("fontsize=max(8\\,h*0.0500):x=w-tw-w*0.04:y=h-th-h*0.04")
               && DeliverCopies.drawtext(mark, textFile: "/tmp/x.txt", width: 1000).contains("fontcolor=white@0.40:borderw=2:bordercolor=black@0.20")
               && DeliverCopies.watermarkText(.init(text: "{name} · {email}"), link: client) == "Client", filled)
         store.updateLink(personal[1].id) { $0.watermark = mark }

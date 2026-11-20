@@ -414,7 +414,7 @@ pub fn drawtext(wm: &Value, textfile: &str) -> String {
     // Fixed paths without filter-graph special characters, so nothing needs escaping.
     let font = ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/System/Library/Fonts/Helvetica.ttc"].into_iter()
         .find(|p| Path::new(p).exists()).map_or(String::new(), |p| format!("fontfile={p}:"));
-    format!("drawtext={font}textfile={textfile}:expansion=none:fontsize=h*{size:.4}:fontcolor=white@{opacity:.2}:borderw=1:bordercolor=black@{:.2}:x={x}:y={y}",
+    format!("drawtext={font}textfile={textfile}:expansion=none:fontsize=max(8\\,h*{size:.4}):fontcolor=white@{opacity:.2}:borderw=1:bordercolor=black@{:.2}:x={x}:y={y}",
         opacity * 0.5)
 }
 
@@ -598,7 +598,8 @@ mod tests {
         let f = drawtext(&json!({"position": "bottomRight", "opacity": 0.5, "size": 0.05}), "../wm.txt");
         assert!(f.starts_with("drawtext=") && f.contains("textfile=../wm.txt:") && f.contains("expansion=none"), "{f}");
         assert!(f.contains("fontcolor=white@0.50") && f.contains("x=w-text_w-h*0.04"), "{f}");
-        assert!(!f.contains(','), "one filter, no commas: {f}");
+        assert!(!f.replace("\\,", "").contains(','), "one filter, no unescaped commas: {f}");
+        assert!(f.contains("fontsize=max(8\\,h*0.0500)"), "never under 8 px: smaller fails in ffmpeg 9 (the 90 px strip tiles)");
     }
 
     #[test]
@@ -704,7 +705,9 @@ mod tests {
         let probe = std::process::Command::new(tool("ffprobe")).args(["-v", "error", "-show_entries", "stream=pix_fmt,color_transfer", "-of", "csv=p=0"])
             .arg(out.join("1080/index.m3u8")).output().unwrap();
         let text = String::from_utf8_lossy(&probe.stdout);
-        assert!(text.contains("yuv420p") && !text.contains("smpte2084"), "the 1080 is SDR: {text}");
+        if has("-filters", " zscale ").await && has("-filters", " tonemap ").await { // without them the SDR copies stay untone-mapped
+            assert!(text.contains("yuv420p") && !text.contains("smpte2084"), "the 1080 is SDR: {text}");
+        }
         let _ = std::fs::remove_dir_all(base);
     }
 
