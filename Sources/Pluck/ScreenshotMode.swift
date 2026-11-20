@@ -529,6 +529,8 @@ enum ScreenshotMode {
             case "archive":
                 // -PluckScreenshotFile <FCPXML, EDL, .drp>: its media planned.
                 ProjectArchiveView.openFile = defaults.string(forKey: "PluckScreenshotFile").map { URL(fileURLWithPath: $0) }
+                // (A file opens Archive on Timeline; none shows Folders.)
+                UserDefaults.standard.set(ProjectArchiveView.openFile != nil, forKey: "archiveMode")
                 StudioNavigator.shared.open(windowID: "archive")
             case "synccameras":
                 // -PluckScreenshotFile <folder> is added (and synced with -PluckScreenshotBuild).

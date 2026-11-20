@@ -29,7 +29,7 @@ enum RemoteKeepAwake {
     static var busy: Bool {
         // A client watching a review over a share link (Deliver) keeps it awake too.
         !DeliverServer.shared.peers.isEmpty || OfficeRenderServer.shared.isRunning
-            && (OfficeRenderServer.shared.isRendering || OfficeProxies.shared.working != nil || RemoteProxyJobs.shared.working != nil
+            && (OfficeRenderServer.shared.isRendering || OfficeProxies.shared.working != nil || RemoteProxyJobs.shared.working != nil || ShrinkCenter.shared.running
                 || Date.now.timeIntervalSince(lastTransfer) < 90)
     }
 

@@ -6,9 +6,9 @@ import Foundation
 /// original go to the Trash.
 extension ProjectArchive {
     /// How a file is kept.
-    struct MasterSettings: Hashable, Sendable {
-        enum Codec: String, CaseIterable, Sendable { case original, prores, hevc }
-        enum Size: Int, CaseIterable, Sendable {
+    struct MasterSettings: Hashable, Sendable, Codable {
+        enum Codec: String, CaseIterable, Sendable, Codable { case original, prores, hevc }
+        enum Size: Int, CaseIterable, Sendable, Codable {
             case native = 0, k8 = 7680, k6 = 6144, k4 = 3840, k27 = 2704, hd = 1920
             /// The landscape box it fits in.
             var box: (Int, Int)? {
@@ -32,7 +32,7 @@ extension ProjectArchive {
                 }
             }
         }
-        enum Quality: Int, CaseIterable, Sendable {
+        enum Quality: Int, CaseIterable, Sendable, Codable {
             case high = 72, balanced = 62, small = 50
             var label: String {
                 switch self {
@@ -211,12 +211,13 @@ extension ProjectArchive {
 
     /// Writes one master (`sample`: only that many seconds from the middle, for the estimate).
     /// Raw goes through `open` (pluck-raw), in the camera's own log and gamut, no LUT.
+    /// `metadata`: more ffmpeg -metadata arguments (Shrink Folders marks its masters).
     static func encode(_ source: String, to output: URL, settings: MasterSettings, ffmpeg: String, ffprobe: String,
-                       sample: Double? = nil, open: (URL) throws -> RawSource = { try RawFormats.open($0) }) throws {
+                       sample: Double? = nil, metadata: [String] = [], open: (URL) throws -> RawSource = { try RawFormats.open($0) }) throws {
         try? FileManager.default.createDirectory(at: output.deletingLastPathComponent(), withIntermediateDirectories: true)
         let kind = (source as NSString).pathExtension.lowercased()
         let reel = (source as NSString).lastPathComponent.components(separatedBy: ".").first ?? ""
-        if rawMasterKinds.contains(kind) { return try encodeRaw(source, to: output, settings: settings, ffmpeg: ffmpeg, reel: reel, sample: sample, open: open) }
+        if rawMasterKinds.contains(kind) { return try encodeRaw(source, to: output, settings: settings, ffmpeg: ffmpeg, reel: reel, sample: sample, metadata: metadata, open: open) }
         let info = streams(source, ffprobe: ffprobe, count: false)
         guard info.frames > 0 || info.width > 0 else { throw RawProblem(text: String(localized: "No picture to make a master of.")) }
         let (video, pixel) = videoArguments(settings, source: info, ffmpeg: ffmpeg)
@@ -230,6 +231,7 @@ extension ProjectArchive {
         arguments += ["-c:a", info.audioCodecs.allSatisfy { $0.hasPrefix("pcm_") } ? "copy" : "pcm_s24le"]
         if let code = info.timecode, sample == nil { arguments += ["-timecode", code] }
         arguments += ["-metadata:s:v:0", "reel_name=\(info.reel ?? reel)"]
+        arguments += metadata
         for (flag, value) in zip(["-color_primaries", "-color_trc", "-colorspace", "-color_range"], info.colour) where value != "unknown" && !value.isEmpty {
             arguments += [flag, value]
         }
@@ -237,7 +239,7 @@ extension ProjectArchive {
         if run(ffmpeg, arguments).status != 0 { throw RawProblem(text: String(localized: "The master couldn’t be made.")) }
     }
 
-    private static func encodeRaw(_ source: String, to output: URL, settings: MasterSettings, ffmpeg: String, reel: String, sample: Double?,
+    private static func encodeRaw(_ source: String, to output: URL, settings: MasterSettings, ffmpeg: String, reel: String, sample: Double?, metadata: [String],
                                   open: (URL) throws -> RawSource) throws {
         let clip = try open(URL(fileURLWithPath: source))
         defer { clip.close() }
@@ -268,6 +270,7 @@ extension ProjectArchive {
             && value.count < 200 {
             arguments += ["-metadata", "\(key)=\(value)"]
         }
+        arguments += metadata
         arguments += ["-movflags", "+use_metadata_tags", "-f", "mov", output.path]
 
         let process = Process()

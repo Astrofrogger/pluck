@@ -48,7 +48,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .musicFit: "Fit Music to Length"
         case .library: "Library"
         case .officeRender: "Edit Anywhere"
-        case .archive: "Archive Project"
+        case .archive: "Archive"
         case .thumbnailMaker: "Thumbnail Maker"
         case .cutdowns: "Social Cutdowns"
         }
@@ -68,7 +68,7 @@ enum PluckTool: String, CaseIterable, Identifiable {
         case .musicFit: "Make a song exactly as long as your edit."
         case .library: "Everything Pluck saved, with collections and tags."
         case .officeRender: "Render and search footage on another Mac, from anywhere."
-        case .archive: "After delivery, keep only what the edit used, checked, on the NAS or an archive drive."
+        case .archive: "Shrink old footage into checked masters to free the NAS, or keep only what an edit used."
         case .thumbnailMaker: "The best frames of a video, with a title in the brand’s style."
         case .cutdowns: "Turn a finished edit into 9:16, 1:1 and 4:5 versions that follow the subject."
         }
