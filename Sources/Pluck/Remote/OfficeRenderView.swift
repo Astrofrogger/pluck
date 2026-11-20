@@ -420,6 +420,7 @@ private struct HomeRenderView: View {
                 Text("Office · \(client.members.count) Macs").font(Design.Studio.body).lineLimit(1)
                 Spacer(minLength: 0)
                 Menu {
+                    Button("Copy Connection Log") { ConnectionLog.copy() }
                     Button("Forget the Office", role: .destructive) { client.forget(); projects = []; project = nil }
                 } label: {
                     Image(systemName: "ellipsis")
@@ -466,7 +467,16 @@ private struct HomeRenderView: View {
             StudioTile(symbol: "desktopcomputer", colour: Design.Studio.good, size: 32)
             VStack(alignment: .leading, spacing: 2) {
                 Text(office.name).font(Design.Studio.body).lineLimit(1)
-                if let link = office.iroh.flatMap({ client.irohTunnel.links[$0] }) {
+                if office.iroh != nil, client.irohTunnel.failure() != nil {
+                    // A blip is "Reconnecting…", quietly; after a minute, why.
+                    TimelineView(.periodic(from: .now, by: 5)) { context in
+                        let failure = client.irohTunnel.failure(at: context.date) ?? .reconnecting
+                        Text(failure.localizedDescription)
+                            .font(Design.Studio.hint)
+                            .foregroundStyle(failure.isBlip ? Design.Studio.textQuiet : Design.Studio.warn)
+                            .lineLimit(2)
+                    }
+                } else if let link = office.iroh.flatMap({ client.irohTunnel.links[$0] }) {
                     Text(link.direct ? "● Online · direct connection" : "● Online · relay")
                         .font(Design.Studio.hint)
                         .foregroundStyle(link.direct ? Design.Studio.good : Design.Studio.warn)
@@ -488,6 +498,7 @@ private struct HomeRenderView: View {
             }
             Spacer(minLength: 0)
             Menu {
+                Button("Copy Connection Log") { ConnectionLog.copy() }
                 Button("Forget This Mac", role: .destructive) { client.forget(); projects = []; project = nil }
             } label: {
                 Image(systemName: "ellipsis")
@@ -709,7 +720,10 @@ private struct HomeRenderView: View {
     private func run(_ work: () async throws -> Void) async {
         working = true
         problem = nil
-        do { try await work() } catch { problem = error.localizedDescription }
+        do { try await work() } catch {
+            // A blip being mended shows as "Reconnecting…" by the host, not as a problem.
+            problem = (error as? PrivateNetwork.Failure)?.isBlip == true ? nil : error.localizedDescription
+        }
         working = false
     }
 }
@@ -1268,6 +1282,9 @@ private struct ConnectionSheet: View {
         }
         if let problem = server.networkProblem ?? server.network.warning {
             ProblemLine(text: problem, colour: Design.Studio.warn)
+        }
+        if PrivateNetwork.transport == .iroh {
+            PinkLink(title: "Copy Connection Log") { ConnectionLog.copy() }
         }
     }
 

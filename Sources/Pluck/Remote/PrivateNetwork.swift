@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import Network
 
 /// Edit Anywhere's own private network, so Macs at home reach the office Mac with nothing to
 /// install and nothing to change on the router. It only carries Edit Anywhere; it's no system VPN.
@@ -80,8 +81,16 @@ enum PrivateNetwork {
         return "pluck-" + String(name.prefix(40))
     }
 
-    enum Failure: LocalizedError {
+    enum Failure: LocalizedError, Equatable {
         case noHelper, token, tokenExpired, account(String), helper(String), needsInvite, timeout, inviteExpired, inviteUsed
+        /// iroh: the helper quit by itself (how: "exit 1", "signal 9") and restarting it didn't help.
+        case stopped(String)
+        /// iroh, home: no relay answered and the office isn't reached directly either.
+        case noRelay
+        /// iroh, home: the office Mac's helper doesn't answer (asleep, off, or its Pluck closed).
+        case officeOffline
+        /// iroh: a blip (a restart, a wake, a network change), being mended: shown quietly, not as an error.
+        case reconnecting
         var errorDescription: String? {
             switch self {
             case .noHelper: String(localized: "This build of Pluck doesn’t have the private network part.")
@@ -93,8 +102,14 @@ enum PrivateNetwork {
             case .timeout: String(localized: "The private network didn’t answer in time. Check the internet connection.")
             case .inviteExpired: String(localized: "This invitation has expired. Ask the host Mac for a new one.")
             case .inviteUsed: String(localized: "This invitation was already used or has expired. Ask the host Mac for a new one.")
+            case .stopped(let how): String(localized: "The private network keeps stopping (\(how)). Quit Pluck and open it again.")
+            case .noRelay: String(localized: "No internet connection to the relay.")
+            case .officeOffline: String(localized: "The office Mac isn’t reachable (asleep or offline).")
+            case .reconnecting: String(localized: "Reconnecting…")
             }
         }
+
+        var isBlip: Bool { if case .reconnecting = self { true } else { false } }
     }
 
     // MARK: - The Tailscale account (office Mac only)
@@ -314,6 +329,14 @@ final class Tunnel {
     private(set) var refused = false
     /// iroh: what the helper last said went wrong while it kept running (no relay, office not reachable).
     private(set) var warning: String?
+    /// iroh, home: since when the office isn't reached (nil while linked, or not tried yet).
+    private(set) var officeDown: Date?
+    /// iroh: no relay answered (cleared once one does).
+    private(set) var noRelay = false
+    /// iroh: the helper quit (or the network changed) and is being started again.
+    private(set) var restarting = false
+    /// How long a lost link is "Reconnecting…" before it's an error.
+    static let patience: TimeInterval = 60
     /// iroh: the helper's own sockets ("0.0.0.0:52304"), for tests that dial it directly.
     @ObservationIgnored private(set) var bound: [String] = []
     /// iroh, office: the node ids that may connect (the paired Macs').
@@ -324,10 +347,25 @@ final class Tunnel {
     @ObservationIgnored var testSettings: [String: Any]?
 
     @ObservationIgnored private var process: Process?
+    /// Tests: the running helper's process id.
+    var helperID: Int32? { process?.processIdentifier }
     @ObservationIgnored private var input: FileHandle?
     @ObservationIgnored private var pending: Task<Void, Error>?
     /// iroh, home: the office (and relay) the running helper leads to.
     @ObservationIgnored private var target: [String?] = []
+    /// iroh: where Pluck wants this helper to lead (set by start, cleared by stop): it's started
+    /// again when it quits by itself, or after a wake.
+    @ObservationIgnored private(set) var wanted: [String?]?
+    @ObservationIgnored private var restarts = 0
+    @ObservationIgnored private var runningSince: Date?
+    /// Every tunnel, for following wakes and network changes.
+    private static var all: [Weak] = []
+    private struct Weak { weak var tunnel: Tunnel? }
+
+    /// The connection log's tag: "home", "office", or "home-1a2b" for one with a key of its own.
+    private var tag: String {
+        (transport == .iroh ? "" : "tailscale-") + mode.rawValue + (keyFile.map { "-" + $0.deletingPathExtension().lastPathComponent.suffix(4) } ?? "")
+    }
 
     /// iroh: a key of its own (a NAS review host's tunnel, §13.2), instead of Edit Anywhere's.
     let keyFile: URL?
@@ -336,6 +374,95 @@ final class Tunnel {
         self.mode = mode
         self.transport = transport
         self.keyFile = keyFile
+        Self.all = Self.all.filter { $0.tunnel != nil } + [Weak(tunnel: self)]
+    }
+
+    /// iroh, home: what to tell instead of a plain "didn't answer" when the office isn't linked:
+    /// nothing for a blip (under `patience`), then why. Nil while linked.
+    func failure(at now: Date = .now) -> PrivateNetwork.Failure? {
+        guard transport == .iroh, mode == .home, wanted != nil else { return nil }
+        if restarting { return .reconnecting }
+        guard let officeDown, links.isEmpty else { return nil }
+        if now.timeIntervalSince(officeDown) < Self.patience { return .reconnecting }
+        return noRelay ? .noRelay : .officeOffline
+    }
+
+    // MARK: Wakes and network changes
+
+    @ObservationIgnored private static var watching: (NSObjectProtocol, NWPathMonitor)?
+
+    /// At launch: every iroh helper follows wakes and network changes from then on.
+    static func followNetwork() {
+        guard watching == nil else { return }
+        let wake = NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
+            Task { @MainActor in Tunnel.networkChanged("woke") }
+        }
+        let monitor = NWPathMonitor()
+        let last = PathMemory()
+        monitor.pathUpdateHandler = { path in
+            // (Its first call is the path as it is now; then only real changes count.)
+            let now = "\(path.status) \(path.availableInterfaces.map(\.name)) \(path.gateways)"
+            guard last.swap(now) != nil else { return }
+            Task { @MainActor in Tunnel.networkChanged("network changed: \(path.status)") }
+        }
+        monitor.start(queue: DispatchQueue(label: "pluck.tunnel-path"))
+        watching = (wake, monitor)
+    }
+
+    private final class PathMemory: @unchecked Sendable {
+        private var value: String?
+        private let lock = NSLock()
+        /// The value before (nil the first time); the same value again counts as a change of nothing.
+        func swap(_ new: String) -> String? {
+            lock.lock(); defer { lock.unlock() }
+            let old = value
+            value = new
+            return old == new ? nil : old
+        }
+    }
+
+    /// Woke from sleep or the network changed (also the tests' trigger): every iroh helper Pluck
+    /// wants running looks again (iroh rebinds; home dials the office at once), and one that isn't
+    /// running is started again.
+    static func networkChanged(_ why: String) {
+        for tunnel in all.compactMap(\.tunnel) where tunnel.transport == .iroh { tunnel.networkChanged(why) }
+    }
+
+    func networkChanged(_ why: String) {
+        guard transport == .iroh, wanted != nil else { return }
+        ConnectionLog.add(tag, why)
+        // A link lost before sleeping gets a fresh minute to come back before it's an error.
+        if officeDown != nil { officeDown = .now }
+        if process?.isRunning == true {
+            send(["network": true])
+        } else if process == nil, pending == nil, !restarting {
+            restartSoon()
+        }
+    }
+
+    /// The helper quit by itself: started again after a pause growing from 2 s to a minute.
+    private func restartSoon() {
+        guard let wanted else { return }
+        restarting = true
+        restarts += 1
+        let pause = min(60, pow(2, Double(restarts)))
+        ConnectionLog.add(tag, "restart \(restarts) in \(Int(pause)) s")
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(pause), clock: .suspending)
+            guard let self, self.wanted == wanted, self.process == nil, self.pending == nil else { return }
+            if self === Tunnel.irohOffice {
+                // (The server opens its invitations again and keeps its own problem line.)
+                self.restarting = false
+                OfficeRenderServer.shared.startNetwork()
+                return
+            }
+            do {
+                try await self.start(office: wanted[0], officeRelay: wanted[1])
+            } catch {
+                ConnectionLog.add(self.tag, "restart failed: \(error.localizedDescription)")
+                if self.restarts < 6 { self.restarting = false; self.restartSoon() } else { self.restarting = false; self.state = .failed(error.localizedDescription) }
+            }
+        }
     }
 
     private var directory: URL {
@@ -357,10 +484,33 @@ final class Tunnel {
             if let pending { return try await pending.value }
             if process?.isRunning == true, case .running = state, mode == .office || listen != nil { return }
         }
-        let task = Task { try await launch(key: key, office: office, officeRelay: officeRelay) }
+        if transport == .iroh { wanted = [office, officeRelay] }
+        let task = Task { try await launchRetrying(key: key, office: office, officeRelay: officeRelay) }
         pending = task
         defer { if pending == task { pending = nil } }
-        try await task.value
+        do {
+            try await task.value
+        } catch is Superseded {
+            // Stopped meanwhile, or replaced by a start elsewhere: that one's outcome is this one's.
+            if let other = pending, other != task { return try await other.value }
+            throw PrivateNetwork.Failure.reconnecting
+        }
+    }
+
+    /// The helper was stopped (or replaced) by Pluck before it carried anything.
+    private struct Superseded: Error {}
+
+    /// iroh: a helper that quits by itself while starting is tried twice more (after 1 s, 2 s)
+    /// before that's an error.
+    private func launchRetrying(key: String?, office: String?, officeRelay: String?) async throws {
+        for attempt in 1... {
+            do {
+                return try await launch(key: key, office: office, officeRelay: officeRelay)
+            } catch PrivateNetwork.Failure.stopped(let how) where transport == .iroh && attempt < 3 && wanted == [office, officeRelay] {
+                ConnectionLog.add(tag, "stopped while starting (\(how)), trying again")
+                try await Task.sleep(for: .seconds(attempt), clock: .suspending)
+            }
+        }
     }
 
     /// iroh, office: who may connect, now and on the next start.
@@ -410,8 +560,14 @@ final class Tunnel {
             }
             throw PrivateNetwork.Failure.noHelper
         }
-        stop()
-        guard let helper = PrivateNetwork.helper(transport) else { throw PrivateNetwork.Failure.noHelper }
+        // Never two helpers with this key at once (the relay would pass the id back and forth).
+        let old = process
+        halt()
+        await Self.reap(old)
+        // (Tests: "helper" runs another program in its place.)
+        guard let helper = (testSettings?["helper"] as? String).map(URL.init(fileURLWithPath:)) ?? PrivateNetwork.helper(transport) else {
+            throw PrivateNetwork.Failure.noHelper
+        }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true,
                                                 attributes: [.posixPermissions: 0o700])
         state = .starting
@@ -421,7 +577,10 @@ final class Tunnel {
         process.standardInput = stdin
         process.standardOutput = stdout
         process.standardError = FileHandle.nullDevice
+        // A helper that quit must not take Pluck with it (SIGPIPE on the next write).
+        _ = fcntl(stdin.fileHandleForWriting.fileDescriptor, F_SETNOSIGPIPE, 1)
         try process.run()
+        ConnectionLog.add(tag, "started helper \(process.processIdentifier)")
         self.process = process
         input = stdin.fileHandleForWriting
         target = [office, officeRelay]
@@ -438,28 +597,33 @@ final class Tunnel {
             if let office { settings["office"] = office }
             if let officeRelay { settings["officeRelay"] = officeRelay }
             settings.merge(testSettings ?? [:]) { $1 }
+            settings["helper"] = nil
         }
         var line = try JSONSerialization.data(withJSONObject: settings)
         line.append(0x0A)
-        try stdin.fileHandleForWriting.write(contentsOf: line)
+        // (One that quit at once is told by its reports ending, below.)
+        try? stdin.fileHandleForWriting.write(contentsOf: line)
 
         // Its reports, until it carries connections (or gives up), then for as long as it runs.
         let iroh = transport == .iroh
         let result: Result<Void, Error> = await withCheckedContinuation { continuation in
             let once = OnceFlag()
             let done: @Sendable (Result<Void, Error>) -> Void = { if once.claim() { continuation.resume(returning: $0) } }
+            let tag = tag
             // Every report is about this process: one that was stopped (and replaced) changes nothing.
             Task.detached { [weak self] in
                 var name = "", address = "", lastError: String?
                 do {
                     for try await text in Self.lines(stdout.fileHandleForReading) {
+                        // (Not each stream's: one per request, they'd push out what matters.)
+                        if !text.hasPrefix(#"{"stream""#) { ConnectionLog.add(tag, text) }
                         guard let report = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
                               let self, await self.process === process else { continue }
                         if let error = report["error"] as? String {
                             // iroh keeps going after these (it retries); Tailscale's end the start.
                             lastError = error
                             if iroh {
-                                await self.warn(error)
+                                await self.warn(error, code: report["code"] as? String)
                             } else {
                                 await self.failed(error)
                                 done(.failure(PrivateNetwork.Failure.helper(error)))
@@ -482,6 +646,8 @@ final class Tunnel {
                             name = report["name"] as? String ?? ""
                             address = report["id"] as? String ?? (report["ips"] as? [String])?.first { !$0.contains(":") } ?? ""
                             await self.running(relay: report["relay"] as? String, bound: report["addrs"] as? [String] ?? [])
+                        case "online":
+                            await self.relayAnswered()
                         case "listening":
                             await self.ready(name: name, address: address, listen: report["listen"] as? String)
                             done(.success(()))
@@ -490,12 +656,18 @@ final class Tunnel {
                         }
                     }
                 } catch {}
-                await self?.ended(process)
-                // Quit before carrying anything: what it said last is why (a timeout if nothing).
-                done(.failure(lastError.map { PrivateNetwork.Failure.helper($0) } ?? PrivateNetwork.Failure.timeout))
+                let how = await Self.howEnded(process)
+                ConnectionLog.add(tag, "helper \(process.processIdentifier) ended: \(how)")
+                // Stopped or replaced by Pluck: not a failure of this start.
+                guard let self, await self.process === process else { return done(.failure(Superseded())) }
+                await self.ended(process)
+                // Quit before carrying anything: what it said last is why, else how it ended.
+                done(.failure(lastError.map { PrivateNetwork.Failure.helper($0) } ?? PrivateNetwork.Failure.stopped(how)))
             }
             Task.detached {
-                try? await Task.sleep(for: .seconds(100))
+                // Last resort, for a helper that never even gets going. (The suspending clock: a Mac
+                // asleep meanwhile doesn't use it up.)
+                try? await Task.sleep(for: .seconds(100), clock: .suspending)
                 done(.failure(PrivateNetwork.Failure.timeout))
             }
         }
@@ -534,6 +706,20 @@ final class Tunnel {
         }
     }
 
+    /// "exit 1", "signal 9": once the process is gone (its output ends just before).
+    private nonisolated static func howEnded(_ process: Process) async -> String {
+        for _ in 0..<40 where process.isRunning { try? await Task.sleep(for: .milliseconds(25)) }
+        guard !process.isRunning else { return "still running" }
+        return (process.terminationReason == .uncaughtSignal ? "signal " : "exit ") + String(process.terminationStatus)
+    }
+
+    /// Waits up to 2 s for a stopped helper to go, then kills it.
+    private nonisolated static func reap(_ process: Process?) async {
+        guard let process else { return }
+        for _ in 0..<40 where process.isRunning { try? await Task.sleep(for: .milliseconds(50)) }
+        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+    }
+
     private func running(relay: String?, bound: [String]) {
         self.relay = relay
         self.bound = bound
@@ -542,11 +728,29 @@ final class Tunnel {
     private func ready(name: String, address: String, listen: String?) {
         self.listen = listen
         state = .running(name: name, address: address)
+        restarting = false
+        runningSince = .now
     }
 
     private func failed(_ message: String) { state = .failed(message) }
 
-    private func warn(_ message: String) { warning = message }
+    private func warn(_ message: String, code: String?) {
+        switch code {
+        case "noRelay":
+            noRelay = true
+            warning = PrivateNetwork.Failure.noRelay.localizedDescription
+        case "unreachable":
+            if officeDown == nil { officeDown = .now }
+            warning = PrivateNetwork.Failure.officeOffline.localizedDescription
+        default:
+            warning = message
+        }
+    }
+
+    private func relayAnswered() {
+        noRelay = false
+        if warning == PrivateNetwork.Failure.noRelay.localizedDescription { warning = nil }
+    }
 
     private func wasRefused() { refused = true }
 
@@ -560,21 +764,39 @@ final class Tunnel {
         if link != nil {
             warning = nil
             refused = false
+            officeDown = nil
+            noRelay = false
         }
     }
 
     private func ended(_ ended: Process) {
         guard process === ended else { return }
-        if case .running = state { state = .off }
+        var wasRunning = false
+        if case .running = state { state = .off; wasRunning = true }
         if case .starting = state { state = .off }
         process = nil
         listen = nil
         links = [:]
+        // Quit by itself after it was carrying: started again (a run of a minute or more counts as recovered).
+        if wasRunning, transport == .iroh, wanted != nil {
+            if let runningSince, Date.now.timeIntervalSince(runningSince) > 60 { restarts = 0 }
+            restartSoon()
+        }
     }
 
     func stop() {
+        wanted = nil
+        restarting = false
+        restarts = 0
+        halt()
+    }
+
+    /// Stops the helper (SIGTERM, then SIGKILL after 2 s), keeping what Pluck wants of it.
+    private func halt() {
         try? input?.close()
         process?.terminate()
+        let old = process
+        Task.detached { await Self.reap(old) }
         process = nil
         input = nil
         listen = nil
@@ -582,7 +804,10 @@ final class Tunnel {
         streams = [:]
         refused = false
         warning = nil
+        officeDown = nil
+        noRelay = false
         target = []
+        runningSince = nil
         state = .off
     }
 }

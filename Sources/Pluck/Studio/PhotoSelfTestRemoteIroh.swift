@@ -67,6 +67,7 @@ extension PhotoSelfTest {
 
         await irohLoopback()
         await relayTest()
+        await irohRecoveryTest()
     }
 
     /// Two local helpers on this Mac carrying the Pluck protocol: no internet, no relays. Also: a

@@ -386,6 +386,7 @@ final class RemoteNetwork {
         RemoteProxyMode.migrate()
         RemoteDriveWrites.shared.install()
         guard observers.isEmpty else { return }
+        Tunnel.followNetwork()
         Task.detached { Self.unmountLeftovers() }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
             Task { @MainActor in await RemoteNetwork.shared.check() }
