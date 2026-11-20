@@ -1415,6 +1415,7 @@ private struct HostProxiesPane: View {
             makingNow
             keptUpToDate
             madeList
+            ViewingLookList()
             Divider().overlay(Design.Studio.line)
             FootLine(text: Text("Made in \(proxies.chosenFolder?.lastPathComponent ?? String(localized: "Pluck’s own folder"))")) {
                 PinkMenu {

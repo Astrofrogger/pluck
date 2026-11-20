@@ -170,6 +170,7 @@ extension PhotoSelfTest {
         check("pull: a file that keeps failing is tried again later, not taken", again && pulls.progress[job.id]?.failed["Day 1/A004.mov"] != nil
               && !fm.fileExists(atPath: local.appendingPathComponent("Day 1/A004.mov").path))
         if let device = server.devices.first?.id { await remotePiecesTest(share: share, root: root, local: local, device: device) }
+        await remoteLookTest(root: root)
     }
 }
 

@@ -479,7 +479,8 @@ final class OfficeProxies {
                         progress = 0
                         let source = folder.appendingPathComponent(relative)
                         let target = proxy(relative, folder: request.folder, format: request.format)
-                        if await makeOne(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { value in
+                        if await makeOne(source, to: target, format: request.format, ffmpeg: ffmpeg, ffprobe: ffprobe,
+                                         look: OfficeLook.setting(request.folder), progress: { value in
                             Task { @MainActor in OfficeProxies.shared.progress = value }
                         }) {
                             made = true
@@ -517,13 +518,13 @@ final class OfficeProxies {
     }
 
     /// One proxy, waiting its turn (one encode at a time on this Mac); one the other worker made meanwhile counts as made.
-    func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    func makeOne(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look: OfficeLook = .off,
                  progress: @escaping @Sendable (Double) -> Void) async -> Bool {
-        await makeClaimed(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress) ?? false
+        await makeClaimed(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, look: look, progress: progress) ?? false
     }
 
     /// makeOne, and nil when another office Mac of the group is making it (its claim, see OfficeGroup.claim).
-    func makeClaimed(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    func makeClaimed(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look: OfficeLook = .off,
                      progress: @escaping @Sendable (Double) -> Void) async -> Bool? {
         while encoding { await withCheckedContinuation { encodeQueue.append($0) } }
         encoding = true
@@ -558,12 +559,12 @@ final class OfficeProxies {
         for name in (try? FileManager.default.contentsOfDirectory(atPath: place.path)) ?? [] where name.hasPrefix(base) && name.hasSuffix(".part.mov") {
             try? FileManager.default.removeItem(at: place.appendingPathComponent(name))
         }
-        return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: progress)
+        return await Self.encode(source, to: target, format: format, ffmpeg: ffmpeg, ffprobe: ffprobe, look: look, progress: progress)
     }
 
     /// One proxy: same frame rate, length and timecode as the original, at up to 1080p (720p to stream), written
     /// next to its final name (a name of its own) and moved there when it's complete.
-    nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?,
+    nonisolated static func encode(_ source: URL, to target: URL, format: Format, ffmpeg: String, ffprobe: String?, look setting: OfficeLook = .off,
                                            progress: @escaping @Sendable (Double) -> Void) async -> Bool {
         await Task.detached {
             try? FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -573,9 +574,13 @@ final class OfficeProxies {
             let partial = target.deletingPathExtension().appendingPathExtension(UUID().uuidString.prefix(8) + ".part.mov")
             let (duration, timecode, container, reel) = probe(source, ffprobe: ffprobe)
             guard let demuxer = demuxer(container) else { return false }
+            // A viewing look (OfficeLook) goes on before the scale; the proxy says which one it has.
+            let look = OfficeLook.look(for: source, setting: setting, ffprobe: ffprobe)
+            let cube = look?.file()
             var common = ["-nostdin", "-y", "-loglevel", "error", "-progress", "pipe:1", "-f", demuxer, "-i", source.path,
                           "-map", "0:v:0", "-map", "0:a?", "-map_metadata", "0",
-                          "-vf", "scale=-2:'min(\(format.height),ih)'"]
+                          "-vf", (cube.map { "lut3d=file='\($0.path)'," } ?? "") + "scale=-2:'min(\(format.height),ih)'"]
+            if let look, cube != nil { common += ["-metadata", "comment=" + OfficeLook.tagPrefix + look.name] }
             if let timecode { common += ["-timecode", timecode] }
             // Resolve and editors know a clip by its reel: the original's, else its file name.
             common += ["-metadata:s:v:0", "reel_name=" + (reel ?? source.deletingPathExtension().lastPathComponent)]

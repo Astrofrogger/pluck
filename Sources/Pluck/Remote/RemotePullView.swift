@@ -289,6 +289,12 @@ private struct RemotePullsList: View {
                     Text(subtitle(job, state)).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(1)
                 }
                 Spacer(minLength: 8)
+                // (Proxies with a Rec.709 look burnt in, for cutting only: OfficeLook.)
+                if state?.filesHere ?? 0 > 0, job.originals == nil,
+                   RemoteManifest.load(in: URL(fileURLWithPath: job.destination, isDirectory: true))?.entries.contains(where: { $0.look != nil }) == true {
+                    StudioChip(text: Text("Viewing look"), symbol: "eye")
+                        .help("These proxies have a Rec.709 look for cutting. Grades made on them won’t match the render.")
+                }
                 if state?.finished == true, job.originals == nil, let link = RemoteHooks.linkInResolve {
                     if linking == job.id { PlumSpinner() } else {
                         Button("Link in Resolve") {
@@ -314,6 +320,9 @@ private struct RemotePullsList: View {
             }
             if let problem = state?.problem ?? state?.failed.values.first {
                 Text(problem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).lineLimit(2)
+            }
+            if let note = state?.note {
+                Text(note).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).lineLimit(2)
             }
         }
         .padding(.horizontal, 16)
