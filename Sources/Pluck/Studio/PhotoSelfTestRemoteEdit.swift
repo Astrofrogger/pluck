@@ -195,6 +195,8 @@ extension PhotoSelfTest {
             server.setRights(.init(browse: false, proxies: true, originals: false, render: true), for: device.id)
             check("remote: browsing refused without the right", await refused({ _ = try await client.browse(share: id, path: "") }))
             check("remote: rights are set on the pairing", server.devices.first?.allowed.browse == false)
+            let wakeAnswer: String = await { do { _ = try await client.ask(OfficeWake.action, ["member": UUID().uuidString]); return "" } catch { return error.localizedDescription } }()
+            check("access: waking an office Mac needs a role that may use the office", wakeAnswer == OfficeActions.refused().localizedDescription, wakeAnswer)
         } catch {
             check("remote: round trip", false, error.localizedDescription)
         }

@@ -52,7 +52,9 @@ enum OfficeWake {
     @MainActor
     static func register() {
         // {member: id} → wakes that office Mac of the group from here (on the office network).
-        OfficeActions.register(action) { arguments, _ in
+        OfficeActions.register(action) { arguments, device in
+            // Any role that may use the office (Viewer and up); a Mac with every right off can't wake others.
+            try OfficeActions.require(\.browse, device)
             let id = try OfficeActions.text(arguments["member"], 40)
             guard let member = OfficeGroup.shared.members.first(where: { $0.id.uuidString == id }) else { throw OfficeActions.incomplete() }
             guard let address = member.ethernet, let packet = packet(address) else {
