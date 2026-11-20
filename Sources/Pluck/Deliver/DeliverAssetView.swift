@@ -260,7 +260,14 @@ struct DeliverAssetView: View {
                         Image(nsImage: image).resizable().scaledToFit()
                     }
                     if DeliverCopies.isPreviewOnly(store.original(version)) {
-                        VStack { Spacer(); StudioChip(text: Text("Preview only · first page"), symbol: "eye").padding(Design.Spacing.window) }
+                        VStack(spacing: 6) {
+                            Spacer()
+                            StudioChip(text: Text("Preview only · first page"), symbol: "eye")
+                            if DeliverCopies.isMultiPageOffice(store.original(version)) {
+                                Text("Only the first page shows. Export a PDF to review every page.")
+                                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                            }
+                        }.padding(Design.Spacing.window)
                     }
                 case .document:
                     if let image = NSImage(contentsOf: store.copies(version.id).appendingPathComponent("pages/\(page).jpg")) {

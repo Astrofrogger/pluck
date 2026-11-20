@@ -82,6 +82,8 @@ extension PhotoSelfTest {
         let jpeg = (try? Data(contentsOf: preview.appendingPathComponent("image.jpg"))) ?? Data()
         check("media: Quick Look preview", ql.probe != nil && jpeg.starts(with: [0xFF, 0xD8, 0xFF]) && DeliverCopies.isPreviewOnly(text) && !DeliverCopies.isPreviewOnly(pq.deletingPathExtension().appendingPathExtension("png")),
               "\(jpeg.count) bytes")
+        check("media: Export-a-PDF hint only on multi-page Office", DeliverCopies.isMultiPageOffice(URL(fileURLWithPath: "/x/Deck.PPTX"))
+              && !DeliverCopies.isMultiPageOffice(URL(fileURLWithPath: "/x/Art.ai")) && !DeliverCopies.isMultiPageOffice(nil))
         let nothing = folder.appendingPathComponent("blob.unknownext")
         try? Data([0, 1, 2]).write(to: nothing)
         let none = await DeliverCopies.make(nothing, kind: .other, into: folder.appendingPathComponent("none"), ffmpeg: ffmpeg, ffprobe: ffprobe) { _ in }

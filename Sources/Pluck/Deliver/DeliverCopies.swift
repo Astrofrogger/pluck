@@ -233,6 +233,11 @@ final class DeliverCopies {
             && DeliverStore.kind(original) != .document
     }
 
+    /// Office files with pages or slides: Quick Look shows only the first, a PDF export gets every page reviewed.
+    nonisolated static func isMultiPageOffice(_ original: URL?) -> Bool {
+        ["docx", "doc", "pptx", "ppt", "xlsx", "xls", "pages", "key", "numbers"].contains(original?.pathExtension.lowercased() ?? "")
+    }
+
     /// The picture at most 2560 px on its longer side, as JPEG at 0.85; its size.
     nonisolated static func picture(_ source: URL, into file: URL) -> (Int, Int)? {
         guard let image = CGImageSourceCreateWithURL(source as CFURL, nil),
