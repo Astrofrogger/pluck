@@ -34,4 +34,7 @@ WORKDIR /data
 VOLUME /data
 # Runs as whatever user the compose file sets (TrueNAS apps: 568); never as root.
 USER 568:568
+# On Linux `--host` starts as a small supervisor (src/selfupdate.rs): it runs the newest verified pluck-review the
+# host downloaded into /data/.pluck-host/bin/<version>/ (the data volume; the root stays read-only), else this one,
+# and rolls back a new one that fails. No Docker socket and no TrueNAS API key: the host updates itself.
 ENTRYPOINT ["/usr/local/bin/pluck-review", "--host", "/data"]
