@@ -244,6 +244,7 @@ final class DeliverServer {
             case ("auth", .hello): try auth(peer, id, message, link)
             case ("password", .welcomed): try password(peer, id, message, link)
             case ("unsubscribe", .welcomed): try unsubscribe(peer, id, message)
+            case ("confirm", .welcomed): try unsubscribe(peer, id, message, op: "subscribe-confirm")
             case (_, .ready): try request(peer, id, type, message, link)
             default: throw Deliver.Failure("auth")
             }
@@ -389,6 +390,7 @@ final class DeliverServer {
         case "mentionable": reply(peer, id, ["people": mentionable(link).map { ["id": $0.id, "name": $0.name] }])
         case "subscribe": try subscribe(peer, id, message, link)
         case "unsubscribe": try unsubscribe(peer, id, message)
+        case "confirm": try unsubscribe(peer, id, message, op: "subscribe-confirm")
         case "subscription": reply(peer, id, ["mode": peer.subscription?.mode ?? NSNull(), "email": peer.subscription?.email ?? NSNull()])
         case "comment-add":
             let (asset, version) = try version(message, link)
@@ -603,17 +605,19 @@ final class DeliverServer {
         Task {
             if let answer = await mailAsk(op), answer["ok"] as? Bool == true {
                 peer.subscription = (email, mode)
-                reply(peer, id, ["ok": true])
+                // (A typed address waits for the host's confirmation mail: the page says to check the inbox.)
+                reply(peer, id, ["ok": true, "pending": answer["pending"] as? Bool == true])
             } else { fail(peer, id, .init("off")) }
         }
     }
 
-    private func unsubscribe(_ peer: Peer, _ id: Int, _ message: [String: Any]) throws {
+    /// A mail's token (the stop link, or with `subscribe-confirm` the confirmation link), passed on to the host.
+    private func unsubscribe(_ peer: Peer, _ id: Int, _ message: [String: Any], op: String = "unsubscribe") throws {
         guard peer.token != nil else { throw Deliver.Failure("auth") }
         guard let token = message["token"] as? String, token.count == 43 else { throw Deliver.Failure("invalid") }
         Task {
-            if let answer = await mailAsk(["op": "unsubscribe", "token": token]), answer["ok"] as? Bool == true {
-                reply(peer, id, ["ok": true, "scope": answer["scope"] as? String ?? "link"])
+            if let answer = await mailAsk(["op": op, "token": token]), answer["ok"] as? Bool == true {
+                reply(peer, id, op == "unsubscribe" ? ["ok": true, "scope": answer["scope"] as? String ?? "link"] : ["ok": true, "confirmed": answer["confirmed"] as? Bool == true])
             } else { fail(peer, id, .init("off")) }
         }
     }

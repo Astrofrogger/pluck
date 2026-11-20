@@ -1609,6 +1609,12 @@ impl Host {
                 r["re"] = id;
                 return self.send(peer, r);
             }
+            // The same for the link in a confirmation mail (double opt-in, 4.0.7).
+            "confirm" if self.peers[peer].authed => {
+                let mut r = self.confirm_sub(m["token"].as_str().unwrap_or(""));
+                r["re"] = id;
+                return self.send(peer, r);
+            }
             _ if !self.peers[peer].ready => return self.err(peer, &id, "auth"),
             _ => {}
         }
@@ -4013,8 +4019,36 @@ mod tests {
         assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "off", "no Email updates on that link");
         for (i, (peer, e)) in [("c1", "one@example.com"), ("c2", "two@example.com")].into_iter().enumerate() {
             h.request(peer, &json!({"id": 2 + i, "t": "subscribe", "email": e, "mode": "instant", "lang": "nl"}));
-            assert_eq!(answer(&mut rx, peer, 2 + i as u64)["ok"], true);
+            let a = answer(&mut rx, peer, 2 + i as u64);
+            assert_eq!((a["ok"].clone(), a["pending"].clone()), (json!(true), json!(true)), "a typed address waits for its confirmation");
         }
+        // Double opt-in: the confirmation mail (at once, even for a daily row), then nothing else until its link is opened.
+        let c1 = h.mail.subs.iter().find(|r| r["email"] == "one@example.com").unwrap().clone();
+        let due = h.mail.due(now_secs());
+        let (_, confirm) = due.iter().find(|(r, _)| r["id"] == c1["id"]).expect("the confirmation is due now");
+        let m = h.compose(&c1, confirm).unwrap();
+        let ctok = c1["confirm"].as_str().unwrap().to_owned();
+        assert!(m.body.contains(&format!("https://pluck.tools/r/#KEYCODE.PUB/c/{ctok}")) && m.subject.contains("Bevestig"), "{}", m.body);
+        assert!(!h.sync(&json!({"op": "mail-state"})).to_string().contains(&ctok), "the confirm token stays on the host");
+        h.mail.queue.retain(|q| q["event"] != "confirm");
+        h.peers.get_mut("c1").unwrap().authed = true;
+        h.request("c1", &json!({"id": 40, "t": "confirm", "token": ctok}));
+        assert_eq!(answer(&mut rx, "c1", 40)["confirmed"], true);
+        let c2tok = h.mail.subs.iter().find(|r| r["email"] == "two@example.com").unwrap()["confirm"].clone();
+        assert_eq!(h.sync(&json!({"op": "subscribe-confirm", "token": c2tok}))["confirmed"], true, "through a Mac's forward");
+        assert!(h.mail.subs.iter().all(|r| r["pending"].is_null() && r["confirm"].is_null()));
+        // A personal link's own address needs no confirmation; a Mac-forwarded browser subscribe does.
+        let personal = h.links().find(|l| l["id"] == "LC").cloned().map(|mut l| { l["notify"]["recipientEmail"] = json!("Me@Example.com"); l }).unwrap();
+        let idx = h.mail.subs.len();
+        h.mail.subs.push(crate::mail::Mail::new_row("client"));
+        h.mail.subs[idx]["email"] = json!("me@example.com");
+        h.ask_confirm(idx, &personal);
+        assert!(h.mail.subs[idx]["pending"].is_null(), "the recipient's own address");
+        h.mail.subs.pop();
+        let fwd = h.sync(&json!({"op": "subscriber-set", "kind": "client", "email": "three@example.com", "link": "LC", "author": "tok3", "mode": "daily"}));
+        assert_eq!((fwd["ok"].clone(), fwd["pending"].clone()), (json!(true), json!(true)));
+        h.mail.subs.retain(|r| r["email"] != "three@example.com");
+        h.mail.queue.retain(|q| q["event"] != "confirm");
         h.request("c1", &json!({"id": 5, "t": "subscribe", "email": "not an email", "mode": "instant"}));
         assert_eq!(answer(&mut rx, "c1", 5)["error"]["code"], "invalid");
         // The editor writes only an internal comment: never mentionable on the client link.

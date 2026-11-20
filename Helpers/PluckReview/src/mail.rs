@@ -426,7 +426,7 @@ impl Mail {
                 continue;
             }
             let at = |f: fn(std::slice::Iter<'_, Value>) -> Option<i64>| f(items.iter()).unwrap_or(now);
-            let ready = match row["mode"].as_str() {
+            let ready = items.iter().any(|q| q["event"] == "confirm") || match row["mode"].as_str() {
                 Some("daily") => self.daily_due(at(|i| i.filter_map(|q| q["at"].as_i64()).min())) <= now,
                 _ => at(|i| i.filter_map(|q| q["at"].as_i64()).max()) + QUIET_SECS <= now,
             };
@@ -475,6 +475,7 @@ impl Mail {
             if let Some(o) = r.as_object_mut() {
                 o.remove("token");
                 o.remove("author");
+                o.remove("confirm");
             }
             r
         }).collect();
@@ -535,6 +536,19 @@ fn t(lang: &str, k: &str) -> &'static str {
         "testBody" => ["Email from your review server works.", "E-Mails von deinem Review-Server funktionieren.", "El correo de tu servidor de revisión funciona.",
             "L'e-mail de votre serveur de revue fonctionne.", "L'email dal tuo server di revisione funziona.", "レビューサーバーからのメールは正常に届いています。",
             "리뷰 서버의 이메일이 정상적으로 작동합니다.", "E-mail vanaf je reviewserver werkt.", "O e-mail do seu servidor de revisão funciona.", "审阅服务器的邮件功能正常。"],
+        "confirm" => ["Confirm your email updates", "Bestätige deine E-Mail-Benachrichtigungen", "Confirma tus avisos por correo",
+            "Confirmez vos notifications par e-mail", "Conferma gli aggiornamenti via email", "メール通知の確認",
+            "이메일 알림을 확인하세요", "Bevestig je e-mailupdates", "Confirme suas atualizações por e-mail", "确认邮件通知"],
+        "confirmBody" => ["Open this link to get emails about this review:", "Öffne diesen Link, um E-Mails zu diesem Review zu bekommen:",
+            "Abre este enlace para recibir correos sobre esta revisión:", "Ouvrez ce lien pour recevoir des e-mails sur cette revue :",
+            "Apri questo link per ricevere email su questa revisione:", "このレビューに関するメールを受け取るには、次のリンクを開いてください:",
+            "이 리뷰에 대한 이메일을 받으려면 다음 링크를 여세요:", "Open deze link om e-mails over deze review te krijgen:",
+            "Abra este link para receber e-mails sobre esta revisão:", "打开此链接以接收关于此审阅的邮件:"],
+        "confirmIgnore" => ["Didn't ask for this? Ignore this email: nothing will be sent.", "Nicht angefordert? Ignoriere diese E-Mail: Es wird nichts gesendet.",
+            "¿No lo pediste? Ignora este correo: no se enviará nada.", "Vous ne l'avez pas demandé ? Ignorez cet e-mail : rien ne sera envoyé.",
+            "Non l'hai chiesto? Ignora questa email: non verrà inviato nulla.", "心当たりがない場合は、このメールを無視してください。何も送信されません。",
+            "요청하지 않으셨나요? 이 이메일을 무시하세요. 아무것도 발송되지 않습니다.", "Niet aangevraagd? Negeer deze e-mail: er wordt niets verstuurd.",
+            "Não pediu isso? Ignore este e-mail: nada será enviado.", "不是你申请的?忽略此邮件即可,不会发送任何内容。"],
         _ => [""; 10],
     };
     row[i]

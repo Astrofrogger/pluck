@@ -1140,9 +1140,10 @@ final class ReviewHosting {
             guard shared.isOn else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host reviews.")) }
             guard let op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
             let admin = OfficeAccess.shared.isAdmin(device) || OfficeAccess.shared.rights(for: device).fullTrust
-            if name != "mail-state", !admin { throw OfficeActions.refused() }
+            // (A mail's own token is the right for these two, as on a NAS.)
+            if !["mail-state", "unsubscribe", "subscribe-confirm"].contains(name), !admin { throw OfficeActions.refused() }
             // The state for an Editor too (the share sheet's Email updates), but who subscribed only for an Admin.
-            if !admin { try OfficeActions.require(\.render, device) }
+            if !admin, name == "mail-state" { try OfficeActions.require(\.render, device) }
             let answer = try await shared.mail(op)
             return admin ? answer : Self.withoutPeople(answer)
         }
@@ -1162,7 +1163,8 @@ final class ReviewHosting {
         return state
     }
 
-    nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set"]
+    nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set",
+                                                   "unsubscribe", "subscribe-confirm"]
 
     /// One mail op over the hosted folders: a test from one, a webhook to its project's folder, the state merged, the
     /// rest to every one (an id only one of them has: that one's answer).
@@ -1197,7 +1199,8 @@ final class ReviewHosting {
             var answers: [[String: Any]] = []
             for (_, helper) in all { if let answer = try? await helper.ask(op) { answers.append(answer) } }
             let failed = answers.first { (($0["error"] as? [String: Any])?["code"] as? String).map { $0 != "notFound" } ?? ($0["error"] != nil) }
-            guard let answer = failed ?? answers.first(where: { $0["ok"] as? Bool == true }) ?? answers.first else {
+            // (A token only one folder's host knows: that one's answer.)
+            guard let answer = failed ?? answers.first(where: { $0["confirmed"] as? Bool == true }) ?? answers.first(where: { $0["ok"] as? Bool == true }) ?? answers.first else {
                 throw OfficeLink.Failure.office(String(localized: "The review host isn’t running."))
             }
             return answer

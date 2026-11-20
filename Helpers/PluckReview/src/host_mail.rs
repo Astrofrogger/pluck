@@ -141,8 +141,9 @@ impl Host {
         let tok = p.acct.token.clone().or(p.token.clone())?;
         let name = p.name.clone();
         if let Some(i) = self.mail.subs.iter().position(|r| r["kind"] == "client" && r["link"] == l["id"] && r["author"] == tok.as_str()) {
-            if let Some(e) = email {
+            if let Some(e) = email.filter(|e| self.mail.subs[i]["email"] != e.as_str()) {
                 self.mail.subs[i]["email"] = json!(e);
+                self.ask_confirm(i, l);
             }
             return Some(i);
         }
@@ -153,7 +154,31 @@ impl Host {
         let mut r = Mail::new_row("client");
         (r["link"], r["author"], r["email"], r["name"]) = (l["id"].clone(), json!(tok), json!(email?), json!(name));
         self.mail.subs.push(r);
+        self.ask_confirm(self.mail.subs.len() - 1, l);
         Some(self.mail.subs.len() - 1)
+    }
+
+    /// Double opt-in for an address a browser typed: the row waits (`pending`) until the link in a confirmation mail
+    /// is opened (`#<code>/c/<token>`). A personal link's own recipient address needs none.
+    pub(super) fn ask_confirm(&mut self, i: usize, l: &Value) {
+        let r = &mut self.mail.subs[i];
+        let theirs = l["notify"]["recipientEmail"].as_str().map(str::trim).filter(|e| !e.is_empty());
+        if theirs.is_some_and(|e| r["email"].as_str().is_some_and(|x| x.trim().eq_ignore_ascii_case(e))) {
+            r.as_object_mut().map(|o| { o.remove("pending"); o.remove("confirm") });
+            return;
+        }
+        let token = crate::keys::b64(&rand::random::<[u8; 32]>());
+        let q = json!({"id": format!("c:{}:{}", r["id"].as_str().unwrap_or(""), &token[..12]), "to": r["id"], "event": "confirm", "link": l["id"], "at": now_secs()});
+        (r["pending"], r["confirm"]) = (json!(true), json!(token));
+        self.mail.push(vec![q]);
+    }
+
+    /// The link in a confirmation mail was opened: that row gets mail from now on.
+    pub(super) fn confirm_sub(&mut self, token: &str) -> Value {
+        let Some(r) = self.mail.subs.iter_mut().find(|r| !token.is_empty() && r["confirm"] == token) else { return json!({"ok": true, "confirmed": false}) };
+        r.as_object_mut().map(|o| { o.remove("pending"); o.remove("confirm") });
+        self.mail.save_subs();
+        json!({"ok": true, "confirmed": true})
     }
 
     /// `subscribe` and `subscription` (browser ctl).
@@ -168,7 +193,7 @@ impl Host {
                 // `delta`: this host merges one link's `muteLink`/`muted` (a page's toggle then can't undo a Mac's mute).
                 Some(r) if r["kind"] == "team" => json!({"mode": r["mode"], "email": r["email"], "mute": r["mute"].as_array().cloned().unwrap_or_default(), "delta": true,
                     "links": self.links().filter(|l| self.live(l).is_ok()).map(|l| json!({"id": l["id"], "title": l["title"], "project": l["project"]})).collect::<Vec<_>>()}),
-                Some(r) => json!({"mode": r["mode"], "email": r["email"]}),
+                Some(r) => json!({"mode": r["mode"], "email": r["email"], "pending": r["pending"] == true}),
                 None => json!({"mode": null, "email": null}),
             });
         }
@@ -198,10 +223,11 @@ impl Host {
         if let Some(lang) = m["lang"].as_str() {
             r["lang"] = json!(mail::lang(lang));
         }
+        let pending = r["pending"] == true;
         if !self.mail.save_subs() {
             return Err("internal");
         }
-        Ok(json!({"ok": true}))
+        Ok(json!({"ok": true, "pending": pending}))
     }
 
     /// `unsubscribe` by the token in a mail: a client row goes off (this link), a team row goes off (everything).
@@ -216,7 +242,7 @@ impl Host {
     // ---- events ----
 
     fn rows(&self) -> Vec<Value> {
-        self.mail.subs.iter().filter(|r| r["mode"] != "off").cloned().collect()
+        self.mail.subs.iter().filter(|r| r["mode"] != "off" && r["pending"] != true).cloned().collect()
     }
 
     fn item(to: &Value, event: &str, link: &Value, asset: &Value, version: &Value, comment: &Value, reply: &Value) -> Value {
@@ -417,6 +443,13 @@ impl Host {
     pub(super) fn compose(&self, row: &Value, items: &[Value]) -> Option<mail::Msg> {
         let client = row["kind"] == "client";
         let lang = row["lang"].as_str().or(self.mail.cfg["lang"].as_str()).unwrap_or("en");
+        if items.iter().any(|q| q["event"] == "confirm") {
+            // Only while it's still waiting, and only that mail (nothing else is queued for a pending row).
+            let (Some(token), true) = (row["confirm"].as_str(), row["pending"] == true) else { return None };
+            let (base, _) = self.urls(row, None)?;
+            let body = format!("{}\n{base}/c/{token}\n\n{}\n", mail::text(lang, "confirmBody", &[]), mail::text(lang, "confirmIgnore", &[]));
+            return Some(mail::Msg { to: row["email"].as_str()?.to_owned(), subject: mail::text(lang, "confirm", &[]), body, unsubscribe: false });
+        }
         let asset_name = |a: &Value| self.manifest["projects"].as_array().into_iter().flatten().flat_map(|p| Self::arr(p, "assets"))
             .find(|x| x["id"] == *a).and_then(|x| x["name"].as_str()).unwrap_or("").to_owned();
         let mut lines = vec![];
@@ -492,7 +525,7 @@ impl Host {
     /// mail-set, mail-state, subscriber-set/-remove, unsubscribe, hook-set. None: not a mail op.
     pub(super) fn mail_sync(&mut self, op: &Value) -> Option<Value> {
         let name = op["op"].as_str().unwrap_or("");
-        if !matches!(name, "mail-set" | "mail-state" | "subscriber-set" | "subscriber-remove" | "unsubscribe" | "hook-set" | "mail-remind") {
+        if !matches!(name, "mail-set" | "mail-state" | "subscriber-set" | "subscriber-remove" | "unsubscribe" | "subscribe-confirm" | "hook-set" | "mail-remind") {
             return None;
         }
         if self.ident.backup && name != "mail-state" {
@@ -506,6 +539,7 @@ impl Host {
                 self.mail.state()
             }
             "unsubscribe" => self.unsubscribe(op["token"].as_str().unwrap_or("")),
+            "subscribe-confirm" => self.confirm_sub(op["token"].as_str().unwrap_or("")),
             "mail-remind" => self.mail_remind(op),
             "subscriber-remove" => {
                 self.mail.subs.retain(|r| r["id"] != op["id"]);
@@ -582,6 +616,8 @@ impl Host {
                 self.mail.subs.len() - 1
             }
         };
+        // A browser's own subscribe forwarded by a Mac (it has `author`): a new or changed address is confirmed first.
+        let typed = author.is_some() && kind == "client" && email.as_deref().is_some_and(|e| self.mail.subs[i]["email"] != e || found.is_none());
         let r = &mut self.mail.subs[i];
         r["mode"] = json!(mode);
         if let Some(e) = email { r["email"] = json!(e) }
@@ -600,10 +636,15 @@ impl Host {
         }
         if let Some(l) = op["lang"].as_str() { r["lang"] = json!(mail::lang(l)) }
         let id = r["id"].clone();
+        if typed {
+            let l = self.links().find(|l| l["id"] == op["link"]).cloned().unwrap_or(Value::Null);
+            self.ask_confirm(i, &l);
+        }
+        let pending = self.mail.subs[i]["pending"] == true;
         if !self.mail.save_subs() {
             return json!({"error": {"code": "write"}});
         }
-        json!({"ok": true, "id": id})
+        json!({"ok": true, "id": id, "pending": pending})
     }
 
     /// `mail-test` (run() sends it in the background): the settings and password, or the answer at once.

@@ -1190,6 +1190,10 @@ extension PhotoSelfTest {
                   && sent("p_noah").contains { $0["re"] as? Int == 9001 && $0["ok"] as? Bool == true }
                   && sent("p_noah").contains { $0["re"] as? Int == 9002 && $0["scope"] as? String == "link" }
                   && asked.contains { $0["op"] as? String == "unsubscribe" }, "\(asked)")
+            server.helper(["msg": ["peer": "p_noah", "msg": ["t": "confirm", "id": 9003, "token": String(repeating: "B", count: 43)]]])
+            try? await Task.sleep(for: .milliseconds(300))
+            check("mail: a confirmation link goes to the host", asked.contains { $0["op"] as? String == "subscribe-confirm" && $0["token"] as? String == String(repeating: "B", count: 43) }
+                  && sent("p_noah").contains { $0["re"] as? Int == 9003 && $0["ok"] as? Bool == true }, "\(asked)")
             check("mail: subscribe is checked", code(ask("p_noah", ["t": "subscribe", "email": "nope", "mode": "daily"])) == "invalid"
                   && code(ask("p_noah", ["t": "subscribe", "email": "a@b.c", "mode": "weekly"])) == "invalid"
                   && code(ask("p_nomail", ["t": "subscribe", "email": "a@b.c", "mode": "daily"])) == "off"

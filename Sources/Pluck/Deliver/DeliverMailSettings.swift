@@ -55,7 +55,8 @@ struct DeliverMailSection: View {
             Text("Subscribers").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
             VStack(spacing: 0) {
                 ForEach(mail.subscribers) { row in
-                    SettingRow(text: Text(verbatim: row.name.isEmpty ? row.email : row.name), detail: row.name.isEmpty ? nil : Text(verbatim: row.email)) {
+                    SettingRow(text: Text(verbatim: row.name.isEmpty ? row.email : row.name),
+                               detail: row.pending ? Text(row.name.isEmpty ? "Not confirmed yet" : "\(row.email) · not confirmed yet") : row.name.isEmpty ? nil : Text(verbatim: row.email)) {
                         Picker(selection: Binding(get: { row.mode }, set: { mode in Task { await setMode(row, mode) } })) {
                             Text("Instant").tag("instant"); Text("Daily").tag("daily"); Text("Off").tag("off")
                         } label: { EmptyView() }.fixedSize()

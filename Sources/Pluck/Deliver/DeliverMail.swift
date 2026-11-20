@@ -18,6 +18,8 @@ final class DeliverMail {
     struct Subscriber: Identifiable, Hashable {
         var id: String, kind: String, email: String, name: String, mode: String
         var person: String? = nil, mute: [String] = []
+        /// Typed on a review page and waiting for the confirmation mail's link (double opt-in): gets no mail yet.
+        var pending = false
     }
 
     private(set) var settings = Settings()
@@ -56,7 +58,8 @@ final class DeliverMail {
         subscribers = (answer["subscribers"] as? [[String: Any]] ?? []).compactMap { row in
             guard let id = row["id"] as? String else { return nil }
             return Subscriber(id: id, kind: row["kind"] as? String ?? "client", email: row["email"] as? String ?? "", name: row["name"] as? String ?? "",
-                              mode: row["mode"] as? String ?? "instant", person: row["person"] as? String, mute: row["mute"] as? [String] ?? [])
+                              mode: row["mode"] as? String ?? "instant", person: row["person"] as? String, mute: row["mute"] as? [String] ?? [],
+                              pending: row["pending"] as? Bool == true)
         }
         hooks = (answer["hooks"] as? [String: [String: Any]] ?? [:]).compactMapValues { $0["url"] as? String }
     }
