@@ -12,8 +12,13 @@
 // ("relay": own relay instead of iroh's public ones; "local": no relays or lookups, for tests.)
 // Later stdin lines (office): {"allow":[ids]}, {"pair":secs} (adds one single-use slot, at most
 // 15 minutes), {"pair":0} (closes all), {"paired":id} (Pluck paired it: allowed, one slot used;
-// with none left, provisional connections close). Reports: JSON lines on stdout. Quits when
-// stdin closes.
+// with none left, provisional connections close). Both: {"network":true} (woke or the network
+// changed: iroh looks again; home dials again at once). Reports: JSON lines on stdout, errors with
+// a "code" ("noRelay", "unreachable") Pluck words itself. Quits when stdin closes.
+//
+// Home reports "listening" as soon as its local port is open: reaching the office is reported
+// separately ("conn", or an "unreachable" error) and retried in the background, so starting never
+// waits on the office being awake.
 use std::{
     collections::HashSet,
     sync::{
@@ -22,6 +27,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use tokio::sync::Notify;
 
 use anyhow::{Context, Result, anyhow, bail};
 use iroh::{
@@ -160,8 +166,20 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         b = b.alpns(vec![ALPN.to_vec()]);
     }
     let ep = b.bind().await.context("can't start")?;
-    if !local && tokio::time::timeout(Duration::from_secs(20), ep.online()).await.is_err() {
-        report(json!({"error": "No relay answered. Check the internet connection."}));
+    // The office waits for its relay (its invitations carry it); home doesn't need to wait.
+    if !local && mode == "office" {
+        if tokio::time::timeout(Duration::from_secs(20), ep.online()).await.is_err() {
+            report(no_relay());
+        }
+    } else if !local {
+        let e = ep.clone();
+        tokio::spawn(async move {
+            if tokio::time::timeout(Duration::from_secs(20), e.online()).await.is_err() {
+                report(no_relay());
+                e.online().await;
+            }
+            report(json!({"state": "online"}));
+        });
     }
     let relay = ep.addr().relay_urls().next().map(|u| u.to_string());
     let addrs: Vec<String> = ep.bound_sockets().iter().map(|a| a.to_string()).collect();
@@ -171,6 +189,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
         "office" => {
             let gate = Arc::new(Mutex::new(Gate { allow: parse_ids(&cfg["allow"]), conns: Vec::new(), pairing: Vec::new() }));
             let g = gate.clone();
+            let e = ep.clone();
             // Invitations that ran out: Macs that came in on one but never paired go.
             let expiry = gate.clone();
             tokio::spawn(async move {
@@ -183,6 +202,10 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
                 // Commands; quit with Pluck.
                 while let Ok(Some(l)) = lines.next_line().await {
                     let Ok(v) = serde_json::from_str::<Value>(&l) else { continue };
+                    if v["network"].as_bool() == Some(true) {
+                        e.network_change().await;
+                        report(json!({"state": "networkChecked"}));
+                    }
                     let mut g = g.lock().unwrap();
                     if v.get("allow").is_some() {
                         g.allow = parse_ids(&v["allow"]);
@@ -205,8 +228,16 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
             office(ep, gate, port).await
         }
         "home" => {
+            let again = Arc::new(Notify::new());
+            let (e, a) = (ep.clone(), again.clone());
             tokio::spawn(async move {
-                while let Ok(Some(_)) = lines.next_line().await {}
+                while let Ok(Some(l)) = lines.next_line().await {
+                    if serde_json::from_str::<Value>(&l).is_ok_and(|v| v["network"].as_bool() == Some(true)) {
+                        e.network_change().await;
+                        a.notify_one();
+                        report(json!({"state": "networkChecked"}));
+                    }
+                }
                 std::process::exit(0);
             });
             let id: EndpointId = cfg["office"].as_str().context("no office")?.parse().context("bad office id")?;
@@ -219,7 +250,7 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
                     addr = addr.with_ip_addr(a);
                 }
             }
-            home(ep, addr, local).await
+            home(ep, addr, local, again).await
         }
         _ => Err(anyhow!("unknown mode")),
     }
@@ -318,14 +349,19 @@ struct HomeLink {
     found: Option<EndpointAddr>,
 }
 
-async fn home(ep: Endpoint, office: EndpointAddr, local: bool) -> Result<()> {
+fn no_relay() -> Value {
+    json!({"error": "No relay answered. Check the internet connection.", "code": "noRelay"})
+}
+
+fn unreachable(e: &anyhow::Error) -> Value {
+    json!({"error": format!("Can't reach the office Mac: {e:#}"), "code": "unreachable"})
+}
+
+async fn home(ep: Endpoint, office: EndpointAddr, local: bool, again: Arc<Notify>) -> Result<()> {
     let ln = TcpListener::bind("127.0.0.1:0").await?;
     let shared: Arc<tokio::sync::Mutex<HomeLink>> = Default::default();
-    // Connect once up front so the first report (type, RTT) comes early; later on demand.
-    if let Err(e) = connection(&ep, &office, &shared, local).await {
-        report(json!({"error": format!("Can't reach the office Mac: {e:#}")}));
-    }
     report(json!({"state": "listening", "listen": ln.local_addr()?.to_string()}));
+    tokio::spawn(keep_linked(ep.clone(), office.clone(), shared.clone(), local, again));
     loop {
         let (tcp, _) = ln.accept().await?;
         let (ep, office, shared) = (ep.clone(), office.clone(), shared.clone());
@@ -333,12 +369,42 @@ async fn home(ep: Endpoint, office: EndpointAddr, local: bool) -> Result<()> {
             let conn = match connection(&ep, &office, &shared, local).await {
                 Ok(c) => c,
                 Err(_) if shared.lock().await.refused.load(Ordering::Relaxed) => return,
-                Err(e) => return report(json!({"error": format!("Can't reach the office Mac: {e:#}")})),
+                Err(e) => return report(unreachable(&e)),
             };
             let Ok((mut send, recv)) = conn.open_bi().await else { return };
             if send.write_all(&[0]).await.is_err() { return }
             pipe(tcp, send, recv).await;
         });
+    }
+}
+
+/// Keeps the link to the office up from the start (so the first report, type and RTT, comes early):
+/// dials, and after a failure again with a growing pause (5 s to a minute), at once after a
+/// network change. Says "unreachable" once per run of failures. Stops when the office refuses.
+async fn keep_linked(ep: Endpoint, office: EndpointAddr, shared: Arc<tokio::sync::Mutex<HomeLink>>, local: bool, again: Arc<Notify>) {
+    let mut pause = 5;
+    let mut said = false;
+    loop {
+        match connection(&ep, &office, &shared, local).await {
+            Ok(c) => {
+                (pause, said) = (5, false);
+                tokio::select! { _ = c.closed() => {}, _ = again.notified() => {} }
+            }
+            Err(_) if shared.lock().await.refused.load(Ordering::Relaxed) => return,
+            Err(e) => {
+                if !said {
+                    report(unreachable(&e));
+                    said = true;
+                }
+                tokio::select! {
+                    _ = tokio::time::sleep(Duration::from_secs(pause)) => pause = (pause * 2).min(60),
+                    _ = again.notified() => {
+                        shared.lock().await.failed = None;
+                        pause = 5;
+                    }
+                }
+            }
+        }
     }
 }
 
