@@ -28,6 +28,7 @@ enum Deliver {
         var id = UUID()
         var name: String                 // ≤ 80 chars
         var parent: UUID?                // nil = project root; depth ≤ 8
+        var order: [UUID]?               // its files "As Arranged" (workflow plan 3); links without an order of their own show it
         var rev: Int?, at: Date?, by: String?
     }
 

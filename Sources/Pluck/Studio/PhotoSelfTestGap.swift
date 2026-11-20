@@ -55,6 +55,23 @@ extension PhotoSelfTest {
               && ReviewHosting.mailOps.contains("mail-set") && !ReviewHosting.mailOps.contains("unsubscribe"), "mode \(String(mode, radix: 8))")
         check("gap: link mute list for this Mac's person's emails", DeliverMail.muted(["a"], "b", true) == ["a", "b"] && DeliverMail.muted(["a", "b"], "a", false) == ["b"]
               && DeliverMail.muted(["a"], "a", true) == ["a"])
+        // Folder order: a folder's own order for links without one (folders by name, ids still in that folder only),
+        // carried by the folder's wire form; the share link's info gets it.
+        let f1 = UUID(), f2 = UUID(), a1 = UUID(), a2 = UUID(), a3 = UUID(), gone = UUID()
+        func file(_ id: UUID, _ folder: UUID?) -> Deliver.Asset { Deliver.Asset(id: id, name: "x", folder: folder, kind: .video, versions: [.init(number: 1, path: "/x", size: 1)]) }
+        let folders = [Deliver.Folder(id: f2, name: "B", order: [a3]), Deliver.Folder(id: f1, name: "A", order: [a2, gone, a1]), Deliver.Folder(name: "C")]
+        let files = [file(a1, f1), file(a2, f1), file(a3, f2)]
+        check("gap: folder order for links without their own", Deliver.folderOrder(folders, assets: files) == [a2, a1, a3]
+              && Deliver.folderOrder([Deliver.Folder(name: "C")], assets: files) == nil
+              && DeliverSync.folder(["id": f1.uuidString, "name": "A", "order": [a2.uuidString, "junk"]])?.order == [a2])
+        if let folder = store.newFolder("Cuts", in: project, parent: nil) {
+            store.edit(project) { content in if let i = content.assets.firstIndex(where: { $0.id == asset }) { content.assets[i].folder = folder.id } }
+            store.setFolderOrder(folder.id, in: project, [asset])
+            let link = Deliver.ShareLink(title: "Cuts", scope: .project(project), roomID: "r")
+            let info = DeliverServer.linkInfo(link, store: store)
+            check("gap: a link shows its folder's order", info["order"] as? [String] == [asset.uuidString]
+                  && store.content(project).folders.first { $0.id == folder.id }?.order == [asset], "\(info["order"] ?? "-")")
+        } else { check("gap: folder made", false) }
         check("gap: library edits are stamped in whole seconds", store.library.at.map { $0.timeIntervalSince1970.rounded(.down) == $0.timeIntervalSince1970 && abs($0.timeIntervalSinceNow) < 5 } == true)
     }
 }

@@ -290,6 +290,14 @@ final class DeliverStore {
         return folder
     }
 
+    /// A folder's own order of its files (nil: by name). Live links of the project without an order of their own carry
+    /// it (DeliverServer.linkInfo), so they go to the hosts again.
+    func setFolderOrder(_ id: UUID, in project: UUID, _ order: [UUID]?) {
+        edit(project) { content in if let index = content.folders.firstIndex(where: { $0.id == id }) { content.folders[index].order = order } }
+        for index in links.indices where links[index].project == project && links[index].order == nil && links[index].isLive { stampLink(index) }
+        saveLinks()
+    }
+
     func renameFolder(_ id: UUID, in project: UUID, to name: String) {
         let name = Deliver.clean(name, limit: Self.nameLimit)
         guard !name.isEmpty else { return }

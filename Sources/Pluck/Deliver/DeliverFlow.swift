@@ -42,6 +42,14 @@ extension Deliver {
         }
     }
 
+    /// A link without an order of its own: its folders' orders, one folder after another by name (ids of files still in
+    /// that folder only); nil when none has one.
+    static func folderOrder(_ folders: [Folder], assets: [Asset]) -> [UUID]? {
+        let ids = folders.filter { $0.order?.isEmpty == false }.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            .flatMap { folder in (folder.order ?? []).filter { id in assets.contains { $0.id == id && $0.folder == folder.id } } }
+        return ids.isEmpty ? nil : ids
+    }
+
     // MARK: Saved views
 
     /// The built-ins, shipped as views with fixed ids (never stored).

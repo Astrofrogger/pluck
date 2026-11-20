@@ -317,9 +317,10 @@ final class DeliverServer {
         if let header = store.branding(for: link.project)?.header { info["header"] = "data:image/jpeg;base64," + header.base64EncodedString() }
         if let deadline = DeliverDeadlines.effective(link, store: store) { info["deadline"] = Self.date(deadline) }
         // Workflow plan 3, 5, 6 (optional; old pages ignore them): the link's own order, custom statuses' and fields' names.
-        if let order = link.order, !order.isEmpty {
+        let content = store.content(link.project)
+        if let order = link.order?.isEmpty == false ? link.order : Deliver.folderOrder(content.folders, assets: content.assets) {
             // (Ids of the link's project only; the page orders what it lists and ignores the rest.)
-            let mine = Set(store.content(link.project).assets.map(\.id))
+            let mine = Set(content.assets.map(\.id))
             info["order"] = order.filter(mine.contains).map(\.uuidString)
         }
         if link.customStatuses == true, let defs = store.library.statuses, !defs.isEmpty {

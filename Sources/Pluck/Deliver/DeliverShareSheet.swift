@@ -362,7 +362,8 @@ struct DeliverLinkOptions: View {
             }))
         }
         if editing {
-            let assets = Deliver.arranged(store.content(link.project).assets.filter { DeliverServer.shared.inScope($0, link) }, order: link.order)
+            let content = store.content(link.project)
+            let assets = Deliver.arranged(content.assets.filter { DeliverServer.shared.inScope($0, link) }, order: link.order ?? Deliver.folderOrder(content.folders, assets: content.assets))
             if assets.count > 1 {
                 StudioField(label: "Order") {
                     VStack(alignment: .leading, spacing: 4) {

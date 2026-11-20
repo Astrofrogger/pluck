@@ -414,6 +414,7 @@ final class DeliverSync {
     static func folder(_ wire: [String: Any]) -> Deliver.Folder? {
         guard let id = uuid(wire["id"]), let name = wire["name"] as? String else { return nil }
         var folder = Deliver.Folder(id: id, name: name, parent: uuid(wire["parent"]))
+        folder.order = (wire["order"] as? [String]).map { Array($0.compactMap(UUID.init(uuidString:)).prefix(5000)) }
         stamp(&folder, wire)
         return folder
     }

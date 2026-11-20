@@ -507,7 +507,8 @@ final class ReviewPublish {
             return wire.merging(Self.stamp(link)) { $1 }
         }
         let folders = content.folders.map { folder -> [String: Any] in
-            (["id": folder.id.uuidString, "name": folder.name, "parent": folder.parent.map { $0.uuidString as Any } ?? NSNull()] as [String: Any])
+            (["id": folder.id.uuidString, "name": folder.name, "parent": folder.parent.map { $0.uuidString as Any } ?? NSNull()]
+             .merging(folder.order.map { ["order": $0.map(\.uuidString)] } ?? [:]) { a, _ in a } as [String: Any])
                 .merging(Self.stamp(folder)) { $1 }
         }
         var meta = store.project(project).map(Self.meta) ?? ["id": project.uuidString, "name": ""]
