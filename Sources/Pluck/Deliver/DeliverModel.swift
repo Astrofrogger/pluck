@@ -79,9 +79,10 @@ enum Deliver {
         struct FieldRule: Codable, Hashable { var id: String; var op: String; var value: String }   // op: is | contains | set
     }
 
-    /// The owner's custom statuses, fields and views, kept in the store's library.json.
+    /// The team's custom statuses, fields and views, kept in the store's library.json (and on the main host, 4.1).
     struct Library: Codable, Hashable {
         var v = 1
+        var at: Date?                    // last changed (whole seconds), for the team's Macs through the main host; newest wins
         var statuses: [StatusDef]?
         var fields: [FieldDef]?
         var views: [SavedView]?

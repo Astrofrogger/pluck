@@ -157,6 +157,13 @@ final class DeliverStore {
     private func saveInbox() { write(inbox, inboxFile) }
     func editLibrary(_ change: (inout Deliver.Library) -> Void) {
         change(&library)
+        library.at = Date(timeIntervalSince1970: Date.now.timeIntervalSince1970.rounded(.down))   // (the wire keeps whole seconds)
+        write(library, libraryFile)
+    }
+
+    /// The team's newer library from the main host, as it came (not stamped again).
+    func adoptLibrary(_ new: Deliver.Library) {
+        library = new
         write(library, libraryFile)
     }
 

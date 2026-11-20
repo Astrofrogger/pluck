@@ -1455,6 +1455,25 @@ impl Host {
                     Err(e) => json!({"error": format!("can't write serving.json: {e}")}),
                 }
             }
+            // 4.1: the team's custom statuses, fields and saved views (Pluck's library.json), kept for the team's Macs as
+            // they send it; the newest `at` wins (an ISO date, so strings compare). Never to browsers.
+            "library" => json!({"library": std::fs::read(self.data.join("library.json")).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok())}),
+            "library-set" if !self.ident.backup => {
+                let new = &op["library"];
+                let size = new.to_string().len();
+                if !new.is_object() || size > 256 * 1024 {
+                    return json!({"error": {"code": "invalid"}});
+                }
+                let path = self.data.join("library.json");
+                let old = std::fs::read(&path).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                let newer = old.as_ref().is_none_or(|o| new["at"].as_str().unwrap_or("") > o["at"].as_str().unwrap_or(""));
+                if newer {
+                    if let Err(e) = std::fs::write(&path, new.to_string()) {
+                        return json!({"error": format!("can't write library.json: {e}")});
+                    }
+                }
+                json!({"ok": true, "library": if newer { new.clone() } else { old.unwrap_or(Value::Null) }})
+            }
             _ => json!({"error": "unknown op"}),
         }
     }
@@ -3738,6 +3757,20 @@ mod tests {
         h.sync(&json!({"op": "append", "entries": [c("B1")]}));
         assert!(r.nudged().await, "own comment: a round now");
         assert_eq!(h.sync(&json!({"op": "_replica-own", "since": 0}))["entries"].as_array().unwrap().len(), 2, "B1 and the activity go up");
+    }
+
+    #[test]
+    fn library_newest_wins() {
+        let (mut h, _rx) = test_host();
+        assert_eq!(h.sync(&json!({"op": "library"})), json!({"library": null}));
+        let a = json!({"v": 1, "at": "2026-11-20T10:00:00Z", "statuses": [{"id": "c:abc", "name": "Graded", "colour": "accent", "builtin": false}]});
+        assert_eq!(h.sync(&json!({"op": "library-set", "library": a}))["library"], a);
+        let older = json!({"v": 1, "at": "2026-11-19T10:00:00Z"});
+        assert_eq!(h.sync(&json!({"op": "library-set", "library": older}))["library"], a, "an older one is answered with what's kept");
+        assert_eq!(h.sync(&json!({"op": "library"}))["library"], a);
+        assert_eq!(h.sync(&json!({"op": "library-set", "library": "x"}))["error"]["code"], "invalid");
+        h.ident.backup = true;
+        assert_eq!(h.sync(&json!({"op": "library-set", "library": a}))["error"], "unknown op", "only the main keeps it");
     }
 
     #[test]

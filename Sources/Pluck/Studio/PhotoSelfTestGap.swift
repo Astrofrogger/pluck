@@ -25,5 +25,19 @@ extension PhotoSelfTest {
               && DeliverNotify.newMention(of: "p1", before: comment, after: replied) == nil
               && DeliverNotify.newMention(of: "p2", before: comment, after: replied)?.author == "Client"
               && DeliverNotify.newMention(of: "p1", before: replied, after: again)?.author == "Client 2")
+
+        // The team's library through the main host: newest wins, an untouched one never goes up, the wire round trip.
+        let t0 = Date(timeIntervalSince1970: 1_800_000_000), t1 = t0.addingTimeInterval(60)
+        var older = Deliver.Library(), newer = Deliver.Library()
+        older.at = t0
+        newer.at = t1
+        newer.statuses = [.init(id: "c:graded", name: "Graded", colour: "good")]
+        let wire = (try? Deliver.encoder.encode(newer)).flatMap { try? JSONSerialization.jsonObject(with: $0) }
+        check("gap: library sync (newest wins)", DeliverSync.libraryStep(mine: older, theirs: newer) == .adopt
+              && DeliverSync.libraryStep(mine: newer, theirs: older) == .push && DeliverSync.libraryStep(mine: newer, theirs: nil) == .push
+              && DeliverSync.libraryStep(mine: Deliver.Library(), theirs: nil) == .none && DeliverSync.libraryStep(mine: newer, theirs: newer) == .none
+              && DeliverSync.library(wire) == newer && DeliverSync.library(nil) == nil && DeliverSync.library(NSNull()) == nil)
+        store.editLibrary { $0.views = [] }
+        check("gap: library edits are stamped in whole seconds", store.library.at.map { $0.timeIntervalSince1970.rounded(.down) == $0.timeIntervalSince1970 && abs($0.timeIntervalSinceNow) < 5 } == true)
     }
 }

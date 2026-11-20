@@ -195,6 +195,7 @@ final class DeliverSync {
                 // People (accounts plan §5): new requests notify even while People isn't open.
                 if ReviewPublish.shared.host(host.id)?.accounts == 1, let people = try? await session.ask(["op": "people"]) { DeliverPeople.shared.heard(people) }
                 if ReviewPublish.shared.host(host.id)?.mail == 1, let mail = try? await session.ask(["op": "mail-state"]) { DeliverMail.shared.heard(mail) }
+                if !self.readOnly { await self.syncLibrary(session) }
             }
             await DeliverOutage.note(status: status, host: host)
             state.lastSync = .now
@@ -206,6 +207,37 @@ final class DeliverSync {
             said(error)
         }
         return false
+    }
+
+    // MARK: - The team's library (custom statuses, fields and saved views, 4.1)
+
+    enum LibraryStep: Equatable { case adopt, push, none }
+    /// Newest `at` wins; one never changed here (no `at`) never goes up.
+    nonisolated static func libraryStep(mine: Deliver.Library, theirs: Deliver.Library?) -> LibraryStep {
+        if let theirs, let at = theirs.at, at > (mine.at ?? .distantPast) { return .adopt }
+        if let at = mine.at, at > (theirs?.at ?? .distantPast) { return .push }
+        return .none
+    }
+
+    nonisolated static func library(_ value: Any?) -> Deliver.Library? {
+        guard let value, JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
+        return try? Deliver.decoder.decode(Deliver.Library.self, from: data)
+    }
+
+    /// Through the main: `library`, then `library-set` when this Mac's is newer. A host before 4.1 doesn't know the ops
+    /// (its error is ignored): the library stays this Mac's own.
+    private func syncLibrary(_ session: HostSession) async {
+        guard let answer = try? await session.ask(["op": "library"]) else { return }
+        let mine = store.library, theirs = Self.library(answer["library"])
+        switch Self.libraryStep(mine: mine, theirs: theirs) {
+        case .adopt: if let theirs { store.adoptLibrary(theirs) }
+        case .push:
+            guard let data = try? Deliver.encoder.encode(mine), let wire = try? JSONSerialization.jsonObject(with: data),
+                  let kept = try? await session.ask(["op": "library-set", "library": wire]), let back = Self.library(kept["library"]),
+                  Self.libraryStep(mine: store.library, theirs: back) == .adopt else { return }
+            store.adoptLibrary(back)
+        case .none: break
+        }
     }
 
     /// A round's (or refresh's) failure in the footer.
