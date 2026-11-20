@@ -150,6 +150,15 @@ final class ReviewPublish {
         }
     }
 
+    /// A version's files changed without a new version (a transcript made later): the hosts it's on get them again.
+    /// The data NAS gets them through sync (the version's change).
+    func resend(_ asset: UUID) {
+        for publication in publications(asset: asset) where !Self.isDataHost(publication.host) {
+            guard let host = host(publication.host) else { continue }
+            Task { await publish(publication.scope, to: host) }
+        }
+    }
+
     private var hostsFile: URL { store.root.appendingPathComponent("hosts.json") }
     private var publishedFile: URL { store.root.appendingPathComponent("published.json") }
     private var seqsFile: URL { store.root.appendingPathComponent("published-seq.json") }
@@ -415,9 +424,17 @@ final class ReviewPublish {
                 let ext = original?.pathExtension ?? (version.path as NSString).pathExtension
                 var item: [String: Any] = ["id": version.id.uuidString, "number": version.number, "added": DeliverServer.date(version.added),
                                            "originalName": "\(asset.name) v\(version.number)" + (ext.isEmpty ? "" : ".\(ext)")]
-                if let host, !push.contains(version.id), let source = Self.reference(original?.path ?? version.path, on: host) {
+                // (A Quick Look preview is made here only: the NAS gets the picture, not the job.)
+                if let host, !push.contains(version.id), !(asset.kind == .image && DeliverCopies.isPreviewOnly(original)), let source = Self.reference(original?.path ?? version.path, on: host) {
                     item["source"] = source
                     item["size"] = 0
+                    // (The host makes the copies but has no speech engine: Pluck's transcript goes with them.)
+                    if version.transcribed != nil {
+                        for name in ["transcript.json", "captions.vtt"] {
+                            let file = store.copies(version.id).appendingPathComponent(name)
+                            if FileManager.default.fileExists(atPath: file.path) { files.append(("copies/\(version.id.uuidString)/\(name)", file)) }
+                        }
+                    }
                     return item
                 }
                 let probe = version.probe
@@ -511,6 +528,7 @@ final class ReviewPublish {
         if let order = project.order { meta["order"] = order }
         if let cover = project.cover { meta["cover"] = cover.uuidString }
         if project.hidden == true { meta["hidden"] = true }
+        if project.uhd == true { meta["uhd"] = true }   // (a NAS that makes the copies makes 4K too; older hosts ignore it)
         return meta.merging(stamp(project)) { $1 }
     }
 

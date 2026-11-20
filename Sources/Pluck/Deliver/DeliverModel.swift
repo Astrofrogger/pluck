@@ -13,6 +13,8 @@ enum Deliver {
         var order: Int?                  // the sidebar order on the data host
         var deadline: Date?              // feedback deadline for its links (a link's own wins)
         var hidden: Bool?                // "Browse previews": not in the sidebar or the grid
+        var transcripts: Bool?           // review copies get a transcript made on this Mac (off by default)
+        var uhd: Bool?                   // 4K (and HDR) review copies too (off by default)
         var rev: Int?, at: Date?, by: String?
     }
 
@@ -58,6 +60,7 @@ enum Deliver {
         var pages: Int?                  // documents: page count
         var sha256: String?              // the original's (lowercase hex), for approval proofs (§13.8)
         var hostOriginal: String?        // a host's version: its bundle path of the original (sent back as it came)
+        var transcribed: Date?           // when Pluck wrote its transcript into the copies (captions.vtt, transcript.json)
     }
 
     /// An asset's metadata fields (§6.1); a link sends only those in its `fields`.
@@ -79,6 +82,10 @@ enum Deliver {
         var dropFrame: Bool
         var hasAudio: Bool
         var frames: Int                  // round(duration * fps)
+        var transfer: String?            // ffprobe's color_transfer (smpte2084 = PQ, arib-std-b67 = HLG)
+        var primaries: String?           // ffprobe's color_primaries
+
+        var isHDR: Bool { transfer == "smpte2084" || transfer == "arib-std-b67" }
 
         var fps: Double { Double(fpsNum) / Double(max(fpsDen, 1)) }
     }

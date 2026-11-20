@@ -254,6 +254,9 @@ struct DeliverAssetView: View {
                     if let image = NSImage(contentsOf: store.copies(version.id).appendingPathComponent("image.jpg")) ?? store.original(version).flatMap(NSImage.init(contentsOf:)) {
                         Image(nsImage: image).resizable().scaledToFit()
                     }
+                    if DeliverCopies.isPreviewOnly(store.original(version)) {
+                        VStack { Spacer(); StudioChip(text: Text("Preview only · first page"), symbol: "eye").padding(Design.Spacing.window) }
+                    }
                 case .document:
                     if let image = NSImage(contentsOf: store.copies(version.id).appendingPathComponent("pages/\(page).jpg")) {
                         Image(nsImage: image).resizable().scaledToFit()
@@ -678,7 +681,7 @@ final class DeliverPlayback {
             do {
                 let ready = try await ranges.read(base + "ready.json", 0, 1 << 20)
                 let listed = (try? JSONSerialization.jsonObject(with: ready) as? [String: Any])?["renditions"] as? [String] ?? []
-                let renditions = sortRenditions(listed.filter { audio ? $0 == "a" : Int($0) != nil })
+                let renditions = sortRenditions(listed.filter { audio ? $0 == "a" : (Int($0) ?? .max) <= 1080 })   // (4K is HEVC: the browser's choice only)
                 var indexes: [String: Deliver.CopyIndex] = [:], rates: [String: Double] = [:]
                 for r in renditions {
                     guard let data = try? await ranges.read(base + r + "/index.json", 0, 8 << 20),
