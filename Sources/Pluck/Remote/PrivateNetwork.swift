@@ -452,6 +452,7 @@ final class Tunnel {
             guard let self, self.wanted == wanted, self.process == nil, self.pending == nil else { return }
             if self === Tunnel.irohOffice {
                 // (The server opens its invitations again and keeps its own problem line.)
+                self.restarting = false
                 OfficeRenderServer.shared.startNetwork()
                 return
             }
@@ -614,7 +615,8 @@ final class Tunnel {
                 var name = "", address = "", lastError: String?
                 do {
                     for try await text in Self.lines(stdout.fileHandleForReading) {
-                        ConnectionLog.add(tag, text)
+                        // (Not each stream's: one per request, they'd push out what matters.)
+                        if !text.hasPrefix(#"{"stream""#) { ConnectionLog.add(tag, text) }
                         guard let report = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
                               let self, await self.process === process else { continue }
                         if let error = report["error"] as? String {
