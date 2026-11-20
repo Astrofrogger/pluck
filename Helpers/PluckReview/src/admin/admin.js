@@ -32,7 +32,7 @@ async function start() {
   setup = s.setup; csrf = s.csrf;
   $("fp").textContent = "Certificate " + (s.fingerprint || "").slice(0, 23) + "…";
   show(s.loggedIn);
-  if (s.loggedIn) { browse(""); refresh(); }
+  if (s.loggedIn) { browse(""); refresh(); mail(); }
 }
 
 $("login-go").addEventListener("click", async () => {
@@ -40,7 +40,7 @@ $("login-go").addEventListener("click", async () => {
   if (setup) body.hostKey = $("host-key").value.trim();
   const r = await post(setup ? "/api/setup" : "/api/login", body);
   $("login-msg").textContent = r.error || "";
-  if (r.ok) { csrf = r.csrf; setup = false; $("password").value = ""; show(true); browse(""); refresh(); }
+  if (r.ok) { csrf = r.csrf; setup = false; $("password").value = ""; show(true); browse(""); refresh(); mail(); }
 });
 $("logout").addEventListener("click", async () => { await post("/api/logout"); csrf = null; show(false); });
 
@@ -237,6 +237,37 @@ async function devices() {
     return row;
   }));
 }
+
+// Email (4.1.0): the same settings as Pluck's; the password is typed here and never shown again.
+const MAIL_ERR = { auth: "The mail server didn't accept the user name or password.", connect: "Couldn't reach the mail server.",
+  tls: "The secure connection to the mail server failed.", rejected: "The mail server refused the message.", off: "Email isn't set up.", invalid: "Check the fields." };
+const mailErr = (r) => r && r.error ? (MAIL_ERR[r.error.code] || r.error.code || String(r.error)) : null;
+async function mail() {
+  const r = await op({ op: "mail-state" }).catch(() => null);
+  if (!r || !r.settings) return;
+  const s = r.settings;
+  $("mail-on").checked = s.enabled === true;
+  $("mail-server").value = s.server || ""; $("mail-port").value = String(s.port || 587); $("mail-user").value = s.user || "";
+  $("mail-from").value = s.from || ""; $("mail-reply").value = s.replyTo || ""; $("mail-hour").value = s.digestHour ?? 8;
+  const e = r.lastError ? "Last error: " + (MAIL_ERR[r.lastError.code] || r.lastError.code) : "";
+  $("mail-msg").textContent = [r.queued ? r.queued + " waiting" : "", e].filter(Boolean).join(" · ");
+}
+$("mail-save").addEventListener("click", async () => {
+  const port = Number($("mail-port").value);
+  const settings = { enabled: $("mail-on").checked, server: $("mail-server").value.trim(), port, security: port === 465 ? "tls" : "starttls",
+    user: $("mail-user").value.trim(), from: $("mail-from").value.trim(), replyTo: $("mail-reply").value.trim() || null,
+    digestHour: Number($("mail-hour").value), tzOffset: -new Date().getTimezoneOffset(), lang: (navigator.language || "en") };
+  const body = { op: "mail-set", settings };
+  if ($("mail-password").value) body.password = $("mail-password").value;
+  const r = await op(body);
+  $("mail-password").value = "";
+  $("mail-msg").textContent = mailErr(r) || "Saved.";
+});
+$("mail-test").addEventListener("click", async () => {
+  $("mail-msg").textContent = "Sending…";
+  const r = await op({ op: "mail-test", to: $("mail-to").value.trim() || $("mail-from").value.trim().replace(/^.*<|>.*$/g, "") });
+  $("mail-msg").textContent = mailErr(r) || "Test sent.";
+});
 
 setInterval(refresh, 3000);
 setInterval(devices, 10000);

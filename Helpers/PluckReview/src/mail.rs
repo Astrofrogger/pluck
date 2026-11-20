@@ -40,6 +40,12 @@ pub struct Msg {
     pub unsubscribe: bool, // List-Unsubscribe (not on a test mail)
 }
 
+/// One of LANGS for a language tag ("pt" → "pt-BR", "zh-Hant" → "zh-Hans", unknown → "en").
+pub fn lang(tag: &str) -> &'static str {
+    let base = |t: &str| t.split(['-', '_']).next().unwrap_or("").to_ascii_lowercase();
+    LANGS.iter().find(|l| l.eq_ignore_ascii_case(tag)).or_else(|| LANGS.iter().find(|l| base(l) == base(tag))).copied().unwrap_or("en")
+}
+
 /// "x@y.z" with text on both sides of one @, no spaces, ≤ 120 characters (the `identify` rules).
 pub fn valid_email(s: &str) -> bool {
     let s = s.trim();
@@ -325,7 +331,7 @@ impl Mail {
             && str_ok("user", 254) && str_ok("from", 200) && valid_email(addr(s["from"].as_str().unwrap_or("")))
             && (s["replyTo"].is_null() || s["replyTo"].as_str().is_some_and(|r| r.is_empty() || valid_email(addr(r))))
             && s["digestHour"].as_u64().is_none_or(|h| h < 24) && s["tzOffset"].as_i64().is_none_or(|o| (-840..=840).contains(&o))
-            && s["lang"].as_str().is_none_or(|l| LANGS.contains(&l)) && s["enabled"].is_boolean();
+            && s["enabled"].is_boolean();
         if !ok {
             return json!({"error": {"code": "invalid"}});
         }
@@ -333,6 +339,7 @@ impl Mail {
         for k in ["enabled", "server", "port", "security", "user", "from", "replyTo", "digestHour", "tzOffset", "lang"] {
             c[k] = s[k].clone();
         }
+        c["lang"] = json!(lang(s["lang"].as_str().unwrap_or("en")));
         if c["replyTo"] == "" {
             c["replyTo"] = Value::Null;
         }
@@ -578,6 +585,7 @@ pub mod tests {
             assert!(!valid_email(bad), "{bad}");
         }
         assert_eq!(addr("Studio <studio@example.com>"), "studio@example.com");
+        assert_eq!((lang("pt"), lang("zh"), lang("nl-BE"), lang("xx"), lang("pt-BR")), ("pt-BR", "zh-Hans", "nl", "en", "pt-BR"));
         assert_eq!(rfc2822(0), "Thu, 01 Jan 1970 00:00:00 +0000");
         assert_eq!(rfc2822(1_795_132_800), "Fri, 20 Nov 2026 00:00:00 +0000");
     }

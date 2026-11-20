@@ -175,8 +175,8 @@ impl Host {
         let i = self.peer_row(peer, l, email).ok_or("invalid")?;
         let r = &mut self.mail.subs[i];
         r["mode"] = json!(mode);
-        if let Some(lang) = m["lang"].as_str().filter(|x| mail::LANGS.contains(x)) {
-            r["lang"] = json!(lang);
+        if let Some(lang) = m["lang"].as_str() {
+            r["lang"] = json!(mail::lang(lang));
         }
         if !self.mail.save_subs() {
             return Err("internal");
@@ -537,7 +537,7 @@ impl Host {
         if let Some(e) = email { r["email"] = json!(e) }
         if let Some(n) = op["name"].as_str() { r["name"] = json!(clean(n, 80)) }
         if let Some(m) = mute { r["mute"] = json!(m) }
-        if let Some(l) = op["lang"].as_str().filter(|l| mail::LANGS.contains(l)) { r["lang"] = json!(l) }
+        if let Some(l) = op["lang"].as_str() { r["lang"] = json!(mail::lang(l)) }
         let id = r["id"].clone();
         if !self.mail.save_subs() {
             return json!({"error": {"code": "write"}});
