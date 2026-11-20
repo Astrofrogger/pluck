@@ -58,7 +58,11 @@ enum RemoteMissing {
     nonisolated static func effects(_ found: [String: Any]) -> [Effect] {
         var result: [Effect] = []
         for effect in (found["effects"] as? [[String: Any]] ?? []).prefix(2000).compactMap(Effect.init) {
-            if let index = result.firstIndex(where: { (!effect.id.isEmpty && $0.id == effect.id) || (!effect.name.isEmpty && key($0.name) == key(effect.name)) }) {
+            // (The same one known by id in one place, by name in another: "com.example.Sparkle" and "Sparkle".)
+            func last(_ id: String) -> String { key(String(id.split(separator: ".").last ?? "")) }
+            if let index = result.firstIndex(where: { (!effect.id.isEmpty && $0.id == effect.id) || (!effect.name.isEmpty && key($0.name) == key(effect.name))
+                || ($0.name.isEmpty && !effect.name.isEmpty && last($0.id) == key(effect.name))
+                || (effect.name.isEmpty && !$0.name.isEmpty && last(effect.id) == key($0.name)) }) {
                 if result[index].id.isEmpty { result[index].id = effect.id }
                 if result[index].name.isEmpty { result[index].name = effect.name }
             } else {
@@ -248,10 +252,9 @@ enum RemoteMissing {
         guard can == true else {
             throw OfficeLink.Failure.office(String(localized: "Sending the missing files needs the Editor role in that folder on the office Mac. An Admin there can give it in Edit Anywhere."))
         }
-        let root = common(files.map { ($0.path as NSString).deletingLastPathComponent })
+        let depth = common(files.map { ($0.path as NSString).deletingLastPathComponent }).split(separator: "/").count
         func folder(_ file: LocalFile) -> String {
-            let dir = (file.path as NSString).deletingLastPathComponent
-            let below = dir.count > root.count ? String(dir.dropFirst(root.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/")) : ""
+            let below = (file.path as NSString).deletingLastPathComponent.split(separator: "/").dropFirst(depth).joined(separator: "/")
             return below.isEmpty ? target.folder : target.folder + "/" + below
         }
         var hashes: [URL: String] = [:]
