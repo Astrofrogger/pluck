@@ -614,8 +614,8 @@ final class OfficeProxies {
                 process.waitUntilExit()
                 pipe.fileHandleForReading.readabilityHandler = nil
                 if process.terminationStatus == 0 {
-                    // Premiere's Attach Proxies and Final Cut's Relink Proxy Files need the original's frame rate, timecode,
-                    // aspect and audio channels: a proxy that differs fails loudly instead of linking wrong.
+                    // Resolve links a proxy to its original by frame rate, timecode, picture shape and audio channels:
+                    // a proxy that differs fails loudly instead of linking wrong.
                     if let problem = attachProblem(source, partial, ffprobe: ffprobe) {
                         mismatches.withLock { $0[target.path] = problem }
                         try? FileManager.default.removeItem(at: partial)
@@ -633,7 +633,7 @@ final class OfficeProxies {
     /// Why a proxy made last didn't match its original (by the proxy's path), for the request's problem.
     nonisolated static let mismatches = OSAllocatedUnfairLock(initialState: [String: String]())
 
-    /// The stream facts Attach Proxies / Relink Proxy Files compare: frame rate, timecode, display aspect, audio channels per stream.
+    /// The stream facts Resolve relinking relies on: frame rate, timecode, display aspect, audio channels per stream.
     nonisolated static func attachFacts(_ file: URL, ffprobe: String) -> (fps: String, timecode: String?, aspect: Double?, audio: [Int]) {
         let process = Process(), pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: ffprobe)
@@ -658,7 +658,7 @@ final class OfficeProxies {
                 aspect, streams.filter { $0["codec_type"] as? String == "audio" }.map { $0["channels"] as? Int ?? 0 })
     }
 
-    /// nil when the proxy can stand in for the original in Premiere and Final Cut Pro, else what differs.
+    /// nil when the proxy can stand in for the original in DaVinci Resolve, else what differs.
     nonisolated static func attachProblem(_ original: URL, _ proxy: URL, ffprobe: String?) -> String? {
         guard let ffprobe else { return nil }
         let a = attachFacts(original, ffprobe: ffprobe), b = attachFacts(proxy, ffprobe: ffprobe)
