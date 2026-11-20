@@ -143,9 +143,13 @@ enum RelaySetup {
         office.setAllow([])
         try await office.start()
         guard case .running(_, let officeNode) = office.state else { throw PrivateNetwork.Failure.timeout }
+        // The home helper dials at once: its id (from its key) is let in first, then it starts again with the same key.
         try await home.start(office: officeNode, officeRelay: relay)
-        guard case .running(_, let homeNode) = home.state, let listen = home.listen else { throw PrivateNetwork.Failure.timeout }
+        guard case .running(_, let homeNode) = home.state else { throw PrivateNetwork.Failure.timeout }
+        home.stop()
         office.setAllow([homeNode])
+        try await home.start(office: officeNode, officeRelay: relay)
+        guard let listen = home.listen else { throw PrivateNetwork.Failure.timeout }
         let started = Date.now
         try await Task.detached { try Sink.send(bytes, to: listen) }.value
         let received = await sink.wait(for: bytes, timeout: 60)

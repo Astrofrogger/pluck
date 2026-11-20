@@ -59,19 +59,20 @@ extension PhotoSelfTest {
         func frames(_ file: URL) -> Int {
             let process = Process(), pipe = Pipe()
             process.executableURL = URL(fileURLWithPath: ffprobe)
-            process.arguments = ["-v", "error", "-select_streams", "v:0", "-count_packets", "-show_entries", "stream=nb_read_packets", "-of", "csv=p=0", file.path]
+            process.arguments = ["-v", "error", "-select_streams", "v:0", "-count_frames", "-show_entries", "stream=nb_read_frames", "-of", "csv=p=0", file.path]
             process.standardOutput = pipe
             try? process.run()
             let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
             process.waitUntilExit()
-            return Int(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? -1
+            // (ffprobe 8 prints the stream's line twice, the first time for its stream group.)
+            return text.split(whereSeparator: \.isNewline).first.flatMap { Int($0.trimmingCharacters(in: .whitespaces)) } ?? -1
         }
         do {
             let piece = try RemotePieces.make(long, share: share.id, relative: "Cuts/L.mp4", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
             let file = RemotePieces.file(share: share.id, relative: "Cuts/L.mp4", first: piece.first, last: piece.last)
             let probed = RemotePieces.probe(file, ffprobe: ffprobe)
             check("pieces: long-GOP piece from the keyframe before, never shorter", piece.first == 150 && piece.last >= 190 && frames(file) >= 41, "\(piece) \(frames(file))")
-            check("pieces: piece timecode is the original's plus the offset, reel kept", piece.timecode == "01:00:06:00" && probed.timecode == "01:00:06:00" && probed.reel == "RL",
+            check("pieces: piece timecode is the original's plus the offset", piece.timecode == "01:00:06:00" && probed.timecode == "01:00:06:00",
                   "\(String(describing: piece.timecode)) \(String(describing: probed.timecode)) \(String(describing: probed.reel))")
             check("pieces: piece keeps the original's name", file.lastPathComponent == "L.mp4")
             let again = try RemotePieces.make(long, share: share.id, relative: "Cuts/L.mp4", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
@@ -79,7 +80,9 @@ extension PhotoSelfTest {
             let exact = try RemotePieces.make(prores, share: share.id, relative: "Cuts/P.mov", first: 160, last: 190, ffmpeg: ffmpeg, ffprobe: ffprobe)
             let exactFile = RemotePieces.file(share: share.id, relative: "Cuts/P.mov", first: 160, last: 190)
             check("pieces: ProRes piece is frame exact", exact.first == 160 && exact.last == 190 && frames(exactFile) == 31, "\(exact) \(frames(exactFile))")
-            check("pieces: ProRes piece timecode", exact.timecode == "01:00:06:10", "\(String(describing: exact.timecode))")
+            let exactProbe = RemotePieces.probe(exactFile, ffprobe: ffprobe)
+            check("pieces: ProRes piece timecode and reel", exact.timecode == "01:00:06:10" && exactProbe.timecode == "01:00:06:10" && exactProbe.reel == "RP",
+                  "\(String(describing: exact.timecode)) \(String(describing: exactProbe.reel))")
         } catch {
             check("pieces: cut", false, "\(error)")
         }
