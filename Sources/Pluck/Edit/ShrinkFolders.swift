@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import IOKit.pwr_mgt
 import Foundation
 
@@ -201,12 +202,13 @@ enum ShrinkFolders {
         var survey = Survey(folders: folders.map { real($0).path })
         var seen = Set<String>()
         var listed: [String: [String]] = [:]
-        func names(_ folder: URL) -> [String] {
+        func all(_ folder: URL) -> [String] {
             if let known = listed[folder.path] { return known }
-            let found = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { !$0.hasPrefix(".") }
+            let found = (try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []
             listed[folder.path] = found
             return found
         }
+        func names(_ folder: URL) -> [String] { all(folder).filter { !$0.hasPrefix(".") } }
         func done() -> Survey {
             tally(&survey)
             survey.big = Array(survey.big.sorted { $0.size > $1.size }.prefix(500))
@@ -215,6 +217,7 @@ enum ShrinkFolders {
         for folder in folders {
             let root = real(folder)
             let share = shareRoot(of: root)
+            if pluckOutput(all(root)) { continue }
             guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: keys,
                                                             options: [.skipsHiddenFiles], errorHandler: { _, _ in true }) else { continue }
             for case let url as URL in walk {
@@ -225,7 +228,8 @@ enum ShrinkFolders {
                     let top = url.deletingLastPathComponent().path == share && (name.hasPrefix("_") || name.hasPrefix("#")) && !container(name)
                     // Packages aren't looked in, except RED's .RDC clip folders (a package when Finder shows them as one item).
                     let package = values.isPackage == true && url.pathExtension.lowercased() != "rdc"
-                    if name == holdingName || skippedFolders.contains(name.lowercased()) || template(name) || top || package { walk.skipDescendants() }
+                    if name == holdingName || name.lowercased().contains("to delete") || skippedFolders.contains(name.lowercased()) || template(name) || top || package
+                        || pluckOutput(all(url)) { walk.skipDescendants() }
                     continue
                 }
                 guard values.isSymbolicLink != true, values.isRegularFile == true, seen.insert(url.path).inserted,
@@ -280,6 +284,15 @@ enum ShrinkFolders {
             }
         }
         return done()
+    }
+
+    /// A folder Pluck made of masters (Archive Project's archive and its Media, a destination of Shrink
+    /// Folders): its inventories, relink lists or master notes say so. Never looked in.
+    static func pluckOutput(_ names: [String]) -> Bool {
+        names.contains { name in
+            ["Relink.csv", "Inventory.csv"].contains(name) || name.hasPrefix(".master-of-")
+                || ((name.hasPrefix("Shrink ") || name.hasPrefix("Relink ")) && name.hasSuffix(".csv") && name.dropFirst(7).first?.isNumber == true)
+        }
     }
 
     /// Small files that describe a clip, by extension.
@@ -376,6 +389,7 @@ enum ShrinkFolders {
         let format = json["format"] as? [String: Any]
         var tags = (format?["tags"] as? [String: Any] ?? [:]).compactMapValues { $0 as? String }
         if tags["pluck"] == "shrink" { file.skip = String(localized: "Already shrunk") }
+        if tags["pluck"] == "master" { file.skip = String(localized: "Already a master") }
         file.seconds = (format?["duration"] as? String).flatMap(Double.init) ?? 0
         for stream in json["streams"] as? [[String: Any]] ?? [] {
             for (key, value) in stream["tags"] as? [String: Any] ?? [:] {
@@ -461,10 +475,70 @@ enum ShrinkFolders {
         return base.appendingPathComponent((below as NSString).deletingPathExtension + ".mov").path
     }
 
-    /// The master being made, hidden beside where it goes.
-    static func temporary(_ master: String) -> String {
+    /// The master being made, hidden beside where it goes (`token`: this Mac's claim, so it's never another Mac's).
+    static func temporary(_ master: String, token: String? = nil) -> String {
         let url = URL(fileURLWithPath: master)
-        return url.deletingLastPathComponent().appendingPathComponent(".shrinking-" + url.lastPathComponent).path
+        return url.deletingLastPathComponent().appendingPathComponent(".shrinking-" + (token.map { $0 + "-" } ?? "") + url.lastPathComponent).path
+    }
+
+    // MARK: Moving, never copying
+
+    /// Renamed on the same drive, never over anything that's there and never as a copy and a delete. nil: done; else why.
+    static func rename(_ from: String, _ to: String) -> String? {
+        try? FileManager.default.createDirectory(atPath: (to as NSString).deletingLastPathComponent, withIntermediateDirectories: true)
+        if renamex_np(from, to, UInt32(RENAME_EXCL)) == 0 { return nil }
+        var code = errno
+        if code == ENOTSUP || code == EINVAL {
+            // (A drive without an exclusive rename, as some SMB servers: looked at first.)
+            var info = stat()
+            if lstat(to, &info) == 0 { code = EEXIST } else if Darwin.rename(from, to) == 0 { return nil } else { code = errno }
+        }
+        return "\((from as NSString).lastPathComponent): " + NSError(domain: NSPOSIXErrorDomain, code: Int(code)).localizedDescription
+    }
+
+    /// Several files moved as one: all or none (the ones that moved go back when one can't). nil: done; else why.
+    static func moveAll(_ moves: [(String, String)]) -> String? { (try? movingAll(moves, between: {})) ?? nil }
+
+    static func movingAll(_ moves: [(String, String)], between: () throws -> Void) throws -> String? {
+        var moved: [(String, String)] = []
+        for (from, to) in moves {
+            if !moved.isEmpty { try between() }
+            if let why = rename(from, to) {
+                let stuck = moved.reversed().filter { rename($0.1, $0.0) != nil }.map { ($0.1 as NSString).lastPathComponent }
+                return stuck.isEmpty ? why : why + " · " + String(localized: "Couldn’t move back: \(stuck.joined(separator: ", "))")
+            }
+            moved.append((from, to))
+        }
+        return nil
+    }
+
+    /// Written to the drive for good (F_FULLFSYNC where the drive has it).
+    static func flush(_ path: String) {
+        let handle = Darwin.open(path, O_RDONLY)
+        guard handle >= 0 else { return }
+        defer { close(handle) }
+        if fcntl(handle, F_FULLFSYNC) != 0 { fsync(handle) }
+    }
+
+    /// SHA-256 of a file's first and last MB, read from the drive (not a cache).
+    static func headHash(_ path: String) -> String? {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return nil }
+        defer { try? handle.close() }
+        _ = fcntl(handle.fileDescriptor, F_NOCACHE, 1)
+        let mb: UInt64 = 1_048_576
+        guard let end = try? handle.seekToEnd(), (try? handle.seek(toOffset: 0)) != nil else { return nil }
+        var hasher = SHA256()
+        hasher.update(data: (try? handle.read(upToCount: Int(mb))) ?? Data())
+        if end > mb, (try? handle.seek(toOffset: end - mb)) != nil { hasher.update(data: (try? handle.read(upToCount: Int(mb))) ?? Data()) }
+        return hasher.finalize().map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// Self-tests: a step where Pluck is "killed" (nothing after it runs or is saved), to check what Resume finds.
+    nonisolated(unsafe) static var kill: ((String, File) -> Bool)?
+    nonisolated(unsafe) static var killed = false
+    struct Killed: Error {}
+    static func step(_ name: String, _ file: File) throws {
+        if let kill, kill(name, file) { killed = true; throw Killed() }
     }
 
     // MARK: Room on the drive
@@ -519,12 +593,22 @@ enum ShrinkFolders {
     }
 
     /// Makes and checks the master as a hidden file where it goes (`master`: given in a
-    /// destination, else beside the original). The file comes back `.working` with where the
-    /// master and (in place) the original go, or skipped or failed.
-    static func prepare(_ file: File, settings: Settings, holding: URL, master given: String? = nil, ffmpeg: String, ffprobe: String,
+    /// destination, else beside the original; `temp`: the hidden name, with this Mac's claim in it).
+    /// The file comes back `.working` with where the master and (in place) the original go, or
+    /// skipped or failed. Nothing but its own hidden file is written; the original isn't touched.
+    static func prepare(_ file: File, settings: Settings, holding: URL, master given: String? = nil, temp chosen: String? = nil, ffmpeg: String, ffprobe: String,
                         quiet: TimeInterval = quiet, busy: Set<String> = [], freeSpace: (URL) -> Int64? = { OffloadCenter.freeSpace($0) },
                         capacity: (URL) -> Int64? = { ShrinkFolders.capacity($0) },
                         open: @escaping (URL) throws -> RawSource = { try RawFormats.open($0) }) -> File {
+        do {
+            return try preparing(file, settings: settings, holding: holding, master: given, temp: chosen, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: quiet,
+                                 busy: busy, freeSpace: freeSpace, capacity: capacity, open: open)
+        } catch { return file }
+    }
+
+    private static func preparing(_ file: File, settings: Settings, holding: URL, master given: String?, temp chosen: String?, ffmpeg: String, ffprobe: String,
+                                  quiet: TimeInterval, busy: Set<String>, freeSpace: (URL) -> Int64?, capacity: (URL) -> Int64?,
+                                  open: @escaping (URL) throws -> RawSource) throws -> File {
         var file = file
         let settings = file.projectSettings ?? settings
         func skip(_ why: String) -> File { file.state = .skipped; file.note = why; return file }
@@ -542,54 +626,131 @@ enum ShrinkFolders {
             return fail(String(localized: "Not enough free space for the master"))
         }
         let isRaw = ProjectArchive.rawMasterKinds.contains((file.path as NSString).pathExtension.lowercased())
+        // Every track goes with the master, or the clip stays as it is.
+        let extra: (kept: [Int], unkept: String?) = isRaw ? ([], nil) : ProjectArchive.extraTracks(file.path, ffprobe: ffprobe)
+        if let why = extra.unkept { return skip(why) }
         guard var original = ProjectArchive.reference(file.path, ffprobe: ffprobe, count: false, open: open) else { return fail(String(localized: "Can’t be read")) }
         // (MXF and the like don't say their frame count in the header: counted then.)
         if original.frames == 0, !isRaw { original = ProjectArchive.streams(file.path, ffprobe: ffprobe) }
         guard original.frames > 0 else { return fail(String(localized: "Can’t be read")) }
-        let temp = temporary(master)
+        file.originalHead = headHash(file.path)
+        let temp = chosen ?? temporary(master)
+        file.temp = temp
+        // (Its own hidden file: this Mac's claim is in its name.)
         try? FileManager.default.removeItem(atPath: temp)
+        func drop(_ result: File) -> File { try? FileManager.default.removeItem(atPath: temp); return result }
         do {
             try ProjectArchive.encode(file.path, to: URL(fileURLWithPath: temp), settings: settings, ffmpeg: ffmpeg, ffprobe: ffprobe, metadata: tag, open: open)
         } catch {
-            try? FileManager.default.removeItem(atPath: temp)
-            return fail(error.localizedDescription)
+            try step("encoded", file)
+            if !extra.kept.isEmpty { return drop(skip(String(localized: "Has extra tracks Pluck can’t keep"))) }
+            return drop(fail(error.localizedDescription))
         }
+        try step("encoded", file)
+        // On the drive for good before it's read back and checked.
+        flush(temp)
         let problems = ProjectArchive.verify(temp, against: original, ffmpeg: ffmpeg, ffprobe: ffprobe, source: file.path, open: open)
         let size = Int64((try? FileManager.default.attributesOfItem(atPath: temp)[.size] as? Int64) ?? 0)
-        func drop(_ result: File) -> File { try? FileManager.default.removeItem(atPath: temp); return result }
+        if problems.contains(String(localized: "Has extra tracks Pluck can’t keep")) { return drop(skip(problems.joined(separator: ", "))) }
         if !problems.isEmpty { return drop(fail(String(localized: "The master didn’t match: \(problems.joined(separator: ", "))"))) }
         if Double(size) > Double(file.size) * (1 - minimumSaving) { return drop(skip(String(localized: "Would save under 30%"))) }
         if let why = stillTheSame(file, quiet: quiet) { return drop(skip(why)) }
+        // Its checksum, read back from the drive (not a cache): what Check Before Deleting compares.
+        guard let hash = MHL.hash(temp, kind: "xxhash64", progress: { _ in }, stopped: { false }) else { return drop(fail(String(localized: "The master couldn’t be read back"))) }
+        try step("verified", file)
         file.state = .working
         file.masterSize = size
+        file.masterHash = hash
+        file.frames = original.frames
+        file.duration = original.duration
         file.master = master
         file.moved = given == nil ? movedPath(file.path, holding: holding) : nil
         if given == nil, master != file.path { file.note = String(localized: "Now \((master as NSString).lastPathComponent)") }
         return file
     }
 
-    /// Puts a prepared master in place. In place: the original (and its parts) moved into the
-    /// holding folder on the same drive, then the master renamed to its name. Also finishes one
-    /// stopped halfway (Pluck quit), from what's on the drive.
-    static func finish(_ file: File, settings: Settings, inventory: URL? = nil) -> File {
+    /// Puts a prepared master in place, and finishes one stopped halfway (Pluck quit) from what's on the
+    /// drive. Under the original's name there's always the original or the checked master: a master with
+    /// a new name (.mp4 → .mov) goes in before the original moves; one with the same name right after.
+    /// The folder to delete only gets an original whose master is checked and goes in; when anything
+    /// fails after the original moved, it's moved back. `stillOurs`: this Mac's claim is still its own
+    /// (no: nothing is touched).
+    static func finish(_ file: File, settings: Settings, inventory: URL? = nil, stillOurs: () -> Bool = { true }) -> File {
+        do { return try finishing(file, settings: settings, inventory: inventory, stillOurs: stillOurs) } catch { return file }
+    }
+
+    private static func finishing(_ file: File, settings: Settings, inventory: URL?, stillOurs: () -> Bool) throws -> File {
         var file = file
         let fm = FileManager.default
-        guard let master = file.master else { file.state = .failed; return file }
-        let temp = temporary(master)
-        if let moved = file.moved, !fm.fileExists(atPath: moved) {
-            guard fm.fileExists(atPath: file.path), fm.fileExists(atPath: temp) else { file.state = .failed; file.note = String(localized: "Gone"); return file }
-            if let why = moveOriginal(&file, to: moved) { try? fm.removeItem(atPath: temp); file.state = .failed; file.note = why; return file }
-        }
-        if fm.fileExists(atPath: temp) {
-            do {
-                try fm.moveItem(atPath: temp, toPath: master)
-                ProjectArchive.copyDates(from: file.moved ?? file.path, to: master, modified: file.modified)
-            } catch {
-                file.state = .failed; file.note = error.localizedDescription; return file
+        guard let master = file.master else { file.state = .failed; file.note = String(localized: "The master is gone"); return file }
+        let temp = file.temp ?? temporary(master)
+        func size(_ path: String) -> Int64? { (try? fm.attributesOfItem(atPath: path))?[.size] as? Int64 }
+        func ready(_ path: String) -> Bool { size(path).map { file.masterSize == nil ? $0 > 0 : $0 == file.masterSize } ?? false }
+        func drop() { try? fm.removeItem(atPath: temp) }
+        func fail(_ why: String) -> File { file.state = .failed; file.note = why; file.moved = nil; return file }
+        /// Made again from the start (the hidden master isn't there whole).
+        func again() -> File { drop(); file.state = .pending; file.master = nil; file.masterSize = nil; file.moved = nil; file.note = nil; return file }
+        guard stillOurs() else { file.note = String(localized: "Another Mac took this file over"); return file }
+        guard let moved = file.moved else {
+            // In a destination: the master renamed into its place; the original isn't touched.
+            if !ready(master) {
+                guard ready(temp) else { return again() }
+                if let why = rename(temp, master) { drop(); return fail(why) }
             }
+            try step("master in", file)
+            return done(&file, master: master, settings: settings, inventory: inventory)
         }
-        guard fm.fileExists(atPath: master) else { file.state = .failed; file.note = String(localized: "The master is gone"); return file }
-        // Sidecars: beside the master (copied into a destination), and a copy with the original in the folder to delete.
+        let target = (moved as NSString).deletingLastPathComponent
+        let parts = file.parts.map { ($0, (target as NSString).appendingPathComponent(($0 as NSString).lastPathComponent)) }
+        /// Something failed after the original moved: it (and its parts) back under its name.
+        func restore(_ why: String) -> File {
+            let back = ([(file.path, moved)] + parts).map { ($0.1, $0.0) }.filter { fm.fileExists(atPath: $0.0) }
+            if let problem = moveAll(back) {
+                // (The original is whole in the folder to delete; nothing's lost. Resume tries again.)
+                file.state = .working
+                file.note = String(localized: "Couldn’t put the original back (\(why); \(problem)). It’s safe in “Pluck · Originals to delete”; Resume tries again.")
+                file.problem = file.note
+                return file
+            }
+            file.problem = nil
+            return fail(why + " · " + String(localized: "The original is back in its place"))
+        }
+        if !fm.fileExists(atPath: moved) {
+            guard fm.fileExists(atPath: file.path) else { drop(); return fail(String(localized: "Gone")) }
+            guard ready(temp) else { return again() }
+            let current = file
+            if master != file.path {
+                if let why = rename(temp, master) { drop(); return fail(why) }
+                try step("master in", file)
+                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) {
+                    if rename(master, temp) == nil { drop() }
+                    return fail(why)
+                }
+                try step("original out", file)
+            } else {
+                if let why = try movingOriginal(&file, to: moved, between: { try step("moving", current) }) { drop(); return fail(why) }
+                try step("original out", file)
+                if let why = rename(temp, master) { return restore(why) }
+                try step("master in", file)
+            }
+        } else {
+            // Pluck stopped halfway: finished from what's on the drive.
+            let left = parts.filter { fm.fileExists(atPath: $0.0) && !fm.fileExists(atPath: $0.1) }
+            if let why = moveAll(left) { return restore(why) }
+            if !ready(master) {
+                guard ready(temp) else { return restore(String(localized: "The master is gone")) }
+                if let why = rename(temp, master) { return restore(why) }
+            }
+            try step("master in", file)
+        }
+        guard ready(master) else { return restore(String(localized: "The master is gone")) }
+        return done(&file, master: master, settings: settings, inventory: inventory)
+    }
+
+    /// The master's in place: its sidecars beside it (copied into a destination) and a copy with the original in the folder to delete.
+    private static func done(_ file: inout File, master: String, settings: Settings, inventory: URL?) -> File {
+        let fm = FileManager.default
+        ProjectArchive.copyDates(from: file.moved ?? file.path, to: master, modified: file.modified)
         let masterFolder = (master as NSString).deletingLastPathComponent
         for sidecar in file.sidecars ?? [] {
             let name = (sidecar as NSString).lastPathComponent
@@ -599,51 +760,75 @@ enum ShrinkFolders {
             }
         }
         file.state = .done
+        file.problem = nil
         record(file, settings: settings, check: "verified", in: inventory)
         return file
     }
 
-    /// Moves an original (and its parts) to `moved`, a rename on the same drive only: never a
-    /// copy and a delete. nil: done; else why not.
-    static func moveOriginal(_ file: inout File, to moved: String) -> String? {
-        let fm = FileManager.default
+    /// Moves an original (and its parts) to `moved`, renamed on the same drive only (never a copy and
+    /// a delete), all or none: when a part can't move, the ones that did go back. nil: done; else why.
+    static func moveOriginal(_ file: inout File, to moved: String) -> String? { (try? movingOriginal(&file, to: moved, between: {})) ?? nil }
+
+    static func movingOriginal(_ file: inout File, to moved: String, between: () throws -> Void) throws -> String? {
         let target = URL(fileURLWithPath: moved).deletingLastPathComponent()
-        try? fm.createDirectory(at: target, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
         guard let here = OffloadCenter.volume(URL(fileURLWithPath: file.path).deletingLastPathComponent()), here.isEqual(OffloadCenter.volume(target)) else {
             return String(localized: "The originals’ folder isn’t on the same drive")
         }
-        do { try fm.moveItem(atPath: file.path, toPath: moved) } catch { return error.localizedDescription }
-        for part in file.parts { try? fm.moveItem(atPath: part, toPath: (target.path as NSString).appendingPathComponent((part as NSString).lastPathComponent)) }
+        let moves = [(file.path, moved)] + file.parts.map { ($0, target.appendingPathComponent(($0 as NSString).lastPathComponent).path) }
+        if let why = try movingAll(moves, between: between) { return why }
         file.moved = moved
         return nil
     }
 
-    /// Back as it was: the master to the Trash (or, where the drive has none, into a folder to
-    /// delete by hand), the original and its parts moved back if they were moved.
+    /// Back as it was. In place: the master set aside (hidden beside it, never into the folder to delete),
+    /// the original and its parts moved back, then the master to the Trash (or left hidden, said). When the
+    /// original can't go back, the master goes back to its name and the file says why. In a destination:
+    /// the master to the Trash (or hidden beside it).
     static func putBack(_ file: File, settings: Settings, inventory: URL? = nil,
                         trash: (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }) -> File {
         var file = file
         let fm = FileManager.default
         guard file.state == .done, let master = file.master else { return file }
-        if let moved = file.moved, !fm.fileExists(atPath: moved) { file.note = String(localized: "The original isn’t in the originals’ folder"); return file }
-        if fm.fileExists(atPath: master) {
-            do { try trash(URL(fileURLWithPath: master)) } catch {
-                let aside = file.moved.map { URL(fileURLWithPath: $0).deletingLastPathComponent().appendingPathComponent("Master · " + (master as NSString).lastPathComponent) }
-                    ?? URL(fileURLWithPath: master).deletingLastPathComponent().appendingPathComponent(".pluck-removed-" + (master as NSString).lastPathComponent)
-                guard (try? fm.moveItem(at: URL(fileURLWithPath: master), to: aside)) != nil else { file.note = error.localizedDescription; return file }
+        let folder = (master as NSString).deletingLastPathComponent, name = (master as NSString).lastPathComponent
+        let hidden = (folder as NSString).appendingPathComponent(".pluck-removed-" + name)
+        func setAside() -> (String?, String?) {
+            guard fm.fileExists(atPath: master) else { return (fm.fileExists(atPath: hidden) ? hidden : nil, nil) }
+            let aside = fm.fileExists(atPath: hidden) ? (folder as NSString).appendingPathComponent(".pluck-removed-\(UUID().uuidString.prefix(8))-" + name) : hidden
+            if let why = rename(master, aside) { return (nil, why) }
+            return (aside, nil)
+        }
+        func toTrash(_ aside: String?) {
+            guard let aside else { return }
+            if (try? trash(URL(fileURLWithPath: aside))) == nil {
+                file.note = String(localized: "The master is hidden next to it as \((aside as NSString).lastPathComponent)")
             }
         }
         if let moved = file.moved {
-            do {
-                try fm.moveItem(atPath: moved, toPath: file.path)
-                let folder = (file.path as NSString).deletingLastPathComponent
-                for part in file.parts {
-                    let from = ((moved as NSString).deletingLastPathComponent as NSString).appendingPathComponent((part as NSString).lastPathComponent)
-                    try? fm.moveItem(atPath: from, toPath: (folder as NSString).appendingPathComponent((part as NSString).lastPathComponent))
+            guard fm.fileExists(atPath: moved) else { file.note = String(localized: "The original isn’t in the originals’ folder"); return file }
+            let (aside, problem) = setAside()
+            if let problem { file.problem = problem; return file }
+            let target = (moved as NSString).deletingLastPathComponent
+            let back = [(moved, file.path)] + file.parts.map { ((target as NSString).appendingPathComponent(($0 as NSString).lastPathComponent), $0) }
+                .filter { fm.fileExists(atPath: $0.0) }
+            if let why = moveAll(back) {
+                if let aside, rename(aside, master) != nil {
+                    file.problem = String(localized: "Couldn’t put the original back: \(why). The master is hidden next to it as \((aside as NSString).lastPathComponent)")
+                } else {
+                    file.problem = String(localized: "Couldn’t put the original back: \(why)")
                 }
-            } catch { file.note = error.localizedDescription; return file }
+                return file
+            }
+            file.state = .restored
+            file.problem = nil
+            toTrash(aside)
+        } else {
+            let (aside, problem) = setAside()
+            if let problem { file.problem = problem; return file }
+            file.state = .restored
+            file.problem = nil
+            toTrash(aside)
         }
-        file.state = .restored
         record(file, settings: settings, check: "put back", in: inventory)
         return file
     }
@@ -676,9 +861,9 @@ enum ShrinkFolders {
         return nil
     }
 
-    /// Stops ffmpeg working on a master (a pause).
-    static func stopWork(on master: String) {
-        ProjectArchive.run("/usr/bin/pkill", ["-f", NSRegularExpression.escapedPattern(for: temporary(master))])
+    /// Stops ffmpeg working on a master (a pause), by the hidden file it writes.
+    static func stopWork(temp: String) {
+        ProjectArchive.run("/usr/bin/pkill", ["-f", NSRegularExpression.escapedPattern(for: temp)])
     }
 }
 
@@ -744,6 +929,7 @@ final class ShrinkCenter {
     /// The run being worked through, and the master being made now.
     private(set) var active: UUID?
     private(set) var current: String?
+    private var currentTemp: String?
     private var stopping = false
     /// Bytes of originals done and seconds spent in this go (for the time left).
     private var pace: (bytes: Int64, seconds: Double) = (0, 0)
@@ -856,7 +1042,7 @@ final class ShrinkCenter {
         stopping = false
         pace = (0, 0)
         holdAwake(true)
-        defer { active = nil; current = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReport(run) } }
+        defer { active = nil; current = nil; currentTemp = nil; holdAwake(false); if let run = run(id) { ShrinkFolders.writeReport(run) } }
         defer { if !stopping { moveProxies(id) } }
         if let r = runs.firstIndex(where: { $0.id == id }), runs[r].paused != nil { runs[r].paused = nil; save() }
         while !stopping, let r = runs.firstIndex(where: { $0.id == id }), let f = next(runs[r]) {
@@ -902,30 +1088,40 @@ final class ShrinkCenter {
                 }
             }
             defer { renewing.cancel(); if let claim { OfficeGroup.release(claim) } }
+            // Right before anything moves: the claim is still this Mac's (another Mac took a stale one over: hands off).
+            let stillOurs: @Sendable () -> Bool = { claim.map { OfficeGroup.holder($0.url)?.token == $0.token } ?? true }
+            ShrinkFolders.killed = false
             if file.state == .working {
                 // Stopped halfway through putting the master in place: finished from what's there.
-                file = await Task.detached { ShrinkFolders.finish(file, settings: settings, inventory: destination) }.value
+                file = await Task.detached { ShrinkFolders.finish(file, settings: settings, inventory: destination, stillOurs: stillOurs) }.value
             } else {
+                // The hidden master's name has this claim in it: saved first, so only this Mac ever removes it.
+                let temp = ShrinkFolders.temporary(target, token: String((claim?.token ?? UUID().uuidString).prefix(8)))
+                if let left = file.temp, left != temp { try? FileManager.default.removeItem(atPath: left) }
+                file.temp = temp
+                set(file, in: id)
                 interrupted = false
                 let folder = file.folder
                 let watch = Task {
                     while !Task.isCancelled {
                         try? await Task.sleep(for: .seconds(editCheck))
-                        if !Task.isCancelled, !runAnyway, await editing(folder) { interrupted = true; ShrinkFolders.stopWork(on: target); return }
+                        if !Task.isCancelled, !runAnyway, await editing(folder) { interrupted = true; ShrinkFolders.stopWork(temp: temp); return }
                     }
                 }
                 defer { watch.cancel() }
                 let busy = Set(OffloadCenter.shared.jobs.filter { $0.finished == nil && $0.running == true }.map(\.source))
                 let holding = ShrinkFolders.holding(for: URL(fileURLWithPath: file.folder))
                 current = target
+                currentTemp = temp
                 let made = await Task.detached {
-                    ShrinkFolders.prepare(file, settings: settings, holding: holding, master: given, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: quiet, busy: busy,
-                                          freeSpace: freeSpace, capacity: capacity)
+                    ShrinkFolders.prepare(file, settings: settings, holding: holding, master: given, temp: temp, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: quiet,
+                                          busy: busy, freeSpace: freeSpace, capacity: capacity)
                 }.value
                 watch.cancel()
+                if ShrinkFolders.killed { stopping = true; break }
                 if stopping || interrupted {
                     // (Paused for editing: the file is made again once it's quiet.)
-                    try? FileManager.default.removeItem(atPath: ShrinkFolders.temporary(target))
+                    try? FileManager.default.removeItem(atPath: temp)
                     if stopping { break }
                     continue
                 }
@@ -933,8 +1129,15 @@ final class ShrinkCenter {
                 if file.state == .working {
                     // Saved before anything moves, so a quit in between is picked up again.
                     set(file, in: id)
-                    file = await Task.detached { ShrinkFolders.finish(file, settings: settings, inventory: destination) }.value
+                    file = await Task.detached { ShrinkFolders.finish(file, settings: settings, inventory: destination, stillOurs: stillOurs) }.value
                 }
+            }
+            if ShrinkFolders.killed { stopping = true; break }
+            if file.state == .working {
+                // It couldn't be finished (its original is safe in the folder to delete, or another Mac has it now): the run waits, saying why.
+                set(file, in: id)
+                if let r = runs.firstIndex(where: { $0.id == id }) { runs[r].paused = file.note; save() }
+                break
             }
             if file.state == .done { pace = (pace.bytes + file.size, pace.seconds + Date.now.timeIntervalSince(began)) }
             set(file, in: id)
@@ -1019,7 +1222,7 @@ final class ShrinkCenter {
     func pause() {
         stopping = true
         runAnyway = false
-        if let current { ShrinkFolders.stopWork(on: current) }
+        if let currentTemp { ShrinkFolders.stopWork(temp: currentTemp) }
     }
 
     private func holdAwake(_ on: Bool) {
