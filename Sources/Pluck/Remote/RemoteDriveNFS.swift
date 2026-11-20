@@ -2,24 +2,48 @@ import CryptoKit
 import Foundation
 import Network
 
-/// Pluck's own drive: a tiny read-only NFSv3 server (RFC 1813, ONC RPC RFC 5531, XDR RFC 4506) on
+/// Pluck's own drive: a tiny NFSv3 server (RFC 1813, ONC RPC RFC 5531, XDR RFC 4506) on
 /// 127.0.0.1, so a share streamed from the host mounts with plain `mount_nfs` (no File Sharing, no admin,
 /// no extra install). It knows nothing about the host: a `RemoteDriveBackend` answers for paths.
 /// Paths are share-proxy relative, "" for the top, "a/b.mov" below it.
+/// Read-only unless the backend `writes` (RemoteDriveWrite: CREATE, WRITE, COMMIT, SETATTR, REMOVE, RENAME, MKDIR, RMDIR
+/// land in a local overlay and go to the office from there); a read-only drive answers every write with EROFS.
 
 struct RemoteDriveNode: Sendable, Equatable {
     var name: String
     var folder: Bool
     var size: Int64
     var modified: Date
+    /// Changes are taken here (a folder: new files in it; a file: its bytes, rename, remove).
+    var writable = false
 }
 
-enum RemoteDriveError: Error { case noEntry, io, notFolder }
+enum RemoteDriveError: Error { case noEntry, io, notFolder, readOnly, denied, exists, notEmpty, isFolder }
 
 protocol RemoteDriveBackend: AnyObject, Sendable {
     func node(_ path: String) async throws -> RemoteDriveNode
     func list(_ path: String) async throws -> [RemoteDriveNode]
     func read(_ path: String, offset: Int64, count: Int) async throws -> Data
+    /// Whether the drive takes writes at all (false: mounted read-only, every write is EROFS).
+    var writes: Bool { get }
+    func create(_ path: String, folder: Bool) async throws -> RemoteDriveNode
+    func write(_ path: String, offset: Int64, data: Data) async throws -> RemoteDriveNode
+    /// A new size (truncate or extend) and/or modification date.
+    func change(_ path: String, size: Int64?, modified: Date?) async throws -> RemoteDriveNode
+    func remove(_ path: String, folder: Bool) async throws
+    func rename(_ from: String, to: String) async throws
+    /// The client says the file is complete for now (COMMIT): it may go to the office.
+    func commit(_ path: String) async
+}
+
+extension RemoteDriveBackend {
+    var writes: Bool { false }
+    func create(_ path: String, folder: Bool) async throws -> RemoteDriveNode { throw RemoteDriveError.readOnly }
+    func write(_ path: String, offset: Int64, data: Data) async throws -> RemoteDriveNode { throw RemoteDriveError.readOnly }
+    func change(_ path: String, size: Int64?, modified: Date?) async throws -> RemoteDriveNode { throw RemoteDriveError.readOnly }
+    func remove(_ path: String, folder: Bool) async throws { throw RemoteDriveError.readOnly }
+    func rename(_ from: String, to: String) async throws { throw RemoteDriveError.readOnly }
+    func commit(_ path: String) async {}
 }
 
 // MARK: - XDR
@@ -73,7 +97,7 @@ final class RemoteDriveServer: @unchecked Sendable {
     static let nfsProgram: UInt32 = 100003, mountProgram: UInt32 = 100005
     /// NFSv3 status codes used here.
     enum Status: UInt32 {
-        case ok = 0, noent = 2, io = 5, acces = 13, notdir = 20, isdir = 21, inval = 22, rofs = 30
+        case ok = 0, noent = 2, io = 5, acces = 13, exist = 17, notdir = 20, isdir = 21, inval = 22, rofs = 30, notempty = 66
         case stale = 70, badhandle = 10001, badCookie = 10003, notsupp = 10004, serverfault = 10006
     }
 
@@ -90,6 +114,8 @@ final class RemoteDriveServer: @unchecked Sendable {
     /// mounts, and handles are salted per run (no guessing one from a path).
     private static let salt = Data((0..<16).map { _ in UInt8.random(in: 0...255) })
     private var mounting = false
+    /// WRITE and COMMIT verifier: new per run, so a client resends what an earlier run never kept.
+    private static let verifier = Data((0..<8).map { _ in UInt8.random(in: 0...255) })
     func allowMount(_ open: Bool) { lock.lock(); mounting = open; lock.unlock() }
 
     init(backend: RemoteDriveBackend, export: String = "/pluck-" + UUID().uuidString.prefix(13).lowercased()) {
@@ -142,6 +168,13 @@ final class RemoteDriveServer: @unchecked Sendable {
     func path(_ handle: Data) -> String? {
         lock.lock(); defer { lock.unlock() }
         return paths[handle]
+    }
+
+    /// After a rename: the handle a client still holds for the old path finds the file at its new one.
+    func moved(_ from: String, to: String) {
+        let old = handle(from)
+        _ = handle(to)
+        lock.lock(); paths[old] = to; lock.unlock()
     }
 
     static func fileID(_ handle: Data) -> UInt64 { handle.prefix(8).reduce(0) { $0 << 8 | UInt64($1) } | 1 }
@@ -273,7 +306,7 @@ final class RemoteDriveServer: @unchecked Sendable {
 
     private func fattr(_ node: RemoteDriveNode, handle: Data, _ out: inout XDRWriter) {
         out.u32(node.folder ? 2 : 1)
-        out.u32(node.folder ? 0o555 : 0o444)
+        out.u32(node.folder ? (node.writable ? 0o755 : 0o555) : (node.writable ? 0o644 : 0o444))
         out.u32(node.folder ? 2 : 1)
         out.u32(getuid()); out.u32(getgid())
         let size = UInt64(max(0, node.size))
@@ -294,30 +327,71 @@ final class RemoteDriveServer: @unchecked Sendable {
         switch error as? RemoteDriveError {
         case .noEntry: .noent
         case .notFolder: .notdir
+        case .readOnly: .rofs
+        case .denied: .acces
+        case .exists: .exist
+        case .notEmpty: .notempty
+        case .isFolder: .isdir
         default: .io
+        }
+    }
+
+    /// wcc_data: no "before" attributes (allowed), the attributes after.
+    private func wcc(_ node: RemoteDriveNode?, handle: Data, _ out: inout XDRWriter) {
+        out.bool(false); postAttr(node, handle: handle, &out)
+    }
+
+    /// sattr3: the size and modification date asked for (mode, owner and access time are taken and ignored).
+    private func sattr(_ input: inout XDRReader) throws -> (size: Int64?, modified: Date?) {
+        if try input.u32() != 0 { _ = try input.u32() } // mode
+        if try input.u32() != 0 { _ = try input.u32() } // uid
+        if try input.u32() != 0 { _ = try input.u32() } // gid
+        let size: Int64? = try input.u32() != 0 ? Int64(clamping: try input.u64()) : nil
+        func time() throws -> Date? {
+            switch try input.u32() {
+            case 1: return .now // SET_TO_SERVER_TIME
+            case 2: let seconds = try input.u32(), nanos = try input.u32(); return Date(timeIntervalSince1970: Double(seconds) + Double(nanos) / 1e9)
+            default: return nil
+            }
+        }
+        _ = try time()
+        return (size, try time())
+    }
+
+    /// A child's path from a name the client sent (nil: not a plain name).
+    private static func child(_ folder: String, _ name: String) -> String? {
+        guard !name.isEmpty, name != ".", name != "..", !name.contains("/"), !name.contains("\0") else { return nil }
+        return folder.isEmpty ? name : folder + "/" + name
+    }
+
+    /// How many empty words a procedure's failure body has: post_op_attr (1), wcc_data (2), LINK (3), RENAME (4).
+    private static func failureWords(_ procedure: UInt32) -> Int {
+        switch procedure {
+        case 1: 0
+        case 2, 7, 8, 9, 10, 11, 12, 13, 21: 2
+        case 15: 3
+        case 14: 4
+        default: 1
         }
     }
 
     private func nfs(_ procedure: UInt32, _ input: inout XDRReader, _ out: inout XDRWriter) async throws -> Bool {
         if procedure == 0 { return true }
-        // Writing procedures: read-only file system, with their empty "failure" bodies.
-        let emptyWcc: [UInt32: Int] = [2: 2, 7: 2, 8: 2, 9: 2, 10: 2, 11: 2, 12: 2, 13: 2, 14: 4, 15: 3, 21: 2]
-        if let zeros = emptyWcc[procedure] {
-            out.u32(Status.rofs.rawValue)
-            for _ in 0..<zeros { out.u32(0) }
+        // Writing procedures on a read-only drive (and links, symlinks and devices on any): refused, with their empty "failure" bodies.
+        let writing: Set<UInt32> = [2, 7, 8, 9, 12, 13, 14, 21]
+        if [10, 11, 15].contains(procedure) || (writing.contains(procedure) && !backend.writes) {
+            out.u32((backend.writes ? Status.notsupp : Status.rofs).rawValue)
+            for _ in 0..<Self.failureWords(procedure) { out.u32(0) }
             return true
         }
         guard procedure <= 21 else { return false }
         let handle = try input.opaque(max: 64)
-        guard let path = path(handle) else {
-            out.u32(Status.stale.rawValue)
-            if procedure != 1 { out.u32(0) } // every failure body but GETATTR's starts with an (empty) post_op_attr
-            return true
-        }
+        func fail(_ status: Status) { out.u32(status.rawValue); for _ in 0..<Self.failureWords(procedure) { out.u32(0) } }
+        guard let path = path(handle) else { fail(.stale); return true }
         let node: RemoteDriveNode
-        do { node = try await backend.node(path) } catch {
-            out.u32(status(of: error).rawValue)
-            if procedure != 1 { out.u32(0) }
+        do { node = try await backend.node(path) } catch { fail(status(of: error)); return true }
+        if writing.contains(procedure) {
+            try await nfsWrite(procedure, path: path, node: node, handle: handle, &input, &out)
             return true
         }
         switch procedure {
@@ -341,10 +415,10 @@ final class RemoteDriveServer: @unchecked Sendable {
             } catch {
                 out.u32(status(of: error).rawValue); postAttr(node, handle: handle, &out)
             }
-        case 4: // ACCESS: read, lookup, execute (for folders) only
+        case 4: // ACCESS: read, lookup, execute; modify, extend (and delete in a folder) where it's writable
             let asked = try input.u32()
             out.u32(0); postAttr(node, handle: handle, &out)
-            out.u32(asked & (node.folder ? 0x23 : 0x21))
+            out.u32(asked & (node.folder ? (node.writable ? 0x3f : 0x23) : (node.writable ? 0x2d : 0x21)))
         case 5: // READLINK: no links here
             out.u32(Status.inval.rawValue); postAttr(node, handle: handle, &out)
         case 6: // READ
@@ -396,11 +470,13 @@ final class RemoteDriveServer: @unchecked Sendable {
             out.bool(false); out.bool(index >= all.count)
         case 18: // FSSTAT
             out.u32(0); postAttr(node, handle: handle, &out)
-            out.u64(1 << 40); out.u64(0); out.u64(0); out.u64(1 << 20); out.u64(0); out.u64(0); out.u32(1)
+            // shortcut: a writable drive says 512 GB free (Finder refuses a copy onto 0); the office checks its real room on upload.
+            let free: UInt64 = backend.writes ? 1 << 39 : 0
+            out.u64(1 << 40); out.u64(free); out.u64(free); out.u64(1 << 20); out.u64(0); out.u64(0); out.u32(1)
         case 19: // FSINFO
             out.u32(0); postAttr(node, handle: handle, &out)
             out.u32(1 << 20); out.u32(1 << 20); out.u32(4096) // read max, preferred, multiple
-            out.u32(1 << 20); out.u32(1 << 20); out.u32(4096) // write (unused)
+            out.u32(1 << 20); out.u32(1 << 20); out.u32(4096) // write max, preferred, multiple
             out.u32(64 << 10) // readdir preferred
             out.u64(UInt64(Int64.max)); out.u32(1); out.u32(0) // max file size, time delta 1 s
             out.u32(0x08) // FSF3_HOMOGENEOUS
@@ -414,13 +490,101 @@ final class RemoteDriveServer: @unchecked Sendable {
     }
 }
 
+// MARK: - Writing
+
+extension RemoteDriveServer {
+    /// CREATE, WRITE, COMMIT, SETATTR, REMOVE, RENAME, MKDIR, RMDIR on a drive that writes (the backend decides what's allowed).
+    fileprivate func nfsWrite(_ procedure: UInt32, path: String, node: RemoteDriveNode, handle: Data,
+                              _ input: inout XDRReader, _ out: inout XDRWriter) async throws {
+        func after(_ path: String) async -> RemoteDriveNode? { try? await backend.node(path) }
+        switch procedure {
+        case 2: // SETATTR
+            let (size, modified) = try sattr(&input)
+            if try input.u32() != 0 { _ = try input.u64() } // guard ctime
+            do {
+                let changed = size == nil && modified == nil ? node : try await backend.change(path, size: size, modified: modified)
+                out.u32(0); wcc(changed, handle: handle, &out)
+            } catch { out.u32(status(of: error).rawValue); wcc(node, handle: handle, &out) }
+        case 7: // WRITE: always FILE_SYNC (the bytes are on this Mac's disk when the answer goes)
+            let offset = try input.u64(); _ = try input.u32(); _ = try input.u32()
+            let data = try input.opaque(max: 1 << 20)
+            guard !node.folder else { out.u32(Status.isdir.rawValue); wcc(node, handle: handle, &out); return }
+            do {
+                let written = try await backend.write(path, offset: Int64(clamping: offset), data: data)
+                out.u32(0); wcc(written, handle: handle, &out)
+                out.u32(UInt32(data.count)); out.u32(2); out.fixed(Self.verifier)
+            } catch { out.u32(status(of: error).rawValue); wcc(node, handle: handle, &out) }
+        case 21: // COMMIT
+            _ = try input.u64(); _ = try input.u32()
+            await backend.commit(path)
+            out.u32(0); wcc(node, handle: handle, &out); out.fixed(Self.verifier)
+        case 8, 9: // CREATE, MKDIR
+            let name = try input.string(max: 255)
+            var size: Int64?, guarded = procedure == 9
+            if procedure == 8 {
+                let how = try input.u32()
+                guarded = how != 0
+                if how == 2 { _ = try input.fixed(8) } else { size = try sattr(&input).size }
+            } else { _ = try sattr(&input) }
+            guard node.folder else { out.u32(Status.notdir.rawValue); wcc(node, handle: handle, &out); return }
+            guard let childPath = Self.child(path, name) else { out.u32(Status.inval.rawValue); wcc(node, handle: handle, &out); return }
+            do {
+                var made: RemoteDriveNode
+                if let there = try? await backend.node(childPath) {
+                    // UNCHECKED create of a file that's there: the same file (truncated when asked).
+                    guard !guarded, !there.folder else { throw RemoteDriveError.exists }
+                    made = there
+                } else {
+                    made = try await backend.create(childPath, folder: procedure == 9)
+                }
+                if let size { made = try await backend.change(childPath, size: size, modified: nil) }
+                let childHandle = self.handle(childPath)
+                out.u32(0); out.bool(true); out.opaque(childHandle); postAttr(made, handle: childHandle, &out)
+                wcc(await after(path), handle: handle, &out)
+            } catch { out.u32(status(of: error).rawValue); wcc(node, handle: handle, &out) }
+        case 12, 13: // REMOVE, RMDIR
+            let name = try input.string(max: 255)
+            guard let childPath = Self.child(path, name) else { out.u32(Status.inval.rawValue); wcc(node, handle: handle, &out); return }
+            do {
+                let child = try await backend.node(childPath)
+                if procedure == 12, child.folder { throw RemoteDriveError.isFolder }
+                if procedure == 13, !child.folder { throw RemoteDriveError.notFolder }
+                try await backend.remove(childPath, folder: procedure == 13)
+                out.u32(0)
+            } catch { out.u32(status(of: error).rawValue) }
+            wcc(await after(path), handle: handle, &out)
+        case 14: // RENAME (onto a name that's there: the backend replaces it)
+            let fromName = try input.string(max: 255)
+            let toHandle = try input.opaque(max: 64), toName = try input.string(max: 255)
+            guard let toFolder = self.path(toHandle) else {
+                out.u32(Status.stale.rawValue); for _ in 0..<4 { out.u32(0) }; return
+            }
+            let toNode = await after(toFolder)
+            guard let from = Self.child(path, fromName), let to = Self.child(toFolder, toName), toNode?.folder == true else {
+                out.u32(Status.inval.rawValue); wcc(node, handle: handle, &out); wcc(toNode, handle: toHandle, &out); return
+            }
+            do {
+                if from != to { try await backend.rename(from, to: to) }
+                moved(from, to: to)
+                out.u32(0)
+            } catch { out.u32(status(of: error).rawValue) }
+            wcc(await after(path), handle: handle, &out); wcc(await after(toFolder), handle: toHandle, &out)
+        default:
+            out.u32(Status.notsupp.rawValue); wcc(node, handle: handle, &out)
+        }
+    }
+}
+
 // MARK: - Mounting
 
 enum RemoteDriveMount {
-    /// mount_nfs options: TCP to one port for MOUNT and NFS, no lock manager, no reserved port (that needs root),
-    /// read-only, hidden from Finder's sidebar, and soft with short timeouts so a lost host never hangs a reader.
-    static func options(port: UInt16) -> String {
-        "vers=3,tcp,port=\(port),mountport=\(port),nolocks,noresvport,rdonly,nobrowse,soft,intr,timeo=30,retrans=3,deadtimeout=45,nonegnamecache,rsize=1048576,readahead=8"
+    /// mount_nfs options: TCP to one port for MOUNT and NFS, no lock manager (a writable drive keeps locks on this Mac: apps
+    /// that lock still work, and the office never sees two writers through one mount), no reserved port (that needs root),
+    /// read-only unless it writes, hidden from Finder's sidebar, and soft with short timeouts so a lost host never hangs a reader.
+    /// (Read-write only for a drive that writes: RemoteDriveWrite.)
+    static func options(port: UInt16, writable: Bool = false) -> String {
+        "vers=3,tcp,port=\(port),mountport=\(port),\(writable ? "locallocks" : "nolocks"),noresvport,\(writable ? "" : "rdonly,")nobrowse,soft,intr,timeo=30,retrans=3,deadtimeout=45,nonegnamecache,rsize=1048576,"
+            + (writable ? "wsize=1048576," : "") + "readahead=8"
     }
 
     /// Mounts the server's 127.0.0.1:<export> on `folder` (made if missing). Throws the tool's message on failure.
@@ -428,7 +592,7 @@ enum RemoteDriveMount {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         server.allowMount(true)
         defer { server.allowMount(false) }
-        let (code, message) = await run("/sbin/mount_nfs", ["-o", options(port: server.port), "127.0.0.1:\(server.export)", folder.path])
+        let (code, message) = await run("/sbin/mount_nfs", ["-o", options(port: server.port, writable: server.backend.writes), "127.0.0.1:\(server.export)", folder.path])
         if code != 0 { throw NSError(domain: "RemoteDrive", code: Int(code), userInfo: [NSLocalizedDescriptionKey: message]) }
     }
 
