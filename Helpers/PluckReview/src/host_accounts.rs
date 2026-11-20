@@ -1000,6 +1000,27 @@ mod tests {
         assert!(!h.peers.contains_key("e1"), "a lowered role closes the session");
     }
 
+    /// 4.1.0: a signed-in team person reads their muted links and the links they could mute, and sets them with subscribe.
+    #[tokio::test]
+    async fn team_person_mutes_links_by_subscribe() {
+        let (mut h, mut rx) = host();
+        h.sync(&json!({"op": "team-set", "name": "Northwind Films"}));
+        assert_eq!(h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "Studio <studio@example.com>", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"))["ok"], true);
+        let (ed, _, ready) = enrol(&mut h, &mut rx, "e1", "editor");
+        let eid = ready["me"]["account"].clone();
+        for p in h.accounts.v["people"].as_array_mut().unwrap().iter_mut().filter(|p| p["id"] == eid) {
+            p["email"] = json!("ed@example.com");
+        }
+        let s = ed.ask(&mut h, &mut rx, 4, json!({"t": "subscription"}));
+        assert_eq!((s["mute"].clone(), s["links"][0]["id"].clone(), s["links"][0]["title"].clone()), (json!([]), json!("L1"), json!("T")), "{s}");
+        assert_eq!(ed.ask(&mut h, &mut rx, 5, json!({"t": "subscribe", "mode": "daily", "mute": ["L1", 7]}))["ok"], true);
+        let s = ed.ask(&mut h, &mut rx, 6, json!({"t": "subscription"}));
+        assert_eq!((s["mode"].clone(), s["mute"].clone()), (json!("daily"), json!(["L1"])), "{s}");
+        assert_eq!(ed.ask(&mut h, &mut rx, 7, json!({"t": "subscribe", "mode": "daily"}))["ok"], true);
+        assert_eq!(ed.ask(&mut h, &mut rx, 8, json!({"t": "subscription"}))["mute"], json!(["L1"]), "no mute field: kept");
+    }
+
     /// Fix H1/M1/M3: removing one passkey ends that device's session only; a device code needs a passkey just used;
     /// team-room clients hear no presence and no live project events.
     /// Editors invite, an admin approves (enforced here, the trust boundary): editor invite → pending → the invitee

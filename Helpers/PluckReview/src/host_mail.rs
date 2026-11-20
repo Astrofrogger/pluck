@@ -164,6 +164,9 @@ impl Host {
         if t == "subscription" {
             let i = self.peer_row(peer, l, None);
             return Ok(match i.map(|i| &self.mail.subs[i]) {
+                // A team person's row (4.1.0): its muted links and the live links it could mute (team pages only).
+                Some(r) if r["kind"] == "team" => json!({"mode": r["mode"], "email": r["email"], "mute": r["mute"].as_array().cloned().unwrap_or_default(),
+                    "links": self.links().filter(|l| self.live(l).is_ok()).map(|l| json!({"id": l["id"], "title": l["title"], "project": l["project"]})).collect::<Vec<_>>()}),
                 Some(r) => json!({"mode": r["mode"], "email": r["email"]}),
                 None => json!({"mode": null, "email": null}),
             });
@@ -180,6 +183,9 @@ impl Host {
         let i = self.peer_row(peer, l, email).ok_or("invalid")?;
         let r = &mut self.mail.subs[i];
         r["mode"] = json!(mode);
+        if let (true, Some(m)) = (r["kind"] == "team", m["mute"].as_array()) {
+            r["mute"] = json!(m.iter().filter(|x| x.as_str().is_some_and(|x| x.len() < 100)).take(500).cloned().collect::<Vec<_>>());
+        }
         if let Some(lang) = m["lang"].as_str() {
             r["lang"] = json!(mail::lang(lang));
         }
