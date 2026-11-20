@@ -7,6 +7,20 @@ import SwiftUI
 extension WhatsNew {
     static var studioReleases: [Release] {
         [
+            Release(version: "4.0.7", items: [
+                Item(symbol: "envelope", title: String(localized: "Email updates and @mentions"),
+                     detail: String(localized: "Clients and your team get an email about new comments; @name reaches the right person.")),
+                Item(symbol: "text.bubble", title: String(localized: "Transcripts and 4K HDR copies"),
+                     detail: String(localized: "Transcripts with speaker names, and 4K and HDR review copies when you want them.")),
+                Item(symbol: "checkmark.circle", title: String(localized: "Your own workflow"),
+                     detail: String(localized: "Your own statuses, fields and views. Green markers in Resolve complete comments.")),
+                Item(symbol: "folder.badge.person.crop", title: String(localized: "Roles per folder"),
+                     detail: String(localized: "Viewer, Downloader, Editor or Admin for each folder, and Ask for Files.")),
+                Item(symbol: "externaldrive.badge.checkmark", title: String(localized: "Save to the office drive"),
+                     detail: String(localized: "Edit Anywhere’s drive can be written to; what you save goes back to the office.")),
+                Item(symbol: "scissors", title: String(localized: "Only what you use"),
+                     detail: String(localized: "Pull just the parts of the originals your edit uses, with handles.")),
+            ]),
             Release(version: "4.0.6", items: [
                 Item(symbol: "folder.badge.plus", title: String(localized: "Footage straight into the client folder"),
                      detail: String(localized: "Pick any folder on the NAS share; this Mac copies the original there. No extra folder needed.")),
