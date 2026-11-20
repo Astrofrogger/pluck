@@ -16,6 +16,8 @@ final class CameraSyncModel {
     /// Sound before timecode, for a shoot whose timecode can't be trusted.
     var audioFirst = false
     private(set) var task: Task<Void, Never>?
+    /// Dropped while clips were still being read: read right after (a second drop used to report ffmpeg missing).
+    @ObservationIgnored private var pending: [URL] = []
     @ObservationIgnored let cache = SyncCache()
 
     var running: Bool { task != nil }
@@ -28,7 +30,8 @@ final class CameraSyncModel {
 
     /// Reads what was dropped and groups it into cameras (with what's here already: it's grouped again together).
     func add(_ urls: [URL]) {
-        guard task == nil, let ffprobe else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }
+        guard let ffprobe else { problem = Converting.Failure.noFFmpeg.localizedDescription; return }
+        guard task == nil else { pending += urls; return }
         problem = nil
         done = nil
         let known = clips
@@ -50,6 +53,11 @@ final class CameraSyncModel {
             self.cameras = cameras
             if found.isEmpty { problem = String(localized: "No clips in what was dropped.") }
             finish()
+            if !pending.isEmpty {
+                let next = pending
+                pending = []
+                add(next)
+            }
         }
     }
 
@@ -91,6 +99,7 @@ final class CameraSyncModel {
     }
 
     func stop() {
+        pending = []
         task?.cancel()
         finish()
     }
