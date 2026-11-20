@@ -225,23 +225,61 @@ struct ArchiveView: View {
                 .help("A project with a newer file is left as it is")
             Button(model.off.isEmpty ? "Select None" : "Select All") { model.selectAll(!model.off.isEmpty) }.buttonStyle(.link).font(Design.Studio.hint)
         }
-        let rows = model.clients.flatMap(\.projects).sorted { ($0.dim == nil ? 0 : 1, -$0.saving) < ($1.dim == nil ? 0 : 1, -$1.saving) }
+        // Grouped by client, the clients that free most first; each client's switch turns all its projects on or off.
+        let order: (ArchiveModel.ProjectRow, ArchiveModel.ProjectRow) -> Bool = { ($0.dim == nil ? 0 : 1, -$0.saving) < ($1.dim == nil ? 0 : 1, -$1.saving) }
+        let clients = model.clients.map { ($0.name, $0.projects.sorted(by: order)) }
+            .sorted { a, b in (a.1.reduce(Int64(0)) { $0 + $1.saving }, b.0) > (b.1.reduce(Int64(0)) { $0 + $1.saving }, a.0) }
         LazyVStack(alignment: .leading, spacing: 0) {
-            ForEach(showAll ? rows : Array(rows.prefix(20))) { row in projectRow(row) }
-            if rows.count > 20, !showAll {
-                Button("\(rows.count - 20) more") { showAll = true }.buttonStyle(.link).font(Design.Studio.hint).padding(.top, 8)
+            ForEach(showAll ? clients : Array(clients.prefix(15)), id: \.0) { name, rows in
+                if rows.count == 1, rows[0].project.name == rows[0].project.client {
+                    projectRow(rows[0])
+                } else {
+                    clientRow(name, rows)
+                    ForEach(rows) { row in projectRow(row, grouped: true) }
+                }
+            }
+            if clients.count > 15, !showAll {
+                Button("\(clients.count - 15) more clients") { showAll = true }.buttonStyle(.link).font(Design.Studio.hint).padding(.top, 8)
             }
         }
     }
 
-    private func projectRow(_ row: ArchiveModel.ProjectRow) -> some View {
+    /// A client's line: one switch for all its projects that can be archived (mixed when some are off).
+    private func clientRow(_ name: String, _ rows: [ArchiveModel.ProjectRow]) -> some View {
+        let open = rows.filter { $0.dim == nil }
+        let on = open.filter(\.selected).count
+        let saving = rows.filter { $0.selected && $0.dim == nil }.reduce(Int64(0)) { $0 + $1.saving }
+        return HStack(spacing: 10) {
+            Button { model.select(open.map(\.project), on < open.count) } label: {
+                Image(systemName: on == 0 ? "square" : on == open.count ? "checkmark.square.fill" : "minus.square.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(on == 0 ? Design.Studio.textQuiet : Design.Brand.pink)
+            }
+            .buttonStyle(.plain)
+            .disabled(open.isEmpty)
+            .accessibilityLabel(Text(verbatim: name))
+            .accessibilityValue(on == 0 ? Text("Off") : on == open.count ? Text("On") : Text("Some"))
+            Text(verbatim: name).font(Design.Studio.body.weight(.semibold)).foregroundStyle(Design.Studio.text).lineLimit(1)
+            Text(verbatim: "\(rows.count)").font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint)
+            Spacer(minLength: 8)
+            Text(verbatim: saving > 0 ? "−" + bytes(saving) : "").font(Design.Studio.body.monospacedDigit()).foregroundStyle(Design.Brand.pink)
+                .frame(width: 80, alignment: .trailing)
+        }
+        .frame(height: 30)
+        .padding(.top, 6)
+        .opacity(open.isEmpty ? 0.55 : 1)
+        .help(String(localized: "All of this client's projects on or off"))
+    }
+
+    private func projectRow(_ row: ArchiveModel.ProjectRow, grouped: Bool = false) -> some View {
         let project = row.project
         let below = Set(model.files.filter { $0.project == project.folder }.map { ($0.path as NSString).deletingLastPathComponent }).filter { $0 != project.folder }.sorted()
         return HStack(spacing: 10) {
             Toggle(isOn: Binding(get: { row.selected && row.dim == nil }, set: { model.select([project], $0) })) { EmptyView() }
                 .toggleStyle(.checkbox).labelsHidden().disabled(row.dim != nil)
-            (Text(verbatim: project.client).foregroundStyle(Design.Studio.text)
-             + Text(verbatim: project.name == project.client ? "" : " – " + project.name).foregroundStyle(Design.Studio.textQuiet))
+            (grouped ? Text(verbatim: project.name).foregroundStyle(Design.Studio.text)
+             : Text(verbatim: project.client).foregroundStyle(Design.Studio.text)
+                + Text(verbatim: project.name == project.client ? "" : " – " + project.name).foregroundStyle(Design.Studio.textQuiet))
                 .font(Design.Studio.body).lineLimit(1).truncationMode(.middle)
             Spacer(minLength: 8)
             if let dim = row.dim { Text(verbatim: dim).font(Design.Studio.hint).foregroundStyle(Design.Studio.textFaint) }
@@ -250,6 +288,7 @@ struct ArchiveView: View {
                 .frame(width: 80, alignment: .trailing)
         }
         .frame(height: 30)
+        .padding(.leading, grouped ? 24 : 0)
         .opacity(row.dim == nil ? 1 : 0.55)
         .contentShape(.rect)
         .help(String(localized: "Rushes \(bytes(project.rushes)) · Proxies and caches \(bytes(project.proxies)) · Deliveries \(bytes(project.deliveries)) · Other \(bytes(project.other))"))
