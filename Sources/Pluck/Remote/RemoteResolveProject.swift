@@ -8,7 +8,6 @@ import Foundation
 enum RemoteResolveProject {
     static func register() {
         let checkout = RemoteCheckout.shared, queue = RemoteRenderQueue.shared
-        RemoteXML.register()
         Task.detached { tidyUploads() }
         OfficeActions.register("resolveRoot") { arguments, device in
             try OfficeActions.require(\.browse, device)

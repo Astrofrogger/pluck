@@ -21,7 +21,7 @@ struct RelaySetupSheet: View {
 
     private var setup: RelaySetup.Setup {
         .init(kind: kind, address: address.trimmingCharacters(in: .whitespaces), hostname: hostname.trimmingCharacters(in: .whitespaces).lowercased(),
-              contact: contact.trimmingCharacters(in: .whitespaces), certificate: kind == .proxmox ? .automatic : certificate)
+              contact: contact.trimmingCharacters(in: .whitespaces), certificate: certificate)
     }
     private var complete: Bool { RelaySetup.isHostname(setup.hostname) && RelaySetup.isEmail(setup.contact) }
 
@@ -45,6 +45,11 @@ struct RelaySetupSheet: View {
             field("Domain", $hostname, prompt: "relay.example.com")
             field("E-mail", $contact, prompt: "you@example.com")
                 .help("For the free certificate from Let’s Encrypt")
+            Picker("Certificate", selection: $certificate) {
+                Text("Automatic (port 443)").tag(RelaySetup.Certificate.automatic)
+                Text(verbatim: "DNS (Cloudflare)").tag(RelaySetup.Certificate.dns)
+            }
+            .font(Design.Studio.body)
             if kind == .truenas { truenas } else { proxmox }
             if let message {
                 Text(message).font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
@@ -81,11 +86,6 @@ struct RelaySetupSheet: View {
     private var truenas: some View {
         field("NAS", $address, prompt: "nas.local")
         if TrueNASKeychain.load(setup.address) == nil { field("API key", $apiKey, prompt: "", secure: true) }
-        Picker("Certificate", selection: $certificate) {
-            Text("Automatic (port 443)").tag(RelaySetup.Certificate.automatic)
-            Text(verbatim: "DNS (Cloudflare)").tag(RelaySetup.Certificate.dns)
-        }
-        .font(Design.Studio.body)
         if certificate == .dns { field("DNS token", $dnsToken, prompt: "", secure: true) }
         if let fingerprint {
             HStack {
@@ -108,11 +108,15 @@ struct RelaySetupSheet: View {
 
     @ViewBuilder
     private var proxmox: some View {
-        if let image = RelaySetup.image, complete {
-            let command = RelaySetup.proxmoxCommand(image: image, setup: setup, allow: RelaySetup.allowlist())
-            Text("Run in a Docker container or VM on the Proxmox server. When Macs are added or removed, run the new command again.")
+        if let image = RelaySetup.image, complete, let sha = DeliverHostUpdate.shared.release?.assets["pluck-relay-proxmox.sh"],
+           let command = RelaySetup.proxmoxCommand(tag: "v" + DeliverHostUpdate.pluckVersion, sha256: sha, image: image, setup: setup, allow: RelaySetup.allowlist()) {
+            Text("Run in the Proxmox host’s shell: it makes a container for the relay. When Macs are added or removed, run the new command again.")
                 .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
-            Text(verbatim: command).font(.system(size: 11, design: .monospaced)).lineLimit(4).textSelection(.enabled)
+            if certificate == .dns {
+                Text("First put DNS_TOKEN= and your Cloudflare token in \(RelaySetup.proxmoxSecrets) on the Proxmox host (chmod 600).")
+                    .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            }
+            Text(verbatim: command).font(.system(size: 11, design: .monospaced)).lineLimit(8).textSelection(.enabled)
                 .padding(8).background(Design.Studio.backdrop, in: .rect(cornerRadius: Design.Studio.controlRadius))
             HStack {
                 Spacer()
@@ -127,6 +131,8 @@ struct RelaySetupSheet: View {
             }
         } else if RelaySetup.image == nil {
             Text("This Pluck version has no relay image yet.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+        } else if complete {
+            Text("No signed host release for this version of Pluck yet.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
         }
     }
 

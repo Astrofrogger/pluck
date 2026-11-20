@@ -53,48 +53,15 @@ extension PhotoSelfTest {
         let a = await OfficeProxies.encode(source, to: plain, format: .light, ffmpeg: ffmpeg, ffprobe: ffprobe, progress: { _ in })
         let b = await OfficeProxies.encode(source, to: looked, format: .light, ffmpeg: ffmpeg, ffprobe: ffprobe, look: .automatic, progress: { _ in })
         check("look: a proxy with the look is brighter, one without is as shot", a && b && luma(looked) > luma(plain) + 50, "\(luma(plain)) \(luma(looked))")
-        check("look: a proxy is Attach Proxies-ready (rate, timecode, shape, audio)", OfficeProxies.attachProblem(source, plain, ffprobe: ffprobe) == nil,
+        check("look: a proxy relinks in Resolve (rate, timecode, shape, audio)", OfficeProxies.attachProblem(source, plain, ffprobe: ffprobe) == nil,
               OfficeProxies.attachProblem(source, plain, ffprobe: ffprobe) ?? "")
         check("look: a proxy that differs from its original is caught", OfficeProxies.attachProblem(source, root.appendingPathComponent("Cuts/P.mov"), ffprobe: ffprobe) != nil)
         check("look: the proxy says which look it has", OfficeLook.tagged(looked, ffprobe: ffprobe) == "slog3-709" && OfficeLook.tagged(plain, ffprobe: ffprobe) == nil)
-    }
-}
-
-extension PhotoSelfTest {
-    /// Premiere Pro and Final Cut Pro (part of remoteresolve): XML paths rewritten to originals (an unknown one left and
-    /// reported), what won't translate, the timeline's name, and that a proxy is Attach Proxies-ready (facts compared).
-    static func remoteXMLTest() {
-        let fcp = """
-        <?xml version="1.0"?><fcpxml version="1.11"><resources>
-        <asset id="r2" name="A001"><media-rep kind="original-media" src="file:///Users/x/Proxies/Day%201/A001.mov"/></asset>
-        <asset id="r3"><media-rep kind="original-media" src="file:///Volumes/Other/B.mov"/></asset></resources>
-        <library><event><project name="Cut &amp; Final"><sequence><spine>
-        <asset-clip ref="r2"><filter-video name="Color Board"/><filter-video name="Gaussian Blur"/></asset-clip>
-        <transition name="Cross Dissolve"/><transition name="Swap"/><title name="Basic Title"/><title name="Basic Title"/>
-        </spine></sequence></project></event></library></fcpxml>
-        """
-        let map = ["/Users/x/Proxies/Day 1/A001.mov": "/Volumes/NAS/Share/Day 1/A001.MXF"]
-        let (text, unknown) = RemoteXML.rewrite(fcp, map: map)
-        check("xml: FCPXML proxy paths become the originals'", text.contains("src=\"file:///Volumes/NAS/Share/Day%201/A001.MXF\"") && !text.contains("Proxies"), text)
-        check("xml: an unknown path is left alone and reported", unknown == ["/Volumes/Other/B.mov"] && text.contains("file:///Volumes/Other/B.mov"))
-        check("xml: the files an XML points at", RemoteXML.files(fcp) == ["/Users/x/Proxies/Day 1/A001.mov", "/Volumes/Other/B.mov"], "\(RemoteXML.files(fcp))")
-        check("xml: FCPXML's timeline name", RemoteXML.timeline(fcp) == "Cut & Final")
-        let lost = RemoteXML.untranslated(fcp)
-        check("xml: FCPXML titles, effects, grades, other transitions listed", lost.contains("Title: Basic Title ×2") && lost.contains("Grade: Color Board")
-              && lost.contains("Effect: Gaussian Blur") && lost.contains("Transition: Swap") && !lost.contains { $0.contains("Cross Dissolve") }, "\(lost)")
-        let premiere = """
-        <?xml version="1.0"?><xmeml version="4"><sequence id="s1"><uuid>x</uuid><name>Edit 1</name><media><video><track>
-        <clipitem><file id="f1"><pathurl>file://localhost/Users/x/Proxies/Day%201/A001.mov</pathurl></file>
-        <filter><effect><name>Lumetri Color</name><effectid>x</effectid><effecttype>filter</effecttype></effect></filter>
-        <filter><effect><name>Basic Motion</name><effecttype>filter</effecttype></effect></filter></clipitem>
-        <transitionitem><effect><name>Cross Dissolve</name><effecttype>transition</effecttype></effect></transitionitem>
-        <generatoritem><name>Text</name></generatoritem></track></video></media></sequence></xmeml>
-        """
-        let (rewritten, none) = RemoteXML.rewrite(premiere, map: map)
-        check("xml: Premiere XML pathurl becomes the original's", rewritten.contains("<pathurl>file://localhost/Volumes/NAS/Share/Day%201/A001.MXF</pathurl>") && none.isEmpty, rewritten)
-        check("xml: Premiere's sequence name", RemoteXML.timeline(premiere) == "Edit 1")
-        let gone = RemoteXML.untranslated(premiere)
-        check("xml: Premiere grades and titles listed, motion and dissolves not", gone == ["Grade: Lumetri Color", "Title or generator"], "\(gone)")
-        check("xml: other files are refused", RemoteXML.kind("<html/>") == nil)
+        // A look changed later: the proxy is made again beside the old one (a part file, never listed) and then replaces it.
+        let fresh = OfficeProxies.remakeFile(plain)
+        let remade = await OfficeProxies.encode(source, to: fresh, format: .light, ffmpeg: ffmpeg, ffprobe: ffprobe, look: .automatic, progress: { _ in })
+        let replaced = remade && (try? FileManager.default.replaceItemAt(plain, withItemAt: fresh)) != nil
+        check("look: a remade proxy replaces the old one with the new look", fresh.lastPathComponent == "plain.remake.part.mov" && replaced
+              && OfficeLook.tagged(plain, ffprobe: ffprobe) == "slog3-709" && !FileManager.default.fileExists(atPath: fresh.path))
     }
 }

@@ -16,7 +16,7 @@ final class TrueNASSetup {
     var secondPath = ""
     var uploads = ""
     /// Ask for Files links may put files straight into the first media dataset (the helper's `--drop`, block drop1).
-    /// shortcut: Change Folders doesn't read it back from the installed app (starts off), read the compose's drop1 to keep it.
+    /// Change Folders reads it back from the installed app (TrueNASClient.Installed.drop).
     var dropFiles = false
     var role = Role.main
     var backupMax = 50
@@ -118,6 +118,7 @@ final class TrueNASSetup {
         media = zip(found.media, found.mediaIDs).map { (dataset: $0, id: $1) }
         secondIDKept = found.secondID
         uploads = found.uploads ?? ""
+        dropFiles = found.drop
         secondAddress = found.secondAddress ?? ""
         secondPath = found.secondPath ?? ""
         cpus = found.cpus.map { min(max($0, 1), 8) } ?? cpus

@@ -18,8 +18,7 @@ import Foundation
 /// Project.GetSetting("nodeStackLayers")/GetColorGroupsList, ColorGroup.GetPre/PostClipNodeGraph; Fusion (fusion_api.pyi):
 /// Composition.GetToolList(False)/CopySettings(tools)/MapPath/GetPrefs("Comp"); for the check of what a project reaches
 /// also ProjectManager.ExportProject (read back as a .drp), Timeline.DuplicateTimeline, TimelineItem.FlattenMulticam
-/// (resolve.FLATTEN_MULTICAM_COPY_GRADE); for the used ranges TimelineItem.GetSourceStartFrame/GetSourceEndFrame/GetDuration; for XML from other editors
-/// MediaPool.ImportTimelineFromFile(path, {timelineName, importSourceClips}) and Timeline.GetName.
+/// (resolve.FLATTEN_MULTICAM_COPY_GRADE); for the used ranges TimelineItem.GetSourceStartFrame/GetSourceEndFrame/GetDuration.
 @MainActor
 enum RemoteResolveScript {
     static func run(_ instruction: [String: Any]) async throws -> [String: Any] {
@@ -512,37 +511,6 @@ if action == "inspect":
     pm.SaveProject()
     found = uses(project, cmd["drp"] + ".check.drp", cmd.get("label"))
     found.update({"items": items, "timelines": names, "render": render,
-                  "presets": [p for p in (project.GetRenderPresetList() or []) if p in host_presets]})
-    out(found)
-
-if action == "inspectXML":
-    # An XML from Premiere Pro or Final Cut Pro (paths already the originals here) imported as a timeline into a new
-    # project of ours: then the same answer as "inspect".
-    name = cmd["name"]
-    fresh(name)
-    import uuid
-    scratch = "Pluck – presets – " + uuid.uuid4().hex[:8]
-    empty = pm.CreateProject(scratch)
-    host_presets = set(empty.GetRenderPresetList() or []) if empty else set()
-    if empty:
-        pm.CloseProject(empty)
-        pm.DeleteProject(scratch)
-    project = pm.CreateProject(name)
-    if project is None:
-        out({"error": "DaVinci Resolve on the host Mac couldn't make the project " + name + "."})
-    timeline = project.GetMediaPool().ImportTimelineFromFile(cmd["xml"], {"timelineName": cmd.get("timeline") or name, "importSourceClips": True})
-    if not timeline:
-        out({"error": "DaVinci Resolve on the host Mac couldn't import the XML."})
-    names = timeline_names(project)
-    items = []
-    for c in clips_in(project.GetMediaPool().GetRootFolder()):
-        if prop(c, "File Path") == "" and c.GetName() in names:
-            continue
-        items.append({"id": c.GetUniqueId(), "name": c.GetName(), "file": prop(c, "File Path"), "frames": prop(c, "Frames"),
-                      "fps": prop(c, "FPS"), "audio": prop(c, "Audio Ch"), "tc": prop(c, "Start TC")})
-    pm.SaveProject()
-    found = uses(project, cmd["xml"] + ".check.drp", cmd.get("label"))
-    found.update({"items": items, "timelines": names, "render": timeline.GetName(),
                   "presets": [p for p in (project.GetRenderPresetList() or []) if p in host_presets]})
     out(found)
 

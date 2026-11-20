@@ -25,6 +25,9 @@ struct RemoteManifestEntry: Codable, Hashable, Sendable {
     var range: [Int]?
     /// The viewing look burnt into this proxy ("slog3-709"); nil: none (OfficeLook).
     var look: String?
+    /// An original kept on this Mac (RemotePins): its modification date at the office (seconds since 1970), which with its
+    /// size tells a change when the manifest has no checksum of originals.
+    var modified: Double?
 }
 
 /// The manifest of one share as the remote keeps it: written as `RemoteManifest.fileName` in the root of the

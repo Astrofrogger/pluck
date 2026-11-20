@@ -38,7 +38,6 @@ struct RemoteFilesPane<Legacy: View>: View {
                     if !browsing { header }
                     content
                     if host == .current, local == nil, let share, share.online { delivery(share) }
-                    if host == .current, local == nil { OtherEditorsGuide() }
                 }
             }
         }
