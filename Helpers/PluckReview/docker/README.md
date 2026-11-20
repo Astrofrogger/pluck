@@ -93,6 +93,20 @@ Pluck follows its own release: it reads that release's signed `host-release.json
 public key is compiled into Pluck, and embedded in the two scripts here) and checks every file's
 SHA-256 against it. Unsigned or wrong: nothing runs.
 
+**From 4.0.7 the host updates itself** (`src/selfupdate.rs`), on TrueNAS, Proxmox and any Docker host
+alike, with no Docker socket, API key or root: `--host` on Linux first runs a small supervisor that
+starts the newest verified program in `<data>/.pluck-host/bin/<version>/` (the data volume; the
+image root stays read-only), else the built-in one. Pluck tells the host its own version
+(`self-update`, admins only; a host never gets ahead of its Macs, never goes down). The host fetches
+that release's `host-release.json` + `.sig` from GitHub (HTTPS; only github.com and its asset CDN),
+checks the signature before anything else, downloads `pluck-review-linux-<arch>` and
+`pluck-iroh-linux-<arch>`, checks their SHA-256 and that the new program runs and says that version,
+then exits 75 when nobody is watching and nothing uploads or copies (or in the hour after
+`PLUCK_UPDATE_TIME`, UTC). A new program that exits within a minute is marked bad
+(`.pluck-host/bad.json`) and the previous one runs. Two versions are kept. "Updates by itself" off
+(`auto: false`) waits for Update Now. `PLUCK_SELF_UPDATE=0` runs the host without the supervisor.
+The routes below are for hosts before 4.0.7 (their one last update):
+
 - **TrueNAS:** Pluck updates the app through the API (with the stored API key) at the quiet time
   (default 04:00), after asking the host to finish uploads and copies (`prepare-update`). On failure
   it puts the previous compose back.
@@ -115,6 +129,12 @@ SHA-256 against it. Unsigned or wrong: nothing runs.
    four systemd files and `host-release.json`. It does not sign.
 2. Run `scripts/sign-host-release.sh <tag>`: it checks every hash, signs, and uploads
    `host-release.json.sig`. Until then no host installs the release.
+   Self-updating hosts download `pluck-review-linux-<arch>` / `pluck-iroh-linux-<arch>` from it:
+   both must be in the signed `assets`.
+4. Once, with 4.0.7 (the first release with the supervisor): the image must be published with it, and
+   every TrueNAS host made before needs one last update by hand (Pluck shows it: Apps ›
+   pluck-review › Edit, the new image, Save; or one API key). Proxmox hosts take it through
+   "Update Now" (the old root updater); re-running `pluck-proxmox.sh` turns that updater's timer off.
 3. Once: `scripts/sign-host-release.sh --init`, then paste the public key into `PUBKEY_PEM` in
    `proxmox/pluck-proxmox.sh`, `proxmox/pluck-review-update.sh` and Pluck. While it says `REPLACE`
    the scripts refuse to install anything.

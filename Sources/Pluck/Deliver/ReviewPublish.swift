@@ -66,6 +66,8 @@ extension Deliver {
         var access: String? = nil
         /// What its hello said of email updates (`"mail": 1`, 4.1.0): Settings can set up its mail.
         var mail: Int? = nil
+        /// What its hello said of updating itself (`"selfUpdate": 1`, 4.0.7): Pluck tells it the version to follow, no API key.
+        var selfUpdate: Int? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }

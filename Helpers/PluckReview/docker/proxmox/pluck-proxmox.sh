@@ -255,7 +255,10 @@ OLDMEM="$(ct cat /etc/systemd/system/pluck-review.service.d/memory.conf 2>/dev/n
 ct mkdir -p /etc/systemd/system/pluck-review.service.d
 pct push "$CTID" "$WORK/memory.conf" /etc/systemd/system/pluck-review.service.d/memory.conf
 ct systemctl daemon-reload
-ct systemctl enable --now pluck-review.service pluck-review-update.timer pluck-review-update.path
+# From 4.0.7 the host updates itself (src/selfupdate.rs, into /var/lib/pluck-review/.pluck-host): the root updater's
+# daily timer and request path are only for this script's first install, so they stay off (and go off on a re-run).
+ct systemctl enable --now pluck-review.service
+ct systemctl disable --now pluck-review-update.timer pluck-review-update.path >/dev/null 2>&1 || true
 NEWENV="$(cat "$WORK/env")"
 { [ -z "$OLDENV" ] || [ "$OLDENV" = "$NEWENV" ]; } && { [ -z "$OLDMEM" ] || [ "$OLDMEM" = "$(cat "$WORK/memory.conf")" ]; } || ct systemctl restart pluck-review.service
 

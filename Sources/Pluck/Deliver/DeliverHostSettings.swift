@@ -54,41 +54,7 @@ struct DeliverHostSheet: View {
             }
             if let banner = DeliverHostUpdate.banner(host) { Text(verbatim: banner).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn) }
             VStack(alignment: .leading, spacing: 2) {
-                SettingRow(text: Text("Version"), detail: Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")")) {
-                    Button("Update Now") { Task { await updateNow() } }.settingButton()
-                        .disabled(!DeliverPeople.isAdmin(host) || updates.release == nil || updates.updating != nil || updates.asking.contains(host.id)
-                                  || host.version == updates.release?.version)
-                }
-                if updates.asking.contains(host.id) || updates.updating == host.id {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.small)
-                        Text("Updating… this can take a few minutes.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
-                    }
-                    .padding(.horizontal, 14)
-                } else if updates.noUpdater.contains(host.id) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Pluck can’t update this NAS from here. Paste its TrueNAS API key to update it.")
-                            .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn)
-                        HStack(spacing: 6) {
-                            SecureField("TrueNAS API key", text: $apiKey).settingField(width: 260)
-                            Button("Update") {
-                                guard let release = updates.release else { return }
-                                let key = apiKey
-                                apiKey = ""
-                                Task { await updates.update(host, to: release, apiKey: key) }
-                            }.settingButton().disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
-                        }
-                    }
-                    .padding(.horizontal, 14).padding(.vertical, 4)
-                }
-                if let last = updates.results[host.id] {
-                    Text("Last update: \(last.result) · \(last.at.formatted(date: .abbreviated, time: .shortened))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
-                    if let error = last.error { Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14) }
-                }
-                SettingRow("Update hosts at") {
-                    TextField("04:00", text: $quiet).settingField(width: 70)
-                        .onSubmit { if quiet.wholeMatch(of: #/[0-2]\d:[0-5]\d/#) != nil { UserDefaults.standard.set(quiet, forKey: DeliverHostUpdate.timeKey + host.id.uuidString) } }
-                }
+                if host.selfUpdate == 1 { updatesItself } else { updatedByHand }
             }
             .studioBox()
             Text("Devices").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
@@ -132,6 +98,85 @@ struct DeliverHostSheet: View {
         .task { quiet = DeliverHostUpdate.quietTime(host.id); await load() }
         .sheet(isPresented: $backup) { DeliverBackupSheet(main: host) }
         .deliverHostAction($action) { _ in dismiss() }
+    }
+
+    private var versionText: Text { Text(verbatim: "\(host.version ?? "–") · protocol \(host.protocol.map(String.init) ?? "–")") }
+    private var newer: Bool { updates.release.map { DeliverHostUpdate.isUpgrade(from: host.version, to: $0.version) } ?? false }
+
+    /// A host from 4.0.7: it follows this Pluck's version by itself, at a quiet moment.
+    @ViewBuilder private var updatesItself: some View {
+        let answer = updates.selfStatus[host.id], admin = DeliverPeople.isAdmin(host)
+        SettingRow(text: Text("Version"), detail: versionText) {
+            Button("Update Now") { Task { await updates.updateItself(host) } }.settingButton()
+                .disabled(!admin || !newer || updates.asking.contains(host.id))
+        }
+        SettingSwitch("Updates by itself", isOn: Binding(get: { answer?["auto"] as? Bool ?? true }, set: { on in Task { await updates.tell(host, ["auto": on]) } }))
+            .disabled(!admin)
+        if updates.asking.contains(host.id) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Updating at the next quiet moment").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .padding(.horizontal, 14)
+        } else if let state = DeliverHostUpdate.selfState(answer) {
+            let checked = DeliverHostUpdate.checked(answer).map { String(localized: "Checked \($0.formatted(.relative(presentation: .named)))") }
+            Text(verbatim: ([DeliverHostUpdate.text(state)] + [checked].compactMap { $0 }).joined(separator: " · "))
+                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
+            if case .failed(let error?) = state { Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14) }
+        }
+        if let last = updates.results[host.id], last.result != "ok", let error = last.error {
+            Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14)
+        }
+    }
+
+    /// A host before 4.0.7: one last update by hand (or through a TrueNAS API key already here); then it updates itself.
+    @ViewBuilder private var updatedByHand: some View {
+        let truenas = TrueNASSetup.isTrueNAS(host), hasKey = TrueNASKeychain.load(TrueNASSetup.nasAddress(host)) != nil
+        SettingRow(text: Text("Version"), detail: versionText) {
+            Button("Update Now") { Task { await updateNow() } }.settingButton()
+                .disabled(!DeliverPeople.isAdmin(host) || updates.release == nil || updates.updating != nil || updates.asking.contains(host.id) || !newer)
+        }
+        if updates.asking.contains(host.id) || updates.updating == host.id {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small)
+                Text("Updating… this can take a few minutes.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+            }
+            .padding(.horizontal, 14)
+        } else if newer && (updates.noUpdater.contains(host.id) || (truenas && !hasKey)), let release = updates.release {
+            VStack(alignment: .leading, spacing: 6) {
+                if truenas {
+                    Text("This NAS needs one last update by hand. In TrueNAS: Apps › \(host.role == "backup" ? "pluck-backup" : "pluck-review") › Edit, replace the image with this one, then Save. After that it updates by itself.")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Text(verbatim: release.image).font(Design.Studio.hint.monospaced()).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        Button("Copy") { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(release.image, forType: .string) }.settingButton().fixedSize()
+                    }
+                    Text("Or paste a TrueNAS API key once:").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    HStack(spacing: 6) {
+                        SecureField("TrueNAS API key", text: $apiKey).settingField(width: 260)
+                        Button("Update") {
+                            let key = apiKey
+                            apiKey = ""
+                            Task { await updates.update(host, to: release, apiKey: key) }
+                        }.settingButton().disabled(apiKey.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                } else {
+                    Text("This server needs one last update by hand: run its setup command again on the Proxmox host. After that it updates by itself.")
+                        .font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.horizontal, 14).padding(.vertical, 4)
+        }
+        if let last = updates.results[host.id] {
+            Text("Last update: \(last.result) · \(last.at.formatted(date: .abbreviated, time: .shortened))").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).padding(.horizontal, 14)
+            if let error = last.error { Text(verbatim: error).font(Design.Studio.hint).foregroundStyle(Design.Studio.bad).textSelection(.enabled).padding(.horizontal, 14) }
+        }
+        if hasKey {
+            SettingRow("Update hosts at") {
+                TextField("04:00", text: $quiet).settingField(width: 70)
+                    .onSubmit { if quiet.wholeMatch(of: #/[0-2]\d:[0-5]\d/#) != nil { UserDefaults.standard.set(quiet, forKey: DeliverHostUpdate.timeKey + host.id.uuidString) } }
+            }
+        }
     }
 
     private func deviceRow(_ device: [String: Any]) -> some View {
@@ -178,6 +223,7 @@ struct DeliverHostSheet: View {
             backups = status?["backups"] as? [[String: Any]] ?? []
             uplink = status?["uplinkMbps"] as? Int
             preferFastest = status?["preferFastest"] as? Bool ?? true
+            if host.selfUpdate == 1 { await updates.tell(host) }
             mainReachable = true
         } catch {
             mainReachable = false
@@ -198,11 +244,14 @@ struct DeliverHostSheet: View {
         DeliverKeychain.save(Data(key.utf8), as: address, service: DeliverKeychain.hostService)
     }
 
-    /// TrueNAS: through its API (DeliverHostUpdate); Proxmox: the host asks its own updater (`update`).
+    /// A host before 4.0.7. TrueNAS: through its API when a key is here, else the one step by hand; Proxmox: the host
+    /// asks its root updater (`update`).
     private func updateNow() async {
         guard let release = updates.release else { return }
-        if TrueNASKeychain.load(host.address?.split(separator: ":").first.map(String.init) ?? "") != nil {
+        if TrueNASKeychain.load(TrueNASSetup.nasAddress(host)) != nil {
             await updates.update(host, to: release, forced: false)
+        } else if TrueNASSetup.isTrueNAS(host) {
+            updates.noUpdater.insert(host.id)
         } else {
             await updates.ask(host, to: release)
         }

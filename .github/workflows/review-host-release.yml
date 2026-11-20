@@ -90,10 +90,16 @@ jobs:
           is a separate program (GPL as Debian builds it); Debian publishes its source.
           NOTE
           tar -czf "pluck-review-host-linux-$ARCH.tar.gz" -C "$stage" pluck-review pluck-iroh LICENSES
+          # The plain programs too: a self-updating host (selfupdate.rs) downloads these two, by these names.
+          cp "$stage/pluck-review" "pluck-review-linux-$ARCH"
+          cp "$stage/pluck-iroh" "pluck-iroh-linux-$ARCH"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tarball-${{ matrix.arch }}
-          path: pluck-review-host-linux-${{ matrix.arch }}.tar.gz
+          path: |
+            pluck-review-host-linux-${{ matrix.arch }}.tar.gz
+            pluck-review-linux-${{ matrix.arch }}
+            pluck-iroh-linux-${{ matrix.arch }}
           if-no-files-found: error
 
   image:
@@ -292,11 +298,11 @@ jobs:
           cp Helpers/PluckRelay/docker/proxmox/pluck-relay-proxmox.sh out/
           cp "$src"/pluck-review.service "$src"/pluck-review-update.service \
              "$src"/pluck-review-update.timer "$src"/pluck-review-update.path out/
-          assets="$(cd out && sha256sum -- *.tar.gz pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
+          assets="$(cd out && sha256sum -- *.tar.gz pluck-review-linux-* pluck-iroh-linux-* pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh pluck-review*.service pluck-review-update.timer pluck-review-update.path \
             | jq -Rn '[inputs | capture("^(?<v>[0-9a-f]+)  (?<k>.+)$") | {key: .k, value: .v}] | from_entries')"
           jq -n --arg version "$TAG" --arg image "$IMAGE" --arg relay "$RELAY_IMAGE" --argjson assets "$assets" \
             '{version: $version, protocol: 3, image: $image, relayImage: $relay, assets: $assets}' > out/host-release.json
           cat out/host-release.json
           cd out
-          gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh \
+          gh release upload "$TAG" --repo "$REPO" --clobber -- *.tar.gz pluck-review-linux-* pluck-iroh-linux-* pluck-proxmox.sh pluck-relay-proxmox.sh pluck-review-update.sh \
             pluck-review.service pluck-review-update.service pluck-review-update.timer pluck-review-update.path host-release.json

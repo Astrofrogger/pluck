@@ -85,6 +85,8 @@ X
   echo "iroh" > "$stage/pluck-iroh"; echo "x" > "$stage/LICENSES/THIRD-PARTY.txt"; chmod +x "$stage/pluck-review" "$stage/pluck-iroh"
   tar -czf "$d/pluck-review-host-linux-amd64.tar.gz" -C "$stage" pluck-review pluck-iroh LICENSES
   cp "$d/pluck-review-host-linux-amd64.tar.gz" "$d/pluck-review-host-linux-arm64.tar.gz"
+  # (the plain programs a self-updating host downloads; the signer refuses a release without them)
+  for a in amd64 arm64; do cp "$stage/pluck-review" "$d/pluck-review-linux-$a"; cp "$stage/pluck-iroh" "$d/pluck-iroh-linux-$a"; done
   if [ "${EXTRA:-0}" = 1 ]; then cp "$SRC"/pluck-review-update.sh "$SRC"/pluck-review*.service "$SRC"/pluck-review-update.timer "$SRC"/pluck-review-update.path "$d/"; fi
   local assets='{}' f h
   for f in "$d"/*; do

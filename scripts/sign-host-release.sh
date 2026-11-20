@@ -5,6 +5,10 @@
 #   scripts/sign-host-release.sh <tag>      download host-release.json and its assets, check every
 #                                           SHA-256, sign host-release.json, upload host-release.json.sig
 #
+# Checklist: the release must carry pluck-review-linux-{amd64,arm64} and pluck-iroh-linux-{amd64,arm64}
+# in host-release.json's assets (self-updating hosts, 4.0.7+, download exactly these). 4.0.7 once: its image
+# (with the supervisor) must be published, and pre-4.0.7 TrueNAS hosts need one last update by hand.
+#
 # The private key lives at ~/Documents/_CLAUDE/Pluck Signing/host-update-ed25519.pem (override with
 # PLUCK_HOST_SIGNING_KEY). Needs OpenSSL 3 or newer, jq and the gh CLI.
 set -euo pipefail
@@ -59,6 +63,9 @@ while IFS=$'\t' read -r name want; do
   have="$(sha256_of "$W/$name")"
   if [ "$have" = "$want" ]; then echo "ok    $name"; else echo "WRONG $name (release has $have, json says $want)"; fail=1; fi
 done < <(jq -r '.assets | to_entries[] | [.key, .value] | @tsv' "$W/host-release.json")
+for a in pluck-review-linux-amd64 pluck-review-linux-arm64 pluck-iroh-linux-amd64 pluck-iroh-linux-arm64; do
+  jq -e --arg a "$a" '.assets[$a]' "$W/host-release.json" >/dev/null || { echo "MISSING $a (self-updating hosts need it)"; fail=1; }
+done
 [ "$fail" = 0 ] || die "hash mismatch: not signing"
 
 "$OPENSSL" pkeyutl -sign -rawin -inkey "$KEY" -in "$W/host-release.json" -out "$W/sig.bin"
