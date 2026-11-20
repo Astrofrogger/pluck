@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 extension PhotoSelfTest {
     /// Remote editing's protocol (-PluckScreenshotOnly remoteedit): a host and a client in this
@@ -195,6 +196,20 @@ extension PhotoSelfTest {
             check("ask for files: a path out of the share is refused", await refused({ _ = try await client.ask("askFiles", outside) }))
             let noServer: String = await { do { _ = try await client.ask("askFiles", ask); return "made" } catch { return error.localizedDescription } }()
             check("ask for files: a folder no NAS review server holds says so", noServer == RemoteAskFiles.needsServer, noServer)
+            let askedFile = base.appendingPathComponent("asked.bin"), askedBytes = Data("twelve bytes".utf8)
+            fm.createFile(atPath: askedFile.path, contents: askedBytes)
+            let askedSha = SHA256.hash(data: askedBytes).map { String(format: "%02x", $0) }.joined()
+            check("ask for files: a fetched file is checked against the upload's sha256", RemoteAskFiles.intact(askedFile, size: 12, sha256: askedSha.uppercased())
+                  && !RemoteAskFiles.intact(askedFile, size: 12, sha256: String(repeating: "0", count: 64)) && RemoteAskFiles.intact(askedFile, size: 12, sha256: nil)
+                  && !RemoteAskFiles.intact(askedFile, size: 11, sha256: nil))
+            let claimFile = base.appendingPathComponent(".pluck-asked-test")
+            fm.createFile(atPath: claimFile.path, contents: Data())
+            try? fm.setAttributes([.modificationDate: Date.now.addingTimeInterval(-3600)], ofItemAtPath: claimFile.path)
+            let freshTask = RemoteAskFiles.keepFresh(claimFile, every: 0.2)
+            try? await Task.sleep(for: .milliseconds(700))
+            freshTask.cancel()
+            let claimDate = (try? claimFile.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+            check("ask for files: a long download keeps its claim fresh", Date.now.timeIntervalSince(claimDate) < 5, "\(claimDate)")
             // An Admin changes roles from a home Mac too; an Editor can't.
             let notAdmin: String = await { do { _ = try await client.ask("accessList"); return "" } catch { return error.localizedDescription } }()
             check("access: only an Admin changes roles from a home Mac", notAdmin == OfficeAccess.adminRefusal, notAdmin)

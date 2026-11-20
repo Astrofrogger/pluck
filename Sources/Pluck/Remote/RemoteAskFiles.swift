@@ -144,9 +144,10 @@ final class RemoteAskFiles {
             let folder = into["folder"] as? String ?? ""
             moving.insert(id)
             let size = (upload["size"] as? NSNumber)?.int64Value ?? 0
+            let sha = upload["sha256"] as? String
             Task {
                 defer { moving.remove(id) }
-                if let placedName = try? await Self.move(id: id, path: path, name: name, size: size, into: target, host: host),
+                if let placedName = try? await Self.move(id: id, path: path, name: name, size: size, sha256: sha, into: target, host: host),
                    let index = asked.firstIndex(where: { $0.id == link }), let at = asked[index].arrivals.firstIndex(where: { $0.id == id }) {
                     asked[index].arrivals[at].placed = [root, folder, placedName].filter { !$0.isEmpty }.joined(separator: "/")
                     save()
@@ -172,7 +173,7 @@ final class RemoteAskFiles {
 
     /// One quarantined upload into its folder: a claim file first (O_EXCL; a stale one is taken over), the bytes fetched
     /// from the server into a hidden file there, put under a free name, then taken off the server.
-    static func move(id: String, path: String, name: String, size: Int64, into folder: URL, host: Deliver.Host) async throws -> String? {
+    static func move(id: String, path: String, name: String, size: Int64, sha256: String?, into folder: URL, host: Deliver.Host) async throws -> String? {
         let claim = folder.appendingPathComponent(".pluck-asked-\(id)")
         let made = open(claim.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644)
         if made < 0 {
@@ -187,9 +188,12 @@ final class RemoteAskFiles {
         let name = RemoteSendInto.nameOK(name) ? name : "\(id).\((path as NSString).pathExtension)"
         let part = folder.appendingPathComponent(".\(id).pluckpart")
         try? FileManager.default.removeItem(at: part)
+        let fresh = keepFresh(claim)
+        defer { fresh.cancel() }
         do {
             try await ReviewHostClient.session(host) { session in try await session.get(path, to: part, expected: size) }
-            guard RemotePullManager.size(of: part) == size else { throw OfficeLink.Failure.garbled }
+            // The bytes as the server checked them on arrival, before they're placed and the NAS copy goes.
+            guard await Task.detached(operation: { intact(part, size: size, sha256: sha256) }).value else { throw OfficeLink.Failure.garbled }
             let placed = try RemoteSendInto.place(part, in: folder, name: name)
             try? Data("done".utf8).write(to: claim)
             _ = try? await ReviewHostClient.session(host) { session in _ = try await session.ask(["op": "delete", "path": path]) }
@@ -198,6 +202,24 @@ final class RemoteAskFiles {
             try? FileManager.default.removeItem(at: part)
             try? FileManager.default.removeItem(at: claim)
             throw error
+        }
+    }
+}
+
+extension RemoteAskFiles {
+    /// The file has the upload's size and, when the server gave one (4.0.7), its sha256 (hex).
+    nonisolated static func intact(_ file: URL, size: Int64, sha256: String?) -> Bool {
+        RemotePullManager.size(of: file) == size && sha256.map { RemotePullManager.sha256(file) == $0.lowercased() } ?? true
+    }
+
+    /// Keeps a claim's date fresh while a long download runs (another Mac takes over a claim older than `staleClaim`).
+    nonisolated static func keepFresh(_ claim: URL, every seconds: TimeInterval = staleClaim / 3) -> Task<Void, Never> {
+        Task.detached {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                try? FileManager.default.setAttributes([.modificationDate: Date.now], ofItemAtPath: claim.path)
+            }
         }
     }
 }
