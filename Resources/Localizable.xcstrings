@@ -355262,6 +355262,64 @@
           }
         }
       }
+    },
+    "Shrink old rushes into checked 1080p masters and free space on the NAS. Originals wait in a folder for you to delete." : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verkleinere altes Rohmaterial zu geprüften 1080p-Mastern und schaffe Platz auf dem NAS. Die Originale warten in einem Ordner darauf, dass du sie löschst."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reduce el material bruto antiguo a másteres 1080p comprobados y libera espacio en el NAS. Los originales esperan en una carpeta para que los borres."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Réduisez les anciens rushes en masters 1080p vérifiés et libérez de la place sur le NAS. Les originaux attendent dans un dossier que vous les supprimiez."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Riduci il vecchio girato in master 1080p verificati e libera spazio sul NAS. Gli originali restano in una cartella in attesa che li elimini."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "古い素材を確認済みの 1080p マスターに縮小して、NAS の空き容量を増やします。オリジナルは削除用のフォルダで待機します。"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "오래된 촬영본을 확인된 1080p 마스터로 줄여 NAS 공간을 확보합니다. 원본은 삭제할 수 있도록 폴더에 보관됩니다."
+          }
+        },
+        "nl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Verklein oud ruw materiaal tot gecontroleerde 1080p-masters en maak ruimte vrij op de NAS. De originelen wachten in een map tot jij ze verwijdert."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Reduza material bruto antigo a masters 1080p verificados e libere espaço no NAS. Os originais ficam em uma pasta esperando você apagar."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "将旧素材压缩为已检查的 1080p 母版，释放 NAS 空间。原始文件会留在一个文件夹中，等你删除。"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"
