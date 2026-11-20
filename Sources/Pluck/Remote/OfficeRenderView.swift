@@ -248,6 +248,7 @@ private struct HomeRenderView: View {
     @State private var picked: OfficeFinder.Found?
     @State private var joining = false
     @State private var pairingWithCode = false
+    @State private var wakeProblem: String?
     /// The invitation the alert shows, taken from the client so a newer link can't swap in under the click.
     @State private var shownInvitation: PrivateNetwork.Invitation?
     @AppStorage("editAnywherePane") private var pane = Pane.proxies
@@ -435,6 +436,13 @@ private struct HomeRenderView: View {
                         .frame(width: 6, height: 6).accessibilityHidden(true)
                     Text(member.name).lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
+                    if state?.online == false, client.members.count > 1 {
+                        Button("Wake") {
+                            Task { do { try await OfficeWake.wake(member.id); wakeProblem = nil } catch { wakeProblem = error.localizedDescription } }
+                        }
+                        .buttonStyle(.plain).foregroundStyle(Design.Brand.pink)
+                        .help("Another office Mac sends it a wake message on the office network")
+                    }
                     Group {
                         if state?.online == false { Text("Offline") } else if state?.busy == true { Text("Rendering") }
                         else if (client.active ?? client.primary) == member.id { Text("In use") } else { Text("Online") }
@@ -443,6 +451,7 @@ private struct HomeRenderView: View {
                 }
                 .font(Design.Studio.hint)
             }
+            if let wakeProblem { Text(wakeProblem).font(Design.Studio.hint).foregroundStyle(Design.Studio.warn).fixedSize(horizontal: false, vertical: true) }
         }
         .padding(12)
         .studioBox()
@@ -869,6 +878,7 @@ private struct HostMacsPane: View {
                 }
             }
             officeMacs
+            if group.isGrouped { WakeGuide() }
             Divider().overlay(Design.Studio.line)
             FootLine(text: Text("Connection: \(iroh ? String(localized: "Pluck (no account)") : "Tailscale")")) {
                 PinkLink(title: "Change…") { connection = true }
