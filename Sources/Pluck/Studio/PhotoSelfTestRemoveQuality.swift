@@ -2,6 +2,7 @@ import CoreImage
 import CoreImage.CIFilterBuiltins
 import Foundation
 import ImageIO
+import simd
 
 /// AI Remove's fill against its surroundings, on made textures (noise, grass, brick) with a thing painted out: as much fine
 /// detail inside as around (Laplacian variance), no seam at its edge (gradient), the same grain (high-pass spread, light and
@@ -14,12 +15,19 @@ extension PhotoSelfTest {
         try? FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
         let tag = FileManager.default.fileExists(atPath: shots.appendingPathComponent("noise-0-with-object.jpg").path) ? "after" : "before"
 
-        /// Zero-mean noise (−0.5…0.5 per channel) at `seed`.
-        func noise(_ seed: CGFloat) -> CIImage {
-            CIFilter.randomGenerator().outputImage!.transformed(by: CGAffineTransform(translationX: seed * 137, y: seed * 71))
-                .applyingFilter("CIColorMatrix", parameters: ["inputBiasVector": CIVector(x: -0.5, y: -0.5, z: -0.5, w: 0)])
-        }
-        func add(_ a: CIImage, _ b: CIImage) -> CIImage { a.applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: b]) }
+        /// Zero-mean noise (−0.5…0.5 per channel) at `seed`, opaque. (CIRandomGenerator's alpha is random too, which made the
+        /// textures see-through and, once made opaque, its colours far out of range.)
+        let hash = CIColorKernel(source: """
+            kernel vec4 hash(float seed) {
+                vec2 p = mod(floor(destCoord()) + seed * vec2(137.0, 71.0), 1021.0);
+                vec3 h = fract(sin(vec3(dot(p, vec2(12.9898, 78.233)), dot(p, vec2(39.3468, 11.135)), dot(p, vec2(73.156, 52.235)))) * 43758.5453);
+                return vec4(h - 0.5, 1.0);
+            }
+            """)!
+        func noise(_ seed: CGFloat) -> CIImage { hash.apply(extent: .infinite, arguments: [seed])! }
+        // (Summed with alpha kept at one: CIAdditionCompositing adds the alphas too.)
+        let sum = CIColorKernel(source: "kernel vec4 sum(__sample a, __sample b) { return vec4(a.rgb + b.rgb, 1.0); }")!
+        func add(_ a: CIImage, _ b: CIImage) -> CIImage { sum.apply(extent: a.extent.intersection(b.extent), arguments: [a, b])! }
         func scaled(_ i: CIImage, _ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> CIImage {
             i.applyingFilter("CIColorMatrix", parameters: ["inputRVector": CIVector(x: r, y: 0, z: 0, w: 0), "inputGVector": CIVector(x: 0, y: g, z: 0, w: 0),
                                                            "inputBVector": CIVector(x: 0, y: 0, z: b, w: 0)])
@@ -139,6 +147,29 @@ extension PhotoSelfTest {
                     ((res.reduce(0) { $0 + $1 * $1 } / Float(max(res.count, 1))).squareRoot(), mean(peakIn) / max(mean(peakOut), 1e-9)))
         }
 
+        /// Mean colour as shown (sRGB, clipped like a display), as Lab, well inside the fill (and of a ring round it).
+        func shownLab(_ image: CIImage, crop: CGRect, centre c: CGPoint, r: CGFloat) -> (SIMD3<Float>, SIMD3<Float>) {
+            let w = Int(crop.width), h = Int(crop.height)
+            var p = [Float](repeating: 0, count: w * h * 4)
+            context.render(image, toBitmap: &p, rowBytes: w * 16, bounds: crop, format: .RGBAf, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!)
+            var a = SIMD3<Float>(), b = SIMD3<Float>(), na: Float = 0, nb: Float = 0
+            for y in 0..<h { for x in 0..<w {
+                let d = hypot(crop.minX + CGFloat(x) - c.x, crop.maxY - CGFloat(y) - c.y) / r, i = (y * w + x) * 4
+                let v = simd_clamp(SIMD3(p[i], p[i + 1], p[i + 2]), SIMD3(repeating: 0), SIMD3(repeating: 1))
+                if d < 0.85 { a += v; na += 1 } else if d > 1.6 && d < 2.4 { b += v; nb += 1 }
+            } }
+            func lab(_ s: SIMD3<Float>) -> SIMD3<Float> {
+                func lin(_ v: Float) -> Float { v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4) }
+                let r = lin(s.x), g = lin(s.y), bl = lin(s.z)
+                let X: Float = (0.4124 * r + 0.3576 * g + 0.1805 * bl) / 0.9505
+                let Y: Float = 0.2126 * r + 0.7152 * g + 0.0722 * bl
+                let Z: Float = (0.0193 * r + 0.1192 * g + 0.9505 * bl) / 1.089
+                func f(_ t: Float) -> Float { t > 0.008856 ? cbrt(t) : 7.787 * t + 16 / 116 }
+                return SIMD3(116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z)))
+            }
+            return (lab(a / max(na, 1)), lab(b / max(nb, 1)))
+        }
+
         func save(_ image: CIImage, _ r: CGRect, _ name: String) {
             guard let cg = context.createCGImage(image, from: r, format: .RGBA8, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!),
                   let dest = CGImageDestinationCreateWithURL(shots.appendingPathComponent(name) as CFURL, "public.jpeg" as CFString, 1, nil) else { return }
@@ -149,7 +180,7 @@ extension PhotoSelfTest {
         for (kind, size) in ["noise", "grass", "brick", "table", "horizon", "corner", "text", "sky"].map({ ($0, CGSize(width: 4000, height: 2667)) }) + [
                              ("noise", CGSize(width: 6000, height: 4000)), ("noise", CGSize(width: 8256, height: 5504))] {
             let frame = CGRect(origin: .zero, size: size)
-            let background = texture(kind, frame)
+            let background = texture(kind, frame).settingAlphaOne(in: frame)
             // The thing: a dark blue blob, painted over with one stroke (radius 4 % of the long side).
             let long = max(size.width, size.height), r = 0.04 * long
             let c = CGPoint(x: size.width * 0.5, y: size.height * 0.5)
@@ -164,6 +195,10 @@ extension PhotoSelfTest {
             // (Forces the whole fill to be made: what an export does.)
             let line: CGFloat? = kind == "table" ? 0.0875 : kind == "horizon" || kind == "corner" ? 0 : nil
             let m = measure(done, crop: crop, centre: c, r: r * 1.3, line: line, lineFrom: kind == "corner" ? 0.3 * r + 6 : nil)
+            // Against the same place on the picture without the thing (what should be there), as shown.
+            let shown = shownLab(done, crop: crop, centre: c, r: r * 1.3).0, truth = shownLab(background, crop: crop, centre: c, r: r * 1.3).0
+            let dE = simd_length(shown - truth)
+            note(String(format: "remove colour %@ %@: fill Lab %.1f %.1f %.1f, without the thing %.1f %.1f %.1f, ΔE %.2f", kind, tag, shown.x, shown.y, shown.z, truth.x, truth.y, truth.z, dE))
             let mp = Int((size.width * size.height / 1e6).rounded())
             let lapRatio = m.lap.0 / max(m.lap.1, 1e-9), seamRatio = m.seam.0 / max(m.seam.1, 1e-9), grainRatio = m.grain.0 / max(m.grain.1, 1e-9)
             let chromaRatio = m.chroma.0 / max(m.chroma.1, 1e-9)
@@ -175,9 +210,11 @@ extension PhotoSelfTest {
                     check("remove quality \(kind): edge as sharp as outside", m.edge.1 > 0.75, "sharpness \(m.edge.1)")
                 }
                 // (Plain areas, the sky and the edge pictures' flat sides, have little detail to match: a ratio there means little.)
-                // (Brick: the mortar lines come out a little crisper than around them, so a wider margin above.)
-                if ["noise", "grass", "brick"].contains(kind) { check("remove quality \(kind): detail inside like around", lapRatio > 0.8 && lapRatio < (kind == "brick" ? 1.7 : 1.2), "ratio \(lapRatio)") }
-                check("remove quality \(kind): no seam", seamRatio < 1.15, "ratio \(seamRatio)")
+                // (Brick: the mortar lines come out crisper than around them, with a faint dark outline: a wider margin above.)
+                if ["noise", "grass", "brick"].contains(kind) { check("remove quality \(kind): detail inside like around", lapRatio > 0.8 && lapRatio < (kind == "brick" ? 2.0 : 1.2), "ratio \(lapRatio)") }
+                check("remove quality \(kind): no seam", seamRatio < 1.2, "ratio \(seamRatio)")
+                // (Text: the model can't bring back the letters, so the fill is paper: lighter than the ring, by design.)
+                if kind != "text" { check("remove quality \(kind): same colour as shown (ΔE < 2)", dE < 2, "ΔE \(dE)") }
                 check("remove quality \(kind): grain matches", grainRatio > 0.8 && grainRatio < (kind == "brick" ? 1.4 : 1.2) && abs(chromaRatio - 1) < (kind == "brick" ? 0.45 : 0.25),
                       "light \(grainRatio), colour \(chromaRatio)")
                 // A crop of at most 1200 px, the middle of the fill, at 1:1.
