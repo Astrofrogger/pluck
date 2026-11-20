@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 /// Proxies for Edit Anywhere, on the host Mac: light copies of a shared footage folder, made one
 /// file at a time, that paired Macs fetch to edit with at home and relink to the originals later.
@@ -613,6 +614,13 @@ final class OfficeProxies {
                 process.waitUntilExit()
                 pipe.fileHandleForReading.readabilityHandler = nil
                 if process.terminationStatus == 0 {
+                    // Premiere's Attach Proxies and Final Cut's Relink Proxy Files need the original's frame rate, timecode,
+                    // aspect and audio channels: a proxy that differs fails loudly instead of linking wrong.
+                    if let problem = attachProblem(source, partial, ffprobe: ffprobe) {
+                        mismatches.withLock { $0[target.path] = problem }
+                        try? FileManager.default.removeItem(at: partial)
+                        return false
+                    }
                     try? FileManager.default.removeItem(at: target)
                     if (try? FileManager.default.moveItem(at: partial, to: target)) != nil { return true }
                 }
@@ -620,6 +628,51 @@ final class OfficeProxies {
             }
             return false
         }.value
+    }
+
+    /// Why a proxy made last didn't match its original (by the proxy's path), for the request's problem.
+    nonisolated static let mismatches = OSAllocatedUnfairLock(initialState: [String: String]())
+
+    /// The stream facts Attach Proxies / Relink Proxy Files compare: frame rate, timecode, display aspect, audio channels per stream.
+    nonisolated static func attachFacts(_ file: URL, ffprobe: String) -> (fps: String, timecode: String?, aspect: Double?, audio: [Int]) {
+        let process = Process(), pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: ffprobe)
+        process.arguments = ["-v", "error", "-show_entries", "stream=codec_type,r_frame_rate,width,height,sample_aspect_ratio,channels:stream_tags=timecode:format_tags=timecode",
+                             "-of", "json", file.path]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return ("", nil, nil, []) }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+        let streams = json["streams"] as? [[String: Any]] ?? []
+        let video = streams.first { $0["codec_type"] as? String == "video" } ?? [:]
+        var aspect: Double?
+        if let w = video["width"] as? Int, let h = video["height"] as? Int, h > 0 {
+            let sar = (video["sample_aspect_ratio"] as? String)?.split(separator: ":").compactMap { Double($0) } ?? []
+            aspect = Double(w) / Double(h) * (sar.count == 2 && sar[0] > 0 && sar[1] > 0 ? sar[0] / sar[1] : 1)
+        }
+        let timecode = ((json["format"] as? [String: Any])?["tags"] as? [String: Any])?["timecode"] as? String
+            ?? streams.lazy.compactMap { ($0["tags"] as? [String: Any])?["timecode"] as? String }.first
+        return (video["r_frame_rate"] as? String ?? "", timecode,
+                aspect, streams.filter { $0["codec_type"] as? String == "audio" }.map { $0["channels"] as? Int ?? 0 })
+    }
+
+    /// nil when the proxy can stand in for the original in Premiere and Final Cut Pro, else what differs.
+    nonisolated static func attachProblem(_ original: URL, _ proxy: URL, ffprobe: String?) -> String? {
+        guard let ffprobe else { return nil }
+        let a = attachFacts(original, ffprobe: ffprobe), b = attachFacts(proxy, ffprobe: ffprobe)
+        func rate(_ text: String) -> Double? {
+            let parts = text.split(separator: "/").compactMap { Double($0) }
+            return parts.count == 2 && parts[1] > 0 ? parts[0] / parts[1] : nil
+        }
+        if let x = rate(a.fps), let y = rate(b.fps), abs(x - y) > x * 0.005 { return String(localized: "The proxy’s frame rate (\(b.fps)) isn’t the original’s (\(a.fps)).") }
+        if a.timecode?.replacingOccurrences(of: ";", with: ":") != b.timecode?.replacingOccurrences(of: ";", with: ":") {
+            return String(localized: "The proxy’s timecode isn’t the original’s.")
+        }
+        if let x = a.aspect, let y = b.aspect, abs(x - y) > 0.01 { return String(localized: "The proxy’s picture shape isn’t the original’s.") }
+        if a.audio != b.audio { return String(localized: "The proxy’s audio channels aren’t the original’s.") }
+        return nil
     }
 
     /// A raw clip (RED, Blackmagic RAW, a CinemaDNG folder) through pluck-raw, which ffmpeg can't read: at the

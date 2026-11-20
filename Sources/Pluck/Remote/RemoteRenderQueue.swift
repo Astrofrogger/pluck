@@ -43,6 +43,8 @@ final class RemoteRenderQueue {
         var preview: String?
         var previewSize: Int64?
         var making = false
+        /// An XML from Premiere Pro or Final Cut Pro on this Mac, paths already its originals (RemoteXML); nil: a checked-in project.
+        var xml: String?
 
         var open: Bool { state == .queued || state == .preparing || state == .rendering }
 
@@ -153,16 +155,22 @@ final class RemoteRenderQueue {
         if item.state == .rendering { return await follow(id) }
         update(id) { $0.state = .preparing; $0.problems = [] }
         do {
-            let drp = RemoteCheckout.shared.file(item.project, version: item.version)
-            guard FileManager.default.fileExists(atPath: drp.path) else {
-                throw OfficeLink.Failure.office(String(localized: "That version isn’t on the host Mac any more."))
-            }
             let name = RemoteResolveProject.hostName(item.projectName, id: item.project)
-            let inspected = try await RemoteResolveScript.run(["action": "inspect", "name": name, "drp": drp.path, "timeline": item.timeline,
-                                                                       "label": item.projectName])
+            let inspected: [String: Any]
+            if let xml = item.xml {
+                guard FileManager.default.fileExists(atPath: xml) else { throw OfficeLink.Failure.office(String(localized: "That XML isn’t on the host Mac any more.")) }
+                inspected = try await RemoteResolveScript.run(["action": "inspectXML", "name": name, "xml": xml, "timeline": item.timeline, "label": item.projectName])
+            } else {
+                let drp = RemoteCheckout.shared.file(item.project, version: item.version)
+                guard FileManager.default.fileExists(atPath: drp.path) else {
+                    throw OfficeLink.Failure.office(String(localized: "That version isn’t on the host Mac any more."))
+                }
+                inspected = try await RemoteResolveScript.run(["action": "inspect", "name": name, "drp": drp.path, "timeline": item.timeline,
+                                                               "label": item.projectName])
+            }
             guard self.item(id)?.state == .preparing else { return }
             var problems: [String] = []
-            if !(inspected["timelines"] as? [String] ?? []).contains(item.timeline) {
+            if item.xml == nil, !(inspected["timelines"] as? [String] ?? []).contains(item.timeline) {
                 problems.append(String(localized: "The timeline \(item.timeline) isn’t in this version."))
             }
             if !(inspected["presets"] as? [String] ?? []).contains(item.preset) {

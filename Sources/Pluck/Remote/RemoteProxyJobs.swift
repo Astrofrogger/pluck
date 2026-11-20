@@ -319,7 +319,8 @@ final class RemoteProxyJobs {
                 _ = await entry(root: root, share: request.share, relative: relative, format: request.format)
                 saveCache()
             } else {
-                set(id) { $0.failed.append(relative) }
+                let mismatch = OfficeProxies.mismatches.withLock { $0.removeValue(forKey: target(relative).path) }
+                set(id) { $0.failed.append(relative); if let mismatch { $0.problem = mismatch } }
             }
             save()
           }
@@ -327,7 +328,7 @@ final class RemoteProxyJobs {
         working = nil
         set(id) { request in
             request.state = request.failed.isEmpty ? .ready : .failed
-            if !request.failed.isEmpty { request.problem = String(localized: "Some files couldn’t be made into proxies.") }
+            if !request.failed.isEmpty, request.problem == nil { request.problem = String(localized: "Some files couldn’t be made into proxies.") }
         }
         save()
     }

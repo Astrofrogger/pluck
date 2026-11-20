@@ -48,6 +48,7 @@ extension PhotoSelfTest {
               plan.problems.count == 5 && zip(plan.problems, named).allSatisfy { $0.hasPrefix($1 + ":") }, "\(plan.problems)")
 
         remoteResolveUses(base)
+        remoteXMLTest()
 
         // The render queue: in order, cancel, and what a restart keeps.
         let queueFile = base.appendingPathComponent("queue.json")

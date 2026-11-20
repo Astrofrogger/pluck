@@ -226,6 +226,24 @@ final class RemoteResolve {
                       files: answer["files"] as? [String] ?? [])
     }
 
+    // MARK: - XML from Premiere Pro or Final Cut Pro
+
+    /// Sends an exported XML to render on the host with `preset`: its proxies mapped to their originals (RemoteXML).
+    /// Answers the paths that weren't this Mac's proxies (left as they are). A host from before can't.
+    func renderXML(_ text: String, name: String, timeline: String, preset: String) async throws -> [String] {
+        let proxies = RemoteResolveMap.proxies(for: RemoteXML.files(text), roots: await roots(everyMode: true))
+        let answer: [String: Any]
+        do {
+            answer = try await client.ask(RemoteXML.action, ["xml": text, "name": name, "timeline": timeline, "preset": preset,
+                                                             "proxies": proxies.map { ["file": $0.file, "share": $0.share, "path": $0.path] }], timeout: 300)
+        } catch OfficeLink.Failure.office(let message) where message == String(localized: "The host Mac doesn’t know how to do that.") {
+            throw OfficeLink.Failure.office(String(localized: "The host Mac’s Pluck is too old to render XML. Update it there."))
+        }
+        try await refresh()
+        follow()
+        return answer["unknown"] as? [String] ?? []
+    }
+
     // MARK: - Parts of originals
 
     /// The originals the timeline open in Resolve uses (through this Mac's proxies), each as its used part plus handles
