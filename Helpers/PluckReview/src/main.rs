@@ -28,6 +28,8 @@ mod relay;
 mod replica;
 mod roots;
 mod rtc;
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // the supervisor runs on Linux only
+mod selfupdate;
 mod signal;
 mod store;
 mod stun;
@@ -100,6 +102,13 @@ async fn main() {
         };
         let _ = rustls::crypto::ring::default_provider().install_default();
         std::process::exit(update::ctl(std::path::Path::new(dir), op).await);
+    }
+    // On Linux (the NAS container, the Proxmox service) `--host` first becomes the supervisor that runs the newest
+    // verified program (selfupdate.rs); PLUCK_SELF_UPDATE=0 runs the host directly.
+    #[cfg(target_os = "linux")]
+    if let (Some(dir), false) = (arg("--host"), selfupdate::active() || env("PLUCK_SELF_UPDATE").as_deref() == Some("0")) {
+        let exe = std::env::current_exe().unwrap_or_else(|_| "/usr/local/bin/pluck-review".into());
+        std::process::exit(selfupdate::supervise(dir.into(), exe, update::VERSION.into(), args.clone(), selfupdate::Trust::github().key, selfupdate::EARLY).await);
     }
     // `pluck-review --host <data> [--media <id>=<path>]… [--drop <id>[=<path>]]… [--uploads <id>=<path>] [--listen <addr:port>]
     // [--admin <addr:port>] [--signal <url>] [--local] [--iroh] [--iroh-bin <path>] [--iroh-relay <url>]
@@ -405,6 +414,9 @@ async fn run(cfg: Value, mut lines: tokio::io::Lines<BufReader<tokio::io::Stdin>
             });
         }
         tokio::spawn(update::health(update::health_path()));
+        if selfupdate::active() {
+            tokio::spawn(selfupdate::run(data.clone(), selfupdate::Trust::github(), sync_tx.clone()));
+        }
         to_host = Some(sync_tx);
     }
 

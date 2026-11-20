@@ -527,6 +527,10 @@ pub async fn round(shared: &Shared, to_host: &mpsc::Sender<host::Sync>, c: &mut 
     if let Some(v) = s["update"].as_str() {
         crate::update::request(&shared.data, v);
     }
+    // The main's Macs' newest version: a self-updating backup follows it (an older backup says "unknown op").
+    if let Some(t) = s["selfUpdate"]["target"].as_str().filter(|_| crate::selfupdate::active()) {
+        crate::selfupdate::op(&shared.data, &json!({"target": t}));
+    }
     // 4. copies.
     let plan: Vec<Value> = host_op(to_host, json!({"op": "_replica-plan"})).await?["versions"].as_array().cloned().unwrap_or_default();
     while let Some(p) = shared.next(&plan) {

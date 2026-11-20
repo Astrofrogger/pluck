@@ -66,6 +66,9 @@ pub fn status_fields(s: &mut Value, data: &Path) {
     let read = |f: &str| std::fs::read(update_dir(data).join(f)).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
     s["updated"] = read("version.json").map_or(Value::Null, |v| v["at"].clone());
     s["lastUpdate"] = read("last.json").unwrap_or(Value::Null);
+    if crate::selfupdate::active() {
+        s["selfUpdate"] = crate::selfupdate::status(data);
+    }
 }
 
 /// At start: note when this version first ran (status `updated`).
@@ -79,12 +82,16 @@ pub fn started(data: &Path) {
     }
 }
 
-/// `{"op":"update","version":"<tag>"}`: the host (an unprivileged user) can't update itself; it
-/// writes the request the root updater's path unit watches.
+/// `{"op":"update","version":"<tag>"}`: a supervised host switches itself (selfupdate.rs); an older setup's host
+/// (an unprivileged user) writes the request the root updater's path unit watches.
 pub fn request(data: &Path, version: &str) -> Value {
     let ok = (1..=40).contains(&version.len()) && version.bytes().all(|b| b.is_ascii_alphanumeric() || b".-_+".contains(&b));
     if !ok {
         return json!({"error": "invalid"});
+    }
+    if crate::selfupdate::active() {
+        let r = crate::selfupdate::op(data, &json!({"target": version, "now": true}));
+        return if r.get("error").is_some() { r } else { json!({"ok": true}) };
     }
     let dir = update_dir(data);
     let tmp = dir.join("request.part");

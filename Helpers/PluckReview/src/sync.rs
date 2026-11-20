@@ -42,7 +42,7 @@ const OUTAGE_OPS: &[&str] = &["upload-begin", "upload-part", "upload-end", "uplo
 const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "outage-end"];
 /// What only an admin Mac may do: pair and remove devices and change their roles, the server's key, updates and
 /// settings, and the team (roles, approvals, removing people, its settings, key, export and restore).
-pub const ADMIN_OPS: &[&str] = &["invite", "device-remove", "device-role", "rotate-key", "update", "prepare-update", "cancel-update", "prefer-fastest",
+pub const ADMIN_OPS: &[&str] = &["invite", "device-remove", "device-role", "rotate-key", "update", "self-update", "prepare-update", "cancel-update", "prefer-fastest",
     "team-set", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel", "invite-approve", "request-accept", "request-decline",
     "team-export", "team-restore", "team-reset", "mail-set", "mail-test", "subscriber-remove", "hook-set"];
 
@@ -204,6 +204,9 @@ async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devic
         if let Some(k) = key {
             r["key"] = json!(k);
         }
+        if crate::selfupdate::active() {
+            r["selfUpdate"] = json!(1); // it updates itself: Pluck sends `self-update`, no TrueNAS API key
+        }
         (crate::devices::Who { device, role: role.into() }, r)
     };
     if let Some(code) = h["pair"].as_str() {
@@ -360,6 +363,7 @@ async fn ops<R: AsyncBufReadExt + Unpin, W: AsyncWrite + Unpin>(r: &mut R, w: &m
                 None => json!({"error": "invalid"}),
             },
             "rotate-key" => rotate_key(ctx),
+            "self-update" => crate::selfupdate::op(&ctx.data, &op),
             "update" => match op["device"].as_str() {
                 Some(d) => ctx.devices.queue_update(d, op["version"].as_str().unwrap_or("")),
                 None => update::request(&ctx.data, op["version"].as_str().unwrap_or("")),
