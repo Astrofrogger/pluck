@@ -263,6 +263,20 @@ extension PhotoSelfTest {
         let totalPlan = RemotePins.fit([RemoteManifestEntry(share: id, path: "a", proxy: "a", reel: "a", size: 10)], used: 0, limit: 100, others: 995, total: 1000,
                                        free: Int64.max / 2, floor: 0)
         check("pins: the limit for all pins together counts", totalPlan.full)
+        // Changed at the office: proxies by SHA-256 and size; originals (no checksum in the manifest) by size and date.
+        let proxyHere = RemoteManifestEntry(share: id, path: "a.mxf", proxy: "a.mov", reel: "a", size: 10, checksum: "AB")
+        var proxyNow = proxyHere
+        proxyNow.checksum = "ab"
+        let sameProxy = RemotePins.unchanged(proxyHere, proxyNow)
+        proxyNow.checksum = "cd"
+        let originalHere = RemoteManifestEntry(share: id, path: "a.mxf", proxy: "a.mxf", reel: "a", size: 10, modified: 100)
+        var originalNow = originalHere
+        originalNow.modified = 200
+        var oldRecord = originalHere
+        oldRecord.modified = nil
+        check("pins: changes found by checksum, else by size and date", sameProxy && !RemotePins.unchanged(proxyHere, proxyNow)
+              && RemotePins.unchanged(originalHere, originalHere) && !RemotePins.unchanged(originalHere, originalNow)
+              && RemotePins.unchanged(oldRecord, originalNow) && !RemotePins.unchanged(nil, proxyNow) && RemotePins.unchanged(nil, originalNow))
         pins.unpin(pin)
         check("pins: unpinning puts its files in the Trash", !fm.fileExists(atPath: goneFile.path) && pins.pins.isEmpty)
         // Originals need the right (not given to this Mac): refused, nothing pinned.

@@ -15,6 +15,8 @@ final class RemotePins {
     static let shared = RemotePins()
     nonisolated static let key = "editAnywherePins", totalKey = "editAnywherePinsTotalGB"
     static let every: TimeInterval = 5 * 60
+    /// While the office can't be reached: looked at this often, so pins catch up as soon as it answers again.
+    static let away: TimeInterval = 30
     /// At most this many pinned files at once, so the live drive stays fast.
     static let parallel = 2
     nonisolated(unsafe) static var freeFloor: Int64 = 20_000_000_000
@@ -52,6 +54,8 @@ final class RemotePins {
     }
     @ObservationIgnored private var loop: Task<Void, Never>?
     @ObservationIgnored private var passing: Set<UUID> = []
+    /// The last look at the office failed (it's away): the next one comes sooner.
+    @ObservationIgnored private var unreachable = false
     @ObservationIgnored var client: OfficeRenderClient = .shared
 
     /// share|proxy path|size|checksum → the copy here, for the drive's reads from any thread.
@@ -110,13 +114,15 @@ final class RemotePins {
 
     // MARK: - Keeping up to date
 
-    /// Every 5 minutes (and when a pin is added): each pin checked against the office.
+    /// Every 5 minutes (and when a pin is added): each pin checked against the office; on reconnect (the office answering
+    /// again after it was away) at once, within `away`.
     func start() {
         guard loop == nil, !pins.isEmpty, ScreenshotMode.scene == nil else { return }
         loop = Task {
             while !Task.isCancelled, !pins.isEmpty {
+                unreachable = false
                 for pin in pins { await pass(pin.id) }
-                try? await Task.sleep(for: .seconds(Self.every))
+                try? await Task.sleep(for: .seconds(unreachable ? Self.away : Self.every))
             }
             loop = nil
         }
@@ -133,6 +139,7 @@ final class RemotePins {
         do {
             entries = try await wanted(pin)
         } catch {
+            unreachable = true
             pin.problem = error.localizedDescription
             return update(pin)
         }
@@ -140,10 +147,7 @@ final class RemotePins {
         let byProxy = Set(entries.map(\.proxy))
         pin.gone = pin.here.map(\.proxy).filter { !byProxy.contains($0) }
         let known = Dictionary(pin.here.map { ($0.proxy, $0) }, uniquingKeysWith: { first, _ in first })
-        // Here already as the office has it (same size, and same checksum where there is one).
-        let kept = entries.filter { entry in
-            RemotePullManager.isHere(entry, in: root) && (known[entry.proxy].map { $0.checksum == entry.checksum && $0.size == entry.size } ?? (entry.checksum == nil))
-        }
+        let kept = entries.filter { RemotePullManager.isHere($0, in: root) && Self.unchanged(known[$0.proxy], $0) }
         let keptSet = Set(kept.map(\.proxy))
         let todo = entries.filter { !keptSet.contains($0.proxy) }
         // Within the limits, in order; the first that doesn't fit stops the rest (nothing is evicted).
@@ -179,20 +183,35 @@ final class RemotePins {
         update(pin, keepingProblem: true)
     }
 
+    /// Whether a file kept here is still the one the office has: by SHA-256 and size where the manifest has a checksum
+    /// (proxies); else by size and modification date (originals: the manifest has no checksum of them). A file here with no
+    /// record counts only when there's no checksum to compare; one kept before dates were noted takes its date now.
+    nonisolated static func unchanged(_ here: RemoteManifestEntry?, _ now: RemoteManifestEntry) -> Bool {
+        guard let here else { return now.checksum == nil }
+        if let checksum = now.checksum { return here.checksum?.lowercased() == checksum.lowercased() && here.size == now.size }
+        return here.size == now.size && (here.modified == nil || now.modified == nil || here.modified == now.modified)
+    }
+
     /// What the pin wants, as manifest entries (proxies: the share's light proxies under its folder; originals: those
-    /// clips' originals, their size asked once each).
+    /// clips' originals with their size and date at the office, one listing per folder each pass).
     private func wanted(_ pin: Pin) async throws -> [RemoteManifestEntry] {
         let entries = try await RemotePullClient.manifest(share: pin.share, path: pin.path, format: .light).entries
             .filter { ProxySync.isSafe($0.proxy) && ProxySync.isSafe($0.path) && (pin.path.isEmpty || $0.path == pin.path || $0.path.hasPrefix(pin.path + "/")) }
         guard pin.originals else { return entries }
-        let known = Dictionary(pin.here.map { ($0.path, $0.size) }, uniquingKeysWith: { first, _ in first })
+        var listings: [String: [String: OfficeRenderClient.RemoteEntry]] = [:]
         var out: [RemoteManifestEntry] = []
         for entry in entries {
-            let size = if let size = known[entry.path] { size } else {
+            let folder = (entry.path as NSString).deletingLastPathComponent, name = (entry.path as NSString).lastPathComponent
+            if listings[folder] == nil {
+                listings[folder] = Dictionary((try await client.browse(share: pin.share, path: folder)).map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+            }
+            let listed = listings[folder]?[name]
+            let size = if let listed, !listed.folder { listed.size } else {
                 try await client.fileData(share: pin.share, path: entry.path, kind: .original, offset: 0, length: 1).size
             }
             out.append(RemoteManifestEntry(share: pin.share, path: entry.path, proxy: entry.path, reel: entry.reel, timecode: entry.timecode,
-                                           duration: entry.duration, fps: entry.fps, audioChannels: entry.audioChannels, size: size))
+                                           duration: entry.duration, fps: entry.fps, audioChannels: entry.audioChannels, size: size,
+                                           modified: listed.map { $0.modified.timeIntervalSince1970.rounded() }))
         }
         return out
     }
@@ -364,6 +383,9 @@ struct RemotePinsPane: View {
                         Text("\(pin.gone.count) no longer on the office Mac").foregroundStyle(Design.Studio.textQuiet)
                     }
                     if let problem = pin.problem { Text(verbatim: problem).foregroundStyle(Design.Studio.warn) }
+                    if pin.originals {
+                        Text("Changes are found by size and date: the office keeps no checksums of originals.").foregroundStyle(Design.Studio.textQuiet)
+                    }
                 }
                 .font(Design.Studio.hint).lineLimit(2)
             }
