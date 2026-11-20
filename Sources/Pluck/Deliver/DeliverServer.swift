@@ -682,7 +682,7 @@ final class DeliverServer {
         return found
     }
 
-    private func list(_ folderText: String?, _ link: Deliver.ShareLink) throws -> [String: Any] {
+    func list(_ folderText: String?, _ link: Deliver.ShareLink) throws -> [String: Any] {
         let project = link.project, content = store.content(project)
         var rootFolder: UUID?
         switch link.scope {

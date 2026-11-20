@@ -27,7 +27,6 @@ struct DeliverAssetView: View {
     @State private var pinning = false
     @State private var page = 1
     @State private var allDrawings = false
-    @State private var sharing = false
     @State private var publishing = false
     @State private var markers = false
     @State private var pulling = false
@@ -86,7 +85,6 @@ struct DeliverAssetView: View {
                 if let frame = at.frame { playback.seek(frame: frame); playback.player.pause() }
                 if let p = at.page { page = p }
             }
-            .sheet(isPresented: $sharing) { DeliverShareSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $publishing) { DeliverPublishSheet(scope: .asset(asset, project: store.find(asset)?.project ?? UUID())) }
             .sheet(isPresented: $markers) { DeliverResolveMarkersSheet(asset: found, version: current) }
             .sheet(isPresented: $pulling) { DeliverResolvePullSheet(asset: found, version: current) }
@@ -176,7 +174,7 @@ struct DeliverAssetView: View {
                 .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()
             stepper(found)
             Button("Publish…") { publishing = true }.buttonStyle(StudioFlatButtonStyle())
-            Button { sharing = true } label: { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(StudioFlatButtonStyle(prominent: true))
+            Button { ShareBuilder.shared.new(.asset(asset, project: store.find(asset)?.project ?? UUID()), nav: nav) } label: { Label("Share", systemImage: "square.and.arrow.up") }.buttonStyle(StudioFlatButtonStyle(prominent: true))
         }
         .padding(.horizontal, 16)
         .frame(height: 52)

@@ -90,7 +90,7 @@ struct DeliverProjectView: View {
             add(urls.filter(\.isFileURL))
             return true
         } isTargeted: { targeted = $0 }
-        .sheet(item: Binding(get: { sharing.map(DeliverShareTarget.init) }, set: { sharing = $0?.scope })) { DeliverShareSheet(scope: $0.scope) }
+        .onChange(of: sharing) { _, scope in if let scope { sharing = nil; ShareBuilder.shared.new(scope, nav: nav) } }
         .sheet(item: Binding(get: { publishing.map(DeliverShareTarget.init) }, set: { publishing = $0?.scope })) { DeliverPublishSheet(scope: $0.scope) }
         .alert("New Folder", isPresented: $naming) {
             TextField("Name", text: $name)
