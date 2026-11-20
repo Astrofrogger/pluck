@@ -535,5 +535,6 @@ extension PhotoSelfTest {
         } else {
             check("shrink: Keep 4K and Skip", false, "no job project")
         }
+        await shrinkSafetyTest()
     }
 }
