@@ -32,6 +32,9 @@ enum OfficeActions {
         RemoteResolveProject.register()
         ReviewHosting.register()
         OfficeGroup.register()
+        RemoteSendInto.register()
+        RemoteAskFiles.register()
+        OfficeAccess.register()
         // B1–B4 add one line each here, e.g. RemoteShares.register()
     }
 

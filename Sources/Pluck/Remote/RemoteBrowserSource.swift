@@ -17,6 +17,10 @@ final class RemoteFinderSource: FinderSource {
     var playing: String?
     /// What an action from the browser said (proxies asked for, a pull started, a refusal).
     var notice: String?
+    /// The folder Ask for Files is being set up for (its share path).
+    var asking: String?
+    /// The folder whose People sheet is open (its share path).
+    var people: String?
     @ObservationIgnored private var client: OfficeRenderClient { OfficeRenderClient.shared }
     /// Pictures asked for at once (each is a connection; the host takes 16 from all Macs).
     @ObservationIgnored private var fetching = 0
@@ -135,6 +139,38 @@ final class RemoteFinderSource: FinderSource {
         }
     }
 
+    /// Files chosen here go straight into that folder of the share (RemoteSendInto), never over a file there.
+    func sendHere(_ path: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = true
+        panel.prompt = String(localized: "Send")
+        panel.message = String(localized: "Files to put in “\((path as NSString).lastPathComponent.isEmpty ? share.name : (path as NSString).lastPathComponent)” at the office.")
+        guard panel.runModal() == .OK, !panel.urls.isEmpty else { return }
+        let files = panel.urls, share = share.id
+        Task {
+            do {
+                let names = try await RemoteSendInto.send(files, share: share, path: path) { [weak self] name, fraction in
+                    self?.notice = String(localized: "Sending \(name): \(Int(fraction * 100)) %")
+                }
+                notice = names.count == 1 ? String(localized: "Sent as \(names[0]).") : String(localized: "\(names.count) files sent.")
+            } catch {
+                notice = error.localizedDescription
+            }
+        }
+    }
+
+    /// Pins the folder (RemotePins): its proxies or originals kept here.
+    func keep(_ path: String, originals: Bool) async {
+        do {
+            try await RemotePins.shared.pin(share: share, path: path, originals: originals)
+            notice = String(localized: "Kept on this Mac. See Kept on This Mac.")
+        } catch {
+            notice = Self.refusal(error)
+        }
+    }
+
     // MARK: - Favourites (per host Mac)
 
     /// Folders starred on the host, kept per host Mac: lines of "share id<tab>path".
@@ -190,6 +226,17 @@ private struct RemoteFinderMenu: View {
         }
         if paths.count == 1, !clip, let path = paths.first {
             Button("Keep Proxied") { Task { await source.keepProxied(path, format: proxyFormat) } }
+            Button("Send Files Here…") { source.sendHere(path) }
+                .help("Files from this Mac go into this folder at the office (needs Editor there)")
+            Button("People…") { source.people = path }
+                .help("Who may do what here (Admins)")
+            Button("Ask for Files…") { source.asking = path }
+                .help("A link anyone can upload to: the files land in this folder on the NAS (needs Editor there)")
+            Menu("Keep on This Mac") {
+                Button("Proxies") { Task { await source.keep(path, originals: false) } }
+                Button("Originals") { Task { await source.keep(path, originals: true) } }
+            }
+            .help("Pluck keeps this folder up to date on this Mac, so you can edit offline")
             if !path.isEmpty {
                 let starred = RemoteFinderSource.favourites(favourites).contains { $0.share == source.share.id && $0.path == path }
                 Divider()
@@ -240,6 +287,21 @@ struct RemoteBrowserView: View {
         }
         .onAppear { FinderThumbnails.shared.register(source) }
         .onDisappear { FinderThumbnails.shared.unregister(source) }
+        .sheet(isPresented: Binding(get: { source.people != nil }, set: { if !$0 { source.people = nil } })) {
+            if let path = source.people {
+                RemoteAccessSheet(share: source.share.id, path: path, folderName: path.isEmpty ? source.share.name : (path as NSString).lastPathComponent)
+            }
+        }
+        .sheet(isPresented: Binding(get: { source.asking != nil }, set: { if !$0 { source.asking = nil } })) {
+            if let path = source.asking {
+                RemoteAskFilesSheet(folderName: path.isEmpty ? source.share.name : (path as NSString).lastPathComponent) { name, password, days, bytes, types in
+                    let answer = try await OfficeRenderClient.shared.ask("askFiles", ["share": source.share.id, "path": path, "name": name, "password": password,
+                                                                                      "days": days, "maxBytes": bytes, "types": types], timeout: 120)
+                    guard let url = answer["url"] as? String else { throw OfficeLink.Failure.garbled }
+                    return url
+                }
+            }
+        }
         .sheet(isPresented: Binding(get: { source.playing != nil }, set: { if !$0 { source.playing = nil } })) {
             if let path = source.playing, let player = RemoteHooks.player {
                 VStack(spacing: 0) {

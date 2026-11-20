@@ -169,6 +169,72 @@ extension PhotoSelfTest {
         let again = await pulls.pass(pulls.jobs.first { $0.id == job.id }!)
         check("pull: a file that keeps failing is tried again later, not taken", again && pulls.progress[job.id]?.failed["Day 1/A004.mov"] != nil
               && !fm.fileExists(atPath: local.appendingPathComponent("Day 1/A004.mov").path))
+        await pinChecks(share: share, id: id, names: names, proxies: proxies, entries: entries)
+    }
+
+    /// Keep on This Mac: limits stop at the right file, a changed file comes again, a gone one is marked and only goes
+    /// (to the Trash) on unpin, originals need their right, and the drive reads a pinned proxy from here.
+    private static func pinChecks(share: OfficeRenderClient.RemoteShare, id: String, names: [String], proxies: [String: Data],
+                                  entries: [[String: Any]]) async {
+        let fm = FileManager.default, pins = RemotePins.shared
+        PullTestManifest.entries = entries
+        defer { for pin in pins.pins { pins.unpin(pin) } }
+        let sizes = names.map { Int64(proxies[$0]!.count) }
+        do {
+            try await pins.pin(share: share, path: "Day 1", originals: false, limit: sizes[0] + sizes[1] + 100)
+        } catch {
+            return check("pins: a folder is pinned", false, error.localizedDescription)
+        }
+        guard var pin = pins.pins.first else { return check("pins: a folder is pinned", false) }
+        let root = URL(fileURLWithPath: pin.destination, isDirectory: true)
+        check("pins: the limit stops at the right file, nothing past it", pin.full && pin.here.map(\.proxy) == ["Day 1/A001.mov", "Day 1/A002.mov"]
+              && pin.waiting == ["Day 1/A003.mov", "Day 1/A004.mov"] && !fm.fileExists(atPath: root.appendingPathComponent("Day 1/A003.mov").path),
+              "\(pin.here.map(\.proxy)) \(pin.waiting)")
+        pins.setLimit(1_000_000_000, for: pin)
+        await pins.pass(pin.id)
+        pin = pins.pins.first ?? pin
+        check("pins: a raised limit fetches the rest", !pin.full && pin.here.count == 4
+              && names.allSatisfy { (try? Data(contentsOf: root.appendingPathComponent("Day 1/" + $0))) == proxies[$0] }, "\(pin.here.count) \(pin.problem ?? "")")
+        // A proxy made again on the host: fetched again.
+        let changed = OfficeLink.randomBytes(5000), file = OfficeProxies.shared.proxy("Day 1/A001.mov", folder: id, format: .light)
+        fm.createFile(atPath: file.path, contents: changed)
+        PullTestManifest.entries = entries.map { var entry = $0; if entry["reel"] as? String == "A001.mov" { entry["size"] = changed.count; entry["checksum"] = SHA256Hex.of(changed) }; return entry }
+        await pins.pass(pin.id)
+        check("pins: a changed file is fetched again", (try? Data(contentsOf: root.appendingPathComponent("Day 1/A001.mov"))) == changed)
+        // The drive: a pinned proxy is read from here, with no fetch at all; another checksum goes to the network.
+        pin = pins.pins.first ?? pin
+        if let kept = pin.here.first(where: { $0.proxy == "Day 1/A003.mov" }) {
+            let fetches = FetchCount()
+            let blocks = RemoteDriveBlocks(scope: "pin-test-\(UUID().uuidString)") { _, _, length in fetches.add(); return Data(count: length) }
+            let read = try? await blocks.read(kept, offset: 10, count: 1000)
+            var other = kept
+            other.checksum = String(repeating: "0", count: 64)
+            check("drive: a pinned file is read from this Mac with no fetch", read == proxies["A003.mov"]!.subdata(in: 10..<1010) && fetches.value == 0,
+                  "\(fetches.value)")
+            check("drive: a checksum that doesn't match goes to the network", RemotePins.localCopy(other) == nil && RemotePins.localCopy(kept) != nil)
+            check("drive: with no office the pinned folder is still listed", pins.offlineManifest(id)?.entries.contains { $0.proxy == "Day 1/A003.mov" } == true)
+        } else {
+            check("drive: a pinned file is read from this Mac with no fetch", false, "not pinned")
+        }
+        // Gone from the office: marked, kept until unpinned, then to the Trash.
+        PullTestManifest.entries = entries.filter { $0["reel"] as? String != "A002.mov" }
+        fm.createFile(atPath: file.path, contents: proxies["A001.mov"])
+        await pins.pass(pin.id)
+        pin = pins.pins.first ?? pin
+        let goneFile = root.appendingPathComponent("Day 1/A002.mov")
+        check("pins: a file gone from the office is marked and kept", pin.gone == ["Day 1/A002.mov"] && fm.fileExists(atPath: goneFile.path), "\(pin.gone)")
+        // A full volume: nothing more is fetched, and it says so.
+        let plan = RemotePins.fit([RemoteManifestEntry(share: id, path: "a", proxy: "a", reel: "a", size: 10)], used: 0, limit: 100, others: 0, total: 1000,
+                                  free: 25_000_000_005, floor: 25_000_000_000)
+        check("pins: a full volume pauses the pin", plan.full && plan.now.isEmpty && plan.later.count == 1)
+        let totalPlan = RemotePins.fit([RemoteManifestEntry(share: id, path: "a", proxy: "a", reel: "a", size: 10)], used: 0, limit: 100, others: 995, total: 1000,
+                                       free: Int64.max / 2, floor: 0)
+        check("pins: the limit for all pins together counts", totalPlan.full)
+        pins.unpin(pin)
+        check("pins: unpinning puts its files in the Trash", !fm.fileExists(atPath: goneFile.path) && pins.pins.isEmpty)
+        // Originals need the right (not given to this Mac): refused, nothing pinned.
+        let refused = await { do { try await pins.pin(share: share, path: "Day 1", originals: true); return false } catch { return true } }()
+        check("pins: originals need their right", refused && pins.pins.isEmpty)
     }
 }
 

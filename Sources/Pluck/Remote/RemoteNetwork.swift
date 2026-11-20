@@ -153,6 +153,8 @@ actor RemoteDriveBlocks {
 
     func read(_ entry: RemoteManifestEntry, offset: Int64, count: Int) async throws -> Data {
         guard offset < entry.size, count > 0 else { return Data() }
+        // A pinned proxy (same size and SHA-256) is read from its copy on this Mac: no network, plays offline.
+        if let copy = RemotePins.localCopy(entry) { return try RemotePins.read(copy, offset: offset, count: count) }
         let end = min(entry.size, offset + Int64(count))
         let first = offset / Int64(Self.blockSize), last = (end - 1) / Int64(Self.blockSize)
         // In order (the same or the next block as last time): the next ones come ahead.
@@ -440,13 +442,22 @@ final class RemoteNetwork {
         }
         do {
             guard let office = OfficeRenderClient.shared.office else { throw Failure.offline }
-            await refresh()
-            guard let allows = hostAllows else { throw Failure.offline }
-            guard allows else { throw Failure.notAllowed }
-            let shares = try await OfficeRenderClient.shared.shares()
-            guard let share = shares.first(where: { $0.id == id }), share.online else { throw Failure.offline }
             let format = Self.format, choice = RemoteStreamChoice()
-            let manifest = try await manifest(share: share, office: office, format: format, choice: choice, standingIn: nil)
+            let share: OfficeRenderClient.RemoteShare, manifest: RemoteManifest
+            do {
+                await refresh()
+                guard let allows = hostAllows else { throw Failure.offline }
+                guard allows else { throw Failure.notAllowed }
+                let shares = try await OfficeRenderClient.shared.shares()
+                guard let found = shares.first(where: { $0.id == id }), found.online else { throw Failure.offline }
+                let made = try await self.manifest(share: found, office: office, format: format, choice: choice, standingIn: nil)
+                (share, manifest) = (found, made)
+            } catch {
+                // No office to ask: the folders kept on this Mac (RemotePins) alone, played from their copies here.
+                guard (error as? Failure) != .notAllowed, let kept = RemotePins.shared.offlineManifest(id),
+                      let offline = OfficeRenderClient.RemoteShare(["id": id, "name": kept.shareName, "online": false]) else { throw error }
+                (share, manifest) = (offline, kept)
+            }
             guard !manifest.entries.isEmpty else { throw Failure.noProxies }
             try stillWanted()
             await stopDrive(id)
@@ -567,7 +578,8 @@ final class RemoteNetwork {
                     // One failed refresh keeps the drive and its last contents; the host gone (or three misses in a row) takes it down.
                     let failures = refreshFailures[id, default: 0] + 1
                     refreshFailures[id] = failures
-                    if (error as? Failure) == .offline || failures >= 3 {
+                    // (Kept folders stay: their files play from this Mac.)
+                    if ((error as? Failure) == .offline || failures >= 3) && !RemotePins.shared.hasPins(id) {
                         refreshFailures[id] = nil
                         await stopDrive(id)
                         states[id] = .offline

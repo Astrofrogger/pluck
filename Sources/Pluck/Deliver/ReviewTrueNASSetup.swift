@@ -15,6 +15,9 @@ final class TrueNASSetup {
     var secondAddress = ""
     var secondPath = ""
     var uploads = ""
+    /// Ask for Files links may put files straight into the first media dataset (the helper's `--drop`, block drop1).
+    /// shortcut: Change Folders doesn't read it back from the installed app (starts off), read the compose's drop1 to keep it.
+    var dropFiles = false
     var role = Role.main
     var backupMax = 50
     var quality = "1080-low"
@@ -335,6 +338,7 @@ final class TrueNASSetup {
         ]
         var blocks: Set<String> = []
         if role == .main, !media.isEmpty { blocks.insert("media1") }
+        if role == .main, !media.isEmpty, dropFiles { blocks.insert("drop1") }
         // Datasets after the first: copies of the media1 block (TrueNASClient.moreMedia), mediax1, mediax2…
         for (index, item) in media.dropFirst().enumerated() {
             values["mediax\(index + 1)"] = "/mnt/\(item.dataset)"
@@ -594,6 +598,10 @@ struct ReviewTrueNASSetupSheet: View {
         }
         if let overlap = setup.overlap {
             hint(Text(verbatim: overlap)).foregroundStyle(Design.Studio.warn)
+        }
+        if setup.role == .main, let first = setup.media.first {
+            Toggle("Let upload links write here", isOn: $setup.dropFiles)
+            hint(Text("Ask for Files links put their files straight into folders of \(first.dataset); nothing there is ever replaced. The app needs write access to it. Off: Pluck moves them there from an office Mac."))
         }
         StudioField(label: "Second NAS") {
             TextField("192.0.2.20", text: $setup.secondAddress).settingField(width: 120)

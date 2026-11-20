@@ -159,3 +159,51 @@ final class OfficeAccess {
         Task { await OfficeGroup.shared.syncAll() }
     }
 }
+
+// MARK: - From a home Mac (Admins)
+
+extension OfficeAccess {
+    static var adminRefusal: String { String(localized: "Only an Admin can change who may do what. Ask the office to make this Mac an Admin.") }
+
+    static func register() {
+        // → {macs: [{id, name, role, person}], here: {subject: role}} for a folder ({share, path}, optional).
+        OfficeActions.register("accessList") { arguments, device in
+            guard shared.isAdmin(device) else { throw OfficeLink.Failure.office(adminRefusal) }
+            var here: [String: String] = [:]
+            if arguments["share"] != nil {
+                let place = try RemoteEditHost.share(arguments["share"])
+                let folder = try RemoteEditHost.resolve(try OfficeActions.text(arguments["path"] ?? "", empty: true), in: place.root)
+                let key = folderKey(root: place.root, share: place.id, relative: RemoteEditHost.relative(folder, in: place.root))
+                for grant in shared.grants(in: key) { here[grant.subject] = grant.role }
+            }
+            let macs = OfficeRenderServer.shared.pairedMacs.map { mac -> [String: Any] in
+                var item: [String: Any] = ["id": mac.id.uuidString, "name": mac.name]
+                if let role = role(for: mac, grants: shared.grants) { item["role"] = role.rawValue }
+                return item
+            }
+            return ["macs": macs, "here": here]
+        }
+        // {mac, role} (a Mac's own role) or {mac, share, path, role or none to take it away} (its role in that folder).
+        OfficeActions.register("accessSet") { arguments, device in
+            guard shared.isAdmin(device) else { throw OfficeLink.Failure.office(adminRefusal) }
+            guard let id = UUID(uuidString: try OfficeActions.text(arguments["mac"], 40)) else { throw OfficeActions.incomplete() }
+            guard OfficeRenderServer.shared.pairedMacs.contains(where: { $0.id == id }) else { throw OfficeActions.incomplete() }
+            let role = (arguments["role"] as? String).flatMap(Role.init)
+            if arguments["share"] != nil {
+                let place = try RemoteEditHost.share(arguments["share"])
+                let folder = try RemoteEditHost.resolve(try OfficeActions.text(arguments["path"] ?? "", empty: true), in: place.root)
+                shared.set(subject: id.uuidString, folder: folderKey(root: place.root, share: place.id, relative: RemoteEditHost.relative(folder, in: place.root)),
+                           role: role)
+            } else {
+                guard let role, Role.assignable.contains(role) else { throw OfficeActions.incomplete() }
+                OfficeRenderServer.shared.setRole(role, for: id)
+            }
+            return ["set": true]
+        }
+        // → {url}: a one-time invitation for another Mac.
+        OfficeActions.register("accessInvite") { _, device in
+            guard shared.isAdmin(device) else { throw OfficeLink.Failure.office(adminRefusal) }
+            return ["url": try await OfficeRenderServer.shared.invite().absoluteString]
+        }
+    }
+}
