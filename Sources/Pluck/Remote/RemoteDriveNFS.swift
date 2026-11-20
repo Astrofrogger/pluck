@@ -422,8 +422,9 @@ final class RemoteDriveServer: @unchecked Sendable {
         func fail(_ status: Status) { out.u32(status.rawValue); for _ in 0..<Self.failureWords(procedure) { out.u32(0) } }
         guard let path = path(handle) else { fail(.stale); return true }
         let node: RemoteDriveNode
-        // (A handle given out for a path that's gone: STALE, so the client looks the name up again.)
-        do { node = try await backend.node(path) } catch { fail(error as? RemoteDriveError == .noEntry ? .stale : status(of: error)); return true }
+        // (A handle given out for a path that's gone: STALE, so the client looks the name up again. Never the root's: a stale
+        // root would leave the mount stuck while the share's tree is loaded again.)
+        do { node = try await backend.node(path) } catch { fail(error as? RemoteDriveError == .noEntry && !path.isEmpty ? .stale : status(of: error)); return true }
         if writing.contains(procedure) {
             try await nfsWrite(procedure, path: path, node: node, handle: handle, &input, &out)
             return true

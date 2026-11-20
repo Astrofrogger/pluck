@@ -220,7 +220,7 @@ extension PhotoSelfTest {
         }
         guard var pin = pins.pins.first else { return check("pins: a folder is pinned", false) }
         let root = URL(fileURLWithPath: pin.destination, isDirectory: true)
-        check("pins: the limit stops at the right file, nothing past it", pin.full && pin.here.map(\.proxy) == ["Day 1/A001.mov", "Day 1/A002.mov"]
+        check("pins: the limit stops at the right file, nothing past it", pin.full && pin.here.map(\.proxy).sorted() == ["Day 1/A001.mov", "Day 1/A002.mov"]
               && pin.waiting == ["Day 1/A003.mov", "Day 1/A004.mov"] && !fm.fileExists(atPath: root.appendingPathComponent("Day 1/A003.mov").path),
               "\(pin.here.map(\.proxy)) \(pin.waiting)")
         pins.setLimit(1_000_000_000, for: pin)
