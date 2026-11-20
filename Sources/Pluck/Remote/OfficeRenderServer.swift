@@ -349,7 +349,7 @@ final class OfficeRenderServer {
     }
 
     /// The node ids of the paired Macs that came in over iroh (and their links to the group's other office Macs).
-    private var allowedNodes: [String] { devices.flatMap { [$0.iroh].compactMap { $0 } + ($0.irohMore ?? []) } }
+    var allowedNodes: [String] { devices.flatMap { [$0.iroh].compactMap { $0 } + ($0.irohMore ?? []) } }
 
     /// The paired Macs people see (not the office group's own key).
     var pairedMacs: [Device] { devices.filter { !$0.isPeer } }

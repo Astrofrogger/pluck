@@ -1,0 +1,14 @@
+[package]
+name = "pluck-relay"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT"
+description = "Starts iroh-relay with a config made from Pluck's settings (allowlist only, TLS always)."
+
+# No dependencies: it only writes iroh-relay's TOML and execs it. The iroh-relay version is pinned in
+# docker/Dockerfile and must equal the iroh version in Helpers/PluckIroh/Cargo.lock (the workflow checks).
+[dependencies]
+
+[profile.release]
+strip = true

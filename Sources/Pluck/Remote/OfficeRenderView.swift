@@ -104,7 +104,7 @@ private struct AnywherePane<Content: View>: View {
 }
 
 /// A pane's or section's title, with a quiet line under it.
-private struct PaneHeader<Trailing: View>: View {
+struct PaneHeader<Trailing: View>: View {
     let title: Text
     var subtitle: Text?
     @ViewBuilder var trailing: Trailing
@@ -169,7 +169,7 @@ private struct IconButton: View {
 }
 
 /// A pink text link ("It’s spelled right", "Clear finished").
-private struct PinkLink: View {
+struct PinkLink: View {
     let title: LocalizedStringKey
     let action: () -> Void
 
@@ -215,7 +215,7 @@ private struct ProblemLine: View {
 
 extension View {
     /// A text field's dark box on a panel (raised when it sits in a box).
-    fileprivate func anywhereInput(inBox: Bool = false, height: CGFloat = 32) -> some View {
+    func anywhereInput(inBox: Bool = false, height: CGFloat = 32) -> some View {
         padding(.horizontal, 10)
             .frame(height: height)
             .background(inBox ? Design.Studio.raised : Design.Studio.backdrop,
@@ -1121,6 +1121,7 @@ private struct ConnectionSheet: View {
     @State private var tokenSaved = false
     @State private var confirmDisconnect = false
     @State private var switching: PrivateNetwork.Transport?
+    @State private var relaySetup = false
 
     private var iroh: Bool { transport == PrivateNetwork.Transport.iroh.rawValue }
 
@@ -1276,6 +1277,10 @@ private struct ConnectionSheet: View {
                         .buttonStyle(StudioFlatButtonStyle(height: 32))
                         .disabled(PrivateNetwork.relayAddress(relayText) == nil || relayText == storedRelay)
                 }
+                PinkLink(title: "Set up a relay on a TrueNAS or Proxmox server…") { relaySetup = true }
+                    .sheet(isPresented: $relaySetup) {
+                        RelaySetupSheet { address in relayText = address; saveRelay() }
+                    }
             }
         }
     }

@@ -367,6 +367,8 @@ final class Tunnel {
     func setAllow(_ ids: [String]) {
         allow = ids
         send(["allow": ids])
+        // (The office's own relay lets in the same Macs.)
+        if self === Tunnel.irohOffice { RelaySetup.allowChanged() }
     }
 
     /// iroh, office: lets one new Mac in within `seconds` (an invitation).
