@@ -995,6 +995,8 @@ final class ShrinkCenter {
     let store: URL
     /// This Mac's name in claims.
     let mac: String
+    /// Who this is in claims.
+    var claimName: String { mac }
     /// Seconds a file must have been left alone (tests: 0).
     var quiet = ShrinkFolders.quiet
     /// Free space where a master goes (tests replace it).

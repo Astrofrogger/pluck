@@ -14,7 +14,9 @@ extension PhotoSelfTest {
         let base = S.real(made)
         let share = base.appendingPathComponent("Safe")
         let testVolumes = OfficeGroup.testVolumes
-        OfficeGroup.testVolumes = [(share.path, "smb://test/safe"), (share.path.replacingOccurrences(of: "/private/var/", with: "/var/"), "smb://test/safe")]
+        let roam = base.appendingPathComponent("Roam")
+        OfficeGroup.testVolumes = [(share.path, "smb://test/safe"), (share.path.replacingOccurrences(of: "/private/var/", with: "/var/"), "smb://test/safe"),
+                                   (roam.path, "smb://test/roam"), (roam.path.replacingOccurrences(of: "/private/var/", with: "/var/"), "smb://test/roam")]
         defer { OfficeGroup.testVolumes = testVolumes; try? fm.removeItem(at: base) }
         guard let ffmpeg = AppDelegate.shared?.manager.tool("ffmpeg"), let ffprobe = AppDelegate.shared?.manager.tool("ffprobe") else {
             return check("shrink safety: ffmpeg", false, "no ffmpeg")
@@ -335,12 +337,151 @@ extension PhotoSelfTest {
                 let result = again.run(id)?.files.first
                 let master = result?.master ?? "/nonexistent"
                 let leftovers = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { $0.hasPrefix(".shrinking-") }
+                let masters = ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? []).filter { !$0.hasPrefix(".") }.map { folder.appendingPathComponent($0).path }
+                    .filter { ProjectArchive.run(ffprobe, ["-v", "error", "-show_entries", "format_tags=pluck", "-of", "default=nw=1:nk=1", $0]).output.contains("shrink") }
                 check("shrink safety: killed at \(step) (\(kind)): nothing lost; after Resume the checked master is in and the original whole in the folder to delete",
                       wasKilled && nothingLost && result?.state == .done && result?.safeToDelete == true && ProjectArchive.streams(master, ffprobe: ffprobe).codec == "hevc"
                       && fm.fileExists(atPath: moved) && fm.fileExists(atPath: (moved as NSString).deletingLastPathComponent + "/" + rmd.lastPathComponent)
-                      && !fm.fileExists(atPath: rmd.path) && leftovers.isEmpty,
-                      "killed \(wasKilled) lost \(!nothingLost) \(String(describing: result?.state)) \(result?.note ?? "") \(result?.checkProblems ?? []) \(leftovers)")
+                      && !fm.fileExists(atPath: rmd.path) && leftovers.isEmpty && masters == [master],
+                      "killed \(wasKilled) lost \(!nothingLost) \(String(describing: result?.state)) \(result?.note ?? "") \(result?.checkProblems ?? []) \(leftovers) \(masters)")
             }
         }
+
+        // Second review.
+        // R1 "Safe" is looked at now: a checked master since deleted makes its original not safe.
+        if let m1 = checkCenter.run(checkID)?.files.first(where: { $0.path == c1.path })?.master {
+            let keep = base.appendingPathComponent("m1-aside.mov")
+            try? fm.moveItem(atPath: m1, toPath: keep.path)
+            let model = ArchiveModel(center: checkCenter)
+            await model.refreshSpace()
+            let place = model.waiting.first { S.real($0.folder).path == S.real(holding).path }
+            check("shrink safety: a checked master deleted afterwards: its original isn't safe any more",
+                  place.map { !$0.safeFiles.contains { $0.lastPathComponent == "A008C001.mov" } && $0.unsafeFiles.contains { $0.hasSuffix("A008C001.mov") } } == true
+                  && model.checks(checkCenter.run(checkID)!).allSatisfy { !$0.problems.isEmpty },
+                  "\(place?.safeFiles.map(\.lastPathComponent) ?? [])")
+            try? fm.moveItem(atPath: keep.path, toPath: m1)
+        }
+
+        // R4 A real clip.mov next to clip.mp4: left alone, no name made up.
+        let twin = projects.appendingPathComponent("Twin/Rushes"), twinMP4 = twin.appendingPathComponent("C0020.MP4"), twinMov = twin.appendingPathComponent("C0020.mov")
+        make(twinMP4)
+        make(twinMov)
+        if let file = scan(twin).first(where: { $0.path == twinMP4.path }) {
+            let prepared = S.prepare(file, settings: hd, holding: holding, ffmpeg: ffmpeg, ffprobe: ffprobe, quiet: 0)
+            check("shrink safety: a clip with the master's name already there: the .mp4 is left alone", prepared.state == .skipped
+                  && !fm.fileExists(atPath: twinMP4.path + ".mov"), "\(prepared.state) \(prepared.master ?? "")")
+        }
+
+        // R5 The share isn't mounted at Resume: the file stays to finish, the run waits; mounted elsewhere, it finishes there.
+        let roamFolder = roam.appendingPathComponent("Job/Rushes"), roamClip = roamFolder.appendingPathComponent("A030C001.mov")
+        make(roamClip)
+        if let file = scan(roamFolder).first {
+            let roamCenter = center("roam")
+            let roamID = roamCenter.add([file], settings: hd, roots: [roamFolder.path])
+            S.kill = { name, killed in name == "original out" && killed.path == roamClip.path }
+            await roamCenter.resume(roamID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            S.kill = nil
+            let away = base.appendingPathComponent("Roam-away")
+            try? fm.moveItem(at: roam, to: away)
+            let unmounted = center("roam")
+            await unmounted.resume(roamID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let waitingFile = unmounted.run(roamID)?.files.first
+            check("shrink safety: the share not mounted at Resume: the file stays to finish, the run waits saying so",
+                  waitingFile?.state == .working && unmounted.run(roamID)?.paused != nil && fm.fileExists(atPath: away.path),
+                  "\(String(describing: waitingFile?.state)) \(waitingFile?.note ?? "") \(unmounted.run(roamID)?.paused ?? "none")")
+            let elsewhere = base.appendingPathComponent("Roam2")
+            try? fm.moveItem(at: away, to: elsewhere)
+            OfficeGroup.testVolumes += [(elsewhere.path, "smb://test/roam"), (elsewhere.path.replacingOccurrences(of: "/private/var/", with: "/var/"), "smb://test/roam")]
+            OfficeGroup.testVolumes.removeAll { $0.prefix.hasSuffix("/Roam") }
+            let remounted = center("roam")
+            await remounted.resume(roamID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let there = remounted.run(roamID)?.files.first
+            check("shrink safety: the share mounted at another path: found there and finished", there?.state == .done
+                  && there?.master?.hasPrefix(S.real(elsewhere).path) == true && there?.safeToDelete == true,
+                  "\(String(describing: there?.state)) \(there?.note ?? "") \(there?.master ?? "")")
+        }
+
+        // R6 An older run without checksums: checked against its original, checksum kept; without the original: not safe.
+        if var older = checkCenter.run(checkID)?.files.first(where: { $0.path == c1.path }) {
+            older.masterHash = nil
+            older.frames = nil
+            older.originalHead = nil
+            older.checked = nil
+            checkCenter.set(older, in: checkID)
+            await checkCenter.check(checkID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let rechecked = checkCenter.run(checkID)?.files.first { $0.path == c1.path }
+            var gone = rechecked ?? older
+            gone.masterHash = nil
+            gone.moved = base.appendingPathComponent("nowhere.mov").path
+            checkCenter.set(gone, in: checkID)
+            await checkCenter.check(checkID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            let without = checkCenter.run(checkID)?.files.first { $0.path == c1.path }
+            check("shrink safety: an older run without a checksum: checked against its original and its checksum kept; without the original, not safe",
+                  rechecked?.safeToDelete == true && rechecked?.masterHash != nil && without?.safeToDelete == false,
+                  "\(rechecked?.checkProblems ?? []) \(String(describing: rechecked?.masterHash)) \(without?.checkProblems ?? [])")
+            if let rechecked { checkCenter.set(rechecked, in: checkID) }
+        }
+
+        // R7 A file stuck with its original in the folder to delete counts as not safe in its project.
+        var stuck = S.File(path: "/v/stuck.mov", folder: "/v", size: 10, modified: old)
+        stuck.state = .working
+        stuck.problem = "stuck"
+        var fine = S.File(path: "/v/fine.mov", folder: "/v", size: 10, modified: old)
+        fine.state = .done
+        fine.checked = .now
+        fine.checkProblems = []
+        let stuckRun = S.Run(settings: hd, files: [stuck, fine])
+        let projectLines = ArchiveModel(center: center("stuck")).checks(stuckRun)
+        check("shrink safety: a file whose original waits without its master: its project isn't safe", projectLines.contains { !$0.problems.isEmpty },
+              "\(projectLines.map { "\($0.title) \($0.problems)" })")
+
+        // R8 Two Pluck installs with the same computer name: one never takes the other's live claim.
+        let twoFolder = projects.appendingPathComponent("Names/Rushes"), twoClip = twoFolder.appendingPathComponent("A040C001.mov")
+        make(twoClip)
+        let installA = center("names-a", mac: "Same Name")
+        if let file = scan(twoFolder).first {
+            let installB = ShrinkCenter(store: base.appendingPathComponent("B/names-b.json"), mac: "Same Name")
+            installB.quiet = 0
+            installB.editing = { _ in false }
+            let held = OfficeGroup.claim(twoClip, mac: installA.claimName)
+            let idB = installB.add([file], settings: hd, roots: [twoFolder.path])
+            await installB.resume(idB, ffmpeg: ffmpeg, ffprobe: ffprobe)
+            check("shrink safety: another install with the same computer name leaves a live claim alone", held != nil
+                  && installB.run(idB)?.files.first?.state == .elsewhere && ProjectArchive.streams(twoClip.path, ffprobe: ffprobe).codec == "prores",
+                  "\(String(describing: installB.run(idB)?.files.first?.state))")
+            if let held { OfficeGroup.release(held) }
+        }
+
+        // R10 Proxies of a clip left as it is stay; a master that isn't this one is never trashed; a destination's own Inventory.csv untouched.
+        let proxyJob = projects.appendingPathComponent("ProxyJob"), proxyRushes = proxyJob.appendingPathComponent("Rushes")
+        let kept = proxyRushes.appendingPathComponent("A050C001.mov"), left = proxyRushes.appendingPathComponent("A050C002.mov")
+        make(kept)
+        make(left, inputs: ["-f", "lavfi", "-i", "testsrc=size=320x180:rate=25:duration=1"], maps: ["-map", "0:v", "-map", "2:v", "-map", "1:a"])
+        let proxyFolder = proxyRushes.appendingPathComponent("Proxy")
+        try? fm.createDirectory(at: proxyFolder, withIntermediateDirectories: true)
+        for name in ["A050C001.mov", "A050C002.mov"] { try? Data(repeating: 2, count: 100).write(to: proxyFolder.appendingPathComponent(name)) }
+        let proxyCenter = center("proxyjob")
+        let proxyFiles = scan(proxyRushes).filter { !$0.path.contains("/Proxy/") }
+        let proxyID = proxyCenter.add(proxyFiles, settings: hd, roots: [proxyJob.path], proxies: [proxyFiles.first?.project ?? proxyJob.path: [proxyFolder.path]])
+        await proxyCenter.resume(proxyID, ffmpeg: ffmpeg, ffprobe: ffprobe)
+        check("shrink safety: a proxy folder with proxies of a clip left as it is stays where it is",
+              fm.fileExists(atPath: proxyFolder.appendingPathComponent("A050C002.mov").path)
+              && proxyCenter.run(proxyID)?.files.first { $0.path == kept.path }?.state == .done,
+              "\(proxyCenter.run(proxyID)?.files.map { "\($0.state) \($0.note ?? "")" } ?? [])")
+        let ownDest = base.appendingPathComponent("OwnDest")
+        try? fm.createDirectory(at: ownDest, withIntermediateDirectories: true)
+        try? "mine\n".write(to: ownDest.appendingPathComponent("Inventory.csv"), atomically: true, encoding: .utf8)
+        let ownRoot = projects.appendingPathComponent("OwnRoot/Rushes"), ownClip = ownRoot.appendingPathComponent("A060C001.mov")
+        make(ownClip)
+        let ownCenter = center("own")
+        let ownID = await ownCenter.start(scan(ownRoot), settings: hd, destination: ownDest, roots: [ownRoot.path], ffmpeg: ffmpeg, ffprobe: ffprobe)
+        let inventoryText = try? String(contentsOf: ownDest.appendingPathComponent("Inventory.csv"), encoding: .utf8)
+        if let ownMaster = ownCenter.run(ownID)?.files.first?.master, let size = try? fm.attributesOfItem(atPath: ownMaster)[.size] as? Int64 {
+            try? Data(repeating: 3, count: Int(size)).write(to: URL(fileURLWithPath: ownMaster))
+            await ownCenter.putBack(ownID)
+            check("shrink safety: Put Back never trashes a file at the master's name that isn't this master; a destination's own Inventory.csv untouched",
+                  fm.fileExists(atPath: ownMaster) && ownCenter.run(ownID)?.files.first?.state == .done && inventoryText == "mine\n",
+                  "\(String(describing: ownCenter.run(ownID)?.files.first?.state)) \(String(describing: inventoryText))")
+        } else { check("shrink safety: own-inventory destination run made", false) }
     }
 }
