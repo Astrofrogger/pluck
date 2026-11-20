@@ -451,6 +451,7 @@ final class OfficeProxies {
     /// Works through every asked folder, one video at a time, skipping what's made. Waits while
     /// the host renders, so a render always has the Mac to itself.
     func run() {
+        runRemake()
         guard task == nil, !requests.isEmpty else { return }
         task = Task {
             defer { task = nil; working = nil; queued = 0; making = nil }
@@ -492,9 +493,67 @@ final class OfficeProxies {
         }
     }
 
+    // MARK: - Remaking with a new viewing look
+
+    /// Proxies waiting to be made again because their folder's viewing look changed.
+    struct Remake: Hashable { var share: String; var path: String; var format: Format }
+    private(set) var remaking: [Remake] = []
+    @ObservationIgnored private var remakeTask: Task<Void, Never>?
+
+    /// Queues every proxy already made of a share (each format) to be made again with its folder's look now. One at a time
+    /// with the other encodes; each is made beside the old one and only then replaces it, so the old one serves meanwhile.
+    func remake(_ id: String) async {
+        guard let files = try? await files(in: id) else { return }
+        for format in Format.made {
+            for relative in files where FileManager.default.fileExists(atPath: proxy(relative, folder: id, format: format).path) {
+                let item = Remake(share: id, path: relative, format: format)
+                if !remaking.contains(item) { remaking.append(item) }
+            }
+        }
+        runRemake()
+    }
+
+    private func runRemake() {
+        guard remakeTask == nil, !remaking.isEmpty else { return }
+        remakeTask = Task {
+            defer { remakeTask = nil }
+            guard let ffmpeg = manager?.tool("ffmpeg"), let ffprobe = manager?.tool("ffprobe") else { remaking = []; return }
+            while let item = remaking.first, !Task.isCancelled {
+                while OfficeRenderServer.shared.isRendering, !Task.isCancelled { try? await Task.sleep(for: .seconds(10)) }
+                if let footage = try? folder(item.share) {
+                    let source = footage.appendingPathComponent(item.path), target = proxy(item.path, folder: item.share, format: item.format)
+                    let look = OfficeLook.setting(item.share)
+                    // (Already with that look, or none either way: RAW, Off, nothing found by Automatic.)
+                    let same = await Task.detached { OfficeLook.tagged(target, ffprobe: ffprobe) == OfficeLook.look(for: source, setting: look, ffprobe: ffprobe)?.name }.value
+                    if FileManager.default.fileExists(atPath: target.path), !same {
+                        working = (item.path as NSString).lastPathComponent
+                        progress = 0
+                        let fresh = Self.remakeFile(target)
+                        try? FileManager.default.removeItem(at: fresh)
+                        if await makeOne(source, to: fresh, format: item.format, ffmpeg: ffmpeg, ffprobe: ffprobe, look: look, progress: { value in
+                            Task { @MainActor in OfficeProxies.shared.progress = value }
+                        }) {
+                            _ = try? FileManager.default.replaceItemAt(target, withItemAt: fresh)
+                        }
+                        try? FileManager.default.removeItem(at: fresh)
+                        OfficeProxies.mismatches.withLock { _ = $0.removeValue(forKey: fresh.path) }
+                        working = nil
+                    }
+                }
+                remaking.removeAll { $0 == item }
+            }
+        }
+    }
+
+    /// Where a proxy is made again before it replaces the old one ("A001.remake.part.mov": never listed or served).
+    nonisolated static func remakeFile(_ proxy: URL) -> URL {
+        proxy.deletingPathExtension().appendingPathExtension("remake.part.mov")
+    }
+
     /// Pauses (the server stopping); the requests stay and carry on with the next run.
     func stop() {
         task?.cancel()
+        remakeTask?.cancel()
     }
 
     /// Stop in the Proxies tab: the whole folder being made now is dropped (before its next file), so it doesn't start again.

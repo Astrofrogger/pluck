@@ -214,6 +214,9 @@ enum OfficeLook: String, CaseIterable, Identifiable, Sendable {
 struct ViewingLookList: View {
     @State private var archive = OfficeArchive.shared
     @State private var changed = 0
+    /// The folder whose look just changed: offered to remake the proxies already made.
+    @State private var offer: String?
+    private var proxies: OfficeProxies { OfficeProxies.shared }
 
     var body: some View {
         if !archive.folders.isEmpty {
@@ -225,10 +228,26 @@ struct ViewingLookList: View {
                         Text(verbatim: folder.lastPathComponent).font(Design.Studio.body).lineLimit(1)
                         Spacer()
                         Picker("Viewing look", selection: Binding(get: { _ = changed; return OfficeLook.setting(id) },
-                                                                 set: { OfficeLook.set($0, for: id); changed += 1 })) {
+                                                                 set: { OfficeLook.set($0, for: id); changed += 1; offer = id })) {
                             ForEach(OfficeLook.allCases) { Text($0.label).tag($0) }
                         }
                         .labelsHidden().fixedSize()
+                    }
+                    let waiting = proxies.remaking.filter { $0.share == id }.count
+                    if waiting > 0 {
+                        Text("Remaking \(waiting) proxies with the new look…").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                    } else if offer == id {
+                        HStack {
+                            Text("Remake the proxies already made? One at a time; originals stay as they are.")
+                                .font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet).fixedSize(horizontal: false, vertical: true)
+                            Spacer()
+                            Button("Not Now") { offer = nil }.buttonStyle(StudioFlatButtonStyle(height: 26))
+                            Button("Remake") {
+                                offer = nil
+                                Task { await proxies.remake(id) }
+                            }
+                            .buttonStyle(StudioFlatButtonStyle(prominent: true, height: 26))
+                        }
                     }
                 }
                 Text("Only for cutting. Grades made on these proxies won’t match the render. Grade at the office or turn this off.")

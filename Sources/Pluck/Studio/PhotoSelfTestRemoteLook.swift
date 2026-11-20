@@ -57,5 +57,11 @@ extension PhotoSelfTest {
               OfficeProxies.attachProblem(source, plain, ffprobe: ffprobe) ?? "")
         check("look: a proxy that differs from its original is caught", OfficeProxies.attachProblem(source, root.appendingPathComponent("Cuts/P.mov"), ffprobe: ffprobe) != nil)
         check("look: the proxy says which look it has", OfficeLook.tagged(looked, ffprobe: ffprobe) == "slog3-709" && OfficeLook.tagged(plain, ffprobe: ffprobe) == nil)
+        // A look changed later: the proxy is made again beside the old one (a part file, never listed) and then replaces it.
+        let fresh = OfficeProxies.remakeFile(plain)
+        let remade = await OfficeProxies.encode(source, to: fresh, format: .light, ffmpeg: ffmpeg, ffprobe: ffprobe, look: .automatic, progress: { _ in })
+        let replaced = remade && (try? FileManager.default.replaceItemAt(plain, withItemAt: fresh)) != nil
+        check("look: a remade proxy replaces the old one with the new look", fresh.lastPathComponent == "plain.remake.part.mov" && replaced
+              && OfficeLook.tagged(plain, ffprobe: ffprobe) == "slog3-709" && !FileManager.default.fileExists(atPath: fresh.path))
     }
 }
