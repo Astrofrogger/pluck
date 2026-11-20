@@ -60,6 +60,7 @@ extension PhotoSelfTest {
         let corner = PhotoSpot(kind: .remove, centre: CGPoint(x: 0.01, y: 0.99), source: .zero, radius: 0.03, stroke: [CGPoint(x: 0.01, y: 0.99)])
         let cornered = PhotoHeal.apply([corner], to: picture)
         check("remove: at the corner, same size", cornered.extent == picture.extent, "\(cornered.extent)")
+        removeQuality()
 
         // A real RAW through the render, at two sizes and with two spots (Core ML hands its output buffers out again: a
         // fill drawn after the next one was made came out black).
