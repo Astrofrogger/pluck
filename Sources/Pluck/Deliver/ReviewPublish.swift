@@ -64,6 +64,8 @@ extension Deliver {
         /// A server before that says neither: every Mac is an admin there.
         var roles: Int? = nil
         var access: String? = nil
+        /// What its hello said of email updates (`"mail": 1`, 4.1.0): Settings can set up its mail.
+        var mail: Int? = nil
         enum Kind: String, Codable { case mac, nas }
         struct Mount: Codable, Hashable { var local: String; var remote: String }
     }
@@ -459,6 +461,10 @@ final class ReviewPublish {
                                        "expires": link.expires.map { DeliverServer.date($0) as Any } ?? NSNull(), "revoked": link.revoked.map { DeliverServer.date($0) as Any } ?? NSNull(),
                                        "passwordHash": link.passwordHash.map { $0 as Any } ?? NSNull(), "project": project.uuidString, "root": root,
                                        "paused": link.isPaused]
+            // 4.1.0: Email updates go to the host with the mail code (a level-3 link's code), never to browsers.
+            if let notify = link.notify, notify.email, let code = store.code(link.id) {
+                wire["notify"] = ["email": true, "recipientEmail": notify.recipientEmail.map { $0 as Any } ?? NSNull(), "mailCode": code] as [String: Any]
+            }
             // §6.1's link fields, as `ready.link` has them (the header goes as a bundle file with the branding).
             var info = DeliverServer.linkInfo(link, store: store)
             for key in ["title", "mode", "allowDownload", "latestOnly", "expires", "header"] { info[key] = nil }

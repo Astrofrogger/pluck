@@ -18,6 +18,9 @@ final class DeliverServer {
     @ObservationIgnored var output: ([String: Any]) -> Void = { _ in }
     /// When browsers write something (a comment, a reply, an approval, an upload): the inbox, a notification.
     @ObservationIgnored var notify: (Deliver.InboxItem, String) -> Void = { _, _ in }
+    /// Email updates (4.1.0): whether the main host can mail, and one op to it (nil: not reachable). Tests replace both.
+    @ObservationIgnored var mailActive: () -> Bool = { DeliverMail.shared.active }
+    @ObservationIgnored var mailAsk: ([String: Any]) async -> [String: Any]? = { await DeliverMail.shared.ask($0) }
     /// Where uploads land (Review/Uploads/<linkID>/) and comment attachments are kept.
     var uploadsFolder: URL { store.root.appendingPathComponent("Uploads", isDirectory: true) }
     var attachmentsFolder: URL { store.root.appendingPathComponent("Attachments", isDirectory: true) }
@@ -44,6 +47,8 @@ final class DeliverServer {
         /// Attachments this browser uploaded, for its next comments.
         var attachments: [UUID: Deliver.Comment.Attachment] = [:]
         var viewing: UUID?
+        /// This browser's own mail row as it set it in this session (the host keeps the real one).
+        var subscription: (email: String, mode: String)?
         enum Stage { case hello, welcomed, ready }
         init(id: String, link: UUID) { self.id = id; self.link = link }
     }
@@ -236,6 +241,7 @@ final class DeliverServer {
             switch (type, peer.stage) {
             case ("auth", .hello): try auth(peer, id, message, link)
             case ("password", .welcomed): try password(peer, id, message, link)
+            case ("unsubscribe", .welcomed): try unsubscribe(peer, id, message)
             case (_, .ready): try request(peer, id, type, message, link)
             default: throw Deliver.Failure("auth")
             }
@@ -324,7 +330,8 @@ final class DeliverServer {
         case .assets: ["kind": "assets", "id": link.id.uuidString, "name": link.title]
         }
         var message: [String: Any] = ["t": "ready", "link": Self.linkInfo(link, store: store), "root": root, "me": ["peer": peer.id, "name": peer.name],
-                                      "now": Self.date(clock())]
+                                      "now": Self.date(clock()), "mentions": true]
+        if mailActive(), link.notify?.email == true { message["mail"] = true }
         toldDeadline[peer.id] = DeliverDeadlines.effective(link, store: store)
         if let branding = store.branding(for: link.project) { message["branding"] = branding.wire }
         if let id { message["re"] = id }
@@ -359,6 +366,10 @@ final class DeliverServer {
         case "comments":
             let (asset, version) = try version(message, link)
             reply(peer, id, ["comments": store.comments(asset.id, version: version.id).filter { visible($0, link) }.map { wire($0, peer) }])
+        case "mentionable": reply(peer, id, ["people": mentionable(link).map { ["id": $0.id, "name": $0.name] }])
+        case "subscribe": try subscribe(peer, id, message, link)
+        case "unsubscribe": try unsubscribe(peer, id, message)
+        case "subscription": reply(peer, id, ["mode": peer.subscription?.mode ?? NSNull(), "email": peer.subscription?.email ?? NSNull()])
         case "comment-add":
             let (asset, version) = try version(message, link)
             let drawing = try message["drawing"].flatMap { $0 is NSNull ? nil : $0 }.map { value -> Deliver.Drawing in
@@ -381,7 +392,8 @@ final class DeliverServer {
             }
             let comment = try store.addComment(asset: asset.id, version: version.id, frame: frame, endFrame: message["endFrame"] as? Int,
                                                text: message["text"] as? String ?? "", author: author(peer), token: peer.token, link: link.id, drawing: drawing,
-                                               page: message["page"] as? Int, anchor: anchor, isInternal: isInternal, attachments: attachments)
+                                               page: message["page"] as? Int, anchor: anchor, isInternal: isInternal, attachments: attachments,
+                                               mentions: mentions(message, link))
             for id in attachmentIDs { peer.attachments[id] = nil }
             reply(peer, id, ["comment": wire(comment, peer)])
             log(peer, "commented", asset: asset.id, version: version.id, detail: frame.map { .init(from: $0) })
@@ -390,7 +402,8 @@ final class DeliverServer {
             let found = try comment(message["comment"], link)
             let isInternal = message["internal"] as? Bool ?? false
             if isInternal, !link.isTeam { throw Deliver.Failure("scope") }
-            let changed = try store.reply(to: found.id, text: message["text"] as? String ?? "", author: author(peer), token: peer.token, isInternal: isInternal)
+            let changed = try store.reply(to: found.id, text: message["text"] as? String ?? "", author: author(peer), token: peer.token, isInternal: isInternal,
+                                       mentions: mentions(message, link))
             reply(peer, id, ["comment": wire(changed, peer)])
             log(peer, "commented", asset: found.asset, version: found.version)
             if let asset = store.find(found.asset)?.asset, let made = changed.replies.last {
@@ -525,6 +538,59 @@ final class DeliverServer {
                                      summary: String(text.prefix(120)), author: author(peer))
         store.addInbox(item)
         if link.muted != true { notify(item, asset.name) }
+    }
+
+    // MARK: - Mentions and email updates (4.1.0)
+
+    /// Who a browser can @mention on this link: the team (names only), then authors of the comments and replies it can see.
+    func mentionable(_ link: Deliver.ShareLink) -> [(id: String, name: String)] {
+        var seen = Set<String>(), list: [(id: String, name: String)] = []
+        func add(_ id: String, _ name: String) { if !name.isEmpty, list.count < 200, seen.insert(id).inserted { list.append((id, name)) } }
+        for person in DeliverPeople.shared.team { add(person.id, person.name ?? "") }
+        for asset in store.content(link.project).assets where inScope(asset, link) {
+            for comment in store.comments(asset.id) {
+                if visible(comment, link), let token = comment.authorToken { add(DeliverMail.mentionID(token), comment.author) }
+                for reply in comment.replies where link.isTeam || !reply.isInternal {
+                    if !comment.isInternal || link.isTeam, let token = reply.authorToken { add(DeliverMail.mentionID(token), reply.author) }
+                }
+            }
+        }
+        return list
+    }
+
+    /// `mentions` of a write: strings only, ids the link's `mentionable` has, at most 10.
+    private func mentions(_ message: [String: Any], _ link: Deliver.ShareLink) -> [String]? {
+        guard let asked = message["mentions"] as? [String], !asked.isEmpty else { return nil }
+        let known = Set(mentionable(link).map(\.id))
+        return Array(NSOrderedSet(array: asked.filter(known.contains)).array.prefix(10)) as? [String]
+    }
+
+    /// Forwarded to the main host as `subscriber-set`. No outbox for this: it needs the host's answer, so it goes at once
+    /// and answers `off` when the host isn't reachable.
+    private func subscribe(_ peer: Peer, _ id: Int, _ message: [String: Any], _ link: Deliver.ShareLink) throws {
+        guard let token = peer.token else { throw Deliver.Failure("auth") }
+        guard mailActive(), link.notify?.email == true else { throw Deliver.Failure("off") }
+        let email = (message["email"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        guard DeliverMail.validEmail(email), let mode = message["mode"] as? String, ["instant", "daily", "off"].contains(mode) else { throw Deliver.Failure("invalid") }
+        var op: [String: Any] = ["op": "subscriber-set", "kind": "client", "email": email, "link": link.id.uuidString, "author": token, "mode": mode]
+        if let lang = message["lang"] as? String { op["lang"] = String(lang.prefix(8)) }
+        if peer.name.isEmpty == false { op["name"] = peer.name }
+        Task {
+            if let answer = await mailAsk(op), answer["ok"] as? Bool == true {
+                peer.subscription = (email, mode)
+                reply(peer, id, ["ok": true])
+            } else { fail(peer, id, .init("off")) }
+        }
+    }
+
+    private func unsubscribe(_ peer: Peer, _ id: Int, _ message: [String: Any]) throws {
+        guard peer.token != nil else { throw Deliver.Failure("auth") }
+        guard let token = message["token"] as? String, token.count == 43 else { throw Deliver.Failure("invalid") }
+        Task {
+            if let answer = await mailAsk(["op": "unsubscribe", "token": token]), answer["ok"] as? Bool == true {
+                reply(peer, id, ["ok": true, "scope": answer["scope"] as? String ?? "link"])
+            } else { fail(peer, id, .init("off")) }
+        }
     }
 
     // MARK: - Scope
@@ -692,6 +758,7 @@ final class DeliverServer {
             var wire: [String: Any] = ["id": reply.id.uuidString, "text": reply.text, "author": reply.author, "created": Self.date(reply.created),
                                        "mine": peer?.token != nil && reply.authorToken == peer?.token]
             if reply.isInternal { wire["internal"] = true }
+            if let mentions = reply.mentions, !mentions.isEmpty { wire["mentions"] = mentions }
             return wire
         }
         return json

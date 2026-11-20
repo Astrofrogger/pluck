@@ -517,7 +517,7 @@ final class DeliverStore {
     @discardableResult
     func addComment(asset: UUID, version: UUID, frame: Int?, endFrame: Int? = nil, text: String, author: String,
                     token: String? = nil, link: UUID? = nil, drawing: Deliver.Drawing? = nil, page: Int? = nil, anchor: [Double]? = nil,
-                    isInternal: Bool = false, attachments: [Deliver.Comment.Attachment]? = nil) throws -> Deliver.Comment {
+                    isInternal: Bool = false, attachments: [Deliver.Comment.Attachment]? = nil, mentions: [String]? = nil) throws -> Deliver.Comment {
         guard let (_, found) = find(asset), let made = found.versions.first(where: { $0.id == version }) else { throw Deliver.Failure("notFound") }
         let frames = found.kind == .image || found.kind == .document ? 1 : max(made.probe?.frames ?? 1, 1)
         if let frame {
@@ -531,7 +531,7 @@ final class DeliverStore {
         guard list.filter({ $0.version == version }).count < Self.commentLimit else { throw Deliver.Failure("limit") }
         let comment = Deliver.Comment(asset: asset, version: version, frame: frame, endFrame: endFrame, text: try Self.text(text),
                                       author: Deliver.clean(author, limit: Self.authorLimit), authorToken: token, link: link, drawing: drawing,
-                                      page: page, anchor: anchor, internal: isInternal ? true : nil, attachments: attachments?.isEmpty == false ? attachments : nil)
+                                      page: page, anchor: anchor, internal: isInternal ? true : nil, attachments: attachments?.isEmpty == false ? attachments : nil, mentions: mentions?.isEmpty == false ? mentions : nil)
         var stamped = comment
         if !applying { DeliverMerge.bump(&stamped) }
         list.append(stamped)
@@ -592,11 +592,11 @@ final class DeliverStore {
     }
 
     @discardableResult
-    func reply(to comment: UUID, text: String, author: String, token: String? = nil, isInternal: Bool = false) throws -> Deliver.Comment {
+    func reply(to comment: UUID, text: String, author: String, token: String? = nil, isInternal: Bool = false, mentions: [String]? = nil) throws -> Deliver.Comment {
         let text = try Self.text(text)
         return try change(comment: comment) { found in
             guard found.replies.count < 100 else { throw Deliver.Failure("limit") }
-            found.replies.append(.init(text: text, author: Deliver.clean(author, limit: Self.authorLimit), authorToken: token, internal: isInternal ? true : nil))
+            found.replies.append(.init(text: text, author: Deliver.clean(author, limit: Self.authorLimit), authorToken: token, internal: isInternal ? true : nil, mentions: mentions?.isEmpty == false ? mentions : nil))
             return true
         }
     }
