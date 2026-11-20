@@ -176,7 +176,7 @@ struct DeliverShareBuilderView: View {
         return section("Content") {
             StudioField(label: "Shares") {
                 Menu {
-                    Button("Whole Project") { session.draft.scope = .project(project) }
+                    Button("Whole project") { session.draft.scope = .project(project) }
                     ForEach(folders) { folder in Button(folder.name) { session.draft.scope = .folder(folder.id, project: project) } }
                 } label: { StudioMenuLabel(title: scopeTitle) }
                     .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden).fixedSize()

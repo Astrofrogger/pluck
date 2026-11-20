@@ -19,8 +19,8 @@ extension PhotoSelfTest {
         guard let hero = asset("Hero 30s", in: project.id), let cut = asset("Cutdown 15s", in: project.id), let social = asset("Social 9x16", in: project.id),
               let elsewhere = asset("Elsewhere", in: other.id), let folder = store.newFolder("Socials", in: project.id, parent: nil) else { return check("builder: assets", false) }
         store.move(asset: social.id, to: folder.id)
-        _ = try? store.addComment(asset: hero.id, version: hero.current.id, frame: 10, text: "Client note", author: "Client", token: "t")
-        _ = try? store.addComment(asset: hero.id, version: hero.current.id, frame: 20, text: "SECRET-INTERNAL", author: "Editor", isInternal: true)
+        _ = try? store.addComment(asset: hero.id, version: hero.current.id, frame: nil, text: "Client note", author: "Client", token: "t")
+        _ = try? store.addComment(asset: hero.id, version: hero.current.id, frame: nil, text: "SECRET-INTERNAL", author: "Editor", isInternal: true)
         guard let link = try? store.newLink(scope: .project(project.id), title: "Spring – cuts", password: "pw") else { return check("builder: link", false) }
         let key = store.key(link.id), url = store.url(link), count = store.links.count, rev = link.rev ?? 0
         var changes = 0
@@ -70,6 +70,11 @@ extension PhotoSelfTest {
               && !text.contains(elsewhere.id.uuidString) && !text.contains("Elsewhere") && Set(made.pictures.keys) == Set([hero, cut, social].map { $0.current.id.uuidString }))
         let heroComments = (root.first { $0["id"] as? String == hero.id.uuidString }?["current"] as? [String: Any])?["comments"] as? Int
         check("builder: internal comments stay out of a client link's preview", !text.contains("SECRET-INTERNAL") && heroComments == 1, "\(String(describing: heroComments))")
+        session.draft.audience = "team"
+        let team = (((session.server.previewManifest(session.draft).json["lists"] as? [String: Any])?[""] as? [String: Any])?["assets"] as? [[String: Any]] ?? [])
+            .first { $0["id"] as? String == hero.id.uuidString }.flatMap { ($0["current"] as? [String: Any])?["comments"] as? Int }
+        check("builder: a team link's preview counts them", store.comments(hero.id).count == 2 && team == 2, "\(String(describing: team))")
+        session.draft.audience = nil
         check("builder: pictures only through pluck-preview:", (made.json["images"] as? [String: String])?.values.allSatisfy { $0.hasPrefix("pluck-preview://img/") } == true
               && made.json["lang"] as? String == "nl")
         session.draft.scope = .folder(folder.id, project: project.id)
