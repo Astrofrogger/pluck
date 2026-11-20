@@ -34,6 +34,8 @@ services:
   pluck-relay-certs:
     image: "{{lego_image}}"
     restart: unless-stopped
+    # The relay first: its image makes the empty certs volume owned by 568 (lego's image has no /certs, so it would be root's).
+    depends_on: [pluck-relay]
     user: "568:568"
     read_only: true
     cap_drop: [ALL]
