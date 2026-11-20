@@ -25,7 +25,7 @@ pub const MODES: [&str; 3] = ["instant", "daily", "off"];
 
 #[derive(Debug, PartialEq)]
 pub struct MailErr {
-    pub code: &'static str, // auth | connect | tls | rejected
+    pub code: &'static str, // auth | connect | tls | rejected (5xx on RCPT/DATA: this message's own) | sender | busy
     pub detail: String,
 }
 
@@ -155,12 +155,14 @@ async fn session<S: AsyncRead + AsyncWrite + Unpin>(s: &mut BufReader<S>, caps: 
         cmd(s, &b64(password.as_bytes()), 235, "auth").await?;
     }
     let from = cfg["from"].as_str().unwrap_or("");
+    // Only a 5xx on RCPT or DATA is about this message (the host drops it); a refused sender or a 4xx is the server's (it backs off).
+    let own = |e: MailErr| if e.code == "rejected" && !e.detail.starts_with('5') { err("busy", e.detail) } else { e };
     for m in msgs {
-        cmd(s, &format!("MAIL FROM:<{}>", addr(from)), 250, "rejected").await?;
-        cmd(s, &format!("RCPT TO:<{}>", addr(&m.to)), 250, "rejected").await?;
-        cmd(s, "DATA", 354, "rejected").await?;
+        cmd(s, &format!("MAIL FROM:<{}>", addr(from)), 250, "sender").await?;
+        cmd(s, &format!("RCPT TO:<{}>", addr(&m.to)), 250, "rejected").await.map_err(own)?;
+        cmd(s, "DATA", 354, "rejected").await.map_err(own)?;
         let data = message(cfg, m);
-        cmd(s, &format!("{data}\r\n."), 250, "rejected").await?;
+        cmd(s, &format!("{data}\r\n."), 250, "rejected").await.map_err(own)?;
     }
     let _ = cmd(s, "QUIT", 221, "connect").await;
     Ok(())
@@ -700,6 +702,10 @@ pub mod tests {
                         return true;
                     } else if l.starts_with("AUTH PLAIN") {
                         if l == accept { "235 ok\r\n" } else { "535 5.7.8 bad credentials\r\n" }
+                    } else if l.starts_with("RCPT TO:<bounce@") {
+                        "550 5.1.1 no such user\r\n"
+                    } else if l.starts_with("RCPT TO:<busy@") {
+                        "451 4.3.0 try again later\r\n"
                     } else if l == "DATA" {
                         data = true; "354 go\r\n"
                     } else if l == "QUIT" {
@@ -755,6 +761,11 @@ pub mod tests {
         assert_eq!(send(&cfg(port, "tls"), "wrong", &[msg()], Some(roots)).await.unwrap_err().code, "auth");
         let (port, _, _rx) = fake_smtp(true, PLAIN).await;
         assert_eq!(send(&cfg(port, "tls"), "secret", &[msg()], None).await.unwrap_err().code, "tls", "an untrusted certificate");
+        let to = |a: &str| Msg { to: a.into(), subject: "s".into(), body: "b".into(), unsubscribe: false };
+        let (port, roots, _rx) = fake_smtp(true, PLAIN).await;
+        assert_eq!(send(&cfg(port, "tls"), "secret", &[to("bounce@example.com")], Some(roots)).await.unwrap_err().code, "rejected", "a 550 on RCPT");
+        let (port, roots, _rx) = fake_smtp(true, PLAIN).await;
+        assert_eq!(send(&cfg(port, "tls"), "secret", &[to("busy@example.com")], Some(roots)).await.unwrap_err().code, "busy", "a 451 is the server's");
         let free = TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap().port();
         assert_eq!(send(&cfg(free, "tls"), "secret", &[msg()], None).await.unwrap_err().code, "connect");
     }

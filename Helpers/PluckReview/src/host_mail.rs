@@ -348,9 +348,10 @@ impl Host {
         tokio::spawn(async move {
             for (ids, msg) in batches {
                 let r = mail::send(&cfg, &pw, std::slice::from_ref(&msg), None).await;
-                let failed = r.is_err();
+                // A refused address (5xx on RCPT/DATA) is that batch's alone: the next ones still go.
+                let stop = r.as_ref().is_err_and(|e| e.code != "rejected");
                 let _ = back.send(("mail:sent".into(), json!({"ids": ids, "error": r.err().map(|e| json!({"code": e.code, "detail": e.detail}))})));
-                if failed {
+                if stop {
                     break; // the rest stays queued for the retry
                 }
             }
@@ -371,6 +372,14 @@ impl Host {
                         self.mail.cfg["lastError"] = Value::Null;
                         self.mail.save_cfg();
                     }
+                }
+                Some(e) if e["code"] == "rejected" => {
+                    // This batch's address was refused: it goes (sending it again won't help), the others don't wait.
+                    let ids: Vec<String> = v["ids"].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect();
+                    self.mail.done(&ids);
+                    self.mail.cfg["lastError"] = json!({"code": e["code"], "detail": e["detail"], "at": super::now_iso()});
+                    self.mail.save_cfg();
+                    log(format!("host: mail refused, {} dropped: {}", ids.len(), e["detail"]));
                 }
                 Some(e) => {
                     self.mail.backoff = (self.mail.backoff * 2).clamp(60, 3600);

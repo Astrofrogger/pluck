@@ -4077,6 +4077,19 @@ mod tests {
         assert_eq!(h.mail.queue.len(), n + 1);
     }
 
+    /// A refused address (5xx on RCPT/DATA) drops that batch only; connect/tls/auth back everything off.
+    #[test]
+    fn mail_rejected_drops_its_batch_only() {
+        let (mut h, _rx) = test_host();
+        h.mail.push(vec![json!({"id": "q1", "to": "r1", "at": 0}), json!({"id": "q2", "to": "r2", "at": 0})]);
+        h.mail_back("sent", json!({"ids": ["q1"], "error": {"code": "rejected", "detail": "550 no such user"}}));
+        assert_eq!((h.mail.queue.len(), h.mail.backoff, h.mail.cfg["lastError"]["code"].clone()), (1, 0, json!("rejected")));
+        h.mail.push(vec![json!({"id": "q1", "to": "r1", "at": 0})]);
+        assert_eq!(h.mail.queue.len(), 1, "in the ledger: never queued again");
+        h.mail_back("sent", json!({"ids": ["q2"], "error": {"code": "connect", "detail": "timed out"}}));
+        assert!(h.mail.queue.len() == 1 && h.mail.backoff >= 60 && h.mail.retry_at > now_secs(), "kept for the retry");
+    }
+
     /// Assignment reminders by mail (4.0.7): to the teammate's row only, once per asset and day, never a client.
     #[test]
     fn mail_remind_queues_once_for_the_teammate() {
