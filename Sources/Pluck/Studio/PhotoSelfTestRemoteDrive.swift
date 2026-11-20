@@ -126,6 +126,7 @@ extension PhotoSelfTest {
         check("drive: speed verdicts by format", RemoteNetwork.quality(speed: 10e6, format: "light") == .smooth
               && RemoteNetwork.quality(speed: 10e6, format: "prores") == .usable && RemoteNetwork.quality(speed: 1e6, format: "prores") == .slow)
 
+        remoteDriveWriteUnits()
         await driveLoopback()
     }
 
@@ -170,6 +171,9 @@ extension PhotoSelfTest {
             UserDefaults.standard.set(saved.0, forKey: RemoteNetworkHost.streamKey)
             UserDefaults.standard.set(saved.1, forKey: "editAnywhereProxyFormat")
             UserDefaults.standard.removeObject(forKey: "PluckScreenshotPort")
+            RemoteDriveWriteHost.offered = true
+            RemoteDriveOverlay.quiet = 2
+            try? fm.removeItem(at: RemoteDriveOverlay.root)
         }
         server.startPairing()
         guard let code = server.pairing?.code else { return check("drive: pairing code", false) }
@@ -184,7 +188,10 @@ extension PhotoSelfTest {
             check("drive: streaming off: the host refuses streamed pieces", pieceRefused)
             UserDefaults.standard.set(true, forKey: RemoteNetworkHost.streamKey)
 
+            // An office from before writing (driveInfo without `write`): a read-only mount.
+            RemoteDriveWriteHost.offered = false
             let point = try await network.mount(id)
+            check("drive: an older office gives a read-only drive", network.hostWrites == false)
             check("drive: mounted under the test home, hidden", RemoteDriveMount.isMounted(point) && point.path.hasPrefix(NSHomeDirectory())
                   && point.path.contains("Edit Anywhere/Drives"), point.path)
             // Reads off the main thread: the drive's fetches need it.
@@ -213,6 +220,17 @@ extension PhotoSelfTest {
             check("drive: the mount point carries the share's id", point.lastPathComponent.hasSuffix(" " + id.prefix(8)), point.path)
             await network.unmount(id)
             check("drive: unmounted clean", !RemoteDriveMount.isMounted(point) && network.state(id) == .idle)
+
+            // Writing (RemoteDriveWrite): an office that takes writes, the drive read-write.
+            RemoteDriveWriteHost.offered = true
+            RemoteDriveOverlay.quiet = 0.3
+            guard let office = client.office?.device.uuidString, let mac = server.devices.first(where: { !$0.isPeer })?.name else {
+                return check("drive write: paired office", false)
+            }
+            await driveWritesAfterRestart(root: root, id: id, office: office)
+            let writable = try await network.mount(id)
+            await driveWrites(point: writable, root: root, id: id, office: office, mac: mac)
+            await network.unmount(id)
 
             // Two asking at once share one mount; Disconnect during a mount leaves nothing behind.
             async let first = network.mount(id)

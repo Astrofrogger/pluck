@@ -16,7 +16,8 @@ enum RemoteNetworkHost {
         OfficeActions.register("driveInfo") { _, device in
             try OfficeActions.require(\.proxies, device)
             // (formats: what's made here, so a Mac knows it can ask for the streaming ones.)
-            return ["stream": streamAllowed, "formats": OfficeProxies.Format.made.map(\.rawValue)]
+            // (write: the drive may write here, RemoteDriveWrite; an office from before doesn't say, so its drives stay read-only.)
+            return ["stream": streamAllowed, "formats": OfficeProxies.Format.made.map(\.rawValue), "write": RemoteDriveWriteHost.offered]
         }
     }
 }
@@ -39,6 +40,10 @@ final class RemoteShareDrive: RemoteDriveBackend, @unchecked Sendable {
     let blocks: RemoteDriveBlocks
     private let lock = NSLock()
     private var tree = Tree()
+    /// This Mac's own files on the drive and what waits to go to the office (RemoteDriveWrite; nil: read-only).
+    var overlay: RemoteDriveOverlay? {
+        didSet { overlay?.known = { [weak self] path in self?.current.nodes[path] != nil } }
+    }
 
     init(cacheKey: String, fetch: @escaping Fetch) {
         blocks = RemoteDriveBlocks(scope: cacheKey, fetch: fetch)
@@ -88,19 +93,26 @@ final class RemoteShareDrive: RemoteDriveBackend, @unchecked Sendable {
     // MARK: RemoteDriveBackend
 
     func node(_ path: String) async throws -> RemoteDriveNode {
-        guard let node = current.nodes[path] else { throw RemoteDriveError.noEntry }
+        guard var node = current.nodes[path] else {
+            if let own = overlay?.node(path) { return own }
+            throw RemoteDriveError.noEntry
+        }
+        if node.folder, let overlay, overlay.hostWrites { node.writable = await overlay.canWrite(path) }
         return node
     }
 
     func list(_ path: String) async throws -> [RemoteDriveNode] {
         let tree = current
-        guard let node = tree.nodes[path] else { throw RemoteDriveError.noEntry }
+        guard let node = try? await self.node(path) else { throw RemoteDriveError.noEntry }
         guard node.folder else { throw RemoteDriveError.notFolder }
-        return (tree.children[path] ?? []).compactMap { tree.nodes[$0] }
+        let office = (tree.children[path] ?? []).compactMap { tree.nodes[$0] }, names = Set(office.map(\.name))
+        let own = (overlay?.children(path) ?? []).filter { !names.contains($0.name) }
+        return office + own.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     func read(_ path: String, offset: Int64, count: Int) async throws -> Data {
         let tree = current
+        if tree.nodes[path] == nil, let overlay { return try await overlay.read(path, offset: offset, count: count) }
         if path == RemoteManifest.fileName {
             let start = Int(min(offset, Int64(tree.manifest.count)))
             return tree.manifest.subdata(in: start..<min(tree.manifest.count, start + count))
@@ -349,6 +361,8 @@ final class RemoteNetwork {
 
     /// Whether the host lets this Mac stream (nil: not asked yet or the host didn't answer).
     private(set) var hostAllows: Bool?
+    /// Whether the host takes writes from the drive (false: an office from before; nil: not asked yet).
+    private(set) var hostWrites: Bool?
     /// The proxy formats the host makes (a host from before doesn't say: no streaming proxies there).
     @ObservationIgnored private var hostFormats: Set<String> = []
     /// Per mounted share: the lighter proxies standing in, and how big its chosen-format proxies are (to download).
@@ -370,6 +384,7 @@ final class RemoteNetwork {
     func install() {
         RemoteHooks.networkProxyRoot = { share in try await RemoteNetwork.shared.root(for: share) }
         RemoteProxyMode.migrate()
+        RemoteDriveWrites.shared.install()
         guard observers.isEmpty else { return }
         Task.detached { Self.unmountLeftovers() }
         observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { _ in
@@ -402,6 +417,7 @@ final class RemoteNetwork {
     func refresh() async {
         let answer = try? await OfficeRenderClient.shared.ask("driveInfo", timeout: 20)
         hostAllows = answer.map { $0["stream"] as? Bool ?? false }
+        if let answer { hostWrites = answer["write"] as? Bool == true }
         if let answer { hostFormats = Set(answer["formats"] as? [String] ?? []) }
     }
 
@@ -465,6 +481,12 @@ final class RemoteNetwork {
                                          fetch: Self.fetcher(share: id, format: format, choice: choice))
             choices[id] = choice
             drive.update(manifest)
+            // This Mac's writes (kept since the last time, even across restarts); read-only where the office doesn't take them.
+            let overlay = RemoteDriveWrites.shared.overlay(office: office.device.uuidString, share: id)
+            if let hostWrites { overlay.hostWrites = hostWrites }
+            overlay.shareName = share.name
+            overlay.forgetAccess()
+            drive.overlay = overlay
             let server = RemoteDriveServer(backend: drive)
             mine = server
             let port = try await server.start()
@@ -502,7 +524,9 @@ final class RemoteNetwork {
         wanted.remove(id)
         mounting[id]?.cancel()
         refreshFailures[id] = nil
+        let overlay = drives[id]?.drive.overlay
         await stopDrive(id)
+        overlay?.dropSentSpools()
         states[id] = .idle
     }
 

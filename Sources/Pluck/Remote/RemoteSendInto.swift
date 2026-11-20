@@ -60,8 +60,9 @@ enum RemoteSendInto {
     }
 
     /// One piece at the end of the partial file; the last one checks the SHA-256 and places the file under a free name.
+    /// `publish`: puts the checked partial in place itself (the drive's writes, RemoteDriveWriteHost), instead of `place`.
     nonisolated static func receive(into folder: URL, name: String, size: Int64, modified: Double, offset: Int64, data: Data,
-                                    sha256: String?) throws -> [String: Any] {
+                                    sha256: String?, publish: ((URL) throws -> [String: Any])? = nil) throws -> [String: Any] {
         guard offset >= 0, offset + Int64(data.count) <= size else { throw OfficeInbox.Problem.tooBig }
         let part = partial(folder, name: name, size: size, modified: modified)
         let fm = FileManager.default
@@ -92,6 +93,7 @@ enum RemoteSendInto {
             try? fm.removeItem(at: part)
             throw OfficeInbox.Problem.mismatch
         }
+        if let publish { return try publish(part).merging(["have": now]) { a, _ in a } }
         let placed = try place(part, in: folder, name: name)
         try? fm.setAttributes([.modificationDate: Date(timeIntervalSince1970: modified)], ofItemAtPath: folder.appendingPathComponent(placed).path)
         return ["have": now, "name": placed]
