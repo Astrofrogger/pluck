@@ -12,7 +12,7 @@ const BEGINS_PER_HOST: usize = 120; // a minute
 const FAILS_PER_PEER: u32 = 5; // failed sign-ins and wrong codes, then the peer is closed
 const TEAM_FIELDS: [&str; 6] = ["status", "rating", "keywords", "assignee", "due", "notes"];
 /// Ops a signed-in editor or owner may run in the team room on a project, through the review-link handlers.
-const PROJECT_OPS: [&str; 13] = ["list", "asset", "comments", "fetch", "comment-add", "reply-add", "comment-edit", "comment-delete",
+const PROJECT_OPS: [&str; 14] = ["mentionable", "list", "asset", "comments", "fetch", "comment-add", "reply-add", "comment-edit", "comment-delete",
     "comment-complete", "react", "field-set", "viewing", "played"];
 
 /// A team upload into the uploads root (§4.4), between `root-upload-begin` and its end.
@@ -176,7 +176,8 @@ impl Host {
             p.ready = true;
             let me = self.me(peer);
             let mut r = json!({"re": id, "t": "ready", "team": true, "me": me, "resume": resume, "uploads": self.upload_root.is_some(),
-                "uploadsRoot": self.upload_root.as_ref().map(|u| u.id.clone()), "now": super::now_iso()});
+                "uploadsRoot": self.upload_root.as_ref().map(|u| u.id.clone()), "now": super::now_iso(),
+                "mentions": true, "mail": self.mail_link_ok(&json!({"id": "team"}))});
             r.as_object_mut().unwrap().extend(self.invite_rights(peer).as_object().unwrap().clone());
             self.send(peer, r);
             self.activity(peer, "signedIn", Value::Null, Value::Null, Value::Null);
@@ -324,6 +325,11 @@ impl Host {
         if self.account_op(peer, id, t, m).is_some() {
             return;
         }
+        if t == "unsubscribe" && self.peers[peer].authed {
+            let mut r = self.unsubscribe(m["token"].as_str().unwrap_or(""));
+            r["re"] = id.clone();
+            return self.send(peer, r);
+        }
         if !self.peers[peer].ready {
             return self.err(peer, id, "auth");
         }
@@ -424,6 +430,7 @@ impl Host {
                     Ok(r)
                 }
             }
+            "subscribe" | "subscription" => self.subscribe(peer, &json!({"id": "team"}), m, t),
             "approve" => Err("scope"), // a client's sign-off, never an editor's (owner decision 4)
             "field-set" if m["field"] == "status" && (m["value"] == "approved" || m["value"] == "needsChanges") => Err("scope"),
             "root-list" | "mkdir" | "root-upload-begin" | "root-upload-end" | "root-upload-cancel" => return self.root_op(peer, id, t, m),

@@ -44,7 +44,7 @@ const OUTAGE_PUSH: &[&str] = &["outage-macs", "outage-begin", "outage-part", "ou
 /// settings, and the team (roles, approvals, removing people, its settings, key, export and restore).
 pub const ADMIN_OPS: &[&str] = &["invite", "device-remove", "device-role", "rotate-key", "update", "prepare-update", "cancel-update", "prefer-fastest",
     "team-set", "person-update", "person-reset", "person-remove", "passkey-remove", "invite-cancel", "invite-approve", "request-accept", "request-decline",
-    "team-export", "team-restore", "team-reset"];
+    "team-export", "team-restore", "team-reset", "mail-set", "mail-test", "subscriber-remove", "hook-set"];
 
 fn read_or_make(path: &Path, make: impl FnOnce() -> Vec<u8>) -> Result<(Vec<u8>, bool)> {
     if let Ok(b) = std::fs::read(path) {
@@ -193,7 +193,7 @@ async fn hello(h: &Value, ctx: &Ctx, node: Option<&str>) -> Result<(crate::devic
         // links: the highest link level it serves (§13.24). Hosts before it (4.0.3) don't say, and serve level 2 only.
         // outage: it takes its backups' uploads from an outage (§13.25); 4.0.3 doesn't say. accounts: People and passkeys (4.0.4). approvals: editor invites wait for an admin (invite-approve).
         // roles: Macs are admins or editors (device-role); `access` is this Mac's.
-        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1, "roles": 1,
+        let mut r = json!({"ok": true, "version": update::VERSION, "protocol": PROTOCOL, "links": 3, "outage": 1, "accounts": 1, "approvals": 1, "roles": 1, "mail": 1,
             "host": {"id": ctx.ident.id, "name": ctx.ident.name, "role": if ctx.ident.backup { "backup" } else { "main" }}});
         if let Some(d) = &device {
             r["device"] = json!(d);

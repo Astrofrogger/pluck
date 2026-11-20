@@ -19,6 +19,7 @@ mod devices;
 mod host;
 mod iroh;
 mod keys;
+mod mail;
 mod admin;
 mod media;
 mod outage;

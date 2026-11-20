@@ -24,6 +24,8 @@ use crate::{Ev, copies, keys, log, report, roots::{Roots, kind_of}};
 
 #[path = "host_accounts.rs"]
 mod accounts_ops;
+#[path = "host_mail.rs"]
+mod mail_ops;
 
 pub const PALETTE: [&str; 8] = ["#E0605E", "#E0A15E", "#F2D14B", "#7CC294", "#6FA8DC", "#A98BD8", "#EDEBE6", "#111111"];
 pub const EMOJI: [&str; 12] = ["👍", "👎", "❤️", "😂", "😮", "🎉", "🔥", "👀", "✅", "❌", "🙏", "💯"];
@@ -128,6 +130,7 @@ pub struct Host {
     pub upload_root: Option<Arc<crate::upload_root::UploadRoot>>, // a main's uploads root: team uploads go there (§4.4)
     root_ups: HashMap<(String, u64), accounts_ops::RootUp>,       // (peer, upload id) → a team upload into it
     pub devices: Option<Arc<crate::devices::Devices>>, // the paired Macs: admins count for the last-admin guard (roles)
+    pub mail: crate::mail::Mail, // email settings, subscribers and the queue (host_mail.rs)
 }
 
 /// Who this host is: shown to Pluck, written into tombstones and proofs.
@@ -394,6 +397,7 @@ impl Host {
             approvals: vec![], comment_tombs: HashMap::new(), act_ids: Default::default(), deadlines: HashMap::new(), proof_hashes: HashMap::new(),
             ident: Ident { id: "host".into(), name: "Pluck host".into(), backup: false }, busy: Default::default(), replica: None, outage: None, back: None, added: vec![], superseded: 0,
             accounts: crate::accounts::Accounts::load(data), acct_begins: VecDeque::new(), upload_root: None, root_ups: HashMap::new(), devices: None,
+            mail: crate::mail::Mail::load(data),
         };
         let _ = std::fs::create_dir_all(&h.dir);
         h.sweep_tmp(Duration::ZERO); // nothing is in flight yet: stills, proofs and link-upload partials of the last run go
@@ -690,6 +694,9 @@ impl Host {
             .flat_map(|a| Self::arr(a, "versions")).any(|x| x["id"] == v && x["ready"] == true);
         let (now, later): (Vec<_>, Vec<_>) = std::mem::take(&mut self.added).into_iter().partition(|(_, v)| ready(self, v));
         self.added = later;
+        for (aid, vid) in &now {
+            self.mail_version(aid, vid);
+        }
         for (aid, vid) in now {
             for (id, p) in &self.peers {
                 let Some(l) = self.peer_link(p).filter(|l| p.ready && !is(l, "latestOnly")) else { continue };
@@ -883,6 +890,9 @@ impl Host {
     pub fn copy_progress(&mut self, version: String, state: Value) {
         if let Some(k) = version.strip_prefix("acct:") {
             return self.acct_back(k, state); // a team upload's hash or a footage thumbnail, done in the background
+        }
+        if let Some(k) = version.strip_prefix("mail:") {
+            return self.mail_back(k, state);
         }
         if let Some(ap) = version.strip_prefix("proof:") {
             self.proof_hashes.insert(ap.to_owned(), state);
@@ -1309,7 +1319,7 @@ impl Host {
 
     /// The sync API (stdin `{"host":{…}}` and the sync endpoint): pull, append, reload.
     pub fn sync(&mut self, op: &Value) -> Value {
-        if let Some(r) = self.account_sync(op) {
+        if let Some(r) = self.account_sync(op).or_else(|| self.mail_sync(op)) {
             return r;
         }
         match op["op"].as_str().unwrap_or("") {
@@ -1350,6 +1360,13 @@ impl Host {
                         }
                         n += 1;
                         self.fan_synced(k, &entry[k], before.as_ref());
+                        if op["op"] == "append" {
+                            match k {
+                                "comment" => self.mail_comment(before.as_ref(), &entry[k]),
+                                "approval" => self.mail_approval(&entry[k]),
+                                _ => {}
+                            }
+                        }
                     }
                 }
                 if n > 0 {
@@ -1563,6 +1580,12 @@ impl Host {
         match t {
             "auth" => return self.auth(peer, &id, m, &link),
             "password" => return self.password(peer, &id, m, &link),
+            // The token in a mail is the right: no name, password or sign-in needed, only a verified link session.
+            "unsubscribe" if self.peers[peer].authed => {
+                let mut r = self.unsubscribe(m["token"].as_str().unwrap_or(""));
+                r["re"] = id;
+                return self.send(peer, r);
+            }
             _ if !self.peers[peer].ready => return self.err(peer, &id, "auth"),
             _ => {}
         }
@@ -1625,6 +1648,8 @@ impl Host {
                 Ok(json!({}))
             }
             "played" => self.played(peer, link, m),
+            "mentionable" => Ok(json!({"people": self.mentionable(link)})),
+            "subscribe" | "subscription" => self.subscribe(peer, link, m, t),
             _ => Err("invalid"),
         };
         match r {
@@ -1734,7 +1759,11 @@ impl Host {
         if let Some(o) = root.as_object_mut() {
             o.remove("assets"); // the picked ids stay on the host; the browser lists them
         }
-        let mut v = json!({"t": "ready", "link": wire, "root": root, "me": {"peer": peer, "name": self.peers[peer].name}, "now": now_iso()});
+        let mut v = json!({"t": "ready", "link": wire, "root": root, "me": {"peer": peer, "name": self.peers[peer].name}, "now": now_iso(),
+            "mentions": true});
+        if self.mail_link_ok(link) {
+            v["mail"] = json!(true); // the page may offer "Email me about replies"
+        }
         // A backup serving lighter copies says so (§13.3); in "same" mode, or on the main, nothing.
         if self.replica.as_ref().is_some_and(|r| r.lighter()) {
             v["served"] = json!({"by": "backup", "lighter": true});
@@ -2124,6 +2153,7 @@ impl Host {
             Ok(c.clone())
         };
         let own = |x: &Value| x["authorToken"].as_str().is_some_and(|a| toks.contains(&Some(a)));
+        let mentions = if matches!(t, "comment-add" | "reply-add") { self.mention_ids(l, m) } else { vec![] };
         // Every write (add, edit, complete, delete, approve, react): 30 a minute per peer.
         if !rate(&mut self.peers.get_mut(peer).unwrap().writes, Duration::from_secs(60), 30) {
             return Err("limit");
@@ -2182,6 +2212,9 @@ impl Host {
                 if internal {
                     c["internal"] = json!(true);
                 }
+                if !mentions.is_empty() {
+                    c["mentions"] = json!(mentions);
+                }
                 if let Some(cid) = cid {
                     c["cid"] = json!(cid);
                 }
@@ -2199,6 +2232,9 @@ impl Host {
                         return Err("scope");
                     }
                     r["internal"] = json!(true);
+                }
+                if !mentions.is_empty() {
+                    r["mentions"] = json!(mentions);
                 }
                 c["replies"].as_array_mut().ok_or("internal")?.push(r);
                 (c["asset"].clone(), json!({"comment": c}), "edit")
@@ -2290,8 +2326,14 @@ impl Host {
                 x["by"] = json!(self.ident.by());
             }
         }
+        let before = self.comments.iter().find(|c| c["id"] == entry["comment"]["id"]).cloned();
         if !self.append(entry.clone()) {
             return Err("internal");
+        }
+        match t {
+            "comment-add" | "reply-add" => self.mail_comment(before.as_ref(), &entry["comment"]),
+            "approve" => self.mail_approval(&entry["approval"]),
+            _ => {}
         }
         match t {
             "comment-add" => self.activity(peer, "commented", asset.clone(), entry["comment"]["version"].clone(), json!({"comment": entry["comment"]["id"]})),
@@ -2612,8 +2654,22 @@ pub async fn run(mut host: Host, mut tap: mpsc::UnboundedReceiver<Value>, mut sy
         tokio::select! {
             Some((v, s)) = progress.recv() => host.copy_progress(v, s),
             Some(v) = tap.recv() => host.report(&v),
-            Some(s) = sync.recv() => { let r = host.sync(&s.op); let _ = s.reply.send(r); }
-            _ = tick.tick() => { host.check_links(); host.sweep_tmp(Duration::from_secs(600)); }
+            Some(s) = sync.recv() => {
+                if s.op["op"] == "mail-test" {
+                    // Network work (up to ~30 s): in the background, so the host keeps answering.
+                    match host.mail_test_job(&s.op) {
+                        Ok((cfg, pw, msg)) => { tokio::spawn(async move {
+                            let r = crate::mail::send(&cfg, &pw, &[msg], None).await;
+                            let _ = s.reply.send(r.map_or_else(|e| json!({"error": {"code": e.code, "detail": e.detail}}), |()| json!({"ok": true})));
+                        }); }
+                        Err(v) => { let _ = s.reply.send(v); }
+                    }
+                } else {
+                    let r = host.sync(&s.op);
+                    let _ = s.reply.send(r);
+                }
+            }
+            _ = tick.tick() => { host.check_links(); host.sweep_tmp(Duration::from_secs(600)); host.mail_tick(); }
             // An expiry or deadline due before the next 30 s check: cut its viewers off on the second (H3).
             _ = second.tick(), if host.ends_soon() => host.check_links(),
             _ = daily.tick() => host.compact(), // activity older than the retention setting goes
@@ -3786,5 +3842,105 @@ mod tests {
         let ev: Vec<Value> = sent(&mut rx).into_iter().filter(|s| s["msg"]["t"] == "version-added").collect();
         assert_eq!(ev.len(), 1, "not to the latestOnly link");
         assert_eq!((ev[0]["peer"].clone(), ev[0]["msg"]["number"].clone(), ev[0]["msg"]["name"].clone()), (json!("p1"), json!(2), json!("Cut")));
+    }
+
+    fn answer_id(h: &Host, text: &str) -> Value {
+        h.comments.iter().find(|c| c["text"] == text).unwrap()["id"].clone()
+    }
+
+    /// Email (4.1.0): mentions, subscribe, who hears what, and nothing internal (nor mailCode) ever reaching a client.
+    #[test]
+    fn mail_mentions_subscribe_and_audience() {
+        let (mut h, mut rx) = test_host();
+        let mut c = link("LC", "RC", json!({"kind": "project", "id": "P"}));
+        c["notify"] = json!({"email": true, "recipientEmail": null, "mailCode": "KEYCODE.PUB"});
+        let mut t = link("LT", "RT", json!({"kind": "project", "id": "P"}));
+        t["audience"] = json!("team");
+        let plain = link("LP", "RP", json!({"kind": "project", "id": "P"}));
+        h.publish(&sample(json!([c, t, plain])), &json!({}));
+        assert_eq!(h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "Studio <studio@example.com>", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"))["ok"], true);
+        // The owner without accounts: a team row by hand.
+        assert_eq!(h.sync(&json!({"op": "subscriber-set", "kind": "team", "email": "owner@example.com", "mode": "instant"}))["ok"], true);
+        named_peer(&mut h, "c1", "RC", "t1", "Client one");
+        named_peer(&mut h, "c2", "RC", "t2", "Client two");
+        named_peer(&mut h, "p1", "RP", "t3", "Plain");
+        named_peer(&mut h, "team", "RT", "tt", "Editor");
+        sent(&mut rx);
+        // ready says mail only where a client may subscribe, and never carries notify or mailCode.
+        let lc = h.link("RC").cloned().unwrap();
+        h.ready("c1", &json!(9), &lc);
+        let lp = h.link("RP").cloned().unwrap();
+        h.ready("p1", &json!(10), &lp);
+        let msgs = sent(&mut rx);
+        assert!(!msgs.iter().any(|m| m.to_string().contains("KEYCODE") || m.to_string().contains("notify")), "mailCode stays on the host");
+        let ready = |peer: &str| msgs.iter().find(|m| m["peer"] == peer && m["msg"]["t"] == "ready").unwrap()["msg"].clone();
+        assert_eq!((ready("c1")["mail"].clone(), ready("c1")["mentions"].clone(), ready("p1")["mail"].clone()), (json!(true), json!(true), Value::Null));
+        h.request("p1", &json!({"id": 1, "t": "subscribe", "email": "p@example.com", "mode": "instant"}));
+        assert_eq!(answer(&mut rx, "p1", 1)["error"]["code"], "off", "no Email updates on that link");
+        for (i, (peer, e)) in [("c1", "one@example.com"), ("c2", "two@example.com")].into_iter().enumerate() {
+            h.request(peer, &json!({"id": 2 + i, "t": "subscribe", "email": e, "mode": "instant", "lang": "nl"}));
+            assert_eq!(answer(&mut rx, peer, 2 + i as u64)["ok"], true);
+        }
+        h.request("c1", &json!({"id": 5, "t": "subscribe", "email": "not an email", "mode": "instant"}));
+        assert_eq!(answer(&mut rx, "c1", 5)["error"]["code"], "invalid");
+        // The editor writes only an internal comment: never mentionable on the client link.
+        h.request("team", &json!({"id": 6, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": "Secret budget", "internal": true,
+            "mentions": [crate::mail::mention_id("t1")]}));
+        sent(&mut rx);
+        h.request("c2", &json!({"id": 70, "t": "comment-add", "asset": "A", "version": "V", "frame": 2, "text": "Nice"}));
+        h.request("c1", &json!({"id": 7, "t": "comment-add", "asset": "A", "version": "V", "frame": 1, "text": "Love it"}));
+        let cid = answer(&mut rx, "c1", 7)["comment"]["id"].clone();
+        h.request("c2", &json!({"id": 8, "t": "mentionable"}));
+        let names: Vec<String> = answer(&mut rx, "c2", 8)["people"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap().to_owned()).collect();
+        assert_eq!(names, ["Client two", "Client one"], "no internal-only author on a client link");
+        h.request("team", &json!({"id": 9, "t": "mentionable"}));
+        assert_eq!(answer(&mut rx, "team", 9)["people"].as_array().unwrap().len(), 3, "the team link sees the editor too");
+        // A foreign id is dropped; a known one is kept on the reply.
+        h.request("team", &json!({"id": 10, "t": "reply-add", "comment": cid, "text": "Thanks!", "mentions": ["bogus", crate::mail::mention_id("t2")]}));
+        let r = answer(&mut rx, "team", 10);
+        assert_eq!(r["comment"]["replies"][0]["mentions"], json!([crate::mail::mention_id("t2")]));
+        let rows = h.mail.subs.clone();
+        let row = |email: &str| rows.iter().find(|r| r["email"] == email).unwrap()["id"].clone();
+        let queued = |h: &Host, to: &Value| h.mail.queue.iter().filter(|q| q["to"] == *to).map(|q| q["event"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
+        assert_eq!(queued(&h, &row("one@example.com")), ["reply"], "c1: the reply in their thread, never the internal comment (nor its mention)");
+        assert_eq!(queued(&h, &row("two@example.com")), ["mention"], "c2: mentioned");
+        assert_eq!(queued(&h, &row("owner@example.com")), ["comment", "comment", "comment", "reply"], "the team hears everything");
+        h.request("team", &json!({"id": 12, "t": "comment-add", "asset": "A", "version": "V", "frame": 3, "text": "Internal ping", "internal": true,
+            "mentions": [crate::mail::mention_id("t1")]}));
+        assert_eq!(answer(&mut rx, "team", 12)["comment"]["mentions"], json!([crate::mail::mention_id("t1")]), "kept on the team's comment");
+        assert_eq!(queued(&h, &row("one@example.com")), ["reply"], "an internal mention never queues for a client");
+        let ping = answer_id(&h, "Internal ping");
+        h.mail.queue.retain(|q| q["comment"] != ping);
+        // The client's mail, composed now: Dutch, the link, the stop link, nothing internal.
+        let c1row = rows.iter().find(|r| r["email"] == "one@example.com").unwrap().clone();
+        let items: Vec<Value> = h.mail.queue.iter().filter(|q| q["to"] == c1row["id"]).cloned().collect();
+        let m = h.compose(&c1row, &items).unwrap();
+        assert!(m.subject.contains("antwoordde") && m.body.contains("https://pluck.tools/r/#KEYCODE.PUB/u/") && !m.body.contains("Secret"), "{}", m.body);
+        let own: Vec<Value> = h.mail.queue.iter().filter(|q| q["to"] == row("owner@example.com")).cloned().collect();
+        let team_row = rows.iter().find(|r| r["email"] == "owner@example.com").unwrap().clone();
+        assert!(h.compose(&team_row, &own).unwrap().body.contains("Secret budget"), "the team's mail has it");
+        // Unsubscribe by the mail's token, before a name or ready: that link's row goes off.
+        h.peers.get_mut("c2").unwrap().ready = false;
+        h.peers.get_mut("c2").unwrap().authed = true;
+        let tok = rows.iter().find(|r| r["email"] == "two@example.com").unwrap()["token"].clone();
+        h.request("c2", &json!({"id": 11, "t": "unsubscribe", "token": tok}));
+        assert_eq!(answer(&mut rx, "c2", 11), json!({"ok": true, "scope": "link", "re": 11}));
+        assert_eq!(h.mail.subs.iter().find(|r| r["email"] == "two@example.com").unwrap()["mode"], "off");
+        let st = h.sync(&json!({"op": "mail-state"})).to_string();
+        assert!(!st.contains("\"token\"") && !st.contains("pw\"") && st.contains("\"queued\""), "{st}");
+        // A comment pushed by sync that's old history mails nobody; a new one does.
+        let n = h.mail.queue.len();
+        h.sync(&json!({"op": "append", "entries": [{"comment": {"id": "OLD", "asset": "A", "version": "V", "frame": 1, "text": "old", "author": "X",
+            "replies": [], "created": "2020-01-01T00:00:00Z", "rev": 1}}]}));
+        assert_eq!(h.mail.queue.len(), n);
+        h.sync(&json!({"op": "append", "entries": [{"comment": {"id": "NEW", "asset": "A", "version": "V", "frame": 1, "text": "new", "author": "X",
+            "replies": [], "created": now_iso(), "rev": 1}}]}));
+        assert_eq!(h.mail.queue.len(), n + 1, "the owner's row");
+        // A backup never queues.
+        h.ident.backup = true;
+        h.sync(&json!({"op": "append", "entries": [{"comment": {"id": "NEW2", "asset": "A", "version": "V", "frame": 1, "text": "new", "author": "X",
+            "replies": [], "created": now_iso(), "rev": 1}}]}));
+        assert_eq!(h.mail.queue.len(), n + 1);
     }
 }
