@@ -4077,6 +4077,31 @@ mod tests {
         assert_eq!(h.mail.queue.len(), n + 1);
     }
 
+    /// A team person's page sends one link's mute (`muteLink`/`muted`) when the host says `delta`: merged, the Mac's mutes stay.
+    #[test]
+    fn mail_team_subscribe_merges_one_link() {
+        let (mut h, mut rx) = test_host();
+        let mut c = link("LC", "RC", json!({"kind": "project", "id": "P"}));
+        c["notify"] = json!({"email": true, "recipientEmail": null, "mailCode": "KEYCODE.PUB"});
+        h.publish(&sample(json!([c])), &json!({}));
+        h.mail.set(&json!({"enabled": true, "server": "smtp.example.com", "port": 587, "security": "starttls", "user": "u",
+            "from": "studio@example.com", "replyTo": null, "digestHour": 8, "tzOffset": 60, "lang": "en"}), Some("pw"));
+        h.accounts.v = json!({"team": {"id": "T", "room": {"roomID": "TR"}}, "people": [{"id": "ed", "name": "Editor", "email": "ed@example.com", "role": "editor", "passkeys": [{"id": "k"}]}]});
+        named_peer(&mut h, "e1", "RC", "te", "Editor");
+        h.peers.get_mut("e1").unwrap().acct.person = Some("ed".into());
+        sent(&mut rx);
+        let mute = |h: &Host| h.mail.subs.iter().find(|r| r["person"] == "ed").unwrap()["mute"].clone();
+        h.request("e1", &json!({"id": 1, "t": "subscribe", "mode": "instant", "mute": ["LW"]}));
+        assert_eq!((answer(&mut rx, "e1", 1)["ok"].clone(), mute(&h)), (json!(true), json!(["LW"])), "an older page's whole list");
+        h.request("e1", &json!({"id": 2, "t": "subscribe", "mode": "instant", "muteLink": "LM", "muted": true}));
+        assert_eq!((answer(&mut rx, "e1", 2)["ok"].clone(), mute(&h)), (json!(true), json!(["LW", "LM"])));
+        h.request("e1", &json!({"id": 3, "t": "subscribe", "mode": "daily", "muteLink": "LW", "muted": false}));
+        assert_eq!((answer(&mut rx, "e1", 3)["ok"].clone(), mute(&h)), (json!(true), json!(["LM"])));
+        h.request("e1", &json!({"id": 4, "t": "subscription"}));
+        let r = answer(&mut rx, "e1", 4);
+        assert_eq!((r["delta"].clone(), r["mode"].clone(), r["mute"].clone()), (json!(true), json!("daily"), json!(["LM"])), "{r}");
+    }
+
     /// A refused address (5xx on RCPT/DATA) drops that batch only; connect/tls/auth back everything off.
     #[test]
     fn mail_rejected_drops_its_batch_only() {
