@@ -108,6 +108,17 @@ extension PhotoSelfTest {
             let viewerWrite = await refused({
                 _ = try await client.ask("driveWrite", ["share": id, "path": "viewer.txt", "size": 1, "modified": 0, "offset": 0, "data": "eA=="]) })
             check("access: a Viewer can't write through the drive", viewerCanWrite == false && viewerWrite)
+            // A person's role writes their Macs' flags too, so an office Mac from before roles enforces the new base role.
+            let testPerson = OfficeAccess.person("p-selftest")
+            server.setPerson("p-selftest", for: device.id)
+            OfficeAccess.shared.set(subject: testPerson, folder: nil, role: .downloader)
+            let followed = server.devices.first { $0.id == device.id }?.allowed
+            OfficeAccess.shared.set(subject: testPerson, folder: nil, role: .viewer)
+            let followedAgain = server.devices.first { $0.id == device.id }?.allowed
+            check("access: a person's role writes their Macs' flags", followed == OfficeAccess.Role.downloader.rights && followedAgain == OfficeAccess.Role.viewer.rights,
+                  "\(String(describing: followed)) \(String(describing: followedAgain))")
+            OfficeAccess.shared.set(subject: testPerson, folder: nil, role: nil)
+            server.setPerson(nil, for: device.id)
             server.setRole(.editor, for: device.id)
             // Every action that takes a path checks the Mac's role in that folder: with No Access on "B Folder", each is refused there.
             let lockedKey = OfficeAccess.folderKey(root: root, share: id, relative: "B Folder")

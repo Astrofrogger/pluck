@@ -128,6 +128,7 @@ final class OfficeAccess {
         grants.removeAll { $0.id == grant.id }
         grants.append(grant)
         save()
+        if folder == nil, subject.hasPrefix("person:") { OfficeRenderServer.shared.personRoleChanged(String(subject.dropFirst("person:".count))) }
         changed()
     }
 

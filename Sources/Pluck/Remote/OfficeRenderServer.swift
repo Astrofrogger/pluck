@@ -782,8 +782,28 @@ final class OfficeRenderServer {
         guard let index = devices.firstIndex(where: { $0.id == id }) else { return }
         devices[index].person = person
         devices[index].changed = .now
+        followRole(index)
         saveDevices()
         OfficeAccess.shared.changed()
+    }
+
+    /// A person's role was set: their Macs' flags follow, so an office Mac from before roles enforces the new base role.
+    func personRoleChanged(_ person: String) {
+        let mine = devices.indices.filter { devices[$0].person == person }
+        guard !mine.isEmpty else { return }
+        for index in mine {
+            followRole(index)
+            devices[index].changed = .now
+        }
+        saveDevices()
+    }
+
+    /// The flags of a Mac with a role (its person's or its own) are that role's; Full Trust stays. Custom Macs keep theirs.
+    private func followRole(_ index: Int) {
+        guard let role = OfficeAccess.role(for: devices[index], grants: OfficeAccess.shared.grants) else { return }
+        var rights = role.rights
+        rights.fullTrust = devices[index].allowed.fullTrust
+        devices[index].rights = rights
     }
 
     /// The actions `perform` answers itself (the others are OfficeActions handlers).
