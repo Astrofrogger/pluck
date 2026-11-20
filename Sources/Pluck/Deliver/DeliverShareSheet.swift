@@ -741,10 +741,19 @@ struct DeliverSettings: View {
                     }
                 }
             }
+            if let office = DeliverMail.shared.office, DeliverMail.shared.available {
+                VStack(alignment: .leading, spacing: 6) {
+                    DeliverMailSection(host: office)
+                    Text("Sent by \(office.name). Email works best from a NAS.").font(Design.Studio.hint).foregroundStyle(Design.Studio.textQuiet)
+                }
+            }
             DeliverRelaySettingsCard()
             SettingsCard("Message") { DeliverMessageEditor() }
         }
-        .task { measure() }
+        .task {
+            measure()
+            if DeliverMail.shared.office != nil { await DeliverMail.shared.refresh() }
+        }
         .sheet(isPresented: $guide) { ReviewNASGuideSheet() }
         .sheet(isPresented: $truenas) { ReviewTrueNASSetupSheet() }
         .sheet(item: $detail) { DeliverHostSheet(host: $0) }

@@ -29,8 +29,16 @@ final class DeliverMail {
     @ObservationIgnored var fake: (([String: Any]) -> [String: Any])?
 
     var host: Deliver.Host? { DeliverSync.shared.dataHost }
-    /// The main host knows mail (its hello said `mail: 1`).
-    var available: Bool { host?.mail == 1 }
+    /// No NAS but an always-on Mac (T11): its hosted reviews send the mail, set up from here through Edit Anywhere
+    /// (`reviewMail`). Never this Mac.
+    var office: Deliver.Host? {
+        let publish = ReviewPublish.shared
+        return host == nil && !publish.hosts.contains { $0.kind == .nas } ? publish.pairedMac : nil
+    }
+    /// The always-on Mac answered `mail-state` (a Pluck that knows it, hosting on); kept for the share sheet.
+    private(set) var officeMail = UserDefaults.standard.bool(forKey: "reviewOfficeMail")
+    /// The main host knows mail (its hello said `mail: 1`), or the always-on Mac does.
+    var available: Bool { host.map { $0.mail == 1 } ?? (office != nil && officeMail) }
     /// Browsers' links may offer email: the host knows mail and has it switched on.
     var active: Bool { available && settings.enabled }
 
@@ -54,8 +62,14 @@ final class DeliverMail {
     /// One op on the main host; nil when there is no host or it can't be reached.
     func ask(_ op: [String: Any]) async -> [String: Any]? {
         if let fake { return fake(op) }
-        guard let host else { return nil }
-        return try? await ReviewHostClient.ask(host, op)
+        if let host { return try? await ReviewHostClient.ask(host, op) }
+        guard office != nil else { return nil }
+        let answer = try? await OfficeRenderClient.shared.ask("reviewMail", ["op": op], timeout: 60)
+        if op["op"] as? String == "mail-state" {
+            officeMail = answer?["mail"] as? Int == 1
+            UserDefaults.standard.set(officeMail, forKey: "reviewOfficeMail")
+        }
+        return answer
     }
 
     func refresh() async {

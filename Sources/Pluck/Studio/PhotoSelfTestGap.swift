@@ -4,6 +4,7 @@ extension PhotoSelfTest {
     /// The 4.1.0 Deliver gaps (part of reviewflow): transcript language, mentions of this Mac's person, the shared
     /// library, folder order, mail through the always-on Mac.
     static func deliverGapTest(store: DeliverStore, project: UUID, asset: UUID) async {
+        func base(_ store: DeliverStore) -> URL { store.root.deletingLastPathComponent() }
         // Transcripts: the project's spoken language wins over the name's guess; without one the guess stays.
         let chosen = DeliverCopies.spokenLanguage(project: "nl-BE", file: "/nowhere/Interview.mov", name: "The weather report today")
         let guessed = DeliverCopies.spokenLanguage(project: nil, file: "/nowhere/x.mov", name: "Le bulletin météo de ce soir à Paris")
@@ -38,6 +39,20 @@ extension PhotoSelfTest {
               && DeliverSync.libraryStep(mine: Deliver.Library(), theirs: nil) == .none && DeliverSync.libraryStep(mine: newer, theirs: newer) == .none
               && DeliverSync.library(wire) == newer && DeliverSync.library(nil) == nil && DeliverSync.library(NSNull()) == nil)
         store.editLibrary { $0.views = [] }
+        // Mail through the always-on Mac: a folder hosted later gets the others' mail setup, the password file kept private.
+        let fm = FileManager.default
+        let hostedA = base(store).appendingPathComponent("Pluck Review AAAAAAAA-0001", isDirectory: true)
+        let hostedB = base(store).appendingPathComponent("Pluck Review BBBBBBBB-0001", isDirectory: true)
+        for folder in [hostedA, hostedB] { try? fm.createDirectory(at: folder, withIntermediateDirectories: true) }
+        try? Data(#"{"enabled":true}"#.utf8).write(to: hostedA.appendingPathComponent("mail.json"))
+        try? Data("app-password".utf8).write(to: hostedA.appendingPathComponent("mail.secret"))
+        ReviewHosting.seedMail(into: hostedB, from: [hostedA])
+        let mode = (try? fm.attributesOfItem(atPath: hostedB.appendingPathComponent("mail.secret").path)[.posixPermissions] as? Int) ?? 0
+        try? Data(#"{"enabled":false}"#.utf8).write(to: hostedB.appendingPathComponent("mail.json"))
+        ReviewHosting.seedMail(into: hostedB, from: [hostedA])
+        check("gap: always-on Mac seeds mail into a new hosted folder", (try? String(contentsOf: hostedB.appendingPathComponent("mail.secret"), encoding: .utf8)) == "app-password"
+              && mode == 0o600 && (try? String(contentsOf: hostedB.appendingPathComponent("mail.json"), encoding: .utf8)) == #"{"enabled":false}"#
+              && ReviewHosting.mailOps.contains("mail-set") && !ReviewHosting.mailOps.contains("unsubscribe"), "mode \(String(mode, radix: 8))")
         check("gap: library edits are stamped in whole seconds", store.library.at.map { $0.timeIntervalSince1970.rounded(.down) == $0.timeIntervalSince1970 && abs($0.timeIntervalSinceNow) < 5 } == true)
     }
 }

@@ -1124,12 +1124,79 @@ final class ReviewHosting {
             guard let entries = arguments["entries"] as? [[String: Any]], entries.count <= 5000 else { throw OfficeActions.incomplete() }
             return try await shared.helper(folder).ask(["op": "append", "entries": entries])
         }
+        // 4.1.0 email without a NAS: the editor's Mac sets up mail on this Mac's hosts (every hosted folder's helper
+        // sends for its own links, as a NAS does). Reading for any paired Mac; changes for an Admin (or Full Trust).
+        OfficeActions.register("reviewMail") { arguments, device in
+            guard shared.isOn else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host reviews.")) }
+            guard let op = arguments["op"] as? [String: Any], let name = op["op"] as? String, mailOps.contains(name) else { throw OfficeActions.incomplete() }
+            if name != "mail-state", !OfficeAccess.shared.isAdmin(device), !OfficeAccess.shared.rights(for: device).fullTrust { throw OfficeActions.refused() }
+            return try await shared.mail(op)
+        }
         OfficeActions.register("reviewUnhost") { arguments, device in
             let folder = try shared.folder(arguments, device)
             shared.hosted.removeAll { $0 == folder.path }
             shared.saved()
             try? FileManager.default.removeItem(at: folder)
             return ["hosting": false]
+        }
+    }
+
+    nonisolated static let mailOps: Set<String> = ["mail-set", "mail-state", "mail-test", "subscriber-set", "subscriber-remove", "hook-set"]
+
+    /// One mail op over the hosted folders: a test from one, a webhook to its project's folder, the state merged, the
+    /// rest to every one (an id only one of them has: that one's answer).
+    private func mail(_ op: [String: Any]) async throws -> [String: Any] {
+        let all = hosted.compactMap { path in helpers[path].map { (path, $0) } }
+        guard let first = all.first else { throw OfficeLink.Failure.office(String(localized: "This Mac doesn’t host a review yet.")) }
+        switch op["op"] as? String {
+        case "mail-test": return try await first.1.ask(op)
+        case "hook-set":
+            let project = String((op["project"] as? String ?? "").prefix(8))
+            guard project.count == 8, let target = all.first(where: { URL(fileURLWithPath: $0.0).lastPathComponent.hasPrefix("Pluck Review \(project)") }) else {
+                throw OfficeActions.incomplete()
+            }
+            return try await target.1.ask(op)
+        case "mail-state":
+            var merged: [String: Any] = [:], subscribers: [Any] = [], hooks: [String: Any] = [:], queued = 0, sent = 0
+            for (_, helper) in all {
+                guard let answer = try? await helper.ask(op) else { continue }
+                if merged.isEmpty { merged = answer } else if let error = answer["lastError"] as? String { merged["lastError"] = error }
+                subscribers += answer["subscribers"] as? [Any] ?? []
+                hooks.merge(answer["hooks"] as? [String: Any] ?? [:]) { a, _ in a }
+                queued += answer["queued"] as? Int ?? 0
+                sent += answer["sentToday"] as? Int ?? 0
+            }
+            guard !merged.isEmpty else { throw OfficeLink.Failure.office(String(localized: "The review host isn’t running.")) }
+            merged["subscribers"] = subscribers
+            merged["hooks"] = hooks
+            merged["queued"] = queued
+            merged["sentToday"] = sent
+            return merged
+        default:
+            var answers: [[String: Any]] = []
+            for (_, helper) in all { if let answer = try? await helper.ask(op) { answers.append(answer) } }
+            let failed = answers.first { (($0["error"] as? [String: Any])?["code"] as? String).map { $0 != "notFound" } ?? ($0["error"] != nil) }
+            guard let answer = failed ?? answers.first(where: { $0["ok"] as? Bool == true }) ?? answers.first else {
+                throw OfficeLink.Failure.office(String(localized: "The review host isn’t running."))
+            }
+            return answer
+        }
+    }
+
+    /// A folder hosted later gets the mail setup the others have (settings and the password file, kept 0600), so its
+    /// links' emails go out too.
+    nonisolated static func seedMail(into folder: URL, from others: [URL]) {
+        let fm = FileManager.default
+        guard !fm.fileExists(atPath: folder.appendingPathComponent("mail.json").path),
+              let source = others.first(where: { fm.fileExists(atPath: $0.appendingPathComponent("mail.json").path) }) else { return }
+        for name in ["mail.json", "mail.secret"] {
+            let from = source.appendingPathComponent(name), to = folder.appendingPathComponent(name)
+            guard let data = try? Data(contentsOf: from) else { continue }
+            guard fm.createFile(atPath: to.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+                  let handle = try? FileHandle(forWritingTo: to) else { continue }
+            try? handle.write(contentsOf: data)
+            try? handle.close()
+            if name == "mail.json" { try? fm.setAttributes([.posixPermissions: 0o644], ofItemAtPath: to.path) }
         }
     }
 
@@ -1154,7 +1221,10 @@ final class ReviewHosting {
     func update() {
         let wanted = isOn && ScreenshotMode.scene == nil ? Set(hosted) : []
         for (path, helper) in helpers where !wanted.contains(path) { helper.stop(); helpers[path] = nil }
-        for path in wanted where helpers[path] == nil { helpers[path] = HostHelper(dir: path) }
+        for path in wanted where helpers[path] == nil {
+            Self.seedMail(into: URL(fileURLWithPath: path), from: hosted.filter { $0 != path }.map { URL(fileURLWithPath: $0) })
+            helpers[path] = HostHelper(dir: path)
+        }
     }
 }
 
